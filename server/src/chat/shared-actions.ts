@@ -27,14 +27,25 @@ import { readRooms, withoutQuoteLines } from './read-rooms'
 import type { TurnExec } from './turn'
 
 /** Why an action that reaches others is not offered in this turn, or null: it is. `scheduleKind`: the Always allow
- * kind that lets a scheduled run do it without a card (post_to_room), or null when a scheduled run never may. */
+ * kind that lets a scheduled run do it without a card (post_to_room, share_files, share_folder), or null when a scheduled
+ * run never may. */
 export type ActionOff = 'schedule' | 'confidential' | 'slack' | 'restricted'
-export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: 'post_to_room' | 'share_files' | null): ActionOff | null {
-  if (exec.spec.clientKind === 'schedule' && (scheduleKind === null || alwaysHere(exec.alwaysPlace?.(), scheduleKind) !== 'on')) return 'schedule'
+type ScheduleKind = 'post_to_room' | 'post_files' | 'share_files' | 'share_folder'
+export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: ScheduleKind | readonly ScheduleKind[] | null): ActionOff | null {
+  const kinds = scheduleKind === null ? [] : typeof scheduleKind === 'string' ? [scheduleKind] : scheduleKind
+  if (exec.spec.clientKind === 'schedule' && !kinds.some((k) => alwaysHere(exec.alwaysPlace?.(), k) === 'on')) return 'schedule'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.spec.clientKind === 'slack') return 'slack'
   if (exec.restricted || exec.templateRun) return 'restricted'
   return null
+}
+
+/** A guest (someone outside the team) is among the people of this shared chat (TurnExec.guestAmong): the one place
+ * the old per-call guards of a share or post still apply under "Always allow" (docs/decisions/
+ * 20261122-always-allow-holds-everywhere.md, the guest limit of 20261122-connector-always-allow.md). Fails closed. */
+export function guestInShared(exec: Partial<Pick<TurnExec, 'shared' | 'guestAmong'>>): boolean {
+  if (!exec.shared) return false
+  try { return typeof exec.guestAmong === 'function' ? exec.guestAmong() : false } catch { return true }
 }
 
 /** Only the main AI acts (the person answers its cards), and only for an active account. A refusal's words, or null. */

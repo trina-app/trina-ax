@@ -43,6 +43,8 @@ export const TEXT = {
   /** the label of an answer's to-do step (todo_write): apps that know Step.todos show the checklist instead */
   todoList: t('할 일 목록', 'To-do list', 'Daftar tugas', "ToDoリスト", "Lista de tareas", "待办清单"),
   /** the step of a call whose safety card waits after the answer ends (chat/open-questions.ts) */
+  // a waiting card whose call, run again with the person's press, now raises a card that reads differently (chat/turn.ts)
+  cardChangedSince: t('누르신 뒤에 바뀐 게 있어요. 한 번 더 확인해 주세요.', 'Something changed since you answered. Please check once more.', 'Ada yang berubah sejak Anda menjawab. Mohon periksa sekali lagi.', "回答の後に変わったことがあります。もう一度確認してください。", "Algo cambió desde que respondió. Revíselo una vez más.", "你回答之后有变化，请再确认一次。"),
   cardWaits: t('카드에서 답을 기다려요', 'Waiting for your answer on the card', 'Menunggu jawaban Anda di kartu', "カードでの回答を待っています", "Esperando su respuesta en la tarjeta", "等待你在卡片上回答"),
   /** a browser site card's answers, as the person's message after the card waited (chat/open-questions.ts answerText) */
   siteOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅本次允许"),
@@ -272,10 +274,8 @@ export const TEXT = {
   membersShareProject: t('팀 프로젝트로 공유', 'Share as a team project', 'Bagikan sebagai proyek tim', 'チームプロジェクトとして共有', 'Compartir como proyecto del equipo', '共享为团队项目'),
   /** the person's own chat after a room read, in front of the wider-audience card that also asks for the change */
   roomsSeenWhy: t('여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.', 'Chat ini berisi pesan dari percakapan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットにはトークのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。", "Este chat contiene mensajes de sus conversaciones (palabras de otras personas), así que los cambios se consultan antes.", "这里收到了你聊天中的消息（其他人说的话），所以修改前会先问你。"),
-  /** a share or post card that comes although "Always allow" is on, because content someone else wrote was read (chat/share-words.ts othersWordsCard) */
-  othersWordsWhy: t('이 채팅에서 다른 사람이 쓴 내용을 읽어서 먼저 물어봐요. 메시지에 파일과 받는 사람을 이름으로 적으면 카드 없이 진행돼요.', 'Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.', 'Chat ini membaca sesuatu yang ditulis orang lain, jadi ini ditanyakan dulu. Agar tanpa kartu, sebutkan nama berkas dan penerimanya di pesan Anda.', 'このチャットでほかの人が書いた内容を読んだため、先に確認します。メッセージにファイル名と送り先を書くと、カードなしで進みます。', 'En este chat se leyó algo escrito por otras personas, así que esto se consulta antes. Para omitir la tarjeta, indique en su mensaje el archivo y quién lo recibe.', '这个对话读取了其他人写的内容，所以会先问你。在消息里写明文件和接收人的名字，就不会再出现卡片。'),
   /** a share or post card raised because what it acts on came from what is open on the screen (looking_at), not from
-   * the person's own words (chat/looking-at.ts): said in place of othersWordsWhy */
+   * the person's own words (chat/looking-at.ts) */
   lookedWhy: t('메시지에 이름이 없어서 지금 화면에 열려 있는 것을 보고 골랐어요. 그래서 먼저 물어봐요.', 'Your message didn\'t name this, so it was taken from what is open on your screen. That is why this is asked first.', 'Pesan Anda tidak menyebut namanya, jadi ini diambil dari yang terbuka di layar Anda. Karena itu ini ditanyakan dulu.', 'メッセージに名前がなかったため、いま画面で開いているものから選びました。そのため先に確認します。', 'Su mensaje no lo nombraba, así que se tomó de lo que tiene abierto en la pantalla. Por eso se consulta antes.', '你的消息没有写名称，所以是根据你屏幕上打开的内容选的。因此会先问你。'),
   /** the same three sentences when the cause is a file someone shared with the person, read through its share, and no
    * room's words came in (chat/grant-reads.ts seenWhy; docs/decisions/20261116-ai-screen-and-shared-tools.md) */
@@ -290,6 +290,9 @@ export const TEXT = {
   roomAiConfirmNo: t('허용 안 함', "Don't allow", 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
   /** "Always allow" on any card (chat/always-allow.ts) and what it means, under the buttons */
   cardAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
+  // a guest is among the people of this turn: Always holds for this chat only (chat/always-allow.ts chatScoped)
+  cardAlwaysChat: t('이 대화에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に許可", "Siempre en este chat", "在此对话中始终允许"),
+  cardAlwaysChatNote: t('이 대화에서 항상 허용: 팀 밖의 사람이 함께 있어서, 이 대화에서만 다시 묻지 않아요. 새 사람이 들어오면 다시 물어요.', 'Always in this chat: someone from outside the team is among the people here, so Trina stops asking about this in this chat only. It asks again when someone new joins.', 'Selalu di obrolan ini: ada orang dari luar tim di sini, jadi Trina berhenti bertanya tentang ini hanya di obrolan ini. Trina bertanya lagi saat ada orang baru bergabung.', "この会話では常に許可：チーム外の人が一緒にいるため、この会話でのみ確認しません。新しい人が参加すると、もう一度確認します。", "Siempre en este chat: hay alguien de fuera del equipo aquí, así que Trina deja de preguntar por esto solo en este chat. Vuelve a preguntar cuando se une alguien nuevo.", "在此对话中始终允许：这里有团队外的人，所以 Trina 只在此对话中不再询问。有新成员加入时会再次询问。"),
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
   cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
@@ -318,19 +321,23 @@ export const TEXT = {
   scheduleCoverStep: STEP_TEXT.scheduleCoverStep,
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: STEP_TEXT.ownFolderStep,
+  /** the step of a dev-environment command after a room read with no card (its own-folder changes can be undone) */
+  ownUndoStep: STEP_TEXT.ownUndoStep,
   chatOnceStep: STEP_TEXT.chatOnceStep,
   /** under a room answer: the files a grant or [이번만 허용] let the AI save without a card (links) */
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos", "文件"),
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría", "将要修改的内容"),
   roomAiChangeAction: t('하는 일', 'Action', 'Tindakan', "操作", "Acción", "操作"),
   /** a room card's words for a dev-environment command, from the command itself (chat/turn.ts shellCardWords): the files it
-   * makes by kind and name, else "run a command"; never the AI's description, never the command (behind 자세히) */
-  roomShellMakesOne: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes a {kind} file: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea un archivo de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
-  roomShellMakesMany: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes {kind} files: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
-  roomShellMakesAny: t('파일을 만드는 명령 실행: {files}', 'Run a command that makes files: {files}', 'Jalankan perintah yang membuat file: {files}', "ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos: {files}", "运行生成文件的命令：{files}"),
+   * makes by kind and name, said as what happens, and that a program does it ("프로그램으로 그림 파일 banner.png 만들기", QA b3s
+   * TC-b3s-23; not "…을 만드는 명령 실행"), else "run a command"; never the AI's description, never the command (behind 자세히) */
+  roomShellMakesOne: t('프로그램으로 {kind} 파일 {files} 만들기', 'Make the {kind} file {files} with a program', 'Buat file {kind} {files} dengan program', "プログラムで{kind}ファイル {files} を作る", "Crear el archivo de {kind} {files} con un programa", "用程序生成{kind}文件 {files}"),
+  roomShellMakesMany: t('프로그램으로 {kind} 파일 {files} 만들기', 'Make the {kind} files {files} with a program', 'Buat file {kind} {files} dengan program', "プログラムで{kind}ファイル {files} を作る", "Crear los archivos de {kind} {files} con un programa", "用程序生成{kind}文件 {files}"),
+  roomShellMakesAny: t('프로그램으로 파일 {files} 만들기', 'Make the files {files} with a program', 'Buat file {files} dengan program', "プログラムでファイル {files} を作る", "Crear los archivos {files} con un programa", "用程序生成文件 {files}"),
   roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
   /** what else the command does, after its words (shellCardWords): installs programs, reaches the internet */
   roomShellPlusInstall: t('{what} (프로그램 설치도 해요)', '{what} (also installs programs)', '{what} (juga memasang program)', "{what}（プログラムのインストールもします）", "{what} (también instala programas)", "{what}（还会安装程序）"),
+  roomShellNetRun: t('인터넷을 쓰는 명령 실행', 'Run a command that uses the internet', 'Jalankan perintah yang memakai internet', "インターネットを使うコマンドを実行", "Ejecutar un comando que usa internet", "运行使用互联网的命令"),
   roomShellPlusNet: t('{what} (인터넷에도 연결해요)', '{what} (also connects to the internet)', '{what} (juga terhubung ke internet)', "{what}（インターネットにも接続します）", "{what} (también se conecta a internet)", "{what}（还会连接互联网）"),
   roomShellPlusBoth: t('{what} (프로그램 설치와 인터넷 연결도 해요)', '{what} (also installs programs and connects to the internet)', '{what} (juga memasang program dan terhubung ke internet)', "{what}（プログラムのインストールとインターネット接続もします）", "{what} (también instala programas y se conecta a internet)", "{what}（还会安装程序并连接互联网）"),
   roomShellKindPicture: t('그림', 'picture', 'gambar', "画像", "imagen", "图片"),
@@ -590,22 +597,34 @@ export const TEXT = {
   sharedSaveSkipped: t('이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 저장하지 않았어요', 'Not saved: not everyone who sees this chat can open that place', 'Tidak disimpan: tidak semua orang yang melihat obrolan ini bisa membuka tempat itu', "このチャットを見る全員が開ける場所ではないため、保存しませんでした", "No se guardó: no todos los que ven este chat pueden abrir ese lugar", '未保存：不是所有能看到这个对话的人都能打开那个位置'),
   /** a connected service in a shared chat (chat/turn.ts confirmSharedConnection): the card only the asker sees before
    * anything is fetched (docs/decisions/20261118-shared-chat-connections.md) */
-  sharedConnectionConfirm: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요.',
-    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat.",
-    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini.',
-    "AIが{service}を使おうとしています。{service}から返ってきた内容が、このチャットの{n}人に表示されます。",
-    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat.",
-    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人。'),
+  sharedConnectionConfirm: t('AI가 {service}에서 가져온 내용을 이 채팅의 {n}명이 함께 봐요.',
+    "What the AI gets from {service} will show to the {n, plural, one {# person} other {# people}} in this chat.",
+    'Apa yang AI ambil dari {service} akan terlihat oleh {n} orang di obrolan ini.',
+    "AIが{service}から取得した内容は、このチャットの{n}人に表示されます。",
+    "Lo que la IA obtenga de {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat.",
+    'AI 从{service}获取的内容会显示给这个对话里的{n}人。'),
   /** ...when a guest sees the chat (someone outside the team) */
-  sharedConnectionConfirmGuest: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요. 여기에는 게스트(팀 밖의 사람) {g}명도 있어요.',
-    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat, including {g, plural, one {a guest (someone outside the team)} other {# guests (people outside the team)}}.",
-    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini, termasuk {g} tamu (orang di luar tim).',
-    "AIが{service}を使おうとしています。{service}から返ってきた内容が、ゲスト（チーム外の人）{g}人を含む、このチャットの{n}人に表示されます。",
-    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
-    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
-  sharedConnectionOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅允许这一次"),
+  sharedConnectionConfirmGuest: t('AI가 {service}에서 가져온 내용을 이 채팅의 {n}명이 함께 봐요. 여기에는 게스트(팀 밖의 사람) {g}명도 있어요.',
+    "What the AI gets from {service} will show to the {n, plural, one {# person} other {# people}} in this chat, including {g, plural, one {a guest (someone outside the team)} other {# guests (people outside the team)}}.",
+    'Apa yang AI ambil dari {service} akan terlihat oleh {n} orang di obrolan ini, termasuk {g} tamu (orang di luar tim).',
+    "AIが{service}から取得した内容は、ゲスト（チーム外の人）{g}人を含む、このチャットの{n}人に表示されます。",
+    "Lo que la IA obtenga de {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
+    'AI 从{service}获取的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
+  sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
+  // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
+  // the label of its list of those changes (chat/tools.ts boxShellTool confirm)
+  devLoginChanges: t('바뀐 파일', 'Changes', 'Perubahan', "変更されたファイル", "Cambios", "更改的文件"),
+  /** with a guest in the chat: Always holds for this chat only */
   sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
-  sharedConnectionCancel: t('취소', 'Cancel', 'Batal', "キャンセル", "Cancelar", "取消"),
+  /** Always for good (docs/decisions/20261122-connector-always-allow.md): every shared chat, until removed in Settings */
+  sharedConnectionAlwaysAll: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
+  sharedConnectionAlwaysNote: t('항상 허용: 앞으로 공유 채팅에서는 {service} 내용을 묻지 않고 함께 보여 줘요. 설정에서 지울 수 있어요.',
+    'Always allow: from now on, in shared chats, what the AI gets from {service} shows to the people in the chat without asking. You can remove it in Settings.',
+    'Selalu izinkan: mulai sekarang, di obrolan bersama, apa yang AI ambil dari {service} terlihat oleh orang di obrolan tanpa bertanya. Anda bisa menghapusnya di Pengaturan.',
+    "常に許可：今後は共有チャットで、AIが{service}から取得した内容を確認なしでチャットの人に表示します。設定で削除できます。",
+    "Permitir siempre: a partir de ahora, en los chats compartidos, lo que la IA obtenga de {service} se muestra a las personas del chat sin preguntar. Puede quitarlo en Configuración.",
+    '始终允许：从现在起，在共享对话中，AI 从{service}获取的内容会直接显示给对话里的人，不再询问。你可以在设置中移除。'),
+  sharedConnectionCancel: t('안 함', 'Don’t allow', 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
   sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal", "你的个人文件夹"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat", "其他人在这个对话中打开的位置"),
   sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó.", "回答没有完成。"),
@@ -636,6 +655,7 @@ export const ALWAYS_WHAT = {
   big_download: t('1GB 넘는 파일을 내려받을 때', 'before it downloads files over 1 GB', 'sebelum mengunduh file di atas 1 GB', '1GBを超えるファイルをダウンロードするとき', 'antes de descargar archivos de más de 1 GB', '在下载超过1GB的文件时'),
   share_files: t('내 파일을 사람들에게 공유할 때', 'before it shares your files with people', 'sebelum membagikan file Anda kepada orang lain', 'あなたのファイルを人に共有するとき', 'antes de compartir sus archivos con personas', '在把你的文件共享给别人时'),
   bulk_files: t('프로젝트 폴더에 새 파일을 많이 둘 때', 'before it keeps many new files in a project folder', 'sebelum menyimpan banyak file baru di folder proyek', 'プロジェクトフォルダーに新しいファイルをたくさん置くとき', 'antes de dejar muchos archivos nuevos en una carpeta de proyecto', '在项目文件夹中保留大量新文件时'),
+  dev_login: t('팀원이 파일을 바꾼 뒤 개발 환경에서 로그인을 쓰는 명령을 실행할 때', 'before it runs a dev environment command that can use a login after teammates changed files', 'sebelum menjalankan perintah lingkungan pengembangan yang dapat memakai login setelah rekan tim mengubah file', 'チームメイトがファイルを変更した後、開発環境でログインを使うコマンドを実行するとき', 'antes de ejecutar en el entorno de desarrollo un comando que puede usar un inicio de sesión después de que sus compañeros cambiaran archivos', '在队友更改文件后，于开发环境中运行可能使用登录的命令时'),
 } as const
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {

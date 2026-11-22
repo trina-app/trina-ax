@@ -30,7 +30,7 @@ import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project, type UserRef } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -47,6 +47,7 @@ import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickTo
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
+import { chatChanged } from '../store/live'
 import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { readChatMentions, useChatMentions } from '../store/chatMentions'
@@ -258,7 +259,11 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // new comes to it while nobody else is in it
   const filesAt = useMemo(() => thread.messages.reduce((at, m) => (m.attachments ?? []).reduce((x, a) => (a.updated && a.updated.at > x ? a.updated.at : x), at), ''), [thread.messages])
   const ownLines = !!chat && !chat.shared && !chat.projectId && !chat.sideRoomId
-  const audienceEvents = useAudienceEvents((people || ownLines) && chat && !chat.deletedAt ? chatId : null, people ? `${shared?.audience ?? 0}:${thread.messages.length}:${filesAt}` : 'own')
+  // ...and on every change of the chat itself (chat.updated: someone added and someone removed keeps how many see it the
+  // same, QA TC-b3s-16) and every new version of one of its pages (a page's restore line, QA b3s S-033)
+  const [chatRev, setChatRev] = useState(0)
+  const pagesRev = useChats((s) => s.artifactsRev[chatId] ?? 0)
+  const audienceEvents = useAudienceEvents((people || ownLines) && chat && !chat.deletedAt ? chatId : null, people ? `${shared?.audience ?? 0}:${thread.messages.length}:${filesAt}:${chatRev}:${pagesRev}` : `own:${pagesRev}`)
   const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
@@ -320,6 +325,20 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   useEffect(() => {
     void load()
   }, [load])
+  // a change of this chat while it is on screen (store/live.ts chatChanged): its people lines are read again, and a page
+  // that could not open it ("no longer shared with me") reads it again when it comes back to me, as a reload would (QA
+  // TC-b3s-16: someone added me while my old link was open)
+  const failedNow = useRef<unknown>(null)
+  useEffect(() => { failedNow.current = loadError }, [loadError])
+  // (one read again at a time: several changes in a row are one)
+  const reloading = useRef(false)
+  useEffect(() => chatChanged.on((e) => {
+    if (e.chatId !== chatId) return
+    setChatRev((n) => n + 1)
+    if (!failedNow.current || reloading.current || !e.chat || e.chat.deletedAt || e.change === 'deleted' || e.change === 'purged') return
+    reloading.current = true
+    void load().finally(() => { reloading.current = false })
+  }), [chatId, load])
   // the chat left my lists while it is on screen (chat.updated "deleted": I lost the shared chat when a project's
   // members changed, it went to a trash or was purged; also a list read again after a reconnect): read it again, so a
   // chat I can no longer open shows the not-found page instead of its old messages and a box that cannot send, and one
@@ -342,17 +361,6 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
   // the creator to add it (components/ChatFileAsk.tsx)
   const peopleChat = isPeopleShared(chat)
-  // a chat shared with people or a project's shared chat: who the box's "@" may mention (GET …/audience mentionable),
-  // read again when who sees it changes
-  const [mentionPeople, setMentionPeople] = useState<UserRef[] | undefined>(undefined)
-  // (read again as the chat changes: who sees it may have changed meanwhile; a member is not told the count)
-  const audienceKey = shared && !chat?.deletedAt ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
-  useEffect(() => {
-    if (!audienceKey) { setMentionPeople(undefined); return }
-    let live = true
-    api.call(API.getChatAudience, { params: { id: chatId } }).then((a) => { if (live) setMentionPeople(a.mentionable ?? []) }, () => {})
-    return () => { live = false }
-  }, [audienceKey, chatId])
   const chatLinks = useMemo(() => {
     const copies = new Map<string, PreviewFile>()
     for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
@@ -496,20 +504,18 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   }
   const onSelectBranch = (id: string) => void selectBranch(chatId, id).catch(fail)
 
-  const onSend = async (text: string, attachments: Attachment[], mentions: string[] = []) => {
+  const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
     const author = { id: me.user.id, name: me.user.name }
-    // a chat shared with people: the people picked with "@" in the box go with the message (chat/message-notices.ts)
-    const picked = mentions.length ? { mentions } : {}
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
     // an answer is running (or messages already wait): this one waits too and goes when the answer is done. A shared
     // chat: also while someone else's question is answered, or someone else's messages wait (theirs go first)
     if (busy || waiting?.items.length || (shared && (othersTurn || shared.waiting))) {
       // nothing runs, but earlier messages were paused (stopped / failed answer): sending now takes them along, in order
-      if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author, ...picked })
+      if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author })
       try {
-        queue.enqueue(me.user.id, chatId, { content: text, attachments, author, ...picked })
+        queue.enqueue(me.user.id, chatId, { content: text, attachments, author })
       } catch (e) {
         if (e instanceof QueueFull) throw new Error(t('outbox.full'))
         throw e
@@ -517,7 +523,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       announce(t('outbox.waitingOne'))
       return
     }
-    if (shared) return sendShared(text, attachments, author, mentions)
+    if (shared) return sendShared(text, attachments, author)
     await send({ chatId, content: text, attachments, author })
   }
 
@@ -525,9 +531,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
    * (409 shared_chat_busy / shared_chat_next): the message waits under the conversation like any sent during an answer.
    * Another refusal (safe operations, a computer file) takes the message back and keeps the text in the box with the
    * reason; the chat is read again, so the box says whose turn it is. */
-  const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }, mentions: string[] = []) => {
+  const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
     const clientMessageId = uuidv7()
-    const r = await send({ chatId, content: text, attachments, author, clientMessageId, ...(mentions.length ? { mentions } : {}) })
+    const r = await send({ chatId, content: text, attachments, author, clientMessageId })
     const refused = (e: unknown): Error | null => {
       if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
@@ -535,7 +541,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       const reason = isApiError(e, 'conflict') ? e.body.params?.reason : null
       if (reason === 'shared_chat_busy' || reason === 'shared_chat_next') {
         try {
-          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author, ...(mentions.length ? { mentions } : {}) })
+          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
           announce(t('outbox.waitingOne'))
           void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
           return null
@@ -893,7 +899,6 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
             later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
-            mentionPeople={mentionPeople}
             autoFocus
           />
           </>

@@ -28,9 +28,17 @@ export type ApprovalKind =
    * joins later makes it ask again) */
   | 'shared_connection'
   /** a tool a connection marks read-only whose name Trina cannot read as a look-up, in a shared chat ("Always in this
-   * chat" on its "can't tell" card, integrations/connections/tools.ts unsureGate; read-mark.ts): target = connection,
+   * chat" on its "can't tell" card, integrations/connections/tools.ts unsureGate; read-mark.ts; read only since
+   * 20261122-connector-always-allow.md, whose Always is kept for good in connector_tool_allow): target = connection,
    * its version and the tool. Never a change: those ask every time */
   | 'shared_unsure_tool'
+  /** a call that acts on the person's own things (Sent.ownAct, tools.ts cardWithAlways) in a shared chat with a guest
+   * among its people ("Always in this chat": Always is never kept for good there): target = connection, its version and
+   * the tool's Always key; detail.c = who saw the chat then */
+  | 'shared_own_act'
+  /** a server card's "Always in this chat" (chat/always-allow.ts keepAlwaysAt) in a turn with a guest among the people,
+   * where Always is never kept for good: target = the card's kind; detail.c = who saw the chat then */
+  | 'card_always'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12

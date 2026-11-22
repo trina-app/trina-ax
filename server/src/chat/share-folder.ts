@@ -23,6 +23,7 @@
 //   folder and, for an add, every person or group.
 // - The record (`Step.shared`, the share card) comes from the server's records only: the folder's name, its place in
 //   words, what it holds. Only the person whose turn it was ever gets it (M7: ChatStore.viewSteps).
+import { askerMessageId } from './asked-in'
 import { ShareFolderInput, uuidv7 } from '@mycel/shared'
 import { plainLabel, type FileShareRow, type FileShares as FileSharesView, type FolderShareBlock, type ShareCardFile, type Step, type StepShared, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -42,7 +43,7 @@ import { folderAccessOff } from './folder-access-tool'
 import { findGroups, isGuest, recipientWords } from './share-with-person'
 import { matchOnFile } from './stop-sharing'
 import { seenWhy } from './grant-reads'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, mainOnly, namedInFull, namesFolder, namesRecipient, othersWordsIn, ownWords, saysDont } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, mainOnly, namedInFull, namesFolder, namesRecipient, othersWordsIn, ownWords, saysDont } from './shared-actions'
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -58,12 +59,15 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
 const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim(); return v.length > n ? `${v.slice(0, n - 1)}…` : v }
 const keyOf = (s: { subjectType: string; subjectId: string }) => `${s.subjectType}:${s.subjectId}`
 const NAMED = 'Ask the user to say which folder to share, by its full name in quotes.'
+const SCHEDULED_NO = 'Nothing was changed: a scheduled run has nobody to answer the card a folder share needs. Tell the user to ask in one of their own chats, or to use Share on the folder in Files.'
 
-/** Why share_folder is not offered in this turn (and refused when reached anyway), or null: it is. Never in a run nobody
- * watches (no Always allow kind lets a scheduled run through: actionOff with null), never for a guest. */
-export function shareFolderOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'>): { text: string; summary: string } | null {
-  const off = actionOff(exec, null)
-  if (off === 'schedule') return { text: 'Nothing was changed: a scheduled run has nobody to answer the card a folder share needs. Tell the user to ask in one of their own chats, or to use Share on the folder in Files.', summary: 'share_folder -> refused: scheduled run' }
+/** Why share_folder is not offered in this turn (and refused when reached anyway), or null: it is. In a run nobody
+ * watches only under the person's own "Always allow" for folder shares (kind share_folder; Rule A,
+ * docs/decisions/20261122-always-allow-holds-everywhere.md B4), and then only to add people (a stop asks, below). Never
+ * for a guest. */
+export function shareFolderOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
+  const off = actionOff(exec, 'share_folder')
+  if (off === 'schedule') return { text: SCHEDULED_NO, summary: 'share_folder -> refused: scheduled run' }
   if (off === 'confidential') return { text: 'Nothing was changed: this is a confidential conversation (safe operations), and nothing of it goes to other people. Tell the user they can use Share on the folder in Files.', summary: 'share_folder -> refused: confidential chat' }
   if (off === 'slack') return { text: 'Nothing was changed: this question came from Slack. Tell the user to ask in the app, or to use Share on the folder in Files.', summary: 'share_folder -> refused: Slack' }
   if (off === 'restricted') return { text: 'Nothing was changed: this run is limited to one task. Tell the user to ask in one of their own chats.', summary: 'share_folder -> refused: not here' }
@@ -116,6 +120,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
         const adding = a.data.add.length > 0
         const op: 'share' | 'stop' = adding ? 'share' : 'stop'
         const stop = a.data.stop === true
+        // a scheduled run (here only under the person's Always for folder shares): adds only; taking people off or
+        // stopping has no Always and needs the person's card
+        if (spec.clientKind === 'schedule' && !adding) return no(SCHEDULED_NO, 'refused: scheduled run (stop)')
         // the step this call runs in: written on the undo snapshot (files/share-undo.ts)
         const stepId = exec.runningStepId(SHARE_FOLDER_TOOL)
 
@@ -153,18 +160,19 @@ export function shareFolderTool(exec: TurnExec): Tool {
         }
 
         // ---- other people's words in this turn: only what the asker's own message names ----
-        const said = ownWords(askerText(db, spec.userMessageId))
-        const attached = attachedPaths(db, spec.userMessageId)
+        const said = ownWords(askerText(db, askerMessageId(exec)))
+        const attached = attachedPaths(db, askerMessageId(exec))
         // the folder is named only by its path, its place in words, a quoted name or the app's own mention (M9); what
         // looking_at reported is never the asker's word, so a folder known only from there is not named
         const folderNamed = namesFolder(said, rel, { place: folderPlace, attached })
         // Rule A (#1143; the owner's 11-13 "Always allow on every card"): the person's own "Always allow" for folder shares
-        // (kind share_folder, an add only) is final in their own chat; the others'-words guards below hold for people
-        // without it, and always in a chat with other members' messages (shared, others wrote in it), as share_with_person
-        // (docs/decisions/20261116-sharing-all-integration.md). A stop or removal has no kind: unchanged.
-        const members = !!exec.shared || exec.otherAuthors
+        // (kind share_folder, an add only) is final in every chat, a shared one too (docs/decisions/
+        // 20261122-always-allow-holds-everywhere.md B4); the others'-words guards below hold for people without it, as
+        // share_with_person. A stop or removal has no kind: unchanged.
+        // (a shared chat with a guest among its people, the one limit kept: the guards hold there, as before)
+        const strict = guestInShared(exec)
         const alwaysOn = adding && alwaysHere(exec.alwaysPlace?.(), 'share_folder') === 'on'
-        const others = othersWordsIn(exec) && (members || !alwaysOn)
+        const others = othersWordsIn(exec) && (strict || !alwaysOn)
         if (others && !folderNamed) return no(`Nothing was changed: other people's words are in this chat, so a folder is shared or stopped only when the user's own message names it. ${NAMED}`, 'refused: folder not named by the asker')
 
         // ---- an add: refused up front where it can never be done (the card would promise what the server refuses) ----
@@ -239,11 +247,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
         const subjects = who.map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
 
         // ---- the card. An add: every time unless the person chose "Always allow" for folder shares (kind share_folder,
-        // offered on its first showing; never the explicit-ask skip). In a chat with other members' messages the choice
-        // counts only for the asker's own ask (their message asks to share; the folder and every recipient were checked
-        // above). A removal or a stop: none when the asker's own message names the folder and, for a removal, every
-        // person, with no "don't" ----
-        const alwaysOk = !members || asksToSend(db, spec.userMessageId)
+        // offered on its first showing, final once on in every chat; never the explicit-ask skip). A removal or a stop:
+        // none when the asker's own message names the folder and, for a removal, every person, with no "don't" ----
+        const alwaysOk = !strict || asksToSend(db, askerMessageId(exec))
         const narrowOk = !adding && folderNamed && !saysDont(said) && (stop || who.every((w) => namedInFull(said, recipientWords(db, w))))
         if (!narrowOk) {
           const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
@@ -262,6 +268,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
             share: { op, files: [row()], ...cardPeople(db, who as CardSubject[]), ...(seenLine ? { why: seenLine } : {}) },
             expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
           } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          // a scheduled run (here only under the person's Always) where it does not count for this add (a guest in this
+          // shared chat and the task's message did not ask): nobody can answer the card, so say so now (code review)
+          if (spec.clientKind === 'schedule' && !(alwaysOk && alwaysOn)) return no(SCHEDULED_NO, 'refused: scheduled run (card needed)')
           const reply = adding
             ? await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_folder', [{ label: tr('fileShareYes', L), value: 'yes' }, { label: tr('fileShareNo', L), value: 'no' }], 'yes', ask)
             : await ask([{ label: tr('fileStopYes', L), value: 'yes' }, { label: tr('fileStopNo', L), value: 'no' }], {})

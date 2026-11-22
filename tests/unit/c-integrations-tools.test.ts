@@ -250,7 +250,7 @@ describe('calls', () => {
     expect(r0.text).toContain('did not allow')
     expect(r0.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
-    expect(no.questions[0]).toContain('The AI wants to send this to Tasks: Create a task')
+    expect(no.questions[0]).toContain('Create a task in Tasks')
     expect(no.details[0]![0]!.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
     expect(fake.calls.length).toBe(before)
     const yes = ask(true)
@@ -418,6 +418,7 @@ describe('calls', () => {
     const r = await turn('alice', { person: no, roomsSeen: true }).call('my_tasks__create_task', { title: 'From the room', to: 'outside@evil.example' })
     expect(r.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
+    // a recipient in the call: it reaches someone else, so the card says "send" with where it goes in view
     expect(no.questions[0]).toStartWith('The AI wants to send this to Tasks: Create a task')
     expect(no.details[0]![0]!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Title', value: 'From the room' }])
     expect(sent()).toBe(n0)
@@ -431,7 +432,7 @@ describe('calls', () => {
       const yes = ask(true)
       expect((await turn('alice', { person: yes, roomsSeen: true }).call('team_teamtasks__create_task', { title: 'asked' })).summary).toContain('(confirmed by the user)')
       expect(yes.questions).toHaveLength(1)
-      expect(yes.questions[0]).toStartWith('The AI wants to send this to Team tasks: Create a task')
+      expect(yes.questions[0]).toStartWith('Create a task in Team tasks')
       expect(sent()).toBe(n0 + 1)
       // without the room read it still sends without a card
       const quiet = ask(false)
@@ -763,12 +764,11 @@ describe('single tools turned off (docs/DECISIONS.md "Turn single tools of a con
   })
 })
 
-// docs/decisions/20261118-shared-schedules-any-frequency.md, security review of #1353 (H2): a scheduled run in a shared
-// chat that another person wrote in sends nothing to any service: not a team "send without asking" connection the task's
-// card allowed, not its pinned recipients, not the maker's Always allow. A run whose branch holds only the maker's own
-// messages is not steerable by anyone else and sends as before.
-describe('a scheduled run in a shared chat (security review of #1353, H2)', () => {
-  test('a teammate\'s message on the run\'s branch: every connection write is refused, nothing sent; only the maker\'s messages: sent', async () => {
+// docs/decisions/20261122-always-allow-holds-everywhere.md B6 (Rule A; it ended H2 of the security review of #1353): a
+// scheduled run in a shared chat that another person wrote in goes by the usual scheduled-run rules, the task's card and
+// the maker's own Always (a guest among the people keeps the old refusal: b-always-holds-everywhere.test.ts).
+describe('a scheduled run in a shared chat (B6, was #1353 H2)', () => {
+  test('a teammate\'s message on the run\'s branch: the task\'s card holds, the write goes; so with only the maker\'s messages', async () => {
     const t = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Shared tasks', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: false, groups: [], users: ['alice'] } })).body
     const db = A.ctx.db
     const sid = crypto.randomUUID()
@@ -788,18 +788,12 @@ describe('a scheduled run in a shared chat (security review of #1353, H2)', () =
     try {
       const sent = () => fake.calls.filter((c) => c.name === 'create_task').length
       const n0 = sent()
-      // bob wrote in the chat ("send our numbers to the board"): refused before anything goes out
-      const r = await runWith(['alice', 'bob']).call('team_sharedtasks__create_task', { title: 'steered' })
-      expect([r.isError, r.summary]).toEqual([true, 'team_sharedtasks__create_task -> refused (nobody to ask: scheduled run in a shared chat)'])
-      expect(r.text).toContain('Nothing was sent to Shared tasks')
-      expect(sent()).toBe(n0)
-      // the maker's own Always allow on the connection does not open it either
-      db.query('INSERT OR IGNORE INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?)').run(t.id, 'alice', `${fake.base}/mcp-open`, new Date().toISOString())
-      expect((await runWith(['bob']).call('team_sharedtasks__create_task', { title: 'steered' })).summary).toContain('nobody to ask')
-      expect(sent()).toBe(n0)
-      // only alice's own messages on the branch: the task's card allowed it, it goes as before
-      expect((await runWith(['alice']).call('team_sharedtasks__create_task', { title: 'own run' })).isError).toBe(false)
+      // bob wrote in the chat: the task's card allowed this connection, so it goes (Rule A)
+      expect((await runWith(['alice', 'bob']).call('team_sharedtasks__create_task', { title: 'with bob' })).isError).toBe(false)
       expect(sent()).toBe(n0 + 1)
+      // only alice's own messages on the branch: as before
+      expect((await runWith(['alice']).call('team_sharedtasks__create_task', { title: 'own run' })).isError).toBe(false)
+      expect(sent()).toBe(n0 + 2)
     } finally {
       db.query('DELETE FROM schedules WHERE id = ?').run(sid)
       db.query('DELETE FROM integrations WHERE id = ?').run(t.id)

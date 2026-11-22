@@ -1,7 +1,7 @@
 # A mention in a shared chat's main box is a row under Mentions
 
 - Date: 2026-11-22
-- Status: accepted
+- Status: superseded by [20261122-ai-session-no-main-mention.md](20261122-ai-session-no-main-mention.md)
 - Supersedes: the "Left out" line of docs/decisions/20261122-shared-chat-new-message-notices.md, for mentions only
 - Branch: fix/f3-mention-share-narration (final rerun QA TC-f3-02)
 

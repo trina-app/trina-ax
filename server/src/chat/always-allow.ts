@@ -5,9 +5,9 @@
 // ignored, not deleted). No caps, no "outside content asks again", no expiry.
 //
 // Per person, never another member's: the row is the turn's own person's, and it counts only in a turn that person
-// watches from their own app (web, desktop, phone), never in a scheduled run, a Slack question, a company profile draft
-// or a confidential chat. Cards that stay (real security cases) never call this: an address that may carry data out,
-// a redirect echo, a dev environment command that uses a login, a scheduled task's card, connect_service.
+// watches from their own app (web, desktop, phone) or in their own scheduled run (also in a shared chat others wrote
+// in), never a Slack question, a company profile draft or a confidential chat. Cards that stay (real security cases)
+// never call this: an address that may carry data out, a redirect echo, a scheduled task's card, connect_service.
 import type { Database } from 'bun:sqlite'
 import { CARD_ALWAYS_KINDS, type CardAllowance, type CardAlwaysKind, type Locale } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -24,6 +24,7 @@ export const teamAllowsAlways = (db: Database): boolean => getTeamSettings(db).r
 /** Where a card is raised: the turn's own person, their app, the chat. */
 import { steerableRun } from './shared-run'
 import { isSharedChat } from './chat-audience'
+import { approvalsFor, noteApproval } from './card-approvals'
 
 export interface AlwaysPlace {
   db: Database
@@ -34,6 +35,45 @@ export interface AlwaysPlace {
   clientKind: string | null | undefined
   /** a company profile draft and other restricted turns */
   restricted?: boolean
+  /** a guest is among the people of this turn (TurnExec.guestAmong: the person, someone who sees this shared chat, a
+   * member of this side chat's room): the one limit Rule A keeps, below */
+  sharedGuest?: () => boolean
+  /** the people of this turn now (the person, who sees the shared chat, the members of a side chat's room): an "Always
+   * in this chat" holds for them; it throws when they cannot be told */
+  audience?: () => string[]
+  /** told the kind while a card that offers "Always allow" is being raised (null right after): a card that waits after
+   * the answer ends keeps it with its call (chat/turn.ts cardLater; docs/decisions/20261122-late-card-answer-resumes.md) */
+  offering?: (kind: CardAlwaysKind | null) => void
+}
+
+const guestThere = (p: AlwaysPlace): boolean => { try { return !!p.sharedGuest?.() } catch { return true } }
+
+/** A turn the person watches with a guest among the people: "Always allow" holds for this chat only (as the connector
+ * cards, docs/decisions/20261122-connector-always-allow.md): never offered, kept or used for good there */
+export const chatScoped = (p: AlwaysPlace | null | undefined): boolean => !!p && p.clientKind !== 'schedule' && guestThere(p)
+/** the people of the turn now, the person always among them; null when they cannot be told (fails closed) */
+const audienceNow = (p: AlwaysPlace): string[] | null => {
+  try { const a = p.audience ? p.audience() : []; return [...new Set([p.userId, ...a])] } catch { return null }
+}
+
+/** The person's "Always in this chat" for this kind, for everyone who sees the chat now (someone new asks again) */
+function chatAlwaysOn(p: AlwaysPlace, kind: CardAlwaysKind): boolean {
+  const now = audienceNow(p)
+  if (!now) return false
+  return approvalsFor(p.db, { chatId: p.chatId, userId: p.userId, kind: 'card_always', target: kind })
+    .some((d) => Array.isArray(d.c) && now.every((id) => (d.c as unknown[]).includes(id)))
+}
+
+/** Keep the person's "Always allow" for this kind where it holds here: for good (keepAlways), or with a guest among the
+ * people for this chat only (chatScoped) */
+export function keepAlwaysAt(p: AlwaysPlace, kind: CardAlwaysKind, o: { inChat?: boolean } = {}): void {
+  if (o.inChat || chatScoped(p)) { keepInChat(p, kind); return }
+  keepAlways(p.db, p.userId, kind, p.turnId)
+}
+/** "Always in this chat": for the people of the turn now (nothing kept when they cannot be told) */
+function keepInChat(p: AlwaysPlace, kind: CardAlwaysKind): void {
+  const c = audienceNow(p)
+  if (c) noteApproval(p.db, { chatId: p.chatId, userId: p.userId, kind: 'card_always', target: kind, detail: { c } })
 }
 
 const isKind = (k: string): k is CardAlwaysKind => (CARD_ALWAYS_KINDS as readonly string[]).includes(k)
@@ -53,12 +93,14 @@ export function alwaysHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKi
   const scheduled = p.clientKind === 'schedule'
   if (!scheduled && !LIVE_CLIENTS.has(p.clientKind ?? '')) return null
   if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
-  // a run in a shared chat whose branch holds another person's message: none of the maker's standing yeses (they could
-  // steer it; security review of #1353, H1: the shared read card skipped after a teammate's message)
-  if (scheduled && steerableRun(p.db, p.turnId)) return null
-  // and never for the shared read card in a run in a shared chat, whatever is on its branch: that card protects the
-  // people who see the chat, not the maker (re-review of #1353)
-  if (scheduled && kind === 'shared_read' && isSharedChat(p.db, p.chatId)) return null
+  // a run in a shared chat, also one whose branch holds another person's words: the maker's own Always holds, every
+  // kind (Rule A; docs/decisions/20261122-always-allow-holds-everywhere.md B6 ended the exceptions of #1353), except
+  // while a guest is among the people there (the one limit kept): then none of the maker's standing yeses when another
+  // person's words are on the run's branch, and never the shared read card's
+  if (scheduled && guestThere(p) && (steerableRun(p.db, p.turnId) || (kind === 'shared_read' && isSharedChat(p.db, p.chatId)))) return null
+  // a turn the person watches with a guest among the people: their Always for good is neither used nor offered; the card
+  // offers "Always in this chat" (chatScoped, keepAlwaysAt)
+  if (!scheduled && guestThere(p)) return chatAlwaysOn(p, kind) ? 'on' : 'offer'
   return alwaysOn(p.db, p.userId, kind) ? 'on' : scheduled ? null : 'offer'
 }
 
@@ -100,7 +142,8 @@ const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'c
 
 /** The line under a card's "Always allow" for `kind`: what it covers, in that kind's own words (KIND_NOTE), or the one
  * line with the kind's {what} (ALWAYS_WHAT; QA TC-ask2-15), never a line that does not say which cards stop. */
-export function alwaysNote(kind: CardAlwaysKind, L: Locale): string {
+export function alwaysNote(kind: CardAlwaysKind, L: Locale, p?: AlwaysPlace | null): string {
+  if (p && chatScoped(p)) return tr('cardAlwaysChatNote', L)
   const own = KIND_NOTE[kind]
   if (own) return tr(own, L)
   const what = (ALWAYS_WHAT as Partial<Record<CardAlwaysKind, Record<Locale, string>>>)[kind]
@@ -113,6 +156,9 @@ export const RAN_UNDER_ALWAYS = 'No card was shown: the user chose "Always allow
 
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
+/** The value of "Always in this chat" (a guest among the people, chatScoped): another value than the Always for good, so
+ * a press that waited (chat/open-questions.ts sameCard) is never taken for the other one when the people changed */
+export const ALWAYS_CHAT_VALUE = '__always_chat'
 
 /**
  * One card with "Always allow": `options` are the card's own (yes first, the no last); `yes` the value that lets the
@@ -126,11 +172,21 @@ export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAl
   if (here === 'on') return yes
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
-  const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
-  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: alwaysNote(kind, p.locale) })
+  const inChat = chatScoped(p)
+  const opts = [...options.slice(0, -1), inChat ? { label: tr('cardAlwaysChat', p.locale), value: ALWAYS_CHAT_VALUE } : { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
+  // (the kind is told while the card is raised: ask raises it before its first await)
+  p.offering?.(kind)
+  let pending: Promise<unknown>
+  try { pending = ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: alwaysNote(kind, p.locale, p) }) } finally { p.offering?.(null) }
+  const answer = await pending
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-  if (v === ALWAYS_VALUE) {
-    keepAlways(p.db, p.userId, kind, p.turnId)
+  if (v === ALWAYS_CHAT_VALUE && inChat) {
+    keepInChat(p, kind)
+    return yes
+  }
+  if (v === ALWAYS_VALUE && !inChat) {
+    // (checked again: a guest who joined while the card was open makes it this chat's only)
+    keepAlwaysAt(p, kind)
     return yes
   }
   return answer

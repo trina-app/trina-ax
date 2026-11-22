@@ -144,17 +144,18 @@ describe('the card and the allowance', () => {
     expect(sites(chat)).toEqual([])
   })
 
-  test('only this chat and this person: another chat of the same person, and another person, still ask', async () => {
+  test('per chat (a turn whose sites are not for good: a guest there, a draft): another chat of the same person, and another person, still ask', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://scoped.example/a', person('site'))
     const other = await chatOf()
     await expect(gate(other, 'https://scoped.example/b', null)).rejects.toThrow(/nobody can confirm/)
-    // another person (never in alice's chat in practice): not theirs, and they cannot add one there
+    // another person in the same chat (a shared chat): alice's site is not theirs; they may allow their own there
+    // (docs/decisions/20261122-always-allow-holds-everywhere.md: a site choice in any chat the person asks in)
     await expect(gate(chat, 'https://scoped.example/b', null, { user: 'bob' })).rejects.toThrow(/nobody can confirm/)
     const asked: Asked[] = []
-    await gate(chat, 'https://bobs.example/a', person('site', asked), { user: 'bob' }).catch(() => {})
-    expect(asked[0]!.options).toBeUndefined()
-    expect(sites(chat)).toEqual([{ user_id: 'alice', site: 'scoped.example' }])
+    await gate(chat, 'https://bobs.example/a', person('site', asked), { user: 'bob' })
+    expect(asked[0]!.options!.map((x) => x.value)).toContain('site')
+    expect(sites(chat)).toEqual([{ user_id: 'bob', site: 'bobs.example' }, { user_id: 'alice', site: 'scoped.example' }])
     // without a person id nothing is allowed by site
     await expect(gate(chat, 'https://scoped.example/c', null, { user: null })).rejects.toThrow(/nobody can confirm/)
   })

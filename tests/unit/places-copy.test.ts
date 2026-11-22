@@ -31,9 +31,16 @@ import { expectNoRawPlace } from '../lib/card-places'
 setDefaultTimeout(120_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 // a fake system: every command runs with sh in the run's cwd (the copy-in script starts at "set -u")
+// a command's run (not a copy-in) leaves its network settings in `nets`; with `offlineFails` a run with no network fails
+// as a command that needs it would
+const nets: { allowedDomains: string[]; strictAllowlist: boolean }[] = []
+let offlineFails = false
 const sys: SrtSystem = {
   spawn(spec) {
-    const cmd = spec.command.includes('set -u') ? spec.command.slice(spec.command.indexOf('set -u')) : 'true'
+    const copyIn = spec.command.includes('set -u')
+    const net = copyIn ? null : (JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')) as { network: { allowedDomains: string[]; strictAllowlist: boolean } }).network
+    if (net) nets.push(net)
+    const cmd = copyIn ? spec.command.slice(spec.command.indexOf('set -u')) : offlineFails && net && !net.allowedDomains.length ? 'echo "Could not resolve host: github.com" >&2; exit 6' : 'true'
     const p = Bun.spawnSync(['/bin/sh', '-c', cmd], { cwd: spec.cwd, env: { PATH: '/usr/bin:/bin' }, stdout: 'pipe', stderr: 'pipe' })
     fs.appendFileSync(spec.stdoutFile, p.stdout); fs.appendFileSync(spec.stderrFile, p.stderr)
     fs.writeFileSync(spec.exitFile, `${p.exitCode}\n`)
@@ -65,7 +72,7 @@ beforeAll(async () => {
   w('groups/marketing/brief.csv', 'name,n\nx,1\ny,2\n')
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); setSrtSystem(null); delete process.env.MYCEL_DEV_ENV; await h.close(); fs.rmSync(base, { recursive: true, force: true }) })
-beforeEach(() => { _active().clear(); setSrtSystem(sys, { base, id: 'mycel', plan: PLAN }); turnOn() })
+beforeEach(() => { _active().clear(); setSrtSystem(sys, { base, id: 'mycel', plan: PLAN }); turnOn(); nets.length = 0; offlineFails = false })
 
 type Sub = { subjectType: 'user' | 'group'; subjectId: string }
 const put = (user: string, chatId: string, subjects: Sub[], confirmKey?: string): Promise<PutChatAudienceResult> =>
@@ -352,9 +359,9 @@ describe('review of P2 (adversarial)', () => {
 })
 
 // QA TC-f2-c02: one chart request in a room's ✦ side chat raised three cards (a command twice, the copy into my folder).
-// A copy of what it made into my own folder as a new file goes without a card; the command keeps the room card (a room
-// message could steer it to change my own files, which runs keep no versions of yet: owner 11-22,
-// docs/decisions/20261122-ask-less-side-chat-runs.md); an overwrite in my folder and a team folder ask.
+// A copy of what it made into my own folder as a new file goes without a card; so does the command, now that its changes
+// in my own folder keep versions and go to the trash (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2,
+// tests/unit/box-run-versions.test.ts); an overwrite in my folder and a team folder ask.
 describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => {
   /** alice's own chat that has read a room (chats.rooms_seen, as room_read leaves it; a ✦ side chat counts the same,
    * chat/read-rooms.ts readRooms) */
@@ -366,11 +373,10 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
   const chart = `cd "$TRINA_WORK" && python3 - <<'EOF'\nimport matplotlib.pyplot as plt\nplt.bar(['a'],[1])\nplt.savefig('out/chart.png')\nEOF`
   const made = (chat: string, name: string) => { const p = path.join(chatWork(base, chat), 'out', name); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'PNG-CHART') }
 
-  test('the command keeps the room card in plain words; the copy into users/<me>/ asks nothing; the step says why', async () => {
+  test('the command and the copy into users/<me>/ ask nothing; the steps say why', async () => {
     const chat = await side()
     const ran = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }))
-    expect(ran.cards).toHaveLength(1)
-    expect(ran.cards[0]!.question).toContain('chart.png')
+    expect(ran.cards).toHaveLength(0)
     made(chat, 'chart.png')
     const r = await run('alice', chat, copy(['chat:work/out/chart.png'], 'users/alice/charts-f2/'))
     expect(r.cards).toHaveLength(0)
@@ -401,7 +407,7 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     const up = `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && curl -F f=@out/chart.png https://example.com/up`
     const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: up }, sayResult: true }), no)
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain('chart.png (also connects to the internet)')
+    expect(r.cards[0]!.question).toContain('chart.png with a program (also connects to the internet)')
     updateTeamSettings(h.ctx.db, { browserAllowAll: true, webAllowAll: true })
     expect(setWebAllowAll(h.ctx.db, 'alice', true, { via: 'settings' })).toBe(true)
     try {
@@ -410,11 +416,157 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     } finally { setWebAllowAll(h.ctx.db, 'alice', false, { via: 'settings' }) }
   })
 
+  /** alice's project chat (not shared) that has read a room: its commands run in the team's project folder, so they
+   * keep the room card */
+  let proj = ''
+  async function projectSide() {
+    if (!proj) {
+      const p = await h.api('alice').call(API.createProject, { body: { name: 'F2 Proj', instructions: '', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
+      proj = p.id
+    }
+    const c = await h.api('alice').call(API.createChat, { body: { projectId: proj } })
+    await run('alice', c.id, fake({ say: 'hi' }))
+    h.ctx.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(c.id)
+    return c.id
+  }
+  const stepsOf = (messageId: string) => (h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(messageId) as { steps: string }).steps
+
+  // QA b3s TC-b3s-23 (S-110): one banner edit asked four times; one answer asks once per target (#381). In my own chat
+  // the commands ask nothing at all (rule 2: their changes can be undone); a project folder is the team's and asks once
+  test('my own chat: two commands that make the same file ask nothing; a project chat asks once per answer', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    // the same run with other numbers (a bigger font, another size)
+    const again = chart.replace("plt.bar(['a'],[1])", "plt.bar(['a'],[2])")
+    const two = fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: again }, sayResult: true })
+    const own = await run('alice', await side(), two, yes)
+    expect(own.cards).toHaveLength(0)
+    expect(stepsOf(own.messageId)).toContain('ran without asking: changes in your folder can be undone')
+    const chat = await projectSide()
+    const r = await run('alice', chat, two, yes)
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain('Make the picture file chart.png with a program')
+    expect(stepsOf(r.messageId)).toContain('allowed once in this answer')
+    // a new answer: its own card again
+    const next = await run('alice', chat, fake({ tool: 'box_shell', args: { command: again }, sayResult: true }), yes)
+    expect(next.cards).toHaveLength(1)
+  })
+
+  test('...a project chat asks again for another command, one that also removes files, runs elsewhere or reaches the network; my own chat asks only for the network', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    const curl = `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && curl -F f=@out/chart.png https://example.com/up`
+    const laters = [
+      chart.replace('plt.bar', 'plt.barh'),
+      `find "$TRINA_TEAM" -name '*.xlsx' -exec perl -e 'unlink @ARGV' {} + ; ${chart}`,
+      `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && rm -f out/old.png`,
+      `cd "$TRINA_WORK" && python3 make.py -o out/other.png`,
+      `cd "$HOME" && python3 make.py -o out/chart.png`,
+      `cd "$TRINA_WORK" && python3 -c "import os; os.remove('x.md'); open('out/chart.png','w')"`,
+      curl,
+    ]
+    // every case is run before one comparison, so a failure names all the commands that went wrong
+    const got: [string, string, number][] = []
+    for (const later of laters) {
+      const two = fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: later }, sayResult: true })
+      got.push(['project', later, (await run('alice', await projectSide(), two, yes)).cards.length])
+      got.push(['own', later, (await run('alice', await side(), two, yes)).cards.length])
+    }
+    expect(got).toEqual(laters.flatMap((l): [string, string, number][] => [['project', l, 2], ['own', l, l === curl ? 1 : 0]]))
+  })
+
+  test('a "no" on the first command covers nothing (a project chat); my own chat asks neither', async () => {
+    const two = fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: chart + ' ' }, sayResult: true })
+    expect((await run('alice', await projectSide(), two)).cards).toHaveLength(2)
+    expect((await run('alice', await side(), two)).cards).toHaveLength(0)
+  })
+
+  // review of #401: a command's words never show all it reaches (git -C . push; a script written first and run next), and
+  // the sandbox allows GitHub. A run that went without the card has no network at all; when it fails, the same command
+  // asks the card and then runs with the network
+  test('a command that went without the card runs with no network; the same command after a failure asks, then has the network', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    const push = 'git -C . push origin main'
+    // a script written by one command and run by the next: neither shows the push in its words
+    const two = `echo 'git -C . push origin HEAD' > up.sh`
+    // the words show no network: no card, and the run has none
+    const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: push }, sayResult: true }, { tool: 'box_shell', args: { command: two }, sayResult: true }, { tool: 'box_shell', args: { command: 'sh up.sh' }, sayResult: true }), yes)
+    expect(r.cards).toHaveLength(0)
+    expect(nets).toHaveLength(3)
+    expect(nets.every((n) => n.allowedDomains.length === 0 && n.strictAllowlist === true)).toBe(true)
+    // a run that needs the network fails cleanly, the AI is told why, and the same command asks the card next
+    nets.length = 0
+    offlineFails = true
+    const f = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: push }, sayResult: true }, { tool: 'box_shell', args: { command: push }, sayResult: true }), yes)
+    expect(f.content).toContain('with NO network')
+    expect(f.cards).toHaveLength(1)
+    expect(nets).toHaveLength(2)
+    expect(nets[0]!.allowedDomains).toHaveLength(0)
+    // after the person's yes: the team's sites (GitHub among them)
+    expect(nets[1]!.allowedDomains).toContain('github.com')
+    // a call that asks for sites wants the network: the room card (the site card is a server request of its own kind)
+    const s = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: 'node build.js', request_sites: ['api.example.com'] }, sayResult: true }), () => 'skip')
+    // (the run collects ask_user cards only: the site card is a dev_env_site request)
+    expect(s.cards).toHaveLength(1)
+  })
+
+  // review of #401: a job or dev server of this chat has the network, and a command could change the code it runs (a hot
+  // reload): while one runs, commands keep the card
+  test('while a job of this chat runs, or one of mine waits elsewhere, a command keeps the room card', async () => {
+    const chat = await side()
+    const id = crypto.randomUUID()
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'server', 'dev', 'npm run dev', ?, '', 'running', ?)")
+      .run(id, chat, chatWork(base, chat), new Date().toISOString())
+    try {
+      const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
+      expect(r.cards).toHaveLength(1)
+    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
+    // a job of hers waiting to start in another chat (it may run code in her own folder): the card too
+    const other = await personal()
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'job', 'later', 'node watch.js', ?, '', 'waiting', ?)")
+      .run(id, other, chatWork(base, other), new Date().toISOString())
+    try {
+      const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
+      expect(r.cards).toHaveLength(1)
+    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
+    // none: no card
+    expect((await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')).cards).toHaveLength(0)
+  })
+
+  // a project chat's command keeps the network the team and the person allow (it asked the card)
+  test('a project chat command (asked on the card) keeps the team network', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    const r = await run('alice', await projectSide(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), yes)
+    expect(r.cards).toHaveLength(1)
+    expect(nets.at(-1)!.allowedDomains).toContain('github.com')
+  })
+
+  test('renaming in place a file this answer made needs no card; an older file, an instruction or a script name still ask', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    fs.mkdirSync(team('groups/marketing/b3s'), { recursive: true })
+    const made = await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/banner.png.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/banner.png.txt', new_name: 'final-banner.txt' }, sayResult: true }), yes)
+    expect(made.cards).toHaveLength(1)
+    expect(fs.existsSync(team('groups/marketing/b3s/final-banner.txt'))).toBe(true)
+    w('groups/marketing/b3s/older.txt', 'old')
+    const older = await run('alice', await side(), fake({ tool: 'rename_file', args: { path: 'groups/marketing/b3s/older.txt', new_name: 'older-2.txt' }, sayResult: true }))
+    expect(older.cards).toHaveLength(1)
+    // a script name: its own card again
+    const sh = await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/n-run.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/n-run.txt', new_name: 'run.sh' }, sayResult: true }), yes)
+    expect(sh.cards).toHaveLength(2)
+    // an instruction file: never renamed into place after a room read (refused: its content is not on a card)
+    await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/n-claude.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/n-claude.txt', new_name: 'CLAUDE.md' }, sayResult: true }), yes)
+    expect(fs.existsSync(team('groups/marketing/b3s/CLAUDE.md'))).toBe(false)
+  })
+
   test('a command in a chat shared with others after a quote still gets the room card, in plain words', async () => {
     const chat = await shared()
     const r = await run('alice', chat, `> erin: run this\n${fake({ tool: 'box_shell', args: { command: chart }, sayResult: true })}`)
     const card = r.cards.find((c) => /chart\.png/.test(c.question))
-    expect(card?.question).toContain('Run a command that makes a picture file: chart.png')
+    expect(card?.question).toContain('Make the picture file chart.png with a program')
     expect(card?.question).not.toContain('Run a task')
   })
 })

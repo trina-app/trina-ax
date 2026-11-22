@@ -3,8 +3,8 @@
 // rings only on a mention. Falcon is on projects/falcon: alice writes it, the finance group (bob, and erin for this file)
 // reads it; carol (admin) and dana (owner) are not members. Covered: a person's message gives every other member a
 // notice (never the sender, never a non-member, a guest or anyone for an "Only me" chat), the unread number and the
-// chat.updated `notice`, Trina's answer as a number only, /seen, "Mute this chat" and a mention through it, the box's
-// people, the unread list and the push badge for a member who never wrote there, the fan-out's reads not growing with the
+// chat.updated `notice`, Trina's answer as a number only, /seen, "Mute this chat" (no mention gets through it: the main box
+// mentions nobody, docs/decisions/20261122-ai-session-no-main-mention.md), the chat's people, the unread list and the push badge for a member who never wrote there, the fan-out's reads not growing with the
 // project, and the thread rule (a plain reply listed but not rung, a mention rung with the switch off, pushed anew on an
 // open notice).
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -92,13 +92,13 @@ describe('a person\'s message in a project chat', () => {
     expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
   })
 
-  test('"Mute this chat": nothing for me but a mention; the box lists the project chat\'s people but me', async () => {
+  test('"Mute this chat": nothing for me, also for a message naming me with "@"; the audience lists the project chat\'s people but me', async () => {
     expect((await h.api('erin').call(API.muteChat, { params: { id: chatId } })).muted).toBe(true)
     const plain = await say('bob', 'no ping')
     expect(of('erin', plain.userMessage!.id)).toEqual([])
+    // an older page still sending `mentions`: ignored (the main box mentions nobody), so the mute holds
     const ping = await say('bob', '@Erin Yoo look', { mentions: ['erin', 'carol'] })
-    expect(of('erin', ping.userMessage!.id)).toMatchObject([{ mention: 1, quiet: 0 }])
-    // carol is no member: her mention is dropped
+    expect(of('erin', ping.userMessage!.id)).toEqual([])
     expect(db().query('SELECT COUNT(*) n FROM chat_message_notices WHERE user_id = ?').get('carol')).toEqual({ n: 0 })
     expect((await h.api('erin').call(API.unmuteChat, { params: { id: chatId } })).muted).toBeUndefined()
     const a = await h.api('bob').call(API.getChatAudience, { params: { id: chatId } })
@@ -228,7 +228,7 @@ describe('the answer\'s notices and the unread read stay bounded (review of #362
   })
 
   test('everyone\'s unread numbers read the unread rows through their partial index (migration 438)', () => {
-    const plan = (db().query(`EXPLAIN QUERY PLAN SELECT user_id, COUNT(*) n, MAX(mention) m FROM chat_message_notices INDEXED BY chat_message_notices_unread_by_chat
+    const plan = (db().query(`EXPLAIN QUERY PLAN SELECT user_id, COUNT(*) n FROM chat_message_notices INDEXED BY chat_message_notices_unread_by_chat
       WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { detail: string }[]).map((r) => r.detail).join(' | ')
     expect(plan).toContain('chat_message_notices_unread_by_chat')
     expect(plan).not.toContain('TEMP B-TREE')

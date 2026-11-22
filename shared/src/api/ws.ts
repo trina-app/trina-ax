@@ -157,6 +157,10 @@ export const ConfirmDetail = z.object({
    * file will hold): the card shows its label, the fields and its size, and the text behind "자세히". A client that does
    * not know this shows the text as before. */
   folded: z.literal(true).optional(),
+  /** the question says what happens in plain words; this detail (its fields, code, ids and text) is for people who want
+   * it, behind one "자세히" (docs/decisions/20261122-connector-always-allow.md). A client that does not know this shows
+   * the detail as before. */
+  hidden: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
@@ -301,8 +305,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional(),
     /** a person's message in a chat shared with people gave me a notice that may ring (server/src/chat/message-notices.ts:
      * my settings, quiet hours and mute already decided): the desktop app tells it and the room sound rings, unless the
-     * chat is on screen. `mention`: the message mentions me. Older pages ignore it. */
-    notice: z.object({ messageId: Uuid7, mention: z.literal(true).optional() }).optional() })),
+     * chat is on screen. */
+    notice: z.object({ messageId: Uuid7 }).optional() })),
   /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
    * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
    * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies

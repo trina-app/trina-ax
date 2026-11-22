@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { askerMessageId, askerSpec } from './asked-in'
 import { trashHint } from './trash-hint'
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
 import { chatKindOf, chatPlaces } from './place-ctx'
@@ -45,7 +46,7 @@ import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
-import { fromAsker, othersWordsIn } from './shared-actions'
+import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
@@ -70,11 +71,12 @@ import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
-import { steerableWriteRefusal } from './shared-run'
+import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
-import { fileNote, fileNoteOnce } from './file-notes'
+import { dataDateNotes, fileNote, fileNoteOnce } from './file-notes'
+import { localTime } from '../rooms/reader'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -309,7 +311,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     async call() { return { ...text('Error: internal error', true), summary: `${EDIT_FILES_TOOL} -> not run (outside the file gate)` } } })
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
-    add(wrapRegistered(exec, t))
+    add(wrapRegistered(exec, t, (name, isError, args, files) => !guest && !callerOf(files, exec.files).helper ? dataDateFor(name, isError, args) : null))
   }
   // copy_files between the team folder, this chat's files (chat:files/) and its work folder (chat:work/): a call that
   // names a chat place runs the places copy (chat/places-copy.ts); any other the team copy, unchanged
@@ -328,6 +330,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
+      // the command went without the room card on the promise that its own-folder changes can be undone (chat/turn.ts ownBoxRun)
+      mustUndo: (command) => exec.boxUndo.has(command),
+      reverted: () => { exec.boxUndone = true },
+      offlineFailed: (command) => { exec.boxOffline.add(command) },
       // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
       // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
       keepBulk: async (ask) => {
@@ -339,9 +345,17 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // a short wait: the project's other commands wait while the card is open (no answer: the files move)
         return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details, timeoutMs: BULK_CARD_MS })
       },
-      confirm: async (question, options, details) => (person.choose
-        ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
-        : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+      // `always`: the login card's "Always allow" (kind dev_login: Rule A, docs/decisions/
+      // 20261122-always-allow-holds-everywhere.md M2), through the same yes / no card as every server card
+      alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
+      confirm: async (question, options, details, o) => {
+        const shown = [{ label: tr('devLoginChanges', person.locale), text: details.join('\n') }]
+        return o?.always
+          ? (await person.confirm(question, options[0]!.label, options[1]!.label, { always: o.always, details: shown })) ? options[0]!.value : null
+          : person.choose
+            ? person.choose(question, options, { details: shown })
+            : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: shown })) ? options[0]!.value : null
+      },
       // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
       // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
       askSite: async (host, command) => {
@@ -390,6 +404,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
+  /** every tool of the integrations provider (a connected service's: call_tool, api_request, its own tools …) */
+  const serviceTools = new Set<string>()
   // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
   const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
@@ -410,6 +426,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
+      if (p.name === 'integrations') serviceTools.add(t.name)
     }
     if (built.prompt) prompt.push(built.prompt)
     if (built.seen?.length) seen.push(...built.seen)
@@ -425,6 +442,32 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const projectOnly = new WeakSet<object>()
   /** the places this turn's searches already said the person lost (lostAccessFor: once a turn each) */
   const lostNoted = new Set<string>()
+  /** the same for sub-agents' calls, apart: theirs never use up the main AI's line (review of the plan and the code) */
+  const subLostNoted = new Set<string>()
+  /** the data files whose last change this turn's reads already gave (dataDateNotes: once a turn each) */
+  const datesNoted = new Set<string>()
+  /** a spreadsheet or CSV read (afterFileTool) or queried (query_data, a registered tool: wrapRegistered): when its data
+   * dates from, so a page or report made from it can say so (S-102), once a turn per file; the main AI's own calls
+   * only (it makes what is shown). The time of the file's newest file event while the bytes are still that event's, as
+   * the Files screen's history shows it; else the time on disk (a change outside the app records no event). */
+  const dataDateFor = (name: string, isError: boolean, args: unknown): string | null => dataDateNotes({ name, isError, args, seen: datesNoted, changed: (p) => {
+    try {
+      const r = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read')
+      if (!r.st?.isFile()) return null
+      const ev = exec.rt.db.query("SELECT at, sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { at: string; sha256: string | null } | null
+      const at = ev && sameBytesAsEvent(exec.rt.files.fx.root, r.rel, ev.sha256) ? ev.at : r.st.mtime.toISOString()
+      return `${localTime(at, exec.shownZone)} (${exec.shownZone})`
+    } catch { return null }
+  } }).map((d) => d.text).join('\n') || null
+  /** a shared chat's refusal of a search without a path, with the lost-access line when the search would have covered a
+   * place this person read earlier in this chat (lostAccessFor; the refusal never reaches afterFileTool) */
+  /** (a sub-agent's call gets the line too, without using up the main AI's once a turn) */
+  const withLost = (name: string, args: unknown, refusal: string | null, main: boolean): string | null => {
+    if (!refusal) return null
+    let lost: string | null = null
+    try { lost = lostAccessFor(exec, name, true, args, refusal, main ? lostNoted : subLostNoted) } catch { lost = null }
+    return lost ? `${refusal}\n${lost}` : refusal
+  }
   /** one call of a tool of this set (TurnToolSet.call, which adds the state of a chat file a refused in-place change
    * names) */
   const callTool = async (name: string, args: unknown, caller: Parameters<ChatToolSet['call']>[2]): ReturnType<ChatToolSet['call']> => {
@@ -476,7 +519,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a chat shared with people: a new file made in the asker's own folder goes to the chat (QA TC-7261, TC-7279),
       // before every card below weighs the call
       args = exec.sharedOutput(name, args, files === exec.files).args
-      const noPlace = exec.sharedSearchRefusal(name, args)
+      const noPlace = withLost(name, args, exec.sharedSearchRefusal(name, args), files === exec.files)
       if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
       args = exec.sharedArgs(name, args)
       // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
@@ -611,7 +654,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       // a place this person's own earlier answers in this chat read and the folder rules no longer let them read: the
       // access ended, who can give it again, and what was read stays true (S-118)
-      const lost = lostAccessFor(exec, name, isError, args, text, lostNoted)
+      // (a sub-agent's call gets the line too, without using up the main AI's once a turn)
+      const lost = lostAccessFor(exec, name, isError, args, text, !caller || caller.files === exec.files ? lostNoted : subLostNoted)
       if (lost && isError) return lost
       // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
       // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
@@ -629,6 +673,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
+      const dataDate = main && !guest ? dataDateFor(name, isError, args) : null
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
       // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
@@ -642,7 +687,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared chat's search or listing that left out places some of its people cannot open: how many, never which
       const left = !isError && args && typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.count ?? 0 : 0
       const leftNote = left > 0 ? searchLeftOutNote(left) : null
-      return [lost, placed, skillNote, heldNote, rooms, fact, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
+      return [lost, placed, skillNote, heldNote, rooms, fact, dataDate, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -708,7 +753,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // arguments, so they are changed in place)
         const lifted = exec.liftGlobPath(name, args)
         if (lifted !== args) Object.assign(args as object, lifted)
-        const noPlace = exec.sharedSearchRefusal(name, args)
+        const noPlace = withLost(name, args, exec.sharedSearchRefusal(name, args), caller ? caller.files === exec.files : true)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {
           // a project chat's search in the project folder (no path, or a path in it): its result says it looked only
@@ -751,19 +796,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args); exec.releaseScheduleCover(name, args) } }
   // a safety card of these tools waits after the answer ends (chat/open-questions.ts; TurnExec.cardLater): the call
   // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
+  // (a connected service's tools too: each asks before it reaches the service, docs/decisions/20261122-late-card-answer-
+  // resumes.md; not connection_result, whose answer is kept for its own turn only, nor find_tools, which asks nothing)
+  const cardLaterTool = (name: string): boolean => CARD_LATER_TOOLS.has(name) || (serviceTools.has(name) && !NOT_LATER.has(name))
   const once = set.call
   set.call = async (name, args, caller) => {
-    const track = CARD_LATER_TOOLS.has(name) && (caller?.files ?? exec.files) === exec.files
-    if (!track) return once(name, args, caller)
-    const was = exec.callNow
+    const track = cardLaterTool(name) && (caller?.files ?? exec.files) === exec.files
+    // each call in its own context: a card raised by another call running beside it is never kept with this one
+    // (a test's stand-in turn without runAsCall: no tracking, the card waits inside the call)
+    if (!exec.runAsCall) return once(name, args, caller)
+    if (!track) return exec.runAsCall(null, () => once(name, args, caller))
     const call = { name, args, deferred: null as string | null }
-    exec.callNow = call
-    try {
-      const out = await once(name, args, caller)
-      if (!call.deferred) return out
-      exec.markCallWaiting(name)
-      return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
-    } finally { exec.callNow = was }
+    const out = await exec.runAsCall(call, () => once(name, args, caller))
+    if (!call.deferred) return out
+    exec.markCallWaiting(name)
+    return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
   }
   return set
 }
@@ -771,6 +818,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
  * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
  * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
+/** the integrations provider's tools that never wait after the answer: connection_result and find_tools
+ * (integrations/connections/tools.ts CONNECTION_RESULT, FIND_TOOLS; pinned by tests/unit/b-late-card-answer.test.ts) */
+export const NOT_LATER: ReadonlySet<string> = new Set(['connection_result', 'find_tools'])
+
 export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown) => string | null): WidenOf | undefined {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
   if (!a) return undefined
@@ -876,7 +927,11 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!gone(rel) || granted(rel)) continue
     places.set(placeKey(pl), pl)
   }
-  if (isError) {
+  // a search a shared chat refused for having no path ("Not searched: … needs a folder", peopleSearchPlace): it would
+  // have looked everywhere, so it covers the lost place like a path-less search (TC-b3s-22: after the refusal the AI
+  // searched other folders, listed "/" and "groups" and asked for a path, never told that access had ended)
+  const refusedSearch = isError && SEARCH_TOOLS.has(name) && !!text?.startsWith('Not searched:')
+  if (isError && !refusedSearch) {
     const m = text ? /Access denied: not found or no access: '([^']*)'/.exec(text) : null
     if (!m) return null
     const rel = relOf(m[1]!)
@@ -888,11 +943,16 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (text!.includes('but this person can no longer open it') && !shared) return `${regrantLine(exec.rt.db, place, exec.spec.locale)} ${KEEP_READ_LINE}`
     return lostAccessNote(exec.rt.db, [place], exec.spec.locale, { shared })
   }
-  if (!SEARCH_TOOLS.has(name) || !args || typeof args !== 'object') return null
+  // (a listing of a folder above the place, "/" or "groups", looks where it was: it counts like a search there; a
+  // listing of the place itself is refused and answered above)
+  const listing = name === 'list' && !isError
+  if ((!SEARCH_TOOLS.has(name) && !listing) || !args || typeof args !== 'object') return null
   const a = args as { path?: unknown }
-  const scope = !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
+  const scope = refusedSearch ? '' : !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
   const k = placeKey(scope)
-  const hit = [...places].filter(([pk]) => !noted.has(pk) && (!k || pk === k || pk.startsWith(k + '/') || k.startsWith(pk + '/'))).filter(([, pl]) => gone(pl))
+  // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
+  const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
+  const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
   if (!hit.length) return null
   for (const [pk] of hit) noted.add(pk)
   return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
@@ -976,10 +1036,17 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
     // ...and any team file where other people's words are in the chat (othersWordsIn); the person's own Always allow for
     // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
-    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, askerSpec(exec), paths),
     othersWords: () => othersWordsIn(exec),
-    explicitPlace: (dir, paths) => paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
+    // (never while a waiting call runs again: that run reaches the card its press is checked against)
+    explicitPlace: (dir, paths) => exec.askedIn ? false : paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
+    // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
+    // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
+    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong()),
+    // their "Allow all websites" holds in their own scheduled run too (Rule A), except while a guest is among the people
+    // and another person's words can steer the run (the one limit Rule A keeps, as the connector cards: steerableRun)
+    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong() && steerableRun(exec.rt.db, exec.id)),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
@@ -1036,7 +1103,8 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
   }
 }
 
-function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
+/** `note`: a fact for the AI after the call's result (the data date of query_data's files), or null */
+function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isError: boolean, args: unknown, files: Parameters<Tool['call']>[1]) => string | null): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
@@ -1048,7 +1116,9 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
         const shown = r.stepImages
         exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
       }
-      return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
+      let extra: string | null = null
+      try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
+      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
 }
@@ -1320,7 +1390,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const yesValue = copy ? 'copy' : 'move'
       const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
-        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), copy, turnId: spec.turnId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), copy, turnId: spec.turnId, answer: answer === null || answer === undefined ? (exec.callNow?.deferred ? 'deferred' : 'none') : 'declined' } })
         return bad(`The user did not allow ${copy ? 'copying' : 'moving'} the skill "${neutralizeTags(plan.skill.name)}" from ${en(plan.from)} to ${en(plan.to)}, so nothing was ${verb}. The card said: ${people(plan)} Do not do it another way unless the user asks again, and never leave a README or an empty skills folder as a stand-in.`, 'not allowed by the user')
       }
       try {
@@ -1396,7 +1466,7 @@ function bTools(exec: TurnExec): Tool[] {
         const switchOn = autoMemoryOn(rt.db, spec.userId)
         // the switch off: kept only when the person's own message of this turn asks for it in so many words; the
         // model's `asked` never stands in for them (QA TC-7737). Nothing asks: the call is skipped quietly
-        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(spec.userMessageId)?.content ?? '')))
+        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(askerMessageId(exec))?.content ?? '')))
           return skip('Not kept: the user turned automatic memory off, so memories are kept only when they ask in their own words. Do not call remember unless they do; they can say "remember this" or add it in Settings › Memory. Do not mention this unless they ask about memory.', 'auto memory off, not asked')
         const auto = switchOn && exec.autoMemoryPlace
         const mine = rt.db.query('SELECT id, text, source FROM memories WHERE user_id = ?').all(spec.userId) as { id: string; text: string; source: string }[]

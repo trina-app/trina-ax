@@ -91,3 +91,28 @@ test('a script (a field with code: a declared CLI\'s stdin) shows in a code bloc
     removeDom()
   }
 })
+
+// docs/decisions/20261122-connector-always-allow.md (the owner: "코드를 보여주면 뭐 어케 하라는거냐"): a card whose question
+// says what happens in plain words keeps its code, parameters and ids behind one "Details"
+test('hidden details: the plain question first, the code and ids only after Details', async () => {
+  installDom()
+  const code = "await openTab('https://example.com/')"
+  const req: Ask = {
+    kind: 'ask_user', origin: 'server', requestId: 'r3', question: 'In Aside: Open the mail page', multiple: false, allowText: false,
+    options: [{ label: 'Allow', value: 'allow' }, { label: 'Always allow', value: 'always' }, { label: 'Don’t allow', value: 'deny' }], buttons: true,
+    details: [{ label: 'What it sends', text: JSON.stringify({ code, profile_id: 'p1' }, null, 2), exact: true, hidden: true, fields: [{ name: 'Code', value: code }, { name: 'Profile id', value: 'p1' }] }],
+  }
+  const m = await mount(<AskCard req={{ request: req }} onAnswer={async () => {}} />)
+  try {
+    expect(m.container.textContent).toContain('In Aside: Open the mail page')
+    expect(m.container.textContent).not.toContain('openTab')
+    expect(m.container.textContent).not.toContain('Profile id')
+    expect(m.get('ask-details-toggle').textContent).toBe(translate('en', 'ask.foldedShow'))
+    await m.click('ask-details-toggle')
+    expect(m.container.textContent).toContain('openTab')
+    expect(m.container.textContent).toContain('Profile id')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

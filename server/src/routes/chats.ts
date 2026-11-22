@@ -36,7 +36,7 @@ import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
+import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, pressParent, recordAnswer } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
@@ -882,7 +882,7 @@ export const chatsRoutes: RouteModule = {
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
-          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId, ...(body.mentions?.length ? { mentions: body.mentions } : {}) } })
+          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
         // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
         return started
@@ -1017,7 +1017,10 @@ export const chatsRoutes: RouteModule = {
         const hidden = labelsHidden(ctx.db, a.shared, q.messageId)
         // a browser site's call runs again in the window whose browser it was for
         rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
-          user: { parentId: q.messageId, content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden), attachments: [], clientMessageId: `answer-${requestId}` },
+          // from the chat's newest answer: a waiting call's card stays open while the chat goes on (the person wrote
+          // instead of pressing), and a late press continues the conversation there, never as a branch from the asking
+          // answer (docs/decisions/20261122-late-card-answer-resumes.md); with nothing after it, that is the asking answer
+          user: { parentId: (chat) => pressParent(ctx.db, chat.active_leaf_id, q.messageId), content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden), attachments: [], clientMessageId: `answer-${requestId}` },
           answered: answersToSave(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden) })
       } catch (e) { ready.undo(); throw e }
     }

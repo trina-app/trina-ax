@@ -1,8 +1,9 @@
 // A scheduled run in a shared chat (docs/decisions/20261118-shared-schedules-any-frequency.md, security review of #1353):
 // the run is a turn of its maker in that chat, and nobody watches it. Other people's messages on its branch are in its
-// transcript and could steer it, so such a run gets none of the maker's standing yeses (Always allow), sends nothing to a
-// connected service, and writes files only in the task's save folder or the maker's own folder. When every user message
-// on the run's branch is the maker's own, nobody else could have steered it, and it runs like any of their runs.
+// transcript and could steer it, so such a run writes files only in the task's save folder or the maker's own folder.
+// The maker's own Always allow holds there like in any of their runs (Rule A; docs/decisions/
+// 20261122-always-allow-holds-everywhere.md B6 ended "none of the maker's standing yeses, nothing to a connected
+// service"). When every user message on the run's branch is the maker's own, nobody else could have steered it.
 import type { Database } from 'bun:sqlite'
 import { isSharedRow } from './chat-audience'
 import { quotesOnBranch } from './read-rooms'

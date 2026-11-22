@@ -17,6 +17,7 @@
 // message must name the file and every person: a stop with nobody named asks there. The people are
 // matched only among those already on the files: the tool never lists teammates. What it did goes on its step as a
 // record (`Step.shared`, chat/share-card.ts) with who can still open a file and through what, for the card with Undo.
+import { askerMessageId } from './asked-in'
 import { StopSharingInput, uuidv7 } from '@mycel/shared'
 import { FILE_SHARE_EVERYONE, type FileShareRow, type ShareCardFile, type Step, type StepShared, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -154,8 +155,8 @@ export function stopSharingTool(exec: TurnExec): Tool {
         // ---- which files: ones the asker may take people off, each checked as the Share dialog checks it ----
         // other people's words are in this turn: a shared chat, a chat others wrote in, or one that read rooms
         const others = !!exec.shared || exec.otherAuthors || readRooms(exec)
-        const asked = askerText(db, spec.userMessageId)
-        const attached = attachedPaths(db, spec.userMessageId)
+        const asked = askerText(db, askerMessageId(exec))
+        const attached = attachedPaths(db, askerMessageId(exec))
         const plan: { path: string; name: string; owner: { id: string; name: string } | null; people: FileShareRow[] }[] = []
         for (const p of paths) {
           let v
@@ -226,7 +227,9 @@ export function stopSharingTool(exec: TurnExec): Tool {
         // a file or person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts, B4's
         // rule, as in share_with_person and post_to_room): unless their own message names it, the card shows
         const fromLook = todo.some((f) => lookedFile(exec, f.path, said, attached)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
-        const explicit = !fromLook && !saysDont(said)
+// (never while a waiting call runs again with the person's press, exec.askedIn: that run always reaches the card the
+        // press is checked against, docs/decisions/20261122-late-card-answer-resumes.md)
+        const explicit = !exec.askedIn && !fromLook && !saysDont(said)
           && todo.every((f) => attached.has(f.path) || namesFileLoose(said, f.path))
           && (refs.length ? who.every((w) => namedInFull(said, w.subjectId === FILE_SHARE_EVERYONE ? [w.name, ...EVERYONE_WORDS] : recipientWords(db, w))) : !marked)
         const owner = cardOwner(todo[0]?.owner, spec.userId)
