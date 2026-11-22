@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 00:16
 - Branch: `fix/connector-desktop-handoff`
-- Status: in progress
+- Status: done
 - Where: server (`server/src/integrations/slack/service.ts`, `server/src/routes/{slack,drive,integrations}.ts`). Why:
   the Slack connector and the shared claim address live in the server; no desktop or web change.
 - Version impact: patch (a fix; no contract change, no migration; desktop apps since 0.6 already post every code to
@@ -41,4 +41,7 @@ docs/decisions/20261122-slack-desktop-handoff.md
 
 ## Result
 
-(filled in at the end)
+Built as planned. Slack's code (or the hosting service's handoff) is held sealed and exchanged only at the claim, so
+an unclaimed result holds no token. A return after the app finished now says how it ended ("linked" / "installed")
+instead of "expired". Tests: tests/unit/c-slack.test.ts, tests/unit/c-slack-official.test.ts,
+tests/security/slack-desktop-handoff.test.ts.
