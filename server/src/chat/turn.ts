@@ -80,7 +80,7 @@ import { notificationsOf, notifyEngineStartFailed } from '../notifications/servi
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { noteSharedAnswer } from './message-notices'
-import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
+import { takeAnsweredCalls, answeredNote, closedQuestionNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -233,6 +233,9 @@ export interface TurnSpec extends QueueTiming {
   timeZone?: string
   /** the chat's engine is switched off: this turn runs on the team default (step note) */
   substitutedFrom?: EngineId
+  /** a shared chat: other people's ask_user questions this turn's message closed unanswered (ChatRuntime.createTurn;
+   * open-questions.ts closedQuestionNote). Kept in memory only: a turn rebuilt after a restart has none. */
+  closedOthers?: { name: string; question: string }[]
 }
 
 /** Why a shared chat's read card refused: the person's no, no answer, nobody to ask, the answer stopped, or a check
@@ -1238,7 +1241,9 @@ export class TurnExec {
     const ranAgain = waited.calls.length ? await this.replayCalls(waited.calls, toolSet)
       : waited.ran ? '<answered_cards>\nThe calls this message answered already ran, in an earlier answer to it. They do not run again: if the user still wants one of them, call it again (it asks them again).\n</answered_cards>' : ''
     if (this.stopReason) return
-    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
+    // another person's question this message closed unanswered (QA S-125): their request is named, not dropped
+    const closedQ = this.shared ? closedQuestionNote(spec.closedOthers ?? []) : ''
+    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
     // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
     const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)

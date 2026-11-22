@@ -129,12 +129,27 @@ export function recordAnswer(db: Database, requestId: string, value: unknown): {
 }
 
 /** A new turn starts in the chat: every question still there goes (answered ones with their turn, the rest because the
- * conversation went on without them). What the apps are told to close. */
-export function closeChatQuestions(db: Database, chatId: string): { requestId: string; turnId: string; userId: string; answered: boolean }[] {
-  const rows = db.query('SELECT request_id, turn_id, user_id, answer FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'turn_id' | 'user_id' | 'answer'>[]
+ * conversation went on without them). What the apps are told to close; `question`: the AI's own ask_user question, for
+ * closedQuestionNote (null for the server's safety cards: delete, share, a site, which name files, people and links
+ * only their asker sees). */
+export function closeChatQuestions(db: Database, chatId: string): { requestId: string; turnId: string; userId: string; answered: boolean; question: string | null }[] {
+  const rows = db.query('SELECT request_id, turn_id, user_id, answer, request, call_tool FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool'>[]
   if (!rows.length) return []
   db.query('DELETE FROM open_questions WHERE chat_id = ?').run(chatId)
-  return rows.map((r) => ({ requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null }))
+  return rows.map((r) => {
+    const card = parse(r.request)
+    return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' && card.origin !== 'server' && !r.call_tool ? card.question : null }
+  })
+}
+
+/** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next
+ * turn's engine message names them, so another person's request is not dropped without a word (prompt.ts sharedSection
+ * "opposite requests"). `name`: the asker's label name (chat/shared.ts labelName). '' when there are none. */
+export function closedQuestionNote(closed: readonly { name: string; question: string }[]): string {
+  if (!closed.length) return ''
+  // the words inside the block, never a tag of their own (as answeredNote)
+  const json = JSON.stringify(closed.map((c) => ({ person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}. Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
 }
 
 /** Each answer in words: the picked options by their labels (`picked`: as these words instead), a site card's choice in
