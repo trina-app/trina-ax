@@ -142,13 +142,15 @@ test('QA TC-7046: a copy of the sender\'s own file made from their own files and
   const d = await copyWith('own-d.md', (id) => own(id, [{ type: 'user', id: mia.id }], true))
   const e = await copyWith('own-e.md', (id) => own(id, [], false, `users/${nora.id}/x/${id}.md`))
   const g = await copyWith('own-g.md', (id) => own(id, [], false, 'shared/docs/x.md'))
+  // stays: made from what her personal connection returned
+  const v = await copyWith('own-v.md', (id) => own(id, [{ type: 'user', id: mia.id, via: 'connection' }]))
   const k = await copyWith('own-k.md', (id) => ({ sources: [], unknown: false, attached: [{ file: id, path: `users/${mia.id}/n/${id}.md`, links: [] }] }), nora)
   const { info, chat } = await convert(mia.client, roomId)
-  expect([info.filesMoving, info.filesStaying, info.filesStayingCopies]).toEqual([1, 6, 6])
+  expect([info.filesMoving, info.filesStaying, info.filesStayingCopies]).toEqual([1, 7, 7])
   expect(moves(roomId).map((m) => m.room_file_id)).toEqual([a.id])
   await roomFileMovesOf(h.ctx).run()
   expect(refOf(a.id)?.path).toBe(`${chat}/own-a.md`)
-  for (const f of [b, c, d, e, g, k]) expect(refOf(f.id)).toBeNull()
+  for (const f of [b, c, d, e, g, k, v]) expect(refOf(f.id)).toBeNull()
 })
 
 test('names: "(2)", the same name twice, a case-only clash, CLAUDE.md and _FILES.md taken, a refused name made safe', async () => {

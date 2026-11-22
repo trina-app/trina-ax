@@ -21,12 +21,12 @@ import { CHAT_FILE_MAX, chatFileAttachment, chatFilesOf } from './chat-files'
 /** The attachments of a message in the people-shared chat `chat`, with each team file not everyone in it may open
  * replaced by a copy kept with the chat (sent by `userId`, who may read it). Order kept. */
 export async function copyTeamAttachments(ctx: AppContext, chat: { id: string; user_id: string; people_shared_at: string | null; project_id: string | null }, userId: string, atts: readonly Attachment[]): Promise<Attachment[]> {
-  if (!atts.some((a) => a.source === 'team' && a.path)) return [...atts]
+  if (!atts.some((a) => a.source === 'team' && a.path)) return atts as Attachment[]
   const db = ctx.db
   const rules = ctx.files.rules()
   const people = [...new Set([chat.user_id, ...peopleAudience(db, chat)])].map((id) => loadPrincipal(db, id)).filter((p): p is Principal => !!p)
   const me = loadPrincipal(db, userId)
-  if (!me) return [...atts]
+  if (!me) return atts as Attachment[]
   const out: Attachment[] = []
   let copied = 0
   for (const a of atts) {
@@ -57,7 +57,8 @@ export async function copyTeamAttachments(ctx: AppContext, chat: { id: string; u
       await fs.promises.rm(tmp, { force: true }).catch(() => {})
     }
   }
-  if (copied) audit(db, { actor: userId, action: 'chat.files_copied', target: chat.id, detail: { files: copied, attach: true } })
+  if (!copied) return atts as Attachment[]
+  audit(db, { actor: userId, action: 'chat.files_copied', target: chat.id, detail: { files: copied, attach: true } })
   return out
 }
 
@@ -71,4 +72,11 @@ async function sha256Of(file: string): Promise<string> {
   const h = createHash('sha256')
   for await (const chunk of fs.createReadStream(file)) h.update(chunk as Buffer)
   return h.digest('hex')
+}
+
+/** The copies `copyTeamAttachments` made for a send that then did not go (refused, or the same message sent twice):
+ * removed, so no chat file is left without its message. */
+export function discardCopies(ctx: AppContext, userId: string, before: readonly Attachment[], after: readonly Attachment[]): void {
+  const had = new Set(before.map((a) => a.id))
+  for (const a of after) if (a.source === 'chat' && !had.has(a.id)) { try { chatFilesOf(ctx).discard(userId, a.id) } catch { /* swept later */ } }
 }

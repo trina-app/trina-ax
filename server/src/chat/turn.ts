@@ -68,7 +68,7 @@ import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, SHARED_RUN_ALLOWANCE, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
-import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { aiCalled, engineError, OWN_FOLDER_WORDS, stepLabel, tr, turnLimitError } from './i18n'
 import { HELD_MAX_FILES, heldFile, heldFileOk, heldNote, heldPreview, heldRefusal, type HeldFile } from './skill-held'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
@@ -3648,7 +3648,10 @@ export class TurnExec {
       // the asker named the folder in this turn's own message: a sub-folder by its name; the folder itself by "my files"
       const asked = fold(((this.rt.db.query('SELECT content FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null } | null)?.content ?? ''))
       const dir = segsOf(written[0]!).slice(0, -1)
-      const named = dir.length > 2 ? asked.includes(fold(dir[dir.length - 1]!)) && dir[dir.length - 1]!.length >= 2 : OWN_FOLDER_WORDS.some((w) => asked.includes(w))
+      // (a whole word: a folder called "ai" is not named by every message with those letters; a Korean particle may
+      // follow it: "QA-SQ에")
+      const word = (w: string) => w.length >= 2 && new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}]|[\\u{AC00}-\\u{D7A3}])`, 'u').test(asked)
+      const named = dir.length > 2 ? word(fold(dir[dir.length - 1]!)) : OWN_FOLDER_WORDS.some((w) => asked.includes(fold(w)))
       if (named) return { args, note: null }
       const name = segsOf(written[0]!).pop()!
       return { args: { ...a, [key]: `chat:files/${name}` }, note: `(Saved to this chat as chat:files/${name}, not in the user's own folder: in a chat shared with people a new file goes to the chat, where everyone here opens it. Say it is attached to this answer.)` }
@@ -5542,8 +5545,6 @@ export const ROOM_CHANGE_FULL = 100_000
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
 /** The produce tools whose one new file a people-shared chat moves to chat:files (TurnExec.sharedOutput), by argument */
 const SHARED_OUTPUT_ARG: Readonly<Record<string, string>> = { make_file: 'output', edit_pdf: 'output', merge_pdfs: 'output', stamp_pdf: 'output', comment_docx: 'output', make_zip: 'output', resize_images: 'output' }
-/** Words that name the asker's own folder itself in their message (TurnExec.sharedOutput), lower case */
-const OWN_FOLDER_WORDS = ['my files', 'my folder', '내 파일', '내 폴더', '내파일', '내폴더', 'マイファイル', '我的文件', 'mis archivos', 'mi carpeta', 'file saya', 'folder saya']
 
 /** The people chat's "Not searched" refusals (peopleSearchPlace): the user's own folder is searched by its own path, after
  * their yes on a card (QA TC-7041: the AI took the refusal for "your folder cannot be used here"). */

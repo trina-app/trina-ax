@@ -24,6 +24,9 @@
   the private time is no longer kept from people added later: the Share dialog says it in a line of its own
   (devAnswers) and the press covers it; the "not all known" mark is per answer, not on every answer at once. A later
   share says how many earlier answers stay hidden from the people added (hiddenAnswers).
+- **Known limit:** an app build older than this one does not show the dev environment line (it knows no `devAnswers`);
+  its Share press then covers those answers without that line. Accepted for the MVP (the owner may ask to keep them
+  hidden instead: per answer `x`, the fallback the plan review named).
 - **Why:** a link that is dead for most of the chat is worse than a file in the chat; the people of the chat are the
   audience the asker chose.
 - **Tests:** tests/unit/places-produce.test.ts "QA TC-7279/TC-7261 …"; tests/unit/b-share-chat-people.test.ts "QA

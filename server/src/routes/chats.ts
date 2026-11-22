@@ -55,7 +55,7 @@ import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
 import { chatFilesOf } from '../chat/chat-files'
-import { AttachCopyError, copyTeamAttachments } from '../chat/attach-copies'
+import { AttachCopyError, copyTeamAttachments, discardCopies } from '../chat/attach-copies'
 import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
@@ -832,7 +832,16 @@ export const chatsRoutes: RouteModule = {
       // a chat shared with people: a team file some people here cannot open goes in as a copy kept with the chat (QA
       // TC-7286, chat/attach-copies.ts); the checks again after the copy (nothing may have started meanwhile)
       const atts = a.kind === 'people' ? await attachCopies(ctx, chat, auth.user.id, picked, c.get('locale')) : picked
-      if (atts !== picked) { const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (again) return again; busy(a, c.get('locale'), auth.user.id) }
+      if (atts !== picked) {
+        // the chat and my place in it again after the copy (removed, unshared or busy meanwhile: no send, no copies left)
+        try {
+          const now = chatOf(rt, c, auth, params.id, 'continue')
+          if (now.kind !== 'people' || now.row.people_shared_at !== chat.people_shared_at) fail('conflict', tr('chatShareBusy', c.get('locale')), { params: { reason: 'chat_busy' } })
+          const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
+          if (again) { discardCopies(ctx, auth.user.id, picked, atts); return again }
+          busy(now, c.get('locale'), auth.user.id)
+        } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
+      }
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
@@ -841,6 +850,7 @@ export const chatsRoutes: RouteModule = {
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
         return started
       } catch (e) {
+        discardCopies(ctx, auth.user.id, picked, atts)
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
@@ -896,12 +906,21 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       // as a send (QA TC-7286)
       const atts = a.kind === 'people' ? await attachCopies(ctx, chat, auth.user.id, picked, c.get('locale')) : picked
-      if (atts !== picked) { const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (again) return again; busy(a, c.get('locale'), auth.user.id) }
+      if (atts !== picked) {
+        try {
+          const now = chatOf(rt, c, auth, params.id, 'continue')
+          if (now.kind !== 'people' || now.row.people_shared_at !== chat.people_shared_at) fail('conflict', tr('chatShareBusy', c.get('locale')), { params: { reason: 'chat_busy' } })
+          const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
+          if (again) { discardCopies(ctx, auth.user.id, picked, atts); return again }
+          busy(now, c.get('locale'), auth.user.id)
+        } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
+      }
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
+        discardCopies(ctx, auth.user.id, picked, atts)
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }

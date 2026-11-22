@@ -38,7 +38,6 @@ import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
 import { demoAnswerKey } from '../../lib/freeRoam'
 import { meGuest } from '../../lib/guests'
-import { useGuestNoAi } from '../GuestView'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
@@ -791,7 +790,9 @@ export function AssistantMessage({
   // a guest whose AI does not answer them (QA TC-7050): a known state too, a calm notice with no Try again (trying again
   // fails the same way); while the guest box under the chat already says it (useGuestNoAi), no second notice here
   const guestNoAnswer = guest && m.status === 'error' && !atLimit && !!reason && GUEST_ASKS.has(reason)
-  const guestBox = useGuestNoAi()
+  // (the box's own rule, GuestView useGuestNoAi, read from the store without its load: the page loads ai-access)
+  const guestOff = useAiAccess((s) => s.loaded && !s.usable && s.action !== 'connect_own')
+  const guestBox = guest && (meGuest(meNow)?.ai === 'none' || guestOff)
   // (an older limit answer may be asked again once the limit has started again)
   const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate

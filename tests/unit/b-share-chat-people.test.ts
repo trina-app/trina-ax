@@ -459,7 +459,7 @@ describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
     await ask('alice', id, fake({ tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }))
     const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob] } })
     expect(p.check.fileAnswers).toBe(1)
-    expect(p.check.fileNames?.[0]).toMatch(/^campaign-brief\.md \(.+\)$/)
+    expect(p.check.fileNames?.[0]).toMatch(/^campaign-brief\.md · .+$/)
   })
 
   test('TC-7269: a helper file a later make_file turned into the result is not offered with the chat\'s files', async () => {

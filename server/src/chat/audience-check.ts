@@ -48,9 +48,9 @@ export interface AudienceFindings {
   /** the people being added whom one of the warnings is about (they miss a place or a file, or every new person for
    * memories, personal accounts and rooms): the Share dialog names only the picks that bring one in (QA TC-7042) */
   missing: string[]
-  /** the team paths of files the answers read that someone being added cannot open (the sharer read them: their names
-   * may be told to the sharer), sorted */
-  missedFiles: string[]
+  /** the team paths of files the answers read that someone being added cannot open, with the answers that read each
+   * (the caller names only those the sharer may read now, of answers not hidden from them), sorted by path */
+  missedFiles: { path: string; answers: string[] }[]
   /** the provenance keys (sources and who misses each) the confirm key binds */
   sourceKeys: string[]
   /** per answer: the new people it widens to and the counted places it used (the widening list of one chat) */
@@ -153,13 +153,13 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   const perAnswer = new Map<string, { widens: Set<string>; sources: ReadSource[] }>()
   const attributed = new Set<string>()
   // the team files those answers read that someone new misses, by name (the warning names them: QA TC-7277, TC-7370)
-  const missedFiles = new Set<string>()
+  const missedFiles = new Map<string, Set<string>>()
   if (countedFiles.size && ids.length) {
     for (const r of db.query(`SELECT message_id, path FROM message_sources WHERE message_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)) as { message_id: string; path: string }[]) {
       const c = countedFiles.get(r.path)
       if (!c) continue
       attributed.add(r.path)
-      if (c.missing.length && !r.path.startsWith('chat:')) missedFiles.add(r.path)
+      if (c.missing.length && !r.path.startsWith('chat:')) (missedFiles.get(r.path) ?? missedFiles.set(r.path, new Set()).get(r.path)!).add(r.message_id)
       const x = perAnswer.get(r.message_id) ?? perAnswer.set(r.message_id, { widens: new Set(), sources: [] }).get(r.message_id)!
       for (const id of c.missing) x.widens.add(id)
       if (!x.sources.some((s) => sourceKey(s) === c.key)) x.sources.push(c.source)
@@ -215,7 +215,7 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
     devAnswers: sorted(devAnswers),
     hidden: prov.hidden,
     missing: sorted([...missing].filter((p) => everyone.has(p))),
-    missedFiles: sorted(missedFiles),
+    missedFiles: [...missedFiles].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, ids]) => ({ path, answers: [...ids].sort() })),
     sourceKeys: prov.keys,
     perAnswer,
     use,

@@ -72,17 +72,19 @@ const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: str
  * in the chat may have read a place I cannot: never named), each with where it is in the Files screen's words ("원가.xlsx
  * (영업 › 단가)", QA TC-7240), at most FILE_NAMES_MAX. */
 const FILE_NAMES_MAX = 5
-function fileNamesOf(ctx: AppContext, f: AudienceFindings, me: string, L: Locale): string[] {
+function fileNamesOf(ctx: AppContext, f: AudienceFindings, me: string, L: Locale, fromMe: ReadonlySet<string>): string[] {
   const p = loadPrincipal(ctx.db, me)
   if (!p) return []
   const rules = ctx.files.rules()
   const out: string[] = []
-  for (const rel of f.missedFiles) {
+  for (const { path: rel, answers } of f.missedFiles) {
     if (out.length >= FILE_NAMES_MAX) break
+    // read only by answers kept from me: not named (that would tell me what such an answer used)
+    if (answers.every((id) => fromMe.has(id))) continue
     if (!atLeast(rules.access(p, rel.split('/').filter(Boolean)), 'read')) continue
     const dir = rel.slice(0, Math.max(0, rel.lastIndexOf('/')))
     const name = rel.slice(rel.lastIndexOf('/') + 1)
-    const line = dir ? `${name} (${placeWords(ctx.db, dir, L, me)})` : name
+    const line = dir ? `${name} · ${placeWords(ctx.db, dir, L, me)}` : name
     if (!out.includes(line)) out.push(line)
   }
   return out
@@ -211,7 +213,8 @@ function gainedBy(ctx: AppContext, chat: ChatRow, add: readonly { subjectType: '
 /** The checks of the last minute (the preview, the widening list): the same list against the same chat, rules and
  * people answers from here, so 60 previews a minute never hash big files 60 times. A save never reads it. */
 const CHECK_CACHE_MS = 60_000
-type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[]; hidden: number }
+/** `hidden`: the earlier answers kept from someone being added (and who: `hiddenFrom`); `fromMe`: the ones kept from me */
+type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[]; hidden: string[]; hiddenFrom: string[]; fromMe: Set<string> }
 const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<Findings> }>>()
 
 /** What the people `newPeople` (ids) would see that they could not before, with the answers whose records they miss
@@ -231,14 +234,15 @@ async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, ne
     const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat, { audience: newPeople }) : []
     // a chat shared already: the earlier answers its records keep from someone being added (QA TC-7262: the dialog said
     // nothing and every answer was hidden from the newcomer); a first share records them for everyone it adds
-    const hiddenIds = new Set<string>()
-    if (isPeopleRow(chat) && newPeople.length) {
+    const hiddenIds = new Set<string>(), hiddenFrom = new Set<string>()
+    let fromMe = new Set<string>()
+    if (isPeopleRow(chat)) {
       const nodes = chatNodes(db, chat.id)
       // (not one already hidden from me: nothing of it is told)
-      const fromMe = withheldAmong(db, rules, nodes, viewer.id)
-      for (const id of newPeople) for (const m of withheldAmong(db, rules, nodes, id)) if (!fromMe.has(m)) hiddenIds.add(m)
+      fromMe = withheldAmong(db, rules, nodes, viewer.id)
+      for (const id of newPeople) for (const m of withheldAmong(db, rules, nodes, id)) if (!fromMe.has(m)) { hiddenIds.add(m); hiddenFrom.add(id) }
     }
-    return { f, earlierFiles, made, hidden: hiddenIds.size }
+    return { f, earlierFiles, made, hidden: [...hiddenIds].sort(), hiddenFrom: [...hiddenFrom].sort(), fromMe }
   }
   if (!o.cache) return compute()
   const now = Date.now()
@@ -302,10 +306,10 @@ const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: str
   added, memoryAnswers: x.f.memoryAnswers.length, fileAnswers: x.f.fileAnswers.length, accountAnswers: x.f.accountAnswers.length,
   places: x.f.places, otherPlaces: x.f.otherPlaces, roomsUnseen: x.f.roomsUnseen, unchecked: x.f.unchecked.length, ...(x.earlierFiles ? { earlierFiles: x.earlierFiles } : {}),
   ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me, x.f) } : {}),
-  ...(x.f.fileAnswers.length ? (() => { const names = fileNamesOf(ctx, x.f, me, L); return names.length ? { fileNames: names } : {} })() : {}),
-  ...(x.hidden ? { hiddenAnswers: x.hidden } : {}),
+  ...(x.f.fileAnswers.length ? (() => { const names = fileNamesOf(ctx, x.f, me, L, x.fromMe); return names.length ? { fileNames: names } : {} })() : {}),
+  ...(x.hidden.length ? { hiddenAnswers: x.hidden.length } : {}),
   ...(x.f.devAnswers.length ? { devAnswers: x.f.devAnswers.length } : {}),
-  ...(picked ? { warnPicks: warnPicksOf(ctx, picked.list, picked.added, picked.people, x.f.missing) } : {}),
+  ...(picked ? { warnPicks: warnPicksOf(ctx, picked.list, picked.added, picked.people, [...x.f.missing, ...x.hiddenFrom]) } : {}),
 })
 /** A check with nothing in it but the files (a chat already shared: the step on its own). */
 const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: string): ShareCheck => ({
@@ -315,7 +319,7 @@ const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: s
 /** The key a save of `wanted` must carry: over the list, the people it brings, every answer id each warning is about
  * (not counts), the places, the earlier uploads and every message of every branch. */
 const keyOf = (ctx: AppContext, userId: string, chatId: string, wanted: readonly AudienceSubject[], x: Findings, messages: readonly string[]) =>
-  confirmMac(ctx, { kind: 'chat.audience', v: 3, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(x.f), earlierFiles: x.earlierFiles, made: madeState(x.made), messages })
+  confirmMac(ctx, { kind: 'chat.audience', v: 3, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(x.f), earlierFiles: x.earlierFiles, made: madeState(x.made), messages, ...(x.hidden.length ? { hidden: x.hidden } : {}) })
 
 /** The list as asked, without repeats or me (the creator is always in it, never an entry); at most CHAT_AUDIENCE_MAX. */
 function wantedOf(subjects: readonly { subjectType: 'user' | 'group'; subjectId: string }[], userId: string, locale: Locale): { wanted: AudienceSubject[]; seen: Set<string> } {

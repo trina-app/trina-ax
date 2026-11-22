@@ -125,8 +125,9 @@ function ownFileCopy(ctx: AppContext, f: Candidate): boolean {
     if (hit.length !== 1 || !mine(hit[0]!.path) || String(hit[0]!.path).split('/').filter(Boolean).length < 3) return false
     return kept.sources.every((x) => {
       if (!x || typeof x !== 'object') return false
-      const s = x as { type?: unknown; id?: unknown; path?: unknown }
-      if (s.type === 'user') return s.id === sender
+      const s = x as { type?: unknown; id?: unknown; path?: unknown; via?: unknown }
+      // (not what the sender's personal connection or browser returned: { type: 'user', via })
+      if (s.type === 'user') return s.id === sender && !s.via
       if (s.type === 'name') return mine(s.path)
       if (s.type === 'room') return s.id === f.room_id
       return false
