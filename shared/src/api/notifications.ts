@@ -377,6 +377,11 @@ export const InboxNotification = z.object({
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
     job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string().optional(), tail: z.string().optional(), reason: z.string().optional(), chatTitle: z.string().optional() }).optional(),
+    /** A request whose jobs ended while its answer ran (server/src/devenv/jobs.ts tellHeldJobs): how the answer ended.
+     * done: it finished; stopped: it did not, with why (limit: the step or time limit of one answer; error; stopped:
+     * someone stopped it; restart: the server restarted; question: Trina waits for the person's answer). chatTitle as
+     * for job. Older servers omit it. */
+    request: z.object({ outcome: z.enum(['done', 'stopped']), reason: z.enum(['limit', 'error', 'stopped', 'restart', 'question']).optional(), chatTitle: z.string().optional() }).optional(),
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>

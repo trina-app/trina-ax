@@ -67,6 +67,14 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
  * the person can open it. No job name, exit code, reason or log: the people reading it are not developers, and the log
  * stays in the chat for its AI. A notice of the removed box runner has no job: the generic text of its event. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
+  // a request whose jobs ended while its answer ran: how the answer ended (finished, or stopped and why), never "done"
+  // for one step of it (server/src/devenv/jobs.ts tellHeldJobs)
+  const request = item.devEnv?.request
+  if (request) {
+    if (request.outcome === 'done') return request.chatTitle ? isolate(locale, 'notifications.event.dev_env.jobDoneIn', { title: request.chatTitle }, ['title']) : t('notifications.event.dev_env.jobDone')
+    const why = t(`notifications.event.dev_env.requestWhy.${request.reason ?? 'error'}`)
+    return request.chatTitle ? isolate(locale, 'notifications.event.dev_env.requestStoppedIn', { title: request.chatTitle, why }, ['title']) : t('notifications.event.dev_env.requestStopped', { why })
+  }
   const job = item.devEnv?.job
   if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
   // done: exit code 0; unknown: it ended by itself with no code the server could read (QA TC-6586); failed: the rest
