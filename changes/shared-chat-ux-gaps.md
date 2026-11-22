@@ -1,7 +1,0 @@
-- **Leave a chat someone shared with you.** "Leave this chat" in its menu and in the who-sees list takes you out for good, until its creator adds you again.
-- People who lose a shared chat are told who did it and why: sharing stopped, the chat moved to the trash (taken back when it is restored), or its creator left the team (with the day it will be deleted).
-- A shared chat shows who added, removed or left between its messages, and deleting one names the people who lose it too.
-- An answer that stopped because its requester was removed from the team says so, and the line under the box says when the creator's account is gone.
-- People a chat was shared with can open the list of who sees it. Guests show in the Share search with why they can't be added.
-- The 50 MB limit in a shared chat now says where a bigger file goes, and a member who can't change a project's people is told that in those words.
-- Fixed: the open tab of a switched-off account no longer crashes in some browsers; it goes to the sign-in page.
