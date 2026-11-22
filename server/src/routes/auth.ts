@@ -14,6 +14,7 @@ import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
+import { disconnectGoogle, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
@@ -52,7 +53,11 @@ export const authRoutes: RouteModule = {
     // the relay only to a visitor with the setup token (accounts.ts setupStatusFor). The default language still
     // changes when the owner picks another one at setup: accepted, it is the sign-in page's language
     // (docs/DECISIONS.md "보안 4차").
-    kit.handle(API.setupStatus, ({ c }) => setupStatusFor(c, ctx))
+    kit.handle(API.setupStatus, ({ c }) => {
+      const s = setupStatusFor(c, ctx)
+      // Sign in with Google (auth/google-login.ts): only on a team that is set up, at the address Google returns to
+      return !s.needed && googleLoginAvailable(ctx, c.req.url) ? { ...s, googleSignIn: true as const } : s
+    })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 
@@ -69,6 +74,13 @@ export const authRoutes: RouteModule = {
     // "Continue in the Mac app" (web /open-app): a one-time code for the desktop app, and its redeem there
     kit.handle(API.appSignIn, ({ c }) => mintAppSignIn(c, ctx))
     kit.handle(API.redeemAppSignIn, ({ c, body }) => redeemAppSignIn(c, ctx, body))
+
+    // Sign in with Google (auth/google-login.ts): connect in Settings › Security with the current password, then sign in
+    // with it. Google's return comes to the Drive callback address (routes/drive.ts)
+    kit.handle(API.startGoogleSignIn, ({ c, body }) => startGoogleSignIn(c, ctx, body.next))
+    kit.handle(API.myGoogle, ({ c, auth }) => myGoogle(c, ctx, auth.user.id))
+    kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body.password))
+    kit.handle(API.disconnectGoogle, ({ auth }) => disconnectGoogle(ctx, auth.user.id))
 
     kit.handle(API.changePassword, async ({ c, body }) => {
       await changePassword(c, ctx, body)

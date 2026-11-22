@@ -208,6 +208,10 @@ export const SetupStatus = z.object({
    * team: never this team's host, slug or id). The sign-in page links the owner there with `?team=<its own host>`.
    * null (or left out by an older server): no such page; the sign-in page keeps the plain "ask an admin" line. */
   ownerRecoveryUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https only').nullable().optional(),
+  /** the sign-in page may offer "Sign in with Google" (server/src/auth/google-login.ts): this server has a Google client
+   * and Google returns to the address this page was opened at. Absent: no button (none, another address, a demo, or an
+   * older server). The apps leave it out until they can open Google outside their window. */
+  googleSignIn: z.literal(true).optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
@@ -252,6 +256,24 @@ export const RedeemAppSignInBody = z.object({
   client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
+
+/** Sign in with Google (server/src/auth/google-login.ts; docs/AGENTS/plan/20261122-0454-google-login.md). A person
+ * connects their Google account in Settings › Security with their current password, then signs in with it. The answer
+ * is Google's address to open in this window; Google comes back to this server, which signs in and opens `next`. */
+export const GoogleSignInBody = z.object({
+  /** a path of this site to open after signing in (the sign-in page's ?next=); anything else is dropped */
+  next: z.string().max(500).optional(),
+})
+export const GoogleStart = z.object({ url: z.string().url() })
+export type GoogleStart = z.infer<typeof GoogleStart>
+export const ConnectGoogleBody = z.object({ password: z.string().min(1).max(256) })
+export const MyGoogle = z.object({
+  /** this page can connect one now (the same rule as SetupStatus.googleSignIn) */
+  available: z.boolean(),
+  /** the connected Google account; null: none */
+  account: z.object({ email: z.string().nullable(), connectedAt: IsoTime, lastUsedAt: IsoTime.nullable() }).nullable(),
+})
+export type MyGoogle = z.infer<typeof MyGoogle>
 
 export const UpdateMeBody = z.object({
   name: PersonName.optional(),
@@ -321,5 +343,12 @@ export const AUTH = {
   appSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin', auth: 'user', owner: 'A', response: AppSignInCode, summary: 'Make a one-time code (3 minutes) that signs the desktop app in as me. Cookie sessions only; rate-limited; my earlier codes stop working.' }),
   redeemAppSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin/redeem', auth: 'public', owner: 'A', body: RedeemAppSignInBody, response: LoginResponse, summary: 'Sign in with a one-time code from appSignIn (once, within 3 minutes). Sets the session cookie.' }),
   acceptInvite: endpoint({ method: 'POST', path: '/api/invites/:token/accept', auth: 'public', owner: 'A', status: 201, body: AcceptInviteBody, response: LoginResponse, summary: 'Create the account from an invite link and sign in.' }),
+  // Sign in with Google (server/src/auth/google-login.ts): the start sets a short binding cookie; Google returns to the
+  // server's registered address (routes/drive.ts looks the state up here first). Never a GET: each start is a row
+  startGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/start', auth: 'public', owner: 'A', body: GoogleSignInBody, response: GoogleStart, summary: 'Start signing in with a connected Google account: Google\'s address to open. Rate-limited per IP.' }),
+  myGoogle: endpoint({ method: 'GET', path: '/api/me/google', auth: 'user', owner: 'A', response: MyGoogle, summary: 'My connected Google account, and whether one can be connected here.' }),
+  // not allowWhilePasswordChange (a temporary-password session cannot connect one), not for guests (GUEST_ENDPOINTS)
+  connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password): Google\'s address to open.' }),
+  disconnectGoogle: endpoint({ method: 'DELETE', path: '/api/me/google', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Disconnect my Google account: it no longer signs me in.' }),
 } as const
 

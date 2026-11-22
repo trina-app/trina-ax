@@ -383,6 +383,43 @@ function ForgotLine({ url }: { url?: string }) {
   )
 }
 
+/** Why a Google return came back to the sign-in page (?google=<reason>, server/src/auth/google-login.ts) */
+const GOOGLE_RESULT: Record<string, MessageKey> = {
+  not_connected: 'auth.google.not_connected', account_off: 'auth.google.account_off', password_first: 'auth.google.password_first',
+  cancelled: 'auth.google.cancelled', expired: 'auth.google.expired', failed: 'auth.google.failed',
+}
+
+/** "Sign in with Google" under the form (GET /api/setup googleSignIn: this server has a Google client and Google comes
+ * back to this address). Google's page opens in this window; the server signs in on the way back and opens `next`. A
+ * browser only: Google refuses to sign in inside the apps' own windows, which get their way in later. */
+function GoogleSignIn({ next }: { next: string | null }) {
+  const t = useT()
+  const locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    setBusy(true)
+    try {
+      const r = await api.call(API.startGoogleSignIn, { body: next ? { next } : {} })
+      window.location.assign(r.url)
+    } catch (e) {
+      setBusy(false)
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 text-xs text-faint" aria-hidden>
+        <span className="h-px flex-1 bg-line" />
+        {t('auth.or')}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <Button type="button" className="w-full" busy={busy} onClick={() => void go()} data-testid="login-google">
+        {t('auth.googleSignIn')}
+      </Button>
+    </div>
+  )
+}
+
 export function Login() {
   const t = useT()
   const signedIn = useSession((s) => s.signedIn)
@@ -404,6 +441,9 @@ export function Login() {
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
+  // a Google sign-in that came back here: why, in words, until the next try
+  const googleResult = GOOGLE_RESULT[new URLSearchParams(location.search).get('google') ?? '']
+  const google = status.kind === 'signed-out' && !!status.googleSignIn && clientKind() === 'web'
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
@@ -434,6 +474,11 @@ export function Login() {
   return (
     <AuthFrame title={removedTeam ? t(left ? 'auth.guestLeftTitle' : 'auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed" data-left={left || undefined}>{t(left ? 'auth.guestLeft' : 'auth.guestRemoved')}</span> : line ? t(line) : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
+        {googleResult && !error && (
+          <p role="alert" className="text-sm text-danger" data-testid="login-google-result">
+            {t(googleResult)}
+          </p>
+        )}
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
         </Field>
@@ -450,6 +495,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
+        {google && <GoogleSignIn next={safeNext(location.search)} />}
         {!removedTeam && <ForgotLine url={status.kind === 'signed-out' ? status.ownerRecoveryUrl : undefined} />}
       </form>
     </AuthFrame>

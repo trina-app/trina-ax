@@ -43,6 +43,7 @@ import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
 import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, emailUsedByOther, isGuest, placeOut, seenBy } from '../auth/guests'
+import { forgetLoginIdentities } from '../auth/login-identities'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -542,9 +543,12 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
     // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
     guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
-    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead
+    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead.
+    // A connected Google account too: a reset after a suspected break-in locks every old way in out
+    // (docs/decisions/20261122-google-login-identity.md)
     revokeResetLinksFor(ctx.db, id, nowMs)
-    audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
+    const google = forgetLoginIdentities(ctx.db, id) > 0
+    audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id, ...(google ? { detail: { googleDisconnected: true } } : {}) })
   }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
   authOf(ctx).limiter.clearAccount(target.username)

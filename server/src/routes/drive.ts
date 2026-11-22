@@ -16,6 +16,9 @@ import { afterServiceSetup } from '../integrations/service-requests'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
 import { slackOf } from '../integrations/slack/service'
 import { integrationsOf } from '../integrations/connections/service'
+import { finishGoogle, ownsGoogleState } from '../auth/google-login'
+import type { Context } from 'hono'
+import type { AppEnv } from '../http/env'
 
 async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
@@ -86,6 +89,9 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {
+    // Sign in with Google comes back to the address this server's Google client registered for Drive, so a company that
+    // set up its Google app registers nothing new (auth/google-login.ts): its states first, Drive's as before
+    if (ownsGoogleState(ctx, c.req.query('state'))) return finishGoogle(c as unknown as Context<AppEnv>, ctx)
     let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
     const cc = c as unknown as AppContextC
     const auth = cc.get('auth')

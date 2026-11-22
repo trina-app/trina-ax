@@ -24,6 +24,7 @@ import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPl
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
+import { forgetLoginIdentities } from './login-identities'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { fromOutside, isLoopback } from '../http/tunnel'
@@ -692,9 +693,11 @@ export async function completeReset(c: Context<AppEnv>, ctx: AppContext, token: 
     if (!fresh || !resetUsable(ctx.db, fresh, getUser(ctx.db, u!.id), a.now())) return false
     if (ctx.db.query('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL').run(now, r!.id).changes !== 1) return false
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, r!.created_by, now, u!.id)
-    // any other open link for the account goes with the old password too
+    // any other open link for the account goes with the old password too, and a connected Google account: a reset is
+    // how a break-in is locked out (docs/decisions/20261122-google-login-identity.md)
     revokeResetLinksFor(ctx.db, u!.id, a.now())
-    audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip } })
+    const google = forgetLoginIdentities(ctx.db, u!.id) > 0
+    audit(ctx.db, { actor: u!.id, action: 'auth.password_reset', target: u!.id, detail: { by: r!.created_by, ip: c.get('info').ip, ...(google ? { googleDisconnected: true } : {}) } })
     return true
   })()
   if (!used) fail('gone', msg('linkInvalid', locale))

@@ -62,6 +62,7 @@ import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import { MyExport } from '../components/settings/MyExport'
+import { GoogleAccount } from '../components/settings/GoogleAccount'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
@@ -700,6 +701,8 @@ function Security({ all = false }: { all?: boolean }) {
           <PhoneListGroup testId="security-password">
             <PhoneListRow icon={<KeyRound size={16} />} title={t('auth.changePassword')} to="/settings/security/password" testId="password-open" />
           </PhoneListGroup>
+          {/* Sign in with Google: shown where it can work, or while one is connected */}
+          <GoogleAccount phone />
           <PhoneListGroup title={t('settings.devices')} labelId="security-devices-title" footer={t('settings.devicesHint')} testId="security-devices">
             {current.map((s) => deviceRow(s))}
             {others.length > 0 && (
@@ -720,6 +723,7 @@ function Security({ all = false }: { all?: boolean }) {
           <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); void load() }} />
         </Section>
       )}
+      {!all && <GoogleAccount phone={false} frame={(row) => <Section title={t('settings.google.title')} desc={t('settings.google.desc')}>{row}</Section>} />}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>
         {loading}
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">

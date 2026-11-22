@@ -114,6 +114,9 @@ export const AUTH_MESSAGES = {
   // a person asks the owner to delete their own account (auth/deletion-requests.ts): the owner cannot
   deletionOwner: { ko: '팀장 계정은 삭제를 요청할 수 없어요. 먼저 다른 사람에게 팀장을 넘겨 주세요.', en: 'The team owner cannot ask for their own account to be deleted. Make someone else the owner first.', id: 'Owner tim tidak dapat meminta akunnya sendiri dihapus. Jadikan orang lain owner terlebih dahulu.', ja: "チームのオーナーは自分のアカウントの削除を依頼できません。先に他の人をオーナーにしてください。", es: "El propietario del equipo no puede pedir que se elimine su propia cuenta. Primero haga propietario a otra persona.", zh: "团队所有者不能申请删除自己的账号。请先把所有者转给其他人。" },
   deletionTooOften: { ko: '계정 삭제 요청을 너무 자주 했어요. 내일 다시 해 주세요.', en: 'You asked for account deletion too often. Please try again tomorrow.', id: 'Anda terlalu sering meminta penghapusan akun. Coba lagi besok.', ja: "アカウント削除の依頼が多すぎます。明日もう一度お試しください。", es: "Pidió la eliminación de la cuenta demasiadas veces. Vuelva a intentarlo mañana.", zh: "你申请删除账号的次数过多。请明天再试。" },
+  // Sign in with Google (auth/google-login.ts): no Google client here, or this page is not at the address Google returns to
+  googleSignInOff: { ko: '여기서는 Google로 로그인할 수 없어요.', en: "Signing in with Google isn't available here.", id: 'Masuk dengan Google tidak tersedia di sini.', ja: 'ここではGoogleでログインできません。', es: 'Aquí no se puede iniciar sesión con Google.', zh: '这里无法使用 Google 登录。' },
+  googleGuest: { ko: '게스트는 Google 계정을 연결할 수 없어요.', en: "Guests can't connect a Google account.", id: 'Tamu tidak bisa menghubungkan akun Google.', ja: 'ゲストはGoogleアカウントを連携できません。', es: 'Los invitados no pueden conectar una cuenta de Google.', zh: '访客无法关联 Google 账号。' },
 } satisfies Record<string, Record<Locale, string>>
 
 export type MessageKey = keyof typeof AUTH_MESSAGES

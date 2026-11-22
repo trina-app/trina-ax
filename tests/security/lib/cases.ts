@@ -201,6 +201,14 @@ export const SPECS: Record<string, Spec> = {
   appSignIn: { build: (c) => c.post('/api/auth/app-signin'), scope: 'byLevel' },
   redeemAppSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/app-signin/redeem', { code: 'A'.repeat(43) }), scope: 'byLevel',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up app sign-in code signed in: ${r.text}`) } },
+  // Sign in with Google (server/src/auth/google-login.ts): the test team has no Google client, so nothing starts; each
+  // person reads and disconnects only their own connected Google account; a connect needs the current password
+  startGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/google/start', {}), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google sign-in started without a Google client: ${r.text}`) } },
+  myGoogle: { build: (c) => c.get('/api/me/google'), scope: 'self' },
+  connectGoogle: { skipPositive: true, build: (c) => c.post('/api/me/google/connect', { password: 'Not-the-password-0000' }), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google connect started with a wrong password: ${r.text}`) } },
+  disconnectGoogle: { build: (c) => c.del('/api/me/google'), scope: 'self' },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 

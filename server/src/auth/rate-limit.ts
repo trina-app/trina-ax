@@ -20,11 +20,13 @@ export interface Limits {
   perLink: number
   /** one-time desktop sign-in codes a signed-in person makes ("Continue in the Mac app", auth/app-signin.ts) */
   perAppCode: number
+  /** Google sign-ins started per client IP, right or wrong (auth/google-login.ts): each one is a row and a page at Google */
+  perGoogleStart: number
 }
 
-export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30, perLink: 30, perAppCode: 10 }
+export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30, perLink: 30, perAppCode: 10, perGoogleStart: 30 }
 
-export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip' | 'link' | 'app-code'
+export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip' | 'link' | 'app-code' | 'google-start'
 export interface LimitKey { kind: LimitKind; id: string }
 
 /**
@@ -71,6 +73,7 @@ export const reauthKey = (userId: string): LimitKey => ({ kind: 'reauth', id: us
 export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: limitIp(ip) }] : [])
 export const linkKey = (linkId: string): LimitKey => ({ kind: 'link', id: linkId })
 export const appCodeKey = (userId: string): LimitKey => ({ kind: 'app-code', id: userId })
+export const googleStartKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'google-start', id: limitIp(ip) }] : [])
 
 const keyStr = (k: LimitKey) => `${k.kind}:${k.id}`
 
@@ -86,6 +89,7 @@ export class RateLimiter {
       case 'token-ip': return this.limits.perTokenIp
       case 'link': return this.limits.perLink
       case 'app-code': return this.limits.perAppCode
+      case 'google-start': return this.limits.perGoogleStart
     }
   }
 

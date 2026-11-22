@@ -2787,6 +2787,20 @@ cases:
     good: Install the app (the page has a Download the app link), then press the button again; each press makes a fresh sign-in that works once and only for a few minutes, so pressing again is fine; no password to type. Plain words.
     checks: []
 
+# auth.google (docs/AGENTS/plan/20261122-0454-google-login.md): Sign in with Google works only for a Google account the
+# person connected in Settings › Security & devices with their password; never by e-mail alone.
+- id: ACC-07
+  title: Sign in with Google
+  features: [auth.google]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 매번 비밀번호 치기 귀찮은데 구글 계정으로 로그인할 수 있어?
+  expect:
+    outcome: explain
+    good: Yes where the team offers it, in a browser. First connect the Google account once in Settings › Security & devices (it asks for the current password), then press Sign in with Google on the sign-in page. Her password keeps working. If the button is not there, the team or this address does not offer it; ask an admin. Plain words, no promise for the phone or desktop app yet.
+    checks: []
+
 - id: CHT-13
   title: Talk under an answer (threads)
   features: [chat.threads]
