@@ -15,7 +15,7 @@ import type { RoomFile } from '@mycel/shared/api'
 import { teamDefaultLocale } from '../../server/src/admin/settings'
 import { which } from '../../server/src/config'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { resetConvertTools, TEAM_THUMBS_DIR } from '../../server/src/rooms/team-thumbs'
+import { resetConvertTools, TEAM_THUMBS_DIR, thumbKey } from '../../server/src/rooms/team-thumbs'
 import { componentC } from '../../server/src/team-files/component'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -165,4 +165,99 @@ test('renamed to a non-picture name: a chip, no thumbnail; trashed: the gone sta
   const qs = await thumb(nora.client, roomId, q.id)
   expect(qs.status).not.toBe(200)
   expect(cacheOf(q.id)).toEqual([])
+})
+
+/** the room files' thumbnail maker (rooms/files.ts teamThumbs), to hold a request in the middle */
+const thumbsOf = () => (roomFilesOf(h.ctx) as any).teamThumbs()
+
+for (const converter of [true, false] as const) {
+  test.skipIf(converter && !FFMPEG)(`taken out of the room while the thumbnail is made: 404, not the thumbnail nor the original (${converter ? 'made' : 'original'})`, async () => {
+    const { mia, nora, roomId } = await groupChannel(`b-room-team-pictures-revoke-${converter}`)
+    if (!converter) resetConvertTools({ ffmpeg: false, heic: false })
+    const f = await up(mia.id, roomId, 'image.png', TINY_PNG)
+    await send(mia.client, roomId, [f.id])
+    const t = thumbsOf()
+    const make = t.make.bind(t)
+    t.make = async (...a: unknown[]) => {
+      // nora leaves while the converter runs
+      h.ctx.db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, nora.id)
+      // without a converter none is made: the small original would be the answer
+      return converter ? make(...a) : null
+    }
+    expect((await thumb(nora.client, roomId, f.id)).status).toBe(404)
+    t.make = make
+    // the file changed while the converter ran: not this version's thumbnail either
+    t.remove(f.id)
+    t.make = async (...a: unknown[]) => {
+      const r = converter ? await make(...a) : null
+      fs.appendFileSync(at(f.teamPath!), Buffer.from([0]))
+      return r
+    }
+    expect((await thumb(mia.client, roomId, f.id)).status).toBe(404)
+    t.make = make
+  })
+}
+
+test('a picture no thumbnail can be made of is not tried again until it changes', async () => {
+  const { mia, nora, roomId, root } = await projectRoom('b-room-team-pictures-failed')
+  // a team file named like a picture that is not one, picked from Files (a reference: no content check)
+  fs.writeFileSync(at(`${root}/broken.png`), Buffer.from('not a picture at all'))
+  const r = await mia.client.call('POST', `/api/rooms/${roomId}/team-file`, { path: `${root}/broken.png` })
+  await send(mia.client, roomId, [r.file.id])
+  const t = thumbsOf()
+  let built = 0
+  const build = t.build.bind(t)
+  t.build = async (...a: unknown[]) => { built++; return build(...a) }
+  // a small one: its bytes as before (the endpoint's rule), the converter run once
+  expect((await thumb(nora.client, roomId, r.file.id)).status).toBe(200)
+  expect((await thumb(nora.client, roomId, r.file.id)).status).toBe(200)
+  expect(built).toBe(1)
+  if (FFMPEG) expect(cacheOf(r.file.id).some((n) => n.endsWith('.none'))).toBe(true)
+  // changed: tried again
+  fs.writeFileSync(at(`${root}/broken.png`), Buffer.from('still not a picture, but changed'))
+  await thumb(nora.client, roomId, r.file.id)
+  expect(built).toBe(2)
+  expect(cacheOf(r.file.id).length).toBe(1)
+})
+
+test('the cache key moves with the change time: a write that puts the modification time back is another version', () => {
+  const base = { dev: 1, ino: 2, size: 3, mtimeMs: 1000, ctimeMs: 2000 }
+  expect(thumbKey(base)).not.toBe(thumbKey({ ...base, ctimeMs: 3000 }))
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'thumbkey-'))
+  try {
+    const p = path.join(dir, 'a.png')
+    fs.writeFileSync(p, 'aaaa')
+    const before = fs.statSync(p)
+    Bun.sleepSync(20)
+    fs.writeFileSync(p, 'bbbb')
+    fs.utimesSync(p, before.atime, before.mtime)
+    const after = fs.statSync(p)
+    expect(after.size).toBe(before.size)
+    expect(Math.trunc(after.mtimeMs)).toBe(Math.trunc(before.mtimeMs))
+    expect(thumbKey(after)).not.toBe(thumbKey(before))
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('purging an archived conversation and the start take the kept thumbnails of team-folder files', async () => {
+  const { mia, nora, roomId } = await groupChannel('b-room-team-pictures-purge')
+  const f = await up(mia.id, roomId, 'image.png', TINY_PNG)
+  await send(mia.client, roomId, [f.id])
+  await thumb(nora.client, roomId, f.id)
+  const kept = path.join(h.ctx.config.dataDir, TEAM_THUMBS_DIR, f.id)
+  fs.mkdirSync(kept, { recursive: true })
+  // an orphan (its row gone without its thumbnails) goes at the next start
+  const orphan = path.join(h.ctx.config.dataDir, TEAM_THUMBS_DIR, '019a5f00-0000-7000-8000-000000000999')
+  fs.mkdirSync(orphan, { recursive: true })
+  roomFilesOf(h.ctx).reconcile()
+  expect(fs.existsSync(orphan)).toBe(false)
+  expect(fs.existsSync(kept)).toBe(true)
+  // the conversation archived long ago with nobody in it: its rows go, the team file stays, the thumbnails go
+  h.ctx.db.query("UPDATE rooms SET archived_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").run(roomId)
+  h.ctx.db.query('DELETE FROM room_members WHERE room_id = ?').run(roomId)
+  // (the purge runs where room storage is there: an older team has it)
+  fs.mkdirSync(roomFilesOf(h.ctx).root(), { recursive: true })
+  roomFilesOf(h.ctx).purgeArchived()
+  expect(h.ctx.db.query('SELECT 1 FROM room_files WHERE id = ?').get(f.id)).toBeNull()
+  expect(fs.existsSync(kept)).toBe(false)
+  expect(fs.existsSync(at(f.teamPath!))).toBe(true)
 })

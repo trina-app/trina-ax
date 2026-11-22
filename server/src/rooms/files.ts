@@ -597,15 +597,17 @@ export class RoomFiles {
     if (quarantined) return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: s.st }
     const thumbs = this.teamThumbs()
     const made = thumbs.cached(f.id, thumbKey(s.st)) ?? await thumbs.make(f.id, s.abs, s.st)
+    // checked again after the wait, whatever came of it: in the room, the message visible, still mine to read, the same
+    // version of the file (a thumbnail or the original is sent only then)
+    try { this.readable(userId, roomId, fileId) } catch { return fail('not_found') }
+    const now = this.refs().locate(userId, f)
+    if (now.state !== 'ok' || now.rel !== s.rel || thumbKey(now.st) !== thumbKey(s.st)) return fail('not_found')
     if (made) {
-      // checked again after the wait: still mine to read, the same file
-      const now = this.refs().locate(userId, f)
-      if (now.state !== 'ok' || thumbKey(now.st) !== thumbKey(s.st)) return fail('not_found')
       try { checkRegular(made.abs) } catch { return fail('not_found') }
       return { abs: made.abs, name: `${name}.${made.ext}`, quarantined, sha256: f.sha256, teamFile: true }
     }
-    if (!smallWebImage(name, s.st.size)) return fail('not_found')
-    return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: s.st }
+    if (!smallWebImage(name, now.st.size)) return fail('not_found')
+    return { abs: now.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: now.st }
   }
 
   private teamThumbs(): TeamThumbs {
@@ -682,6 +684,12 @@ export class RoomFiles {
    */
   reconcile(now = Date.now()): { movedFiles: number; missingFiles: number; orphansMoved: number; orphanBatchesPurged: number; skipped?: true } {
     const out = { movedFiles: 0, missingFiles: 0, orphansMoved: 0, orphanBatchesPurged: 0 }
+    // team-folder pictures' thumbnails (rooms/team-thumbs.ts) whose room file row is gone
+    try {
+      const live = this.ctx.db.query('SELECT 1 FROM room_file_refs WHERE room_file_id = ?')
+      const pruned = this.teamThumbs().prune((id) => !!live.get(id))
+      if (pruned) this.ctx.log.info('thumbnails of removed team-folder room files deleted', { pruned })
+    } catch (e) { this.ctx.log.warn('team-folder room thumbnails not checked', { err: e }) }
     // the first layout moves over only into a team folder that is there: an empty mount point of a share that is not
     // mounted yet gets no .system/rooms of its own
     if (this.teamFolderPresent()) out.movedFiles = this.moveLegacy()
@@ -897,7 +905,7 @@ export class RoomFiles {
       // the rows are gone: a file that cannot be removed now is set aside by the next start's check (reconcile)
       for (const f of rows) {
         rooms.add(f.room_id)
-        if (refIds.has(f.id)) { this.refs().forget(f.id); continue }
+        if (refIds.has(f.id)) { this.refs().forget(f.id); this.teamThumbs().remove(f.id); continue }
         try { fs.rmSync(path.join(this.dir(f.room_id), f.id), { force: true }); this.removeThumbs(f) } catch { failed++ }
       }
       out.files += rows.length

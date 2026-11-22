@@ -20,6 +20,7 @@ import { heicTools } from '../files/heic-preview'
 import { openChecked } from '../team-files/place'
 import { makeWorkDir } from '../tools/isolate'
 import { makeThumbnail, type ThumbExt } from '../uploads/image'
+import { CONVERT_RSS_MIB } from '../files/vision'
 
 export const TEAM_THUMBS_DIR = 'room-team-thumbs'
 /** a web image this small may be shown as it is when no thumbnail could be made (the chats' team file references' rule) */
@@ -63,8 +64,13 @@ export function teamThumbPossible(name: string, size: number): boolean {
   return false
 }
 
-/** The file as it is now, for the cache's name: another write, a replacement or a move to another disk is another key. */
-export const thumbKey = (st: Pick<fs.Stats, 'dev' | 'ino' | 'size' | 'mtimeMs'>): string => `${st.dev}-${st.ino}-${st.size}-${Math.trunc(st.mtimeMs)}`
+/** The file as it is now, for the cache's name: another write, a replacement or a move to another disk is another key.
+ * The change time is in it too: a write that puts the modification time back (touch -r, a sync tool) still moves it. */
+export const thumbKey = (st: Pick<fs.Stats, 'dev' | 'ino' | 'size' | 'mtimeMs' | 'ctimeMs'>): string => `${st.dev}-${st.ino}-${st.size}-${Math.trunc(st.mtimeMs)}-${Math.trunc(st.ctimeMs)}`
+/** requests that may wait for a converter; more get no thumbnail now (the picture asks again on its next show) */
+export const WAITING_MAX = 20
+/** the converter's memory cap for one thumbnail (the image converters' own, files/vision.ts) */
+const THUMB_RSS_MIB = CONVERT_RSS_MIB
 
 export class TeamThumbs {
   private making = new Map<string, Promise<{ abs: string; ext: ThumbExt } | null>>()
@@ -76,6 +82,11 @@ export class TeamThumbs {
   private dir(fileId: string) {
     if (!ID.test(fileId)) throw new Error('not a room file id')
     return path.join(this.root(), fileId)
+  }
+
+  /** No thumbnail could be made of this version of the file (`<key>.none`): not tried again until the file changes. */
+  failed(fileId: string, key: string): boolean {
+    try { return fs.lstatSync(path.join(this.dir(fileId), `${key}.none`)).isFile() } catch { return false }
   }
 
   /** the thumbnail kept for this version of the file, or null */
@@ -94,9 +105,12 @@ export class TeamThumbs {
     const key = thumbKey(seen)
     const have = this.cached(fileId, key)
     if (have) return have
+    if (this.failed(fileId, key)) return null
     const k = `${fileId}/${key}`
     const going = this.making.get(k)
     if (going) return going
+    // too many waiting already: none now (not remembered as failed)
+    if (this.running >= MAKING_MAX && this.waiting.length >= WAITING_MAX) return null
     const p = (async () => {
       await this.slot()
       try { return await this.build(fileId, key, abs, seen) } finally { this.release(); this.making.delete(k) }
@@ -132,16 +146,30 @@ export class TeamThumbs {
       const dir = this.dir(fileId)
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
       let made: ThumbExt | null = null
-      try { made = await makeThumbnail(input, path.join(dir, key), THUMB_PX, workBase) } catch (e) { this.log?.debug('team picture thumbnail failed', { err: e }) }
-      if (!made) return null
-      // the thumbnails of older versions of the file go
+      try { made = await makeThumbnail(input, path.join(dir, key), THUMB_PX, workBase, undefined, { maxRssMiB: THUMB_RSS_MIB }) } catch (e) { this.log?.debug('team picture thumbnail failed', { err: e }) }
+      // none could be made of this version: remembered, so the next show does not run the converter again
+      if (!made) fs.writeFileSync(path.join(dir, `${key}.none`), '', { mode: 0o600 })
+      // what was kept for older versions of the file goes
       for (const n of fs.readdirSync(dir)) if (!n.startsWith(`${key}.`)) fs.rmSync(path.join(dir, n), { force: true })
-      return { abs: path.join(dir, `${key}.${made}`), ext: made }
+      return made ? { abs: path.join(dir, `${key}.${made}`), ext: made } : null
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
   /** the room file row went: its thumbnails go */
   remove(fileId: string) { try { fs.rmSync(this.dir(fileId), { recursive: true, force: true }) } catch { /* not an id: nothing kept */ } }
+
+  /** At start: the folders of room files that have no row any more (a delete that stopped half way, a restored
+   * database) go. `live`: does this room file id still have a row kept in the team folder. */
+  prune(live: (fileId: string) => boolean): number {
+    let n = 0
+    let names: string[]
+    try { names = fs.readdirSync(this.root()) } catch { return 0 }
+    for (const id of names) {
+      if (ID.test(id) && live(id)) continue
+      try { fs.rmSync(path.join(this.root(), id), { recursive: true, force: true }); n++ } catch { /* the next start */ }
+    }
+    return n
+  }
 
   private slot(): Promise<void> {
     if (this.running < MAKING_MAX) { this.running++; return Promise.resolve() }
