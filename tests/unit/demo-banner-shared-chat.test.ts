@@ -41,7 +41,7 @@ afterAll(async () => { ws?.close(); await h?.close(); fs.rmSync(content, { recur
 
 const ask = async (chatId: string, content: string) => {
   const sent = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
-  return (await ws.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 60_000)).data.message as { content: string; status: string }
+  return (await ws.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 60_000)).data.message as { content: string; status: string; steps: { tool?: string; images?: { path: string; alt?: string; label?: string }[] }[] }
 }
 const projectChat = async () => (await h.api('alice').call(API.createChat, { body: { projectId } })).id
 
@@ -78,6 +78,15 @@ describe('change_banner_text in a shared project chat', () => {
     expect(added.sort()).toEqual([...view.files.map((p: string) => p.split('/').pop()), 'banner.json'].sort())
     expect(view.source).toBe('projects/falcon/banner.json')
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, view.saved)).subarray(1, 4).toString()).toBe('PNG')
-    expect(r.content).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
+    // the chat shows every saved size under the tool's step itself, each labelled; the result gives the AI no Markdown
+    // image to retype (replay 11-22: the third picture was the 1080x1080 file again)
+    expect(r.content).not.toContain('](/api/files/download?path=')
+    const step = r.steps.find((s) => s.tool === DEMO_BANNER_TOOL)!
+    expect(step.images).toEqual(view.files.map((p: string) => { const size = p.match(/banner-(\d+x\d+)-/)![1]!; return { path: p, alt: `banner ${size}`, label: size } }))
+    expect(step.images!.map((x) => x.label)).toEqual(['1200x628', '1080x1080', '1080x1920'])
+    // stored with the answer: the chat shows them again after a reload
+    const stored = await h.api('alice').call(API.listMessages, { params: { id: chat }, query: {} })
+    const again = stored.items.flatMap((m) => m.steps ?? []).find((s) => s.tool === DEMO_BANNER_TOOL)
+    expect(again?.images).toEqual(step.images)
   })
 })

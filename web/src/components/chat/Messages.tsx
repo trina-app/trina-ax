@@ -18,7 +18,7 @@
 import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
@@ -42,6 +42,7 @@ import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
+import { StepShownImages, stepImages } from '../../lib/stepImages'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../LazyMarkdown'
@@ -644,6 +645,12 @@ export function answerParts(content: string, cut: number, streaming: boolean) {
   }
 }
 
+/** The answer's text leaves out a picture its steps show already (lib/stepImages.ts) */
+export function AnswerImagesShown({ steps, children }: { steps: ViewMessage['steps']; children: ReactNode }) {
+  const paths = useMemo(() => new Set(stepImages(steps).map((im) => im.path)), [steps])
+  return <StepShownImages.Provider value={paths}>{children}</StepShownImages.Provider>
+}
+
 /** The answer's text and its artifact cards, the cards where the AI made them. Top-level quotes copy on their own. */
 function AnswerBody({ m, chatId, streaming }: { m: ViewMessage; chatId: string; streaming: boolean }) {
   const cut = artifactSplit(m.content, m.steps)
@@ -852,7 +859,7 @@ export function AssistantMessage({
             {!m.steps.length && <span className="ml-2 text-sm text-faint">{t('chat.thinking')}</span>}
           </div>
         )}
-        <AnswerBody m={m} chatId={chatId} streaming={streaming} />
+        <AnswerImagesShown steps={m.steps}><AnswerBody m={m} chatId={chatId} streaming={streaming} /></AnswerImagesShown>
         {waitingForYou && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="waiting-for-you">
             {t('chatux.waitingForYou')}
