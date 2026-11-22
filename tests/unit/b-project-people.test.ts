@@ -65,6 +65,14 @@ describe('GET /api/projects/:id/people', () => {
     expect(ids(await h.api('erin').call(API.getProjectPeople, { params: { id: small.id } }))).toEqual(['alice', 'erin'])
   })
 
+  test('a member who does not manage it may not change its people, and is told so in those words (QA TC-7291)', async () => {
+    const access = await h.api('alice').call(API.getProjectAccess, { params: { id: both.id } })
+    const e = await h.api('erin').call(API.putProjectParticipants, { params: { id: both.id }, body: { participants: [{ subjectType: 'group', subjectId: 'marketing' }], expectedHash: access.rulesHash } }).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(ApiError)
+    expect((e as ApiError).status).toBe(403)
+    expect((e as ApiError).message).toBe('Hanya pembuat proyek dan admin yang bisa mengubah siapa saja yang ada di dalamnya.')
+  })
+
   test('a person who leaves the project leaves the list at once', async () => {
     const access = await h.api('alice').call(API.getProjectAccess, { params: { id: small.id } })
     await h.api('alice').call(API.putProjectParticipants, { params: { id: small.id }, body: { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: access.rulesHash } })

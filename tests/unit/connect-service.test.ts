@@ -202,7 +202,9 @@ describe('connect_service without a card', () => {
   // AI scenario CON-01.calendar (2026-11-17): the AI looked up Google's preview MCP address for Calendar, filled in an
   // unknown service there and cited "Calendar MCP server" pages. The four built-in Google apps answer by name instead.
   test('Gmail, Google Calendar (also by a Google API address or a Korean name): no card, their own page, ask nothing first', async () => {
-    const t = await start('bob',
+    // alice (English app): the fake says each result before the next call, which a Korean app's answer keeps out as
+    // interim narration (chat/narration.ts narrationScript, #329); the four results are what this test reads
+    const t = await start('alice',
       { name: 'Google Calendar', kind: 'mcp', url: 'https://calendarmcp.googleapis.com/mcp/v1', auth: 'oauth' },
       { name: 'Gmail' },
       { name: '구글 캘린더' },

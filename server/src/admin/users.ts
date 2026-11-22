@@ -24,6 +24,7 @@ import { folderReadersLost } from '../files/folder-shares'
 import { ownerFolderGrantees } from '../files/share-readers'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, originKeepers, resetEngineSessions } from './folders'
 import { forgetUserName, stopTurnsOf } from '../chat/runtime'
+import { accountChatsGone, creatorChatsChanged, peopleInChatsOf } from '../chat/people-share'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { MY_PROFILE_CHANGED } from '../auth/profiles'
 import { revokeTeamLinksBy } from '../auth/team-links'
@@ -225,11 +226,15 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // walkthrough S6)
     if (target.role === 'guest') noteRemovedSignIns(ctx, id, 'removed')
     authOf(ctx).endUserSessions(id, 'disabled')
-    stopTurnsOf(ctx, id)
+    stopTurnsOf(ctx, id, 'requester_disabled')
     resetEngineSessions(ctx, id)
+    // the people in the chats they shared read the change under the box at once (Chat.shared.byGone, QA TC-7431)
+    creatorChatsChanged(ctx, id)
     // their folder shares open for nobody while they are off: the people on them start fresh AI sessions
     folderReadersLost(ctx.db, ownerFolderGrantees(ctx.db, id))
   }
+  // switched on again: the line under the box of the chats they shared goes back to normal
+  if (changed.status === 'active') creatorChatsChanged(ctx, id)
   // their running AI sign-ins: disabled, all of them; made a member, the team's (their own personal ones are theirs to keep)
   if (changed.status === 'disabled' || changed.role === 'member') { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: changed.status !== 'disabled' }) }
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
@@ -407,6 +412,9 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   const log = o.log ?? ctx.log
   const target = liveUser(ctx, id)
   const before = captureState(ctx.db)
+  // the people in the chats they shared with others, read before the deletion (each gets a notice after it, QA TC-7341)
+  let sharedChats: ReturnType<typeof peopleInChatsOf> = []
+  try { sharedChats = peopleInChatsOf(ctx, id) } catch (e) { log.warn('the people of a deleted member\'s shared chats could not be read', { err: e, userId: id }) }
   const now = new Date(authOf(ctx).now()).toISOString()
   // their folder shares end with the account: the people on them start fresh AI sessions (read before the rows go)
   const shareLost = ownerFolderGrantees(ctx.db, id)
@@ -485,7 +493,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   // a guest's window says so in the guest's words, with the team's name (guest walkthrough S6)
   noteRemovedSignIns(ctx, id, isGuest(ctx.db, id) ? 'removed' : undefined)
   authOf(ctx).endUserSessions(id, 'revoked')
-  stopTurnsOf(ctx, id)
+  stopTurnsOf(ctx, id, 'requester_removed')
   resetEngineSessions(ctx, id)
   folderReadersLost(ctx.db, shareLost)
   revokeInvitesBy(ctx, id)
@@ -526,6 +534,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
     ...(off.length ? { aiConnectionsOff: off } : {}), ...(ownAi.length ? { ownAiConnections: ownAi.length } : {}), ...(purged ? { purged } : {}), ...(cleaned ? { cleaned } : {}),
   }), auditId)
   afterAccessChange(ctx, before, { actor, target: id })
+  accountChatsGone(ctx, id, sharedChats)
   return { requested }
 }
 
@@ -675,7 +684,7 @@ export function disableAccount(ctx: AppContext, id: string, actorId: string | nu
   // a guest out of their place: 'left' when they left it themselves (guest walkthrough S5), else taken out (S6)
   if (isGuest(ctx.db, id)) noteRemovedSignIns(ctx, id, actorId === id ? 'left' : 'removed')
   authOf(ctx).endUserSessions(id, 'disabled')
-  stopTurnsOf(ctx, id)
+  stopTurnsOf(ctx, id, 'requester_disabled')
   resetEngineSessions(ctx, id)
   const cc = existingCredentialsOf(ctx)
   if (cc) cancelLoginsOf(cc, id, { teamOnly: false })

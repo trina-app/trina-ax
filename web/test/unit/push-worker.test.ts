@@ -582,9 +582,9 @@ describe('the installed app\'s icon', () => {
     await w.push({ ...payload, code: 'room.dm' })
     expect(w.shown).toHaveLength(1)
   })
-  test('the account changes (push.invalidate): the dot goes with its notices', async () => {
+  test('the account changes (push.invalidate): its notices go; the worker never calls clearAppBadge (the window does: QA TC-7344)', async () => {
     const { calls, w } = await badgeAfter([])
     await w.invalidate()
-    expect(calls).toEqual([['set'], ['clear']])
+    expect(calls).toEqual([['set']])
   })
 })

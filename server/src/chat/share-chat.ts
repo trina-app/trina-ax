@@ -130,7 +130,7 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     const key = confirmMac(ctx, { kind: 'chat.share', v: 2, userId, chatId: a.row.id, projectId: project.id, audience, ...findingsState(f), messages })
     // a member who would see a room it read but for old answers hidden from them: never shown it, confirmed or not
     if (audience.length && f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-    const applies = audience.length > 0 && atStake(f)
+    const applies = audience.length > 0 && atStake({ ...f, devAnswers: [] })
     // `ask` (the title menu): the question comes first even when nothing applies; the key then shares. A key that is
     // sent must be this state's, whatever applies: a yes to "share with 3 people?" is no yes once 30 would see it
     if ((applies || body.ask || body.confirmKey !== undefined) && body.confirmKey !== key) {
@@ -138,14 +138,15 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
         status: 'confirm', audience: audience.length, confirmKey: key,
         check: {
           added: audience.length, memoryAnswers: f.memoryAnswers.length, fileAnswers: f.fileAnswers.length, accountAnswers: f.accountAnswers.length,
-          places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked.length,
+          // (the project members' share keeps dev environment answers with the unchecked ones, and their x below)
+          places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked.length + f.devAnswers.length,
         },
         ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
       }
     }
     const use = f.use
     const memories = f.memoryAnswers.length > 0
-    const notAll = f.unchecked.length > 0 || f.accountAnswers.length > 0 || f.roomsUnseen || memories
+    const notAll = f.unchecked.length > 0 || f.devAnswers.length > 0 || f.accountAnswers.length > 0 || f.roomsUnseen || memories
     // shared, with nothing in between: stateOf just checked the chat and its project again (no turn queued or running),
     // and nothing can start a turn before the update (a turn of the private chat would run without the read card)
     const at = new Date().toISOString()

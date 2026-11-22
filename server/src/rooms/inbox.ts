@@ -174,12 +174,22 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
   const own = db.query(`SELECT ${MSG} FROM room_messages m WHERE m.id = ?`).get(row.source_id) as Msg
   const first = firstSeq !== null ? at(firstSeq) : own, newest = sum.last !== null ? at(sum.last) : own
   const line = messageLine(newest)
-  const files = line ? 0 : (db.query('SELECT COUNT(*) n FROM room_files WHERE message_id = ?').get(newest.id) as { n: number }).n
+  // its files too when it has text (QA TC-7049: a row for an AI file post showed only the text): how many, and the first
+  // one's name, only for a message the person sees now (counted through FOR_ME_SQL, not deleted); the row's own notice
+  // as a stand-in keeps what it said before (the count, for a message without text)
+  const seen = sum.last !== null && !newest.deleted_at
+  // (a file kept in the team folder, room_file_refs, is shown to each person by their own access to its path
+  // (rooms/store.ts filesOutFor): never named here)
+  const fileRows = !seen && line ? [] : db.query(`SELECT f.name, EXISTS(SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AS ref FROM room_files f
+    WHERE f.message_id = ? ORDER BY f.rowid`).all(newest.id) as { name: string; ref: number }[]
+  const files = fileRows.length
+  const plain = fileRows.find((r) => !r.ref)
+  const fileName = seen && plain ? plainLabel(plain.name, NAME_MAX) : ''
   return {
     id: group.roomId, ...writer(db, newest), ...(group.place ? { thread: group.place } : {}),
     kind: room.kind, name: roomName(db, room),
     reason: sum.named ? 'mention' : sum.everyone ? 'everyone' : group.place ? 'reply' : 'message',
-    message: first.id, preview: line, ...(files ? { files } : {}),
+    message: first.id, preview: line, ...(files ? { files } : {}), ...(fileName ? { fileName } : {}),
     count: Math.max(1, sum.n), people: Math.max(1, sum.people), at: newest.created_at,
   }
 }

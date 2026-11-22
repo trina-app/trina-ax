@@ -221,12 +221,14 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     }
     checked.push(`${rooms.length} rooms: ${roomMessages} messages, ${threads} threads with ${replies} replies, ${reactions} reactions; unread only where the content says`)
     // the planned unread rows, none at the build's time; a DM's message is no row. Chats › Mentions & threads: a mention
-    // in a room's unread end, a thread with unread replies; Activity: a chat thread reply naming the new hire (the room
-    // rows are not in Activity, which says "Mentions & threads are in Chats"; QA TC-5700)
+    // in a room's unread end, a thread with unread replies, and a chat thread reply naming the new hire (a conversation
+    // row since TC-7700, not an Activity one); Activity: none of these (the room rows are not in Activity, which says
+    // "Mentions & threads are in Chats"; QA TC-5700)
     const mention = `@${hireName}`
     const plannedRooms = mine.filter((x) => x.messages.some((m) => m.unread && m.text.includes(mention))).length
       + mine.reduce((n, x) => n + x.messages.filter((m) => m.thread?.some((t) => t.unread)).length, 0)
-    const plannedActivity = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(mention))).length
+      + c.chats.filter((x) => x.thread?.some((r) => r.text.includes(mention))).length
+    const plannedActivity = 0
     const inbox = await api.call(API.listNotifications, { query: { limit: 100 } })
     if (inbox.noticeUnreadCount !== plannedActivity) throw new Error(`${hire.username}'s Activity has ${inbox.noticeUnreadCount} unread, the content plans ${plannedActivity}`)
     if (inbox.roomUnreadCount !== plannedRooms) throw new Error(`${hire.username}'s Mentions & threads has ${inbox.roomUnreadCount} unread, the content plans ${plannedRooms}`)
@@ -278,8 +280,9 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     }
     const threaded = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(`@${hireAccount?.name ?? hire.username}`)))
     if (threaded.length) {
-      const notices = (await api.call(API.listNotifications, { query: { limit: 30, only: 'notices' } })).items
-      if (!notices.some((n) => n.code === 'chat.thread_reply')) throw new Error(`${hire.username} has no thread notice in Activity`)
+      // a chat thread reply is a conversation row (TC-7700): listed on Chats › Mentions & threads, not in Activity
+      const notices = (await api.call(API.listNotifications, { query: { limit: 30, only: 'rooms' } })).items
+      if (!notices.some((n) => n.code === 'chat.thread_reply')) throw new Error(`${hire.username} has no thread notice in Mentions & threads`)
     }
     const recent = (await api.call(API.recentFiles, { query: { limit: 50 } })).items.map((f) => f.path)
     for (const top of c.recentHidden ?? []) if (recent.some((f) => f === top || f.startsWith(`${top}/`))) throw new Error(`Files › Recent shows ${top}`)

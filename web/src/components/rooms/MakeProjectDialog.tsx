@@ -176,6 +176,7 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
       setBusy(false)
     }
   }
+  const stay = info ? stayCounts(info) : { unseen: 0, copies: 0, other: 0 }
   return (
     <Modal
       open
@@ -203,7 +204,11 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
             {/* the folder the project gets: the "-2" one the hint names when another project has the name (QA TC-6953) */}
             <p data-testid="make-project-body">{t('rooms.makeProject.body', { n: info.members.length, name: (fresh && info.nameTaken && info.folderName) || typed || '…', folder })}</p>
             <p data-testid="make-project-later">{t('rooms.makeProject.laterFiles')}</p>
-            {info.filesStaying > 0 && <p data-testid="make-project-staying">{t('rooms.makeProject.staying', { n: info.filesStaying })}</p>}
+            {/* each reason in its own line (QA TC-7046): copies of team files stay so later people don't get them; the
+                rest because not everyone here sees them */}
+            {stay.unseen > 0 && <p data-testid="make-project-staying">{t('rooms.makeProject.staying', { n: stay.unseen })}</p>}
+            {stay.copies > 0 && <p data-testid="make-project-staying-copies">{t('rooms.makeProject.stayingCopies', { n: stay.copies })}</p>}
+            {stay.other > 0 && <p data-testid="make-project-staying-other">{t('rooms.makeProject.stayingOther', { n: stay.other })}</p>}
           </div>
           {blocked.map((g) => (
             <p key={g.id} className="text-ink" data-testid="make-project-guest">
@@ -311,4 +316,11 @@ export function DmProjectDialog({ peer, onClose }: { peer: UserRef; onClose: () 
       )}
     </Modal>
   )
+}
+
+/** The files that stay, by why (QA TC-7046): copies of files from a folder, others, and the rest because not everyone
+ * here sees them (an older server sends only the total: all of it that last one, as it said before). */
+export function stayCounts(info: Pick<MakeProjectInfo, 'filesStaying' | 'filesStayingCopies' | 'filesStayingOther'>): { unseen: number; copies: number; other: number } {
+  const copies = info.filesStayingCopies ?? 0, other = info.filesStayingOther ?? 0
+  return { unseen: Math.max(0, info.filesStaying - copies - other), copies, other }
 }

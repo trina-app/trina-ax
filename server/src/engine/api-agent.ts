@@ -43,7 +43,7 @@ const TOOL_OUTPUT_TAIL = 1_000
 export const API_GROUNDING_RULES = [
   '## Grounded answers',
   '- Give a link to a team file only by copying it exactly from a make_file or share_file result (or from this conversation). Never build a link yourself and never invent hosts, preview, Drive or download links. To link a file you saved with write or another tool, call share_file first.',
-  '- State facts, numbers and quotes only when a tool result, a file or the user gave them. If you do not know, say so plainly; do not guess statistics or sources.',
+  // ("state facts, numbers and quotes only when…" is chat/prompt.ts NO_INVENT_RULE now, for every engine)
   '- If a tool returns an error, read it, fix the call and try again, or tell the user what went wrong. Do not say a step worked when its tool failed.',
   '- When the user declines a card (a tool result says they said no), do not try to do the same thing another way; say it was not done.',
 ].join('\n')

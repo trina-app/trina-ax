@@ -83,76 +83,131 @@ export class ReadLog {
 // ---------------- failed steps the answer does not mention (TC-4829) ----------------
 
 /** Calls that do the same thing to the same file count as one step: a save that failed and an edit of that file that
- * worked afterwards is a step done. */
+ * worked afterwards is a step done. chat_file and read are one read: chat_file reads a chat file by its id or name,
+ * read by its chat:files/<id>/<name> path (QA TC-7052). */
 const CHANGES_FILE = new Set(['write', 'edit'])
+const READS_FILE = new Set(['read', 'chat_file'])
+/** Tools that change a file in place or into `output`: one that failed and a file made again afterwards is the same
+ * outcome (QA TC-7045: edit_pdf failed, make_file made the PDF again and it was attached). */
+const EDITS_FILE = new Set(['edit_pdf', 'edit_office', 'edit_hwp', 'stamp_pdf'])
+
+const kindOf = (tool: string) => CHANGES_FILE.has(tool) ? 'change' : READS_FILE.has(tool) ? 'read' : tool
 
 function stepKey(tool: string, args: unknown): string {
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
-  const target = samePath(a.file_path) ?? samePath(a.path) ?? samePath(a.output) ?? ''
-  return `${CHANGES_FILE.has(tool) ? 'change' : tool}|${target}`
+  const target = samePath(a.file_path) ?? samePath(a.path) ?? samePath(a.output) ?? (tool === 'chat_file' ? samePath(a.file) : null) ?? ''
+  return `${kindOf(tool)}|${target}`
 }
 
-/** A failed write or edit of the work folder (chat:work/…, $TRINA_WORK/…), which the file tools refuse on purpose and
- * steer to a command or copy_files (QA TC-6938: write to chat:work/report.txt refused, then a box_shell command made
- * report.txt and copy_files attached it; the answer still said "One step didn't work: Save."). Only these are settled by
- * another route: a refused save of a team file stays a failure whatever else the answer did. */
+/** A chat place: this chat's files (chat:files/…) and the work folder (chat:work/…, $TRINA_WORK/…). The file tools refuse
+ * some saves there on purpose and steer to another route: the work folder to a command or copy_files (QA TC-6938), a
+ * chat made private again to the person's own folder (QA TC-7051: write chat:files/todo.md refused, then write
+ * users/<id>/todo.md worked; the answer still said "One step didn't work: Save."). A failed save of a chat place is
+ * settled by a file of that name made anywhere; a refused save of a team file stays a failure whatever else the answer
+ * did. */
+const CHAT_PLACE = /^(?:chat:(?:work|files)\/|\$TRINA_WORK\/|\$\{TRINA_WORK\}\/)/i
 const WORK_TARGET = /^(?:chat:work\/|\$TRINA_WORK\/|\$\{TRINA_WORK\}\/)/i
 
 /** The last part of a path ("chat:work/out/report.txt" -> "report.txt"), lower case; null for none */
 const fileName = (p: string) => p.replace(/^["']|["']$/g, '').split('/').filter(Boolean).pop()?.toLowerCase() ?? null
 
-/** The files a successful call made or handed over, by name: a command's outputs (after >, >>, tee or -o, and the target
- * of cp or mv), copy_files' and save_work_file's files, make_file's output. Nothing it only read or listed. */
-function madeNames(tool: string, args: unknown): string[] {
+/** The files a successful call made or handed over: a command's outputs (after >, >>, tee or -o, and the target of cp
+ * or mv), copy_files' and save_work_file's files, make_file's output, write's file, a file-edit tool's output (or its
+ * file, changed in place). Nothing it only read or listed. As written (samePath), or the name alone for a command. */
+function madeFiles(tool: string, args: unknown): string[] {
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
   const out: string[] = []
-  const add = (v: unknown) => { const n = typeof v === 'string' ? fileName(v) : null; if (n) out.push(n) }
+  const add = (v: unknown) => { const p = typeof v === 'string' ? samePath(v.replace(/^["']|["']$/g, '')) : null; if (p) out.push(p) }
   if (tool === 'box_shell' && typeof a.command === 'string') {
-    for (const m of a.command.matchAll(/(?:>>?|\btee\s+(?:-a\s+)?|\s-o\s*)\s*("[^"]+"|'[^']+'|[^\s;|&<>()]+)/g)) add(m[1])
+    for (const m of a.command.matchAll(/(?:>>?|\btee\s+(?:-a\s+)?|\s-o\s*)\s*("[^"]+"|'[^']+'|[^\s;|&<>()]+)/g)) add(fileName(m[1]!))
     for (const part of a.command.split(/&&|\|\||[;|\n]/)) {
       const words = part.trim().split(/\s+/).filter((w) => w && !w.startsWith('-'))
       if ((words[0] === 'cp' || words[0] === 'mv') && words.length >= 3) {
         const to = words[words.length - 1]!.replace(/^["']|["']$/g, '')
         // into a folder ("…/out/"): the files keep their names
-        if (to.endsWith('/') || WORK_TARGET.test(to + '/') && !/\.[^/]+$/.test(to)) words.slice(1, -1).forEach(add)
-        else add(to)
+        if (to.endsWith('/') || WORK_TARGET.test(to + '/') && !/\.[^/]+$/.test(to)) words.slice(1, -1).forEach((w) => add(fileName(w)))
+        else add(fileName(to))
       }
     }
   }
   if (tool === 'copy_files' && Array.isArray(a.paths)) a.paths.forEach(add)
   if (tool === 'save_work_file') add(a.path)
   if (tool === 'make_file') add(a.output)
+  if (tool === 'write') add(a.file_path)
+  if (EDITS_FILE.has(tool)) add(typeof a.output === 'string' && a.output.trim() ? a.output : a.file_path)
   return out
 }
 
+/** A chat file as a read names it: chat_file's `file` (an id or a name: `token`) or a chat:files/<id>/<name> path (or
+ * chat:files/<name>); null for a read of anything else. */
+type ChatFileRef = { id?: string; name?: string; token?: string }
+function chatFileRef(tool: string, target: string): ChatFileRef | null {
+  if (tool === 'chat_file') return target ? { token: target.toLowerCase() } : null
+  if (!/^chat:files\//i.test(target)) return null
+  const segs = target.split('/').slice(1).map((s) => s.toLowerCase())
+  if (!segs.length) return null
+  return segs.length >= 2 ? { id: segs[0]!, name: segs[segs.length - 1]! } : { name: segs[0]! }
+}
+
+/** Two reads name the same chat file: both ids when both have one, else a token against the other's id or name, else
+ * the names. */
+function sameChatFile(a: ChatFileRef, b: ChatFileRef): boolean {
+  if (a.id && b.id) return a.id === b.id
+  if (a.token || b.token) {
+    const ka = [a.id, a.name, a.token].filter(Boolean), kb = [b.id, b.name, b.token].filter(Boolean)
+    return ka.some((x) => kb.includes(x))
+  }
+  return !!a.name && a.name === b.name
+}
+
 /** The answer's tool calls that failed and were not done again with success afterwards (same tool or a change of the
- * same file, same target), nor superseded by a later call that made or handed over the same file another way. */
+ * same file, same target), nor superseded by a later call that got the same outcome another way: a chat place's file
+ * made elsewhere, a file-edit tool's file made again, a chat file read another way. */
 export class FailedSteps {
-  private readonly open = new Map<string, string>()
+  /** step key -> the failed tool and, for a file-edit tool, the file it was to make (`output`) */
+  private readonly open = new Map<string, { tool: string; output: string | null }>()
 
   note(tool: string, args: unknown, ok: boolean) {
     const key = stepKey(tool, args)
+    const kind = key.slice(0, key.indexOf('|'))
+    const target = key.slice(kind.length + 1)
     if (ok) {
       this.open.delete(key)
-      // a refused save into the work folder whose file a later step made or handed over by another route: the outcome
-      // stands (WORK_TARGET)
-      const made = madeNames(tool, args)
-      if (made.length) for (const k of [...this.open.keys()]) {
-        const target = k.startsWith('change|') ? k.slice('change|'.length) : ''
-        if (WORK_TARGET.test(target) && made.includes(fileName(target) ?? '')) this.open.delete(k)
+      const made = madeFiles(tool, args)
+      if (made.length) {
+        const names = made.map(fileName)
+        for (const [k, f] of [...this.open]) {
+          const t = k.slice(k.indexOf('|') + 1)
+          if (!t || !(k.startsWith('change|') || EDITS_FILE.has(f.tool))) continue
+          // a chat place: the same name anywhere (CHAT_PLACE); a team file's failed file-edit tool: its file or the file
+          // it was to make, made at that very path
+          const paths = [t, f.output].filter((p): p is string => !!p)
+          const settled = paths.some((p) => CHAT_PLACE.test(p) ? names.includes(fileName(p)) : EDITS_FILE.has(f.tool) && made.includes(p))
+          if (settled) this.open.delete(k)
+        }
       }
-      // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time)
-      this.open.delete(`${key.slice(0, key.indexOf('|'))}|`)
+      const ref = kind === 'read' ? chatFileRef(tool, target) : null
+      if (ref) for (const [k, f] of [...this.open]) {
+        // the same chat file read another way: chat_file by id or name, read by chat:files/<id>/<name> (TC-7052)
+        const other = k.startsWith('read|') ? chatFileRef(f.tool, k.slice('read|'.length)) : null
+        if (other && sameChatFile(ref, other)) this.open.delete(k)
+      }
+      // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time);
+      // a read with none is settled by a read of the same tool, or by a read of a chat file (chat_file {} then read of
+      // chat:files/…, TC-7052), not by a read of any team file
+      const bare = this.open.get(`${kind}|`)
+      if (target && bare && (kind !== 'read' || bare.tool === tool || (ref && bare.tool === 'chat_file'))) this.open.delete(`${kind}|`)
       // a file made or changed after a read that failed (often "not found" before it was created) settles the read
-      if (key.startsWith('change|') && key !== 'change|') this.open.delete(`read|${key.slice('change|'.length)}`)
+      if (kind === 'change' && target) this.open.delete(`read|${target}`)
     } else {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       this.open.delete(key)
-      this.open.set(key, tool)
+      this.open.set(key, { tool, output: EDITS_FILE.has(tool) ? samePath(a.output) : null })
     }
   }
 
   /** The failed steps' tools, one per step still open, in the order they failed (a tool can be there twice: two files). */
-  tools(): string[] { return [...this.open.values()] }
+  tools(): string[] { return [...this.open.values()].map((f) => f.tool) }
 }
 
 /** Words that say a step did not work, in the six languages of the app. The answer that holds one already tells the
@@ -176,12 +231,47 @@ export function saysSomethingFailed(answer: string): boolean { return SAYS_FAILE
  * The line the server adds at the end of an answer whose steps failed when the answer does not say so ("One step
  * didn't work: Save."). Every word comes from the server: the step words of each tool (shared/src/step-labels.ts
  * stepWords, "Step" for a tool without words of its own) and the line in chat/i18n.ts. Never the model's text, never a
- * path or anything else from the call's arguments. null = nothing to add.
+ * path or anything else from the call's arguments. The line is in the answer's language (answerLocale), the way the
+ * answer itself follows the person's message rather than the app's language (QA TC-7045: a Korean answer ended in
+ * English). null = nothing to add.
  */
 export function failedStepsNote(failed: string[], answer: string, locale: Locale): string | null {
   if (!failed.length || saysSomethingFailed(answer)) return null
-  const names = [...new Set(failed.map((tool) => stepWords({ kind: 'tool', tool }, locale)))]
-  return tr(failed.length === 1 ? 'apiStepFailed' : 'apiStepsFailed', locale, { names: names.join(', ') })
+  const L = answerLocale(answer, locale)
+  const names = [...new Set(failed.map((tool) => stepWords({ kind: 'tool', tool }, L)))]
+  return tr(failed.length === 1 ? 'apiStepFailed' : 'apiStepsFailed', L, { names: names.join(', ') })
+}
+
+/** Code and links' addresses say nothing about the language an answer is written in. */
+const NOT_PROSE = /```[\s\S]*?(?:```|$)|`[^`\n]*`|\]\([^)\n]*\)|https?:\/\/\S+/g
+
+/**
+ * The language an answer is written in, for a line the server adds to it: Hangul makes it Korean, kana Japanese
+ * (whichever there is more of), Han characters alone Chinese. An answer in Latin letters keeps the app's language when
+ * that is written in Latin letters, else it is English when it has about three Latin words or more; a shorter one ("ok",
+ * a name, an emoji) keeps the app's language. Code and
+ * link addresses are not counted; a CJK character counts as three Latin letters.
+ */
+export function answerLocale(answer: string, app: Locale): Locale {
+  const text = answer.replace(NOT_PROSE, ' ')
+  let hangul = 0, kana = 0, han = 0, latin = 0
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!
+    if ((c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f)) hangul++
+    else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x31f0 && c <= 0x31ff) || (c >= 0xff66 && c <= 0xff9f)) kana++
+    else if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) || (c >= 0xf900 && c <= 0xfaff)) han++
+    else if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0xc0 && c <= 0x24f)) latin++
+  }
+  // one CJK character carries about as much as two or three Latin letters: a Korean file name in an English answer
+  // ("Here is 견적서.pdf, updated.") leaves it English, English names in a Korean answer leave it Korean
+  if ((hangul + kana + han) * 3 >= latin && hangul + kana + han > 0) {
+    if (kana > 0 && kana >= hangul) return 'ja'
+    if (hangul > 0) return 'ko'
+    return app === 'ja' ? 'ja' : 'zh'
+  }
+  if (app !== 'ko' && app !== 'ja' && app !== 'zh') return app
+  // about 3 or more Latin words ("Saved the file."), as narration.ts writesLatin: a short "ok" or a bare name keeps it
+  return (text.match(/[A-Za-z]{2,}/g) ?? []).length >= 3 ? 'en' : app
 }
 
 // ---------------- empty links (TC-4831) ----------------

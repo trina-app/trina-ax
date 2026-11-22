@@ -5,7 +5,7 @@ import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification,
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
-import { formatSize } from '../../lib/format'
+import { formatDate, formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -67,6 +67,14 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
  * the person can open it. No job name, exit code, reason or log: the people reading it are not developers, and the log
  * stays in the chat for its AI. A notice of the removed box runner has no job: the generic text of its event. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
+  // a request whose jobs ended while its answer ran: how the answer ended (finished, or stopped and why), never "done"
+  // for one step of it (server/src/devenv/jobs.ts tellHeldJobs)
+  const request = item.devEnv?.request
+  if (request) {
+    if (request.outcome === 'done') return request.chatTitle ? isolate(locale, 'notifications.event.dev_env.jobDoneIn', { title: request.chatTitle }, ['title']) : t('notifications.event.dev_env.jobDone')
+    const why = t(`notifications.event.dev_env.requestWhy.${request.reason ?? 'error'}`)
+    return request.chatTitle ? isolate(locale, 'notifications.event.dev_env.requestStoppedIn', { title: request.chatTitle, why }, ['title']) : t('notifications.event.dev_env.requestStopped', { why })
+  }
   const job = item.devEnv?.job
   if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
   // done: exit code 0; unknown: it ended by itself with no code the server could read (QA TC-6586); failed: the rest
@@ -148,8 +156,11 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'team.joined') return item.joined ? joinedText(item.joined, t) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
-  // there; one I no longer see says so (no title, no link)
-  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // there; one I no longer see says so with who shared it, as a row of its own ("A chat from Mina …", QA TC-7047: no
+  // title, it may have been renamed since; no link)
+  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? (item.chatShared.name ? t('notifications.event.chat.sharedGoneNamed', { name: item.chatShared.name }) : t('notifications.event.chat.sharedGoneAny')) : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // a chat shared with me that I lost (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): why, and who
+  if (item.code === 'chat.lost' && item.chatLost) return chatLostText(item.chatLost, t, locale)
   // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
@@ -410,4 +421,12 @@ export function Notifications() {
       {freeRoam ? null : isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
     </PrefSection>
   </section>
+}
+
+/** 'chat.lost': who stopped sharing it, moved it to the trash, or left the team (with when the chat goes). */
+export function chatLostText(c: NonNullable<InboxNotification['chatLost']>, t: ReturnType<typeof useT>, locale: Locale): string {
+  if (!c.name) return t('notifications.event.chat.lost')
+  if (c.reason === 'stopped') return t('notifications.event.chat.lostStopped', { name: c.name })
+  if (c.reason === 'deleted') return t('notifications.event.chat.lostDeleted', { name: c.name })
+  return c.until ? t('notifications.event.chat.lostAccount', { name: c.name, date: formatDate(c.until, locale) }) : t('notifications.event.chat.lostAccountNow', { name: c.name })
 }

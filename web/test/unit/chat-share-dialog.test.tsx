@@ -111,12 +111,14 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
-  test('a guest is never offered (a chat shared with people is no place of theirs); a member is', async () => {
+  test('a guest is never added (a chat shared with people is no place of theirs): found, greyed out with why (QA TC-7284); a member is', async () => {
     routesWith(audience())
     routes['GET /api/people'] = () => json(200, { people: [...PEOPLE.people, { id: 'gina', name: 'Gina Park', guest: true, guestPlaces: [{ kind: 'room', id: 'r1', name: 'Quote prep' }] }] })
     const m = await open()
     await m.type('chat-share-picker-search', 'park')
     expect(m.find('participant-add-user-gina')).toBeNull()
+    const row = await m.until(() => m.find('participant-elsewhere-user-gina'), 'the guest greyed out', 2000)
+    expect(row.textContent).toContain(en('chat.share.guestNo'))
     await m.type('chat-share-picker-search', 'bob')
     expect(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000)).toBeTruthy()
     await m.unmount()
@@ -527,6 +529,22 @@ describe('not mine to change, or not here', () => {
     expect(m.find('chat-share-save')).toBeNull()
     await m.click('chat-share-close')
     expect(closed).toBe(1)
+    await m.unmount()
+  })
+
+  test('someone else\'s shared chat: "Leave this chat" asks first, then leaves (QA TC-7651)', async () => {
+    routesWith(audience([{ subjectType: 'user', subjectId: 'mia', name: 'Mia' }, SORA], { canEdit: false, by: { id: 'bob', name: 'Bob' } }))
+    routes[`POST /api/chats/${C1}/leave`] = () => json(200, { ok: true })
+    let closed = 0
+    const m = await mount(<MemoryRouter initialEntries={['/']}><ChatShareDialog chat={chat} onClose={() => closed++} /><DialogHost /></MemoryRouter>)
+    await m.until(() => m.find('chat-share-leave'), 'Leave', 2000)
+    await m.click('chat-share-leave')
+    expect(closed).toBe(1)
+    await m.until(() => m.find('dialog-confirm'), 'the ask', 2000)
+    expect(m.container.ownerDocument!.body.textContent).toContain(en('chat.leaveBody', { name: 'Bob' }))
+    expect(sent.some((x) => x.key === `POST /api/chats/${C1}/leave`)).toBe(false)
+    await m.click('dialog-confirm')
+    await m.until(() => sent.some((x) => x.key === `POST /api/chats/${C1}/leave`), 'the leave', 2000)
     await m.unmount()
   })
 

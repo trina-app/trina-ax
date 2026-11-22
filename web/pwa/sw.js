@@ -167,8 +167,8 @@ async function badgeDot() {
 self.addEventListener('message', event => {
   if (event.data?.type !== 'push.invalidate' || !event.source?.url || new URL(event.source.url).origin !== self.location.origin) return
   pushEpoch++
-  // the account changed: its notices go, and so does a dot on the icon
-  try { void Promise.resolve(self.navigator?.clearAppBadge?.()).catch(() => {}) } catch { /* the badge is a nicety */ }
+  // the account changed: its notices go (the window clears a dot on the icon itself, lib/push.ts setPushSession: a
+  // Chromium with clearAppBadge in workers but no handler for it kills this process and the tab with it, QA TC-7344)
   event.waitUntil(self.registration.getNotifications().then(items => { for (const item of items) item.close() }))
 })
 

@@ -25,6 +25,9 @@ export const ChatFileVersions = z.object({
   /** a text file (md, txt, csv, html, json) of a chat shared with people (not a project chat), not in the trash, safe
    * operations off, not on the download-only list: the panel offers the pencil and Restore */
   canEdit: z.boolean(),
+  /** I may restore a version now (any file type and size: a version's own bytes as the new newest, QA TC-7040): the
+   * same as canEdit without the text name and the CHAT_FILE_EDIT_MAX size. Absent from older servers: use canEdit */
+  canRestore: z.boolean().optional(),
 })
 export type ChatFileVersions = z.infer<typeof ChatFileVersions>
 /** PUT /api/chats/:id/files/:fileId/content: the whole new text, and the version the editor read */
@@ -116,7 +119,8 @@ export const ShareChatBody = z.object({
 }).strict()
 /** A file the chat made in its creator's own folder, as the Share step lists it to the creator: its name, the folder in
  * the Files screen's words ("My files › 견적 › Sincere") and its size. Never sent to anyone else. */
-export const ChatMadeFile = z.object({ name: z.string(), place: z.string(), size: z.number().int().nonnegative() })
+/** `private`: made by an answer that used something a person being added cannot open (QA TC-7370) */
+export const ChatMadeFile = z.object({ name: z.string(), place: z.string(), size: z.number().int().nonnegative(), private: z.literal(true).optional() })
 export type ChatMadeFile = z.infer<typeof ChatMadeFile>
 /** What the people who would start to see a chat would see that they could not before (docs/DECISIONS.md "Share in one
  * press", QA TC-3092): counts of answers and places, never who. `added`: how many people start to see it;
@@ -139,6 +143,18 @@ export const ShareCheck = z.object({
   /** files this chat made in my own folder that the people in it can't open (docs/decisions/
    * 20261121-share-chat-files.md): the Share step "Share the files from this chat too?". Only for me, its creator */
   madeFiles: z.array(ChatMadeFile).optional(),
+  /** the positions, in the list of people and groups as sent, of the entries just added that bring in someone a warning
+   * line is about: the lines name only these (QA TC-7042: a person already in the chat through a group was named).
+   * Positions, never ids. Older servers omit it: all the entries being added */
+  warnPicks: z.array(z.number().int().nonnegative()).optional(),
+  /** the names of up to 5 files those answers read that someone being added can't open (I read them myself): the
+   * files line names them (QA TC-7277) */
+  fileNames: z.array(z.string()).optional(),
+  /** answers that ran commands in the dev environment, which may have used files only I can open (a first share): a
+   * warning line, since people added later see them too (QA TC-7262) */
+  devAnswers: z.number().int().nonnegative().optional(),
+  /** earlier answers that stay hidden from at least one person being added (their records: QA TC-7262) */
+  hiddenAnswers: z.number().int().nonnegative().optional(),
 })
 export type ShareCheck = z.infer<typeof ShareCheck>
 
@@ -442,6 +458,10 @@ export const ChatAudience = z.object({
    * yet ("2 files from this chat are only in your files"), and the key a save with `withFiles` carries for exactly these */
   madeFiles: z.array(ChatMadeFile).optional(),
   madeFilesKey: z.string().optional(),
+  /** a chat shared with people: who changed its people, oldest first, at most the newest 50 (chat_audience_events,
+   * docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): "{actor} added {names}", "{actor} removed {names}",
+   * "{actor} left". Names read now; people whose account is off only for its creator and admins. Absent: none. */
+  events: z.array(z.object({ at: IsoTime, kind: z.enum(['added', 'removed', 'left']), actor: z.string(), names: z.array(z.string()) })).optional(),
 })
 export type ChatAudience = z.infer<typeof ChatAudience>
 export const PutChatAudienceBody = z.object({
@@ -703,11 +723,12 @@ export const CHATS = {
   getChatAudience: endpoint({ method: 'GET', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', response: ChatAudience, summary: 'Who a chat I can see is shared with: for a chat outside projects shared with people and groups, the people and groups by name (a group\'s size and the count only for its creator and admins when a group is in it); a shared project chat or my private chat lists nobody. Anyone who cannot see the chat gets the 404 of a missing chat.' }),
   previewChatAudience: endpoint({ method: 'POST', path: '/api/chats/:id/audience/preview', auth: 'user', owner: 'B', body: ChatAudiencePreviewBody, response: ChatAudiencePreview, summary: 'Dry run of a save of who sees a chat outside projects (its creator only, the same refusals as a save, chat_busy while a turn runs): what the people the list brings in would see that they could not before (counts of answers and places I may look myself, never who), and the key a save must carry. Nothing is saved. At most 60 a minute per person (429); the same list and chat state answers from a 60-second cache.' }),
   putChatAudience: endpoint({ method: 'PUT', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', body: PutChatAudienceBody, response: PutChatAudienceResult, summary: 'Its creator saves who sees a chat outside projects (the whole list, at most 100 people and groups; [] makes it theirs alone again). Adds that bring in new people first answer "confirm" when its answers carry content from places some of them cannot open, may have used my memories, used recorded places they cannot open, or (a first share) will show them my earlier computer uploads (counts and places I may look myself, never who), with a confirmKey; sent again with that key it saves. Removed people\'s turns there stop first. A first share copies my earlier computer uploads into the chat (each at most 50 MB, metadata of photos cut out); filesNotCopied says how many could not be. 403 chat_share_creator_only to others who see it, the 404 of a missing chat to everyone else; 409 share_people_in_project, project_personal, safe_ops (adds), scheduled_run, side_chat, chat_busy (adds); 400 audience_full, unknown_subject (newly added only), needs_people. Rate-limited like a room message; audited (counts only); people added by name and through a group get an Inbox notice (at most one per chat and person a day).' }),
-  userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups hold other people\'s messages. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
+  userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups someone else sees now. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
+  leaveChat: endpoint({ method: 'POST', path: '/api/chats/:id/leave', auth: 'user', owner: 'B', response: z.object({ ok: z.literal(true) }), summary: '"Leave this chat": someone a chat outside projects was shared with by name takes themselves out of it (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md); their turns there stop and nothing of it stays theirs. Its creator gets 400 chat_leave_creator, a chat not shared with people 400 chat_leave_not_shared, someone who would still see it through a listed group 409 chat_leave_group; anyone who cannot see it the 404 of a missing chat.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment, version=n an earlier version (the newest without it; one pruned or not of this chain: 404). Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
-  chatFileVersions: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId/versions', auth: 'user', owner: 'B', response: ChatFileVersions, summary: 'The versions of a file kept with a chat shared with people (any id of its chain), oldest first: who saved each (or the AI for whom), when, its size; the newest marked head. canEdit: I may save a new version now. Anyone who may not open the file (the chat not theirs to see, an upload not sent yet, a file carried only by answers hidden from them) gets the 404 of a missing one: never a version, its name or how many.' }),
+  chatFileVersions: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId/versions', auth: 'user', owner: 'B', response: ChatFileVersions, summary: 'The versions of a file kept with a chat shared with people (any id of its chain), oldest first: who saved each (or the AI for whom), when, its size; the newest marked head. canEdit: I may save a new version (a text file) now; canRestore: I may restore a version (any file) now. Anyone who may not open the file (the chat not theirs to see, an upload not sent yet, a file carried only by answers hidden from them) gets the 404 of a missing one: never a version, its name or how many.' }),
   saveChatFile: endpoint({ method: 'PUT', path: '/api/chats/:id/files/:fileId/content', auth: 'user', owner: 'B', body: SaveChatFileBody, response: ChatFileSaved, summary: 'Save a text file of a chat shared with people as its new version (md, txt, csv, html, json; at most 10 MB): whoever may open the file and sees the chat. Nothing is overwritten: the chain keeps its last 20 versions. baseVersion: the version the editor read; someone saved since: beside true (both kept) and besideOf, the version saved in between. 409 chat_file_read_only for a project chat, a chat in the trash or a file that is not text; 409 safe_ops while safe operations are on; the 404 of a missing file for anyone who may not open it. Each person in the chat sees the change on its file tiles. At most 30 saves and restores a minute per person (429 with retryAfter). Audited (chat.file_version).' }),
   restoreChatFileVersion: endpoint({ method: 'POST', path: '/api/chats/:id/files/:fileId/versions/:version/restore', auth: 'user', owner: 'B', response: ChatFileSaved, summary: 'Restore version :version of a file kept with a chat shared with people: a new newest version with its bytes; nothing is overwritten (at the 20-version cap the oldest after the first goes: pruned). The same rights, refusals and limit as a save. Audited (chat.file_restore).' }),
   listChatThread: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListChatThreadQuery, response: ChatThreadPage, summary: 'The thread under a finished AI answer of a shared chat I see: the answer as I see it and a page of the replies (newest page first, oldest first within it). People only: the AI never reads replies. A chat I do not see, a missing or hidden answer, a question or another chat\'s answer: the same 404. canReply false with readOnlyReason while safe operations are on, the chat is in the trash or no longer shared.' }),
