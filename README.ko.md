@@ -47,8 +47,8 @@ https://github.com/user-attachments/assets/761ef58c-eaf9-4dbc-963b-b9e2e3005c1a
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="관리자 › 연결한 서비스(팀 모두에게 적용): Google Drive, Gmail, Calendar, Docs, Sheets(한 번 설정하면 각자 Google에 로그인만 해요), Slack, Notion, Linear, Atlassian, Canva, 주소로 추가하기"><br><sub>관리자 › 연결한 서비스: 한 번 설정하면 팀 모두가 써요</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ https://github.com/user-attachments/assets/761ef58c-eaf9-4dbc-963b-b9e2e3005c1a
 
 <table>
 <tr>
-<td width="50%"><b>예약 작업:</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="예약 작업이 만든 주간 요약: 찾은 내용, 결정 사항, 남은 일을 담아 파일로 저장"></td>
+<td width="50%"><b>예약 작업:</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="예약 작업 화면: 작업 6개와 각각 하는 일, 반복 시각, 마지막 실행 결과"></td>
 <td width="50%"><b>게스트:</b> 외부 사람을 그룹 대화나 프로젝트에 초대하고, AI를 쓸 수 있게 할지 정해요.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="외부 대행사 게스트 Morgan Reyes가 있는 Launch email 그룹 대화: 제목 후보, @멘션, 트리나의 답"></td>
 </tr>
 <tr>
-<td width="50%"><b>사용량과 한도:</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람별, 그룹별, 팀 전체로 걸 수 있어요.<br><br><img src="docs/images/readme/v4/usage.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
+<td width="50%"><b>사용량과 한도:</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람별, 그룹별, 팀 전체로 걸 수 있어요.<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
 <td width="50%"><b>통합 검색:</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 한 번에 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
 <tr>
