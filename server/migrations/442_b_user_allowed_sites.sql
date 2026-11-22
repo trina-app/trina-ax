@@ -1,5 +1,5 @@
 -- min_compatible_reader: 1
--- Component C: "이 사이트 항상 허용" (always allow this site) on the address card is the person's own choice for good
+-- Component B (its 400–499 range; the address card is C's, tools/url-gate.ts): "이 사이트 항상 허용" (always allow this site) on the address card is the person's own choice for good
 -- (docs/decisions/20261122-always-allow-holds-everywhere.md B3; server/src/tools/url-gate.ts). The owner, 2026-11-22:
 -- "이렇게 또 권한을 매번 대화마다 다 해줘야하는 미친 상황 더 없겠지?" One row per person and site: later plain addresses
 -- on that site (registrable domain, eTLD+1 by the Public Suffix List with its private section) open without a card in
