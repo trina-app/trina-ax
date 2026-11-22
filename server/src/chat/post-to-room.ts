@@ -323,8 +323,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // message names someone else and not this person: refused, so it goes only to whom they named (any doubt: the card)
         const otherNamed = peerId ? namesSomeoneElse(db, ownWords(askerText(db, spec.userMessageId)), spec.userId, peerId) : null
         if (otherNamed) {
-          const who = neutralizeTags(oneLine(nameOf(ctx, peerId!) ?? '', 40))
-          return no(`Nothing was posted: the user's message names ${neutralizeTags(oneLine(otherNamed, 40))}, not ${who}; send only to the person they named. "also", "\uB3C4" and "too" add a recipient; they never mean sending again to the earlier ones.`, 'refused: the message names someone else')
+          // (in a shared chat the recipient is hidden as whoAi hides it)
+          const who = exec.shared ? titleAi : neutralizeTags(oneLine(nameOf(ctx, peerId!) ?? '', 40))
+          return no(`Nothing was posted: the user's message names ${neutralizeTags(oneLine(otherNamed, 40))}, not ${who}. Ask the user who it should go to. "also", "\uB3C4" and "too" add a recipient; they never mean sending again to the earlier ones.`, 'refused: the message names someone else')
         }
         let threadRootId: string | undefined
         if (a.data.thread_id !== undefined) {
@@ -536,7 +537,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (the staff check every admin rule uses: an active account, a guest never counts: policy/access.ts isStaff)
         const admin = (() => { const me = loadPrincipal(db, spec.userId); return !!me && isStaff(me) })()
         const teamFolderRead = (rel: string) => {
-          if (rel.split('/')[0] === 'users') return false
+          // (a personal folder by any spelling: a case-insensitive disk opens Users/ as users/)
+          if (rel.normalize('NFC').replace(/^\/+/, '').toLowerCase().split('/')[0] === 'users') return false
           try { const r = accessRouteFor(ctx, spec.userId, rel); return r?.kind === 'folder' || r?.kind === 'staff' } catch { return false }
         }
         const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && (canShareOf(rel) || teamFolderRead(rel)))
@@ -832,12 +834,18 @@ function nameForms(u: { name: string | null; username: string | null }): string[
 
 /** `form` stands as whom it goes to: after to/with/@, before 한테/에게/께 (namedInFull), also with a few words in brackets
  * between ("하늘님(외부 디자이너)한테도") */
-function asRecipient(said: string, form: string): boolean {
+function asRecipient(said0: string, form: string): boolean {
+  const e = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const head = `(?<![\\p{L}\\p{N}])${e}\\s?(?:\uB2D8|\uC528)?\\s?(?:\\([^)]{0,40}\\))?\\s?(?:\uD55C\uD14C|\uC5D0\uAC8C|\uAED8)`
+  // whom it came from, not whom it goes to: 한테서 / 에게서 / 께서, "한테 받은", "에게 들은", "한테 온" (left out first, so
+  // namedInFull's own 한테/에게/께 does not take them either)
+  const said = /\p{Script=Hangul}$/u.test(form) ? said0.replace(new RegExp(`${head}(?=${FROM_PERSON})`, 'gu'), ' ') : said0
   if (namedInFull(said, [form])) return true
   if (!/\p{Script=Hangul}$/u.test(form)) return false
-  const e = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?<![\\p{L}\\p{N}])${e}\\s?(?:\uB2D8|\uC528)?\\s?(?:\\([^)]{0,40}\\))?\\s?(?:\uD55C\uD14C|\uC5D0\uAC8C|\uAED8)`, 'u').test(said)
+  return new RegExp(`${head}(?!${FROM_PERSON})`, 'u').test(said)
 }
+/** after 한테/에게/께: it came from that person (서, 받, 들, 온) */
+const FROM_PERSON = '\uC11C|\\s?(?:\uBC1B|\uB4E4|\uC628)'
 
 /**
  * S-119: the asker's own words of this turn (`said`, quotes left out) name another active person (a teammate or a guest)

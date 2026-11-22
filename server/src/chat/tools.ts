@@ -823,11 +823,15 @@ export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec'
   })
 }
 
-/** The team folder a path is in: groups/<g>, projects/<p>, users/<u>, else its first folder (shared/…) */
-const teamPlaceOf = (rel: string): string => {
+/** The team folder a path is in: groups/<g>, projects/<p>, users/<u>; elsewhere (shared/…) the highest folder on the
+ * path that `closed` says is closed to the person (losing only shared/재무 names shared/재무, not shared, which they
+ * still open), else its first folder */
+const teamPlaceOf = (rel: string, closed: (p: string) => boolean): string => {
   const segs = rel.split('/').filter((x) => x && x !== '.')
   const top = segs[0]?.normalize('NFC').toLowerCase()
-  return segs.slice(0, top === 'groups' || top === 'projects' || top === 'users' ? 2 : 1).join('/')
+  if (top === 'groups' || top === 'projects' || top === 'users') return segs.slice(0, 2).join('/')
+  for (let i = 1; i < segs.length; i++) { const p = segs.slice(0, i).join('/'); if (closed(p)) return p }
+  return segs.slice(0, 1).join('/')
 }
 const placeKey = (p: string) => p.normalize('NFC').toLowerCase()
 const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x && x !== '.').join('/')
@@ -854,7 +858,7 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   // one's own is never lost, another's is reached only through a share) or a chat place (chat:files/…)
   const places = new Map<string, string>()
   for (const r of earlier) {
-    const rel = relOf(r), pl = teamPlaceOf(rel)
+    const rel = relOf(r), pl = teamPlaceOf(rel, gone)
     if (!pl || pl.includes(':') || pl.split('/')[0]!.normalize('NFC').toLowerCase() === 'users' || places.has(placeKey(pl))) continue
     if (!gone(rel) || granted(rel)) continue
     places.set(placeKey(pl), pl)
@@ -863,7 +867,7 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     const m = text ? /Access denied: not found or no access: '([^']*)'/.exec(text) : null
     if (!m) return null
     const rel = relOf(m[1]!)
-    const place = places.get(placeKey(teamPlaceOf(rel)))
+    const place = places.get(placeKey(teamPlaceOf(rel, gone)))
     if (!rel || !place || !gone(rel) || !gone(place)) return null
     // the very file, still the version read: the file service already said its access ended (files/moved.ts)
     if (text!.includes('but this person can no longer open it')) return KEEP_READ_LINE

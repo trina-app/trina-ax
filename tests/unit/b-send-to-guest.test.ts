@@ -29,6 +29,7 @@ beforeAll(async () => {
   const db = h.ctx.db
   roomsOf(h.ctx).clock = () => (clock += 10_000)
   db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('minji', 'minji', '김민지', 'member', 'active', NULL)").run()
+  db.query("INSERT INTO users (id, username, name, role, status, deleted_at) VALUES ('junho', 'junho', '박준호', 'member', 'active', NULL)").run()
   db.query("INSERT INTO users (id, username, name, role, status, deleted_at, guest) VALUES ('haneul', 'haneul', '정하늘', 'member', 'active', NULL, 1)").run()
   // the guest's place: a group chat of bob's (so bob reaches her)
   const room = await h.api('bob').call(API.createRoom, { body: { kind: 'group', userIds: ['minji'], name: 'design-outside' } })
@@ -81,13 +82,13 @@ describe('only the person the message names', () => {
   test('"하늘님(외부 디자이너)한테도 보내줘" never sends to 김민지 again (refused, no card)', async () => {
     const r = await turn(`하늘님(외부 디자이너)한테도 보내줘\n${post({ room: '김민지', text: '견적서 보내요' })}`)
     expect(r.cards).toBe(0)
-    expect(r.content).toContain("the user's message names 정하늘, not 김민지; send only to the person they named")
+    expect(r.content).toContain("the user's message names 정하늘, not 김민지. Ask the user who it should go to.")
     expect(r.content).toContain('never mean sending again to the earlier ones')
   })
 
   test('the message names the recipient (it goes: the explicit ask), or nobody (the card shows)', async () => {
     const named = await turn(`김민지님한테도 보내줘\n${post({ room: '김민지', text: '견적서 보내요' })}`)
-    expect(named.content).not.toContain('send only to the person they named')
+    expect(named.content).not.toContain('Ask the user who it should go to')
     expect(named.content).toContain('"status":"sent"')
     const nobody = await turn(`이거 보내줘\n${post({ room: '김민지', text: '견적서 보내요' })}`, { answer: 'no' })
     expect(nobody.card).not.toBeNull()
@@ -102,6 +103,15 @@ describe('only the person the message names', () => {
     // a name only as the subject of the text, not as whom it goes to: no refusal
     expect(namesSomeoneElse(db, '하늘님 시안 보내줘', 'bob', 'minji')).toBeNull()
     expect(namesSomeoneElse(db, '', 'bob', 'minji')).toBeNull()
+    // whom it came from, not whom it goes to: 한테서, 께서, 에게서, "한테 받은"
+    expect(namesSomeoneElse(db, '준호한테서 받은 파일 보내줘', 'bob', 'minji')).toBeNull()
+    expect(namesSomeoneElse(db, '준호님께서 주신 자료 보내줘', 'bob', 'minji')).toBeNull()
+    expect(namesSomeoneElse(db, '준호에게서 온 거 보내줘', 'bob', 'minji')).toBeNull()
+    expect(namesSomeoneElse(db, '준호한테 받은 거 보내줘', 'bob', 'minji')).toBeNull()
+    // a recipient chosen by title (팀장님): someone named only as where it came from is no other recipient
+    expect(namesSomeoneElse(db, '팀장님께 보내줘. 준호한테 받은 거야', 'bob', 'minji')).toBeNull()
+    // still: 준호 as the recipient
+    expect(namesSomeoneElse(db, '준호한테 보내줘', 'bob', 'minji')).toBe('박준호')
     expect(POST_TO_ROOM_DESCRIPTION).toContain('never means sending again to earlier ones')
   })
 })

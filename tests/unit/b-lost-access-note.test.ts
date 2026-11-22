@@ -117,6 +117,32 @@ describe('a place read earlier in this chat, no longer open', () => {
     } finally { await setMembers(['alice', 'erin']) }
   })
 
+  test('losing only a folder inside shared/ names that folder (shared/ itself still opens)', async () => {
+    const chat = await newChat('alice')
+    const a = await ask('alice', chat, `hi\n${fake({ say: 'hello' })}`)
+    fs.mkdirSync(path.join(h.team, 'shared', '재무'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'shared', '재무', 'budget.md'), '# budget\n')
+    saveReads(h.ctx.db, { chatId: chat, messageId: a.assistantId, userId: 'alice' }, new Map([['shared/재무/budget.md', 'y'.repeat(64)]]), new Map())
+    const rt = h.rt()
+    const files = new TurnFiles()
+    files.carried = carriedReads(h.ctx.db, rt.files, { chatId: chat, userId: 'alice', answers: [a.assistantId] })
+    const exec = { rt, spec: { userId: 'alice', locale: 'en' }, files, livePrincipal: () => rt.files.principal('alice') } as unknown as Parameters<typeof lostAccessFor>[0]
+    const denied = "Access denied: not found or no access: 'shared/재무/other.md'"
+    // still open: nothing
+    expect(lostAccessFor(exec, 'read', true, { file_path: 'shared/재무/other.md' }, denied, new Set())).toBeNull()
+    h.ctx.db.query("INSERT INTO folders (id, path, limited) VALUES ('lost-shared-fin', 'shared/재무', 1)").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('lost-shared-fin-none', 'lost-shared-fin', 'everyone', NULL, 'none')").run()
+    try {
+      const note = lostAccessFor(exec, 'read', true, { file_path: 'shared/재무/other.md' }, denied, new Set())
+      expect(note).toContain(`${LINE} 'shared/재무'`)
+      // a file elsewhere in shared/ (still open to her): no line
+      expect(lostAccessFor(exec, 'read', true, { file_path: 'shared/notes.md' }, "Access denied: not found or no access: 'shared/notes.md'", new Set())).toBeNull()
+    } finally {
+      h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'lost-shared-fin-none'").run()
+      h.ctx.db.query("DELETE FROM folders WHERE id = 'lost-shared-fin'").run()
+    }
+  })
+
   test('the note and the prompt rule', () => {
     const n = lostAccessNote(h.ctx.db, ['groups/영업'], 'ko')
     expect(n).toContain('이 폴더는 더 이상 열 수 없어요 (권한이 바뀌었거나 옮겨졌어요)')

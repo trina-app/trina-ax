@@ -141,6 +141,35 @@ describe('the viewer\'s ask (rooms/file-ask.ts)', () => {
     expect(await view('erin', rooms.all, m.id, rel)).toEqual({ status: 'open' })
   })
 
+  test('a GET never makes the link row; the POST does', async () => {
+    const rel = 'groups/marketing/no-row-yet-120.md'
+    put(rel, '# No row'); wroteIt('erin', rel)
+    const m = await send('alice', rooms.all, `New: ${link(rel)}`)
+    expect(await view('bob', rooms.all, m.id, rel)).toEqual({ status: 'ask', by: null })
+    expect(fileSharesOf(h.ctx).liveRow(rel)).toBeNull()
+    expect((await ask('bob', rooms.all, m.id, rel)).status).toBe('sent')
+    expect(fileSharesOf(h.ctx).liveRow(rel)).toBeTruthy()
+  })
+
+  test('a poster who cannot read the linked file: no, also when the file already has a link row (no probing)', async () => {
+    const rel = 'groups/finance/bob-ledger-120.md'
+    put(rel, '# Ledger'); wroteIt('bob', rel)
+    // the file has a live link row (bob made its link)
+    fileSharesOf(h.ctx).linkFor('bob', rel)
+    expect(fileSharesOf(h.ctx).liveRow(rel)).toBeTruthy()
+    // alice (marketing) cannot read finance, yet posts a link to it; erin (marketing) must learn nothing from it
+    const m = await send('alice', rooms.all, `Ledger: ${link(rel)}`)
+    expect(await view('erin', rooms.all, m.id, rel)).toEqual({ status: 'no' })
+    expect((await errOf(ask('erin', rooms.all, m.id, rel))).status).toBe(404)
+    expect(h.ctx.db.query("SELECT 1 FROM file_access_requests r JOIN file_shares s ON s.id = r.share_id WHERE s.path = ? AND r.requester_id = 'erin'").get(rel)).toBeNull()
+    // the same path with no row at all: the same answer
+    const rel2 = 'groups/finance/bob-ledger2-120.md'
+    put(rel2, '# Ledger 2'); wroteIt('bob', rel2)
+    const m2 = await send('alice', rooms.all, `Ledger: ${link(rel2)}`)
+    expect(await view('erin', rooms.all, m2.id, rel2)).toEqual({ status: 'no' })
+    expect((await errOf(ask('erin', rooms.all, m2.id, rel2))).status).toBe(404)
+  })
+
   test('no: a path not linked in that message, a message I cannot see, a deleted message, a guest; a room I am not in: its 404', async () => {
     const rel = 'groups/marketing/hidden-120.md', other = 'groups/marketing/other-120.md'
     put(rel, '# Hidden'); put(other, '# Other'); wroteIt('erin', rel); wroteIt('erin', other)

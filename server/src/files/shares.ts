@@ -1179,6 +1179,13 @@ export class FileShares {
     const s = this.row(shareId)
     return s && s.state === 'live' ? this.requestTargets(s) : []
   }
+  /** The same for the file at `rel` that has no link row yet: who a request would go to once linkFor makes one (its
+   * owner as ensure() would record it). Pure: no row is made (a read never writes). */
+  requestTargetsAt(rel0: string): string[] {
+    const rel = teamPathOf(rel0)
+    const t = now()
+    return this.requestTargets({ id: '', path: rel, ino: null, dev: null, sha256: null, size: null, mtime_ms: null, ctime_ms: null, owner_id: ownerOf(this.db, rel), state: 'live', trash_id: null, created_by: '', created_at: t, kind: 'file', folder_id: null, paused_at: null })
+  }
 
   /**
    * "Ask <owner>" for other people (after a post to a room, or under a refused share): `askerId`, who can open the file
