@@ -437,7 +437,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
     // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
     // checked before any card
-    const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args) : null
+    const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
     // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
     // docs/decisions/20261121-ai-edits-chat-files.md)
     if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
@@ -548,12 +548,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
     },
     async call(name, args, caller) {
+      // the chat file's newest version before the call: a refusal after a save never says "nothing was saved"
+      const before = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
+      const headBefore = before ? chatHeadId(exec, before) : null
       const out = await callTool(name, args, caller)
       // an in-place change of a chat file (edit_office, edit_pdf without output) that did not go through: the result says
       // what the file is now, whichever check refused it (QA TC-7039: the AI told people a test slide was "the original")
       if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf')) return out
-      const at = officeVersionPlace(args)
-      const state = at ? chatFileState(exec, caller?.files ?? exec.files, at) : null
+      const at = officeVersionPlace(args, name)
+      const state = at ? chatFileState(exec, caller?.files ?? exec.files, at, headBefore) : null
       return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
     },
     afterFileTool: (name, isError, args, text, caller) => {
@@ -736,7 +739,7 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   }
   // edit_pdf (tools/pdf-tools.ts) on a file of this chat without output: a new version of it, carrying what it inserts
   // (another PDF, a picture). A team PDF's result is a new name only the tool knows: its own card
-  if (name === 'edit_pdf' && typeof a.file_path === 'string' && officeVersionPlace(a)) {
+  if (name === 'edit_pdf' && typeof a.file_path === 'string' && officeVersionPlace(a, name)) {
     const extra = Array.isArray(a.operations) ? a.operations.flatMap((o) => {
       const op = o as { insert_pdf?: { file?: unknown }; stamp_image?: { image?: unknown } }
       const f = op?.insert_pdf?.file ?? op?.stamp_image?.image
@@ -1496,10 +1499,19 @@ export function placeRefusal(name: string, args: unknown): string | null {
 
 /** edit_office's or edit_pdf's chat file changed in place (a new version, P4): its file_path when it names one and no
  * output is given */
-export function officeVersionPlace(args: unknown): Extract<Place, { kind: 'chatFiles' }> | null {
+export function officeVersionPlace(args: unknown, tool?: string): Extract<Place, { kind: 'chatFiles' }> | null {
   const a = args && typeof args === 'object' ? args as { file_path?: unknown; output?: unknown } : {}
-  if (a.output !== undefined && !(typeof a.output === 'string' && a.output.trim() === '')) return null
   const p = parsePlace(a.file_path)
+  if (a.output !== undefined && !(typeof a.output === 'string' && a.output.trim() === '')) {
+    // edit_pdf's output that names an existing chat file (by its id, or this file by its name) is a new version of it
+    // too (tools/pdf-tools.ts editChatPdf, files/place-output.ts versionProduced): the same checks before any card
+    if (tool !== 'edit_pdf') return null
+    const o = parsePlace(a.output)
+    if (o?.kind !== 'chatFiles') return null
+    if (o.id) return o
+    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    return chatVersionPlace(p) && o.name && p.name && fold(o.name) === fold(p.name) ? p : null
+  }
   return chatVersionPlace(p) ? p : null
 }
 
@@ -1509,11 +1521,18 @@ export function officeVersionPlace(args: unknown): Extract<Place, { kind: 'chatF
  * (one version per answer: an earlier call's change is in it). Read from the database, never assumed; null when the
  * person cannot see such a file here (the refusal said why).
  */
-export function chatFileState(exec: TurnExec, files: TurnFiles, place: Extract<Place, { kind: 'chatFiles' }>): string | null {
+/** the chain's newest version's row id for this person now, or null */
+export function chatHeadId(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }>): string | null {
+  try { return chatFilesOf(exec.rt.ctx).find(exec.spec.userId, exec.spec.chatId, place.id ?? place.name ?? '', !place.id)?.head.id ?? null } catch { return null }
+}
+
+export function chatFileState(exec: TurnExec, files: TurnFiles, place: Extract<Place, { kind: 'chatFiles' }>, headBefore?: string | null): string | null {
   try {
     const store = chatFilesOf(exec.rt.ctx)
     const v = store.find(exec.spec.userId, exec.spec.chatId, place.id ?? place.name ?? '', !place.id)
     if (!v || store.kCarried(v.root)) return null
+    // the head moved during the call: something was saved, so no "nothing was saved"
+    if (headBefore !== undefined && headBefore !== null && headBefore !== v.head.id) return `The file "${v.root.name}" is now version ${v.head.version ?? 1}: read it again before you say what it holds.`
     const n = v.head.version ?? 1
     const name = v.root.name
     const mine = n > 1 && files.chatVersionsMade.get(v.id) === v.head.id

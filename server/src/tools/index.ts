@@ -76,11 +76,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       available: () => reg.available(name),
       async call(args, t) {
         // a produce tool whose output named an existing chat file saves a new version of it (files/place-output.ts
-        // versionProduced, QA TC-7267): seen by the turn's record of the versions this answer saved
-        const made = () => JSON.stringify([...(t.files.files?.chatVersionsMade ?? new Map()).entries()])
-        const before = PLACE_PRODUCE_TOOLS.has(name) ? made() : ''
+        // versionProduced, QA TC-7267): told by this call's own context, never by the turn's other calls
+        t.files.chatVersionMade = undefined
         const r = await reg.call(name, args, t.files)
-        const versioned = !!before && !r.isError && made() !== before && !/saved as version \d+/.test(r.text)
+        const versioned = PLACE_PRODUCE_TOOLS.has(name) && !r.isError && !!t.files.chatVersionMade && !/saved as version \d+/.test(r.text)
         // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
         // (a produce tool's own result only: a web page, a mail or a Drive file that holds such a link stays as it is)
         // ("everyone in this chat" only where other people see the chat now: QA TC-6778)

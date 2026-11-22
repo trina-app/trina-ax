@@ -618,7 +618,8 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   const p = devenvPaths(c.base)
   for (const d of [p.root, p.run, p.home, p.logs, p.homeProject]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   writeGitWrapper(c, runPlatform())
-  writeBoxFonts(c, runPlatform())
+  // a font preference never stops a command (runEnv leaves the fonts out when fonts.conf is missing)
+  try { writeBoxFonts(c, runPlatform()) } catch { /* the system's fonts */ }
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
   // command: docs/decisions/20261118-devenv-shared-chats.md)
   const o = runOwner(space, runId, teamRoot)

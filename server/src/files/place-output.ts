@@ -185,8 +185,8 @@ export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[]
 async function versionProduced(ctx: AppContext, c: ToolCtx, out: { name: string; id: string }, produced: string): Promise<{ path: string; size: number; sha256: string; chatFile: ChatMade; chatVersion: ChatVersionMade }> {
   const p = c.places!
   const head = p.head(out.id, '')
-  const extOf = (n: string) => (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1).toLowerCase() : '')
-  if (extOf(head.name) !== extOf(out.name)) throw new ToolError(`'${head.name}' keeps its name and format in a new version; give output "${head.path}", or a new name (chat:files/<new name>) for a separate file`, 'bad_name')
+  const fold = (n: string) => n.normalize('NFC').toLowerCase()
+  if (fold(head.name) !== fold(out.name)) throw new ToolError(`'${head.name}' keeps its name and format in a new version; give output "${head.path}", or a new name (chat:files/<new name>) for a separate file`, 'bad_name')
   if (head.quarantined) throw new ToolError(`'${head.name}' is held by the team's safety check, so it is not changed`, 'held')
   const seen = c.files.readHashes.get(head.path)
   if (!seen) throw new ToolError(`read '${head.path}' first (with read) before saving a new version of it`, 'not_read')
@@ -201,6 +201,7 @@ async function versionProduced(ctx: AppContext, c: ToolCtx, out: { name: string;
   const fd = fs.openSync(produced, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
   let v: ChatVersionMade
   try { v = await p.version(head.id, { fd, st: { size: fs.fstatSync(fd).size } }, seen, c.files) } finally { fs.closeSync(fd) }
+  c.chatVersionMade = { path: v.path, version: v.version }
   return { path: v.path, size: v.size, sha256: v.sha256, chatFile: { chatId: p.ctx.chatId!, id: v.id, name: v.name, link: v.link }, chatVersion: v }
 }
 
