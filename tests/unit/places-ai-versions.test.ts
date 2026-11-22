@@ -26,6 +26,8 @@ import { setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests 
 import { TurnExec } from '../../server/src/chat/turn'
 import { sharedSection } from '../../server/src/chat/prompt'
 import { EDIT_OFFICE_DESCRIPTION } from '../../server/src/tools/edit-office'
+import { PDFDocument } from 'pdf-lib'
+import { makePagedPdf } from '../lib/pdf'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -409,6 +411,111 @@ describe('edit_office on a chat file', () => {
   })
 })
 
+describe('edit_pdf on a chat file (QA TC-7044)', () => {
+  async function sentPdf(name: string, pages: number) {
+    const chat = await sharedChat()
+    const bytes = makePagedPdf(Array.from({ length: pages }, (_, i) => [`PAGE-${i + 1}`]))
+    const form = new FormData()
+    form.set('chatId', chat)
+    form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
+    const up = (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
+    await run('alice', chat, `the quote\n${fake({ say: 'ok' })}`, [up.id])
+    return { chat, file: up.id, path: chatFilePath(up.id, name) }
+  }
+  const pagesOf = async (user: string, chat: string, id: string, v?: number) =>
+    (await PDFDocument.load(new Uint8Array(await (await h.req(user, `/api/chats/${chat}/files/${id}${v ? `?version=${v}` : ''}`)).arrayBuffer()))).getPageCount()
+
+  test('without output: a new version of the same PDF (no "(2)" copy); the old one stays; read first', async () => {
+    const { chat, file, path: p } = await sentPdf('견적서.pdf', 3)
+    const no = await run('bob', chat, fake({ tool: 'edit_pdf', args: { file_path: p, operations: [{ remove_pages: '3' }] }, sayResult: true }))
+    expect(no.content).toMatch(/read .* first/)
+    expect(no.content).toContain('Nothing was saved by this call: "견적서.pdf" is still version 1')
+    expect(versionsOf(chat, file)).toBe(1)
+    const r = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_pdf', args: { file_path: p, operations: [{ remove_pages: '3' }] }, sayResult: true }))
+    expect(r.cards).toHaveLength(0)
+    expect(r.content).toContain('saved as version 2')
+    expect(r.content).toContain('restore an earlier version from the file\'s Versions list')
+    expect(r.content).not.toContain('attached to your answer')
+    expect(await pagesOf('erin', chat, file)).toBe(2)
+    expect(await pagesOf('erin', chat, file, 1)).toBe(3)
+    expect(store().versions('erin', chat, file).map((v) => [v.version, !!v.ai])).toEqual([[1, false], [2, true]])
+    // no second file in the chat
+    expect(store().visibleTo('erin', chat).filter((v) => v.root.name.startsWith('견적서'))).toHaveLength(1)
+  })
+
+  test('an output that names the same chat file is the file itself (a version); another name is a new file', async () => {
+    const { chat, file, path: p } = await sentPdf('quote.pdf', 2)
+    const same = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_pdf', args: { file_path: p, output: 'chat:files/quote.pdf', operations: [{ rotate_pages: { degrees: 90 } }] }, sayResult: true }))
+    expect(same.content).toContain('saved as version 2')
+    expect(store().visibleTo('erin', chat).map((v) => v.root.name).filter((n) => n.startsWith('quote'))).toEqual(['quote.pdf'])
+    const other = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_pdf', args: { file_path: p, output: 'chat:files/quote-page1.pdf', operations: [{ keep_pages: '1' }] }, sayResult: true }))
+    expect(other.content).toContain('attached to your answer')
+    expect(versionsOf(chat, file)).toBe(2)
+    const made = store().visibleTo('erin', chat).find((v) => v.root.name === 'quote-page1.pdf')!
+    expect(await pagesOf('erin', chat, made.id)).toBe(1)
+  })
+
+  test('a project chat: its chat files stay read-only; nothing changed', async () => {
+    const pr = await h.api('alice').call(API.createProject, { body: { name: `PDF P4 ${crypto.randomUUID().slice(0, 6)}`, instructions: '', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
+    const pc = await h.api('alice').call(API.createChat, { body: { projectId: pr.id } })
+    await run('alice', pc.id, fake({ say: 'hi' }))
+    // a chat file there (a project chat's uploads go to its folder; a chat_files row is put directly)
+    const bytes = makePagedPdf([['A'], ['B']])
+    const tmp = `${h.ctx.config.dataDir}/work/pc-${crypto.randomUUID()}`
+    await Bun.write(tmp, bytes)
+    const up = await store().create('alice', pc.id, 'brief.pdf', tmp, new Bun.CryptoHasher('sha256').update(bytes).digest('hex'))
+    const p = chatFilePath(up.id, 'brief.pdf')
+    const r = await run('alice', pc.id, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_pdf', args: { file_path: p, operations: [{ remove_pages: '2' }] }, sayResult: true }))
+    expect(r.content).toContain(PLACE_WORDS.projectReadOnly)
+    expect(versionsOf(pc.id, up.id)).toBe(1)
+  })
+})
+
+describe('make_file over a file of this chat (QA TC-7267)', () => {
+  test('"make it again": output = the chat file\'s own path saves a new version (read first, the same format); a new name is a new file', async () => {
+    const chat = await sharedChat()
+    const first = await run('bob', chat, fake({ tool: 'make_file', args: { content: '# Quote\n\nTotal: 100', format: 'docx', output: 'chat:files/quote.docx' }, sayResult: true }))
+    expect(first.content).toContain('attached to your answer')
+    const v1 = store().visibleTo('erin', chat).find((v) => v.root.name === 'quote.docx')!
+    const p = chatFilePath(v1.id, 'quote.docx')
+    const again = (extra: object[] = []) => run('bob', chat, fake(...extra, { tool: 'make_file', args: { content: '# Quote\n\nTotal: 90', format: 'docx', output: p }, sayResult: true }))
+    const unread = await again()
+    expect(unread.content).toMatch(/read .* first/)
+    expect(versionsOf(chat, v1.id)).toBe(1)
+    const r = await again([{ tool: 'read', args: { file_path: p } }])
+    expect(r.content).toContain('saved as a new version of that chat file, not as a new file')
+    expect(r.content).not.toContain('attached to your answer')
+    expect(versionsOf(chat, v1.id)).toBe(2)
+    expect(store().visibleTo('erin', chat).filter((v) => v.root.name.startsWith('quote'))).toHaveLength(1)
+    const pdf = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'make_file', args: { content: '# Quote', format: 'pptx', output: p.replace(/\.docx$/, '.pptx') }, sayResult: true }))
+    expect(pdf.content).toContain('keeps its name and format')
+    expect(versionsOf(chat, v1.id)).toBe(2)
+  })
+})
+
+describe('the real state after a refused in-place change (QA TC-7039)', () => {
+  test('a test edit saved version 2, a later call fails: the result says version 2 is the AI\'s own save of this answer; a read says which version it is', async () => {
+    const { chat, file, path: p } = await sent('deck.md', 'Title\nSlide two\n')
+    const r = await run('bob', chat, fake(
+      { tool: 'read', args: { file_path: p } },
+      { tool: 'edit', args: { file_path: p, old_string: 'Slide two', new_string: 'Slide two\n임시' } },
+      // an Office edit of a text file: refused, nothing saved by it
+      { tool: 'edit_office', args: { file_path: p, changes: [{ find: 'Title', replace: 'T' }] }, sayResult: true },
+    ))
+    expect(r.content).toContain('Nothing was saved by this call: "deck.md" is still version 2')
+    expect(r.content).toContain('Version 2 is your own save from earlier in this answer')
+    expect(versionsOf(chat, file)).toBe(2)
+    // the next answer reads it: which version, saved by whom, and that version 1 is the original
+    const next = await run('alice', chat, fake({ tool: 'read', args: { file_path: p }, sayResult: true }))
+    expect(next.content).toContain('version 2 (the newest of 2 kept; saved by Trina for Bob')
+    expect(next.content).toContain('version 1 is the original')
+    // a refusal in a new answer: not the AI's own save of this answer
+    const later = await run('alice', chat, fake({ tool: 'edit_office', args: { file_path: p, changes: [{ find: 'Title', replace: 'T' }] }, sayResult: true }))
+    expect(later.content).toContain('Nothing was saved by this call: "deck.md" is still version 2')
+    expect(later.content).toContain('the file was not changed')
+  })
+})
+
 describe('edit_files and the old refusals', () => {
   test('edit_files changes each chat file it names (a version each), one file at a time', async () => {
     const { chat, file, path: p } = await sent('many.md', 'STATUS: draft\n')
@@ -513,7 +620,7 @@ describe('independent review (PR #252)', () => {
     const t = sharedSection({ project: null, audience: 3, asker: 'Alice' } as never, 'en', false)
     expect(t).toContain('Files you make for the people here go to this chat')
     expect(t).not.toMatch(/and edit_office, the PDF tools/)
-    expect(t).toContain('edit_office it without output')
+    expect(t).toContain('edit_office it (Word, Excel, PowerPoint) or edit_pdf it (PDF) without output')
   })
 })
 

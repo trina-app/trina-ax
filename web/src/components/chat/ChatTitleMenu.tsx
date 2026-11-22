@@ -10,16 +10,16 @@
 // see" (docs/DECISIONS.md "Team project chats shared by default"): a new "Only me" chat in the same project with my
 // last question in its box, where my memories and apps work (the AI points here when asked for one in a shared chat).
 // No "Share" here any more: it is the button at the top right of the chat's header (docs/DECISIONS.md "Share in the title
-// row"; pages/Chat.tsx, components/HeaderShare.tsx), one place for it. A chat someone shared with me offers "Hide from my list" (its creator never hides it), and "Continue in a chat
+// row"; pages/Chat.tsx, components/HeaderShare.tsx), one place for it. A chat someone shared with me offers "Hide from my list" (its creator never hides it) and "Leave this chat", and "Continue in a chat
 // only you see" opens Home's box there (no project) with my last question.
 // "Open in the app" (QA TC-2266; lib/team-link.ts chatOpenInAppHref) opens this chat in the desktop app, in a computer's
 // web browser on macOS or Windows only (not at phone width, not inside the apps).
-import { EyeOff, FolderInput, Link2, Lock, Monitor, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+import { EyeOff, FolderInput, Link2, Lock, LogOut, Monitor, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { mayHideChat } from '../../lib/sharedChat'
+import { mayHideChat, mayLeaveChat } from '../../lib/sharedChat'
 import { clientKind } from '../../lib/desktop'
 import { platform } from '../../lib/pwa'
 import { chatOpenInAppHref } from '../../lib/team-link'
@@ -30,7 +30,7 @@ import { moveLabel } from './ChatProject'
 
 type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule'>>
 
-export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, onDelete, onPrivately, onHide }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void }) {
+export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, onDelete, onPrivately, onHide, onLeave }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void; onLeave?: () => void }) {
   const t = useT()
   const me = useMe()
   const safeOps = !!me?.server.allChatsConfidential
@@ -49,6 +49,7 @@ export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, o
     ...(onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
     ...(chat.id && chat.shared && !safeOps && onPrivately ? [{ label: t('chat.continuePrivately'), icon: <Lock size={14} aria-hidden />, onSelect: onPrivately, testId: 'chat-continue-privately' }] : []),
     ...(onHide && me && mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: onHide, testId: 'chat-hide' }] : []),
+    ...(onLeave && me && mayLeaveChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, onSelect: onLeave, danger: true, testId: 'chat-leave' }] : []),
     ...(onDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: onDelete, danger: true, testId: 'chat-delete' }] : []),
   ]
   if (!items.length)

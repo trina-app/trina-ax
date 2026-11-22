@@ -622,4 +622,53 @@ describe('this window: /seen, notifications and toasts', () => {
     })
 
   })
+
+  // a thread under a shared AI chat's answer (store/sessionMarkers.ts chatThreadEvent): the server's `notice` on the
+  // chat.thread event (chat/threads.ts sendReply) is told like a room's, one per thread, never while it is on screen
+  describe('threads under a shared chat\'s answer', () => {
+    const chatThread = (chatId: string, rootId: string, o: { notice?: 'mention' | 'reply'; change?: 'reply' | 'read' } = {}): ServerEvent => ({
+      type: 'chat.thread', seq: ++seq, at: Date.now(),
+      data: { chatId, rootId, change: o.change ?? 'reply', thread: null, ...(o.notice ? { notice: o.notice } : {}) },
+    } as ServerEvent)
+
+    test('a mention is told with the chat\'s title and opens the thread; a plain reply as a reply; nothing without a notice', async () => {
+      const c = chat({ title: 'Sincere 견적서' })
+      useChats.setState({ chats: [c] })
+      const root = uuidv7(), other = uuidv7()
+      dispatch(chatThread(c.id, root, { notice: 'mention' }))
+      dispatch(chatThread(c.id, other))
+      await wait(80)
+      expect(notified).toEqual([{ title: 'Sincere 견적서', body: '스레드에서 나를 언급했어요.', tag: `chat-thread-${root}`, open: `/c/${c.id}/t/${root}` }])
+      notified = []
+      dispatch(chatThread(c.id, other, { notice: 'reply' }))
+      await wait(80)
+      expect(notified).toEqual([{ title: 'Sincere 견적서', body: '스레드에 답글이 달렸어요.', tag: `chat-thread-${other}`, open: `/c/${c.id}/t/${other}` }])
+    })
+
+    test('the thread on screen, read meanwhile or replies turned off: nothing; a mention still with replies off', async () => {
+      const c = chat()
+      useChats.setState({ chats: [c] })
+      const root = uuidv7()
+      // on screen in this window
+      stub('location', { pathname: `/c/${c.id}/t/${root}`, assign: () => {} })
+      dispatch(chatThread(c.id, root, { notice: 'mention' }))
+      await wait(80)
+      expect(notified).toEqual([])
+      stub('location', { pathname: '/', assign: () => {} })
+      // read on another device before the wait ends
+      dispatch(chatThread(c.id, root, { notice: 'mention' }))
+      dispatch(chatThread(c.id, root, { change: 'read' }))
+      await wait(80)
+      expect(notified).toEqual([])
+      // "Replies in threads I'm part of" off: a plain reply is quiet, a mention is told
+      useRooms.setState({ alerts: { threadReplies: false, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: 'Asia/Seoul' } })
+      dispatch(chatThread(c.id, root, { notice: 'reply' }))
+      await wait(80)
+      expect(notified).toEqual([])
+      dispatch(chatThread(c.id, root, { notice: 'reply' }))
+      dispatch(chatThread(c.id, root, { notice: 'mention' }))
+      await wait(80)
+      expect(notified.map((n) => n.body)).toEqual(['스레드에서 나를 언급했어요.'])
+    })
+  })
 })

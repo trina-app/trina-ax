@@ -710,3 +710,26 @@ describe('read on another device or window before it rings', () => {
     expect(audio.played).toBe(0)
   })
 })
+
+// a reply in a thread under a shared AI chat's answer with a notice for me (the chat.thread event's `notice`): the room
+// sound rings for it (the owner's "알림이 안 울려": a thread mention made no sound)
+describe('a chat thread notice', () => {
+  test('rings once per reply and per device, never while the thread is on screen or for a replay', async () => {
+    const dev = device()
+    const a = tab(dev), b = tab(dev)
+    const reply = uuidv7()
+    const rang = await Promise.all([a.s.notice(reply, () => false, false), b.s.notice(reply, () => false, false)])
+    expect(rang.filter(Boolean)).toHaveLength(1)
+    // the same reply again (a resync): nothing
+    dev.clock.t += COALESCE_MS * 2
+    expect(await a.s.notice(reply, () => false, false)).toBe(false)
+    // the thread in front of me, or a replay: quiet
+    expect(await a.s.notice(uuidv7(), () => true, false)).toBe(false)
+    expect(await a.s.notice(uuidv7(), () => false, true)).toBe(false)
+    // the device's sound off: quiet
+    setRoomSoundOn(false, dev.storage)
+    expect(await a.s.notice(uuidv7(), () => false, false)).toBe(false)
+    setRoomSoundOn(true, dev.storage)
+    expect(await a.s.notice(uuidv7(), () => false, false)).toBe(true)
+  })
+})

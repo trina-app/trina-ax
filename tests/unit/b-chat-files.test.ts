@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
+import { API, UPLOAD_SESSION_MAX, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { CHAT_FILE_ORPHAN_KEEP_MS, chatFilesOf, UNSENT_CHAT_FILE_MS } from '../../server/src/chat/chat-files'
@@ -283,7 +283,11 @@ describe('a file from the computer in a chat shared with people', () => {
     const id = await sharedChat('big')
     const r = await h.req('alice', '/api/upload-sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: { kind: 'attachment', chatId: id, name: 'big.bin' }, size: 60 * 1024 * 1024, sha256: 'a'.repeat(64) }) })
     expect(r.status).toBe(413)
-    expect(((await r.json()) as { error: { params?: { reason?: string } } }).error.params?.reason).toBe('chat_file_too_large')
+    const err = ((await r.json()) as { error: { message: string; params?: { reason?: string } } }).error
+    expect(err.params?.reason).toBe('chat_file_too_large')
+    // it says where a larger file goes (QA TC-7433): a team folder, with the members' upload limit there
+    expect(err.message).toContain('team folder')
+    expect(err.message).toContain(`${UPLOAD_SESSION_MAX / 1024 ** 3} GB`)
     // in a private chat a chunked attachment may still be larger
     const priv = (await h.api('alice').call(API.createChat, { body: {} })).id
     const ok = await h.req('alice', '/api/upload-sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ target: { kind: 'attachment', chatId: priv, name: 'big.bin' }, size: 60 * 1024 * 1024, sha256: 'a'.repeat(64) }) })

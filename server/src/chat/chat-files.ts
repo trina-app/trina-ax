@@ -642,6 +642,7 @@ export class ChatFiles {
     else assertStorageRoom(size)
     if (turn) { counted = { bytes: size, key: !turn.filesWritten.has(key) }; turn.bytesWritten += size; turn.filesWritten.add(key) }
     const id = newId()
+    let inserted = false
     try {
       await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
       const dst = this.abs({ chat_id: chatId, id })
@@ -659,15 +660,23 @@ export class ChatFiles {
       const made = opts.origin === 'ai' && !opts.action ? turn?.chatVersionsMade : undefined
       const chain: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow; made?: Map<string, string> } = { rootId: root.id, origin: opts.origin ?? null, check, ...(made ? { made } : {}), ...(made?.has(root.id) ? { coalesce: made.get(root.id)! } : {}) }
       const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, chain)
+      // the row is in: from here on the version exists, so nothing below may remove its bytes or say it was not saved
+      // (scenario QA review of TC-7039: a refusal must match the real state)
+      inserted = true
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
-      const pruned = this.prune(root.id)
-      audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}), ...(chain.coalesced ? { sameAnswer: true } : {}) } })
+      let pruned: number[] = []
+      try { pruned = this.prune(root.id) } catch (e) { this.ctx.log.warn('chat file version: older versions not pruned', { err: e }) }
+      try {
+        audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}), ...(chain.coalesced ? { sameAnswer: true } : {}) } })
+      } catch (e) { this.ctx.log.error('chat file version: audit line not written', { err: e, chat: chatId }) }
       // a save over this answer's own head is beside nothing when that head is the one the caller read
       const read = chain.coalesced ? chain.coalesced.id : replaced.id
       return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== read, pruned }
     } catch (e) {
-      this.removeFiles({ chat_id: chatId, id })
-      if (turn && counted) { turn.bytesWritten -= counted.bytes; if (counted.key) turn.filesWritten.delete(key) }
+      if (!inserted) {
+        this.removeFiles({ chat_id: chatId, id })
+        if (turn && counted) { turn.bytesWritten -= counted.bytes; if (counted.key) turn.filesWritten.delete(key) }
+      }
       throw e
     }
   }
