@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 03:00
 - Branch: `fix/share-dialog-lean`
-- Status: in progress
+- Status: done
 - Where: web/ (ChatShareDialog, ShareWarning, i18n). Why: the owner on the chat Share dialog: "too much text?"
 - Version impact: patch: wording and layout of one dialog; no API, behaviour or permission change
 
@@ -44,4 +44,6 @@ about earlier attached files ("n files you attached will be visible") stays a li
 
 ## Result
 
-(filled in at the end)
+Built as planned. The "both" state at 1440 (KO) went from 7 text blocks and 3 buttons to 4 blocks and 3 buttons
+(Copy link, Cancel, Share). Decision: [20261122-share-dialog-lean.md](../decisions/20261122-share-dialog-lean.md).
+Checked: no warning, warning only, files only, both, unverifiable answers only, at 1440 and 390, light and dark.

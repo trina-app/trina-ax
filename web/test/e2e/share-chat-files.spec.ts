@@ -1,11 +1,11 @@
 // "Share the files from this chat too?" (docs/decisions/20261121-share-chat-files.md) at 1440 and 390 px wide. Olga's
 // chat made a quote PDF and its HTML in her own folder (My files › 견적 › Sincere) and links them in the answer.
-//   1. She shares it with Bob: the Share dialog's step lists the two files with their folder, says the originals stay,
-//      and offers [파일 없이 공유] [파일과 함께 공유]; with files, the toast counts them, her own link opens the chat's
+//   1. She shares it with Bob: the Share dialog's checkbox row "파일도 같이 공유 (2개)" lists the two files with their
+//      folder, unticked, and one small hint says the originals stay; ticked, Share adds them, the toast counts them, her own link opens the chat's
 //      copy, and Bob opens the copy from the same link (through the panel: he never gets the original's path) and goes
 //      on in the chat.
-//   2. Shared before without the files (the owner's case): Share again shows the step on its own, "2 files from this
-//      chat are only in your files"; with files adds them, and the step is gone after.
+//   2. Shared before without the files (the owner's case): Share again shows the checkbox row on its own, Save off
+//      until it is ticked; ticked, Save adds them, and the row is gone after.
 //   3. Bob's link does not open: the panel says only Olga can add it, [추가 요청] sends the ask; Olga's Activity row
 //      names Bob, the file and the chat, [대화에 추가] adds it, and Bob's link opens the copy.
 // The mock (test/mock/server.ts "Share the files from this chat too?"): POST /__test/chat-made {chatId, files, link}.
@@ -99,17 +99,21 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await page.getByTestId('participant-add-user-bob').click()
       const step = dialog.getByTestId('chat-share-files-step')
       await expect(step).toBeVisible()
-      await expect(step).toContainText('이 대화의 파일도 공유할까요?')
-      await expect(dialog.getByTestId('chat-share-files-why')).toContainText('Bob')
+      await expect(step).toContainText('파일도 같이 공유 (2개)')
       await expect(step.getByTestId('chat-share-files-item')).toHaveCount(2)
       await expect(step.getByTestId('chat-share-files-item').first()).toContainText('내 파일 › 견적 › Sincere')
-      await expect(dialog.getByTestId('chat-share-files-keep')).toHaveText('원본은 내 파일에 그대로 있어요. 대화를 삭제하면 대화의 사본도 함께 삭제돼요.')
-      await expect(dialog.getByTestId('chat-share-without-files')).toHaveText('파일 없이 공유')
-      await expect(dialog.getByTestId('chat-share-with-files')).toHaveText('파일과 함께 공유')
-      await expect(dialog.getByTestId('chat-share-save')).toHaveCount(0)
+      const hint = dialog.getByTestId('chat-share-files-hint')
+      await expect(hint).toHaveText('대화에 사본이 생겨요. 원본은 그대로예요.')
+      await expect(hint).toHaveAttribute('title', '원본은 내 파일에 그대로 있어요. 대화를 삭제하면 대화의 사본도 함께 삭제돼요.')
+      // unticked: a file leaves My files only when its owner ticks it; one Share button, no "with/without files" pair
+      const box = dialog.getByTestId('chat-share-files-check')
+      await expect(box).not.toBeChecked()
+      for (const id of ['chat-share-without-files', 'chat-share-with-files']) await expect(dialog.getByTestId(id)).toHaveCount(0)
+      await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await audit(page, 'share step')
       await shots(page, 'share-step')
-      await dialog.getByTestId('chat-share-with-files').click()
+      await box.check()
+      await dialog.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '1명과 공유했어요 · 파일 2개를 대화에 추가했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // her own link opens the chat's copy now (one file, not two)
@@ -144,10 +148,14 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const step = dialog.getByTestId('chat-share-files-step')
       await expect(step).toBeVisible()
       await expect(step).toHaveAttribute('data-already', '')
-      await expect(dialog.getByTestId('chat-share-files-why')).toHaveText('이 대화의 파일 2개가 내 파일에만 있어요. 대화에 사본을 추가하면 여기 있는 모두가 열 수 있어요.')
+      await expect(step).toContainText('파일도 같이 공유 (2개)')
+      // nothing changed and nothing ticked: Save off; ticked, Save adds the files alone
+      await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
       await audit(page, 'already-shared step')
       await shots(page, 'already-shared-step')
-      await dialog.getByTestId('chat-share-with-files').click()
+      await dialog.getByTestId('chat-share-files-check').check()
+      await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
+      await dialog.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '파일 2개를 대화에 추가했어요' })).toBeVisible()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(fileLink(page, PDF)).toHaveAttribute('data-copy', '')

@@ -54,6 +54,8 @@ afterAll(() => {
   useSession.setState({ status: sessionBefore })
 })
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
+/** the warning's one line: what is at stake, then the places after " · " */
+const summary = (names: string, ...sources: string[]) => `${en('share.warn.summary', { names })} · ${sources.join(', ')}`
 const AUD = `/api/chats/${C1}/audience`
 const PREVIEW = `POST ${AUD}/preview`
 const NOTHING: ShareCheck = { added: 1, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
@@ -181,25 +183,49 @@ describe('the save model and every exit', () => {
     } finally { await m.unmount() }
   })
 
-  test('the files step on a phone: its two buttons only, one a row; Copy link stays on a computer (QA TC-6945)', async () => {
+  test('the files step: one checkbox, unticked; Save stays off until it is ticked, then saves the files alone with their key', async () => {
     const files = { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120 }], madeFilesKey: 'mk' }
-    routesWith(audience([SORA], files))
-    const media = (globalThis as Record<string, unknown>).matchMedia
+    routesWith(audience([SORA], files), () => json(200, { status: 'saved', chat: chatOut, audience: audience([SORA]), filesAdded: 1 }))
+    let closed = 0
+    const m = await open(() => closed++)
     try {
-      let m = await open()
       await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
+      expect(m.get('chat-share-files-step').textContent).toContain(en('chat.shareFiles.include', { n: 1 }))
+      expect(m.get('chat-share-files-hint').textContent).toBe(en('chat.shareFiles.hint'))
+      // the copies going with the chat: the hint's tooltip, not more text in the dialog
+      expect(m.get('chat-share-files-hint').getAttribute('title')).toBe(en('chat.shareFiles.keep'))
+      // one footer: Copy link, Cancel, Save; no "Share without files" / "Share with files"
+      for (const id of ['chat-share-with-files', 'chat-share-without-files']) expect(m.find(id)).toBeNull()
       expect(m.find('chat-share-copy-link')).not.toBeNull()
-      await m.unmount()
-      ;(globalThis as Record<string, unknown>).matchMedia = (q: string) => ({ matches: q.includes('max-width'), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
-      m = await open()
-      await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
-      expect(m.find('chat-share-copy-link')).toBeNull()
-      expect(m.find('chat-share-copy-link-unsaved')).toBeNull()
-      for (const id of ['chat-share-with-files', 'chat-share-without-files']) expect(m.get(id).getAttribute('class')).toContain('max-sm:w-full')
-      // the main one first on a phone
-      expect(m.get('chat-share-with-files').getAttribute('class')).toContain('max-sm:order-1')
-      await m.unmount()
-    } finally { (globalThis as Record<string, unknown>).matchMedia = media }
+      expect((m.get('chat-share-files-check') as HTMLInputElement).checked).toBe(false)
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+      // a browser checks the box before the click's listeners run, past React's value tracker (this small DOM does not)
+      const box = m.get('chat-share-files-check')
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!.set!.call(box, true)
+      await m.click(box)
+      await m.until(() => !m.get('chat-share-save').hasAttribute('disabled'), 'Save on once ticked', 2000)
+      await m.click('chat-share-save')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const put = sent.find((x) => x.key === `PUT ${AUD}`)!.body as { withFiles?: boolean; confirmKey?: string }
+      expect(put.withFiles).toBe(true)
+      expect(put.confirmKey).toBe('mk')
+    } finally { await m.unmount() }
+  })
+
+  test('adding someone with the files unticked: Share saves the picks without them', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience(), undefined, () => ({ ...NOTHING, madeFiles }))
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      await m.click('chat-share-save')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const put = sent.find((x) => x.key === `PUT ${AUD}`)!.body as { withFiles?: boolean }
+      expect(put.withFiles).toBeUndefined()
+    } finally { await m.unmount() }
   })
 
   test('a failed save keeps the picks with the error above the button; a refusal says why; then it saves', async () => {
@@ -234,14 +260,12 @@ describe('the save model and every exit', () => {
     routesWith(audience(), (body) => (body as { confirmKey?: string }).confirmKey === 'pk:bob' ? json(200, { status: 'saved', chat: chatOut, audience: audience([{ subjectType: 'user', subjectId: 'bob', name: 'Bob' }]) }) : json(500, {}), () => stake)
     const m = await open(() => closed++)
     await addBob(m)
-    // in place, before any press: specific sentences, the note shorter, the button as it was
+    // in place, before any press: one line naming every place, the one short note, the button as it was
     const warning = await m.until(() => m.find('chat-share-warning'), 'the warning', 3000)
-    expect(warning.textContent).toContain(en('share.warn.memories', { n: 2 }))
-    expect(warning.textContent).toContain(en('share.warn.files', { n: 3, names: 'Bob' }))
-    expect(warning.textContent).toContain(en('share.warn.places', { places: en('shareRoom.placeMineFiles'), names: 'Bob' }))
-    expect(en('share.warn.files', { n: 3, names: 'Mina' })).toBe("3 answers used files Mina can't open.")
-    expect(en('share.warn.memories', { n: 2 })).toBe('2 answers may have used your personal memories.')
-    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.noteShort'))
+    expect(m.get('chat-share-warning-lines').textContent).toBe(summary('Bob', en('share.src.memories'), en('share.src.files'), en('shareRoom.placeMineFiles')))
+    expect(warning.textContent).toContain("Some answers used places Bob can't open · your personal memories, files, ")
+    expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
+    expect(en('chat.share.note')).toBe('People you add see the whole chat, from the start, and can ask the AI in it.')
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
     expect(m.get('chat-share-save').className).not.toMatch(/danger/)
     // the list, about this chat
@@ -325,8 +349,7 @@ describe('the save model and every exit', () => {
     // never a silent share: the first press gets the check
     await m.click('chat-share-save')
     const warning = await m.until(() => m.find('chat-share-warning'), 'the check in place', 2000)
-    expect(warning.textContent).toContain(en('share.warn.accounts', { n: 2 }))
-    expect(warning.textContent).toContain(en('share.warn.rooms', { names: 'Bob' }))
+    expect(warning.textContent).toContain(summary('Bob', en('share.src.accounts'), en('share.src.rooms')))
     expect(m.get('chat-share-changed').textContent).toBe(en('share.again'))
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
     expect(closed).toBe(0)
@@ -345,7 +368,7 @@ describe('the save model and every exit', () => {
     await m.click('chat-share-save')
     await m.until(() => m.find('chat-share-changed'), 'changed', 2000)
     expect(m.get('chat-share-changed').textContent).toBe(en('chat.shareChat.changed'))
-    expect(m.get('chat-share-warning').textContent).toContain(en('share.warn.files', { n: 1, names: 'Bob' }))
+    expect(m.get('chat-share-warning').textContent).toContain(summary('Bob', en('share.src.files')))
     await m.click('chat-share-save')
     await m.until(() => closed === 1, 'shared', 2000)
     await m.unmount()
@@ -373,15 +396,18 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
-  test('my earlier files always have a line of their own: beside the unchecked grey line and under a warning (security review)', async () => {
+  test('my earlier files always have a line of their own under a warning (security review); answers nobody could check go in the box', async () => {
     let closed = 0
     routesWith(audience(), undefined, () => ({ ...NOTHING, earlierFiles: 3, unchecked: 2, memoryAnswers: 1 }))
     const m = await open(() => closed++)
     await addBob(m)
     await ready(m)
-    expect(m.get('chat-share-warning').textContent).toContain(en('share.warn.memories', { n: 1 }))
-    expect(m.get('chat-share-grey').textContent).toBe(en('share.grey.unchecked', { n: 2 }))
+    expect(m.get('chat-share-warning-lines').textContent).toBe(summary('Bob', en('share.src.memories')))
+    // with a box, its short second line (no grey line of its own)
+    expect(m.get('chat-share-warning-unchecked').textContent).toBe(en('share.grey.unchecked', { n: 2 }))
+    expect(m.find('chat-share-grey')).toBeNull()
     expect(m.get('chat-share-files').textContent).toBe(en('chat.share.earlierFiles', { n: 3 }))
+    expect(m.get('chat-share-live').textContent).toContain(en('share.grey.unchecked', { n: 2 }))
     // read out too
     expect(m.get('chat-share-live').textContent).toContain(en('chat.share.earlierFiles', { n: 3 }))
     await m.click('chat-share-save')
@@ -389,13 +415,14 @@ describe('the save model and every exit', () => {
     await m.unmount()
   })
 
-  test('one finding per line, "Show answers" after them; names with the language\'s honorific', async () => {
+  test('one line, no bullets, "Show answers" after it; names with the language\'s honorific', async () => {
     routesWith(audience(), undefined, () => ({ ...NOTHING, memoryAnswers: 2, fileAnswers: 1, places: [{ kind: 'mine' }] }))
     const m = await open()
     await addBob(m)
     await ready(m)
     const items = [...m.get('chat-share-warning-lines').querySelectorAll('li')].map((li) => li.textContent)
-    expect(items).toEqual([en('share.warn.memories', { n: 2 }), en('share.warn.files', { n: 1, names: 'Bob' }), en('share.warn.places', { places: en('shareRoom.placeMineFiles'), names: 'Bob' })])
+    expect(items).toEqual([summary('Bob', en('share.src.memories'), en('share.src.files'), en('shareRoom.placeMineFiles'))])
+    expect(m.get('chat-share-warning-lines').className).not.toContain('list-disc')
     // "Show answers" comes after the lines, inside the box
     const html = m.html()
     expect(html.indexOf('data-testid="chat-share-warning-show"')).toBeGreaterThan(html.indexOf('data-testid="chat-share-warning-lines"'))
@@ -410,6 +437,8 @@ describe('the save model and every exit', () => {
     expect(bob).toBe('Bob 님')
     expect(sales).toBe('Sales 부서 사람들')
     expect(sales).not.toContain('님')
+    expect(ko('share.warn.summary', { names: bob })).toBe('Bob 님이 못 여는 곳을 참고한 답이 있어요')
+    expect(ko('share.warn.summary', { names: sales })).toBe('Sales 부서 사람들이 못 여는 곳을 참고한 답이 있어요')
     expect(ko('share.warn.files', { n: 1, names: bob })).toBe('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
     expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')
     expect(ko('share.warn.files', { n: 1, names: sales })).toBe('답 1개가 Sales 부서 사람들이 열 수 없는 파일을 참고했어요.')
