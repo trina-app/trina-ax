@@ -2982,7 +2982,7 @@ export const zh: Record<MessageKey, string> = {
   "officeUpdate.noAgent": "此安装还没有自动更新。请在服务器Mac上运行一次新zip中的office-install.sh；之后它会自动更新。",
   "officeUpdate.desktop": "办公电脑用的Windows应用{version}从这台服务器下载。电脑上的应用会自动更新。",
   "system.backups": "备份",
-  "system.backupsDesc": "每天创建一次备份，保留14天。",
+  "system.backupsDesc": "每天创建一次备份，保留{days, plural, one {#天} other {#天}}。",
   "system.backupNow": "立即备份",
   "system.backupDone": "备份已创建。",
   "system.noBackups": "还没有备份。",

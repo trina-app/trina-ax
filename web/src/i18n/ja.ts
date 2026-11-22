@@ -2987,7 +2987,7 @@ export const ja: Record<MessageKey, string> = {
   'officeUpdate.noAgent': "このインストールにはまだ自動更新がありません。サーバーのMacで新しいzipのoffice-install.shを一度実行すると、以後は自動更新されます。",
   'officeUpdate.desktop': "端末用のWindowsアプリ{version}はこのサーバーからダウンロードされます。端末のアプリは自動で更新されます。",
   'system.backups': "バックアップ",
-  'system.backupsDesc': "毎日バックアップを作成し、14日間保持します。",
+  'system.backupsDesc': "毎日バックアップを作成し、{days, plural, one {#日間} other {#日間}}保持します。",
   'system.backupNow': "今すぐバックアップ",
   'system.backupDone': "バックアップを作成しました。",
   'system.noBackups': "バックアップはまだありません。",

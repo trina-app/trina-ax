@@ -3026,7 +3026,7 @@ export const id: Record<MessageKey, string> = {
   'officeUpdate.noAgent': 'Instalasi ini belum punya pembaruan otomatis. Jalankan office-install.sh dari zip baru sekali di Mac server; setelah itu pembaruan berjalan sendiri.',
   'officeUpdate.desktop': 'Aplikasi Windows {version} untuk meja kerja bisa diunduh dari server ini. Aplikasi meja kerja memperbarui dirinya sendiri.',
   'system.backups': 'Backup',
-  'system.backupsDesc': 'Backup dibuat setiap hari dan disimpan 14 hari.',
+  'system.backupsDesc': 'Backup dibuat setiap hari dan disimpan {days} hari.',
   'system.backupNow': 'Backup sekarang',
   'system.backupDone': 'Backup dibuat.',
   'system.noBackups': 'Belum ada backup.',

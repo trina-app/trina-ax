@@ -2987,7 +2987,7 @@ export const es: Record<MessageKey, string> = {
   'officeUpdate.noAgent': "Esta instalación aún no tiene actualizaciones automáticas. Ejecute una vez office-install.sh del nuevo zip en el Mac del servidor; después se actualizará automáticamente.",
   'officeUpdate.desktop': "La aplicación de Windows {version} para los puestos se descarga de este servidor. Las aplicaciones de los puestos se actualizan automáticamente.",
   'system.backups': "Copias de seguridad",
-  'system.backupsDesc': "Se crea una copia de seguridad diaria y se conserva durante 14 días.",
+  'system.backupsDesc': "Se crea una copia de seguridad diaria y se conserva durante {days, plural, one {# día} other {# días}}.",
   'system.backupNow': "Crear copia de seguridad ahora",
   'system.backupDone': "Copia de seguridad creada.",
   'system.noBackups': "Aún no hay copias de seguridad.",

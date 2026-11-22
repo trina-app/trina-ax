@@ -91,8 +91,8 @@ since is open again, one made since is gone. / 백업 뒤에 삭제한 계정은
      account" (their request is open again in the restored copy).
    - **Asked since the backup:** do not delete them by hand; that would be earlier than the date they were shown. Ask
      them to ask again (a new 7-day date), or delete them in Members only on or after the date in the list.
-3. Backups themselves keep a deleted person's data until they rotate out (daily backups 14 days, the weekly full
-   backup 8 weeks, update and manual backups 30 days on the hosted service). Nobody reads them for anything but a
+3. Backups themselves keep a deleted person's data until they rotate out (daily backups 14 days, or the days the
+   plan sets on a hosted team, shown in Admin › System › Backups; the weekly full backup 8 weeks, update and manual backups 30 days on the hosted service). Nobody reads them for anything but a
    restore; the account deletion page and the privacy policy say "up to 8 weeks".
 
 ## Going back to the version before an update (Linux)

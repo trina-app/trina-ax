@@ -3025,7 +3025,7 @@ export const ko = {
   'officeUpdate.noAgent': '이 설치에는 자동 업데이트가 아직 없어요. 서버 맥에서 새 zip의 office-install.sh를 한 번 실행하면 그다음부터는 저절로 업데이트돼요.',
   'officeUpdate.desktop': '데스크용 윈도우 앱 {version}을 이 서버에서 내려받을 수 있어요. 데스크 앱은 스스로 업데이트해요.',
   'system.backups': '백업',
-  'system.backupsDesc': '매일 자동으로 백업하고 14일 동안 보관해요.',
+  'system.backupsDesc': '매일 자동으로 백업하고 {days}일 동안 보관해요.',
   'system.backupNow': '지금 백업',
   'system.backupDone': '백업을 만들었어요.',
   'system.noBackups': '아직 백업이 없어요.',

@@ -983,7 +983,8 @@ function Backups({ onChanged }: { onChanged: () => void }) {
     <Card
       id="system-backups"
       title={t('system.backups')}
-      desc={t('system.backupsDesc')}
+      // the days this server really keeps them (the plan's, else 14), the same number as the Plan part (QA TC-8037)
+      desc={state.data?.retentionDays ? t('system.backupsDesc', { days: state.data.retentionDays }) : undefined}
       actions={
         <Button
           size="sm"

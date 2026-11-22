@@ -3027,7 +3027,7 @@ export const en: Record<MessageKey, string> = {
   'officeUpdate.noAgent': 'This installation has no automatic updates yet. Run office-install.sh from the new zip once on the server Mac; after that it updates by itself.',
   'officeUpdate.desktop': 'The Windows app {version} for the desks downloads from this server. The desk apps update themselves.',
   'system.backups': 'Backups',
-  'system.backupsDesc': 'A backup is made every day and kept for 14 days.',
+  'system.backupsDesc': 'A backup is made every day and kept for {days, plural, one {# day} other {# days}}.',
   'system.backupNow': 'Back up now',
   'system.backupDone': 'Backup created.',
   'system.noBackups': 'No backups yet.',
