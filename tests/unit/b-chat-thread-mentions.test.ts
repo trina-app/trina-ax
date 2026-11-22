@@ -5,13 +5,14 @@
 // answer is hidden from are dropped), the mentioned person following the thread and getting the one notice marked as a
 // mention (the Inbox row "mentioned you", by who did), a people-shared chat's audience, and the push following the
 // thread setting.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { activityTabHas, API, type ApiError, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { chatThreadPath, chatThreadWanted, followersOf } from '../../server/src/chat/threads'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
+import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -28,6 +29,9 @@ beforeAll(async () => {
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
+// every reply takes a send token (rooms SEND_BURST, then 1 a second per person): this file's tests together send more than
+// one burst, which a fast machine does inside a second (429 on the Mac mini), so each test starts with a full budget
+beforeEach(() => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear())
 
 const db = () => h.ctx.db
 const errOf = async (p: Promise<unknown>) => { try { await p } catch (e) { return e as ApiError } throw new Error('expected an error') }
