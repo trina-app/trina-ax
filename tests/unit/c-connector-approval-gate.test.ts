@@ -80,7 +80,8 @@ const created = () => fake.calls.filter((c) => c.name === 'create_task').length
 const posted = () => fake.seen.filter((s) => s.method === 'POST' && s.path.startsWith('/api/v1')).length
 /** the chat read something someone else wrote, as chat/turn.ts marks it (web_fetch: noteTaint → taint) */
 const outside = (chat: string, col: 'session_tainted' | 'room_outside' | 'rooms_seen' = 'session_tainted') => A.ctx.db.query(`UPDATE chats SET ${col} = 1 WHERE id = ?`).run(chat)
-const SEND3 = ['Send once', 'Always allow', 'Don’t send']
+// a service tool that acts on the person's own things: plain buttons (docs/decisions/20261122-connector-always-allow.md)
+const SEND3 = ['Allow', 'Always allow', 'Don’t allow']
 const OUTSIDE_LINE = 'This chat has read something from outside'
 
 // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13: "항상 허용을 눌렀으면 안해야하는거 아니야?"): a
@@ -333,7 +334,8 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
   test('an HTTP API\'s card offers it too; a connection that already sends without asking offers no Always allow', async () => {
     const p = asker('always')
     expect((await turn('alice', { person: p }).call('api_request', { connection: 'team_askingapi', method: 'POST', path: '/tasks', body: { title: 'x' } })).isError).toBe(false)
-    expect(p.cards[0]!.options).toEqual(SEND3)
+    // an HTTP request keeps its words: it sends a request (connections/tools.ts gate, `plain` is for a service tool)
+    expect(p.cards[0]!.options).toEqual(['Send once', 'Always allow', 'Don’t send'])
     const quiet = asker('no')
     expect((await turn('alice', { person: quiet }).call('api_request', { connection: 'team_askingapi', method: 'POST', path: '/tasks', body: { title: 'y' } })).isError).toBe(false)
     expect(quiet.cards).toEqual([])
@@ -347,7 +349,7 @@ describe('Always allow on the connector card: the team\'s switch and a watched t
     const slack = asker('no')
     await turn('alice', { person: slack, live: false }).call('team_teamboard__create_task', { title: 'slack' })
     expect(slack.cards).toHaveLength(1)
-    expect(slack.cards[0]!.options).toEqual(['Send', 'Don’t send'])
+    expect(slack.cards[0]!.options).toEqual(['Allow', 'Don’t allow'])
     // the team connection that sends without asking, after outside content in a Slack question: asks with the reason
     const p = asker('no')
     const t = turn('alice', { person: p, live: false })
@@ -368,7 +370,7 @@ describe('Always allow on the connector card: the team\'s switch and a watched t
       const n = created()
       expect((await turn('alice', { person: p }).call('team_teamboard__create_task', { title: 'switch off' })).isError).toBe(true)
       expect(p.cards).toHaveLength(1)
-      expect(p.cards[0]!.options).toEqual(['Send', 'Don’t send'])
+      expect(p.cards[0]!.options).toEqual(['Allow', 'Don’t allow'])
       expect(created()).toBe(n)
       // the admin's own rule: a clean chat sends without a card
       const q = asker('no')

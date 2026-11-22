@@ -250,7 +250,7 @@ describe('calls', () => {
     expect(r0.text).toContain('did not allow')
     expect(r0.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
-    expect(no.questions[0]).toContain('The AI wants to send this to Tasks: Create a task')
+    expect(no.questions[0]).toContain('Create a task in Tasks')
     expect(no.details[0]![0]!.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
     expect(fake.calls.length).toBe(before)
     const yes = ask(true)
@@ -418,6 +418,7 @@ describe('calls', () => {
     const r = await turn('alice', { person: no, roomsSeen: true }).call('my_tasks__create_task', { title: 'From the room', to: 'outside@evil.example' })
     expect(r.summary).toBe('my_tasks__create_task -> not allowed by the user')
     expect(no.questions).toHaveLength(1)
+    // a recipient in the call: it reaches someone else, so the card says "send" with where it goes in view
     expect(no.questions[0]).toStartWith('The AI wants to send this to Tasks: Create a task')
     expect(no.details[0]![0]!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Title', value: 'From the room' }])
     expect(sent()).toBe(n0)
@@ -431,7 +432,7 @@ describe('calls', () => {
       const yes = ask(true)
       expect((await turn('alice', { person: yes, roomsSeen: true }).call('team_teamtasks__create_task', { title: 'asked' })).summary).toContain('(confirmed by the user)')
       expect(yes.questions).toHaveLength(1)
-      expect(yes.questions[0]).toStartWith('The AI wants to send this to Team tasks: Create a task')
+      expect(yes.questions[0]).toStartWith('Create a task in Team tasks')
       expect(sent()).toBe(n0 + 1)
       // without the room read it still sends without a card
       const quiet = ask(false)

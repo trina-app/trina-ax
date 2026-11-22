@@ -186,7 +186,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
     // a disabled account's own Always allow on team connections goes and does not come back when it is enabled again
-    if (changed.status === 'disabled') ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
+    if (changed.status === 'disabled') { ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id); ctx.db.query('DELETE FROM connector_tool_allow WHERE user_id = ?').run(id) }
     // null = follow the team default again
     if (b.locale !== undefined) { setUserLocale(ctx.db, id, b.locale); changed.locale = b.locale }
     if (groups) {
@@ -449,6 +449,7 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
     ctx.db.query("DELETE FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
+    ctx.db.query('DELETE FROM connector_tool_allow WHERE user_id = ?').run(id)
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
@@ -670,6 +671,7 @@ export function disableAccount(ctx: AppContext, id: string, actorId: string | nu
     ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(id)
     revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
     ctx.db.query('DELETE FROM integration_user_allow WHERE user_id = ?').run(id)
+    ctx.db.query('DELETE FROM connector_tool_allow WHERE user_id = ?').run(id)
     audit(ctx.db, { actor: actorId, action: 'user.update', target: id, detail: { status: 'disabled', why } })
     done = true
   }).immediate()

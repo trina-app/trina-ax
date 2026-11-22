@@ -157,6 +157,10 @@ export const ConfirmDetail = z.object({
    * file will hold): the card shows its label, the fields and its size, and the text behind "자세히". A client that does
    * not know this shows the text as before. */
   folded: z.literal(true).optional(),
+  /** the question says what happens in plain words; this detail (its fields, code, ids and text) is for people who want
+   * it, behind one "자세히" (docs/decisions/20261122-connector-always-allow.md). A client that does not know this shows
+   * the detail as before. */
+  hidden: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),

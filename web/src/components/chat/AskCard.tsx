@@ -481,7 +481,23 @@ function SkillDiff({ lines }: { lines: string[] }) {
  * the fields too. `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a
  * rule beside it. `exact` (a connected service's call, docs/DECISIONS.md "Plain words in errors, cards and steps"): the
  * fields already show every value, so the text (its exact JSON) is one click away, "보내는 내용 그대로 보기". */
-function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
+function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
+  // a connector card whose question already says what happens in plain words (`hidden`: the code, the parameters, an
+  // id): everything behind one "자세히" (the owner: "코드를 보여주면 뭐 어케 하라는거냐"; users are not developers)
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (!props.items.length || !props.items.every((d) => d.hidden)) return <DetailsShown {...props} />
+  return (
+    <div className="mt-2" data-testid="ask-details-hidden">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-1 text-left text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="ask-details-toggle">
+        {open ? t('ask.foldedHide') : t('ask.foldedShow')}
+      </button>
+      {open && <DetailsShown {...props} />}
+    </div>
+  )
+}
+
+function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
   if (plain)
     return (

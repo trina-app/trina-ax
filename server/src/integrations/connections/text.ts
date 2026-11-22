@@ -16,12 +16,24 @@ export const TEXT = {
   practiceLead: t('연습용 연결이에요. 실제로는 아무것도 나가지 않아요.', 'This is a practice connection: nothing really goes out.', 'Ini koneksi latihan: tidak ada yang benar-benar dikirim.', "これは練習用の接続です。実際には何も送信されません。", "Esta es una conexión de práctica: en realidad no se envía nada.", "这是练习用的连接：实际上不会发送任何内容。"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
-  // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
-  // QA TC-4900): {what} is the tool's title
-  unsureConfirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}. {name} 쪽에서는 읽기만 한다고 하지만, 트리나는 이름만으로는 확인할 수 없어요. 보낼 내용을 아래에서 확인해 주세요.', 'The AI wants to use this at {name}: {what}. {name} says it only reads, but Trina can’t tell from its name. Check what it sends below.', 'AI ingin memakai ini di {name}: {what}. {name} bilang ini hanya membaca, tetapi Trina tidak bisa memastikannya dari namanya. Periksa yang dikirim di bawah.', "AIが{name}でこれを使おうとしています：{what}。{name}は読み取るだけだとしていますが、トリナには名前から確かめられません。送る内容を下で確認してください。", "La IA quiere usar esto en {name}: {what}. {name} dice que solo lee, pero Trina no puede comprobarlo por su nombre. Revise abajo lo que envía.", "AI 想在{name}使用：{what}。{name}说它只读取，但 Trina 无法从名称确认。请在下方查看要发送的内容。"),
-  unsureOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "允许一次"),
-  unsureAlways: t('이 대화에서 항상', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に", "Siempre en este chat", "在此对话中始终允许"),
-  unsureNo: t('실행하지 않기', 'Don’t run', 'Jangan jalankan', "実行しない", "No ejecutar", "不运行"),
+  // the read card in a shared chat: a tool the service marks read-only whose name holds a change word as a noun
+  // (read-mark.ts 'unsure', docs/decisions/20261122-connector-always-allow.md): what happens, in plain words. A call that
+  // names one web address says the page ({page}: its host and path, short); else the tool's title ({what})
+  unsureReadPage: t('{name}에서 이 페이지를 읽어 와요 · {page}', 'Read this page with {name} · {page}', 'Membaca halaman ini dengan {name} · {page}', "{name}でこのページを読みます · {page}", "Leer esta página con {name} · {page}", "用{name}读取此页面 · {page}"),
+  unsureRead: t('{name}에서 읽어 와요: {what}', 'Read from {name}: {what}', 'Membaca dari {name}: {what}', "{name}から読み取ります：{what}", "Leer de {name}: {what}", "从{name}读取：{what}"),
+  unsureOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
+  unsureAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
+  unsureNo: t('안 함', 'Don’t allow', 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
+  // the line under the read card's buttons: what Always allow covers (this tool, every chat) and where it is undone
+  unsureAlwaysNote: t('항상 허용: 앞으로 모든 대화에서 {name}의 “{what}” 도구는 묻지 않고 써요. 설정에서 지울 수 있어요.', 'Always allow: from now on, in every chat, the AI uses {what} of {name} without asking. You can remove it in Settings.', 'Selalu izinkan: mulai sekarang, di semua obrolan, AI memakai {what} dari {name} tanpa bertanya. Anda bisa menghapusnya di Pengaturan.', "常に許可：今後はどのチャットでも、AIは確認なしで{name}の{what}を使います。設定で削除できます。", "Permitir siempre: a partir de ahora, en todos los chats, la IA usa {what} de {name} sin preguntar. Puede quitarlo en Configuración.", "始终允许：从现在起，在所有对话中，AI 都会直接使用{name}的{what}，不再询问。你可以在设置中移除。"),
+  // the line under a shared chat's card for a call that acts on the person's own things (tools.ts cardWithAlways)
+  actsAlwaysNote: t('항상 허용: 앞으로 모든 대화에서 {name}의 “{what}” 작업은 묻지 않고 해요. 설정에서 지울 수 있어요.', 'Always allow: from now on, in every chat, the AI does {what} in {name} without asking. You can remove it in Settings.', 'Selalu izinkan: mulai sekarang, di semua obrolan, AI melakukan {what} di {name} tanpa bertanya. Anda bisa menghapusnya di Pengaturan.', "常に許可：今後はどのチャットでも、AIは確認なしで{name}の{what}を行います。設定で削除できます。", "Permitir siempre: a partir de ahora, en todos los chats, la IA hace {what} en {name} sin preguntar. Puede quitarlo en Configuración.", "始终允许：从现在起，在所有对话中，AI 会直接在{name}中执行{what}，不再询问。你可以在设置中移除。"),
+  // a call that acts on the person's own things (tools.ts gate, Sent.ownAct): what happens in one plain sentence, from the
+  // tool's title ({what}); code an app on the computer runs: a generic line, with the AI's own words for it said as the
+  // AI's ({title}: the call carries it, so it is never stated as fact; code review)
+  actTitled: t('{name}에서 작업을 실행해요 · AI 설명: {title}', 'Run a task in {name} · the AI calls it: {title}', 'Menjalankan tugas di {name} · kata AI: {title}', "{name}で作業を実行します · AIの説明：{title}", "Ejecutar una tarea en {name} · la IA lo llama: {title}", "在{name}中运行任务 · AI 的说明：{title}"),
+  actTool: t('{name}에서 “{what}” 작업을 해요', '{what} in {name}', '{what} di {name}', "{name}で{what}をします", "{what} en {name}", "在{name}中{what}"),
+  runCode: t('{name}에서 작업을 실행해요', 'Run a task in {name}', 'Menjalankan tugas di {name}', "{name}で作業を実行します", "Ejecutar una tarea en {name}", "在{name}中运行任务"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
   valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)", "（空）"),
