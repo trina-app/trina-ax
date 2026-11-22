@@ -732,7 +732,8 @@ function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFi
   // ("leads › Chat attachments"), as a file chip shows it; "Show in Files" is in its menu
   const words = useFolderWords()
   const groupBase = useGroupFolderBase(roomId)
-  const place = f.teamFile && f.teamPath ? placeUnder(f.teamPath, groupBase) ?? folderOfPath(f.teamPath, words).full : null
+  const locale = useLocale()
+  const place = f.teamFile && f.teamPath ? placeUnder(f.teamPath, groupBase, locale) ?? folderOfPath(f.teamPath, words).full : null
   const label = [t('rooms.openImage', { name: f.name }), f.roomOnly ? t('rooms.file.roomOnly') : place].filter(Boolean).join(' · ')
   const tile = ratio !== undefined
   const src = roomFileUrl(roomId, f.id, { thumb: '1' })
