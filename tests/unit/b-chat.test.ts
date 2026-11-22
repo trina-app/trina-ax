@@ -487,7 +487,7 @@ describe('memories', () => {
   afterAll(() => { h.ctx.db.query("UPDATE users SET prefs = json_remove(COALESCE(prefs, '{}'), '$.autoMemory') WHERE id = 'alice'").run() })
   test('remember in a clean chat: saved as "ai", chip step, memory.changed; next turn sees it in the instructions; forget removes it', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'Prefers short answers' }, sayResult: true }))
+    const r = await ask(h, alice, 'alice', chat.id, 'please remember this\n' + fake({ tool: 'remember', args: { text: 'Prefers short answers' }, sayResult: true }))
     const { id } = JSON.parse(r.done.content) as { id: string }
     expect(h.ctx.db.query('SELECT source, created_turn_id FROM memories WHERE id = ?').get(id)).toEqual({ source: 'ai', created_turn_id: r.started.turnId })
     expect(r.done.steps[0]).toMatchObject({ tool: 'remember', label: 'Remembered: Prefers short answers', detail: `memory:${id}` })
@@ -505,7 +505,7 @@ describe('memories', () => {
 
   test('remember after reading other people\'s content needs the person\'s OK (saved as "user"); "no" keeps nothing', async () => {
     const chat = await newChat()
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { tool: 'remember', args: { text: 'Works on ARR reports' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'please remember this\n' + fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { tool: 'remember', args: { text: 'Works on ARR reports' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     expect(card.data.request.kind).toBe('ask_user')
     expect((card.data.request as { question: string }).question).toContain('Works on ARR reports')
@@ -517,7 +517,7 @@ describe('memories', () => {
     expect((h.ctx.db.query('SELECT source FROM memories WHERE id = ?').get(id) as { source: string }).source).toBe('user')
     expect(d.data.message.steps.find((st) => st.tool === 'remember')).toMatchObject({ label: 'Remembered: Works on ARR reports', detail: `memory:${id}`, status: 'ok' })
     // same (tainted) chat, declined
-    const r2 = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'remember', args: { text: 'Likes durian' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    const r2 = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'please remember this\n' + fake({ tool: 'remember', args: { text: 'Likes durian' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card2 = await alice.next('turn.request', (f) => f.data.turnId === r2.turnId)
     await h.api('alice').call(API.answerTurn, { params: { id: r2.turnId }, body: { kind: 'ask_user', requestId: card2.data.request.requestId, answer: 'no' } })
     const d2 = await alice.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
@@ -531,7 +531,7 @@ describe('memories', () => {
 
   test('a safety check of the server takes only its own options: typed text is refused and the card stays open', async () => {
     const chat = await newChat()
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { tool: 'remember', args: { text: 'Owns the Q3 report' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'please remember this\n' + fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { tool: 'remember', args: { text: 'Owns the Q3 report' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     expect(card.data.request).toMatchObject({ kind: 'ask_user', origin: 'server' })
     const post = (answer: unknown) => h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer }) })
@@ -549,7 +549,7 @@ describe('memories', () => {
 
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
+    const r = await ask(h, alice, 'alice', chat.id, 'please remember this\n' + fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
     expect(r.done.content).toContain('under 1000 characters')
     h.ctx.db.query("INSERT INTO memories (id, user_id, text) VALUES (?, 'bob', 'bob secret')").run(uuidv7())
     const mine = await h.api('alice').call(API.listMemories, { query: { limit: 1 } })
