@@ -3323,7 +3323,7 @@ export class TurnExec {
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
       // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
-      if (tool === 'box_shell') for (const f of answerShellOutputs(input) ?? []) this.shellAllowedOuts.add(f)
+      if (tool === 'box_shell') { const shape = commandShape(input); if (shape) this.shellAllowed.add(shape) }
       // [이번만 허용]: this kind of change to this file goes without the room card for the rest of this chat
       if (v === 'allow' && !reads) keepApproval()
       if (target && coverOnce) {
@@ -3660,38 +3660,43 @@ export class TurnExec {
     try { return authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'read').rel } catch { return null }
   }
 
-  /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
-   * move into place, which keeps an older file), and nobody else (a person, another answer) changed it since. */
-  /** the files dev-environment commands of this answer were allowed to make on a room card (answerShellOutputs) */
-  private shellAllowedOuts = new Set<string>()
+  /** the dev-environment commands of this answer the person allowed on a room card, by their shape (commandShape) */
+  private shellAllowed = new Set<string>()
   /**
    * One answer, one card per target after a room read (#381 "One answer never asks twice about the same target"; QA b3s
    * TC-b3s-23, S-110: one banner edit raised two command cards for the same picture and a rename card for the copy the
-   * answer had just made):
-   * - box_shell: a command whose output files (shellOutputs) are all ones an earlier command of this answer was allowed to
-   *   make, and that removes, moves, copies, installs or reaches the network nothing and names no instruction file
-   *   (answerShellOutputs). The first command after a room read still asks (docs/decisions/20261122-ask-less-side-chat-runs.md).
+   * answer had just made). Nothing is covered once the session used something from outside the team (roomOutside: a web
+   * page or a search, whose author is no member):
+   * - box_shell: the same command as one the person allowed in this answer, but for its numbers (a font size, a
+   *   position: commandShape), when it only makes files (answerShellOutputs: no removing, moving, copying,
+   *   installing, network or instruction file). Any other command asks: the card is the only look at what runs, and a
+   *   command's words cannot show all it does (docs/decisions/20261122-ask-less-side-chat-runs.md).
    * - rename_file: a file this answer made (a create of this turn nobody else changed since, roomMadeHere) renamed in its
-   *   folder (the same people, the same bytes) to a name that is no instruction, script or hidden file. Whatever let the
-   *   answer put it there (a card, a cover) stands for its name too.
+   *   folder (the same people, the same bytes), keeping its extension, to no instruction, script or hidden name. Whatever
+   *   let the answer put it there (a card, a cover) stands for its name too.
    * Fails closed: any error is false.
    */
   private sameAnswerTarget(tool: string, input: unknown): boolean {
     try {
+      if (tool !== 'box_shell' && tool !== 'rename_file') return false
+      if (this.roomOutside()) return false
       if (tool === 'box_shell') {
-        const outs = this.shellAllowedOuts.size ? answerShellOutputs(input) : null
-        return !!outs && outs.every((f) => this.shellAllowedOuts.has(f))
+        const shape = this.shellAllowed.size ? commandShape(input) : null
+        return !!shape && this.shellAllowed.has(shape)
       }
-      if (tool !== 'rename_file' || !input || typeof input !== 'object') return false
+      if (!input || typeof input !== 'object') return false
       const a = input as { path?: unknown; new_name?: unknown }
       const name = typeof a.new_name === 'string' ? a.new_name.trim() : ''
       if (typeof a.path !== 'string' || !name || /[\\/]/.test(name) || name.startsWith('.') || instructionLike(name) || runnableFile(name)) return false
+      const ext = (n: string) => (/\.([^./]+)$/.exec(n)?.[1] ?? '').toLowerCase()
       const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), a.path, 'write')
-      if (!r.exists || !r.st?.isFile() || inSkills(r.rel) || instructionLike(r.rel)) return false
+      if (!r.exists || !r.st?.isFile() || inSkills(r.rel) || instructionLike(r.rel) || ext(r.rel) !== ext(name)) return false
       return this.roomMadeHere(r.rel)
     } catch { return false }
   }
 
+  /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
+   * move into place, which keeps an older file), and nobody else (a person, another answer) changed it since. */
   private roomMadeHere(rel: string): boolean {
     return !!this.rt.db.query(`SELECT 1 FROM file_events e WHERE e.turn_id = ? AND e.path = ? AND e.action = 'create' AND json_extract(e.detail, '$.movedFrom') IS NULL
       AND NOT EXISTS (SELECT 1 FROM file_events x WHERE x.path = e.path AND x.id > e.id AND (x.turn_id IS NULL OR x.turn_id <> e.turn_id)) LIMIT 1`).get(this.id, rel)
@@ -6075,23 +6080,27 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 
-/** The files a dev-environment command makes when that is all it does as far as its words tell (TurnExec
- * sameAnswerTarget): its output names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE,
- * cp, ln, chmod, chown, touch, tee), installs or downloads programs, reaches the network or names an instruction or
+/** The files a dev-environment command makes when that is all its words show (TurnExec sameAnswerTarget): its output
+ * names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE, cp, ln, chmod, chown,
+ * touch, tee, a script's os.remove …), installs or downloads programs, reaches the network or names an instruction or
  * skill file. null: not such a command. */
-/** a script in a command that removes, moves or renames files (python, node), past what SHELL_DESTRUCTIVE reads */
-const SCRIPT_REMOVES = /\b(?:os\.(?:remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(?:rmtree|move|copy\w*)|unlinkSync|rmSync|rmdirSync|renameSync|copyFileSync|\.unlink\(|\.rmdir\(|\.rename\()/
 export function answerShellOutputs(input: unknown): string[] | null {
   const c = input && typeof input === 'object' && typeof (input as { command?: unknown }).command === 'string' ? (input as { command: string }).command : ''
   if (!c || c.length > 20_000) return null
-  // (as the command writes them, folders too: the same name elsewhere is another target)
   const outs = shellOutputs(c, { paths: true })
   if (!outs.length || SHELL_DESTRUCTIVE.test(c) || /(?:^|[\s;&|(`])(?:cp|ln|chmod|chown|touch|tee|install)\s/.test(c) || shellUsesNetwork(c) || INSTRUCTION_IN_TEXT.test(c) || SCRIPT_REMOVES.test(c)) return null
   const kind = shellKind(c)
-  if (kind === 'install' || kind === 'download' || /\b(?:pushd|popd|chdir)\b/.test(c)) return null
-  // where it runs is part of the target: the same relative name after another "cd" is another file
-  const at = [...c.matchAll(/(?:^|[\s;&|(])cd\s+("[^"]*"|'[^']*'|[^\s;&|)]+)/g)].map((m) => m[1]!).join('\u0001')
-  return outs.map((f) => `${at}\u0000${f}`)
+  return kind === 'install' || kind === 'download' ? null : outs
+}
+
+/** A command as one "kind of run" for one answer's yes (TurnExec sameAnswerTarget): its text with runs of spaces as one
+ * and every number as "#", so the same run again with another size or position is the same run; any other difference
+ * (a word, a program, a path, a quoted string) is another command. null for a command that does more than make files
+ * (answerShellOutputs). */
+export function commandShape(input: unknown): string | null {
+  if (!answerShellOutputs(input)) return null
+  const c = (input as { command: string }).command
+  return c.replace(/\d+(?:\.\d+)?/g, '#').replace(/\s+/g, ' ').trim()
 }
 
 /** the kind of a file a command makes, by its extension (shellCardWords) */

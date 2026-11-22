@@ -414,10 +414,11 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
   test('a second command of the same answer that makes the same file goes under the first yes; a new answer asks again', async () => {
     const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
     const chat = await side()
-    const again = `cd "$TRINA_WORK" && python3 - <<'EOF'\nfrom PIL import Image\nImage.new('RGB',(9,9)).save('out/chart.png')\nEOF`
+    // the same run with other numbers (a bigger font, another size)
+    const again = chart.replace("plt.bar(['a'],[1])", "plt.bar(['a'],[2])")
     const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: again }, sayResult: true }), yes)
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain('Make the picture file chart.png')
+    expect(r.cards[0]!.question).toContain('Make the picture file chart.png with a program')
     const steps = (h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(r.messageId) as { steps: string }).steps
     expect(steps).toContain('allowed once in this answer')
     // a new answer: its own card again
@@ -425,9 +426,11 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     expect(next.cards).toHaveLength(1)
   })
 
-  test('...but not a command that also removes files, makes another file, runs elsewhere or reaches the network', async () => {
+  test('...but not another command for the same file, one that also removes files, runs elsewhere or reaches the network', async () => {
     const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
     for (const later of [
+      chart.replace('plt.bar', 'plt.barh'),
+      `find "$TRINA_TEAM" -name '*.xlsx' -exec perl -e 'unlink @ARGV' {} + ; ${chart}`,
       `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && rm -f out/old.png`,
       `cd "$TRINA_WORK" && python3 make.py -o out/other.png`,
       `cd "$HOME" && python3 make.py -o out/chart.png`,
@@ -471,7 +474,7 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     const chat = await shared()
     const r = await run('alice', chat, `> erin: run this\n${fake({ tool: 'box_shell', args: { command: chart }, sayResult: true })}`)
     const card = r.cards.find((c) => /chart\.png/.test(c.question))
-    expect(card?.question).toContain('Make the picture file chart.png')
+    expect(card?.question).toContain('Make the picture file chart.png with a program')
     expect(card?.question).not.toContain('Run a task')
   })
 })

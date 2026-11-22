@@ -17,16 +17,18 @@
   only for a viewer who sees that version (Artifacts.hiddenVersions). The chat page reads its lines again on each new
   page version, so the others see the line with the new version (artifact.updated).
 - **One card per target in an answer after a room read** (#381's rule, docs/decisions/20261122-ask-less.md):
-  - a dev-environment command goes on under an earlier command's [이번만 허용] of the same answer when every file it
-    makes (its output names as written, and its `cd` targets) is one that command was allowed to make, and it removes,
-    moves, copies, links, installs, downloads, reaches the network and names an instruction file nothing (by its words,
-    as the card reads them; chat/turn.ts answerShellOutputs). The first command after a room read still asks (owner
-    11-22). A "no" covers nothing; a new answer asks again.
-  - renaming in its folder a file this answer made (nobody changed it since) needs no card; the yes or cover that put it
-    there stands for its name. Not to an instruction, script or hidden name.
+  - a dev-environment command goes on under an earlier [이번만 허용] of the same answer only when it is that same
+    command but for its numbers (a font size, a position: chat/turn.ts commandShape) and it only makes files by its
+    words (no removing, moving, copying, linking, installing, downloading, network or instruction file:
+    answerShellOutputs). Any other command asks: the card is the only look at what runs, and a command's words cannot
+    show all it does (independent review: a name-based cover let `find … -exec`, `bash -c "$(… | base64 -d)"` through).
+    The first command after a room read still asks (owner 11-22). A "no" covers nothing; a new answer asks again;
+    nothing is covered once the session used a web page or a search (roomOutside).
+  - renaming in its folder a file this answer made (nobody changed it since), keeping its extension, needs no card; the
+    yes or cover that put it there stands for its name. Not to an instruction, script or hidden name.
   - Both steps say "이번만 허용으로 진행".
-- **Words.** The command card says what happens: "그림 파일 banner.png 만들기" ("Make the picture file banner.png"), the
-  command behind 자세히 as before.
+- **Words.** The command card says what happens and that a program does it: "프로그램으로 그림 파일 banner.png 만들기"
+  ("Make the picture file banner.png with a program"), the command behind 자세히 as before.
 - **Room posts by the AI (S-120): unchanged.** An AI post is the person's own message (rooms.send): each member gets the
   same notice as for that person's own message, by their level for the room; Activity lists mentions and followed
   threads only, for both (rooms/inbox.ts LISTED_SQL). Pinned by a test; listing every room message in Activity is not

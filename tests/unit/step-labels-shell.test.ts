@@ -3,7 +3,7 @@
 // when the step is opened. The room card asks in the same words and keeps the command behind "자세히".
 import { describe, expect, test } from 'bun:test'
 import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
-import { answerShellOutputs, roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
+import { answerShellOutputs, commandShape, roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
 import { globLabel } from '../../shared/src/step-labels'
 import { placeWords } from '../../server/src/chat/place-words'
 
@@ -94,7 +94,7 @@ describe('room card', () => {
   test('the question in plain words', () => {
     // the server's own words, never the AI's description (the card is there because other people's words may steer it)
     // ...the files it makes by kind and name, read from the command (QA TC-f2-c02)
-    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('문서 파일 p.html 만들기')
+    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('프로그램으로 문서 파일 p.html 만들기')
     expect(roomCardWhat('box_shell', { command: 'rm -rf ~/x', description: 'Check files' }, 'en')).toBe('Change files')
     expect(roomCardWhat('box_shell', { command: 'ls -la' }, 'ko')).toBe('파일 확인')
     expect(roomCardWhat('edit', { file_path: 'users/u1/quarterly-sales.svg', old_string: 'a', new_string: 'b' }, 'ko')).toBe('파일 수정')
@@ -103,7 +103,7 @@ describe('room card', () => {
 
   test('the command and what a file will hold behind "자세히"', () => {
     const [d] = roomChangeDetails('box_shell', { command: 'mkdir -p p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')
-    expect(d!.fields).toEqual([{ name: expect.any(String), value: '문서 파일 p.html 만들기' }])
+    expect(d!.fields).toEqual([{ name: expect.any(String), value: '프로그램으로 문서 파일 p.html 만들기' }])
     expect(d!.text).toBe('mkdir -p p && cat > p.html <<E')
     expect(d!.folded).toBe(true)
     // no "자세히 953자": a command's length says nothing to a person
@@ -123,8 +123,8 @@ describe('room card for a command: what it makes (QA TC-f2-c02)', () => {
   const chart = `cd "$TRINA_WORK" && python3 - <<'EOF'\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nplt.bar(['a','b'],[1,2])\nplt.savefig('out/chart.png', dpi=150)\nEOF`
   test('a chart script: the picture by name, never "작업 실행"', () => {
     expect(shellOutputs(chart)).toEqual(['chart.png'])
-    expect(shellCardWords(chart, 'ko')).toBe('그림 파일 chart.png 만들기')
-    expect(shellCardWords(chart, 'en')).toBe('Make the picture file chart.png')
+    expect(shellCardWords(chart, 'ko')).toBe('프로그램으로 그림 파일 chart.png 만들기')
+    expect(shellCardWords(chart, 'en')).toBe('Make the picture file chart.png with a program')
     for (const l of L) expect(shellCardWords(chart, l)).toContain('chart.png')
   })
   test('outputs by -o, a redirect, open(..., "w") and ffmpeg; variables and scripts are no names', () => {
@@ -134,15 +134,15 @@ describe('room card for a command: what it makes (QA TC-f2-c02)', () => {
     expect(shellOutputs(`python3 -c "open('a.csv', 'w').write('x')"`)).toEqual(['a.csv'])
     expect(shellOutputs(`plt.savefig(f'{name}.png')`)).toEqual([])
     expect(shellOutputs('cat > make.py <<E\nE\npython3 make.py 2>/dev/null')).toEqual([])
-    expect(shellCardWords('python3 a.py -o x.png && ffmpeg -i x.png y.mp4', 'ko')).toBe('파일 x.png, y.mp4 만들기')
-    expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Make the picture files b.png, c.png')
+    expect(shellCardWords('python3 a.py -o x.png && ffmpeg -i x.png y.mp4', 'ko')).toBe('프로그램으로 파일 x.png, y.mp4 만들기')
+    expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Make the picture files b.png, c.png with a program')
   })
   test('an install or the network in the same command is said too, never hidden behind the file it makes', () => {
-    expect(shellCardWords(`pip install -q matplotlib && python3 -c "import matplotlib; plt.savefig('c.png')"`, 'ko')).toBe('그림 파일 c.png 만들기 (프로그램 설치도 해요)')
-    expect(shellCardWords('python3 a.py -o x.png && curl -F f=@x.png https://example.com', 'en')).toBe('Make the picture file x.png (also connects to the internet)')
-    expect(shellCardWords('npm i sharp && python3 a.py -o x.png && scp x.png me@host:', 'en')).toBe('Make the picture file x.png (also installs programs and connects to the internet)')
+    expect(shellCardWords(`pip install -q matplotlib && python3 -c "import matplotlib; plt.savefig('c.png')"`, 'ko')).toBe('프로그램으로 그림 파일 c.png 만들기 (프로그램 설치도 해요)')
+    expect(shellCardWords('python3 a.py -o x.png && curl -F f=@x.png https://example.com', 'en')).toBe('Make the picture file x.png with a program (also connects to the internet)')
+    expect(shellCardWords('npm i sharp && python3 a.py -o x.png && scp x.png me@host:', 'en')).toBe('Make the picture file x.png with a program (also installs programs and connects to the internet)')
     expect(shellCardWords('pip install pillow', 'en')).not.toContain('also')
-    expect(shellCardWords('python3 a.py -o x.png', 'en')).toBe('Make the picture file x.png')
+    expect(shellCardWords('python3 a.py -o x.png', 'en')).toBe('Make the picture file x.png with a program')
     for (const l of L) expect(shellCardWords('python3 a.py && wget https://e.com/x', l)).not.toBe(shellCardWords('python3 a.py', l))
     expect(shellUsesNetwork('python3 -c "import requests; requests.post(u)"')).toBe(true)
     expect(shellUsesNetwork('ssh host ls')).toBe(true)
@@ -188,15 +188,23 @@ describe('no developer places in a step line (QA TC-r2u-09/12/23/30)', () => {
 // QA b3s TC-b3s-23: a later command of one answer that makes only what an earlier allowed one made goes under that yes
 describe('answerShellOutputs', () => {
   const at = (c: string) => answerShellOutputs({ command: c })
-  test('the files a command only makes, with where it runs', () => {
-    expect(at(`cd "$TRINA_WORK" && python3 make.py -o out/banner.png`)).toEqual(['"$TRINA_WORK"\u0000out/banner.png'])
-    expect(at(`python3 make.py -o out/banner.png`)).toEqual(['\u0000out/banner.png'])
+  test('the files a command only makes', () => {
+    expect(at(`cd "$TRINA_WORK" && python3 make.py -o out/banner.png`)).toEqual(['out/banner.png'])
+  })
+  test('a command\'s shape: the same run with other numbers is the same; any other change is another command', () => {
+    const shape = (c: string) => commandShape({ command: c })
+    const a = `cd "$TRINA_WORK" && python3 make.py --size 52 -o out/banner.png`
+    expect(shape(a)).toBe(shape(`cd "$TRINA_WORK" &&  python3 make.py --size 68 -o out/banner.png`))
+    expect(shape(a)).not.toBe(shape(`cd "$HOME" && python3 make.py --size 68 -o out/banner.png`))
+    expect(shape(a)).not.toBe(shape(`cd "$TRINA_WORK" && python3 other.py --size 52 -o out/banner.png`))
+    expect(shape(a)).not.toBe(shape(`cd "$TRINA_WORK" && bash -c "$(echo cm0gLXJmIH4= | base64 -d)"; python3 make.py --size 52 -o out/banner.png`))
+    expect(shape('python3 make.py && rm x.png -o a.png')).toBeNull()
   })
   test('nothing for a command that removes, moves, copies, installs, downloads or reaches the network, or makes nothing', () => {
     for (const c of [
       'python3 make.py -o a.png && rm b.png', 'python3 make.py -o a.png && mv a.png b.png', 'cp x.png a.png && python3 make.py -o a.png',
       'pip install pillow && python3 make.py -o a.png', 'python3 make.py -o a.png && curl -F f=@a.png https://x.example',
-      `python3 -c "import os; os.remove('k'); open('a.png','w')"`, 'pushd /tmp && python3 make.py -o a.png', 'python3 analyze.py',
+      `python3 -c "import os; os.remove('k'); open('a.png','w')"`, 'python3 analyze.py',
       'python3 make.py -o a.png && cat SKILL.md',
     ]) expect([c, at(c)]).toEqual([c, null])
     expect(answerShellOutputs({})).toBeNull()

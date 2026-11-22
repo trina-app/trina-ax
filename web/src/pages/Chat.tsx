@@ -329,11 +329,15 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // that could not open it ("no longer shared with me") reads it again when it comes back to me, as a reload would (QA
   // TC-b3s-16: someone added me while my old link was open)
   const failedNow = useRef<unknown>(null)
-  failedNow.current = loadError
+  useEffect(() => { failedNow.current = loadError }, [loadError])
+  // (one read again at a time: several changes in a row are one)
+  const reloading = useRef(false)
   useEffect(() => chatChanged.on((e) => {
     if (e.chatId !== chatId) return
     setChatRev((n) => n + 1)
-    if (failedNow.current && e.chat && !e.chat.deletedAt && e.change !== 'deleted' && e.change !== 'purged') void load()
+    if (!failedNow.current || reloading.current || !e.chat || e.chat.deletedAt || e.change === 'deleted' || e.change === 'purged') return
+    reloading.current = true
+    void load().finally(() => { reloading.current = false })
   }), [chatId, load])
   // the chat left my lists while it is on screen (chat.updated "deleted": I lost the shared chat when a project's
   // members changed, it went to a trash or was purged; also a list read again after a reconnect): read it again, so a

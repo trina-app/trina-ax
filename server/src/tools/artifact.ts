@@ -65,7 +65,9 @@ const SERVER_PAGES: ReadonlySet<string> = new Set([PROMO_ARTIFACT_KEY, DECK_ARTI
 const KEY_RE = /^[\p{L}\p{N}._-]+$/u
 
 /** chat_file_events.file_id of a page's restore line: this prefix and the new version's artifact id (a chat file's line
- * has the chain's root id, which never starts with it). An older build finds no chat file by it and leaves it out. */
+ * has the chain's root id, which never starts with it). Migration 439's note says file_id is a chat file's root: a page's
+ * line is the one exception, read by chat/people-share.ts chatEventsOf. An older build finds no chat file by it and leaves
+ * it out. (The INSERT is chat/chat-file-edit.ts addFileRestoreEvent's, written here: that module loads the chat runtime.) */
 export const PAGE_EVENT_PREFIX = 'page:'
 
 /** a person's restores in the panel per minute (the chat files' save limit, chat/chat-file-edit.ts) */
