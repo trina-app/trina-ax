@@ -94,7 +94,8 @@ export function proseStrings(v: unknown, out: string[] = [], seen = new Set<stri
   return out
 }
 
-/** JSON-LD: "Type: name (alternate name): description" lines of the things a site says it is or sells. */
+/** JSON-LD: the names, alternate names, descriptions and slogans of the things a site says it is or sells, each value on
+ * its own line exactly as written there (no labels or joins added: a quote of a line is a quote of the page). */
 export function jsonLdLines(v: unknown): string[] {
   const out: string[] = []
   let looked = 0
@@ -103,14 +104,8 @@ export function jsonLdLines(v: unknown): string[] {
     if (looked++ > WALK_MAX || depth > DEPTH_MAX || !x || typeof x !== 'object') return
     if (Array.isArray(x)) { for (const y of x) walk(y, depth + 1); return }
     const o = x as Record<string, unknown>
-    const type = str(o['@type'])
-    const name = str(o.name) || str(o.headline)
-    const alt = str(o.alternateName)
-    const parts = [str(o.description), str(o.slogan), str(o.disambiguatingDescription)].filter(Boolean)
-    if (name || parts.length) {
-      const head = [name, alt && alt !== name ? `(${alt})` : ''].filter(Boolean).join(' ')
-      const line = `${type ? `${type}: ` : ''}${head}${parts.length ? `${head ? ': ' : ''}${parts.join(' ')}` : ''}`.replace(/\s+/g, ' ').trim()
-      if (line.replace(/^[^:]*:\s*/, '').length >= 2) out.push(line)
+    for (const x of [str(o.name) || str(o.headline), str(o.alternateName), str(o.description), str(o.slogan), str(o.disambiguatingDescription)]) {
+      if (x.length >= 2 && !out.includes(x)) out.push(x)
     }
     for (const [k, y] of Object.entries(o)) {
       if (k === '@context' || k === '@id' || k === '@type' || SKIP_KEY.test(k)) continue
@@ -208,11 +203,10 @@ export function pageData(html: string, max = PAGE_DATA_MAX): string {
   const sections: [string, string[]][] = []
   const said = new Set<string>()
   const once = (s: string | undefined) => { if (!s) return ''; const k = s.toLowerCase(); if (said.has(k)) return ''; said.add(k); return s }
-  const desc = once(meta.description)
-  const card = [once(meta['og:site_name']), once(meta['og:title'] ?? meta['twitter:title']), once(meta['og:description'] ?? meta['twitter:description'])].filter(Boolean)
-  const head = [desc ? `Description: ${desc}` : '', meta.keywords ? `Keywords: ${meta.keywords}` : '', card.length ? `Social card: ${card.join(' | ')}` : ''].filter(Boolean)
-  if (head.length) sections.push(['From the page head', head])
-  const ldU = [...new Set(ld)]
+  // each value on its own line as the page writes it: no labels or joins, so a quote of a line is page text
+  const head = [meta.description, meta['og:site_name'], meta['og:title'] ?? meta['twitter:title'], meta['og:description'] ?? meta['twitter:description'], meta.keywords].map(once).filter(Boolean)
+  if (head.length) sections.push(['From the page head (description, social card, keywords)', head])
+  const ldU = [...new Set(ld)].filter((x) => !said.has(x.toLowerCase()))
   if (ldU.length) sections.push(['Structured data (JSON-LD)', ldU])
   const blobU = blob.filter((s) => !said.has(s.toLowerCase()))
   if (blobU.length) sections.push(['Text in the page\'s embedded data', blobU])

@@ -255,6 +255,16 @@ export function renderSlot(user: string, signal?: AbortSignal): Promise<() => vo
     waiting.push(w)
   })
 }
+/** A render slot now or null (never waits): for a web page drawn for its text (tools/page-render.ts), which shares the
+ * prints' limit and cgroup and is skipped when the server is busy. It never goes before a print that waits. Each call
+ * counts as its own person (`key` unique per draw). */
+export function tryRenderSlot(key: string): (() => void) | null {
+  if (running >= renderParallel() || waiting.length || runningUsers.has(key)) return null
+  running++
+  runningUsers.set(key, 1)
+  let done = false
+  return () => { if (done) return; done = true; running--; runningUsers.delete(key); pump() }
+}
 /** tests: the queue's state */
 export const _queueForTest = () => ({ running, waiting: waiting.length })
 
@@ -511,6 +521,11 @@ export type BrowserUsage = { memoryMiB?: number; pids?: number }
  */
 export async function runBrowser<T>(work: string, o: BrowserRun, body: (cdp: Cdp, race: <X>(x: Promise<X>) => Promise<X>) => Promise<T>): Promise<{ value: T; usage?: BrowserUsage }> {
   const L = o.limits
+  // never without the isolation (it is the browser's sandbox and its "no network") and never as root, whoever called
+  // with whichever browser
+  // (only html-pdf.test.ts's check of the interception alone runs it without, in a test process that says so)
+  if (isolation() === 'none' && !(process.env.NODE_ENV === 'test' && process.env.MYCEL_HTML_PDF_TEST_NO_ISOLATION === '1')) throw new HtmlPdfError('unavailable', 'the converter isolation is missing on this server, so no browser runs here')
+  if (rootRefused()) throw new HtmlPdfError('unavailable', 'a browser is never run as root')
   // the file trustedBrowser looks at is the file that runs: resolved once, checked, and run by that path
   let browser: string
   try { browser = fs.realpathSync(o.browser) } catch { throw new HtmlPdfError('unavailable', 'the browser is not installed') }

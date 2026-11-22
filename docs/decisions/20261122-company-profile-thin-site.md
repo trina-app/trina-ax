@@ -17,17 +17,25 @@
      answered by the server: the page is the HTML web_fetch already read; anything else is fetched through web_fetch's
      own address guard for that one request (resolveTarget: one lookup, public unicast only, not this server's own
      addresses, networks or exit addresses; pinned socket), a redirect goes back to the browser and is checked again.
-     Only GET, HEAD and CORS preflights; only scripts, data requests and stylesheets; no cookies; 150 requests, 20 MB,
-     10 s, two renders on the server at once (a busy server skips it). No browser or no isolation: skipped quietly.
-  2. For every web_fetch: what the page's markup says about it, copied as written: meta description, Open Graph and
-     Twitter card, names and descriptions in JSON-LD, prose strings of `__NEXT_DATA__`, `__NUXT_DATA__` and the RSC
-     payload. Pure parsing, linear, at most 6,000 characters.
+     Only GET, HEAD and CORS preflights; only scripts, data requests and stylesheets; no cookies; 150 requests, 12 s.
+     At most 6 fetches of the server at once (the rest wait), and 20 MB in all: each fetch reserves what it may bring
+     before it starts (at most 3 MB, its decoding capped there too) and settles the real size after, so parallel
+     requests cannot pass the budget together; every fetch still running is stopped when the drawing ends. The render
+     takes one of HTML to PDF's print slots (`tryRenderSlot`: the print cgroup's room on a small server, never ahead of
+     a waiting print), and a busy server skips it. runBrowser refuses to start without the isolation or as root, whoever
+     calls it. A page read on (offset > 0) reuses its first read's drawing and is never drawn again. No browser or no
+     isolation: skipped quietly.
+  2. For every web_fetch: what the page's markup says about it, each value on its own line exactly as written (no labels
+     or joins of ours, so a quote is page text): meta description, Open Graph and Twitter card, names and descriptions
+     in JSON-LD, prose strings of `__NEXT_DATA__`, `__NUXT_DATA__` and the RSC payload. Pure parsing, linear, at most
+     6,000 characters. This embedded data now reaches every web_fetch of a thin page, not only drafts, inside the same
+     external-data wrapper as the page text and capped.
   3. In a company profile draft only, when the text is still thin: the likely pages of `/sitemap.xml` (one sitemap
      index level, the same host and every redirect on it, 4 s, 1 MB), listed so the AI may open them.
   The draft's instructions say that this text is the page's own and may be quoted. "직접 적어 주세요" stays when
   nothing is found.
 - **Why:** a draft from the title alone is no draft. The markup alone gives a description (potenlab.dev: products, not
-  customers); only the drawn page has the real content (potenlab.dev drawn: about 3,800 characters in about 4 s, with
+  customers); only the drawn page has the real content (potenlab.dev drawn: about 3,800 characters in 4 to 8 s, with
   its services, packages, customers and portfolio). The browser and its isolation already ship for HTML to PDF
   (scripts/system/packages.json), so no new package; the server answering every request keeps the SSRF rules of
   web_fetch for every sub-request, which a browser with its own network could not.

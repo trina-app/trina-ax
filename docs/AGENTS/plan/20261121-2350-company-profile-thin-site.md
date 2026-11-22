@@ -72,10 +72,10 @@ PDF's browser (no new package) with every sub-request blocked from private and i
 
 - `server/src/tools/page-render.ts`: the page drawn with JavaScript on in HTML to PDF's isolated browser; the server
   answers every request (web_fetch's address guard per request, GET/HEAD/preflight only, scripts, data and stylesheets
-  only, 150 requests, 20 MB, 10 s, two at once). `files/html-pdf.ts`: the launch moved into `runBrowser` (shared;
+  only, 150 requests, 12 s, 20 MB reserved per fetch before it starts, 6 fetches at once, one of the print slots). `files/html-pdf.ts`: the launch moved into `runBrowser` (shared;
   prints unchanged), `browserArgs(work, { scripts })`.
 - `server/src/tools/page-data.ts` and web_fetch: the markup's data for a thin page (every web_fetch), the sitemap list
   and the render hook (drafts only).
 - potenlab.dev, checked live once: the markup alone gives the description (products: 포텐부스터, 커스텀 프로덕트 개발,
-  디자인&컨설팅) and 10 sitemap pages; drawn, about 3,800 characters in about 4 s, with services, packages, customers
+  디자인&컨설팅) and 10 sitemap pages; drawn, about 3,800 characters in 4 to 8 s, with services, packages, customers
   ("스타트업부터 엔터프라이즈까지", "초기 창업가", "기존 비즈니스에 AI 도입하려는 팀") and portfolio.

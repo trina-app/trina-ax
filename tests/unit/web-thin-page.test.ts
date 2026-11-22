@@ -8,7 +8,7 @@ import path from 'node:path'
 import { attrOf, jsonLdLines, pageData, proseLike, proseStrings, sitemapLocs, sitemapPages, thinText, PAGE_DATA_MAX } from '../../server/src/tools/page-data'
 import { webFetch, type FetchOptions } from '../../server/src/tools/web-fetch'
 import { renderPage, RENDER_LIMITS } from '../../server/src/tools/page-render'
-import { findPdfBrowser, htmlPdfUnavailable } from '../../server/src/files/html-pdf'
+import { _queueForTest, findPdfBrowser, htmlPdfUnavailable, renderParallel, renderSlot, tryRenderSlot } from '../../server/src/files/html-pdf'
 import { WORK } from '../lib/env'
 
 setDefaultTimeout(60_000)
@@ -41,12 +41,13 @@ const RSC_PAGE = `<!doctype html><html><head><title>Gamma</title></head><body>
 </body></html>`
 
 describe('page-data: what the markup says', () => {
-  test('a Vite shell: meta description, social card and JSON-LD, copied as written (entities decoded)', () => {
+  test('a Vite shell: meta description, social card and JSON-LD, each value on its own line as written (entities decoded)', () => {
     const d = pageData(VITE_SHELL)
-    expect(d).toContain('Description: Acme makes quiet desk fans for small offices. Desk fans, ceiling fans & repairs.')
-    expect(d).toContain('Social card: Acme | Quiet desk fans | Quiet fans for small offices.')
-    expect(d).toContain('Organization: Acme (에이크미): Quiet desk fans for small offices.')
-    expect(d).toContain('Service: Fan repair: Repairs in two days.')
+    const lines = d.split('\n')
+    for (const v of ['Acme makes quiet desk fans for small offices. Desk fans, ceiling fans & repairs.', 'Acme | Quiet desk fans', 'Quiet fans for small offices.',
+      'Acme', '에이크미', 'Quiet desk fans for small offices.', 'Fan repair', 'Repairs in two days.']) expect(lines).toContain(`- ${v}`)
+    // no labels or joins of our own: every value line is text of the page
+    for (const l of lines.filter((x) => x.startsWith('- '))) expect(VITE_SHELL.replace(/&amp;/g, '&')).toContain(l.slice(2))
     // the scripts' code is no text
     expect(d).not.toContain('window.location')
   })
@@ -89,7 +90,29 @@ describe('page-data: what the markup says', () => {
     expect(proseLike('조용한 선풍기')).toBe(true)
     expect(proseLike('https://acme.example/x')).toBe(false)
     expect(proseLike('heroImage_2x')).toBe(false)
-    expect(jsonLdLines({ '@type': 'Product', name: 'Fan X', description: 'Silent.' })).toEqual(['Product: Fan X: Silent.'])
+    expect(jsonLdLines({ '@type': 'Product', name: 'Fan X', description: 'Silent.' })).toEqual(['Fan X', 'Silent.'])
+  })
+})
+
+describe('the print slots: a drawing takes one, never waits, never goes before a print', () => {
+  test('free: a slot; all taken by prints: null; given back: free again', async () => {
+    const before = _queueForTest()
+    const a = tryRenderSlot('page-render:t1')
+    expect(a).not.toBeNull()
+    a!()
+    const prints = await Promise.all(Array.from({ length: renderParallel() }, (_, i) => renderSlot(`print-user-${i}`)))
+    expect(tryRenderSlot('page-render:t2')).toBeNull()
+    // a print waiting: the drawing does not take the slot it waits for
+    const waiter = renderSlot('print-user-waiting')
+    prints[0]!()
+    const w = await waiter
+    expect(tryRenderSlot('page-render:t3')).toBeNull()
+    w()
+    for (const p of prints.slice(1)) p()
+    const c = tryRenderSlot('page-render:t4')
+    expect(c).not.toBeNull()
+    c!()
+    expect(_queueForTest()).toEqual(before)
   })
 })
 
@@ -121,6 +144,7 @@ describe('web_fetch on a page that shows almost no text', () => {
   let web: ReturnType<typeof Bun.serve>
   const hits: string[] = []
   let posts = 0
+  let heavyNow = 0, heavyPeak = 0
   const T = (): FetchOptions => ({ testAllow: (ip) => ip === '127.0.0.1', lookup: async (h) => [{ address: h === 'private.test' ? '10.0.0.5' : h === 'meta.test' ? '169.254.169.254' : '127.0.0.1', family: 4 }], timeoutMs: 3000 })
   const U = (host: string, p: string) => `http://${host}:${web.port}${p}`
   beforeAll(() => {
@@ -153,6 +177,18 @@ describe('web_fetch on a page that shows almost no text', () => {
         })()`, { headers: { 'content-type': 'text/javascript' } })
         if (u.pathname === '/data.json') return Response.json({ title: 'Drawn Fans Co', body: 'We sell quiet fans to hotels and clinics. '.repeat(8) })
       }
+      if (host === 'heavy.test') {
+        // a page that asks for 40 large answers at once
+        if (u.pathname === '/') return html(`<!doctype html><html><head><title>Heavy</title></head><body><div id="root"></div><script src="/heavy.js"></script></body></html>`)
+        if (u.pathname === '/heavy.js') return new Response(`(async () => {
+          const got = await Promise.all(Array.from({ length: 40 }, (_, i) => fetch('/big?i=' + i).then((r) => r.text()).then((t) => t.length).catch(() => 0)))
+          document.getElementById('root').innerHTML = '<p>' + 'Heavy page answers: '.repeat(12) + got.filter((n) => n > 0).length + ' of 40 arrived</p>'
+        })()`, { headers: { 'content-type': 'text/javascript' } })
+        if (u.pathname === '/big') {
+          heavyNow++; heavyPeak = Math.max(heavyPeak, heavyNow)
+          return new Promise((r) => setTimeout(() => { heavyNow--; r(new Response('x'.repeat(900 * 1024), { headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*' } })) }, 150))
+        }
+      }
       if (host === 'private.test' || host === 'meta.test') return new Response('SECRET-CANARY')
       return new Response('not here', { status: 404 })
     } })
@@ -161,8 +197,8 @@ describe('web_fetch on a page that shows almost no text', () => {
 
   test('a Vite shell: the markup\'s own data below the title text, and the sitemap\'s likely pages (through a sitemap index, same host only)', async () => {
     const r = await webFetch(U('shell.test', '/'), { ...T(), sitePages: true })
-    expect(r.text).toContain('Description: Acme makes quiet desk fans for small offices.')
-    expect(r.text).toContain('Organization: Acme (에이크미)')
+    expect(r.text).toContain('- Acme makes quiet desk fans for small offices.')
+    expect(r.text).toContain('- 에이크미')
     expect(r.text).toContain(`- ${U('shell.test', '/about')}`)
     expect(r.text).not.toContain('other.test')
     expect(r.text).not.toContain('/blog/x')
@@ -183,10 +219,16 @@ describe('web_fetch on a page that shows almost no text', () => {
     const drawn = '<html><body><h1>Drawn heading</h1><p>' + 'We repair fans for hotels. '.repeat(12) + '</p></body></html>'
     const r = await webFetch(U('shell.test', '/'), { ...T(), render: async (p) => (p.html.includes('id="root"') ? drawn : null), keepHtml: true })
     expect(r.text).toContain('Drawn heading')
-    expect(r.text).not.toContain('Description:')
+    expect(r.text).not.toContain('Acme makes quiet desk fans')
     expect(r.html).toBe(drawn)
-    const f = await webFetch(U('shell.test', '/'), { ...T(), render: async () => { throw new Error('no browser') } })
-    expect(f.text).toContain('Description: Acme makes quiet desk fans')
+    // reading on (offset > 0): the first read's drawing, never a second one
+    let again = 0
+    const on = await webFetch(U('shell.test', '/'), { ...T(), offset: 5, render: async () => { again++; return null } })
+    expect(again).toBe(0)
+    expect(on.text).toBe(r.text.slice(5, 5 + on.text.length))
+    // a failed drawing (another language: not the drawing above) changes nothing
+    const f = await webFetch(U('shell.test', '/'), { ...T(), acceptLanguage: 'ja', render: async () => { throw new Error('no browser') } })
+    expect(f.text).toContain('- Acme makes quiet desk fans')
   })
 
   const BROWSER = htmlPdfUnavailable() === null ? findPdfBrowser() : null
@@ -215,6 +257,27 @@ describe('web_fetch on a page that shows almost no text', () => {
     expect(r.text).toContain(`[About us](${U('drawn.test', '/about')})`)
     // the work folder is gone
     expect(fs.readdirSync(path.join(workBase, 'work')).length).toBe(0)
+  })
+
+  drawing('parallel large answers: the bytes fetched stay within the budget (reserved before each fetch), at most maxInFlight at once', async () => {
+    fs.mkdirSync(workBase, { recursive: true })
+    const stats = { fetchedBytes: 0 }
+    const limits = { maxBytes: 3 * 1024 * 1024, maxOneBytes: 1024 * 1024, maxInFlight: 6 }
+    const r = await webFetch(U('heavy.test', '/'), { ...T(), render: (p) => renderPage({ ...p, ...T(), workBase, limits, stats }) })
+    expect(r.text).toContain('Heavy page answers')
+    expect(stats.fetchedBytes).toBeGreaterThan(0)
+    expect(stats.fetchedBytes).toBeLessThanOrEqual(limits.maxBytes)
+    const arrived = Number(/(\d+) of 40 arrived/.exec(r.text)?.[1])
+    expect(arrived).toBeGreaterThan(0)
+    expect(arrived).toBeLessThan(40)
+    expect(heavyPeak).toBeLessThanOrEqual(limits.maxInFlight)
+  })
+
+  drawing('without the isolation runBrowser refuses, even with a browser named directly (and renderPage draws nothing)', () => {
+    const mod = path.join(import.meta.dir, '..', '..', 'server', 'src', 'files', 'html-pdf.ts')
+    const code = `const { runBrowser } = await import(${JSON.stringify(mod)}); try { await runBrowser(${JSON.stringify(workBase)}, { browser: ${JSON.stringify(BROWSER)}, limits: { timeoutMs: 5000, maxRssMiB: 512, maxWorkBytes: 1e8 }, maxMessage: 1e6, tooLarge: () => new Error('x'), scripts: true, timeoutText: 't', memoryText: 'm' }, async () => 'ran'); console.log('RAN') } catch (e) { console.log('REFUSED ' + e.code) }`
+    const r = Bun.spawnSync([process.execPath, '-e', code], { env: { ...process.env, MYCEL_ISOLATION: 'none', MYCEL_HTML_PDF_TEST_NO_ISOLATION: '' } })
+    expect(r.stdout.toString().trim()).toBe('REFUSED unavailable')
   })
 
   drawing('no browser: nothing drawn, quietly', async () => {

@@ -19,32 +19,35 @@
 //   scripts, data requests and stylesheets (no pictures, fonts, media, frames, other pages, sockets), no cookies either
 //   way, at most RENDER_LIMITS.maxRequests requests and maxBytes bytes.
 // - One time limit for the whole render (RENDER_LIMITS.timeoutMs, inside web_fetch's 15 s budget for a thin page), at
-//   most RENDER_PARALLEL renders on the server (a busy server skips the render), HTML to PDF's memory and disk limits.
+//   most RENDER_LIMITS.maxInFlight fetches at once, each one's bytes reserved before it starts; the render takes one of
+//   HTML to PDF's print slots (tryRenderSlot: the print cgroup's room), and a busy server skips it; HTML to PDF's memory
+//   and disk limits.
 // Without a browser or the isolation (a development Mac without one, a Docker image without bwrap) there is no render:
 // renderUnavailable says why and web_fetch goes on with the page's markup and sitemap (tools/page-data.ts).
 import path from 'node:path'
 import { ToolError } from '../policy/errors'
-import { findPdfBrowser, htmlPdfUnavailable, HtmlPdfError, runBrowser, serverFontDirs, type Cdp } from '../files/html-pdf'
+import { findPdfBrowser, htmlPdfUnavailable, HtmlPdfError, runBrowser, serverFontDirs, tryRenderSlot, type Cdp } from '../files/html-pdf'
 import { makeWorkDir } from './isolate'
 import { decode, pinnedRequest, precheckTarget, resolveTarget, type ResolveOptions } from './web-fetch'
 import fs from 'node:fs'
 import os from 'node:os'
 
 export const RENDER_LIMITS = {
-  timeoutMs: 10_000,
+  timeoutMs: 12_000,
   maxRequests: 150,
   /** bytes the server fetches for the page in all (decoded) */
   maxBytes: 20 * 1024 * 1024,
   /** one answer */
-  maxOneBytes: 5 * 1024 * 1024,
+  maxOneBytes: 3 * 1024 * 1024,
+  /** fetches of the server for the page at once (the rest wait their turn) */
+  maxInFlight: 6,
   /** the drawn page's markup taken back */
   maxHtmlChars: 3 * 1024 * 1024,
   maxRssMiB: 1536,
   maxWorkBytes: 256 * 1024 * 1024,
 }
 export type RenderLimits = typeof RENDER_LIMITS
-export const RENDER_PARALLEL = 2
-let rendering = 0
+let draws = 0
 
 /** Why no page is drawn here (null: it can be). */
 export function renderUnavailable(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -64,6 +67,8 @@ export interface RenderRequest extends Pick<ResolveOptions, 'lookup' | 'testAllo
   /** tests only: the test server's self-signed certificate */
   insecureTlsForTests?: boolean
   browser?: string | null
+  /** tests: the answer bytes the server fetched for the page, added up */
+  stats?: { fetchedBytes: number }
 }
 
 /** Request types the page may load: its scripts, its data requests and stylesheets (the text depends on them). */
@@ -73,6 +78,8 @@ const DROP_REQUEST = /^(?:host|connection|keep-alive|proxy-.*|te|trailer|transfe
 /** Answer headers never handed to the browser: cookies, the body's encoding (the body is decoded), the connection's. */
 const DROP_RESPONSE = /^(?:set-cookie|set-cookie2|content-encoding|content-length|transfer-encoding|connection|keep-alive|alt-svc|strict-transport-security|public-key-pins.*|report-to|nel|clear-site-data)$/i
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+/** pinnedRequest reads up to its maxBytes plus this much (the answer's head): reserved with every fetch */
+const HEAD_SLACK = 64 * 1024
 
 /** The page as its scripts draw it (its markup), or null when it could not be drawn (no browser, busy, a failure: web_fetch
  * goes on without it). Never throws. */
@@ -80,8 +87,9 @@ export async function renderPage(req: RenderRequest): Promise<string | null> {
   const L = { ...RENDER_LIMITS, ...req.limits }
   const browser = req.browser === undefined ? (renderUnavailable() ? null : findPdfBrowser()) : req.browser
   if (!browser || req.signal?.aborted) return null
-  if (rendering >= RENDER_PARALLEL) return null
-  rendering++
+  // the prints' slots (files/html-pdf.ts renderParallel: the print cgroup's room in Linux production): a busy server skips it
+  const release = tryRenderSlot(`page-render:${++draws}`)
+  if (!release) return null
   let work: string | null = null
   try {
     work = makeWorkDir(path.join(req.workBase ?? os.tmpdir(), 'work'))
@@ -94,19 +102,54 @@ export async function renderPage(req: RenderRequest): Promise<string | null> {
   } catch {
     return null
   } finally {
-    rendering--
+    release()
     if (work) fs.rmSync(work, { recursive: true, force: true })
   }
 }
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+/** The page drawn; when it ends (drawn, failed, stopped) every fetch of the server still running is stopped and nothing
+ * waiting starts. */
 async function drawPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: RenderRequest, L: RenderLimits): Promise<string | null> {
+  const done = new AbortController()
+  try { return await drawPageIn(cdp, race, req, L, done) } finally { done.abort() }
+}
+
+async function drawPageIn(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: RenderRequest, L: RenderLimits, done: AbortController): Promise<string | null> {
   const deadline = Date.now() + L.timeoutMs
   const pageUrl = new URL(req.url)
   pageUrl.hash = ''
   let pageServed = false
-  let requests = 0, bytes = 0
+  let requests = 0
+  /** bytes fetched (settled), and bytes reserved by the fetches running */
+  let used = 0, reserved = 0
+  /** fetches running, and those waiting for a place */
+  let inFlight = 0
+  const waiting: ((allot: number) => void)[] = []
+  // A fetch starts only with its bytes reserved: what one answer may bring (at most maxOneBytes, and its head's slack:
+  // pinnedRequest's raw cap) comes out of the budget before the request is sent and its real size is settled after, so
+  // parallel requests cannot pass the page's budget together. It waits (in order, until the time is up) while
+  // maxInFlight fetches run or the reservations of those running leave too little; it is refused once the budget is spent.
+  const want = () => Math.min(L.maxOneBytes, L.maxBytes - used - HEAD_SLACK)
+  const canStart = () => inFlight < L.maxInFlight && reserved + want() + HEAD_SLACK <= L.maxBytes - used
+  const grant = (): number => { const a = want(); inFlight++; reserved += a + HEAD_SLACK; return a }
+  /** the bytes this fetch may read (its reservation is that plus HEAD_SLACK), or 0: refused */
+  const turn = (): Promise<number> => {
+    if (done.signal.aborted || want() <= 0) return Promise.resolve(0)
+    if (!waiting.length && canStart()) return Promise.resolve(grant())
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { const i = waiting.indexOf(go); if (i >= 0) waiting.splice(i, 1); resolve(0) }, Math.max(0, deadline - Date.now()))
+      const go = (allot: number) => { clearTimeout(t); resolve(allot) }
+      waiting.push(go)
+    })
+  }
+  const pump = () => {
+    if (done.signal.aborted || want() <= 0) { for (const go of waiting.splice(0)) go(0); return }
+    while (waiting.length && canStart()) { const go = waiting.shift()!; go(grant()) }
+  }
+  done.signal.addEventListener('abort', pump, { once: true })
+  const release = (allot: number) => { inFlight--; reserved -= allot + HEAD_SLACK; pump() }
   const life = new Map<string, Set<string>>()
   cdp.on('Page.lifecycleEvent', (e: { name: string; loaderId: string }) => { const s = life.get(e.loaderId) ?? new Set(); s.add(e.name); life.set(e.loaderId, s) })
   const { targetId } = await race(cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' }))
@@ -131,31 +174,39 @@ async function drawPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: R
       if (!ALLOWED_TYPES.has(e.resourceType)) return refuse()
       const method = e.request.method.toUpperCase()
       if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') return refuse()
-      if (++requests > L.maxRequests || bytes >= L.maxBytes || Date.now() >= deadline) return refuse()
-      // web_fetch's guard for this one request: the name rules, one lookup, public addresses only
-      const guard = { lookup: req.lookup, testAllow: req.testAllow, blockedIps: req.blockedIps, deadline }
-      let r
+      if (++requests > L.maxRequests || Date.now() >= deadline || done.signal.aborted) return refuse()
+      // at most L.maxInFlight fetches of the server at once, each with its bytes reserved (turn)
+      const allot = await turn()
+      if (allot <= 0) return refuse()
       try {
-        precheckTarget(url.href, guard)
-        const t = await resolveTarget(url.href, guard)
-        const headers: [string, string][] = []
-        for (const [k, v] of Object.entries(e.request.headers ?? {})) {
-          if (DROP_REQUEST.test(k) || !TOKEN.test(k) || /[\r\n\0]/.test(String(v))) continue
-          headers.push([k, String(v)])
+        // web_fetch's guard for this one request: the name rules, one lookup, public addresses only
+        const guard = { lookup: req.lookup, testAllow: req.testAllow, blockedIps: req.blockedIps, deadline }
+        let r
+        try {
+          precheckTarget(url.href, guard)
+          const t = await resolveTarget(url.href, guard)
+          const headers: [string, string][] = []
+          for (const [k, v] of Object.entries(e.request.headers ?? {})) {
+            if (DROP_REQUEST.test(k) || !TOKEN.test(k) || /[\r\n\0]/.test(String(v))) continue
+            headers.push([k, String(v)])
+          }
+          headers.push(['Accept-Encoding', 'gzip, deflate, br'])
+          if (req.acceptLanguage && !headers.some(([k]) => k.toLowerCase() === 'accept-language')) headers.push(['Accept-Language', req.acceptLanguage])
+          r = await pinnedRequest(t, { method, headers, deadline, maxBytes: allot, insecureTlsForTests: req.insecureTlsForTests, signal: done.signal })
+        } catch (err) {
+          if (!(err instanceof ToolError)) throw err
+          return refuse(/did not answer|stopped sending/.test(err.message) ? 'TimedOut' : 'AddressUnreachable')
         }
-        headers.push(['Accept-Encoding', 'gzip, deflate, br'])
-        if (req.acceptLanguage && !headers.some(([k]) => k.toLowerCase() === 'accept-language')) headers.push(['Accept-Language', req.acceptLanguage])
-        r = await pinnedRequest(t, { method, headers, deadline, maxBytes: Math.min(L.maxOneBytes, L.maxBytes - bytes), insecureTlsForTests: req.insecureTlsForTests })
-      } catch (err) {
-        if (!(err instanceof ToolError)) throw err
-        return refuse(/did not answer|stopped sending/.test(err.message) ? 'TimedOut' : 'AddressUnreachable')
+        used += Math.min(r.body.length, allot + HEAD_SLACK)
+        req.stats && (req.stats.fetchedBytes += r.body.length)
+        if (r.truncated) return refuse()
+        const { data, truncated } = await decode(r.body, r.headers['content-encoding'], allot).catch(() => ({ data: Buffer.alloc(0), truncated: true }))
+        if (truncated || done.signal.aborted) return refuse()
+        const responseHeaders = Object.entries(r.headers).filter(([k]) => !DROP_RESPONSE.test(k)).map(([name, value]) => ({ name, value }))
+        return cdp.send('Fetch.fulfillRequest', { requestId: e.requestId, responseCode: r.status, responseHeaders, body: data.toString('base64') }, sid)
+      } finally {
+        release(allot)
       }
-      if (r.truncated) return refuse()
-      const { data, truncated } = await decode(r.body, r.headers['content-encoding'], L.maxOneBytes).catch(() => ({ data: Buffer.alloc(0), truncated: true }))
-      if (truncated) return refuse()
-      bytes += data.length
-      const responseHeaders = Object.entries(r.headers).filter(([k]) => !DROP_RESPONSE.test(k)).map(([name, value]) => ({ name, value }))
-      return cdp.send('Fetch.fulfillRequest', { requestId: e.requestId, responseCode: r.status, responseHeaders, body: data.toString('base64') }, sid)
     }
     answer().catch(() => { void refuse().catch(() => {}) })
   })

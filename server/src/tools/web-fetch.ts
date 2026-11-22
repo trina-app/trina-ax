@@ -649,6 +649,10 @@ export interface WebFetchCall extends FetchOptions {
 export const THIN_EXTRA_MS = 15_000
 const SITEMAP_TIMEOUT_MS = 4_000
 const SITEMAP_MAX_BYTES = 1024 * 1024
+/** pages drawn lately, by address, language and markup (at most DRAWN_MAX of 3 MB): a read on of the same page reuses its drawing */
+const drawnPages = new Map<string, { at: number; drawn: string | null }>()
+const DRAWN_MAX = 8
+const DRAWN_TTL_MS = 10 * 60_000
 
 /**
  * A page that shows almost no text without its scripts: what more can be said about it. The page drawn by its scripts
@@ -660,8 +664,16 @@ async function thinPage(url: URL, html: string, ct: string, text: { title?: stri
   const started = Date.now()
   let out: { title?: string; text: string; html?: string } = text
   if (o.render) {
-    let drawn: string | null = null
-    try { drawn = await o.render({ url: url.href, html, contentType: ct }) } catch { drawn = null }
+    // a page read on (offset > 0) gets the drawing of its first read, so its parts fit together; never a second drawing
+    const key = `${url.href}\n${o.acceptLanguage ?? ''}\n${html.length}\n${Bun.hash(html).toString(36)}`
+    const now = Date.now()
+    for (const [k, v] of drawnPages) if (now - v.at > DRAWN_TTL_MS) drawnPages.delete(k)
+    let drawn: string | null = drawnPages.get(key)?.drawn ?? null
+    if (!drawnPages.has(key) && !o.offset) {
+      try { drawn = await o.render({ url: url.href, html, contentType: ct }) } catch { drawn = null }
+      if (drawn) drawnPages.set(key, { at: now, drawn })
+      while (drawnPages.size > DRAWN_MAX) drawnPages.delete(drawnPages.keys().next().value!)
+    }
     if (drawn) {
       const r = htmlToText(drawn, url)
       if (r.text.trim().length > text.text.trim().length && !thinText(r.text)) out = { title: r.title ?? text.title, text: r.text, html: drawn }
