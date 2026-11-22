@@ -365,15 +365,15 @@ describe('the AI knows the demo\'s services are practice copies', () => {
 
   test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
     expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
-    expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
+    expect(DEMO_FAKES_NOTE).toContain('or a scene not on this list, answer in ONE short line without calling any tool, offering the listed scenes; do not try again.')
     expect(ChangeBannerTextInput.shape.scene.description).toContain('only when the user asks for another photo')
   })
 
   test('banner words live in a source file the AI reads and edits; words on the banner are a text edit, never a new scene (owner, 11-22)', () => {
     // the demo note: read the source, edit only the named words, then draw again; a named word on the banner is no scene request
-    expect(DEMO_BANNER_NOTE).toContain("read the source file, change only the words the user named with the edit tool")
-    expect(DEMO_BANNER_NOTE).toContain('replace grey with green; every other word stays exactly as it is')
-    expect(DEMO_BANNER_NOTE).toContain('Never rewrite, add or drop words the user did not name.')
+    expect(DEMO_BANNER_NOTE).toContain("read the source file and replace exactly those words with the edit tool")
+    expect(DEMO_BANNER_NOTE).toContain('every other word stays exactly as it is ("change grey mornings to green mornings": replace grey with green)')
+    expect(DEMO_BANNER_NOTE).toContain('in (a) never rewrite, add or drop words the user did not name.')
     expect(DEMO_BANNER_NOTE).toContain('When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it.')
     expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('read that file, edit only the words the user named')
     expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain(BANNER_SOURCE_NAME)
@@ -409,7 +409,8 @@ describe('the AI knows the demo\'s services are practice copies', () => {
   })
 
   test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {
-    expect(DEMO_BANNER_NOTE).toContain('A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo.')
+    expect(DEMO_BANNER_NOTE).toContain('the whole headline becomes exactly that phrase')
+    expect(DEMO_BANNER_NOTE).toContain('apply it at once without asking, then offer to undo.')
   })
 
   test('say the photo is a prepared one, in one short sentence; save and show every picture without being asked (QA TC-6791, TC-6792)', () => {
