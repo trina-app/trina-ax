@@ -9,7 +9,7 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). A photo's thumbnail and a file chip's name open the viewer
+// list shows a thread's root and replies (variant). A photo's thumbnail, a video's frame (RoomVideo) and a file chip's name open the viewer
 // (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
 // ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
 // document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
@@ -33,7 +33,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
+import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Play, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
@@ -45,7 +45,7 @@ import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
-import { roomFileOpens } from '../../lib/preview'
+import { previewKind, roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
@@ -660,6 +660,7 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 }
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
+  const me = useMe()
   // two or more pictures: an even gallery first, like Slack's (lib/imageGallery.ts), then the other files as chips
   const pictures = files.filter((f) => !f.state && f.kind === 'image' && f.thumb)
   const gallery = pictures.length > 1
@@ -674,6 +675,8 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
               <GoneFile key={f.id} state={f.state} />
             ) : f.kind === 'image' && f.thumb ? (
               <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : roomVideoFrame(f, me) ? (
+              <RoomVideo key={f.id} roomId={roomId} f={f} siblings={files} />
             ) : (
               <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
             ),
@@ -756,6 +759,65 @@ function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFi
           <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>
         </span>
       ) : picture}
+      {fileMenu.menu}
+    </>
+  )
+}
+
+/** A video under a message shows a frame of it (QA TC-7239): one the browser plays here (mp4, mov, webm within the
+ * preview rules: lib/preview.ts roomFileOpens). Any other video stays a file chip. */
+export function roomVideoFrame(f: Pick<RoomFile, 'name' | 'size' | 'kind' | 'state'>, me: Parameters<typeof roomFileOpens>[1]): boolean {
+  return !f.state && previewKind(f.name) === 'video' && roomFileOpens(f, me)
+}
+
+/** A video under a message: its frame at 0.1 s, read by the browser itself (only the first parts of the file: the
+ * server makes no poster), in a picture's box (thumbBox: 16:9 until its size is known) with a play mark; a click opens
+ * the viewer's player, as a photo's thumbnail opens the photo. One this browser cannot decode becomes its file chip. */
+function RoomVideo({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+  const t = useT()
+  const me = useMe()
+  const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const [failed, setFailed] = useState(false)
+  if (failed) return <FileChip roomId={roomId} f={f} siblings={siblings} />
+  const label = f.roomOnly ? `${t('rooms.playVideo', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.playVideo', { name: f.name })
+  const box = thumbBox(size ?? (f.width && f.height ? f : { width: 320, height: 180 }))
+  const video = (
+    <Tooltip label={label}>
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="relative block max-w-full overflow-hidden rounded-lg border border-line bg-black" style={box} data-testid="room-video" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
+        <video
+          src={`${roomFileUrl(roomId, f.id)}#t=0.1`}
+          preload="metadata"
+          muted
+          playsInline
+          tabIndex={-1}
+          aria-hidden
+          onLoadedMetadata={(e) => {
+            const { videoWidth: width, videoHeight: height } = e.currentTarget
+            if (width && height) setSize({ width, height })
+          }}
+          onError={() => setFailed(true)}
+          className="pointer-events-none block size-full object-cover"
+          data-testid="room-video-frame"
+        />
+        <span className="absolute inset-0 flex items-center justify-center" aria-hidden>
+          <span className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white">
+            <Play size={20} className="translate-x-px" fill="currentColor" />
+          </span>
+        </span>
+      </button>
+    </Tooltip>
+  )
+  return (
+    <>
+      {f.roomOnly ? (
+        <span className="inline-flex max-w-full flex-col items-start gap-0.5">
+          {video}
+          <span className="text-xs text-faint" aria-hidden data-testid="room-video-room-only">{t('rooms.file.roomOnly')}</span>
+        </span>
+      ) : video}
       {fileMenu.menu}
     </>
   )

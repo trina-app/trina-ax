@@ -31,7 +31,7 @@ import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
-import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '../components/settings/RoomNoticeRow'
+import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { FileRequestExtras } from '../components/FileRequestNotice'
@@ -42,6 +42,11 @@ import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
 import { rowName } from '../components/list/List'
+import { Avatar } from '../components/Avatar'
+import { useAvatarOf } from '../store/people'
+
+/** a reply in a thread under a shared AI chat's answer: a conversation row, on 대화's 멘션·스레드 with the rooms' rows */
+export const isChatThreadRow = (item: InboxNotification): boolean => item.code === 'chat.thread_reply'
 
 type T = ReturnType<typeof useT>
 type Filter = ActivityTab
@@ -169,7 +174,7 @@ function ActivityPage({ chats }: { chats: boolean }) {
   const filters = chats ? CHATS_FILTERS : FILTERS
   const asked = params.get('tab')
   const filter: Filter = isFilter(asked) && filters.some((f) => f.id === asked) ? asked : 'all'
-  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item))
+  const shows = (item: InboxNotification, f: Filter) => inFilter(item, f) && (!chats || isRoomRow(item) || isChatThreadRow(item))
   const title = chats ? t('feed.chats') : t('inbox.title')
   const setFilter = (f: Filter) => setParams((p) => { const n = new URLSearchParams(p); if (f === 'all') n.delete('tab'); else n.set('tab', f); return n }, { replace: true })
   const [unreadOnly, setUnreadOnly] = useState(false)
@@ -275,6 +280,8 @@ function ActivityPage({ chats }: { chats: boolean }) {
       const { who, where, line } = roomRowText(item.room, t, listed ? roomTitle(listed) : null)
       return `${who} ${where} ${line}`
     }
+    // a chat thread's row: who and the chat's title (its line is a sentence around them)
+    if (isChatThreadRow(item) && item.chatThread && !item.chatThread.gone) return `${item.chatThread.name ?? ''} ${item.chatThread.title ?? ''}`
     const text = noticeText(item, t, locale)
     return typeof text === 'string' ? text : ''
   }
@@ -428,7 +435,9 @@ function ActivityPage({ chats }: { chats: boolean }) {
             <ul data-testid="notifications-inbox">
               {g.items.map((item) => isRoomRow(item)
                 ? <RoomRow key={item.id} item={item} onOpen={() => void read(item)} />
-                : <NoticeRow key={item.id} item={item} onRead={() => void read(item)} onChanged={() => void load()} />)}
+                : isChatThreadRow(item)
+                  ? <ChatThreadRow key={item.id} item={item} onOpen={() => void read(item)} />
+                  : <NoticeRow key={item.id} item={item} onRead={() => void read(item)} onChanged={() => void load()} />)}
             </ul>
           </section>
         ))}
@@ -466,7 +475,7 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
   const t = useT()
   const title = useRoomTitle()
   const listed = useRooms((s) => s.rooms.find((r) => r.id === item.room.id) ?? null)
-  const { who, where, line, mark } = roomRowText(item.room, t, listed ? title(listed) : null)
+  const { who, where, line, mark, file } = roomRowText(item.room, t, listed ? title(listed) : null)
   const unread = !item.readAt
   const n = item.room.count ?? 1
   // a private channel (a named group room) has its lock, as in the Chats list
@@ -479,16 +488,48 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
           who={<bdi data-testid="notification-room-who">{who}</bdi>}
           iso={item.room.at ?? item.createdAt}
           unread={unread}
-          line={<span className="line-clamp-2" data-testid="notification-room-line">
+          line={<><span className="line-clamp-2" data-testid="notification-room-line">
             {mark && <><span aria-hidden className="mr-1 font-semibold text-accent-text">@</span><span className="sr-only">{mark}: </span></>}
             <bdi>{line}</bdi>
-          </span>}
+          </span>{file && <RoomRowFile name={file} />}</>}
           context={<><PlaceIcon size={13} aria-hidden className="shrink-0" /><bdi className="truncate" data-testid="notification-room-where">{mark ? t('feed.mentionIn', { where }) : where}</bdi></>}
           count={<span className="rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="notification-room-count">
             <span aria-hidden>{badgeText(n)}</span><span className="sr-only">{t('rooms.unread', { n })}</span>
           </span>}
         />
       </Link>
+    </li>
+  )
+}
+
+/** A reply in a thread under a shared AI chat's answer that I follow (a conversation row, as a room thread's): who
+ * replied or mentioned me with their photo, the Inbox's line (mentioned you / replied in a thread in "<chat>"), the
+ * thread. Opens the thread (/c/<chat>/t/<answer>); one I no longer see says so and opens nothing. */
+function ChatThreadRow({ item, onOpen }: { item: InboxNotification; onOpen: () => void }) {
+  const t = useT(), locale = useLocale()
+  const th = item.chatThread
+  const unread = !item.readAt
+  const link = noticeLink(item)
+  const user = useAvatarOf(th?.byId && th.name ? { id: th.byId, name: th.name } : null)
+  const body = <RowBody
+    face={user ? <Avatar user={user} size={36} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-muted"><MessagesSquare size={16} /></span>}
+    who={<bdi data-testid="notification-chat-thread-who">{th?.name ?? aiName(t)}</bdi>}
+    iso={item.createdAt}
+    unread={unread}
+    line={<span className="line-clamp-2" data-testid="notification-text">
+      {th?.mention && !th.gone && <span aria-hidden className="mr-1 font-semibold text-accent-text">@</span>}
+      {noticeText(item, t, locale)}
+    </span>}
+    context={th?.title && !th.gone ? <><MessagesSquare size={13} aria-hidden className="shrink-0" /><bdi className="truncate">{th.title}</bdi></> : null}
+  />
+  if (!link) return (
+    <li data-testid="notification-item" data-unread={unread ? '' : undefined}>
+      <button type="button" onClick={onOpen} className={clsx(rowCls, 'w-full text-left')} data-testid="notification-chat-thread-row">{body}</button>
+    </li>
+  )
+  return (
+    <li data-testid="notification-item">
+      <Link to={link.to} onClick={onOpen} className={rowCls} data-testid="notification-chat-thread-row" data-unread={unread ? '' : undefined}>{body}</Link>
     </li>
   )
 }
@@ -502,7 +543,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   // what it is about: a project, or the chat someone shared with me (its title while I still see it)
-  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : null
+  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : null
   // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
   // (the row opens the app's setup), and "Added" once members can connect it
   const sr = item.code === 'service.request' ? item.serviceRequest : undefined

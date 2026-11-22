@@ -329,12 +329,13 @@ describe('draft turns', () => {
 
   test('from pasted text: no tool at all (only the refused team file tools are listed), the text after the request line', async () => {
     fetched.length = 0
-    const text = 'Acme makes quiet desk fans for small offices.\n' + fake({ echo: 'tools' }, { say: '\n=====\n' }, { tool: 'read', args: { file_path: 'skills/team-rules.md' }, sayResult: true }, { say: '\n=====\n' }, { echo: 'message' })
+    const text = 'Acme makes quiet desk fans for small offices.\n' + fake({ tool: 'read', args: { file_path: 'skills/team-rules.md' }, sayResult: true }, { say: '\n=====\n' }, { echo: 'tools' }, { say: '\n=====\n' }, { echo: 'message' })
     const r = await h.api('carol').call(API.startProfileDraft, { body: { text } })
     expect(r).toMatchObject({ website: '', site: null })
     await settled('carol', r.chatId)
     const msgs = await h.api('carol').call(API.listMessages, { params: { id: r.chatId } })
-    const [tools, read, message] = msgs.items.at(-1)!.content.split('\n=====\n')
+    // (the read first: text before a call in a Korean-language turn is interim, docs/decisions/20261122-interim-text-not-answer.md)
+    const [read, tools, message] = msgs.items.at(-1)!.content.split('\n=====\n')
     expect(tools).toBe('edit,glob,grep,list,read,write')
     expect(read).toContain('team files are not available here')
     expect(message).toContain('Acme makes quiet desk fans for small offices.')

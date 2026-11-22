@@ -34,6 +34,9 @@ export function sharedRights(chat: Pick<Chat, 'shared'> & Partial<Pick<Chat, 'si
 export const isPeopleShared = (chat: Partial<Pick<Chat, 'shared'>> | null | undefined): boolean => chat?.shared?.kind === 'people'
 
 /** "Hide from my list": a chat someone else shared with me by name or through a group (its creator never hides it). */
+/** "Leave this chat": a chat someone shared with me by name (not one I am in through a group only). */
+export const mayLeaveChat = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>> | null | undefined, me: string): boolean => mayHideChat(chat, me) && !!chat!.shared!.named
+
 export const mayHideChat = (chat: Partial<Pick<Chat, 'shared' | 'deletedAt'>> | null | undefined, me: string): boolean =>
   !!chat && isPeopleShared(chat) && chat.shared!.by.id !== me && !chat.deletedAt
 

@@ -78,7 +78,8 @@ export const EDIT_OFFICE_DESCRIPTION =
   'Slide, table and row numbers are as you read them, never after another change in the same call. When a change cannot be made exactly, ' +
   'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
   'Without `output` the result is a new version of the same file (the previous one stays in its history). ' +
-  'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version, opened from the same file in the chat, and the earlier version stays (read with versions: true).'
+  'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version, opened from the same file in the chat, and the earlier version stays (read with versions: true). ' +
+  'Every call that changes a file saves it: never call it just to try something out. It cannot change speaker notes, charts, tables in a deck, comments or anything not listed here: say so in plain words ("I can\'t add speaker notes to this deck here"), never naming this tool, instead of calling it.'
 
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */

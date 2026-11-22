@@ -6,7 +6,7 @@ import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type Al
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
-import { NarrationHold, narrationScript } from './narration'
+import { languageSwitchNote, NarrationHold, narrationScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -70,12 +70,13 @@ import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, SHARED_RUN_ALLOWANCE, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
-import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { aiCalled, engineError, OWN_FOLDER_WORDS, stepLabel, tr, turnLimitError } from './i18n'
 import { HELD_MAX_FILES, heldFile, heldFileOk, heldNote, heldPreview, heldRefusal, type HeldFile } from './skill-held'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
+import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
 import type { TurnToolSet } from '../turns'
@@ -88,7 +89,7 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { projectRoomOfChat } from './room-tools'
-import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
+import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -258,6 +259,8 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
+/** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
+const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -351,6 +354,8 @@ export class TurnExec {
   steps: StoredStep[] = []
   readonly abort = new AbortController()
   stopReason: 'stopped' | 'timeout' | 'shutdown' | null = null
+  /** set before a Stop for its requester's account (runtime.ts stopUserTurns): saved with the stopped answer */
+  stoppedFor: 'requester_removed' | 'requester_disabled' | null = null
   /** the answer reached a per-answer limit (tool rounds, working time): it ends 'done' with this reason, the chat
    * offers "continue" and the next turn is told where it stopped (docs/DECISIONS.md "Continue after the per-answer limit") */
   limitReason: TurnStopReason | null = null
@@ -587,6 +592,12 @@ export class TurnExec {
   /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
    * person's message is read */
   private narration = new NarrationHold(null)
+  /** Interim text (docs/decisions/20261122-interim-text-not-answer.md): where the main AI's current text piece began
+   * in the answer (null: no piece since the last call), the last piece a call ended (the answer when the final text is
+   * empty), and how many pieces left the answer. A piece a tool call follows is the AI's narration, never the answer. */
+  private pieceStart: number | null = null
+  private lastInterim = ''
+  private interimDropped = 0
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -783,8 +794,6 @@ export class TurnExec {
       // 팀 파일's picks among a folder's files: no tool at all either (fails closed the same way)
       this.fileRank = draft || this.skillDraft || this.shareJudge || this.shareMerge ? null : fileRankOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
-    // the chat's engine was switched off by an admin: this answer comes from the team default
-    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
     // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
     // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so)
@@ -794,6 +803,9 @@ export class TurnExec {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
       if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
+    // the chat's engine was switched off by an admin: this answer comes from the team default (after the guest check: a
+    // guest who gets no answer gets no step about which AI would have answered, QA TC-7050)
+    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
@@ -1197,7 +1209,9 @@ export class TurnExec {
       : waited.ran ? '<answered_cards>\nThe calls this message answered already ran, in an earlier answer to it. They do not run again: if the user still wants one of them, call it again (it asks them again).\n</answered_cards>' : ''
     if (this.stopReason) return
     const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
-    const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
+    // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
+    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id))
+    const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -1453,6 +1467,7 @@ export class TurnExec {
           rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_refused_retry', message: tr('refusedRetry', spec.locale, { model: next }) } })
           // the retry answers again from the start: only its answer stays, not the declined partial one (B-W5-2)
           this.discardTextFrom(textStart)
+          this.lastInterim = ''; this.interimDropped = 0
           model = next
           // the declined attempt may have left a half turn in the session: continue on a fresh session with history
           resume = false; sid = crypto.randomUUID()
@@ -1503,7 +1518,7 @@ export class TurnExec {
         // starts fresh from the chat's history instead of resuming a session that cannot fit
         if (err?.code === 'context') this.dropSession()
         // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
-        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
+        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped && !this.interimDropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
         // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
         if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
@@ -2042,7 +2057,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2217,7 +2232,40 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t)))) }
+  appendText(t: string) {
+    // after interim pieces left, the reply's leading separator has nothing above it
+    if (this.interimDropped && !this.writtenText) { t = t.replace(/^\s+/, ''); if (!t) return }
+    if (this.pieceStart === null && t) this.pieceStart = this.writtenText.length
+    this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t))))
+  }
+  /** A call of the main AI ends the current text piece: it is interim narration, taken out of the answer (streamed and
+   * saved: the apps get a reset) and kept as a step's detail under the thinking label; the last one is the fallback
+   * answer (endInterimFallback). Both engines' text and calls come through here. */
+  private endPiece(name: string, input: unknown) {
+    // bookkeeping calls (a title, a to-do list, a memory) end no piece: "answer, then remember" keeps its answer (review)
+    const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+    if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
+    const at = this.pieceStart
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
+    this.pieceStart = null
+    // only where the answer's language is not written in Latin letters and the person did not ask for another one
+    // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
+    if (at === null || !this.narration.active) return false
+    const piece = this.writtenText.slice(at)
+    if (!piece.trim()) return false
+    const statusLine = this.narration.wouldDrop(piece)
+    this.discardTextFrom(at)
+    // a status line ("Let me check …") is never the fallback answer
+    if (!statusLine) this.lastInterim = piece.trim()
+    this.interimDropped++
+    this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim() })
+    return true
+  }
+  /** The end: an answer with no text after its last call gets the last interim piece, so it is never blank. */
+  private endInterimFallback() {
+    if (!this.interimDropped) return
+    if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
+  }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
   flushText() { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.flush()) + this.fileLinks.flush())); this.emitText(this.answerText.flush()) }
@@ -2237,6 +2285,9 @@ export class TurnExec {
 
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
+    if (this.pieceStart !== null && this.pieceStart >= at) this.pieceStart = null
+    // a card placed in the cut text sits where the text now ends (review)
+    for (const st of this.steps) if (st.textAt !== undefined && st.textAt > at) st.textAt = at
     this.answerText.clear()
     this.fileLinks.clear()
     this.narration.clear()
@@ -3628,7 +3679,7 @@ export class TurnExec {
    */
   private peopleSearchPlace(): { path: string } | { refuse: string } {
     if (this.peopleSearch) return this.peopleSearch
-    const NONE = { refuse: 'Not searched: there is no folder everyone in this chat can open. Name a folder to search.' }
+    const NONE = { refuse: `Not searched: there is no folder everyone in this chat can open. Name a folder to search as the path (${OWN_FOLDER_HINT}).` }
     try {
       const rules = this.rt.files.rules()
       const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id))
@@ -3650,8 +3701,68 @@ export class TurnExec {
       if (out.length === 1) return (this.peopleSearch = { path: out[0]! })
       if (!out.length) return (this.peopleSearch = NONE)
       const names = out.slice(0, 20).map((p) => `"${neutralizeTags(p)}"`).join(', ')
-      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}) as the path and search again.` })
+      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}), or the folder the user means, as the path and search again (${OWN_FOLDER_HINT}).` })
     } catch { return (this.peopleSearch = NONE) }
+  }
+
+  /** A shared chat's glob without a path whose pattern starts with folder names: those folders as its path (search-path.ts
+   * globFolderPrefix, QA TC-7041), before anything else looks at its path (the people chat's refusal, the project
+   * folder default, the read card). Only where the path-less search would not find them: a pattern under users/ (the
+   * person's own folder is never searched without its path), or any folder in a people chat that refuses a search
+   * without a path; a project chat's "reports/*.md" keeps looking in the project folder, and a people chat's one shared
+   * folder keeps matching below it. The arguments to use: the same object when nothing changes. */
+  liftGlobPath(tool: string, args: unknown): unknown {
+    if (!this.shared || tool !== 'glob') return args
+    const lifted = globFolderPrefix(args)
+    if (!lifted) return args
+    const top = lifted.path.split('/')[0]!
+    const users = (this.rt.files.fx.caseInsensitive ? top.toLowerCase() : top) === 'users'
+    if (!users && !(this.shared.kind === 'people' && 'refuse' in this.peopleSearchPlace())) return args
+    return { ...(args as object), ...lifted }
+  }
+
+  /**
+   * A chat shared with people: a produce tool's new file in the asker's own folder goes to the chat instead (QA TC-7261,
+   * TC-7279, TC-7376; docs/decisions/20261122-shared-output-in-code.md). The decision of 2026-11-21 put "a file you make
+   * for the people here goes to this chat" in the instructions only, and the AI kept saving decks, reports and videos to
+   * users/<asker>/, which the others cannot open: a link that is dead for them. So the server moves such an `output` to
+   * `chat:files/<name>` (attached to the answer, where everyone in the chat opens it) before any card weighs the call,
+   * unless the asker's own message of this turn names that folder (its name, or "my files" for the folder itself). Only
+   * the main AI, only where it may attach a chat file (mayAttachChatFile: not a k answer), only a path that is not there
+   * yet (an existing file keeps the save card), only the asker's own folder (a group folder or skills/ keep their own
+   * rules). Returns the arguments to use and a note for the result, or the same object.
+   */
+  sharedOutput(tool: string, args: unknown, main: boolean): { args: unknown; note: string | null } {
+    const key = SHARED_OUTPUT_ARG[tool]
+    if (this.shared?.kind !== 'people' || !main || !key || !args || typeof args !== 'object') return { args, note: null }
+    const a = args as Record<string, unknown>
+    const v = a[key]
+    if (typeof v !== 'string' || !v.trim() || isReservedPlace(v)) return { args, note: null }
+    try {
+      if (mayAttachChatFile({ ...chatPlaces(this, this.files).ctx, main: true }) !== true) return { args, note: null }
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const f = OUTPUT_PATH_OF[tool]
+      const written = [f ? f(savePathArg(v), a) : savePathArg(v)].flat()
+      const fold = (x: string) => (fx.caseInsensitive ? x.normalize('NFC').toLowerCase() : x.normalize('NFC'))
+      const segsOf = (p: string) => p.split('/').filter((x) => x && x !== '.')
+      const own = (p: string) => { const g = segsOf(p); return g.length >= 3 && fold(g[0]!) === 'users' && fold(g[1]!) === fold(me.id) }
+      if (!written.every(own)) return { args, note: null }
+      const fresh = written.every((p) => {
+        try { return !authorize(fx, rules, me, p, 'write', { mustExist: false, createDirs: true }).exists }
+        catch { return false }
+      })
+      if (!fresh) return { args, note: null }
+      // the asker named the folder in this turn's own message: a sub-folder by its name; the folder itself by "my files"
+      const asked = fold(((this.rt.db.query('SELECT content FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null } | null)?.content ?? ''))
+      const dir = segsOf(written[0]!).slice(0, -1)
+      // (a whole word: a folder called "ai" is not named by every message with those letters; a Korean particle may
+      // follow it: "QA-SQ에")
+      const word = (w: string) => w.length >= 2 && new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}]|[\\u{AC00}-\\u{D7A3}])`, 'u').test(asked)
+      const named = dir.length > 2 ? word(fold(dir[dir.length - 1]!)) : OWN_FOLDER_WORDS.some((w) => asked.includes(fold(w)))
+      if (named) return { args, note: null }
+      const name = segsOf(written[0]!).pop()!
+      return { args: { ...a, [key]: `chat:files/${name}` }, note: `(Saved to this chat as chat:files/${name}, not in the user's own folder: in a chat shared with people a new file goes to the chat, where everyone here opens it. Say it is attached to this answer.)` }
+    } catch { return { args, note: null } }
   }
 
   /** A people-shared chat's search without a path that cannot run (peopleSearchPlace): the refusal, else null. */
@@ -4240,11 +4351,13 @@ export class TurnExec {
    * the people who see this chat now, as a read would be: none hidden from them, they join the answer's record; else
    * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
    */
-  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
-    // a new version of an existing chat file (write, edit, edit_office in place: P4) or a new file attached: who may
-    // (the resolver's words: a project chat's folder, My files, a sub-agent, a k answer) is refused before any card, so
-    // a call that cannot save there never asks the person anything
-    const version = CHAT_VERSION_TOOLS.has(tool)
+  private async confirmChatTarget(target: string, sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
+    // a new version of an existing chat file (write, edit, edit_office in place: P4; edit_pdf in place names the file by
+    // its id: QA TC-7044; a new file is chat:files/<name>, never by an id) or a new file attached: who may (the
+    // resolver's words: a project chat's folder, My files, a sub-agent, a k answer) is refused before any card, so a call
+    // that cannot save there never asks the person anything
+    const at = parsePlace(target)
+    const version = CHAT_VERSION_TOOLS.has(tool) || (at?.kind === 'chatFiles' && !!at.id)
     const ctx = { ...chatPlaces(this, this.files).ctx, main }
     const may = version ? mayWriteChatVersion(ctx) : mayAttachChatFile(ctx)
     if (may !== true) return `Not ${version ? 'changed' : 'attached'} (${tool}): ${may}`
@@ -4271,7 +4384,7 @@ export class TurnExec {
   async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
     // a new file of this chat (chat:files/<name>, files/place-output.ts): exactly the chat's people see it, so what goes
     // in is weighed as a read here: a source some of them cannot open asks on the shared read card first
-    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
+    if (isReservedPlace(target)) return this.confirmChatTarget(target, extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
@@ -5274,7 +5387,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
-    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() })
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText(); this.endInterimFallback() })
     if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
@@ -5321,9 +5434,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, status === 'stopped' ? this.stoppedFor : null, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
@@ -5366,6 +5479,8 @@ export class TurnExec {
       this.endAfterFailure()
     }
     if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
+    // a dev environment job that ended while this answer ran told nothing then: the request's notice is now (devenv/jobs.ts)
+    this.finishStep('dev env jobs', () => tellHeldJobs(this.rt.ctx, this.spec.chatId))
     // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
     if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
@@ -5539,6 +5654,13 @@ export const ROOM_CHANGE_FULL = 100_000
  * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
  * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
+/** The produce tools whose one new file a people-shared chat moves to chat:files (TurnExec.sharedOutput), by argument */
+const SHARED_OUTPUT_ARG: Readonly<Record<string, string>> = { make_file: 'output', edit_pdf: 'output', merge_pdfs: 'output', stamp_pdf: 'output', comment_docx: 'output', make_zip: 'output', resize_images: 'output' }
+
+/** The people chat's "Not searched" refusals (peopleSearchPlace): the user's own folder is searched by its own path, after
+ * their yes on a card (QA TC-7041: the AI took the refusal for "your folder cannot be used here"). */
+const OWN_FOLDER_HINT = 'the user\'s own folder too: path "users/<their id>"; they are asked on a card first'
+
 /** the PDF tools whose output ownFolderTarget works out itself (ownFolderPdf) */
 const PDF_OUT_TOOLS = new Set(['stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf'])
 

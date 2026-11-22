@@ -207,7 +207,8 @@ export const STEP_TEXT = {
   /** a fresh session's history did not fit: the older part was summarized first (server/src/chat/history-summary.ts) */
   historySummary: t('이 채팅 앞부분 요약', 'Summary of the earlier part of this chat', 'Ringkasan bagian awal obrolan ini', "このチャットの前半の要約", "Resumen de la parte anterior de este chat", "此对话前面部分的摘要"),
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración", "为演示提前准备的结果"),
-  engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答"),
+  // plain words (QA TC-7050: "the chosen AI is off; … default AI" read as jargon)
+  engineOffDefault: t('이 채팅에서 고른 AI가 꺼져 있어서 팀이 평소 쓰는 AI가 대신 답해요', "The AI picked for this chat is turned off, so your team's usual AI is answering", 'AI yang dipilih untuk obrolan ini dimatikan, jadi AI yang biasa dipakai tim Anda yang menjawab', 'このチャットで選んだAIがオフになっているため、チームでいつも使うAIが代わりに答えます', 'La IA elegida para este chat está apagada, así que responde la IA que su equipo usa normalmente', '这个对话选的AI已关闭，所以由你们团队平常用的AI来回答'),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
    * (server/src/credentials/access.ts connectionRoute) */
   engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA", "所选AI没有连接账号，改用另一个AI回答"),
@@ -477,15 +478,39 @@ export function placeName(path: string, locale: Locale): string | null {
 /** box_shell's spelling of the work folder: $TRINA_WORK, ${TRINA_WORK} */
 const WORK_VAR = /^(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?=\/|$)/i
 
+/** a file id (a UUID) as a path segment: never shown in a worded path (QA TC-7048) */
+const ID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const CHAT_PLACE_QUOTED = /(['"`])chat:(files|work)\/([^'"`\n]*)\1/gi
+const CHAT_PLACE_BARE = /(^|[\s(=,:\[])chat:(files|work)\/([^\s'"`,;)\]]*)/gi
+/** One chat place in words: "This chat › 견적서.pdf", "Work folder › out › a.png"; a file id never shown */
+function chatPlaceSaid(kind: string, rest: string, locale: Locale): string {
+  const key = kind.toLowerCase() === 'work' ? 'work' : 'chatFiles'
+  const segs = rest.split('/').filter((x) => x && !ID_SEG.test(x))
+  return [STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, ...segs].join(' › ')
+}
+
+/**
+ * Any text a person sees beside a step (its line, its error detail) with every chat place in words (QA TC-7048):
+ * "No file 'chat:files/<id>/견적서.pdf' …" reads "No file 'This chat › 견적서.pdf' …". A quoted place may hold spaces; a
+ * bare one ends at a space. Text without a chat place comes back as it is.
+ */
+export function chatPlaceWords(text: string, locale: Locale): string {
+  if (!/chat:(files|work)\//i.test(text)) return text
+  return text
+    .replace(CHAT_PLACE_QUOTED, (_all, q: string, kind: string, rest: string) => `${q}${chatPlaceSaid(kind, rest, locale)}${q}`)
+    .replace(CHAT_PLACE_BARE, (_all, pre: string, kind: string, rest: string) => `${pre}${chatPlaceSaid(kind, rest, locale)}`)
+}
+
 /**
  * A command line with the work folder in words (QA TC-6937): the leading `cd "$TRINA_WORK" &&` goes (a command starts
  * there anyway), and "$TRINA_WORK/out/frame1.png" reads "Work folder › out › frame1.png" (quotes kept as written).
  */
 export function shellWorkWords(command: string, locale: Locale): string {
   const w = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
-  return command
+  return chatPlaceWords(command
     .replace(/^\s*cd\s+(["']?)(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])\/?\1\s*(?:&&|;)\s*/i, '')
-    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
+    // a file id in the path is left out (QA TC-7048: "Work folder › .. › files › 01a2005b-… › qa_demo.mp4")
+    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter((x) => x && !ID_SEG.test(x))].join(' › ')), locale)
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
@@ -502,17 +527,22 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
     const at = label.indexOf(' · ')
     return { label: at < 0 ? label : label.slice(0, at + 3) + shellWorkWords(label.slice(at + 3), locale) }
   }
-  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
+  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label: chatPlaceWords(label, locale) }
   // a call let through without a card ends in " · <why>" (QA 2026-11-11: the 2nd and 3rd saves after one card's
   // "이번만 허용" showed their raw path): the path is before it, and the why stays after the path in words
   const cover = coverWhy(label)?.end ?? null
   const line = cover ? label.slice(0, -cover.length) : label
   const at = line.lastIndexOf(' · ')
-  if (at < 0) return { label }
+  if (at < 0) return { label: chatPlaceWords(label, locale) }
   const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
-  return named ? { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path } : { label }
+  // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
+  if (named && parsePlace(path)) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
+  if (named) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path }
+  // a chat place the line names some other way (cut short, or after "->"): in words all the same
+  const worded = chatPlaceWords(label, locale)
+  return worded !== label ? { label: worded } : { label }
 }
 
 /** The " · <why>" a line ends in when its call went on without a card (COVER_STEP_KEYS, in any language), with its key,
@@ -544,7 +574,7 @@ function templateMatch(template: string, label: string): Record<string, string> 
  * language on screen, in today's words (a model id or an engine name they held is left out). Matching only. */
 const LEGACY: Partial<Record<StepTextKey, readonly string[]>> = {
   refusedRetry: ['AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"],
-  engineOffDefault: ['{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"],
+  engineOffDefault: ['고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答", '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"],
   engineNoConnection: ['{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"],
   limitFallback: ['{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다', '{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"],
   credentialSwitchLimit: ['사용 한도에 닿아 다른 AI 연결로 이어서 답합니다', '사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"],

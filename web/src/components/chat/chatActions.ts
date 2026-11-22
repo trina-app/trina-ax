@@ -11,7 +11,7 @@ import { chatTrashDays } from '../../lib/chat-trash'
 import { openHome } from '../../lib/screenHistory'
 import { optimistic, optimisticPending, type OptimisticResult } from '../../lib/optimistic'
 import { chatGroupsChanged, hideChatInGroups, showPinnedChat } from '../../store/chatGroups'
-import { keepFaces } from '../../lib/sharedChat'
+import { isPeopleShared, keepFaces } from '../../lib/sharedChat'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -167,7 +167,11 @@ export function useChatActions() {
    * page), told each time the chat leaves it or, refused, comes back. */
   const remove = async (chat: Chat, onShown?: (c: Chat, trashed: boolean) => void): Promise<boolean> => {
     // the trash by the name of its row in the 트리나 panel (a rename there follows here)
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return false
+    // a chat I shared with people: who loses it too, by name (QA TC-7653; a list that can't be read leaves the line out)
+    const others = isPeopleShared(chat) && chat.shared?.by.id === me.user.id ? await othersIn(chat.id, me.user.id) : []
+    const losing = !others.length ? '' : others.length > DELETE_NAMES ? t('chat.deleteOthersMore', { names: others.slice(0, DELETE_NAMES).join(t('rooms.nameSep')), n: others.length - DELETE_NAMES }) : t('chat.deleteOthers', { names: others.join(t('rooms.nameSep')) })
+    const body = [t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), losing].filter(Boolean).join(' ')
+    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body, confirm: t('common.delete'), danger: true }))) return false
     const was = currentChat(chat)
     // the chat on screen: Home, on a phone as 트리나 at its root, never on top of a project's stack (QA TC-255)
     if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
@@ -237,5 +241,36 @@ export function useChatActions() {
     return true
   }
 
-  return { rename, remove, togglePin, hide }
+  /** "Leave this chat" (a chat someone shared with me by name; docs/decisions/20261122-shared-chat-leave-and-lost-notices.md):
+   * asks first in plain words, then it leaves my lists and the screen (Home first when it is on screen). Refused (in it
+   * through a group, gone): the server's words, and it stays. `onShown`: a list's own copy, told it left. */
+  const leave = async (chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'shared'>>, onShown?: (c: Chat) => void, byName?: string): Promise<boolean> => {
+    const name = byName ?? chat.shared?.by.name ?? ''
+    if (!(await confirmDialog({ title: t('chat.leaveTitle', { title: chat.title || t('chat.untitled') }), body: t('chat.leaveBody', { name }), confirm: t('chat.leaveConfirm'), danger: true }))) return false
+    try {
+      await api.call(API.leaveChat, { params: { id: chat.id } })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return false
+    }
+    const was = currentChat(chat as Chat)
+    if (chatId === chat.id) openHome(navigate, me.user.id, { drop: true })
+    useChats.getState().removeChat(chat.id)
+    hideChatInGroups(chat.id)
+    onShown?.(was)
+    toast({ level: 'info', text: t('chat.left') })
+    return true
+  }
+
+  return { rename, remove, togglePin, hide, leave }
+}
+
+/** How many names the delete confirm lists before "and N others". */
+const DELETE_NAMES = 3
+/** The people and groups a chat I shared is shared with, by name (not me). [] when the list can't be read. */
+async function othersIn(chatId: string, me: string): Promise<string[]> {
+  try {
+    const a = await api.call(API.getChatAudience, { params: { id: chatId } })
+    return a.subjects.filter((x) => !(x.subjectType === 'user' && x.subjectId === me) && !x.inactive).map((x) => x.name)
+  } catch { return [] }
 }

@@ -5,13 +5,14 @@
 // answer is hidden from are dropped), the mentioned person following the thread and getting the one notice marked as a
 // mention (the Inbox row "mentioned you", by who did), a people-shared chat's audience, and the push following the
 // thread setting.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API, type ApiError } from '@mycel/shared/api'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { activityTabHas, API, type ApiError, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { chatThreadWanted, followersOf } from '../../server/src/chat/threads'
+import { chatThreadPath, chatThreadWanted, followersOf } from '../../server/src/chat/threads'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
+import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -28,6 +29,9 @@ beforeAll(async () => {
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
+// every reply takes a send token (rooms SEND_BURST, then 1 a second per person): this file's tests together send more than
+// one burst, which a fast machine does inside a second (429 on the Mac mini), so each test starts with a full budget
+beforeEach(() => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear())
 
 const db = () => h.ctx.db
 const errOf = async (p: Promise<unknown>) => { try { await p } catch (e) { return e as ApiError } throw new Error('expected an error') }
@@ -140,12 +144,99 @@ describe('a project chat', () => {
 
 describe('a chat shared with people', () => {
   type Sub = { subjectType: 'user' | 'group'; subjectId: string }
-  const put = (subjects: Sub[], id: string, confirmKey?: string) => h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects, ...(confirmKey ? { confirmKey } : {}) } })
+  // the sharing budget is the rooms' sending one: a 429 waits the second it says, as the app does
+  const put = async (subjects: Sub[], id: string, confirmKey?: string): Promise<PutChatAudienceResult> => {
+    for (let i = 0; ; i++) {
+      try { return await h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects, ...(confirmKey ? { confirmKey } : {}) } }) }
+      catch (e) { if ((e as ApiError).status !== 429 || i > 5) throw e; await Bun.sleep(1100) }
+    }
+  }
   async function share(id: string, subjects: Sub[]) {
     let r = await put(subjects, id)
     if (r.status === 'confirm') r = await put(subjects, id, r.confirmKey)
     expect(r.status).toBe('saved')
   }
+
+  // the owner's report (2026-11-22): "@test" in a 2-person shared chat's thread showed as a mention, and the person saw
+  // nothing. The notice was made but listed only with the app's own notices: it is a conversation row now, as a room's
+  let twoPeople = ''
+  test('a mention reaches the person: 멘션·스레드 (Mentions, Threads), counted on 대화, the live notice, the thread link', async () => {
+    const c = twoPeople = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const root = await answered(c, 'alice', 'two people answer')
+    await share(c, [{ subjectType: 'user', subjectId: 'bob' }])
+    const before = await h.api('bob').call(API.listNotifications, { query: { limit: 1 } })
+    const r = await reply('alice', c, root, '@Bob Lee i\ndsf', ['bob'])
+    expect(r.mentions).toEqual(['bob'])
+    // the live event tells bob it gave him a notice (the desktop app tells it); the writer gets none
+    const ev = await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === r.id)
+    expect(ev.data.notice).toBe('mention')
+    const mine = await ws.alice!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === r.id)
+    expect(mine.data.notice).toBeUndefined()
+    const n = notice('bob', root)!
+    // 대화's 멘션·스레드 lists it (with who, for the photo), 활동's notices do not
+    const rooms = await h.api('bob').call(API.listNotifications, { query: { only: 'rooms' } })
+    const row = rooms.items.find((i) => i.id === n.id)!
+    expect(row).toMatchObject({ code: 'chat.thread_reply', link: 'chat_thread', readAt: null, chatThread: { chatId: c, rootId: root, name: 'Alice Kim', byId: 'alice', mention: true } })
+    expect((await h.api('bob').call(API.listNotifications, { query: { only: 'notices' } })).items.some((i) => i.id === n.id)).toBe(false)
+    expect((await h.api('bob').call(API.listNotifications, { query: {} })).items.some((i) => i.id === n.id)).toBe(true)
+    // counted with the conversation rows (대화's mark), not with 활동's notices; the whole count as before
+    const after = await h.api('bob').call(API.listNotifications, { query: { limit: 1 } })
+    expect(after.unreadCount).toBe(before.unreadCount + 1)
+    expect(after.roomUnreadCount).toBe((before.roomUnreadCount ?? 0) + 1)
+    expect(after.noticeUnreadCount).toBe(before.noticeUnreadCount)
+    // under Mentions and Threads (the page's tabs and "Mark all as read" share the rule), never DMs
+    expect(['all', 'mentions', 'threads', 'dms'].map((t) => activityTabHas(row, t as 'all'))).toEqual([true, true, true, false])
+    // a tap (and the push) opens the thread
+    expect(chatThreadPath(h.ctx, n.id)).toBe(`/c/${c}/t/${root}`)
+    // "Mark all as read" on 활동's notices leaves it; on 멘션·스레드's Mentions it reads it and bob's place in the thread
+    await h.api('bob').call(API.markAllNotificationsRead, { body: { tab: 'all', only: 'notices' } })
+    expect(notice('bob', root)?.id).toBe(n.id)
+    const read = await h.api('bob').call(API.markAllNotificationsRead, { body: { tab: 'mentions', only: 'rooms' } })
+    expect(read.read).toBeGreaterThanOrEqual(1)
+    expect(notice('bob', root)).toBeNull()
+    expect((db().query('SELECT last_read_id FROM chat_thread_follows WHERE root_id = ? AND user_id = ?').get(root, 'bob') as { last_read_id: string }).last_read_id).toBe(r.id)
+  })
+
+  test('a plain reply is a Threads row, not a Mentions one; followers get the live notice as a reply', async () => {
+    // the same two-person chat, another answer (a share less: the sharing budget)
+    const c = twoPeople
+    const root = await answered(c, 'alice', 'plain reply answer')
+    await reply('bob', c, root, 'first from bob')
+    const r = await reply('alice', c, root, 'thanks')
+    const ev = await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === r.id)
+    expect(ev.data.notice).toBe('reply')
+    const n = notice('bob', root)!
+    const row = (await h.api('bob').call(API.listNotifications, { query: { only: 'rooms' } })).items.find((i) => i.id === n.id)!
+    expect(row.chatThread?.mention).toBeUndefined()
+    expect(activityTabHas(row, 'threads')).toBe(true)
+    expect(activityTabHas(row, 'mentions')).toBe(false)
+    // the next reply of the same unread run updates the notice: no second desktop notification; a first mention is one
+    const again = await reply('alice', c, root, 'one more')
+    expect((await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === again.id)).data.notice).toBeUndefined()
+    const named = await reply('alice', c, root, '@Bob Lee look', ['bob'])
+    expect((await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === named.id)).data.notice).toBe('mention')
+    expect(notice('bob', root)?.id).toBe(n.id)
+    // Threads' "Mark all as read" reads it (Mentions' would too now) and tells bob's other windows the thread is read
+    await h.api('bob').call(API.markAllNotificationsRead, { body: { tab: 'threads', only: 'rooms' } })
+    expect(notice('bob', root)).toBeNull()
+    expect((await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.change === 'read')).data.thread?.newReplies).toBe(false)
+  })
+
+  test('quiet hours: the notice is made, the desktop app is not told; All with no `only` reads it once', async () => {
+    const c = twoPeople
+    const root = await answered(c, 'alice', 'quiet hours answer')
+    savePreferences(db(), 'bob', { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
+    try {
+      const r = await reply('alice', c, root, '@Bob Lee at night', ['bob'])
+      expect((await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === r.id)).data.notice).toBeUndefined()
+      expect(notice('bob', root)?.mention_id).toBe(r.id)
+    } finally { savePreferences(db(), 'bob', { quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }) }
+    const read = await h.api('bob').call(API.markAllNotificationsRead, { body: { tab: 'all' } })
+    expect(read.read).toBeGreaterThanOrEqual(1)
+    expect(notice('bob', root)).toBeNull()
+    // read once: nothing is left to read
+    expect((await h.api('bob').call(API.markAllNotificationsRead, { body: { tab: 'all' } })).read).toBe(0)
+  })
 
   test('several mentions in one unread notice: deleting the newest falls back to the one still there, by its author (TC-4853)', async () => {
     const c = (await h.api('alice').call(API.createChat, { body: {} })).id

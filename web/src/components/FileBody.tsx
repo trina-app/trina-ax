@@ -274,7 +274,7 @@ function Viewer({ renderer, kind, source, width, name, at, path, download, file,
     // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
     return <PdfView source={source} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} thumbnails={thumbnails} />
   if (renderer === 'media')
-    return <MediaView kind={kind === 'audio' ? 'audio' : 'video'} source={source} name={name} download={download} />
+    return <MediaView kind={kind === 'audio' ? 'audio' : 'video'} source={source} name={name} download={download} ask={file.source === 'team' && file.chatId ? { chatId: file.chatId, path: file.path } : undefined} />
   if (typeof source === 'string') return null
   const blob = source
   switch (renderer) {
@@ -344,8 +344,11 @@ function DownloadNotice({ text, download, testId, children }: { text: string; do
  * paper a document is drawn on. A video is centred both ways and as large as fits, keeping its shape: its width is the
  * smaller of the stage's and the stage's height times its shape (container units of the stage's inner box), so the
  * player's own controls stay on the picture; a sound's player is centred, as wide as a readable bar. */
-function MediaView({ kind, source, name, download }: { kind: 'audio' | 'video'; source: Blob | string; name: string; download: () => void }) {
+function MediaView({ kind, source, name, download, ask }: { kind: 'audio' | 'video'; source: Blob | string; name: string; download: () => void; ask?: { chatId: string; path: string } }) {
   const t = useT()
+  // the player failed on an address: asked once whether the address itself refuses me (gone, or not mine to open: a file
+  // of a shared chat's creator, QA TC-7261), so the notice never offers a Download that fails the same way
+  const [refused, setRefused] = useState(false)
   const url = useMemo(() => (typeof source === 'string' ? source : URL.createObjectURL(source)), [source])
   useEffect(() => (typeof source === 'string' ? undefined : () => URL.revokeObjectURL(url)), [url])
   const [failed, setFailed] = useState(false)
@@ -353,8 +356,17 @@ function MediaView({ kind, source, name, download }: { kind: 'audio' | 'video'; 
   const [shape, setShape] = useState<number | null>(null)
   useEffect(() => {
     setFailed(false)
+    setRefused(false)
     setShape(null)
   }, [url])
+  useEffect(() => {
+    if (!failed || typeof source !== 'string') return
+    let live = true
+    fetch(url, { headers: { range: 'bytes=0-0' }, credentials: 'same-origin' }).then((r) => { if (live && (r.status === 403 || r.status === 404)) setRefused(true) }, () => {})
+    return () => { live = false }
+  }, [failed, source, url])
+  if (failed && refused)
+    return ask ? <ChatFileAsk chatId={ask.chatId} path={ask.path} fallback={t('preview.mediaMissing')} /> : <p className="p-6 text-sm text-muted" role="alert" data-testid="preview-media-missing">{t('preview.mediaMissing')}</p>
   if (failed)
     return (
       <DownloadNotice text={t('preview.cantPlay')} download={download} testId="preview-cant-play" />

@@ -14,7 +14,8 @@
 // in the column or a phone's sheet); closing the viewer after it showed the side chat is, also from the thread, unless
 // the room page has it open (the next ✦ opens it afresh: SideChatPanel.tsx viewerClosedOn). 400 px wide; the stage
 // beside it narrows from the right
-// (--viewer-col). A link in it that opens the side panel closes the viewer, which would cover the panel.
+// (--viewer-col). On a short screen (a phone turned sideways, under 500 px high: VIEWER_SHORT_QUERY) it starts hidden, so
+// the picture or player has the whole width (QA TC-7239); the toggle still shows it. A link in it that opens the side panel closes the viewer, which would cover the panel.
 // Phones (< 768 px, the phone app): the same column in a sheet over the viewer (ViewerSheet below), opened by the bar's
 // 💬 (the thread) or ✦ (Trina with the file quoted), about 70 % of the screen high; its handle drags it to the whole
 // height or down to close, a tap beside it or its ✕ closes it, and so does Back (its own history entry,
@@ -30,6 +31,7 @@ import { messageSeed } from '../../lib/sideChatAsk'
 import { aiName } from '../../lib/tabs'
 import { useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
+import { useMediaQuery } from '../ui'
 import { useMe } from '../../store/session'
 import { useRoomTitle } from './RoomIcon'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -38,6 +40,11 @@ import { ThreadPanel } from './ThreadPanel'
 
 /** the column's width on computers */
 export const VIEWER_COLUMN_PX = 400
+/** a screen too short for the column beside the file (a phone on its side, 844 × 390): it starts hidden there */
+export const VIEWER_SHORT_QUERY = '(max-height: 500px)'
+
+/** Whether the column shows: as asked (the toggle, ✦, the thread), else as the screen gives (hidden when short). */
+export const columnShown = (asked: boolean | null, short: boolean): boolean => asked ?? !short
 
 export interface ViewerColumnState {
   /** shown (the bar's toggle) */
@@ -52,19 +59,22 @@ export interface ViewerColumnState {
 /** The column's state for one opening of the viewer, starting as the room page's right side is: on the side chat when
  * the page shows it without a thread. */
 export function useViewerColumn(roomId: string | null) {
-  const [state, setState] = useState<ViewerColumnState>(() => ({ open: true, show: roomId && useRooms.getState().side[roomId] === 'trina' && !matchPath('/rooms/:roomId/t/:messageId', globalThis.location?.pathname ?? '') ? 'trina' : 'thread', seed: null, focus: false }))
+  const short = useMediaQuery(VIEWER_SHORT_QUERY)
+  // `open` null: not asked yet in this opening, the screen decides (a phone turned sideways hides it)
+  const [asked, setState] = useState<Omit<ViewerColumnState, 'open'> & { open: boolean | null }>(() => ({ open: null, show: roomId && useRooms.getState().side[roomId] === 'trina' && !matchPath('/rooms/:roomId/t/:messageId', globalThis.location?.pathname ?? '') ? 'trina' : 'thread', seed: null, focus: false }))
   // this opening of the viewer showed the side chat: the viewer closing (or leaving the room's files) closes it, also
   // when the column is back on the thread
   const showed = useRef(false)
-  if (state.show === 'trina') showed.current = true
+  if (asked.show === 'trina') showed.current = true
   useEffect(() => () => { if (roomId && showed.current) viewerClosedOn(roomId) }, [roomId])
+  const state: ViewerColumnState = { ...asked, open: columnShown(asked.open, short) }
   return {
     state,
     /** the side chat, this asked about */
     ask: (seed: SideSeed) => setState({ open: true, show: 'trina', seed, focus: true }),
     /** the file's thread again */
     toThread: () => setState((s) => ({ ...s, open: true, show: 'thread' })),
-    toggle: () => setState((s) => ({ ...s, open: !s.open })),
+    toggle: () => setState((s) => ({ ...s, open: !columnShown(s.open, short) })),
     hide: () => setState((s) => ({ ...s, open: false })),
   }
 }
