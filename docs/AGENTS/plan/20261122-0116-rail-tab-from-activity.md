@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 01:16
 - Branch: `fix/rail-tab-from-activity`
-- Status: in progress
+- Status: done
 - Where: web/ (lib/rail.ts). Why: the rail belongs to the web app, which the desktop app shows (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix with no new feature or API
 
@@ -17,7 +17,9 @@ switch the list and light itself, whatever the main pane shows.
 트리나 remembers the last AI chat it showed (lib/rail.ts `rememberRail`). When that chat is the one 활동 opened, the
 rail's 트리나 link goes to the address already on screen with no state. React Router turns that into a replace of the
 same address, and `railHereKept` reads "same path, no state" as the page tidying its own address, so it keeps 활동 lit.
-The running turn is not the cause; the same happens with any chat.
+The running turn is not the cause. That notice (dev_env.job, "'…'에서 부탁한 작업을 트리나가 마쳤어요") opens \`/c/<chat>\`,
+the same route shape as other notices; what sets it apart is that its chat is nearly always the one 트리나 showed last,
+because the job ran in the chat on screen. A notice for any chat 트리나 showed last does the same.
 
 ## Scope
 
@@ -47,4 +49,6 @@ activity-panel.spec.
 
 ## Result
 
-(at the end)
+Built as planned, plus the \`railHereKept\` guard in step 1, which the e2e for 활동's 멘션·스레드 line asked for. The e2e
+uses a dev_env.job notice, failed before the fix (트리나 stayed unlit with its link on the chat on screen) and passes
+after it.
