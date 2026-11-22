@@ -84,7 +84,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'schedule_create', 'schedule_list', 'schedule_delete',
   // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
   // weighed by the read card like any named file, namedPaths)
-  'generate_video', 'promo_video', 'save_promo_video',
+  'generate_video', 'promo_video', 'promo_video_versions', 'save_promo_video',
   // "delete the files you just made" (chat/delete-files.ts, docs/decisions/20261121-ai-scratch-files.md rule 4): only
   // the AI's own files of this chat, made by this person's answers here, go to the trash (no card); any other path is
   // refused up front ('shared'), never a card. Not in a confidential or template chat, never a sub-agent's

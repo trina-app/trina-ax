@@ -6,7 +6,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
-import { whereNow } from '../../server/src/files/moved'
+import { movedAwayBefore, whereNow } from '../../server/src/files/moved'
+import { changesByOthers } from '../../server/src/devenv/track'
+import { foreignLines } from '../../server/src/devenv/tool'
+import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
 import { makeCApp, jsonBody, type CApp, type Person } from '../lib/c-app'
 
@@ -154,6 +157,32 @@ describe('access taken away after a read in this chat (QA TC-r2u-28)', () => {
     } finally {
       db.query("INSERT INTO group_members VALUES ('marketing', 'alice')").run()
     }
+  })
+})
+
+describe('box_shell in a real run (QA TC-7234: the AI rebuilt the poster at its old path and said "deleted")', () => {
+  test('a move is told as a move in "changed by other people", and a new file at the old place is known as new', async () => {
+    const db = A.ctx.db
+    const f = `projects/falcon/${uniq('poster')}.png`
+    put(f, 'old poster')
+    svc().move('alice', f, `shared/${f.split('/').pop()}`, 'fail')
+    const moved = `shared/${f.split('/').pop()}`
+    // bob's command in the project after alice's move
+    const ch = changesByOthers(A.ctx, { id: 'p-falcon', folderPath: 'projects/falcon' }, 'bob')
+    const it = ch.items.find((c) => c.path === f)!
+    expect(it.action).toBe('moved')
+    expect(it.to).toBe(moved)
+    const shown = foreignLines(ch, () => true)
+    expect(shown).toContain(`moved ${f} to ${moved} (moved, not deleted)`)
+    expect(foreignLines(ch)).toContain('to a place not named here')
+    expect(shown).not.toMatch(new RegExp(`delete ${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    // the box made a new file at the old place: it is new, and the moved one is named
+    put(f, 'new poster')
+    fileEvent(db, { turnId: null, userId: 'bob', path: f, action: 'create', detail: { via: 'dev_env' } })
+    expect(movedAwayBefore(db, f)).toMatchObject({ to: moved, by: 'alice', byName: 'Alice Kim' })
+    // a second file made there since: no longer about the move
+    fileEvent(db, { turnId: null, userId: 'bob', path: f, action: 'create', detail: { via: 'dev_env' } })
+    expect(movedAwayBefore(db, f)).toBeNull()
   })
 })
 

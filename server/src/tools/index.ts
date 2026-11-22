@@ -418,6 +418,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // the company's promo video (promo-video/tool.ts, docs/DECISIONS.md "V"): slots in, our template out
   registerPromoVideo(ctx, reg)
   exposeToTurns('promo_video')
+  exposeToTurns('promo_video_versions')
   exposeToTurns('save_promo_video')
   // the company's intro deck (intro-deck/tool.ts, docs/DECISIONS.md "D2"): slots in, our layout out
   registerIntroDeck(ctx, reg, { fetch: o.fetch })

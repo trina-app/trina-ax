@@ -61,6 +61,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   comment_docx: t('워드 메모 달기', 'Add Word comments', 'Tambah komentar Word', "Wordにコメントを追加", "Añadir comentarios en Word", "添加 Word 批注"),
   edit_office: t('오피스 파일 고치기', 'Edit Office file', 'Ubah berkas Office', "Officeファイルを編集", "Editar archivo de Office", "编辑 Office 文件"),
   promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
+  promo_video_versions: t('홍보 영상 버전 보기', 'View promo video versions', 'Lihat versi video promosi', 'プロモーション動画のバージョンを見る', 'Ver versiones del vídeo promocional', '查看宣传视频版本'),
   save_promo_video: t('홍보 영상 파일로 저장', 'Save promo video as a file', 'Simpan video promosi sebagai berkas', "プロモーション動画をファイルに保存", "Guardar el vídeo promocional como archivo", "将宣传视频保存为文件"),
   intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
   box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo", "开发环境命令"),

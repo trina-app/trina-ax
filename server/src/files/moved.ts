@@ -159,3 +159,21 @@ const LOST_HASH_MAX = 64 * 1024 ** 2
 
 /** The fact for the AI when the person's access to a file they read in this chat was taken away. */
 export const LOST_ACCESS_NOTE = (old: string) => `'${old}' is still there, but this person can no longer open it: their access to it changed after it was read in this chat. Tell them exactly that (they cannot open the file any more; whoever manages the folder can give access again); never say it was not found or deleted`
+
+/** The file that was at `rel` before a file was made there again (box_shell's new file at a moved file's old place): the
+ * newest move away from exactly `rel` with only one file made there since (the new one), followed to where it is now.
+ * null when nothing moved away from it or more was made there since. `byName`: the mover's name. */
+export function movedAwayBefore(db: Database, rel: string): { to: string | null; by: string; byName: string; at: string } | null {
+  const del = db.query(`SELECT id, user_id, detail, at FROM file_events WHERE path = ? AND action = 'delete' ORDER BY id DESC LIMIT 1`).get(rel) as { id: number; user_id: string; detail: string | null; at: string } | null
+  if (!del) return null
+  let d: { movedTo?: unknown } = {}
+  try { d = del.detail ? JSON.parse(del.detail) : {} } catch {}
+  if (typeof d.movedTo !== 'string') return null
+  const made = (db.query(`SELECT COUNT(*) AS n FROM file_events WHERE path = ? AND id > ? AND action IN ('create', 'upload', 'restore')`).get(rel, del.id) as { n: number }).n
+  if (made > 1) return null
+  // where it is now: its new place, or where later moves took it
+  const later = whereNow(db, d.movedTo)
+  const to = later?.kind === 'moved' ? later.to : later?.kind === 'trashed' ? null : d.movedTo
+  const byName = (db.query('SELECT name FROM users WHERE id = ?').get(del.user_id) as { name: string } | null)?.name ?? ''
+  return { to, by: del.user_id, byName, at: del.at }
+}
