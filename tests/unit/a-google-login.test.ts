@@ -220,6 +220,24 @@ describe('Sign in with Google', () => {
     } finally { h.auth.limiter.limits = DEFAULT_LIMITS }
   })
 
+  test('a return over the bad-token limit still lands on the sign-in page', async () => {
+    h.auth.limiter.limits = { ...DEFAULT_LIMITS, perTokenIp: 2 }
+    try {
+      const ip = '10.6.6.6'
+      const back6 = (state: string, cookie: string) => h.fetch(`${CALLBACK}?${new URLSearchParams({ state, code: `code-${state.slice(0, 8)}` })}`, { ip, headers: { cookie } })
+      // two returns with someone else's binding cookie use up this address's tries
+      for (let i = 0; i < 2; i++) {
+        const s = await signInStart(h.client({ ip }))
+        expect((await back6(s.state, `${GSI}=${'C'.repeat(43)}`)).headers.get('location')).toBe('/login?google=expired')
+      }
+      // over the limit: a page that says to try again, not a bare 429
+      const s = await signInStart(h.client({ ip }))
+      const over = await back6(s.state, s.gsi)
+      expect(over.status).toBe(302)
+      expect(over.headers.get('location')).toBe('/login?google=expired')
+    } finally { h.auth.limiter.limits = DEFAULT_LIMITS }
+  })
+
   test('next must be a path of this site', async () => {
     for (const next of ['https://evil.test/', '//evil.test', '/\\evil.test']) {
       const s = await signInStart(h.client(), next)

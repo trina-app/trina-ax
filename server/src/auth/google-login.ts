@@ -37,14 +37,14 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { publicHostOf } from '../system/deployment'
 import { brokerClientOf, brokerFlowKey, googleSigninBrokerOf } from './google-login-broker'
 import { verifyGoogleIdToken } from './google-id-token'
-import { tokenGuard, viaOf } from './accounts'
+import { viaOf } from './accounts'
 import { isGuest } from './guests'
 import { forgetLoginIdentities } from './login-identities'
 import { googleSignInOn } from './google-login-admin'
 import { notifyGoogleConnected } from '../notifications/service'
 import { msg } from './messages'
 import { hashToken, safeEqual } from './passwords'
-import { googleStartKeys } from './rate-limit'
+import { googleStartKeys, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
 import { getUser } from './users'
 import { googleAppReturn, googleSignInRefusal, holdGoogleCode, type GoogleAppClient } from './google-login-apps'
@@ -155,7 +155,8 @@ async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['inten
   if (!mode) fail('unavailable', msg('googleSignInOff', locale))
   const drive = googleDriveOf(ctx)
   ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(a.now()).toISOString())
-  if ((ctx.db.query('SELECT COUNT(*) AS n FROM google_signin_flows').get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
+  // only flows still waiting for Google: a used one cannot be finished again, and goes when it expires
+  if ((ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE status = 'pending'").get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
   const id = newId(), state = random(), binding = random(), nonce = random(), verifier = crypto.randomBytes(48).toString('base64url')
   const bindingHash = bind.client === 'web' ? hashToken(binding) : bind.secretHash
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
@@ -253,7 +254,11 @@ function backTo(row: FlowRow | null, result: GoogleResult): string {
 /** `proof`: Google's code (direct) or the console's handoff (broker). */
 async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'broker', state: string | undefined, proof: string | undefined, error: string | undefined): Promise<Settled> {
   const a = authOf(ctx)
-  const guard = tokenGuard(ctx, c.get('info').ip)
+  // bad states and bindings count against the address like other made-up tokens (accounts.ts tokenGuard); over the
+  // limit the browser, which comes from Google, still gets the sign-in page with words, never a bare 429
+  const keys = tokenIpKeys(c.get('info').ip)
+  if (a.limiter.retryAfter(keys) > 0) return { row: null, result: 'expired' }
+  const guard = { fail: () => a.limiter.fail(keys) }
   const row = state && TOKEN_RE.test(state) ? ctx.db.query('SELECT * FROM google_signin_flows WHERE state_hash = ?').get(hashToken(state)) as FlowRow | null : null
   if (!row) { guard.fail(); return { row: null, result: 'expired' } }
   const end = (result: GoogleResult): Settled => ({ row, result })
