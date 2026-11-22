@@ -422,16 +422,18 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
     }
   })
 
-  test('a scheduled run and a company-profile draft: refused without a card, saying the setting does not apply', async () => {
+  test('the person\'s own scheduled run: the switch holds (Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md); a company-profile draft: refused without a card, saying the setting does not apply', async () => {
     on()
     const run = await turnWith('schedule', 'https://kind-schedule.example/a')
     await doneOf(run.turnId)
-    expect(summaries(run.turnId)).toContain('does not apply in a run the user does not answer step by step')
+    expect(summaries(run.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
+    // past the gate: the name is looked up (the stub resolves nothing)
+    expect(looked('kind-schedule.example')).toBeGreaterThan(0)
     const draft = await turnWith('web', 'https://draft-scope.example/about', { draft: true })
     await doneOf(draft.turnId)
     expect(summaries(draft.turnId)).toContain('does not apply in a run the user does not answer step by step')
     for (const t of [run, draft]) expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === t.turnId)).toBe(false)
-    expect(looked('kind-schedule.example') + looked('draft-scope.example')).toBe(0)
+    expect(looked('draft-scope.example')).toBe(0)
   })
 
   test('web_fetch of a turn by someone who does not own the chat uses that person\'s switch (t.user.id)', async () => {

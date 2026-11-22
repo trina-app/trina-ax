@@ -24,7 +24,7 @@ export type RoomFilesAllowance = z.infer<typeof RoomFilesAllowance>
 /** The kinds of the AI's cards a person can answer with "Always allow" (docs/DECISIONS.md "Always allow on every card",
  * server/src/chat/always-allow.ts). After that answer the card of that kind is not raised for them again in the chats
  * they watch, until they take it back here. */
-export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post_to_room', 'shared_read', 'shared_save', 'move_files', 'skill_files', 'skill_save', 'delete_files', 'project_members', 'video', 'big_download', 'share_files', 'post_files', 'share_folder', 'folder_access', 'bulk_files'] as const
+export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post_to_room', 'shared_read', 'shared_save', 'move_files', 'skill_files', 'skill_save', 'delete_files', 'project_members', 'video', 'big_download', 'share_files', 'post_files', 'share_folder', 'folder_access', 'bulk_files', 'dev_login'] as const
 export const CardAlwaysKind = z.enum(CARD_ALWAYS_KINDS)
 export type CardAlwaysKind = z.infer<typeof CardAlwaysKind>
 
@@ -51,10 +51,22 @@ export const ConnectorToolAllowance = z.object({
 })
 export type ConnectorToolAllowance = z.infer<typeof ConnectorToolAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance])
+/** A site allowed for good (docs/decisions/20261122-always-allow-holds-everywhere.md B3): `web`, "이 사이트 항상 허용"
+ * on the AI's address card (its plain addresses open without the card in every chat); `office`, "항상 허용" on the
+ * in-app browser's office-network card. `site` as the card named it (Unicode for an IDN). */
+export const SiteAllowance = z.object({
+  kind: z.literal('site'),
+  id: z.string(),
+  site: z.string(),
+  place: z.enum(['web', 'office']),
+  createdAt: z.string(),
+})
+export type SiteAllowance = z.infer<typeof SiteAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {
-  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card or on a connector tool, room folders for new files), newest first.' }),
+  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card, a connector tool or a site, room folders for new files), newest first.' }),
   deleteAiAllowance: endpoint({ method: 'DELETE', path: '/api/ai-allowances/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Take one of my allowances back (404: not mine or not there).' }),
 } as const

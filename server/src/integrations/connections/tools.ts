@@ -12,8 +12,8 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
-import { steerableRun } from '../../chat/shared-run'
 import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
+import { steerableRun } from '../../chat/shared-run'
 import { isConfidentialChat } from '../../safe-ops/confidential'
 import crypto from 'node:crypto'
 import { z } from 'zod'
@@ -590,15 +590,16 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'tell the user; once the setting allows it, ask again', names: [row.name],
     }), 'refused (write policy deny)')
   }
-  // a scheduled run in a shared chat that another person wrote in (chat/shared-run.ts; security review of #1353, H2):
-  // their words could steer it, and nobody watches it, so no change at any service: not a team connection set to send
-  // without asking, not the task's pinned recipients, not anyone's Always allow
-  if (b.scheduled && steerableRun(ctx.db, b.turnId)) {
+  // a scheduled run in a shared chat that another person wrote in goes by the rules below like any of the maker's runs
+  // (the team's "send without asking" with the task's card, the maker's own Always; Rule A, docs/decisions/
+  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2), except while a guest is among the
+  // people there (the one limit kept): then no change at any service, as before
+  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId)) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
-      also: `this scheduled run is in a shared chat where other people wrote, so it sends nothing to a connected service`,
+      also: `this scheduled run is in a shared chat where other people wrote and a guest is among the people, so it sends nothing to a connected service`,
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
-    }), 'refused (nobody to ask: scheduled run in a shared chat)')
+    }), 'refused (nobody to ask: scheduled run in a shared chat with a guest)')
   }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
@@ -761,9 +762,9 @@ function pageOf(args: unknown): string | null {
  * 'unsure', docs/decisions/20261122-connector-always-allow.md): before it runs, the person of the turn sees what it
  * reads and may allow it once (the rest of this answer), always (this tool of this connection, in every chat, until
  * they remove it in Settings: tool-allow.ts) or not at all. Kept apart from the write card: that one asks every time in
- * a shared chat and never offers Always there. The person's own Always counts in their scheduled runs too, unless
- * another person's words are on the run's branch (steerableRun, as chat/always-allow.ts alwaysHere). Throws the
- * refusal (nothing was sent).
+ * a shared chat and never offers Always there. The person's own Always counts in their scheduled runs too, also when
+ * another person's words are on the run's branch (Rule A, as chat/always-allow.ts alwaysHere). Throws the refusal
+ * (nothing was sent).
  */
 async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknown, b: BuildCtx, tc: TurnToolContext): Promise<void> {
   const key = writeKey(row, t.name)
@@ -793,11 +794,16 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
 }
 
 /** Where the person's own Always for a connection tool counts and may be kept (as chat/always-allow.ts alwaysHere): a
- * turn they watch from their own app, or their own scheduled run with no other person's words on its branch; never a
- * Slack question or a confidential chat */
+ * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A, unless a
+ * guest is among the people there); never a Slack question or a confidential chat */
 function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
   const client = (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? null
-  return (b.scheduled ? !steerableRun(ctx.db, b.turnId) : LIVE_CLIENTS.has(client ?? '')) && !isConfidentialChat(ctx.db, b.chatId)
+  return (b.scheduled ? !(guestShared(b) && steerableRun(ctx.db, b.turnId)) : LIVE_CLIENTS.has(client ?? '')) && !isConfidentialChat(ctx.db, b.chatId)
+}
+
+/** A guest is among the people of this shared chat (fails closed) */
+function guestShared(b: BuildCtx): boolean {
+  try { return !!b.shared?.guestHere() } catch { return true }
 }
 
 /** The key a shared chat's card keeps the person's Always under: a call that reaches nobody else (Sent.ownAct) with no

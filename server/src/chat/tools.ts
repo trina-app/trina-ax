@@ -342,9 +342,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // a short wait: the project's other commands wait while the card is open (no answer: the files move)
         return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details, timeoutMs: BULK_CARD_MS })
       },
-      confirm: async (question, options, details) => (person.choose
-        ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
-        : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+      // `always`: the login card's "Always allow" (kind dev_login: Rule A, docs/decisions/
+      // 20261122-always-allow-holds-everywhere.md M2), through the same yes / no card as every server card
+      alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
+      confirm: async (question, options, details, o) => (o?.always
+        ? (await person.confirm(question, options[0]!.label, options[1]!.label, { always: o.always, details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null
+        : person.choose
+          ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
+          : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
       // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
       // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
       askSite: async (host, command) => {
@@ -983,6 +988,11 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     othersWords: () => othersWordsIn(exec),
     explicitPlace: (dir, paths) => paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
+    // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
+    // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
+    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong()),
+    // their "Allow all websites" holds in their own scheduled run too (Rule A)
+    scheduledRun: exec.spec.clientKind === 'schedule' && !exec.restricted,
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }

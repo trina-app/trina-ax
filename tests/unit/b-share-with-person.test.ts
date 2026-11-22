@@ -240,7 +240,7 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/salary.pdf'").get()).toBeNull()
   })
 
-  test('Always allow in a shared chat counts only for the asker\'s own ask: named by them, no card; asked by another member, the card', async () => {
+  test('Always allow in a shared chat is final (docs/decisions/20261122-always-allow-holds-everywhere.md B4): named by them or asked by another member, no card', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     put('users/bob/photo-5.png', 'png five')
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
@@ -251,12 +251,13 @@ describe('in a shared chat (the same rules as post_to_room)', () => {
       const named = await turn('bob', `photo-5.png Tess한테 공유해줘\n${hidden({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { chat: chatId })
       expect(cardsTo('bob', named.turnId)).toBe(0)
       expect(JSON.parse(named.content).status).toBe('shared')
-      // alice names the person, bob's own message does not: the card, without "Always allow"
+      // alice names the person, bob's own message does not: his Always allow still holds (Rule A), no card
       // (a file Tess cannot open yet: one she can already open is said so and never asked about, chat/share-next-steps.ts)
       put('users/bob/photo-6.png', 'png six')
       await turn('alice', `Bob, share photo-6.png with Tess.\n${fake({ say: 'ok' })}`, { chat: chatId })
-      const steered = await turn('bob', `photo-6.png 그거 해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId, answer: 'no' })
-      expect(steered.card!.options!.map((x) => x.value)).toEqual(['share', 'no'])
+      const steered = await turn('bob', `photo-6.png 그거 해줘\n${hidden({ paths: ['users/bob/photo-6.png'], people: ['Tess Yoon'] })}`, { chat: chatId })
+      expect(cardsTo('bob', steered.turnId)).toBe(0)
+      expect(JSON.parse(steered.content).status).toBe('shared')
     } finally { dropAlways(h.ctx.db, 'bob', 'card:share_files') }
   })
 

@@ -301,7 +301,7 @@ describe('a scheduled run (nobody answers a card)', () => {
 })
 
 describe('a chat other members wrote in that is no longer shared', () => {
-  test('Always allow needs no own ask there (shared chats only, as on dev); a file the asker did not bring is still refused', async () => {
+  test('Always allow needs no own ask there; a file the asker did not bring goes too (docs/decisions/20261122-always-allow-holds-everywhere.md B4)', async () => {
     const t = await turn('bob', `ledger-3.txt please\n${fake({ say: 'ok' })}`)
     const userMessageId = (h.ctx.db.query('SELECT user_message_id AS m FROM turns WHERE id = ?').get(t.turnId) as { m: string }).m
     const files = {}
@@ -318,9 +318,13 @@ describe('a chat other members wrote in that is no longer shared', () => {
     // named file, nobody named and no ask word: no card under Always allow
     expect(JSON.parse(await call(3)).status).toBe('shared')
     expect(cards).toBe(0)
-    // a file bob did not bring: refused, as on dev
-    expect(await call(4)).toContain('a file is shared only when the user named it in their own message')
+    // a file bob did not bring: under his Always allow it goes too (Rule A); without it, refused
+    expect(JSON.parse(await call(4)).status).toBe('shared')
     expect(cards).toBe(0)
+    dropAlways(h.ctx.db, 'bob', 'card:share_files')
+    try {
+      expect(await call(5)).toContain('a file is shared only when the user named it in their own message')
+    } finally { keepAlways(h.ctx.db, 'bob', 'share_files', null) }
   })
 })
 

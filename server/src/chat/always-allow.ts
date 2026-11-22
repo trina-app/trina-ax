@@ -5,9 +5,9 @@
 // ignored, not deleted). No caps, no "outside content asks again", no expiry.
 //
 // Per person, never another member's: the row is the turn's own person's, and it counts only in a turn that person
-// watches from their own app (web, desktop, phone), never in a scheduled run, a Slack question, a company profile draft
-// or a confidential chat. Cards that stay (real security cases) never call this: an address that may carry data out,
-// a redirect echo, a dev environment command that uses a login, a scheduled task's card, connect_service.
+// watches from their own app (web, desktop, phone) or in their own scheduled run (also in a shared chat others wrote
+// in), never a Slack question, a company profile draft or a confidential chat. Cards that stay (real security cases)
+// never call this: an address that may carry data out, a redirect echo, a scheduled task's card, connect_service.
 import type { Database } from 'bun:sqlite'
 import { CARD_ALWAYS_KINDS, type CardAllowance, type CardAlwaysKind, type Locale } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -34,7 +34,11 @@ export interface AlwaysPlace {
   clientKind: string | null | undefined
   /** a company profile draft and other restricted turns */
   restricted?: boolean
+  /** a guest is among the people of this shared chat (TurnExec.guestAmong): the one limit Rule A keeps, below */
+  sharedGuest?: () => boolean
 }
+
+const guestThere = (p: AlwaysPlace): boolean => { try { return !!p.sharedGuest?.() } catch { return true } }
 
 const isKind = (k: string): k is CardAlwaysKind => (CARD_ALWAYS_KINDS as readonly string[]).includes(k)
 
@@ -53,12 +57,11 @@ export function alwaysHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKi
   const scheduled = p.clientKind === 'schedule'
   if (!scheduled && !LIVE_CLIENTS.has(p.clientKind ?? '')) return null
   if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
-  // a run in a shared chat whose branch holds another person's message: none of the maker's standing yeses (they could
-  // steer it; security review of #1353, H1: the shared read card skipped after a teammate's message)
-  if (scheduled && steerableRun(p.db, p.turnId)) return null
-  // and never for the shared read card in a run in a shared chat, whatever is on its branch: that card protects the
-  // people who see the chat, not the maker (re-review of #1353)
-  if (scheduled && kind === 'shared_read' && isSharedChat(p.db, p.chatId)) return null
+  // a run in a shared chat, also one whose branch holds another person's words: the maker's own Always holds, every
+  // kind (Rule A; docs/decisions/20261122-always-allow-holds-everywhere.md B6 ended the exceptions of #1353), except
+  // while a guest is among the people there (the one limit kept): then none of the maker's standing yeses when another
+  // person's words are on the run's branch, and never the shared read card's
+  if (scheduled && guestThere(p) && (steerableRun(p.db, p.turnId) || (kind === 'shared_read' && isSharedChat(p.db, p.chatId)))) return null
   return alwaysOn(p.db, p.userId, kind) ? 'on' : scheduled ? null : 'offer'
 }
 

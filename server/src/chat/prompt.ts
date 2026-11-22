@@ -28,7 +28,7 @@ import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { textTokens } from '../files/vision'
 import { AI_NAME, notFoundNext, SCREEN } from '../policy/refusal'
-import { CARD_WORDS_RULE, OTHERS_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_RULE, SHARE_FOLDER_RULE, sendNotConnectedRule, answerCommentsLine, WHICH_THREAD_RULE } from './share-words'
+import { CARD_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_RULE, SHARE_FOLDER_RULE, sendNotConnectedRule, answerCommentsLine, WHICH_THREAD_RULE } from './share-words'
 import type { GuestPrompt } from './guest-tools'
 import { stripInvisible } from './auto-memory'
 
@@ -1517,9 +1517,9 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // service that is not connected
     tools.has('ask_user') ? CARD_WORDS_RULE : '',
     SAME_NAME_RULE,
-    // (share_folder offered: the user's own folder is shared as a whole; not offered to a guest or a scheduled run)
+    // (share_folder offered: the user's own folder is shared as a whole; not offered to a guest, nor in a scheduled run
+    // without the person's Always allow for folder shares)
     tools.has('share_with_person') || tools.has('post_to_room') ? (tools.has('share_folder') ? REFUSAL_NEXT_RULE_FOLDERS : REFUSAL_NEXT_RULE) : '',
-    !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? OTHERS_WORDS_RULE : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',
     tools.has('make_file') ? makeFileRule(tools.has('edit_hwp')) : '',
     tools.has('edit_hwp') ? EDIT_HWP_RULE : '',

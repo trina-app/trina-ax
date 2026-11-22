@@ -42,6 +42,7 @@ import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
 import { auditBulk, BULK_BYTES, BULK_FILES, bulkFolders, bulkWhoForAi, moveToScratch, newBulkState, overBulk, sizeWords, type BulkAsk, type BulkState } from './bulk'
+import { RAN_UNDER_ALWAYS } from '../chat/always-allow'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -199,8 +200,11 @@ export interface BoxShellHost {
   /** the waiting state of this call's command or job on its step (Step.devEnvRun) */
   queueStep?(run: NonNullable<Step['devEnvRun']>): void
   signal: AbortSignal
-  /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null */
-  confirm(question: string, options: { label: string; value: string }[], details: string[]): Promise<string | null>
+  /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null. `always`: the
+   * card offers "Always allow" for that kind (chat/always-allow.ts), and with it on answers the first option at once */
+  confirm(question: string, options: { label: string; value: string }[], details: string[], o?: { always?: 'dev_login' }): Promise<string | null>
+  /** the person's "Always allow" for this kind is on here (no card will show): the result says so */
+  alwaysOn?(kind: 'dev_login'): boolean
   /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
   askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
@@ -582,14 +586,13 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     // a shared chat: only changes in folders this run may see, and no count of the others (sharedVisible)
     if (h.shared) { const see = sharedVisible(ctx, space); const items = foreign.items.filter((c) => see(c.path)); foreign = { ...foreign, items, total: items.length } }
     if (usesCredentials(data.command) && foreign.total > 0) {
-      if (h.helper) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
-      const ok = await h.confirm(
-        `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
-        [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
-        foreign.items.slice(0, 20).map((c) => `${c.by.name}${c.background ? ' (background process)' : ''}: ${c.action} ${c.path}`),
-      )
-      if (ok !== 'run') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
+      // (a sub-agent cannot ask; under the person's own Always it needs no card)
+      if (h.helper && !h.alwaysOn?.('dev_login')) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
+      const asked = await askLoginAfterOthers(h, data.command, foreign.items)
+      if (asked === 'no') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
       markSeen(ctx, tracked.id, h.userId, foreign.lastId)
+      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
+      if (asked === 'always') notes.push(RAN_UNDER_ALWAYS)
     } else if (firstCall && foreign.total > 0) {
       notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
     }
@@ -608,6 +611,23 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     notes.push(...asked.notes)
   }
   return srtShell(h, data, { space, tracked, cwd, what, jobName, notes, jobNotes, once })
+}
+
+/**
+ * The card before a command that can use a login, after other people changed files in the project (hole 2: the person
+ * checks the changes first). It offers "Always allow" (kind dev_login, per person, removable in Settings › Allowed for
+ * Trina; Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md M2): with it on, no card ('always'; the result
+ * still lists the changes). 'run': the person's yes on the card; 'no': anything else.
+ */
+export async function askLoginAfterOthers(h: Pick<BoxShellHost, 'confirm' | 'alwaysOn'>, command: string, changes: readonly ForeignChange[]): Promise<'run' | 'always' | 'no'> {
+  const quiet = !!h.alwaysOn?.('dev_login')
+  const ok = await h.confirm(
+    `This command can use a login: ${command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
+    [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
+    changes.slice(0, 20).map((c) => `${c.by.name}${c.background ? ' (background process)' : ''}: ${c.action} ${c.path}`),
+    { always: 'dev_login' },
+  )
+  return ok !== 'run' ? 'no' : quiet ? 'always' : 'run'
 }
 
 /** The sites the AI asked for (request_sites): each host is checked; one that is allowed already needs no card; for the

@@ -272,10 +272,8 @@ export const TEXT = {
   membersShareProject: t('팀 프로젝트로 공유', 'Share as a team project', 'Bagikan sebagai proyek tim', 'チームプロジェクトとして共有', 'Compartir como proyecto del equipo', '共享为团队项目'),
   /** the person's own chat after a room read, in front of the wider-audience card that also asks for the change */
   roomsSeenWhy: t('여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first.', 'Chat ini berisi pesan dari percakapan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットにはトークのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。", "Este chat contiene mensajes de sus conversaciones (palabras de otras personas), así que los cambios se consultan antes.", "这里收到了你聊天中的消息（其他人说的话），所以修改前会先问你。"),
-  /** a share or post card that comes although "Always allow" is on, because content someone else wrote was read (chat/share-words.ts othersWordsCard) */
-  othersWordsWhy: t('이 채팅에서 다른 사람이 쓴 내용을 읽어서 먼저 물어봐요. 메시지에 파일과 받는 사람을 이름으로 적으면 카드 없이 진행돼요.', 'Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.', 'Chat ini membaca sesuatu yang ditulis orang lain, jadi ini ditanyakan dulu. Agar tanpa kartu, sebutkan nama berkas dan penerimanya di pesan Anda.', 'このチャットでほかの人が書いた内容を読んだため、先に確認します。メッセージにファイル名と送り先を書くと、カードなしで進みます。', 'En este chat se leyó algo escrito por otras personas, así que esto se consulta antes. Para omitir la tarjeta, indique en su mensaje el archivo y quién lo recibe.', '这个对话读取了其他人写的内容，所以会先问你。在消息里写明文件和接收人的名字，就不会再出现卡片。'),
   /** a share or post card raised because what it acts on came from what is open on the screen (looking_at), not from
-   * the person's own words (chat/looking-at.ts): said in place of othersWordsWhy */
+   * the person's own words (chat/looking-at.ts) */
   lookedWhy: t('메시지에 이름이 없어서 지금 화면에 열려 있는 것을 보고 골랐어요. 그래서 먼저 물어봐요.', 'Your message didn\'t name this, so it was taken from what is open on your screen. That is why this is asked first.', 'Pesan Anda tidak menyebut namanya, jadi ini diambil dari yang terbuka di layar Anda. Karena itu ini ditanyakan dulu.', 'メッセージに名前がなかったため、いま画面で開いているものから選びました。そのため先に確認します。', 'Su mensaje no lo nombraba, así que se tomó de lo que tiene abierto en la pantalla. Por eso se consulta antes.', '你的消息没有写名称，所以是根据你屏幕上打开的内容选的。因此会先问你。'),
   /** the same three sentences when the cause is a file someone shared with the person, read through its share, and no
    * room's words came in (chat/grant-reads.ts seenWhy; docs/decisions/20261116-ai-screen-and-shared-tools.md) */
@@ -647,6 +645,7 @@ export const ALWAYS_WHAT = {
   big_download: t('1GB 넘는 파일을 내려받을 때', 'before it downloads files over 1 GB', 'sebelum mengunduh file di atas 1 GB', '1GBを超えるファイルをダウンロードするとき', 'antes de descargar archivos de más de 1 GB', '在下载超过1GB的文件时'),
   share_files: t('내 파일을 사람들에게 공유할 때', 'before it shares your files with people', 'sebelum membagikan file Anda kepada orang lain', 'あなたのファイルを人に共有するとき', 'antes de compartir sus archivos con personas', '在把你的文件共享给别人时'),
   bulk_files: t('프로젝트 폴더에 새 파일을 많이 둘 때', 'before it keeps many new files in a project folder', 'sebelum menyimpan banyak file baru di folder proyek', 'プロジェクトフォルダーに新しいファイルをたくさん置くとき', 'antes de dejar muchos archivos nuevos en una carpeta de proyecto', '在项目文件夹中保留大量新文件时'),
+  dev_login: t('팀원이 파일을 바꾼 뒤 개발 환경에서 로그인을 쓰는 명령을 실행할 때', 'before it runs a dev environment command that can use a login after teammates changed files', 'sebelum menjalankan perintah lingkungan pengembangan yang dapat memakai login setelah rekan tim mengubah file', 'チームメイトがファイルを変更した後、開発環境でログインを使うコマンドを実行するとき', 'antes de ejecutar en el entorno de desarrollo un comando que puede usar un inicio de sesión después de que sus compañeros cambiaran archivos', '在队友更改文件后，于开发环境中运行可能使用登录的命令时'),
 } as const
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
