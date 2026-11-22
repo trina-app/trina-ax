@@ -319,8 +319,9 @@ describe('review findings (QA TC-6201 … TC-6204)', () => {
     expect(seen).toEqual([2048])
     expect(fs.existsSync(path.join(outside, 'd'))).toBe(false)
     // the tool passes the team disk check (system/storage.ts) as that hook: its routes are copy_files' own since P2
-    // (chat/places-copy.ts workToTeam and workToChat), so both copies there take it
-    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/places-copy.ts'), 'utf8').split('beforeCopy: assertStorageRoomForAI').length - 1).toBe(2)
+    // (chat/places-copy.ts workToTeam and workToChat, and #334's work file as a new version of a chat file), so every copy
+    // there takes it
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/places-copy.ts'), 'utf8').split('beforeCopy: assertStorageRoomForAI').length - 1).toBe(3)
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
   })
 
