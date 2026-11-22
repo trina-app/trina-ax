@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, type ApiError } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { chatThreadWanted, followersOf } from '../../server/src/chat/threads'
+import { chatThreadWanted, followersOf, unreadThreadMentions } from '../../server/src/chat/threads'
+import { pushBadge } from '../../server/src/notifications/push-badge'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 
@@ -118,6 +119,25 @@ describe('a project chat', () => {
     savePreferences(db(), 'bob', { roomThreadReplies: false })
     try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(false) }
     finally { savePreferences(db(), 'bob', { roomThreadReplies: true }) }
+  })
+
+  // the owner 11-22: the 프로젝트 list showed "1" and nothing else did; the app icon's number counts it too (push-badge.ts)
+  test('an unread mention counts on the app icon\'s number (a push\'s badge) until the thread is read; a plain reply does not', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
+    const r0 = await answered(c, 'alice', 'badge root')
+    const base = pushBadge(h.ctx, 'bob')!
+    const mentions = unreadThreadMentions(h.ctx, 'bob')
+    // alice follows her own answer: a plain reply by bob gives her a notice that is no mention
+    await reply('bob', c, r0, 'plain one')
+    expect(unreadThreadMentions(h.ctx, 'alice')).toBe(0)
+    const r = await reply('alice', c, r0, '@Bob Lee badge?', ['bob'])
+    expect(unreadThreadMentions(h.ctx, 'bob')).toBe(mentions + 1)
+    expect(pushBadge(h.ctx, 'bob')).toBe(base + 1)
+    await h.api('bob').call(API.markChatThreadRead, { params: { id: c, messageId: r0 }, body: { upTo: r.id } })
+    expect(unreadThreadMentions(h.ctx, 'bob')).toBe(mentions)
+    expect(pushBadge(h.ctx, 'bob')).toBe(base)
+    // someone outside the project never counts one
+    expect(unreadThreadMentions(h.ctx, 'erin')).toBe(0)
   })
 
   test('someone the answer is hidden from is not offered and not kept', async () => {

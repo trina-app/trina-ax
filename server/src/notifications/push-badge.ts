@@ -1,5 +1,6 @@
 // The phone app's icon number for a push (docs/DECISIONS.md "휴대폰 앱 아이콘의 숫자"): the one count n the page shows
-// (shared/src/api/attention.ts: the AI chats that need the person and the rooms that want them, each once), counted
+// (shared/src/api/attention.ts: the AI chats that need the person and the rooms that want them, each once, and their
+// unread thread mentions), counted
 // here for the recipient at send time, with the same rules and the same fields the page gets from GET /api/rooms and
 // GET /api/chats. A number only: the push carries nothing about what it counts.
 import { appBadgeOf, attentionCount, type MarkedChat } from '@mycel/shared/api'
@@ -11,6 +12,7 @@ import { unreadOf } from '../chat/message-notices'
 import { CHAT_COLS, type ChatRow } from '../chat/store'
 import { notInternalChat } from '../chat/internal-chats'
 import { roomsOf } from '../rooms/service'
+import { unreadThreadMentions } from '../chat/threads'
 
 /** The page counts the chats of its first page of the list (my pinned ones, then web/src/store/chats.ts PAGE): the same
  * here. */
@@ -51,7 +53,8 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
 export function pushBadge(ctx: AppContext, userId: string): number | null {
   try {
     const rooms = roomsOf(ctx)
-    return appBadgeOf(attentionCount(markedChats(ctx, userId), rooms.listed(userId)).n)
+    // my unread thread mentions too, as the page counts them (web/src/store/sessionMarkers.ts currentCount)
+    return appBadgeOf(attentionCount(markedChats(ctx, userId), rooms.listed(userId), { mentions: unreadThreadMentions(ctx, userId) }).n)
   } catch {
     return null
   }

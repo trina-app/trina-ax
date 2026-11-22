@@ -30,7 +30,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
 import { roomsOf } from '../rooms/service'
 import { getPreferences } from '../notifications/preferences'
-import { notificationsOf } from '../notifications/service'
+import { NOTIFICATION_RETENTION_MS, notificationsOf } from '../notifications/service'
 import { getChatRuntime, type ChatRuntime } from './runtime'
 import { Audiences, chatFor, isProjectSharedRow, isSharedRow, messageFor, messageView, type ChatAccess } from './shared'
 import { AnswerSight, chatNodes, withheldAmong, type Node } from './shared-answers'
@@ -396,6 +396,26 @@ export function chatThreadWanted(ctx: AppContext, notificationId: string, now = 
   if (inQuietHours(prefs.quietHours, teamTimeZone(ctx.db), now)) return false
   return threadVisibleTo(ctx, n.user_id, n.chat_id, n.source_id)
 }
+
+/** My unread thread mentions, as the 프로젝트 list counts them (web/src/store/chatMentions.ts: each unread notice of a
+ * thread that one of its replies still there mentions me in, while I see the thread; the Inbox's 30 days, at most its
+ * 500 newest): the push badge adds them to n (notifications/push-badge.ts), as the page does. Never throws. */
+export function unreadThreadMentions(ctx: AppContext, userId: string, now = Date.now()): number {
+  try {
+    const rows = ctx.db.query(`SELECT id FROM chat_thread_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0 AND mention_id IS NOT NULL
+      AND created_at >= ? ORDER BY created_at DESC LIMIT ${MENTIONS_COUNTED}`).all(userId, new Date(now - NOTIFICATION_RETENTION_MS).toISOString()) as { id: string }[]
+    let n = 0
+    for (const r of rows) {
+      const row = noticeOf(ctx.db, r.id)
+      if (row && replyThere(ctx.db, row) && mentionerOf(ctx.db, row) && threadVisibleTo(ctx, userId, row.chat_id, row.source_id)) n++
+    }
+    return n
+  } catch {
+    return 0
+  }
+}
+/** the page reads at most 5 pages of 100 notices (chatMentions.ts MENTIONS_READ × MENTIONS_PAGES) */
+const MENTIONS_COUNTED = 500
 
 /** A tap opens the thread (/c/<chat>/t/<answer>, ids only) while the person still sees it; else the app's start page. */
 export function chatThreadPath(ctx: AppContext, notificationId: string): string | null {

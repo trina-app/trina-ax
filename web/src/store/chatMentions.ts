@@ -37,6 +37,13 @@ export function mentionsByChat(items: readonly InboxNotification[]): Map<string,
   return out
 }
 
+/** How many unread mentions of me (threads) in all: the one count n adds them (store/sessionMarkers.ts). */
+export function mentionCount(byChat: ReadonlyMap<string, ChatMention>): number {
+  let n = 0
+  for (const m of byChat.values()) n += m.count
+  return n
+}
+
 /** The mentions by project: each chat's count added to its project's (a chat whose project is not known is left out). */
 export type ProjectMention = ChatMention & { chats: number; chatIds: string[] }
 export function mentionsByProject(byChat: ReadonlyMap<string, ChatMention>, projectOf: (chatId: string) => string | null | undefined): Map<string, ProjectMention> {

@@ -6053,6 +6053,7 @@ export const ja: Record<MessageKey, string> = {
   "rail.showList": "リストを表示",
   "rail.searchChats": "トークを検索",
   "rail.unreadRooms": "{n, plural, one {未読のトーク#件} other {未読のトーク#件}}",
+  "rail.unreadProjects": "{n, plural, one {未読のメンション・メッセージがあるプロジェクト#件} other {未読のメンション・メッセージがあるプロジェクト#件}}",
   "rail.pickConversation": "リストからトークを選ぶか、+ で新しいトークを始めてください。",
   "rail.pickConversationOnly": "一覧からトークを選んでください。",
   "trinaList.folders": "フォルダ",

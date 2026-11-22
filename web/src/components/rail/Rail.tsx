@@ -1,6 +1,6 @@
 // The rail on computers (768 px and wider; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the team's logo on top
 // (TeamMenu.tsx: its menu for every role: Switch team; Invite people and Admin for owners and admins), then five places, each an icon with its name under it (the owner, 2026-11-07: no icon
-// without words): 트리나 · 대화 · 프로젝트 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx:
+// without words): 트리나 · 대화 · 프로젝트 · 파일 · 활동, the order of the phone's tabs (프로젝트's mark: useProjectsMark.ts, the phone tab's too); my photo at the bottom (nav/AccountMenu.tsx:
 // status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
 // the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that
 // waits on me. Each place's mark is railBadges.ts. Tab goes through the logo, the places and
@@ -24,6 +24,7 @@ import { TeamMenu } from '../TeamMenu'
 import { Tooltip } from '../Tooltip'
 import { activityMark, aiMark, chatsMark, type RailMark } from './railBadges'
 import { useRailPanel } from './railPanel'
+import { useProjectsMark } from './useProjectsMark'
 
 /** `showList`: the panel is hidden by the person (below 1052 px): a button to bring it back */
 export function Rail({ showList }: { showList: boolean }) {
@@ -42,7 +43,8 @@ export function Rail({ showList }: { showList: boolean }) {
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const notices = useActivityUnread()
-  const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms, roomNotices), projects: null, files: null, activity: activityMark(notices) }
+  const projects = useProjectsMark()
+  const marks: Record<RailItem, RailMark> = { ai: aiMark(attention), chats: chatsMark(rooms, roomNotices), projects, files: null, activity: activityMark(notices) }
   // 트리나 with its "?": the first chat that waits on me (not the one on screen), wherever it sits in the list, so it
   // never waits below the project groups (UX review S2); without one the place opens as any place does
   const waiting = useWaitingChats()
@@ -134,6 +136,6 @@ function MarkWords({ mark, item }: { mark: RailMark; item: RailItem }) {
   const words =
     mark.kind === 'ask' ? t('marker.card')
     : mark.kind === 'dot' ? (item === 'chats' ? t('feed.chatsUnread') : t('marker.new'))
-    : item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : t('notifications.unread', { count: mark.n })
+    : item === 'chats' ? t('rail.unreadRooms', { n: mark.n }) : item === 'projects' ? t('rail.unreadProjects', { n: mark.n }) : t('notifications.unread', { count: mark.n })
   return <span className="sr-only" data-testid={`rail-${item}-mark-words`}>, {words}</span>
 }

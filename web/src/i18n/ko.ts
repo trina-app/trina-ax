@@ -6097,6 +6097,7 @@ export const ko = {
   "rail.showList": "목록 보기",
   "rail.searchChats": "대화 검색",
   "rail.unreadRooms": "안 읽은 대화 {n}개",
+  "rail.unreadProjects": "안 읽은 멘션·메시지가 있는 프로젝트 {n}개",
   "rail.pickConversation": "목록에서 대화를 고르거나, +로 새 대화를 시작하세요.",
   "rail.pickConversationOnly": "목록에서 대화를 고르세요.",
   "trinaList.folders": "폴더",
