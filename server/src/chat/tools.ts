@@ -579,7 +579,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // who can open what it saved, from the real folder (chat/save-audience.ts), with who_can_open's gates
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
       // a search that found nothing while a file of that name is in the person's trash (chat/trash-hint.ts, QA TC-7242)
-      const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
+      const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && !exec.restricted && !exec.templateRun && !exec.otherAuthors && hintsHere(exec, true) && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
       return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file

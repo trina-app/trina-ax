@@ -204,7 +204,10 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   const nowNote = (x: string) => { const w = asWork(x); return NOW_NOTE.test(w) && WORK_NOUN.test(w) }
   // ...or "Now the <work thing>." alone on that line (2026-11-22: "Now the SKILL.md." above a Korean answer)
   if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text)) && !nowNote(t)
-  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && (isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)) || nowNote(t)))) return true
+  // a lead-in ("…:") right before a call leads into the call, not into text (2026-11-22, owner live: "Quick speed test on
+  // a short stretch first:" under a Korean line while the run went on)
+  const leadIn = notes && /:\s*$/.test(t) && !TO_PEOPLE.test(withoutNames(t))
+  if (!partial && !leadIn && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && (isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)) || nowNote(t)))) return true
   return false
 }
 
@@ -329,4 +332,26 @@ export class NarrationHold {
     else if (this.lead !== null) out = '' // only space after a dropped piece: the next piece brings the separator
     return out
   }
+}
+
+/** Hangul, kana or CJK: a script answered in itself, never in Latin letters */
+const NON_LATIN = /[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/
+/** "latin", "cjk" (Hangul, kana, CJK) or null (too short or mixed to tell) */
+function writtenIn(m: string): 'latin' | 'cjk' | null {
+  const cjk = (m.match(/[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/g) ?? []).length
+  const latin = (m.match(/[A-Za-z]{2,}/g) ?? []).length
+  if (cjk >= 4 && latin < 3) return 'cjk'
+  if (!NON_LATIN.test(m) && latin >= 3) return 'latin'
+  return null
+}
+/**
+ * A message in another script than the one before it (QA TC-7429, 2026-11-22: Daniel's English request in a chat begun
+ * in Korean got a Korean answer, on both engines; the earlier messages and the Korean file names outweighed the
+ * instructions' language line). The server says so next to the message, in its own block, only then.
+ */
+export function languageSwitchNote(message: string, previous: string | null | undefined): string | null {
+  if (!previous) return null
+  const now = writtenIn(message), before = writtenIn(previous)
+  if (!now || !before || now === before) return null
+  return '<turn_context>\nThis message is written in another language than the messages before it: answer in the language of this message.\n</turn_context>'
 }

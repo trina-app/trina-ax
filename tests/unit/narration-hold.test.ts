@@ -244,6 +244,9 @@ describe('NarrationHold', () => {
   })
 
   test('11-22 (owner, live): "Now the SKILL.md." is dropped before a call and at the top of a Korean answer; a file name is the work named', () => {
+    // a lead-in right before a call leads into the call (above text it leads into that text: kept)
+    expect(dropped('Quick speed test on a short stretch first:')).toBe(true)
+    expect(run(ko(), [{ text: 'Totals by client:\n\n' + KO_ANSWER }, 'end'])).toBe('Totals by client:\n\n' + KO_ANSWER)
     for (const line of ['Now the SKILL.md.', 'Now the 견적서.pdf.', 'Now the PDF.']) {
       expect(dropped(line), line).toBe(true)
       for (const n of [1, 7, 500]) expect(run(ko(), [{ text: line + '\n\n' + KO_ANSWER }, 'end'], n), line).toBe(KO_ANSWER)

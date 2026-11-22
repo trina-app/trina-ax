@@ -18,7 +18,8 @@ const TRASH_SCAN = 200
 /** The pattern's last part as a test on a file name, without letter case ("**\/*교육자료*.pptx" -> *교육자료*.pptx). */
 function nameTest(pattern: string): ((name: string) => boolean) | null {
   const last = pattern.normalize('NFC').split('/').filter(Boolean).pop()
-  if (!last || last === '**' || last === '*') return null
+  // a wide pattern ("*.pptx", "**/*") names nothing: two letters or more besides wildcards and the extension
+  if (!last || last.replace(/\.[A-Za-z0-9{},]{1,12}$/, '').replace(/[*?[\]{}!,]/g, '').length < 2) return null
   try { const g = new Bun.Glob(last.toLowerCase()); return (n) => g.match(n.normalize('NFC').toLowerCase()) } catch { return null }
 }
 

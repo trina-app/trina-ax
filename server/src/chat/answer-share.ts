@@ -507,7 +507,7 @@ export interface ShareAnswerInput { roomId: string; note?: string; confirm?: num
 /** The server's own line at the end of an API-engine answer about a step that failed (engine/api-honest.ts
  * failedStepsNote, chat/i18n.ts apiStepFailed / apiStepsFailed, in any language): a note to the person who asked, not
  * content for the room (QA TC-7238: it was posted to the room with the chart). */
-const STEP_NOTE = new RegExp(`\\n*(?:${(['apiStepFailed', 'apiStepsFailed'] as const).flatMap((k) => Object.values(TEXT[k])).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{names\\}', '[^\\n]{1,300}')).join('|')})\\s*$`)
+const STEP_NOTE = new RegExp(`(?:^|\\n+)(?:${(['apiStepFailed', 'apiStepsFailed'] as const).flatMap((k) => Object.values(TEXT[k])).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{names\\}', '[^\\n]{1,300}')).join('|')})\\s*$`)
 export const withoutStepNote = (content: string): string => content.replace(STEP_NOTE, '')
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a

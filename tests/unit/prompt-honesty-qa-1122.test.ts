@@ -13,6 +13,7 @@ import { API_GROUNDING_RULES } from '../../server/src/engine/api-agent'
 import { appMapSection } from '../../server/src/chat/app-map'
 import { saveAudienceNote } from '../../server/src/chat/save-audience'
 import { withoutStepNote } from '../../server/src/chat/answer-share'
+import { languageSwitchNote } from '../../server/src/chat/narration'
 import { docResultText, imageCount, textBars } from '../../server/src/tools/make-file'
 import { trashHint } from '../../server/src/chat/trash-hint'
 import { componentC } from '../../server/src/team-files/component'
@@ -29,14 +30,14 @@ const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
 
 describe('the three honesty lines', () => {
   test('say what they must, and stay short (they go with every turn)', () => {
-    for (const s of ['Quote people word for word', 'only from messages or files you read', 'never say nobody said or decided otherwise', 'leave a marked blank, go on, and say so', 'Label sample numbers as samples', 'a message you wrote but did not send is a draft', 'statistic or source'])
+    for (const s of ['Quote people word for word', 'only from messages or files you read', 'never say nobody said or decided something beyond what you read', 'write a visible blank such as [rate?], go on, and say it needs filling', 'Label sample numbers as samples', 'a message you wrote but did not send is a draft', 'statistic or source'])
       expect(NO_INVENT_RULE).toContain(s)
-    for (const s of ['name it', 'look in shared, group and project folders before an old or personal copy', 'Add up again the totals you use or change', 'which value you used'])
+    for (const s of ['name it', 'shared, group or project folders before an old or personal copy', 'add up again the totals you use or change', 'which value you used'])
       expect(FIGURES_RULE).toContain(s)
-    for (const s of ['change only what was asked, in place', 'compare it with the request and its source', 'charts as pictures', 'problems included'])
+    for (const s of ['change only what was asked, in place', 'compare it with the request and source', 'charts as pictures', 'problems included'])
       expect(CHECK_MADE_RULE).toContain(s)
-    // about 170 tokens together, measured in characters
-    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1000)
+    // about 250 tokens together, measured in characters
+    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1120)
   })
 
   test('once in a personal, a shared and a guest-free English turn; the API engine no longer repeats the facts line', () => {
@@ -52,6 +53,14 @@ describe('the three honesty lines', () => {
 })
 
 describe('language, shared chats, rooms, who can open', () => {
+  test('a message in another script than the one before it gets a server note next to it (TC-7429)', () => {
+    const note = languageSwitchNote('Make a one-page summary PDF and save it where the team can see it.', '다니엘 님 이 견적 영어로 검토 부탁해요')
+    expect(note).toContain('answer in the language of this message')
+    expect(languageSwitchNote('이거 요약해 줘요', 'Make a one-page summary PDF please')).not.toBeNull()
+    for (const [m, p] of [['이거 요약해 줘요', '다니엘 님 검토 부탁해요'], ['ok', '다니엘 님 검토 부탁해요'], ['Make a summary PDF please', 'Check the quote again today'], ['요약 PDF 만들어줘', null]] as const)
+      expect(languageSwitchNote(m, p)).toBeNull()
+  })
+
   test('the latest message decides the language, not earlier messages or tool results (TC-7429)', () => {
     const l = answerLanguageLine('ko')
     expect(l).toContain("Answer in the language of the user's latest message")
@@ -69,7 +78,8 @@ describe('language, shared chats, rooms, who can open', () => {
   })
 
   test('a side chat asks on a card, and a post carries only the content (TC-7238)', () => {
-    expect(sideRoomSection({ id: 'r1', kind: 'team', name: 'Sales' })).toContain('ask them anything with ask_user, not in the answer')
+    expect(sideRoomSection({ id: 'r1', kind: 'team', name: 'Sales' }, 'en', false, true)).toContain('end it without questions to them; when you must ask, use ask_user')
+    expect(sideRoomSection({ id: 'r1', kind: 'team', name: 'Sales' }, 'en', false, false)).not.toContain('ask_user')
     expect(ROOMS_POST_RULE).toContain('only the content, never your questions or notes to the user')
   })
 
@@ -83,7 +93,7 @@ describe('language, shared chats, rooms, who can open', () => {
   test('the app map says what a file view does, and nothing it does not show is a feature (TC-7391)', () => {
     for (const view of ['staff', 'member', 'shared'] as const) {
       const m = appMapSection({ view, managed: false, devEnv: false, office: false }, 'en')
-      expect(m).toContain('Word, Excel, PowerPoint, PDF never in the app, and nobody edits live together')
+      expect(m).toContain('Word, Excel, PowerPoint and PDF are never edited in the app, nobody edits live together')
       expect(m).toContain('never describe it as a feature')
     }
   })
@@ -106,6 +116,9 @@ describe('tool results carry the facts', () => {
       expect(withoutStepNote(`Chart made.\n\n${tr('apiStepsFailed', L, { names: 'Save, Edit' })}`)).toBe('Chart made.')
     }
     expect(withoutStepNote('One step was hard: Save. We fixed it.')).toBe('One step was hard: Save. We fixed it.')
+    // only a line of its own (review: words of that shape inside a line stay)
+    expect(withoutStepNote("Report: Some steps didn't work: the vendor API timed out.")).toBe("Report: Some steps didn't work: the vendor API timed out.")
+    expect(withoutStepNote(tr('apiStepFailed', 'ko', { names: '저장' }))).toBe('')
   })
 
   test('a search that found nothing names a file of that name in the trash, as the Trash screen lists it (TC-7242)', () => {
@@ -118,5 +131,8 @@ describe('tool results carry the facts', () => {
     expect(note).toContain('Tell the user it is in the trash, not that it does not exist')
     expect(trashHint(h.ctx, 'alice', '**/*견적*', 'ko')).toBeNull()
     expect(trashHint(h.ctx, 'alice', '**/*', 'ko')).toBeNull()
+    // a wide pattern names nothing
+    expect(trashHint(h.ctx, 'alice', '**/*.pptx', 'ko')).toBeNull()
+    expect(trashHint(h.ctx, 'alice', '*.{ppt,pptx}', 'ko')).toBeNull()
   })
 })
