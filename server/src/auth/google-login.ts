@@ -28,6 +28,8 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { tokenGuard, viaOf } from './accounts'
 import { isGuest } from './guests'
 import { forgetLoginIdentities } from './login-identities'
+import { googleSignInOn } from './google-login-admin'
+import { notifyGoogleConnected } from '../notifications/service'
 import { msg } from './messages'
 import { hashToken, safeEqual } from './passwords'
 import { googleStartKeys } from './rate-limit'
@@ -86,9 +88,10 @@ export function safeNextPath(v: string | null | undefined): string | null {
 
 /** This page can use Sign in with Google: this server has a Google client of its own, Google returns to the address
  * this page was opened at (people on an office, Tailscale or LAN address sign in with the password there: the binding
- * cookie lives on one address), and it is not a demo. */
+ * cookie lives on one address), the team has not turned it off (Admin › Team settings, google-login-admin.ts) and it is
+ * not a demo. */
 export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
-  if (ctx.config.demo || isFreeRoam(ctx.config)) return false
+  if (ctx.config.demo || isFreeRoam(ctx.config) || !googleSignInOn(ctx.db)) return false
   const cfg = googleDriveOf(ctx).config
   if (!cfg) return false
   try { return new URL(cfg.redirectUri).origin === new URL(reqUrl).origin } catch { return false }
@@ -176,8 +179,9 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undef
   if (error) return backTo(row, error === 'access_denied' ? 'cancelled' : 'failed')
   const drive = googleDriveOf(ctx)
   const cfg = drive.config
-  // the client changed since the start (an admin replaced it): its code is for the other one
-  if (!cfg || configKey(cfg) !== row.config_key || !code || code.length > 4096) return backTo(row, 'failed')
+  // the client changed since the start (an admin replaced it): its code is for the other one. Turned off for the team
+  // meanwhile (Admin › Team settings): nothing signs in or connects any more
+  if (!cfg || configKey(cfg) !== row.config_key || !googleSignInOn(ctx.db) || !code || code.length > 4096) return backTo(row, 'failed')
   let secret: { verifier: string; nonce: string }
   try { secret = drive.store.open({ id: row.id, user_id: SEAL_CONTEXT, secret_enc: row.secret_enc, key_version: row.key_version }) } catch { return backTo(row, 'failed') }
   ctx.db.query('UPDATE google_signin_flows SET secret_enc = NULL WHERE id = ?').run(row.id)
@@ -248,15 +252,17 @@ function connect(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleCla
     if (taken && taken.user_id !== u.id) return false
     if (taken) {
       ctx.db.query("UPDATE login_identities SET email = ?, hd = ? WHERE user_id = ? AND provider = 'google'").run(g.email, g.hd, u.id)
-      return true
+      return 'same'
     }
     // another Google account of mine is replaced
     forgetLoginIdentities(ctx.db, u.id)
     ctx.db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at) VALUES (?, 'google', ?, ?, ?, ?)").run(u.id, g.sub, g.email, g.hd, now)
     // the Google address is not in the log: who and that it was Google
     audit(ctx.db, { actor: u.id, action: 'auth.google_connected', target: u.id })
-    return true
+    return 'new'
   }).immediate()
+  // a new way in: the person's Inbox says so (if someone else did it with their password, they learn of it; part A2)
+  if (done === 'new') notifyGoogleConnected(ctx, u.id, now)
   return done ? 'connected' : 'in_use'
 }
 

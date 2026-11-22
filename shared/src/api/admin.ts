@@ -69,8 +69,16 @@ export const UsersResponse = z.object({
   deletionRequested: z.array(UserId).optional(),
   /** With `deletionRequested`: when each of those accounts is deleted by itself (ISO). Absent from older servers. */
   deletionDue: z.record(UserId, IsoTime).optional(),
+  /** The people who connected a Google account to sign in with (Sign in with Google, server/src/auth/google-login.ts):
+   * Admin › Members shows "Google" beside them. Never the Google account or its address. Absent from older servers. */
+  google: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
+/** Sign in with Google for Admin › Team settings (server/src/auth/google-login-admin.ts). `client`: this server has a
+ * Google client it can use, so the row "Sign in with Google" shows (the team switch is TeamSettings.googleSignIn);
+ * without one the page says how a self-installed server adds one (Admin › Connectors › Google Drive). */
+export const GoogleSignInAdminStatus = z.object({ client: z.boolean() })
+export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
  * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
@@ -673,6 +681,8 @@ export const ADMIN = {
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
+  // Sign in with Google (server/src/auth/google-login.ts): the same rules as the other actions on people
+  disconnectUserGoogle: endpoint({ method: 'DELETE', path: '/api/admin/users/:id/google', auth: 'admin', owner: 'A', response: empty, status: 204, summary: "Disconnect a person's Google account: it no longer signs them in (their sessions stay). Never the owner or yourself; only the owner acts on admins; audited." }),
   transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: TransferResult, summary: 'Make another member the owner (password re-entry; 5 wrong tries per 15 minutes, then the owner gets an Inbox note): one locked write, 409 when the owner changed meanwhile. The old owner becomes admin; every lead flag is cleared; the connections in `end` that are the caller\'s own are ended after the commit. Both people, the other admins and their open windows are told.' }),
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
@@ -715,6 +725,7 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
+  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google (the team switch is the googleSignIn setting); never the client.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),
