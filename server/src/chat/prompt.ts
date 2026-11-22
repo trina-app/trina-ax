@@ -1135,29 +1135,47 @@ export function demoRule(company: string, fakes = false, banner = false, bannerS
 export const demoBannerSource = (file: string, exists: boolean) => exists
   ? `This chat's banner source is ${file}: read it before you change or talk about the banner's words.`
   : `This chat's banner source will be ${file} (change_banner_text makes it from the launch banner on its first call; call it once before editing words).`
+/** The demo's prepared photo scenes by the banner kit's scene ids (scripts/demo/steepling/assets/banner/scenes.json; a
+ * test keeps the two the same), in English words for the AI. */
+export const DEMO_SCENES: Readonly<Record<string, string>> = {
+  'one-cup': 'one glass by a frosted window',
+  'two-cups': 'two glasses',
+  pouch: 'the pouch up close',
+  cafe: 'a cafe table',
+}
 /** A demo whose Gmail, Google Drive and Higgsfield are the practice fakes (demo/fakes/; the demo file's `fakes`): the owner
  * found the AI saying it had "shot a new photo with Higgsfield", and then refusing to change a banner's words. Said in
  * the visitor's language like every answer. */
 export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are practice copies with made-up data. ' +
   // QA TC-6792: say it, in one short sentence, every time (the tool's result says it too)
   "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say in one short sentence that the photo comes from the demo's prepared photos, never that you shot or generated a new one. " +
-  // QA TC-6791: a connection's picture shows in the chat only once it is a team file named as a Markdown image
-  "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder), then show it in your answer as a Markdown image, ![<name>](/api/files/download?path=<team path, URL-encoded>), so it appears in the chat. " +
+  // QA TC-6791: a connection's picture shows in the chat only once it is a team file; the chat shows the saved picture
+  // on the tool's step by itself (#341), so image Markdown would show it twice
+  "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder). The saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only. " +
   'Mail is never really sent: after sending, say it went to the practice mailbox. ' +
   // QA 11-22 B3: "open it" linked to drive.google.com/file/d/tracker/view, Google's "file does not exist" page
   'Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link. ' +
-  // QA 11-22 A4: asked for a scene the demo does not have, the AI asked twice and got the same photo twice
-  'When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.'
+  // owner's replay 11-22 (0.9.1): after a send through the card, the AI said sorry for not showing the draft first
+  'The send card shows the user the full draft before anything is sent, so never apologize for not showing the draft. ' +
+  // QA 11-22 A4: asked for a scene the demo does not have, the AI asked twice and got the same photo twice; owner's
+  // replay 11-22 (0.9.1): "change bag color to red not green" got a Higgsfield send card, then a long answer
+  `The prepared photos are exactly these scenes: ${Object.values(DEMO_SCENES).join('; ')}; the same green pouch is in every photo. ` +
+  'Recoloring or editing a photo is impossible here (no other color for the pouch, the bag or anything in it, nothing added or removed). ' +
+  'For a recolor or edit request, or a scene not on this list, answer in ONE short line without calling any tool, offering the listed scenes; do not try again.'
 /** with the demo's banner kit (demo/fakes/banners.ts): banner words are a layer the AI changes with the server's own
  * change_banner_text (tools/demo-banner.ts), never through Higgsfield (owner, 11-22: the visitor got Higgsfield's send
- * card for a headline). A short phrase right after a banner is its new headline: the owner's "작지 않아 큰 햇살이야!"
- * got a clarifying question instead of the banner. */
+ * card for a headline). Which words change is one rule with a priority (owner's replay 11-22, 0.9.1: a standalone
+ * phrase sent after a banner got one word swapped into the old headline, because "change only the words the user
+ * named" came first; its retry added a comma). */
 export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the server from the banner's source file (banner.json: headline, subline, eyebrow, badge, badge_note, button, scene, sizes); nothing is sent to Higgsfield. " +
-  // owner's demo test 11-22: "흐린 아침 말고, 밝은 아침으로 해줘" got "데모에는 그 장면 사진이 없어요", then a made-up headline
-  "To change a banner's words: read the source file, change only the words the user named with the edit tool (\"change grey mornings to green mornings\": replace grey with green; every other word stays exactly as it is), then call change_banner_text to draw every size again. Never rewrite, add or drop words the user did not name. " +
+  'Which words change, in this order: ' +
+  '(a) The user names old and new words ("change X to Y", "Y, not X", "X -> Y"): read the source file and replace exactly those words with the edit tool; every other word stays exactly as it is ("change grey mornings to green mornings": replace grey with green). ' +
+  '(b) Otherwise, when the user sends a standalone phrase or sentence with no edit verb right after a banner, or says "make the headline ...": the whole headline becomes exactly that phrase (right after a banner, "Not small, a big ray of sun!" alone makes the headline exactly "Not small, a big ray of sun!"); apply it at once without asking, then offer to undo. ' +
+  '(c) Never mix the two: never merge a new phrase into the old headline or swap in only some of its words, and in (a) never rewrite, add or drop words the user did not name. ' +
+  "Use the user's exact words and punctuation: never add or remove a word, comma, period, mark, quote or emphasis (*italic*); line breaks are the renderer's choice, never add one yourself. " +
+  'Then call change_banner_text to draw every size again. ' +
   "When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it. Use Higgsfield's generate_image only for a new background, photo or scene. " +
-  "A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo. " +
-  "change_banner_text saves the banner; show it with the Markdown images its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."
+  "change_banner_text saves the banner (its photo is one of the demo's prepared photos); the saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only. Never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
