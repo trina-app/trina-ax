@@ -229,7 +229,14 @@ export interface OpsWakeResponse {
   state: 'waking' | 'awake' | 'busy' | 'unknown'
   /** the client may ask again after this many seconds */
   retryAfterSec: number
+  /** optional, only with state 'busy' (added 2026-11, additive): no_room = the host has no room for the team now; the
+   * control plane keeps trying by itself and emails the team's owners when it is up, so the relay shows a calm page
+   * that reloads at most once a minute. Older control planes never send it, older relays ignore it; a relay ignores
+   * any other value. */
+  reason?: OpsWakeBusyReason
 }
+export type OpsWakeBusyReason = 'no_room'
+export const WAKE_BUSY_REASONS: readonly OpsWakeBusyReason[] = ['no_room']
 
 export function wakeSigningString(pathWithQuery: string, ts: number, body: string): string {
   return `mycel-relay-wake-v1\nPOST\n${pathWithQuery}\n${ts}\n${createHash('sha256').update(body).digest('hex')}`
