@@ -1270,3 +1270,12 @@ describe('a room post is a copy made when it was sent (QA TC-r2u-21)', () => {
     expect(roomCopiesOf(h.ctx.db, 'alice', [at], 'ko')).toEqual([])
   })
 })
+
+describe('dropWhoCanOpen leaves ordinary sentences alone (review)', () => {
+  test('only claims about who may open or see something go', () => {
+    for (const keep of ['Only you can approve this budget, so please reply by Friday.', '- Only the user can change the plan', '이 설정을 켜면 다른 팀원은 볼 수 없습니다.'])
+      expect(dropWhoCanOpen(keep)).toBe(keep)
+    expect(dropWhoCanOpen('Saved report.pdf for you. Only you can open report.pdf now.')).toBe('Saved report.pdf for you.')
+    expect(dropWhoCanOpen('이 파일은 다른 사람은 열 수 없어요. 표는 3개예요.')).toBe('표는 3개예요.')
+  })
+})

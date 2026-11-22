@@ -6,7 +6,7 @@
 // team folder (room_file_refs) is the file itself, not a copy: it is not named here.
 import type { Database } from 'bun:sqlite'
 import type { Locale } from '@mycel/shared/api'
-import { roomRow, memberRow } from '../rooms/store'
+import { memberRow, roomRow, SEE_MEMBER_SQL } from '../rooms/store'
 import { roomTitleFor } from './post-to-room'
 
 /** At most this many changed files are looked up per tool call, and this many rooms named per file. */
@@ -19,9 +19,10 @@ export interface RoomCopy { path: string; rooms: { id: string; title: string; at
 export function roomCopiesOf(db: Database, userId: string, paths: readonly string[], locale: Locale): RoomCopy[] {
   const out: RoomCopy[] = []
   for (const rel of [...new Set(paths)].slice(0, PATHS_MAX)) {
-    const rows = db.query(`SELECT m.room_id, MAX(m.created_at) AS at FROM room_messages m JOIN room_members me ON me.room_id = m.room_id AND me.user_id = ?
+    // (only messages I see now, by the room's own rule: SEE_MEMBER_SQL on my membership row `mm`)
+    const rows = db.query(`SELECT m.room_id, MAX(m.created_at) AS at FROM room_messages m JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
       JOIN rooms r ON r.id = m.room_id AND r.archived_at IS NULL
-      WHERE m.deleted_at IS NULL AND m.seq >= me.visible_from_seq AND (
+      WHERE m.deleted_at IS NULL AND ${SEE_MEMBER_SQL} AND (
         (m.source_scope IS NOT NULL AND json_valid(m.source_scope) AND EXISTS (SELECT 1 FROM json_each(m.source_scope, '$.attached') a WHERE json_extract(a.value, '$.path') = ?))
         OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.team_path = ? AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)))
       GROUP BY m.room_id ORDER BY at DESC LIMIT ?`).all(userId, rel, rel, ROOMS_MAX) as { room_id: string; at: string }[]

@@ -600,7 +600,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const fromLook = (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: r.names, person: r.person }, said) })()
         // where other people's words are (marked) the explicit ask never skips the card; nor for a screen target (fromLook)
         // (a post whose yes would also let people open a file always shows its card: that card is the widening's yes)
-        const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !lines.length && !viewNone && !laterLine && asksFor(POST_ASK, said)
+        // (nor when what the answer made goes with it as a file: the card names it)
+        const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !first.check.artifacts.length && !lines.length && !viewNone && !laterLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && mentionsSaid && place
         // (where the choice counts, the card offers "Always allow" on its first showing; where it does not, the card shows.
         // Once on it is final, Rule A (#1143): a screen target only stops the explicit-ask skip above)
@@ -623,7 +624,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const postTarget = JSON.stringify([roomId, threadRootId ?? null, members])
         // (no web address, host or long random-looking part in the text: a link shown in a room reaches a third party)
         // (nor a post whose yes would let people open a file: each such grant is asked)
-        const plainPost = !plain && first.at === 0 && !all && !lines.length && !viewNone && !laterLine && !pendingTo && !!roomId && !carriesAddress(shown)
+        const plainPost = !plain && first.at === 0 && !all && !first.check.artifacts.length && !lines.length && !viewNone && !laterLine && !pendingTo && !!roomId && !carriesAddress(shown)
         // (a post of this chat the person deleted from that room since: they took one back, so the card comes back)
         const tookBack = () => !!db.query("SELECT 1 FROM room_messages m JOIN turns t ON t.chat_id = ? AND m.client_id LIKE 'ai-' || t.id || '-%' WHERE m.room_id = ? AND m.author_id = ? AND m.deleted_at IS NOT NULL LIMIT 1").get(spec.chatId, roomId, spec.userId)
         const byChat = !explicit && !byAlways && plainPost && !!exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget }) && !tookBack()
