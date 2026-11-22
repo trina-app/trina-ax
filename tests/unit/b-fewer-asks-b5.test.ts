@@ -8,6 +8,7 @@
 // Item 2 (the chat's own work file copied into the person's folder) is in places-copy.test.ts (it needs a work folder).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Message, type Room, type TurnRequest } from '@mycel/shared/api'
+import { uuidv7 } from '@mycel/shared'
 import fs from 'node:fs'
 import path from 'node:path'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -34,8 +35,16 @@ const has = (rel: string) => fs.existsSync(path.join(h.ctx.files.fx.root, ...rel
 
 beforeAll(async () => {
   h = await startHarness({ name: 'b-fewer-asks-b5', askUserTimeoutMs: 1500, stallTimeoutMs: 60_000, safetyCardsWait: true })
+  // the contract's group ids (and a team room's groupId) are UUIDv7; the fixture's are short (as b-late-card-answer)
+  db().exec('PRAGMA foreign_keys = OFF')
+  for (const g of ['marketing', 'finance']) {
+    const id = uuidv7()
+    for (const sql of ['UPDATE groups SET id = ?1 WHERE id = ?2', 'UPDATE group_members SET group_id = ?1 WHERE group_id = ?2', "UPDATE folder_rules SET subject_id = ?1 WHERE subject_type = 'group' AND subject_id = ?2", 'UPDATE rooms SET group_id = ?1 WHERE group_id = ?2'])
+      db().query(sql).run(id, g)
+  }
+  db().exec('PRAGMA foreign_keys = ON')
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u, { windowId: `win-b5-${u}` }); await ws[u]!.next('hello') }
-  projectId = (await oldProject(h, 'alice', { name: 'Heron', folderPath: 'projects/heron', instructions: '' })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
   teamRoom = ((await h.api('alice').call(API.listRooms)).items as Room[]).find((r) => r.kind === 'team')!.id
 })
@@ -127,10 +136,10 @@ describe('3. a write\'s card waits after the answer', () => {
   test('a wider-audience card of a write: the answer ends with it open (nothing saved); the late press saves the file once', async () => {
     put('users/alice/b5/plan-secret.txt', 'secret plan 7\n')
     const chatId = await ownChat()
-    const target = 'projects/heron/b5-late.txt'
-    const w = await askAndWait(chatId, `Put the plan in Heron\n${fake(
+    const target = 'projects/falcon/b5-late.txt'
+    const w = await askAndWait(chatId, `Put the plan in Falcon\n${fake(
       { tool: 'read', args: { file_path: 'users/alice/b5/plan-secret.txt' } },
-      { tool: 'write', args: { file_path: target, content: 'secret plan 7, for Heron\n' }, sayResult: true },
+      { tool: 'write', args: { file_path: target, content: 'secret plan 7, for Falcon\n' }, sayResult: true },
     )}`)
     expect(has(target)).toBe(false)
     // past the old wait: still open, kept with the call
@@ -139,7 +148,7 @@ describe('3. a write\'s card waits after the answer', () => {
     expect((await post(w.turnId, w.card.requestId, w.card.options![0]!.value)).status).toBe(204)
     const next = await nextTurn(chatId, w.answerId)
     expect(next.done.status).toBe('done')
-    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, ...target.split('/')), 'utf8')).toBe('secret plan 7, for Heron\n')
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, ...target.split('/')), 'utf8')).toBe('secret plan 7, for Falcon\n')
     expect(cardsOf(next.turnId)).toEqual([])
     expect(events(next.turnId).filter((e) => e.tool === 'write').length).toBe(1)
   })
@@ -147,8 +156,8 @@ describe('3. a write\'s card waits after the answer', () => {
   test('its no saves nothing and runs nothing', async () => {
     put('users/alice/b5/plan-secret2.txt', 'secret plan 8\n')
     const chatId = await ownChat()
-    const target = 'projects/heron/b5-no.txt'
-    const w = await askAndWait(chatId, `Put the plan in Heron\n${fake(
+    const target = 'projects/falcon/b5-no.txt'
+    const w = await askAndWait(chatId, `Put the plan in Falcon\n${fake(
       { tool: 'read', args: { file_path: 'users/alice/b5/plan-secret2.txt' } },
       { tool: 'write', args: { file_path: target, content: 'secret plan 8\n' }, sayResult: true },
     )}`)
