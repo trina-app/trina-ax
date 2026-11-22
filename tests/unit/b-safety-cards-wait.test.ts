@@ -116,14 +116,15 @@ describe('a delete card', () => {
     expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === next.turnId)).toBe(false)
   })
 
-  test('"No": the call runs again with the no, and nothing is deleted', async () => {
+  test('"No": the call does not run again, nothing is deleted, and the AI is told it was the card\'s no', async () => {
     put('users/alice/QA-del/keep.txt')
     const w = await askAndWait(`clean up\n${fake({ tool: 'delete_files', args: { paths: ['users/alice/QA-del/keep.txt'] }, sayResult: true })}`)
     await post('alice', w.turnId, { kind: 'ask_user', requestId: w.card.requestId, answer: 'skip' })
     const next = await nextTurn(w.chatId, w.answerId)
     expect(next.user.content).not.toBe('Move to trash')
     expect(fs.existsSync(abs('users/alice/QA-del/keep.txt'))).toBe(true)
-    expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(next.turnId)).toEqual({ summary: 'delete_files -> not allowed by the user' })
+    // (a no never runs the call again: docs/decisions/20261122-late-card-answer-resumes.md)
+    expect(h.ctx.db.query("SELECT COUNT(*) n FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(next.turnId)).toEqual({ n: 0 })
   })
 })
 

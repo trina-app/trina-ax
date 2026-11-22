@@ -74,8 +74,10 @@ describe('opposite requests in a shared chat', () => {
     row('rq-safety', { kind: 'ask_user', origin: 'server', requestId: 'rq-safety', question: 'Share salary-2026.xlsx with Erin?' }, 'share_with_person', null)
     row('rq-answered', { kind: 'ask_user', requestId: 'rq-answered', question: 'Which blue?' }, null, '"navy"')
     const red = await send('bob', chat.id, 'make the cover red\n' + fake({ echo: 'message' }))
-    expect(openRows(chat.id)).toEqual([])
+    // her safety card stays open for her press (docs/decisions/20261122-late-card-answer-resumes.md), named to nobody else
+    expect(openRows(chat.id)).toEqual(['alice'])
     expect(red.content).not.toContain('<closed_question>')
+    expect(red.content).not.toContain('<waiting_card>')
     expect(red.content).not.toContain('salary-2026')
   })
 
