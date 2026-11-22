@@ -1,0 +1,6 @@
+- When you have Trina post a link to a team-folder file in a room, the confirm card now names the people there who can't open it (for a teammate's personal file it still gives only how many).
+- Someone in a room who opens a linked file they can't see now gets "You don't have access to this file" with an **Ask to view** button. The file's owner, or an admin, answers in Activity.
+- When someone loses access to a folder in the middle of a chat (for example, moved to another group), Trina now says plainly that the folder can't be opened any more and who can restore access. It no longer asks for a path or takes back figures it already checked. Admin › Groups says that a group change applies at once.
+- Asked to make a quote or a report, Trina first looks in the team folders you can open (a price list, earlier quotes) before asking.
+- The card for sending to an outside guest now says the person is a guest (external). "Send it to Haneul too" goes to Haneul only, never again to the person it was sent to before.
+- In rooms, messages from someone who left now show "Left", or "Guest · Left" for a guest who was removed.
