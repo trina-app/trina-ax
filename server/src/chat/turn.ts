@@ -943,7 +943,8 @@ export class TurnExec {
     this.projectFolder = project?.folderPath ?? null
     // a project's own skills: only in its chats, as the person sees the project now
     this.skillProject = project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
-    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords() }
+    // (auto memory: what someone else wrote is checked as tool output is, chat/auto-memory.ts; batch 11-22c)
+    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords(); this.noteOutside('project_instructions', project!.instructions) }
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
@@ -1184,6 +1185,9 @@ export class TurnExec {
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    // a skill someone else may have written, or an own skill an AI turn wrote after reading outside content: auto memory's copy and address checks read its words as tool output
+    // (chat/auto-memory.ts), as they read the skill tool's load (batch 11-22c)
+    if (invoked && (!ownPersonalSkill(invoked.skill.path, spec.userId) || this.fileOutsideLevel(invoked.skill.path) >= 1)) this.noteOutside('skill_command', invokedBlock)
     // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
     const answeredQ = answeredNote(rt.db, userMsg.id)
     // the calls whose safety cards this message answers run again now, once (replayCalls)
