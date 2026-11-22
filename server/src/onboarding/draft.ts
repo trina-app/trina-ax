@@ -249,7 +249,8 @@ export function draftSystemPrompt(s: DraftScope, o: { locale: Locale; history?: 
     ? [
       `## Reading the website`,
       `- Your only tool is web_fetch. Team files, memories, web search and every other tool are not available in this chat.`,
-      `- Read at most ${DRAFT_PAGES_MAX} pages, all on ${site}${s.web?.prefix ? ' (this address and pages under it only: the platform holds other people\'s pages too)' : ' (or its subdomains)'}: first the address the user gave (${s.website}), then up to ${DRAFT_PAGES_MAX - 1} pages linked from it that describe the company, its products or services, or its customers (for example about, company, products, services, brand). Use only links that appear on the pages; do not guess addresses. Other sites are refused.`,
+      `- Read at most ${DRAFT_PAGES_MAX} pages, all on ${site}${s.web?.prefix ? ' (this address and pages under it only: the platform holds other people\'s pages too)' : ' (or its subdomains)'}: first the address the user gave (${s.website}), then up to ${DRAFT_PAGES_MAX - 1} pages linked from it that describe the company, its products or services, or its customers (for example about, company, products, services, brand). Use only links that appear on the pages (a list of pages from the site's sitemap.xml that web_fetch adds counts too); do not guess addresses. Other sites are refused.`,
+      `- A site that draws its pages with scripts may come back as the drawn page, or, when it could not be drawn, as what its own markup says about it (its description, social card, structured data, embedded text). That text is the page's own: use it and quote it like the rest of the page.`,
       `- If a page cannot be read, say nothing about it and use the others. If none can be read, answer with every field empty.`,
     ]
     : [
