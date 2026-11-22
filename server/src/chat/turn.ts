@@ -123,6 +123,7 @@ import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
+import { stepArgs, stepResult, STEP_NOTES_MAX, STEP_RECORD_MIN_BUDGET, withStepRecords, type StepNotes } from './step-record'
 import { HISTORY_MAX_TOKENS, memoryTokensOf } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
@@ -165,10 +166,11 @@ import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
-import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
+import { mapCopyText } from './copy-paths'
+import { answerHiddenFrom, answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
-import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
+import { publicStep, SHARED_LATER, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { savePathArg } from '../tools/save-target'
@@ -1079,7 +1081,29 @@ export class TurnExec {
     // a chat shared with people with files copied in: its answers' paths to those originals as the copies'
     // (chat/copy-paths.ts mapCopyText), the same files the tool calls open (chat/tools.ts mapPaths)
     const copiesNow = () => (chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined)
-    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies: copiesNow() } : null)
+    // with the record of the steps of the asker's own earlier answers (chat/step-record.ts): what Claude Code keeps in
+    // its own session, for a fresh one. A failure leaves the text alone, as before
+    // In a shared chat the new answer is everyone's to read: a line names the paths it keeps aside only when everyone who
+    // sees the chat now may list them, and an earlier answer hidden from any of them, or from before the share, gives
+    // no arguments or results. None for a model whose window is small (the text comes first)
+    const historyOf = (leaf: string | null): HistoryItem[] => {
+      const copies = copiesNow()
+      const h = rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies } : null)
+      if (historyBudget !== undefined && historyBudget < STEP_RECORD_MIN_BUDGET) return h
+      try {
+        const me = this.principal
+        const rules = rt.files.rules()
+        const audience = this.shared ? this.sharedAudience() : []
+        const everyone = this.shared ? this.audienceReadable() : null
+        const canList = (p: string) => !!me && rules.canList(me, p.split('/').filter(Boolean)) && (!everyone || everyone(p))
+        const shared = this.shared ? {
+          hiddenFrom: (id: string) => answerHiddenFrom(rt.db, rt.files, spec.chatId, id, audience).size > 0,
+          // (no turn row: counted as before the share, as ChatStore.viewSteps does)
+          sharedLater: (id: string) => { const r = rt.db.query('SELECT t.shared_checked AS c FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?').get(id) as { c: number | null } | null; return !r || r.c === null || r.c === SHARED_LATER },
+        } : undefined
+        return withStepRecords(rt.db, h, { asker: spec.userId, several, withheld: this.sharedWithheld, canList, shared, ...(copies?.size ? { mapText: (t: string) => mapCopyText(t, copies) } : {}) })
+      } catch (e) { rt.log.warn('step records for the history failed', { err: e, turn: this.id }); return h }
+    }
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
@@ -2143,6 +2167,9 @@ export class TurnExec {
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
         const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        // the call's key arguments, for the next fresh session's record of this answer (chat/step-record.ts); a read
+        // of the work folder by the path the step shows, never the server's own
+        if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input)) })
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -2190,6 +2217,8 @@ export class TurnExec {
         }
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
+        // the start of its result, for the same record (secrets hidden before it is cut)
+        if (this.stepNotes[stepId(e.id)] && e.output) this.noteStep(stepId(e.id), { o: stepResult(tool, this.redact(e.output.slice(0, 4000))) })
         return
       }
       case 'agent_progress':
@@ -2509,6 +2538,34 @@ export class TurnExec {
     const mine = this.rt.store.attachmentsOf({ chat_id: this.spec.chatId, attachments: stored, author_id: null }, this.spec.userId)
     this.rt.hub.publish(this.spec.userId, { type: 'message.attachments', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, attachments: mine } })
     this.live?.attachments(stored)
+  }
+
+  /** what each of the main AI's tool steps was called with and the start of what came back (chat/step-record.ts):
+   * saved with the answer (messages.step_notes), never sent to an app */
+  private stepNotes: StepNotes = {}
+  private noteStep(id: string, note: { i?: string; o?: string }) {
+    const cur = this.stepNotes[id]
+    if (!cur && Object.keys(this.stepNotes).length >= STEP_NOTES_MAX) return
+    const next = { ...cur }
+    if (note.i) next.i = note.i
+    if (note.o) next.o = note.o
+    this.stepNotes[id] = next
+    this.dirty = true
+  }
+  private notesJson(): string | null {
+    // only the steps the answer still keeps (a refusal retry or a replaced step leaves none behind)
+    const ids = new Set(this.steps.map((x) => x.id))
+    const kept = Object.fromEntries(Object.entries(this.stepNotes).filter(([id, n]) => ids.has(id) && (n.i || n.o)))
+    return Object.keys(kept).length ? JSON.stringify(kept) : null
+  }
+  /** a tool's input with the person's stored connection secrets hidden in every text (before stepArgs cuts them) */
+  private redactValues(v: unknown, depth = 0): unknown {
+    const r = this.redactor()
+    if (nothingToHide(r)) return v
+    if (typeof v === 'string') return r.hide(v)
+    if (depth > 3 || !v || typeof v !== 'object') return v
+    if (Array.isArray(v)) return v.map((x) => this.redactValues(x, depth + 1))
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, this.redactValues(x, depth + 1)]))
   }
 
   private publishStep(stored: StoredStep) {
@@ -5507,8 +5564,8 @@ export class TurnExec {
     if (!this.dirty) return
     this.dirty = false
     try {
-      this.rt.db.query('UPDATE messages SET content = ?, steps = ?, updated_at = ? WHERE id = ?')
-        .run(this.content, JSON.stringify(this.storedSteps()), new Date().toISOString(), this.spec.assistantId)
+      this.rt.db.query('UPDATE messages SET content = ?, steps = ?, step_notes = ?, updated_at = ? WHERE id = ?')
+        .run(this.content, JSON.stringify(this.storedSteps()), this.notesJson(), new Date().toISOString(), this.spec.assistantId)
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
@@ -5563,7 +5620,7 @@ export class TurnExec {
     const ok = db.transaction(() => {
       const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL, people_checked=0, shared_checked=CASE WHEN shared_checked = 1 THEN 0 ELSE shared_checked END WHERE id=? AND status='running'").run(this.id)
       if (!r.changes) return false
-      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
+      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]', step_notes=NULL WHERE id=?").run(this.spec.assistantId)
       return true
     })()
     if (!ok) return false
@@ -5649,8 +5706,8 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
-        this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
+      db.query('UPDATE messages SET content = ?, steps = ?, step_notes = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
+        this.content, JSON.stringify(this.storedSteps()), this.notesJson(), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, status === 'stopped' ? this.stoppedFor : null, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)

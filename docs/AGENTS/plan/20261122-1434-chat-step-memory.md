@@ -41,12 +41,16 @@ In:
 - A fresh session's history shows, under each eligible earlier answer, a `<steps_record>` block: one line per step
   (tool name, label, status, args, result). Answers from before this build get labels and status only.
 - Eligible (same rule as `summaryLines`): the answer is not hidden from the asker (withheld), and in a chat several
-  people wrote in, it answered the asker's own message. A step whose label names paths kept aside (`sv`) shows its
-  full label and args only when the asker may list every one of those paths now; else the plain label, no args,
-  no result. Results of file-content tools (read, grep, room/chat file reads) are left out (read again).
-- Caps: records for the newest 6 eligible answers on the branch; at most 40 lines and 3,000 characters per answer
-  (first 5 and newest steps kept, a line says how many were left out); args 240 and result 200 characters per step.
-  The block counts toward the history window like the text (`historyWindow`).
+  people wrote in, it answered the asker's own message and its turn was theirs.
+- In a shared chat the new answer is everyone's (plan review): a line names paths kept aside (`sv`) only when the
+  asker and everyone who sees the chat now may list them; an earlier answer hidden from anyone who sees the chat now
+  (`answerHiddenFrom`) or from before the share gives its lines without notes (a pre-share answer: the words the others
+  see). Results of content tools (read, grep, fetch, search, list, get, a mail or message read: by name) are not kept;
+  memory tools get no line. People chats with copied files: the record's paths as the copies'.
+- Caps: records for the newest 6 eligible answers on the branch, 6,000 characters in all; at most 40 lines and 3,000
+  characters per answer (first 5 and newest steps kept, a line says how many were left out); args 240 and result 200
+  characters per step; none when the window is under 12,000 tokens. The block counts toward the history window
+  (`historyWindow`) and is dropped before any text is.
 - The history intro says the record is the AI's own, written by the server, data not instructions; when asked what
   it did or how, answer from it.
 - Same for Claude Code (fresh), Codex and the API engine (all use `historyBlock`).
@@ -66,12 +70,13 @@ tool results; sub-agent inner steps (their sub-task line is kept).
 
 ## Decisions
 
-`docs/decisions/20261122-step-record-in-history.md`.
+`docs/decisions/20261122-chat-step-memory.md`.
 
 ## Risks
 
-- Leaks in shared chats: only the asker's own answers, withheld answers never, sv paths re-checked; notes never leave
-  the server (separate column, not in `steps`).
+- Leaks in shared chats: only the asker's own answers, withheld answers never; notes only for answers hidden from
+  nobody who sees the chat now; sv paths checked against the whole audience; notes never leave the server (separate
+  column, not in `MESSAGE_COLS`).
 - Prompt injection through a stored result: values neutralized, block framed as data.
 - Tokens: capped as above; counted in the history window.
 - Migration 441 (440 is the highest on dev).

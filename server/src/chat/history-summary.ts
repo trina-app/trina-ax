@@ -74,7 +74,9 @@ export function summaryAi(ctx: AppContext): SummaryAi | null {
   }
 }
 
-export type HistoryItem = { id?: string; role: 'user' | 'assistant'; content: string }
+/** `steps`: an earlier answer's step record (chat/step-record.ts), for the window only: the summary reads its own step
+ * labels (summaryLines), so its hash chain does not change with it */
+export type HistoryItem = { id?: string; role: 'user' | 'assistant'; content: string; steps?: string }
 /** Who reads: the person whose turn it is; in a chat several people wrote in, only steps of answers to their messages. */
 export interface SummaryViewer { userId: string; several: boolean; withheld?: ReadonlySet<string> }
 
