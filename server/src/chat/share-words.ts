@@ -21,6 +21,7 @@ import { SCREEN } from '../policy/refusal'
 import { carriesAddress, opaqueParts } from '../tools/url-gate'
 import { placeWords } from './place-words'
 import { tr } from './i18n'
+import { seesChatFiles } from './chat-files-access'
 
 // ---- the rules ----
 
@@ -262,6 +263,14 @@ export function cardTextWords(db: Database, s: string, L: Locale, me: string, li
       if (isListed(f.path)) return drop()
       return f.byGrant ? f.name : fileWords(db, f.path, L, me)
     })
+  // a chat file's link (/c/<chat>?file=<id>) of a chat the person sees: the file's name (QA b4s S1-A, S3: the card
+  // showed "[제안서.docx](/c/01a2…?file=01a2…)" as written); one they do not see stays as written
+  out = out.replace(/\[([^\]\n]*)\]\(((?:https?:\/\/[^/\s)]+)?\/c\/([A-Za-z0-9_-]+)\/?\?file=([A-Za-z0-9_-]+))\)/gi, (all, _label: string, _u: string, chatId: string, id: string) => {
+    try {
+      const r = db.query('SELECT chat_id, name FROM chat_files WHERE id = ?').get(id) as { chat_id: string; name: string } | null
+      return r && r.chat_id.toLowerCase() === chatId.toLowerCase() && seesChatFiles(db, me, r.chat_id) ? r.name : all
+    } catch { return all }
+  })
   // (the spaces and empty lines a left-out link leaves)
   return dropped ? out.replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+|[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim() : out
 }

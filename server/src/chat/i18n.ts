@@ -337,6 +337,7 @@ export const TEXT = {
   roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
   /** what else the command does, after its words (shellCardWords): installs programs, reaches the internet */
   roomShellPlusInstall: t('{what} (프로그램 설치도 해요)', '{what} (also installs programs)', '{what} (juga memasang program)', "{what}（プログラムのインストールもします）", "{what} (también instala programas)", "{what}（还会安装程序）"),
+  roomShellNetRun: t('인터넷을 쓰는 명령 실행', 'Run a command that uses the internet', 'Jalankan perintah yang memakai internet', "インターネットを使うコマンドを実行", "Ejecutar un comando que usa internet", "运行使用互联网的命令"),
   roomShellPlusNet: t('{what} (인터넷에도 연결해요)', '{what} (also connects to the internet)', '{what} (juga terhubung ke internet)', "{what}（インターネットにも接続します）", "{what} (también se conecta a internet)", "{what}（还会连接互联网）"),
   roomShellPlusBoth: t('{what} (프로그램 설치와 인터넷 연결도 해요)', '{what} (also installs programs and connects to the internet)', '{what} (juga memasang program dan terhubung ke internet)', "{what}（プログラムのインストールとインターネット接続もします）", "{what} (también instala programas y se conecta a internet)", "{what}（还会安装程序并连接互联网）"),
   roomShellKindPicture: t('그림', 'picture', 'gambar', "画像", "imagen", "图片"),

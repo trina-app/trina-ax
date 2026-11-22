@@ -473,6 +473,34 @@ export const SHELL_KIND_WORDS = {
 } satisfies Record<string, T>
 export type ShellKind = keyof typeof SHELL_KIND_WORDS
 
+/** A command with what is inside closed quotes left out ('…' always, "…" unless something in it runs: $ or `), read
+ * left to right as the shell does (a quote inside the other kind is text; a backslash escapes the next character
+ * outside single quotes). Anything unbalanced: the command as written (a ">" then still counts). */
+function withoutQuoted(c: string): string {
+  // a "…" inside "$(…)" or `…` would close the outer quote early: no double-quoted text is left out then (review)
+  const nested = /\$\(|`/.test(c)
+  let out = '', i = 0
+  while (i < c.length) {
+    const ch = c[i]!
+    if (ch === '\\') { out += c.slice(i, i + 2); i += 2; continue }
+    if (ch === "'" || ch === '"') {
+      let j = i + 1
+      for (; j < c.length; j++) {
+        if (ch === '"' && c[j] === '\\') { j++; continue }
+        if (c[j] === ch) break
+      }
+      if (j >= c.length) return c
+      const inner = c.slice(i + 1, j)
+      out += ch === '"' && (nested || /[$`]/.test(inner)) ? c.slice(i, j + 1) : ch + ch
+      i = j + 1
+      continue
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
 /** What a shell command does, roughly, from its parts (split at && || ; | and new lines). Anything that changes or
  * removes files (rm, mv, a "> file" redirect, sed -i, find -delete…) is said as such first, whatever else the command
  * does; then an install, making something (a render, a build), a download, a pause, a look at files (only programs that
@@ -481,7 +509,9 @@ export type ShellKind = keyof typeof SHELL_KIND_WORDS
 export function shellKind(command: string): ShellKind {
   const c = command.slice(0, 4000)
   // a redirect into a file (not 2>&1 or > /dev/null), sed -i, find -delete / -exec, tee: it writes
-  const quiet = c.replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
+  // (a ">" inside quotes is text, not a redirect: grep -o '<title>[^<]*</title>' reads a page, QA b4s S4-E; double quotes
+  // only when nothing in them runs: "$(…)" or `…` can hold a redirect)
+  const quiet = withoutQuoted(c).replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
   if (/>/.test(quiet.replace(/<<-?\s*['"]?\w+['"]?/g, '')) || /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(c) || /\bsort\b[^|;&\n]*\s-o\b/.test(c) || /\bsed\s+(?:-\w*\s+)*-i/.test(c)) return 'change'
   const parts = c.split(/&&|\|\||[;|\n]/).map((p) => p.trim()
     // leading VAR=value assignments, export / env / sudo / time / exec in front of the program
