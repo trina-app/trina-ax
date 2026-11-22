@@ -47,7 +47,11 @@ The cast, names, company, project, skills, files and pictures come from `scripts
 - **Connections**: Mina's Gmail and Google Drive, the team's Higgsfield (auth none). Mina's welcome card says Sara
   invited her.
 - **Home's suggestions** (`freeRoam.suggestions`, the chips above Home's message box, not in the bar): "Draft next
-  week's posts", "Summarize customer reviews", "Did Chris reply?" (each language: the same in its words).
+  week's posts", "Summarize customer reviews", "Did Chris reply?", "Show me the management folder" (each language: the
+  same in its words). The last is the promo film's permission scene, the real product's way: `shared/Leadership` is not
+  open to Mina, so the AI says it can't find a "management" folder among hers and the card under the answer lists the
+  folders her AI can see (my_folders; docs/decisions/20261122-demo-permission-scene.md). Unlike the film, no chip names
+  the hidden folder.
 - **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
   "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
   week"), so a snapshot built on another day still reads right. No day of the month either ("the 23rd", 23일, 23日). `tests/unit/demo-story-no-dates.test.ts` checks it.

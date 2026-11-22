@@ -7305,6 +7305,11 @@ export const en: Record<MessageKey, string> = {
   "teamFolderCard.fileSharesRemoved": "Files inside that were shared one by one are no longer shared with them.",
   "teamFolderCard.fileSharesKept": "Files inside that were shared one by one stay shared.",
   "teamFolderCard.canEditTag": "Can edit",
+  // the folders the person's AI can see (components/chat/MyFoldersCard.tsx; docs/decisions/20261122-demo-permission-scene.md)
+  "myFoldersCard.title": "Folders your AI can see",
+  "myFoldersCard.canEdit": "Can edit",
+  "myFoldersCard.readOnly": "Read only",
+  "myFoldersCard.more": "{n} more",
   "audit.act.folder.ai_access": "Asked the AI to change who can open a team folder",
   "fileLink.stoppedBy": "{name} stopped sharing this file",
   "shareCard.note.keptOwn": "Still shared on their own inside it: {what}.",
