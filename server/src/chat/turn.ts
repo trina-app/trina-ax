@@ -6,7 +6,7 @@ import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type Al
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
-import { includesPiece, languageSwitchNote, NarrationHold, narrationScript } from './narration'
+import { includesPiece, languageSwitchNote, NarrationHold, narrationScript, quoteLanguageNote } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -1227,7 +1227,8 @@ export class TurnExec {
     if (this.stopReason) return
     const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
-    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id))
+    // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
+    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
     const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
