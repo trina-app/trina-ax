@@ -512,7 +512,7 @@ const SHARE_TALK = re([
   // ja: 共有, 送, 見せ, 投稿, 転送, 伝え, 知らせ, 返信, リンク
   '\\u5171\\u6709', '\\u9001', '\\u898B\\u305B', '\\u6295\\u7A3F', '\\u8EE2\\u9001', '\\u4F1D\\u3048', '\\u77E5\\u3089\\u305B', '\\u8FD4\\u4FE1', '\\u30EA\\u30F3\\u30AF', '\\u30B7\\u30A7\\u30A2', '\\u30A2\\u30C3\\u30D7',
   // es
-  '\\b(compart\\w*|comp\\u00E1rt\\w*|envi\\w*|env\\u00ED\\w*|mand\\w*|public\\w*|muestr\\w*|mostr\\w*|reenv\\w*|avis\\w*|dile|dales|cu\\u00E9ntale\\w*|respond\\w*|contest\\w*|enlace|p\\u00E1sale\\w*|pasa\\w*|pon\\w*\\s+en|invit\\w*|acceso)\\b',
+  '\\b(compart\\w*|comp\\u00E1rt\\w*|envi\\w*|env\\u00ED\\w*|mand\\w*|public\\w*|muestr\\w*|mostr\\w*|reenv\\w*|avis\\w*|dile|dales|cu\\u00E9ntale\\w*|respond\\w*|contest\\w*|enlace|p\\u00E1sa\\w*|pasa\\w*|pon\\w*\\s+en|invit\\w*|acceso)\\b',
   // zh: 分享, 共享, 发送, 发给, 发到, 转发, 告诉, 发布, 通知, 给…看, 回复, 链接
   '\\u5206\\u4EAB', '\\u5171\\u4EAB', '\\u53D1\\u9001', '\\u53D1\\u7ED9', '\\u53D1\\u5230', '\\u8F6C\\u53D1', '\\u544A\\u8BC9', '\\u53D1\\u5E03', '\\u901A\\u77E5', '\\u7ED9[^\\n]{0,12}\\u770B', '\\u56DE\\u590D', '\\u94FE\\u63A5', '\\u53D1',
 ])
