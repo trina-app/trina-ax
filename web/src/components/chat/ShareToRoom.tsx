@@ -59,7 +59,7 @@ export function useConfirmStep<T extends ConfirmAsk = ConfirmAsk>() {
     setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
     // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
     // shown as it now reads
-    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice', ...(r.artifacts?.length ? { artifacts: r.artifacts } : {}), ...(r.text ? { text: r.text } : {}) }) as T)
+    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice', ...(r.artifacts?.length ? { artifacts: r.artifacts } : {}), ...((r.text ?? a?.text) ? { text: r.text ?? a?.text } : {}) }) as T)
   }
   return { ask, attach, setAttach, asked, close: () => setAsk(null) }
 }

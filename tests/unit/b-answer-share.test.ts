@@ -1303,6 +1303,10 @@ describe('one confirm before a room post, and no failure notes (QA TC-v2f-A3, TC
     const b = answer('alice', `표를 만들었어요: ${link('users/alice/made-fail.md')}`, { saved: [{ path: 'users/alice/made-fail.md', sha256: put('users/alice/made-fail.md', '# t\n') }] })
     h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(steps, b.answerId)
     expect((await share('alice', b, { roomId: rooms.all, preview: true })).json.status).toBe('confirm')
+    // a failed look-up the answer went on without is not a failure note
+    const c = answer('alice', '검색은 안 됐지만 아는 내용으로 정리했어요.')
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(steps.replace('share_with_person', 'web_search'), c.answerId)
+    expect((await share('alice', c, { roomId: rooms.all, preview: true })).json.status).toBe('confirm')
   })
 
   test('"<name> 님만 열 수 있어요" is left out too (TC-f2-c03)', () => {

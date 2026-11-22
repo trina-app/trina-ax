@@ -224,5 +224,8 @@ describe('a made-up name of one of our tools (QA TC-v2f-A2)', () => {
       expect(stepLabel('mcp__mycel__post_to_room_placeholder', {}, l, new Set())).toBe(FILE_STEP_VERB.post_to_room![l])
     }
     expect(stepLabel('create_task', {}, 'en', new Set())).toBe('Create task')
+    // an outside tool that only starts like ours keeps its own words (review)
+    expect(stepLabel('mcp__github__list_issues', {}, 'en', new Set())).toBe('List issues')
+    expect(stepLabel('write_todos', {}, 'en', new Set())).toBe('Write todos')
   })
 })

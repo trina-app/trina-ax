@@ -527,7 +527,8 @@ function withVideoFile(ctx: AppContext, userId: string, a: ShareArtifact): Share
 }
 
 /** the wait for a render started when the message goes (the render's own limit is 4 minutes) */
-const RENDER_WAIT_MS = 5 * 60_000
+// (under the HTTP server's 120 s idle limit: a longer render sends the page, and says so on the confirm's name only)
+const RENDER_WAIT_MS = 100_000
 let renderPollMs = 1000
 /** Tests poll faster (null: back to one second). */
 export function setShareRenderPollForTests(ms: number | null) { renderPollMs = ms ?? 1000 }
@@ -635,7 +636,9 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   if (p.status === 'sent') return p
   // the app's first press shows one confirm with what goes and who sees it, whatever is at stake (QA TC-v2f-A3, TC-f2-c04:
   // one click posted to a whole room, and a chart asked while an Excel file went without a word)
-  if (b.preview && b.confirmKey === undefined && b.confirm === undefined) return { ...(await confirmOf(p.check, p.shown, p.key)), text: p.body.slice(p.at) } as ShareAnswerToRoomResult
+  // (the person's own "Always allow" for room posts is final, Rule A: it goes at once as before, below)
+  const alwaysPost = alwaysOn(ctx.db, userId, 'post_files') || alwaysOn(ctx.db, userId, 'post_to_room')
+  if (b.preview && !alwaysPost && b.confirmKey === undefined && b.confirm === undefined) return { ...(await confirmOf(p.check, p.shown, p.key)), text: p.body.slice(p.at) } as ShareAnswerToRoomResult
   // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
   // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
   // 20261116-room-link-save-one-prompt.md, QA TC-3832: notes saved from the room's own link looked like "my files")

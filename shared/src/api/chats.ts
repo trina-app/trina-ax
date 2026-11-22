@@ -783,7 +783,9 @@ export const CHATS = {
 /** Does this answer only report a failure: its last tool step failed (not one the time limit or Stop cut off)? Such an
  * answer is a note to the person who asked, never something to post to a room (QA TC-v2f-A3): the apps hide "send to a
  * room" under it, and the server refuses it unless the answer made a file (server/src/chat/answer-share.ts). */
-export function answerEndsInFailure(steps: readonly Pick<Step, 'kind' | 'status' | 'paused' | 'stopped'>[]): boolean {
-  const last = [...steps].reverse().find((s) => s.kind === 'tool' || s.kind === 'browser' || s.kind === 'web_search')
-  return !!last && last.status === 'error' && !last.paused && !last.stopped
+export function answerEndsInFailure(steps: readonly Pick<Step, 'kind' | 'status' | 'paused' | 'stopped' | 'tool'>[]): boolean {
+  const last = [...steps].reverse().find((s) => s.kind === 'tool')
+  // (a failed look-up the answer went on without, a read, a search, a listing, is not the answer's point)
+  return !!last && last.status === 'error' && !last.paused && !last.stopped && !LOOK_UP.test(last.tool ?? '')
 }
+const LOOK_UP = /(^|__)(read|grep|glob|list|search|find|room_read|rooms|web_fetch|webfetch|web_search|websearch|who_can_open|toolsearch)([_a-z]*)$/i
