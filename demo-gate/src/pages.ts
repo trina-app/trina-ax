@@ -1,11 +1,12 @@
 // The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), in the six languages. Static HTML,
 // no script of our own: the only script is Cloudflare Turnstile's widget on the landing page.
 import { LOCALES, isLocale, type Locale } from './config.ts'
+import { WORDMARK_DARK, WORDMARK_LIGHT } from './brand.ts'
 
 export type PageKind = 'landing' | 'busy' | 'ended' | 'limit' | 'check' | 'error'
 
 interface Words {
-  title: string; lead: string; landingH: string; landingP: string; note: string; practice: string; start: string
+  title: string; landingH: string; sub: string; factQ: string; factHours: string; factPractice: string; practice: string; start: string
   busyH: string; busyP: string; guided: string; plans: string; retry: string
   endedH: string; endedP: string; again: string
   limitH: string; limitP: string; limitLaterP: string; checkH: string; checkP: string; errorH: string; errorP: string
@@ -15,15 +16,18 @@ interface Words {
  * per day; `ip_live` = the live copies per address (copies live 24 hours). Only `hour` may promise "about an hour". */
 export type LimitReason = 'hour' | 'day' | 'ip_live'
 
-/** Screen text (the only place with words other than English in this service). `note`'s "about 8 questions" is the demo limit (300k)
- * over shared/src/api/demo.ts DEMO_QUESTION_TOKENS (35k): change both together. Questions, never tokens. */
+/** Screen text (the only place with words other than English in this service). The landing is kept short on purpose (the
+ * owner, 11-22: too much text): a heading, one line, three facts of a few words each. `factQ`'s "about 8 questions" is the
+ * demo limit (300k) over shared/src/api/demo.ts DEMO_QUESTION_TOKENS (35k): change both together. Questions, never
+ * tokens. `practice` is the full sentence behind the third fact's info toggle. */
 export const WORDS: Record<Locale, Words> = {
   en: {
     title: 'Try it yourself',
-    lead: 'Trina AX is an AI workspace for your team: one place for files, chats and an AI that does the work.',
-    landingH: 'Now try it yourself',
-    landingP: "You get your own copy of the demo team. You're Mina, the new hire: ask the AI anything, open the files and rooms, and look around. Nothing you do here reaches real people.",
-    note: 'You can ask Trina about 8 questions (bigger tasks count a little more). Your copy stays for 24 hours.',
+    landingH: 'Try Trina AX',
+    sub: "You're Mina at a made-up company. Ask, open, look around.",
+    factQ: 'About 8 questions',
+    factHours: '24 hours',
+    factPractice: 'Practice Gmail · Drive',
     practice: 'Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.',
     start: 'Start',
     busyH: 'The live demo is busy right now',
@@ -44,10 +48,11 @@ export const WORDS: Record<Locale, Words> = {
   },
   ko: {
     title: '직접 써 보기',
-    lead: '트리나 AX는 팀을 위한 AI 업무 공간이에요. 파일, 대화, 일을 대신해 주는 AI가 한곳에 있어요.',
-    landingH: '이제 직접 써 보세요',
-    landingP: '데모 팀을 나만의 사본으로 드려요. 새로 들어온 미나가 되어 AI에게 무엇이든 물어보고, 파일과 대화방을 둘러보세요. 여기서 한 일은 실제 사람에게 가지 않아요.',
-    note: '트리나에게 8번 정도 물어볼 수 있어요(큰 작업은 질문 여러 번으로 칠 수 있어요). 사본은 24시간 동안 남아 있어요.',
+    landingH: '트리나 AX 써 보기',
+    sub: '가상 회사의 신입 미나가 되어 묻고, 열고, 둘러보세요.',
+    factQ: '질문 8번쯤',
+    factHours: '24시간',
+    factPractice: '연습용 Gmail·Drive',
     practice: '여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.',
     start: '시작하기',
     busyH: '지금은 체험 데모가 꽉 찼어요',
@@ -68,10 +73,11 @@ export const WORDS: Record<Locale, Words> = {
   },
   ja: {
     title: '実際に使ってみる',
-    lead: 'トリナ AXは、チームのためのAIワークスペースです。ファイル、チャット、仕事をこなすAIがひとつの場所にそろっています。',
-    landingH: 'さあ、実際に使ってみましょう',
-    landingP: 'デモチームのあなた専用のコピーをお渡しします。新しく入社したミナになって、AIになんでも聞いたり、ファイルやルームを開いたりして、自由に見て回ってください。ここでの操作が実在の人に届くことはありません。',
-    note: 'トリナには8回ほど質問できます（大きな作業は少し多めに数えます）。コピーは24時間残ります。',
+    landingH: 'トリナ AXを使ってみる',
+    sub: '架空の会社の新人ミナとして、聞いて、開いて、見て回りましょう。',
+    factQ: '質問は8回ほど',
+    factHours: '24時間',
+    factPractice: '練習用Gmail・ドライブ',
     practice: 'ここのGmail・Googleドライブ・Higgsfieldは練習用です。メールは実際には送信されず、新しい画像は用意された画像の中から選ばれます。',
     start: 'はじめる',
     busyH: 'ただいまライブデモが混み合っています',
@@ -92,10 +98,11 @@ export const WORDS: Record<Locale, Words> = {
   },
   zh: {
     title: '亲自试试',
-    lead: 'Trina AX 是为团队打造的 AI 工作空间：文件、聊天和能替你干活的 AI 都在同一个地方。',
-    landingH: '现在亲自试试吧',
-    landingP: '我们会为你准备一份专属的演示团队。你是新入职的 Mina：可以向 AI 提任何问题，打开文件和聊天室，随便看看。你在这里做的任何操作都不会发给真实的人。',
-    note: '你可以向 Trina 提大约 8 个问题（较大的任务会多算一些）。副本会保留 24 小时。',
+    landingH: '试用 Trina AX',
+    sub: '你是一家虚构公司的新人 Mina：随便问、随便打开、随便看看。',
+    factQ: '约 8 个问题',
+    factHours: '24 小时',
+    factPractice: '练习用 Gmail · 云端硬盘',
     practice: '这里的 Gmail、Google 云端硬盘和 Higgsfield 是练习用的：邮件不会真的发出，新图片从准备好的一组图片中挑选。',
     start: '开始',
     busyH: '在线演示现在人有点多',
@@ -116,10 +123,11 @@ export const WORDS: Record<Locale, Words> = {
   },
   es: {
     title: 'Pruébelo usted mismo',
-    lead: 'Trina AX es un espacio de trabajo con IA para su equipo: un solo lugar para archivos, chats y una IA que hace el trabajo.',
-    landingH: 'Ahora pruébelo usted mismo',
-    landingP: 'Recibe su propia copia del equipo de la demostración. Usted es Mina, la nueva incorporación: pregúntele lo que quiera a la IA, abra los archivos y las salas, y eche un vistazo. Nada de lo que haga aquí llega a personas reales.',
-    note: 'Puede hacerle a Trina unas 8 preguntas (las tareas más grandes cuentan un poco más). Su copia se guarda durante 24 horas.',
+    landingH: 'Pruebe Trina AX',
+    sub: 'Usted es Mina, de una empresa ficticia. Pregunte, abra y explore.',
+    factQ: 'Unas 8 preguntas',
+    factHours: '24 horas',
+    factPractice: 'Gmail y Drive de práctica',
     practice: 'Gmail, Google Drive y Higgsfield aquí son de práctica: el correo nunca se envía de verdad y las imágenes nuevas salen de un conjunto preparado.',
     start: 'Empezar',
     busyH: 'La demostración en vivo está ocupada ahora mismo',
@@ -140,10 +148,11 @@ export const WORDS: Record<Locale, Words> = {
   },
   id: {
     title: 'Coba sendiri',
-    lead: 'Trina AX adalah ruang kerja AI untuk tim Anda: satu tempat untuk file, obrolan, dan AI yang menyelesaikan pekerjaan.',
-    landingH: 'Sekarang coba sendiri',
-    landingP: 'Anda mendapat salinan tim demo milik Anda sendiri. Anda adalah Mina, karyawan baru: tanyakan apa saja ke AI, buka file dan ruang obrolan, lalu lihat-lihat. Apa pun yang Anda lakukan di sini tidak sampai ke orang sungguhan.',
-    note: 'Anda bisa bertanya ke Trina sekitar 8 kali (tugas yang lebih besar dihitung sedikit lebih banyak). Salinan Anda disimpan selama 24 jam.',
+    landingH: 'Coba Trina AX',
+    sub: 'Anda Mina di perusahaan fiktif. Bertanya, buka, dan lihat-lihat.',
+    factQ: 'Sekitar 8 pertanyaan',
+    factHours: '24 jam',
+    factPractice: 'Gmail · Drive latihan',
     practice: 'Gmail, Google Drive, dan Higgsfield di sini hanya untuk latihan: email tidak pernah benar-benar terkirim, dan gambar baru diambil dari kumpulan yang sudah disiapkan.',
     start: 'Mulai',
     busyH: 'Demo langsung sedang penuh',
@@ -187,6 +196,17 @@ export const PAGE_CSP = "default-src 'none'; script-src https://challenges.cloud
 
 export interface PageLinks { scriptedDemo: string; pricing: string }
 
+// Drawn icons for the landing's facts row: one 24-unit grid, 1.75 stroke, round caps (no emoji, no icon font).
+const icon = (d: string) => `<svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
+const ICON_ASK = icon('<path d="M5 18.5V6.5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9.5L5 18.5Z"/><path d="M9 9.5h6M9 12h3.5"/>')
+const ICON_CLOCK = icon('<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>')
+const ICON_MAIL = icon('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4.5 7 7.5 5.5L19.5 7"/>')
+const ICON_INFO = `<svg class="ic info-ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 8h.01" stroke-width="2.4"/></svg>`
+
+/** The wordmark in both colours; CSS shows the one that matches the theme. Each copy gets its own mask id (one page,
+ * two SVGs with the same id would share the first one's mask). */
+const wordmark = (label: string) => `<div class="brand" role="img" aria-label="${esc(label)}">${WORDMARK_LIGHT.replace(/id="m"/, 'id="wm-l"').replace(/url\(#m\)/, 'url(#wm-l)').replace('<svg ', '<svg class="wm wm-light" aria-hidden="true" ')}${WORDMARK_DARK.replace(/id="m"/, 'id="wm-d"').replace(/url\(#m\)/, 'url(#wm-d)').replace('<svg ', '<svg class="wm wm-dark" aria-hidden="true" ')}</div>`
+
 export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string; links: PageLinks; limit?: LimitReason }): string {
   const w = WORDS[locale]
   const startForm = (label: string, turnstile: boolean) => `
@@ -207,9 +227,17 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
       <a class="secondary" href="${esc(o.links.pricing)}">${esc(w.plans)}</a>
       <a class="secondary" href="/">${esc(w.retry)}</a>
     </div>`
-  let h = '', p = '', body = '', lead = '', turnstile = false
+  // The three facts, a few words each. The full practice sentence opens from the third one on tap or click
+  // (details/summary: no script) and is its hover title too.
+  const facts = `
+    <ul class="facts">
+      <li class="fact">${ICON_ASK}<span>${esc(w.factQ)}</span></li>
+      <li class="fact">${ICON_CLOCK}<span>${esc(w.factHours)}</span></li>
+      <li class="fact"><details class="practice"><summary title="${esc(w.practice)}">${ICON_MAIL}<span>${esc(w.factPractice)}</span>${ICON_INFO}</summary><p>${esc(w.practice)}</p></details></li>
+    </ul>`
+  let h = '', p = '', body = '', turnstile = false
   switch (kind) {
-    case 'landing': lead = w.lead; h = w.landingH; p = w.landingP; body = startForm(w.start, true) + `<p class="note">${esc(w.note)}</p><p class="note practice">${esc(w.practice)}</p>`; turnstile = true; break
+    case 'landing': h = w.landingH; p = w.sub; body = facts + startForm(w.start, true); turnstile = true; break
     case 'check': h = w.checkH; p = w.checkP; body = startForm(w.start, true); turnstile = true; break
     case 'ended': h = w.endedH; p = w.endedP; body = startForm(w.again, true); turnstile = true; break
     case 'busy': h = w.busyH; p = w.busyP; body = awayOrRetry; break
@@ -223,34 +251,59 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${esc(w.title)}</title>
+<title>${esc(kind === 'landing' ? w.landingH : w.title)}</title>
 ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
 <style>
-  :root { --bg:#f7f7f5; --card:#fff; --text:#1c1c1a; --dim:#5f5f5a; --line:#e4e4df; --accent:#1c1c1a; --on-accent:#fff; color-scheme: light dark; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#121211; --card:#1c1c1a; --text:#ecece8; --dim:#a3a39c; --line:#2e2e2b; --accent:#ecece8; --on-accent:#121211; } }
+  /* Trina AX brand (editions/trina/branding/logo/README.md): ink, paper, Signal Orange (#E8521A in UI on paper) */
+  :root { --bg:#f6f2ea; --raised:#fffdf9; --text:#14110f; --dim:#5c544c; --line:rgba(20,17,15,.12); --accent:#14110f; --on-accent:#f6f2ea;
+    --orange:#e8521a; --shadow:0 10px 30px rgba(20,17,15,.12), 0 2px 6px rgba(20,17,15,.06); color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14110f; --raised:#221e1b; --text:#f6f2ea; --dim:#ada59b; --line:rgba(246,242,234,.14);
+    --accent:#f6f2ea; --on-accent:#14110f; --orange:#ff6a33; --shadow:0 10px 30px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3); } }
   * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text);
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; padding: 24px 16px; }
-  main { width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:32px 28px; }
-  h1 { font-size:24px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em; }
-  p { margin:0 0 20px; color:var(--dim); }
-  .lead { font-size:14px; margin:0 0 8px; }
-  .note { font-size:14px; margin:16px 0 0; text-wrap:balance; }
+  ::selection { background: color-mix(in srgb, var(--orange) 28%, transparent); }
+  body { margin:0; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; padding: 40px 16px; }
+  main { width:100%; max-width:480px; text-align:center; }
+  .brand { display:inline-flex; margin:0 0 36px; }
+  .wm { height:30px; width:auto; display:block; }
+  .wm-dark { display:none; }
+  @media (prefers-color-scheme: dark) { .wm-light { display:none; } .wm-dark { display:block; } }
+  h1 { font-size:28px; line-height:1.2; font-weight:700; letter-spacing:-.02em; margin:0 0 10px; text-wrap:balance; }
+  .landing h1 { font-size:clamp(34px, 9vw, 44px); line-height:1.08; letter-spacing:-.03em; }
+  main > p { margin:0 0 28px; color:var(--dim); text-wrap:balance; }
+  .landing main > p { font-size:17px; }
   /* keep-all only for Korean: Japanese and Chinese have no spaces and would break only at punctuation */
-  html[lang="ko"] .note, html[lang="ko"] .lead { word-break:keep-all; }
-  .note.practice { margin-top:6px; }
-  form { display:flex; flex-direction:column; gap:16px; align-items:stretch; }
+  html[lang="ko"] h1, html[lang="ko"] main > p, html[lang="ko"] .practice p { word-break:keep-all; }
+  .facts { position:relative; list-style:none; margin:0 0 32px; padding:16px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 22px;
+    border-block:1px solid var(--line); font-size:14px; font-weight:500; }
+  .fact { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; }
+  .practice summary { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .ic { flex:none; color:var(--orange); }
+  .practice summary { list-style:none; cursor:pointer; border-radius:6px; text-decoration:underline dotted color-mix(in srgb, var(--text) 40%, transparent);
+    text-underline-offset:4px; }
+  .practice summary::-webkit-details-marker { display:none; }
+  .practice .info-ic { color:var(--dim); }
+  .practice[open] .info-ic, .practice summary:hover .info-ic { color:var(--text); }
+  .practice p { position:absolute; z-index:2; left:0; right:0; top:calc(100% + 8px); margin:0; padding:12px 14px; text-align:left; white-space:normal;
+    background:var(--raised); color:var(--text); border-radius:12px; box-shadow:var(--shadow); font-weight:400; line-height:1.5; }
+  form { display:flex; flex-direction:column; gap:16px; align-items:center; }
+  form .primary { width:100%; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
-  .primary, .secondary { display:inline-flex; justify-content:center; align-items:center; min-height:44px; padding:0 20px; border-radius:10px;
-    font:inherit; font-weight:600; text-decoration:none; cursor:pointer; }
+  .primary, .secondary { display:inline-flex; justify-content:center; align-items:center; min-height:48px; padding:0 20px; border-radius:12px;
+    font:inherit; font-weight:600; text-decoration:none; cursor:pointer; transition:transform .15s cubic-bezier(.2,.8,.2,1), opacity .15s; }
   .primary { background:var(--accent); color:var(--on-accent); border:0; }
+  .primary:hover { opacity:.88; }
+  .primary:active, .secondary:active { transform:scale(.985); }
   .secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
+  .secondary:hover { border-color:color-mix(in srgb, var(--text) 35%, transparent); }
+  :focus-visible { outline:2px solid var(--orange); outline-offset:3px; }
   .row a { flex:1 1 160px; }
+  @media (prefers-reduced-motion: reduce) { .primary, .secondary { transition:none; } }
 </style>
 </head>
-<body>
+<body class="${kind}">
 <main>
-  ${lead ? `<p class="lead">${esc(lead)}</p>` : ''}
+  ${wordmark('Trina AX')}
   <h1>${esc(h)}</h1>
   <p>${esc(p)}</p>
   ${body}
