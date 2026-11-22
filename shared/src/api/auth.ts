@@ -210,8 +210,12 @@ export const SetupStatus = z.object({
   ownerRecoveryUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https only').nullable().optional(),
   /** the sign-in page may offer "Sign in with Google" (server/src/auth/google-login.ts): this server has a Google client
    * and Google returns to the address this page was opened at. Absent: no button (none, another address, a demo, or an
-   * older server). The apps leave it out until they can open Google outside their window. */
+   * older server). The apps use googleAppSignIn instead. */
   googleSignIn: z.literal(true).optional(),
+  /** the desktop and phone apps may offer "Sign in with Google" (docs/decisions/20261122-google-login-apps.md): this
+   * server has a Google client and it is no demo. Any address: an app's flow is bound to a secret the app keeps, not
+   * to a cookie of this address. Each app shows it only when it can open Google outside its window (its bridge flag). */
+  googleAppSignIn: z.literal(true).optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
@@ -263,9 +267,33 @@ export const RedeemAppSignInBody = z.object({
 export const GoogleSignInBody = z.object({
   /** a path of this site to open after signing in (the sign-in page's ?next=); anything else is dropped */
   next: z.string().max(500).optional(),
+  /** Who starts it (docs/decisions/20261122-google-login-apps.md). Left out or 'web': the browser goes to Google in
+   * this window and comes back signed in (a binding cookie). 'desktop' or 'mobile': the app opens Google in the system
+   * browser, which comes back with a one-time code for the app only (GOOGLE_APP_RETURN_PATH, GOOGLE_PHONE_RETURN); the
+   * app's page redeems it (redeemGoogleSignIn) with the secret whose hash it sends here. */
+  client: ClientKind.optional(),
+  /** the SHA-256 (hex) of a random secret the app's sign-in page keeps; required for 'desktop' and 'mobile', refused
+   * for the web */
+  appSecretHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 })
 export const GoogleStart = z.object({ url: z.string().url() })
 export type GoogleStart = z.infer<typeof GoogleStart>
+/** The page of the team that the desktop app opens with the code from Google's return:
+ * `<linkScheme>://open?url=<team>/login/google#code=<code>`, taken only for the team on screen (desktop/src/common/
+ * address.ts googleSignInCode). */
+export const GOOGLE_APP_RETURN_PATH = '/login/google'
+/** Where Google's return sends a phone app's flow: the address its auth session waits for (expo-web-browser
+ * openAuthSessionAsync), with `#code=<code>` or `#error=<reason>`. The phone app keeps the same in
+ * mobile/src/protocol.ts (GOOGLE_SIGNIN_RETURN_HOST; a test keeps them equal). */
+export const googlePhoneReturn = (scheme: string): string => `${scheme}://google-signin`
+/** The redeem of an app's one-time code (server/src/auth/google-login.ts redeemGoogleApp): the code from the address
+ * and the secret the page kept. Cookie only, like the app sign-in code's: the session lands in the app's own window. */
+export const RedeemGoogleSignInBody = z.object({
+  code: z.string().min(1).max(200),
+  appSecret: z.string().min(1).max(200),
+  client: z.enum(['desktop', 'mobile']),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
 export const ConnectGoogleBody = z.object({ password: z.string().min(1).max(256) })
 export const MyGoogle = z.object({
   /** this page can connect one now (the same rule as SetupStatus.googleSignIn) */
@@ -346,6 +374,9 @@ export const AUTH = {
   // Sign in with Google (server/src/auth/google-login.ts): the start sets a short binding cookie; Google returns to the
   // server's registered address (routes/drive.ts looks the state up here first). Never a GET: each start is a row
   startGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/start', auth: 'public', owner: 'A', body: GoogleSignInBody, response: GoogleStart, summary: 'Start signing in with a connected Google account: Google\'s address to open. Rate-limited per IP.' }),
+  // the desktop and phone apps (docs/decisions/20261122-google-login-apps.md): the code Google's return gave the app,
+  // with the secret whose hash the start got. Never signs in the system browser that did the Google step
+  redeemGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/redeem', auth: 'public', owner: 'A', body: RedeemGoogleSignInBody, response: LoginResponse, summary: 'Sign the desktop or phone app in with the one-time code from a Google sign-in (once, within 5 minutes, only with the app\'s secret). Sets the session cookie.' }),
   myGoogle: endpoint({ method: 'GET', path: '/api/me/google', auth: 'user', owner: 'A', response: MyGoogle, summary: 'My connected Google account, and whether one can be connected here.' }),
   // not allowWhilePasswordChange (a temporary-password session cannot connect one), not for guests (GUEST_ENDPOINTS)
   connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password): Google\'s address to open.' }),

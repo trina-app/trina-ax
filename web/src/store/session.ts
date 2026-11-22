@@ -25,8 +25,9 @@ export type AuthStatus =
   // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
   // ownerRecoveryUrl: a hosted team's console page where its owner resets a forgotten password (GET /api/setup; the
   // sign-in page adds ?team=<its own host>); left out when the server sent none. googleSignIn: the page may offer "Sign in
-  // with Google" (GET /api/setup, server/src/auth/google-login.ts)
-  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string; googleSignIn?: true }
+  // with Google" (GET /api/setup, server/src/auth/google-login.ts); googleAppSignIn: the desktop and phone apps may
+  // (server/src/auth/google-login-apps.ts, lib/googleSignIn.ts)
+  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string; googleSignIn?: true; googleAppSignIn?: true }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -117,11 +118,12 @@ let lastTeamDefault: Locale | null = null
 export const teamDefaultLocale = (): Locale | null => lastTeamDefault
 /** GET /api/setup's ownerRecoveryUrl as last seen (null: none, or not asked yet), kept for the sign-in screen */
 let lastOwnerRecovery: string | null = null
-/** GET /api/setup's googleSignIn as last seen */
+/** GET /api/setup's googleSignIn and googleAppSignIn as last seen */
 let lastGoogleSignIn = false
+let lastGoogleAppSignIn = false
 /** a signed-out status with the hosted team's owner-recovery page, when the server named one, and Sign in with Google
  * when the server offers it */
-const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => ({ ...st, ...(lastOwnerRecovery ? { ownerRecoveryUrl: lastOwnerRecovery } : {}), ...(lastGoogleSignIn ? { googleSignIn: true as const } : {}) })
+const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => ({ ...st, ...(lastOwnerRecovery ? { ownerRecoveryUrl: lastOwnerRecovery } : {}), ...(lastGoogleSignIn ? { googleSignIn: true as const } : {}), ...(lastGoogleAppSignIn ? { googleAppSignIn: true as const } : {}) })
 /** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
 let themePick: { back: Theme } | null = null
 
@@ -426,6 +428,7 @@ async function readMe(get: Get, set: Set): Promise<void> {
         lastTeamDefault = s.defaultLocale ?? null
         lastOwnerRecovery = s.ownerRecoveryUrl ?? null
         lastGoogleSignIn = !!s.googleSignIn
+        lastGoogleAppSignIn = !!s.googleAppSignIn
         // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)

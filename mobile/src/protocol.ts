@@ -66,6 +66,34 @@ export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
  * recognizer; the app no longer offers any other, and a page treats anything but true as unsupported: the team server);
  * its recordings also send `level` events (0-1) for the page's wave. */
 export const DICTATION_CAPABILITY = 'dictation-v1'
+/** Optional, versioned: Sign in with Google (docs/decisions/20261122-google-login-apps.md). Google refuses to sign in
+ * inside the WebView, so `google-signin` opens Google's authorization address (googleOAuthUrl only) in the phone's auth
+ * session (ASWebAuthenticationSession / Custom Tabs, expo-web-browser openAuthSessionAsync), which waits for
+ * `<scheme>://google-signin` (googleSignInReturn). The team server sends the session there with `#code=<code>` or
+ * `#error=<reason>`; the reply carries `googleCode` or `googleError`, or neither when the person closed it. The page
+ * redeems the code itself with the secret it kept, so the session lands in the WebView's own cookies. One at a time.
+ * An app without it: the page shows no Google button (store builds before it). */
+export const GOOGLE_SIGNIN_CAPABILITY = 'google-signin-v1'
+/** The auth session's return address (shared/src/api/auth.ts googlePhoneReturn on the server; a test keeps them equal).
+ * Not `open`: the app's link handler (team-link.ts readAppLink) never takes it. */
+export const googleSignInReturn = (scheme: string): string => `${scheme}://google-signin`
+/** The reasons the team server may send back (server/src/auth/google-login-apps.ts) */
+export const GOOGLE_SIGNIN_ERRORS = ['not_connected', 'account_off', 'password_first', 'cancelled', 'expired', 'failed'] as const
+export type GoogleSignInError = typeof GOOGLE_SIGNIN_ERRORS[number]
+export const googleSignInError = (v: unknown): v is GoogleSignInError => typeof v === 'string' && (GOOGLE_SIGNIN_ERRORS as readonly string[]).includes(v)
+/** a one-time code: 32 random bytes in base64url */
+export const googleSignInCode = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{43}$/.test(v)
+/** How the auth session ended: the code or the reason from exactly `<scheme>://google-signin#code=…` (or `#error=…`,
+ * one key, nothing else); null for any other address (the person closed it, or something else came back). */
+export function readGoogleSignInReturn(url: unknown, scheme: string): { code: string } | { error: GoogleSignInError } | null {
+  if (typeof url !== 'string' || url.length > 300) return null
+  const base = googleSignInReturn(scheme)
+  if (!url.startsWith(`${base}#`)) return null
+  const m = /^(code|error)=([A-Za-z0-9_-]{1,64})$/.exec(url.slice(base.length + 1))
+  if (!m) return null
+  if (m[1] === 'code') return googleSignInCode(m[2]) ? { code: m[2]! } : null
+  return googleSignInError(m[2]) ? { error: m[2] } : null
+}
 /** One `dictation-push`: at most 1.5 s of sound (the page sends about 0.1 s at a time). */
 export const MAX_DICTATION_BYTES = 48_000
 /** The longest text one dictation event carries. */
@@ -163,12 +191,15 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'dictation-push'; seq: number; b64: string }
   | { type: 'dictation-stop' }
   | { type: 'dictation-cancel' }
+  // google-signin-v1: Google's authorization address in the phone's auth session
+  | { type: 'google-signin'; url: string }
 ))
+/** googleCode/googleError: a `google-signin` answer (neither: the person closed the auth session). */
 /** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
  * `photo-chunk` answer. */
 /** dictation/installed/started: the dictation-check, dictation-install and dictation-start answers; dictationMic and
  * dictationOnDevice: the Android app's check answer (DICTATION_CAPABILITY). */
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string; dictation?: DictationState; dictationMic?: 'app'; dictationOnDevice?: boolean; installed?: DictationInstall; started?: boolean }
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string; dictation?: DictationState; dictationMic?: 'app'; dictationOnDevice?: boolean; installed?: DictationInstall; started?: boolean; googleCode?: string; googleError?: GoogleSignInError }
 export const pushPermission = (v: unknown): v is PushPermission => v === 'granted' || v === 'undetermined' || v === 'denied'
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
@@ -233,6 +264,7 @@ export function parseMessage(raw: string): MobileMessage | null {
     case 'badge': if (typeof m.count !== 'number' || !Number.isInteger(m.count) || m.count < 0 || m.count > MAX_BADGE) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
+    case 'google-signin': if (typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
     default: return null
   }
   return m as unknown as MobileMessage

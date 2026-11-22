@@ -181,3 +181,69 @@ test('nav-v1 in the app: the swipe and Back follow the page, a tapped notificati
   // a new document forgets the old one's word, before its bridge is installed again
   expect(app).toMatch(/void clear\(\)\n\s*\/\/ a new document[^\n]*\n\s*setPageNav\(null\)/)
 })
+
+test('google-signin-v1: Google in the auth session, only for the current team document, one at a time; the code back to it', async () => {
+  const { GOOGLE_SIGNIN_CAPABILITY, googleSignInReturn, readGoogleSignInReturn } = await import('../../mobile/src/protocol')
+  const { googlePhoneReturn } = await import('../../shared/src/api/auth')
+  const { PRODUCT } = await import('../../shared/src/product')
+  const { readAppLink } = await import('../../mobile/src/team-link')
+  const io: TransferIO = { async create() {}, async append() {}, async inspect() { return { size: 0, sha256: '' } }, async share() {}, async remove() {} }
+  const code = 'C'.repeat(43)
+  let answer: Awaited<ReturnType<NonNullable<ConstructorParameters<typeof MobileReceiver>[11]>>> = { code }
+  const asked: string[] = []
+  let release = () => {}
+  let hold: Promise<void> | null = null
+  const session = async (url: string) => { asked.push(url); if (hold) await hold; return answer }
+  const make = (capabilities: readonly string[]) => new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined, session)
+  const google = 'https://accounts.google.com/o/oauth2/v2/auth?state=s1'
+  const message = (over: object = {}) => JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'request-google-1', type: 'google-signin', url: google, ...over })
+  // a build without the capability refuses
+  expect((await make([...MOBILE_CAPABILITIES]).receive(message(), 'https://team.example/login'))?.ok).toBe(false)
+  const app = make([...MOBILE_CAPABILITIES, GOOGLE_SIGNIN_CAPABILITY])
+  // another origin, another document, another address than Google's: nothing opens
+  expect(await app.receive(message(), 'https://evil.example/login')).toBeNull()
+  expect(await app.receive(message({ nonce: 'b'.repeat(64) }), 'https://team.example/login')).toBeNull()
+  expect(await app.receive(message({ url: 'https://evil.example/o/oauth2/v2/auth' }), 'https://team.example/login')).toBeNull()
+  expect(asked).toEqual([])
+  expect(await app.receive(message(), 'https://team.example/login')).toMatchObject({ ok: true, googleCode: code })
+  answer = { error: 'not_connected' }
+  expect(await app.receive(message(), 'https://team.example/login')).toMatchObject({ ok: true, googleError: 'not_connected' })
+  answer = null
+  const closed = await app.receive(message(), 'https://team.example/login')
+  expect(closed?.ok).toBe(true)
+  expect(closed?.googleCode).toBeUndefined()
+  // a code of the wrong shape never reaches the page
+  answer = { code: 'short' }
+  expect((await app.receive(message(), 'https://team.example/login'))?.googleCode).toBeUndefined()
+  // one auth session at a time
+  answer = { code }
+  hold = new Promise<void>((r) => { release = r })
+  const first = app.receive(message(), 'https://team.example/login')
+  expect((await app.receive(message({ id: 'request-google-2' }), 'https://team.example/login'))?.ok).toBe(false)
+  release(); hold = null
+  expect((await first)?.googleCode).toBe(code)
+  // the page that asked went away meanwhile: the code is not handed to the next one
+  hold = new Promise<void>((r) => { release = r })
+  const late = app.receive(message(), 'https://team.example/login')
+  await app.disable()
+  release(); hold = null
+  expect(await late).toBeNull()
+
+  // the return address: the server's (shared) and the app's are the same; only it, with one key, is read
+  expect(googleSignInReturn('trina-ax')).toBe(googlePhoneReturn('trina-ax'))
+  expect(readGoogleSignInReturn(`trina-ax://google-signin#code=${code}`, 'trina-ax')).toEqual({ code })
+  expect(readGoogleSignInReturn('trina-ax://google-signin#error=account_off', 'trina-ax')).toEqual({ error: 'account_off' })
+  for (const u of [`trina-ax://google-signin?code=${code}`, `trina-ax://google-signin#code=${code}&x=1`, 'trina-ax://google-signin#code=short', 'trina-ax://google-signin#error=whatever',
+    `trina-ax://open#code=${code}`, `evil://google-signin#code=${code}`, `https://team.example/#code=${code}`, null])
+    expect(readGoogleSignInReturn(u, 'trina-ax')).toBeNull()
+  // the app's own link handler never reads it (not `open`, and a fragment)
+  expect(readAppLink(`trina-ax://google-signin#code=${code}`, { teamDomain: 'trina.app', loopbackHttp: false, scheme: 'trina-ax', universal: true })).toBeNull()
+  // the Trina phone app's scheme is the server's (the server redirects to PRODUCT.linkScheme)
+  const fs = await import('node:fs')
+  const { join } = await import('node:path')
+  expect(JSON.parse(fs.readFileSync(join(import.meta.dir, '../../editions/trina/branding/mobile.json'), 'utf8')).scheme).toBe(PRODUCT.linkScheme)
+  // the app offers it and waits for its own scheme's return address
+  const appSource = fs.readFileSync(join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(appSource).toContain('CHANGE_TEAM_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY,')
+  expect(appSource).toContain('WebBrowser.openAuthSessionAsync(url, googleSignInReturn(product.scheme))')
+})

@@ -14,7 +14,8 @@ import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
-import { disconnectGoogle, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
+import { disconnectGoogle, googleAppLoginAvailable, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
+import { redeemGoogleApp } from '../auth/google-login-apps'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
@@ -55,8 +56,10 @@ export const authRoutes: RouteModule = {
     // (docs/DECISIONS.md "보안 4차").
     kit.handle(API.setupStatus, ({ c }) => {
       const s = setupStatusFor(c, ctx)
-      // Sign in with Google (auth/google-login.ts): only on a team that is set up, at the address Google returns to
-      return !s.needed && googleLoginAvailable(ctx, c.req.url) ? { ...s, googleSignIn: true as const } : s
+      // Sign in with Google (auth/google-login.ts): only on a team that is set up, in a browser at the address Google
+      // returns to; in the desktop and phone apps at any address (auth/google-login-apps.ts)
+      if (s.needed || !googleAppLoginAvailable(ctx)) return s
+      return { ...s, googleAppSignIn: true as const, ...(googleLoginAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
     })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
@@ -77,7 +80,9 @@ export const authRoutes: RouteModule = {
 
     // Sign in with Google (auth/google-login.ts): connect in Settings › Security with the current password, then sign in
     // with it. Google's return comes to the Drive callback address (routes/drive.ts)
-    kit.handle(API.startGoogleSignIn, ({ c, body }) => startGoogleSignIn(c, ctx, body.next))
+    kit.handle(API.startGoogleSignIn, ({ c, body }) => startGoogleSignIn(c, ctx, body))
+    // the desktop and phone apps: Google's return gave the app a one-time code, spent here with the app's secret
+    kit.handle(API.redeemGoogleSignIn, ({ c, body }) => redeemGoogleApp(c, ctx, body))
     kit.handle(API.myGoogle, ({ c, auth }) => myGoogle(c, ctx, auth.user.id))
     kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body.password))
     kit.handle(API.disconnectGoogle, ({ auth }) => disconnectGoogle(ctx, auth.user.id))

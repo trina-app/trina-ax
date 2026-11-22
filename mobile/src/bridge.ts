@@ -1,6 +1,6 @@
 import type { PhoneDictation } from './dictation'
 import { PhotoPicks, PhotoRefused } from './photos'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type DictationEvent, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type DictationEvent, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -168,14 +168,21 @@ export interface PushBridge {
   labelHash?(): Promise<string | null>; signedOut?(): Promise<void>; badge?(count: number): Promise<void>
 }
 
+/** How the phone's auth session for Sign in with Google ended (google-signin-v1): the code or the team server's reason
+ * from its return address, or null when the person closed it (or anything else came back). */
+export type GoogleSignInAnswer = { code: string } | { error: GoogleSignInError } | null
+
 /** Where Back goes in the page on screen (nav-v1): `home` is true unless the page said it is on another tab. */
 export interface PageNav { canGoBack: boolean; home: boolean }
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. `share`
  * (share-text-v1): the phone's share sheet with a text, answered once the sheet is up or closed. `photos`
- * (photo-pick-v1): the phone's photo picker and the picked files' bytes, fenced with the file transfers. */
+ * (photo-pick-v1): the phone's photo picker and the picked files' bytes, fenced with the file transfers. `googleSignIn`
+ * (google-signin-v1): Google's authorization address in the phone's auth session, one at a time; the code goes back only
+ * to the document that asked (the reply's nonce), which redeems it itself. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks, private changeTeam?: () => void, private dictation?: PhoneDictation) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks, private changeTeam?: () => void, private dictation?: PhoneDictation, private googleSignIn?: (url: string) => Promise<GoogleSignInAnswer>) {}
+  private googleOpen = false
   private changeTeamOnce = onceEvery(3000)
   private async fence() { this.dictation?.clear(); await this.files.clear(); await this.photos?.clear() }
   /** The bridge is on and a photo pick is under way (the picker on screen, or its bytes not all fetched yet). */
@@ -203,6 +210,16 @@ export class MobileReceiver {
     }
     try {
       if (m.type === 'external-open') await this.external(m.url)
+      else if (m.type === 'google-signin') {
+        // one auth session at a time (the phone shows one anyway; a second request is refused, not queued)
+        if (!this.googleSignIn || !current.capabilities.includes(GOOGLE_SIGNIN_CAPABILITY) || this.googleOpen) throw new Error('unsupported')
+        this.googleOpen = true
+        try {
+          const answer = await this.googleSignIn(m.url)
+          if (answer && 'code' in answer && googleSignInCode(answer.code)) reply.googleCode = answer.code
+          else if (answer && 'error' in answer && googleSignInError(answer.error)) reply.googleError = answer.error
+        } finally { this.googleOpen = false }
+      }
       else if (m.type === 'push-token') {
         // Same origin/nonce/generation checks as files; the token goes only to the document that asked.
         if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
