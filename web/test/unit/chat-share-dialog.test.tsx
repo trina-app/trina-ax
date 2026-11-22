@@ -228,6 +228,48 @@ describe('the save model and every exit', () => {
     } finally { await m.unmount() }
   })
 
+  test('ticked while adding someone: Share sends the files with the preview\'s key; a change of the people unticks it; nobody in it: no box', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience([], { madeFiles, madeFilesKey: 'mk' }), undefined, () => ({ ...NOTHING, madeFiles }))
+    let closed = 0
+    const m = await open(() => closed++)
+    const tickBox = async () => {
+      const box = m.get('chat-share-files-check')
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!.set!.call(box, true)
+      await m.click(box)
+    }
+    try {
+      // a chat never shared, nobody picked: no files box, so a tick can't turn Share on
+      expect(m.find('chat-share-files-step')).toBeNull()
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      await tickBox()
+      await m.until(() => (m.get('chat-share-files-check') as unknown as { checked: boolean }).checked, 'ticked', 2000)
+      // Sora too: a new list of people, the box unticked again (once the new check lists the files)
+      await m.type('chat-share-picker-search', 'sora')
+      await m.click(await m.until(() => m.find('participant-add-user-sora'), 'Sora to add', 2000))
+      await ready(m)
+      await m.until(() => { const b = m.find('chat-share-files-check') as unknown as { checked: boolean } | null; return !!b && !b.checked }, 'unticked', 2000)
+      await m.click('participant-remove-user-sora')
+      await ready(m)
+      await tickBox()
+      await m.until(() => (m.get('chat-share-files-check') as unknown as { checked: boolean }).checked, 'ticked again', 2000)
+      await m.click('chat-share-save')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const put = sent.find((x) => x.key === `PUT ${AUD}`)!.body as { withFiles?: boolean; confirmKey?: string; subjects: { subjectId: string }[] }
+      expect(put.withFiles).toBe(true)
+      expect(put.confirmKey).toBe('pk:bob')
+      expect(put.subjects.map((x) => x.subjectId)).toEqual(['bob'])
+    } finally { await m.unmount() }
+  })
+
+  test('the ✕ tooltip\'s words: removing does not take back what they saw (the tooltip itself: e2e share-chat-people)', () => {
+    expect(en('chat.share.removeTip')).toBe("What they've already seen stays seen.")
+    expect(translate('ko', 'chat.share.removeTip')).toBe('이미 본 내용은 되돌릴 수 없어요.')
+  })
+
   test('a failed save keeps the picks with the error above the button; a refusal says why; then it saves', async () => {
     let calls = 0
     routesWith(audience(), () => {
@@ -438,6 +480,7 @@ describe('the save model and every exit', () => {
     expect(sales).toBe('Sales 부서 사람들')
     expect(sales).not.toContain('님')
     expect(ko('share.warn.summary', { names: bob })).toBe('Bob 님이 못 여는 곳을 참고한 답이 있어요')
+    expect(ko('chat.shareFiles.hint')).toBe('채팅에 사본이 생겨요. 원본은 그대로예요.')
     expect(ko('share.warn.summary', { names: sales })).toBe('Sales 부서 사람들이 못 여는 곳을 참고한 답이 있어요')
     expect(ko('share.warn.files', { n: 1, names: bob })).toBe('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
     expect(ko('share.warn.places', { places: '내 파일', names: bob })).toBe('이 채팅은 내 파일도 참고했어요. Bob 님은 열 수 없는 곳이에요.')

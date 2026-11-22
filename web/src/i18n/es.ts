@@ -6293,6 +6293,7 @@ export const es: Record<MessageKey, string> = {
   "chat.share.withAccess": "Personas con acceso",
   "chat.share.started": "Inició este chat",
   "chat.share.note": "Las personas que agregue ven el chat completo, desde el principio, y pueden preguntar a la IA en él.",
+  "chat.share.removeTip": "Lo que ya vieron queda visto.",
   "chat.share.futureGroup": "Un grupo agregado también lo abre a quien se una a ese grupo más adelante.",
   "chat.share.share": "Compartir",
   "chat.share.discardTitle": "¿Descartar los cambios?",

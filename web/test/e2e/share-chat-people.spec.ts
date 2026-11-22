@@ -164,7 +164,11 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       expect((await saveAudience(page, w.chatId, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'user', subjectId: 'sora' }])).ok()).toBeTruthy()
       const dialog = await openShare(page, w.chatId)
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
-      // ✕ on a saved row: struck out with Undo; Undo puts it back
+      // ✕ on a saved row: its tooltip says what was seen stays seen (a computer); struck out with Undo; Undo puts it back
+      if (!isPhone(page)) {
+        await dialog.getByTestId('participant-remove-user-bob').hover()
+        await expect(page.getByRole('tooltip')).toHaveText('Bob 빼기 · 이미 본 내용은 되돌릴 수 없어요.')
+      }
       await dialog.getByTestId('participant-remove-user-bob').click()
       await expect(dialog.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'removed')
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()

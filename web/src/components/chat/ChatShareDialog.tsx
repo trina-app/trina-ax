@@ -193,6 +193,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     return () => { clearTimeout(shown); clearTimeout(asked) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picksKey, editable, audience, adding.length, chat.id])
+  // a new list of people: the files box unticked again (the tick was for the people it was ticked for)
+  useEffect(() => { setWithFiles(false) }, [picksKey])
   const current = preview?.for === picksKey ? preview : null
   // Share waits for the check of exactly these picks (from the first change, the 400 ms wait included)
   const checking = adding.length > 0 && (!current || current.state === 'loading')
@@ -297,7 +299,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // the files step: while adding people, the check's list; on a chat already shared, the audience's (or the list asked
   // again). Only its creator ever gets one
   const stepFiles: ChatMadeFile[] = !editable ? [] : adding.length ? (check?.madeFiles ?? []) : (filesAgain?.files ?? audience?.madeFiles ?? [])
-  const filesStep = stepFiles.length > 0 && !removesAll
+  // nobody in it (a chat never shared, nobody picked): no files box, nothing to share them with
+  const filesStep = stepFiles.length > 0 && picks.length > 0
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
   // the files go only when ticked (and there are files to go)
   const sendFiles = filesStep && withFiles
@@ -355,7 +358,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
             <MembersField label={t('chat.share.withAccess')}>
               {editable ? (
                 <ParticipantPicker options={options} value={picks} onChange={(v) => { setPicks(v); setError(null) }} fixed={fixed} current={saved}
-                  placeholder={t('chat.share.add')} exclude={exclude} phoneTags={phoneTags} testId="chat-share-picker" />
+                  placeholder={t('chat.share.add')} exclude={exclude} phoneTags={phoneTags} removeTip={t('chat.share.removeTip')} testId="chat-share-picker" />
               ) : (
                 <ParticipantPicker options={options} value={saved} onChange={() => {}} fixed={fixed} readOnly testId="chat-share-picker" />
               )}

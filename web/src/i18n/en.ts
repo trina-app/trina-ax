@@ -6338,6 +6338,7 @@ export const en: Record<MessageKey, string> = {
   "chat.share.withAccess": "People with access",
   "chat.share.started": "Started this chat",
   "chat.share.note": "People you add see the whole chat, from the start, and can ask the AI in it.",
+  "chat.share.removeTip": "What they've already seen stays seen.",
   "chat.share.futureGroup": "A group added also opens it to whoever joins that group later.",
   "chat.share.share": "Share",
   "chat.share.discardTitle": "Discard changes?",

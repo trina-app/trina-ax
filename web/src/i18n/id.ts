@@ -6337,6 +6337,7 @@ export const id: Record<MessageKey, string> = {
   "chat.share.withAccess": "Orang yang punya akses",
   "chat.share.started": "Memulai chat ini",
   "chat.share.note": "Orang yang Anda tambahkan melihat seluruh chat dari awal dan bisa bertanya ke AI di dalamnya.",
+  "chat.share.removeTip": "Yang sudah mereka lihat tetap sudah terlihat.",
   "chat.share.futureGroup": "Grup yang ditambahkan juga membukanya untuk siapa pun yang bergabung ke grup itu nanti.",
   "chat.share.share": "Bagikan",
   "chat.share.discardTitle": "Buang perubahan?",

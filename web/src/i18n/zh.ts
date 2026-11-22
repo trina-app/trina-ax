@@ -6264,6 +6264,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.share.withAccess": "有权访问的人员",
   "chat.share.started": "发起了此对话",
   "chat.share.note": "添加的人能从头看到整个对话,并能在其中向 AI 提问。",
+  "chat.share.removeTip": "他们已经看到的内容无法撤回。",
   "chat.share.futureGroup": "添加小组后，以后加入该小组的人也能看到此对话。",
   "chat.share.share": "共享",
   "chat.share.discardTitle": "放弃更改？",

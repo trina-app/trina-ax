@@ -6293,6 +6293,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.share.withAccess": "アクセスできるユーザー",
   "chat.share.started": "このチャットを開始",
   "chat.share.note": "追加した人は最初からチャット全体を見られ、このチャットでAIに質問できます。",
+  "chat.share.removeTip": "すでに見た内容は取り消せません。",
   "chat.share.futureGroup": "グループを追加すると、あとからそのグループに入るユーザーにも公開されます。",
   "chat.share.share": "共有",
   "chat.share.discardTitle": "変更を破棄しますか？",

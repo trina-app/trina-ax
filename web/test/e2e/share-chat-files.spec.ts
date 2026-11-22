@@ -103,8 +103,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(step.getByTestId('chat-share-files-item')).toHaveCount(2)
       await expect(step.getByTestId('chat-share-files-item').first()).toContainText('내 파일 › 견적 › Sincere')
       const hint = dialog.getByTestId('chat-share-files-hint')
-      await expect(hint).toHaveText('대화에 사본이 생겨요. 원본은 그대로예요.')
-      await expect(hint).toHaveAttribute('title', '원본은 내 파일에 그대로 있어요. 대화를 삭제하면 대화의 사본도 함께 삭제돼요.')
+      await expect(hint).toHaveText('채팅에 사본이 생겨요. 원본은 그대로예요.')
+      await expect(hint).toHaveAttribute('title', '원본은 내 파일에 그대로 있어요. 채팅을 삭제하면 채팅의 사본도 함께 삭제돼요.')
       // unticked: a file leaves My files only when its owner ticks it; one Share button, no "with/without files" pair
       const box = dialog.getByTestId('chat-share-files-check')
       await expect(box).not.toBeChecked()

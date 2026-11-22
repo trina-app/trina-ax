@@ -99,7 +99,7 @@ export function MembersField({ label, children }: { label: string; children: Rea
  * `groupPeople` (the members dialog: GET …/people's groups): a group row says how many people it holds and opens to
  * list them. `notes`: words a row's second line ends with (a group's "except Kim": people in it who left the project).
  */
-export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, readOnly = false, hideEmpty = false, testId = 'project-participants' }: {
+export function ParticipantPicker({ options, value, onChange, fixed = new Map(), current, groupPeople, notes, placeholder, exclude, phoneTags, unavailable, removeTip, readOnly = false, hideEmpty = false, testId = 'project-participants' }: {
   options: readonly ParticipantOption[]
   value: readonly ProjectParticipant[]
   onChange: (v: ProjectParticipant[]) => void
@@ -121,6 +121,8 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   /** key → a result that cannot be added (a guest in another place: "In the 'Quote prep' room"): shown greyed out with
    * those words and no Add, with `action` beside it (the owner's and admins' "Make team member") */
   unavailable?: ReadonlyMap<string, { text: string; action?: ReactNode }>
+  /** words after the ×'s name in its tooltip (a chat's Share dialog: "What they've already seen stays seen.") */
+  removeTip?: string
   /** who is in it, without the search and without × (someone else's shared chat) */
   readOnly?: boolean
   /** nothing under the search while nobody is picked (a file's Share dialog: who has it is listed apart) */
@@ -328,7 +330,7 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
                       {t('projects.undoRemove')}<span className="sr-only"> · {t('projects.undoRemoveLabel', { name: x.name })}</span>
                     </button>
                   ) : (
-                    <IconButton label={t('projects.removeMember', { name: x.name })} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
+                    <IconButton label={t('projects.removeMember', { name: x.name })} tip={removeTip ? `${t('projects.removeMember', { name: x.name })} · ${removeTip}` : true} onClick={() => remove(x)} className="touch-hit shrink-0" data-testid={`participant-remove-${x.subjectType}-${x.subjectId}`}>
                       <X size={14} aria-hidden />
                     </IconButton>
                   )) : undefined}
