@@ -22,6 +22,7 @@ import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
 import { getPreferences, getPreferencesOf, pushEventEnabled, type Preferences } from '../notifications/preferences'
 import { chatOpenFor } from '../notifications/chat-answers'
+import { notificationsOf } from '../notifications/service'
 import { redactorFor } from '../integrations/connections/redact'
 import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
@@ -113,7 +114,7 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING`)
-    const told: string[] = []
+    const told: string[] = [], mentioned: string[] = []
     db.transaction(() => {
       for (const uid of ids) {
         if (!active.has(uid)) continue
@@ -123,13 +124,16 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
         const ring = kind === 'message' && mayRing(prefs!.get(uid)!, tz, now)
         const r = insert.run(newId(), uid, messageId, chat.id, kind === 'message' ? by : null, kind, at, ring ? 0 : 1, mention ? 1 : 0)
         if (r.changes && kind === 'message') told.push(uid)
+        if (r.changes && mention) mentioned.push(uid)
         if (r.changes && ring) rings.set(uid, { messageId, ...(mention ? { mention: true as const } : {}) })
       }
       // a person's message brings a chat I hid from my list back (as a room's message brings a hidden room back), so
       // its number is never out of sight; an answer of Trina's does not (one statement for everyone told)
       if (told.length) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id IN (SELECT value FROM json_each(?))').run(chat.id, JSON.stringify(told))
     })()
-    // their Inbox count does not change (these rows are never listed): the chat.updated that follows carries the number
+    // a mention is a row under Mentions (QA TC-f3-02): their Inbox reads again; any other notice is never listed (the
+    // chat.updated that follows carries the number)
+    for (const uid of mentioned) notificationsOf(ctx).changed(uid)
     return rings
   } catch (e) {
     ctx.log.warn('chat message notices deferred', { err: e })
