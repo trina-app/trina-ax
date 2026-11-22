@@ -22,7 +22,7 @@
      before it starts (at most 3 MB, its decoding capped there too) and settles the real size after, so parallel
      requests cannot pass the budget together; every fetch still running is stopped when the drawing ends. The render
      takes one of HTML to PDF's print slots (`tryRenderSlot`: the print cgroup's room on a small server, never ahead of
-     a waiting print), and a busy server skips it. runBrowser refuses to start without the isolation or as root, whoever
+     a waiting print), and a busy server skips it. runBrowser refuses to start without the isolation (a JavaScript-on run always; only printIn has a test-only hatch for a JavaScript-off print) or as root, whoever
      calls it. A page read on (offset > 0) reuses its first read's drawing and is never drawn again. No browser or no
      isolation: skipped quietly.
   2. For every web_fetch: what the page's markup says about it, each value on its own line exactly as written (no labels

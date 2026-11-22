@@ -273,10 +273,10 @@ describe('web_fetch on a page that shows almost no text', () => {
     expect(heavyPeak).toBeLessThanOrEqual(limits.maxInFlight)
   })
 
-  drawing('without the isolation runBrowser refuses, even with a browser named directly (and renderPage draws nothing)', () => {
+  drawing('without the isolation a JavaScript-on runBrowser refuses, even with a browser named directly and the print test hatch set', () => {
     const mod = path.join(import.meta.dir, '..', '..', 'server', 'src', 'files', 'html-pdf.ts')
-    const code = `const { runBrowser } = await import(${JSON.stringify(mod)}); try { await runBrowser(${JSON.stringify(workBase)}, { browser: ${JSON.stringify(BROWSER)}, limits: { timeoutMs: 5000, maxRssMiB: 512, maxWorkBytes: 1e8 }, maxMessage: 1e6, tooLarge: () => new Error('x'), scripts: true, timeoutText: 't', memoryText: 'm' }, async () => 'ran'); console.log('RAN') } catch (e) { console.log('REFUSED ' + e.code) }`
-    const r = Bun.spawnSync([process.execPath, '-e', code], { env: { ...process.env, MYCEL_ISOLATION: 'none', MYCEL_HTML_PDF_TEST_NO_ISOLATION: '' } })
+    const code = `const { runBrowser } = await import(${JSON.stringify(mod)}); try { await runBrowser(${JSON.stringify(workBase)}, { browser: ${JSON.stringify(BROWSER)}, limits: { timeoutMs: 5000, maxRssMiB: 512, maxWorkBytes: 1e8 }, maxMessage: 1e6, tooLarge: () => new Error('x'), scripts: true, noIsolationTestPrint: true, timeoutText: 't', memoryText: 'm' }, async () => 'ran'); console.log('RAN') } catch (e) { console.log('REFUSED ' + e.code) }`
+    const r = Bun.spawnSync([process.execPath, '-e', code], { env: { ...process.env, MYCEL_ISOLATION: 'none', NODE_ENV: 'test', MYCEL_HTML_PDF_TEST_NO_ISOLATION: '1' } })
     expect(r.stdout.toString().trim()).toBe('REFUSED unavailable')
   })
 

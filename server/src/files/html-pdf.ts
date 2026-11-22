@@ -489,7 +489,7 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
   // than one read of the PDF stream (1 MiB in base64) needs.
   const maxMessage = Math.max(8 * 1024 * 1024, 2 * L.maxHtmlBytes + 4 * 1024 * 1024)
   const { value, usage } = await runBrowser(work, {
-    browser: req.browser, fonts: req.fonts, signal: req.signal, limits: L, maxMessage, scripts: false,
+    browser: req.browser, fonts: req.fonts, signal: req.signal, limits: L, maxMessage, scripts: false, noIsolationTestPrint: noIsolationTestPrint(),
     tooLarge: () => new HtmlPdfError('protocol', `the browser sent a message larger than ${Math.round(maxMessage / 1024 / 1024)} MB; the page is too large to print`),
     timeoutText: `printing took longer than ${Math.round(L.timeoutMs / 1000)} s`, memoryText: 'the page needs too much memory to print',
   }, (c, race) => printPage(c, race, req, L, started))
@@ -510,7 +510,14 @@ export interface BrowserRun {
   scripts: boolean
   timeoutText: string
   memoryText: string
+  /** printIn only, from its test hatch (noIsolationTestPrint()): a print may run without the isolation. Ignored when
+   * `scripts` is on. */
+  noIsolationTestPrint?: boolean
 }
+
+/** html-pdf.test.ts's check of the interception alone: a test process that says so prints without the isolation. Read
+ * by printIn only, never by the shared runBrowser, so a JavaScript-on page render cannot reach it. */
+const noIsolationTestPrint = () => process.env.NODE_ENV === 'test' && process.env.MYCEL_HTML_PDF_TEST_NO_ISOLATION === '1'
 export type BrowserUsage = { memoryMiB?: number; pids?: number }
 
 /**
@@ -523,8 +530,9 @@ export async function runBrowser<T>(work: string, o: BrowserRun, body: (cdp: Cdp
   const L = o.limits
   // never without the isolation (it is the browser's sandbox and its "no network") and never as root, whoever called
   // with whichever browser
-  // (only html-pdf.test.ts's check of the interception alone runs it without, in a test process that says so)
-  if (isolation() === 'none' && !(process.env.NODE_ENV === 'test' && process.env.MYCEL_HTML_PDF_TEST_NO_ISOLATION === '1')) throw new HtmlPdfError('unavailable', 'the converter isolation is missing on this server, so no browser runs here')
+  // (only a print, JavaScript off, may run without it: html-pdf.test.ts's check of the interception alone, printIn's
+  // test hatch; a JavaScript-on browser never)
+  if (isolation() === 'none' && !(o.noIsolationTestPrint === true && !o.scripts)) throw new HtmlPdfError('unavailable', 'the converter isolation is missing on this server, so no browser runs here')
   if (rootRefused()) throw new HtmlPdfError('unavailable', 'a browser is never run as root')
   // the file trustedBrowser looks at is the file that runs: resolved once, checked, and run by that path
   let browser: string
