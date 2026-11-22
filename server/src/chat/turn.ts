@@ -4634,8 +4634,6 @@ export class TurnExec {
     return clearChatFolder(this.rt.ctx, path.dirname(chatDir), this.spec.chatId)
   }
 
-  /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside
-   * (ChatStore.viewSteps shows it to a viewer who may see every path it names). */
   /** An artifact call that names its page by key only ("read", "update", "restore"): with the title of the newest
    * version of that page in this chat, so its step says the page's name, never its key (QA TC-b3s-8, TC-b4s
    * "화면 보기 · year-end-party"). Anything else as it is. */
@@ -4648,6 +4646,8 @@ export class TurnExec {
     } catch { return input }
   }
 
+  /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside
+   * (ChatStore.viewSteps shows it to a viewer who may see every path it names). */
   private sharedStep(tool: string, input: unknown, label: string): Pick<StoredStep, 'label' | 'sv'> {
     if (!this.shared) return { label }
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}

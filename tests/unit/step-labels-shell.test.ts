@@ -241,6 +241,9 @@ describe('step lines in plain words (batch 5)', () => {
     expect(searchPatternWords('^\\s*total:\\s*\\d+')).toBe('total:')
     expect(searchPatternWords('invoice')).toBe('invoice')
     expect(searchPatternWords('단가표.xlsx')).toBe('단가표.xlsx')
+    expect(searchPatternWords('.*')).toBe('')
+    expect(searchPatternWords('\\p{L}+원')).toBe('원')
+    expect(stepLabel('grep', { pattern: '.*', path: 'shared' }, 'en', none)).toBe('Search · shared')
     for (const l of L) expect(stepLabel('grep', { pattern: 'A형.{0,40}(원|단가|가격)', path: 'shared' }, l, none)).not.toMatch(/[|{}\\]|\.\{/)
   })
   test('a page by its title, never a slug key', () => {

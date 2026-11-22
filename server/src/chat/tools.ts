@@ -902,8 +902,10 @@ const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x &&
  * S-118: a file tool's answer about a place this person's own earlier answers in this chat read (the chat_reads rows
  * of their turns on this branch, TurnFiles.carried, and this answer's own reads) that the folder rules no longer let
  * them read: "not found or no access" on a path in that team folder, or a search (glob, grep) whose scope covers it
- * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Null otherwise, and
- * for a guest or a restricted run (no carried reads).
+ * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Also a folder of a
+ * group the person left lately and named themselves (leftGroupPlaces: no answer here ever read it, QA TC-b4s), for a
+ * refusal there, a search for it or a listing above it. Null otherwise; a guest gets neither (no carried reads, no
+ * groups).
  */
 export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'> & Partial<Pick<TurnExec, 'shared' | 'otherAuthors'>>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
   const earlier = [...(exec.files.carried?.hashes.keys() ?? []), ...exec.files.allReads.keys()]
@@ -945,7 +947,7 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     const rel = relOf(m[1]!)
     const place = places.get(placeKey(teamPlaceOf(rel, gone)))
     if (rel && !place) {
-      // a path in (or above) a folder of a group they left: that folder's fact, once a turn
+      // a path in a folder of a group they left (or below it): that folder's fact, once a turn
       const k = placeKey(rel)
       const hit = [...left].filter(([pk]) => !noted.has(pk) && (k === pk || k.startsWith(pk + '/')))
       if (!hit.length || !gone(rel)) return null
@@ -963,15 +965,23 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   // listing of the place itself is refused and answered above)
   const listing = name === 'list' && !isError
   if ((!SEARCH_TOOLS.has(name) && !listing) || !args || typeof args !== 'object') return null
-  const a = args as { path?: unknown }
+  const a = args as { path?: unknown; pattern?: unknown }
   const scope = refusedSearch ? '' : !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
   const k = placeKey(scope)
   // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
   const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
   const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
-  // a folder of a group they left and named: any search or listing of this answer looked for it (it was never in their
-  // list again, whatever folder the search named: QA TC-b4s searched shared and groups/마케팅, then listed groups)
-  const leftHit = [...left].filter(([pk]) => !noted.has(pk))
+  // a folder of a group they left and named: a search for it (its name in the pattern or the folder searched), a listing
+  // of a folder above it ("/", "groups"), or a search a shared chat refused for having no path (QA TC-b4s searched
+  // "영업" in shared, then listed groups); not any search of the answer, which may be about something else (review)
+  const askedFor = (pl: string) => {
+    if (refusedSearch) return true
+    const own = pl.split('/').pop()!.normalize('NFC').toLowerCase()
+    const said = [a.pattern, (a as { query?: unknown }).query, a.path].filter((x): x is string => typeof x === 'string').join(' ').normalize('NFC').toLowerCase()
+    if (said.includes(own)) return true
+    return listing && (!k || placeKey(pl).startsWith(k + '/'))
+  }
+  const leftHit = [...left].filter(([pk, pl]) => !noted.has(pk) && askedFor(pl))
   if (!hit.length && !leftHit.length) return null
   for (const [pk] of [...hit, ...leftHit]) noted.add(pk)
   return [hit.length ? lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared }) : null,
@@ -984,8 +994,8 @@ const LEFT_GROUP_DAYS = 30
 /** The person's latest messages in the chat read for the folder's name: this turn's and the one before it. */
 const LEFT_GROUP_MESSAGES = 2
 /** Korean particles and words that may follow a folder's name in a message (folder, team, group; the particles 은 는
- * 이 가 을 를 의 에 도 로 와 과): a name followed by any other letter is another word ("영업일", "인사말") */
-const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|\uD3F4\uB354|\uD300|\uBD80\uC11C|[\uC740\uB294\uC774\uAC00\uC744\uB97C\uC758\uC5D0\uB3C4\uB85C\uC640\uACFC])/u
+ * 가 을 를 의 에 도 로 와 과; not 이, which starts too many words: 영업이익): a name followed by any other letter is another word ("영업일", "인사말") */
+const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|\uD3F4\uB354|\uD300|\uBD80\uC11C|[\uC740\uB294\uAC00\uC744\uB97C\uC758\uC5D0\uB3C4\uB85C\uC640\uACFC])/u
 
 /** Is the folder name `own` written as a word of its own in `said` (both NFC lower case)? */
 export function namesFolder(said: string, own: string): boolean {

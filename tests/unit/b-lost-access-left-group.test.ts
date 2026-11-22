@@ -66,6 +66,17 @@ describe('a folder of a group the person left, which they named in this chat', (
     } finally { await setMembers(['alice', 'erin']) }
   })
 
+  test('a search about something else, or the name inside another word: nothing', async () => {
+    const chat = await newChat('alice')
+    await setMembers(['erin'])
+    try {
+      // she named the folder, but this answer's search was for something else, in another folder
+      const text = await ask('alice', chat, `write the ${name} report\n${fake({ tool: 'glob', args: { pattern: '**/*minutes*', path: 'shared' }, sayResult: true })}`)
+      expect(text).not.toContain(LINE)
+    } finally { await setMembers(['alice', 'erin']) }
+    expect(namesFolder('영업이익 보고서', '영업')).toBe(false)
+  })
+
   test('not named by the person, back in the group, or never in it: nothing', async () => {
     const chat = await newChat('alice')
     await setMembers(['erin'])
@@ -94,7 +105,9 @@ describe('a folder of a group the person left, which they named in this chat', (
       const refused = 'Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open ("shared").'
       const n = lostAccessFor(exec, 'glob', true, { pattern: '**/prices*' }, refused, noted)
       expect(n).toContain(SHARED_LINE)
-      expect(n).toContain(`'${dir}'`)
+      // only the name she wrote, never the path
+      expect(n).toContain(`the '${name}' folder`)
+      expect(n).not.toContain(`'${dir}'`)
       expect(n).not.toContain(LINE)
       expect(n).toContain("never say that someone's access or groups changed")
       // once a turn

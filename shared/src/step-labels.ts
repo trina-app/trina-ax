@@ -354,6 +354,7 @@ export function searchPatternWords(pattern: unknown): string {
   if (!/[|\\.^$*+?()[\]{}]/.test(p)) return p
   const s = p
     .replace(/\[(?:\\.|[^\]\\])*\][*+?]?(?:\{\d*,?\d*\})?/g, ' ')
+    .replace(/\\[pP]\{[^}]*\}/g, ' ')
     .replace(/\\[bBsSdDwWnrt]/g, ' ')
     .replace(/\\(.)/g, '$1')
     .replace(/\.(?:[*+?]|\{\d*,?\d*\})\??/g, ' ')
@@ -369,7 +370,8 @@ export function searchPatternWords(pattern: unknown): string {
     .replace(/\s+/g, ' ')
     .replace(/^[\s,]+|[\s,]+$/g, '')
     .trim()
-  return s || p
+  // (a pattern of wildcards alone says nothing in words: '')
+  return s
 }
 
 /** A page's key as a step may show it: a key in people's words ("송년회 안내") as it is; a developer's slug
@@ -391,7 +393,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   switch (tool) {
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
     case 'glob': return globLabel(verb!, a.pattern, a.path)
-    case 'grep': return `${verb} "${clip(searchPatternWords(a.pattern), 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'grep': { const q = searchPatternWords(a.pattern); return `${verb}${q ? ` "${clip(q, 60)}"` : ''}${a.path ? ` · ${clip(a.path, 50)}` : ''}` }
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))
       if (!k && /\.pptx$/i.test(String(a.file_path ?? '').trim()) && (a.pages !== undefined || a.as_images === true)) {

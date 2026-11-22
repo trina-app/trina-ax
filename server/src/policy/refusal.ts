@@ -352,7 +352,9 @@ export function leftGroupNote(db: Database, places: readonly string[], L: Locale
   const named = nameList(places.map((p) => `'${oneLine(p)}'`))
   const it = places.length > 1 ? 'them' : 'it'
   if (o.shared) {
-    return `${named} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. Do not say ${it} was not found or is not there. ` +
+    // only the name the person wrote (the folder's last part), never where it is: the others did not see the path (review)
+    const words = nameList(places.map((p) => `the '${oneLine(p.split('/').filter(Boolean).pop() ?? p)}' folder`))
+    return `${words} cannot be opened from this chat now. Name it only as the user did, never by its path or as a group's folder. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. Do not say ${it} was not found or is not there. ` +
       `${regrantLine(db, places[0] ?? '', L, { shared: true })} ${LEFT_GROUP_END}`
   }
   return `This user was in a group that opens ${named} and is no longer in it: access to ${it} has ended for them (their groups changed). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +

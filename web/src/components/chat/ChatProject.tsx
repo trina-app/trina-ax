@@ -114,7 +114,7 @@ export function ProjectChoices({ projects, selected, current, onSelect, label }:
           <span className="min-w-0 flex-1">
             <span className="block truncate">{p.name}</span>
             {/* who sees it, in 프로젝트's words ("나만", "멤버 4명"), never a folder path */}
-            <span className="block truncate text-xs text-faint" data-testid="chat-project-choice-who">{p.inTrash ? t('chat.project.inTrash') : p.folderPath.startsWith('users/') || ((p.chatAudience ?? p.audience) !== undefined && ((p.chatAudience ?? p.audience)! <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers') ?? ''}</span>
+            <span className="block truncate text-xs text-faint" data-testid="chat-project-choice-who">{p.inTrash ? t('chat.project.inTrash') : p.folderPath.startsWith('users/') || ((p.chatAudience ?? p.audience) !== undefined && ((p.chatAudience ?? p.audience)! <= 1 || !!p.alone)) ? t('projects.meta.me') : whoSeesProject(t, { ...p, audience: p.chatAudience ?? p.audience }, 'projects.whoMembers') ?? ''}</span>
           </span>
         </label>
       ))}
