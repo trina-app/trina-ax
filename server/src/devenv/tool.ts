@@ -14,7 +14,7 @@
 // Before each command the rule of the AI's writes applies (assertStorageRoomForAI). A long command runs as a job: it
 // has an exit status and a log, the person gets a notice when it ends, and each later call gives the AI the results it
 // did not get yet. The AI does not go on by itself when a job ends.
-import { movedAwayBefore } from '../files/moved'
+import { everyoneInChatReads, movedAwayBefore } from '../files/moved'
 import { updateWaitingFor } from '../system/update-wait'
 import { z } from 'zod'
 import type { AppContext } from '../context'
@@ -265,17 +265,25 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
  * rebuilt the poster with box_shell and copied it to its old path, so the moved poster stayed on the old date and a new
  * file appeared; then it said it "saved the same file"). Said plainly, with where the moved file is when this person
  * (and, in a shared chat, everyone here) may open it. */
-function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; action: string }[], space: Space | undefined): string[] {
+/** May the AI name team path `rel` in this answer: the person may open it, and in a chat others see, everyone there may
+ * read it (the chat's audience by the folder rules and shares; not the run's mounts, which in a project chat stop at the
+ * project folder) */
+function nameable(h: BoxShellHost, rel: string): boolean {
+  if (!personCanOpen(h, rel)) return false
+  if (!h.chatId) return !h.shared
+  try { const f = h.ctx.files; return everyoneInChatReads(h.ctx.db, f.rules(), f.principal(h.userId), h.chatId, rel) } catch { return false }
+}
+
+function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; action: string }[], _space: Space | undefined): string[] {
   const out: string[] = []
   for (const c of changes) {
     if (c.action !== 'create' || out.length >= 5) continue
     const m = movedAwayBefore(h.ctx.db, c.path)
     if (!m) continue
-    const see = h.shared && space ? sharedVisible(h.ctx, space) : h.shared ? () => false : () => true
-    const to = m.to && see(m.to) && personCanOpen(h, m.to) ? m.to : null
+    const to = m.to && nameable(h, m.to) ? m.to : null
     const when = m.at.slice(0, 16).replace('T', ' ') + ' UTC'
     out.push(to
-      ? `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to ${to} (moved, not deleted), and that file did not change. If the person meant that file, put your result there instead (copy it over ${to}: its old content is kept as a version), then delete this new copy (${c.path}) unless they want two files. Tell the person where the file is; never say you saved the same file.`
+      ? `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to ${to} (moved, not deleted), and that file did not change. If the person meant that file, put your result there: read ${to}, then copy_files this file (under the same name: rename it first if needed) into its folder, which saves it as a new version of ${to} (its earlier content is kept), and delete this new copy (${c.path}) unless they want two files. Tell the person where the file is; never say you saved the same file.`
       : `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to a place not named here (moved, not deleted), and that file did not change. Delete this new copy unless the person wants a new file here, and tell them the file was moved; never say you saved the same file.`)
   }
   return out
@@ -538,8 +546,7 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
       if (ok !== 'run') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
       markSeen(ctx, tracked.id, h.userId, foreign.lastId)
     } else if (firstCall && foreign.total > 0) {
-      const see = h.shared ? sharedVisible(ctx, space) : () => true
-      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => see(rel) && personCanOpen(h, rel))}`)
+      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
     }
     // other people's jobs and dev servers (their names): never in a shared chat
     if (firstCall && !h.shared) {

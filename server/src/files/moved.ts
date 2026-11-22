@@ -96,12 +96,14 @@ export function movedFact(db: Database, fx: FsCtx, rules: RuleSet, user: Princip
   if (o.folder ? !st.isDirectory() : !st.isFile()) return null
   let to: string | null = null
   try { const r = authorize(fx, rules, user, w.to, 'read'); if (r.exists) to = r.rel } catch {}
-  if (to && o.chatId) {
-    const people = activePeople(db)
-    const audience = [...chatViewers(db, o.chatId, people, rules)].filter((id) => id !== user.id)
-    if (audience.length && missingReaders(db, rules, [sourceOf(db, rules, to)], audience, user.id).length) return { kind: 'moved', to: null, by: w.by, byName, at: w.at, notForAll: true }
-  }
+  if (to && o.chatId && !everyoneInChatReads(db, rules, user, o.chatId, to)) return { kind: 'moved', to: null, by: w.by, byName, at: w.at, notForAll: true }
   return { kind: 'moved', to, by: w.by, byName, at: w.at }
+}
+
+/** May everyone who sees chat `chatId` (besides `user`) read `rel`? A place named in an answer there is read by all. */
+export function everyoneInChatReads(db: Database, rules: RuleSet, user: Principal, chatId: string, rel: string): boolean {
+  const audience = [...chatViewers(db, chatId, activePeople(db), rules)].filter((id) => id !== user.id)
+  return !audience.length || !missingReaders(db, rules, [sourceOf(db, rules, rel)], audience, user.id).length
 }
 
 /** The path a "not found" refusal names (policy/authorize.ts: `not found or no access: 'x'`, `not found: 'x'`). */
