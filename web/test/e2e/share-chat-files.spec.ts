@@ -209,7 +209,8 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await bob.route('**/api/chats/*/file-access?*', (r) => r.fulfill({ json: { status: 'no' } }))
       await openChat(bob, chatId)
       await fileLink(bob, PDF).click()
-      await expect(panel(bob).getByTestId('chat-file-ask-no')).toBeVisible()
+      // a 'no' asks where it went first (#334, components/FileMoved.tsx), then the usual line
+      await expect(panel(bob).getByTestId('file-moved-no')).toBeVisible()
       await blockedHeader(bob)
       await shots(bob, 'cant-open-panel')
       await bob.context().close()

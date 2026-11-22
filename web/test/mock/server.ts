@@ -7154,6 +7154,9 @@ export class MockServer {
       return made ? { copy: null, owner, made } : null
     }
     const waitingAsk = (chatId: string, p: string, u: string) => this.accessRequests.find((r) => r.kind === 'chat' && r.targetId === chatId && r.file?.path === p && r.userId === u && r.state === 'pending')
+    // GET /api/files/moved (#334, components/FileMoved.tsx): the mock keeps no move history, so nothing is known: 'no'
+    // (the panel then shows its usual line)
+    h.moved = () => ({ status: 'no' })
     h.chatFileAccess = async (c) => {
       const x = await askable(c, String(c.query.path ?? ''))
       if (!x) return { status: 'no' }
