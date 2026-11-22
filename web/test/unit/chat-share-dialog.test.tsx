@@ -197,7 +197,7 @@ describe('the save model and every exit', () => {
       // one footer: Copy link, Cancel, Save; no "Share without files" / "Share with files"
       for (const id of ['chat-share-with-files', 'chat-share-without-files']) expect(m.find(id)).toBeNull()
       expect(m.find('chat-share-copy-link')).not.toBeNull()
-      expect((m.get('chat-share-files-check') as HTMLInputElement).checked).toBe(false)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
       expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
       // a browser checks the box before the click's listeners run, past React's value tracker (this small DOM does not)
       const box = m.get('chat-share-files-check')
