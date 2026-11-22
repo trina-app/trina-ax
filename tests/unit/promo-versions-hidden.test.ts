@@ -53,7 +53,7 @@ describe('hidden promo video versions', () => {
       const one = promoVersions(A.ctx, { version: 1 }, tc).text
       expect(one).toContain('has no version 1')
       expect(one).not.toContain('users/alice/private')
-      // the hidden version's exact slots: no shortcut, and the usual check refuses (bob cannot read alice's folder)
+      // the hidden version's exact slots: no shortcut, and the usual check refuses (bob cannot read alice's folder).
       expect(sameAsEarlier(A.ctx, tc, chat, secret)).toBeNull()
       await expect(makePromoVideo(A.ctx, secret, tc)).rejects.toThrow(/could not be read|not found or no access/)
       // alice sees her own version; still, a picture she cannot read now ends the shortcut (readPicture again)
@@ -66,8 +66,10 @@ describe('hidden promo video versions', () => {
       const b = Buffer.alloc(33 + 4096); Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]).copy(b, 0); b.write('IHDR', 12, 'latin1'); b.writeUInt32BE(1600, 16); b.writeUInt32BE(1200, 20); b[24] = 8; b[25] = 6
       fs.writeFileSync(pic, b)
       expect(sameAsEarlier(A.ctx, ta, chat, secret)).not.toBeNull()
-      // and bob, for whom it is hidden, still never gets it, picture or not
+      // and bob, for whom it is hidden, never gets it, even when he may read the brand picture (only the hidden filter)
+      A.ctx.db.query("INSERT INTO group_members VALUES ('marketing', 'bob')").run()
       expect(sameAsEarlier(A.ctx, tc, chat, secret)).toBeNull()
+      A.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'bob'").run()
       // a version bob may see whose picture he cannot read (marketing's brand folder): no shortcut either
       arts.hiddenVersions = () => new Set<string>()
       expect(sameAsEarlier(A.ctx, tc, chat, secret)).toBeNull()

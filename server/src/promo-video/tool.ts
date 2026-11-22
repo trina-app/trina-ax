@@ -136,7 +136,8 @@ export function sameAsEarlier(ctx: AppContext, t: ToolCtx, chatId: string, a: Pr
     for (const p of pics) readPicture(ctx, t, p, PICTURE_MIN_PX, 'picture', problems)
     if (a.logo) readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems)
     if (problems.length) return null
-    return { doc: s.doc!, sources: s.sources ?? [], pictures: [] }
+    // (the earlier asker's source paths are not carried under this person's version)
+    return { doc: s.doc!, sources: [], pictures: [] }
   }
   return null
 }
