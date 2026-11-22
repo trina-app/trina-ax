@@ -5,6 +5,51 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.9.0 — 2026-11-22
+
+- Admin notes: 0.9.0 changes no root file. A Linux server on 0.8.0 takes 0.9.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: there is no new database migration and the reader level stays 9.
+- Admin notes, going back: going back to 0.8.0 or 0.7.0 needs no backup (no new migration, reader level 9). Going back to 0.5.x still needs the backup taken before 0.6.0.
+- In a project chat the AI now keeps its downloads, git clones, installed tools and previews in the chat's own work folder, and puts only the finished files (the deck, the PDF) in the project folder. Before, a downloaded GitHub repo could land in the project folder as thousands of team files.
+- When one answer would add more than 500 files or 200 MB to a project folder, you are asked whether to keep them there or move them to the chat's work folder. "Always allow" keeps them without asking.
+- The "files saved" card under an answer lists the first 100 files and counts the rest by folder.
+- The AI can now move files it made itself in a chat to the trash without asking, also in a shared project chat. Other people's files still need your yes on the card.
+- A chat file link from a chat you were taken out of no longer opens an empty "can't be previewed" viewer: the page says the chat is no longer shared, and a file you can't open gets one plain line, with no Download.
+- When the people in a shared chat change, the AI now says its work folder is a new, empty one for the people there now, whichever way it names the folder, instead of blaming the dev environment.
+- Step lines say "Work folder › frame1.png" instead of `$TRINA_WORK/frame1.png`, also in commands, and looking at slides says which ones ("View slides 3–5").
+- An answer whose file was made another way after a refused save no longer ends with "One step didn't work: Save."
+- The card for copying your files into a shared chat's work folder names the files and says everyone in the chat can see that folder. In Korean it reads "내 개인 폴더를", not "폴더을(를)".
+- A Word file made by the AI shows on a normal page with margins in the preview.
+- A guest on a team whose AI is not for guests reads "AI isn't available for guests in this team."
+- Connecting an app from the desktop app no longer asks you to sign in again in the browser. After you sign in at the service, the browser hands the connection back to the app and it finishes there. This covers MCP apps, GitHub and apps with your own Client ID. A link that has expired now says so plainly: go back to the app and press Connect again.
+- The page the browser shows after signing in to an app now looks like the rest of Trina AX: the logo, light and dark, readable on a phone, with one clear next step.
+- Demo: changing a banner's words is now Trina's own **Change banner text** step, done on the server. It no longer asks "send this to Higgsfield?" or shows a Higgsfield step; Higgsfield is used only for a new background or photo. A line break in a headline shows as a real line break, and a short new headline sent right after a banner is applied at once, with an offer to undo.
+- Demo: the three suggestion chips now send short, plain requests (no file names, no "skill" word) in all six languages, so the chat bubble and the chat title read like a person wrote them. English demo text uses US spelling, the Chinese demo says 横幅 instead of "banner", and the Spanish demo says "Publicaciones" instead of "Posts".
+- Live demo start page: one line now says what Trina AX is, and the note says bigger tasks count a little more.
+- Live demo: the start and "session ended" pages remember the language the visitor used in the app.
+- Live demo: a new Start in the same browser no longer shows the previous visitor's draft or attachment.
+- Live demo: the "started a few times" page says when to come back (about an hour, or tomorrow), and the busy and error pages have a Try again link. Japanese and Chinese notes wrap normally.
+- Free-roam demo: the top bar is shorter (one line on a computer, three short rows on a phone instead of up to 145 px). It says "Gmail, Drive, Higgsfield: practice only" as a button that opens the full explanation on a tap, so phones see it too, and it ends with a quiet **Start free** link. The suggestions moved under Home's message box.
+- Free-roam demo: the counter speaks in questions right to the end ("Almost out of questions"), with no percentage, and the end line now reads "You've used all your questions. You can still look around everything here."
+- Free-roam demo: a new visitor in the same browser no longer sees the previous visitor's unsent draft or queued message. The pages the demo does not offer now have a **Back to Home** link.
+- Word previews fit the panel's width on a phone instead of being cut off on the right.
+- Rail and phone tab labels wrap to two lines instead of being cut with "…" (Japanese "プロジェクト", "アクティビティ").
+- Thread mention notices quote the thread's title. Japanese and Chinese relative times have no space ("3時間前"). Indonesian and Spanish wording is formal throughout ("saya", "Sebutan & utas", "Mención de").
+- Gmail steps and send cards now name the tool in your language ("Gmail · 메일 찾기", "…보내려고 해요: 메일 보내기") instead of the English catalog title, and a reply's fields read "Conversation", "Reply to" and "Earlier mail" instead of "Thread id", "In reply to" and "References".
+- Free-roam demo: a send card for the practice Gmail or Higgsfield starts with "This is a practice connection: nothing really goes out." and offers only Send / Don't send. Practice Drive files no longer come with a drive.google.com link that opened Google's "file does not exist" page.
+- Demo: changing only a banner's words keeps its photo and its headline size, and the banner no longer leaves one word alone on the last line. Korean banner text breaks only between words.
+- Demo: asking for a picture of a scene the demo has no photo for now gets a short, honest answer and the list of prepared scenes. Nothing is saved, and the same photo is not given twice.
+- Spanish and Indonesian answers now use the formal "usted" and "Anda", matching the app's own words. This applies to every team using Spanish or Indonesian, not only the demo.
+- Chat file versions: the versions list is taller and fades at the bottom when there are more, says when older versions were removed (the first and the 19 newest are kept), and a restore at the 20-version cap says which version was removed instead of "Nothing was deleted". "Updated by …" wraps instead of cutting the name, and an empty file says "This file is empty."
+- Editing a chat file: when someone else saves while you edit, a quiet line names them with **View**; if you save anyway, the notice names them and opens their version.
+- Share: on a phone, "Share with files" and "Share without files" sit one per row. Taking everyone out of a chat says that the chat and its files become yours alone, without the sharing note or Copy link.
+- Make it a project: an unnamed conversation is suggested as "New project" instead of the people's names, an empty name says "Enter a project name.", a name another project has names the "-2" folder everywhere, and "Moving files…" no longer stays in the header after the files moved.
+- Clearer refusals: "Only admins can make team projects in this team." for a conversation, and "Guests can't be added to a shared chat" when a guest is picked.
+- Esc closes a thread open beside the conversation, and closing a thread no longer leaves the message in the address, so reloading does not jump back to it.
+- Admin › AI providers: picking another provider for the API engine resets a display name that named the old one, and a local engine that needs no key (Ollama) says "No key needed". A refused key is explained in plain words, without status codes.
+- Settings opened from a link no longer shows the Close tip and a focus ring at once.
+- Connecting a listed service such as GitHub or Notion is one click: the sign-in opens right away. The setup line for a GitHub that is not ready yet says plainly how to turn it on.
+- When the server's notification secrets folder is open to other accounts, the server log and Admin › System › Diagnostics now say which folder and how to fix it.
+
 ## 0.8.0 — 2026-11-22
 
 - Admin notes: 0.8.0 changes a root file (the system-package script `packages.sh`: an update that installs packages is no longer stopped by an automatic service restart). Every Linux server takes 0.8.0 through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed for it: there is no new database migration and the reader level stays 9.
