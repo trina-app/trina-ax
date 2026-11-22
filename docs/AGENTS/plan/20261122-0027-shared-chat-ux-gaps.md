@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 00:27
 - Branch: `fix/shared-chat-ux-gaps`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat/{people-share,chat-audience,chat-lost}.ts`, `server/src/routes/chats.ts`,
   `server/src/admin/users.ts`, `server/src/notifications/*`, `server/src/chat/{runtime,turn,store}.ts` (stop reason only),
   `web/src/components/chat/*`, `web/src/pages/{Chat,Activity}.tsx`, `web/src/pages/admin/Members.tsx`, `web/src/i18n/*`).
@@ -156,7 +156,14 @@ lines, stoppedFor line, Activity text, the crash fix; full unit + security once;
 
 ## Result
 
-(filled in at the end)
+Built as planned with the plan review's points (see "Plan review"). Items 6 (whole-chat notices) and 12 (greyed
+Rename) were not built, by decision. The crash (TC-7344) was the service worker's `clearAppBadge()` on sign-out; the
+window clears the badge now. Side fixes merged in from their own plans: TC-7246 (restore confirm names), TC-7239 (room
+video frame, player width when sideways), TC-7230/7231 (Share dialog asks the owner; request card says what Share does).
+Code review applied: an invalid queued turn drops itself and never stops another's running answer; Leave only for
+people listed by name (`Chat.shared.named`); message rows keyed by Fragment; ask-for takes a send token; a lost notice
+reads the earlier share notice of that chat. Visual check on a private QA copy (port 19884) at 1440 and 390: A–C, E–G
+pass; the guest row (D) needs a guest in a shared project to show and is covered by the unit test.
 
 ## Plan review (independent, applied)
 
