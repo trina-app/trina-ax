@@ -3,7 +3,7 @@
 // with "@name" in it, even from an older page that still sends `mentions`, gives the others the plain new-message
 // notice only (the chat row's number, the push), never a mention: no row under Mentions, no "@" on the chat row, no
 // mention in the desktop ring. A person is mentioned in a thread under an AI answer: that reply is a Mentions row and
-// pushed (#321/#360), as before.
+// pushed (#321/#360), as before (b-chat-thread-mentions.test.ts, b-project-chat-message-notices.test.ts).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { activityTabHas, type InboxNotification } from '@mycel/shared/api'
@@ -17,7 +17,7 @@ let h: Harness, p: PushService | undefined
 afterEach(async () => { await p?.stop(); p = undefined; await h?.close() })
 const cm = () => 'cm-' + crypto.randomUUID()
 
-test('a main message naming someone with "@": the plain notice for everyone, no mention; a thread reply\'s mention still is one', async () => {
+test('a main message naming someone with "@": the plain notice for everyone, no mention', async () => {
   h = await harness('shared-chat-main-mention')
   const owner = await withOwner(h)
   const nora = await addMember(h, owner, { username: 'nora' })
@@ -74,10 +74,4 @@ test('a main message naming someone with "@": the plain notice for everyone, no 
   await p.tick()
   expect(sent.some((s) => s.payload.code === 'chat.message')).toBe(true)
 
-  // a thread under the AI answer: "@nora" there is a mention (a row under Mentions), as before
-  const root = sentMsg.assistantMessage.id as string
-  await owner.call('POST', `/api/chats/${chat.id}/messages/${root}/thread`, { text: '@NORA here', clientId: cm(), mentions: [nora.id] })
-  const after = mentionRows(await rows(nora.client))
-  expect(after.filter((i) => i.code === 'chat.thread_reply')).toHaveLength(1)
-  expect(after[0]!.chatThread?.mention).toBe(true)
 })
