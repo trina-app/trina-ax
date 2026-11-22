@@ -9,7 +9,8 @@ import { WAKE_API_PATH, parseWakeAuthorizationHeader, wakeSigningString } from '
 import { GLOBAL_PER_MIN, TEAM_GAP_MS, WakeClient, type WakeFetch } from '../../relay/src/wake.ts'
 import { loadRelayConfig } from '../../relay/src/config.ts'
 import { isNavigation, mayWake } from '../../relay/src/relay.ts'
-import { htmlPage, PAGE_RETRY_AFTER, PAGE_STATUS, wakingRefreshSec } from '../../relay/src/pages.ts'
+import { htmlPage, noRoomRetrySec, PAGE_DETAIL, PAGE_RETRY_AFTER, PAGE_STATUS, RELAY_ERROR_OF, wakingRefreshSec } from '../../relay/src/pages.ts'
+import { OpsWakeResponseSchema } from '@mycel/shared/cloud-protocol'
 import { WORK } from '../lib/env'
 
 const W = path.join(WORK, `f2-relay-wake-${process.pid}`)
@@ -63,6 +64,13 @@ describe('wake client', () => {
     expect((await w.wake('B1', 'http')).state).toBe('error')
     answer = { state: 'busy', retryAfterSec: 99_999 }
     expect(await w.wake('B2', 'http')).toEqual({ state: 'busy', retryAfterSec: 3600 })
+    // the optional busy hint: kept only as no_room with busy; any other value or state is the plain answer
+    answer = { state: 'busy', retryAfterSec: 300, reason: 'no_room' }
+    expect(await w.wake('B5', 'http')).toEqual({ state: 'busy', retryAfterSec: 300, reason: 'no_room' })
+    answer = { state: 'busy', retryAfterSec: 300, reason: 'later_maybe' }
+    expect(await w.wake('B6', 'http')).toEqual({ state: 'busy', retryAfterSec: 300 })
+    answer = { state: 'waking', retryAfterSec: 20, reason: 'no_room' }
+    expect(await w.wake('B7', 'http')).toEqual({ state: 'waking', retryAfterSec: 20 })
     status = 401
     expect((await w.wake('B3', 'http')).state).toBe('error')
     fail = true
@@ -192,5 +200,32 @@ describe('who may wake a sleeping team (trial auto-stop, 2026-11-14)', () => {
     expect(mayWake(req('HEAD', '/', { 'sec-fetch-mode': 'navigate' }))).toBe(false)
     expect(mayWake(req('GET', '/robots.txt', { 'sec-fetch-mode': 'navigate' }))).toBe(false)
     expect(mayWake(req('GET', '/favicon.ico', { cookie: 'sid=x' }))).toBe(false)
+  })
+})
+
+describe('wake answer: the optional no_room hint (contract)', () => {
+  test('the schema: optional, only no_room, only with busy; an old answer without it still parses', () => {
+    expect(OpsWakeResponseSchema.safeParse({ state: 'busy', retryAfterSec: 300 }).success).toBe(true)
+    expect(OpsWakeResponseSchema.safeParse({ state: 'busy', retryAfterSec: 300, reason: 'no_room' }).success).toBe(true)
+    expect(OpsWakeResponseSchema.safeParse({ state: 'busy', retryAfterSec: 300, reason: 'full' }).success).toBe(false)
+    expect(OpsWakeResponseSchema.safeParse({ state: 'waking', retryAfterSec: 20, reason: 'no_room' }).success).toBe(false)
+  })
+  test('the page: calm text in 6 languages, reloads after 60-300 s, still team_busy for the apps', () => {
+    expect([noRoomRetrySec(5), noRoomRetrySec(300), noRoomRetrySec(1800), noRoomRetrySec(null)]).toEqual([60, 300, 300, 60])
+    expect([PAGE_STATUS.team_no_room, PAGE_RETRY_AFTER.team_no_room, RELAY_ERROR_OF.team_no_room, PAGE_DETAIL.team_no_room]).toEqual([503, 60, 'team_busy', 'no_room'])
+    const ko = htmlPage('team_no_room', 'ko', null, undefined, 5)
+    expect(ko).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요.')
+    expect(ko).toContain('<meta http-equiv="refresh" content="60">')
+    expect(htmlPage('team_no_room', 'en', null, undefined, 900)).toContain('<meta http-equiv="refresh" content="300">')
+    expect(htmlPage('team_no_room', 'en')).toContain('let the team&#39;s owners know by email')
+    const titles = new Set<string>()
+    for (const lang of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      const h = htmlPage('team_no_room', lang, null, undefined, 300)
+      expect(h).toContain(`lang="${lang}"`)
+      expect(h).not.toContain('<script')
+      expect(h).not.toContain('Please try again shortly')
+      titles.add(/<h1>(.*?)<\/h1>/.exec(h)![1]!)
+    }
+    expect(titles.size).toBe(6)
   })
 })
