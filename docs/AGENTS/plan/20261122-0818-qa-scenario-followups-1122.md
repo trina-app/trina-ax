@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 08:18
 - Branch: `fix/qa-scenario-followups-1122` (off `batch/20261122-i` cc98820f1)
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/rooms, shared/src/api, web/src. Why: four scenario QA fails of 11-22 (S-110, S-118,
   S-119, S-120) that leave a person at a dead end or make the AI say wrong things.
 - Version impact: patch (the same screens and cards with a missing step or line added; no new setting or table)
@@ -125,4 +125,35 @@ MessageRun / admin groups, on Bun 1.3.12 (Mac mini).
 
 ## Result
 
-(filled in at the end)
+What was built is the reviewed plan:
+
+- **S-120**
+  - Root cause: the QA PDF in `groups/영업/` was 김민지's, not 한지우's. The count on the card was the server's rule, not a bug. A file the asker's own AI made is hers, so the card names people and Send lets them view it (a test pins this).
+  - The card now names the room members for a team-folder file the asker can read but not share.
+  - Viewers get "이 파일을 볼 권한이 없어요 · [보기 요청]" (`GET/POST /api/rooms/:id/messages/:messageId/file-access`, the existing file requests). There are no copies past the folder rule and no migration.
+- **S-118**
+  - The lost-access note is based on this person's own chat_reads and on the folder rules only, and is worded as a fact.
+  - It names who can restore access: an admin, Admin › 부서 / 폴더 권한.
+  - In a chat others read, it only says the place can't be opened from this chat.
+  - New rule `KEEP_VERIFIED_RULE`, and a line on the admin groups screen.
+- **S-119**
+  - New rule `TEAM_FACTS_FIRST_RULE`, worded to fit fix/ask-less's ACT_FIRST_RULE.
+  - The guest line on post_to_room's card.
+  - share_with_person tells the AI when the only match is a guest.
+  - A guard refuses a post to a person the asker's message didn't name when it named someone else. "From" particles (한테서, 께서) don't count as naming.
+- **S-110**
+  - `RoomMessage.authorLeft` and the "나감" / "게스트 · 나감" tag.
+
+Verification:
+
+- Real claude-code runs on a private QA copy, two passes.
+  - Second pass at 4dafbf500: S-118 Pass (not shared and shared), S-119 step 1 Pass twice, S-119 guest send Pass, and S-120 both variants Pass.
+  - In the second S-120 pass the poster's answer pointed her to her own "김민지 님에게 요청" step button. That is correct for the poster; the viewer's button is 보기 요청.
+- Independent code review. All findings are fixed: the probe through an existing link row, the "from" particles, shared/ subfolders, names in a shared chat.
+
+Out of scope, seen in the runs:
+
+- 박준호 got no Activity row for the #영업-보고 post, only the unread badge.
+- The AI's phrase "김민지에 올렸어요" leaves out 님.
+
+PR: see the PR "Scenario QA follow-ups 11-22".
