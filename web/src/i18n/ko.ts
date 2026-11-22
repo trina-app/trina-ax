@@ -3170,6 +3170,8 @@ export const ko = {
   'ask.detailLess': "접기",
   "ask.exactShow": "보내는 내용 그대로 보기",
   "ask.exactHide": "보내는 내용 그대로 접기",
+  "ask.foldedShow": "자세히",
+  "ask.foldedHide": "접기",
   'notice.openHistory': '버전 기록 보기',
   'notice.openSkills': '팀 스킬 열기',
   'notice.open': '열기',

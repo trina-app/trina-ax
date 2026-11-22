@@ -3172,6 +3172,8 @@ export const en: Record<MessageKey, string> = {
   'ask.detailLess': "Show less",
   "ask.exactShow": "Show exactly what is sent",
   "ask.exactHide": "Hide exactly what is sent",
+  "ask.foldedShow": "Details",
+  "ask.foldedHide": "Hide details",
   'notice.openHistory': 'Version history',
   'notice.openSkills': 'Open team skills',
   'notice.open': 'Open',

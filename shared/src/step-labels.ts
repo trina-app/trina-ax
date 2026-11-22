@@ -382,7 +382,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
     // the file by its own name (never a server path), and where it goes
     case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
-    case 'box_shell': return `${verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
+    // "<the AI's plain description, else the verb> · <command>": the web app shows the words alone and the command when
+    // the step is opened (localizeStep); an app that does not shows the whole line
+    case 'box_shell': return `${shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -401,6 +403,77 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     }
     default: return verb ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
   }
+}
+
+
+/** Plain words for a dev-environment command without a description of its own, by what the command does (the steps
+ * of answers from before box_shell had `description` too). People are not developers: never the command itself. */
+export const SHELL_KIND_WORDS = {
+  install: t('프로그램 설치', 'Install tools', 'Pasang program', "ツールをインストール", "Instalar herramientas", "安装工具"),
+  make: t('결과물 만들기', 'Make the result', 'Buat hasilnya', "成果物を作成", "Crear el resultado", "生成结果"),
+  download: t('내려받기', 'Download', 'Unduh', "ダウンロード", "Descargar", "下载"),
+  check: t('파일 확인', 'Check files', 'Periksa berkas', "ファイルを確認", "Revisar archivos", "检查文件"),
+  wait: t('기다리기', 'Wait', 'Menunggu', "待機", "Esperar", "等待"),
+  run: t('작업 실행', 'Run a task', 'Jalankan tugas', "作業を実行", "Ejecutar una tarea", "执行任务"),
+} satisfies Record<string, T>
+export type ShellKind = keyof typeof SHELL_KIND_WORDS
+
+/** What a shell command does, roughly, from its parts (split at && || ; | and new lines): an install anywhere wins,
+ * then making something (a render, a build, a conversion), a download, a look at files, a pause; else "run". */
+export function shellKind(command: string): ShellKind {
+  const parts = command.slice(0, 4000).split(/&&|\|\||[;|\n]/).map((p) => p.trim()
+    // leading VAR=value assignments, export / env / sudo / time / exec in front of the program
+    .replace(/^(?:(?:export|env|sudo|time|exec|nohup)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)*/, '')
+    .replace(/^(?:sudo|time|exec|nohup)\s+/, '')).filter(Boolean)
+  const progs = parts.map((p) => ({ p, w: p.split(/\s+/)[0]!.replace(/^.*\//, '').toLowerCase() }))
+  const has = (re: RegExp) => progs.some(({ p }) => re.test(p))
+  if (has(/^(?:npm|pnpm|yarn|bun|deno)\s+(?:i|install|add|ci)\b|^(?:pip3?|uv|pipx|poetry)\s+(?:install|add|sync)\b|^(?:python3?\s+-m\s+pip|uv\s+pip)\s+install\b|^(?:apt(?:-get)?|brew|apk|dnf|yum|cargo|gem|go)\s+(?:install|add|get)\b|^npx\s+\S+\s+install\b/i)) return 'install'
+  if (has(/\b(?:render|ffmpeg|remotion|hyperframes|magick|convert|build|compile|export|bundle|make)\b|^(?:make|tsc|vite|webpack|pandoc|libreoffice|soffice)\b/i)) return 'make'
+  if (has(/^(?:wget|git\s+(?:clone|pull|fetch)|curl\b.*(?:\s-[A-Za-z]*[oO]\b|--output|--remote-name))/i)) return 'download'
+  const look = new Set(['ls', 'find', 'wc', 'du', 'df', 'cat', 'head', 'tail', 'stat', 'file', 'tree', 'grep', 'rg', 'test', '[', 'which', 'pwd', 'md5sum', 'sha256sum', 'shasum', 'ffprobe', 'identify', 'sort', 'uniq', 'awk', 'sed', 'jq', 'echo', 'printf', 'cut', 'tr', 'xargs'])
+  const busy = progs.filter(({ w }) => !['cd', 'mkdir', 'set', 'source', '.', 'true', 'export'].includes(w))
+  if (busy.length && busy.every(({ w }) => w === 'sleep')) return 'wait'
+  const real = busy.filter(({ w }) => w !== 'sleep')
+  if (real.length && real.every(({ w }) => look.has(w))) return 'check'
+  return 'run'
+}
+
+/** Does this text read as a shell command rather than words for a person? */
+const commandLike = (s: string) => /[|;&`$<>{}\\]|(?:^|\s)--?[A-Za-z]|^\s*(?:cd|ls|npm|npx|pnpm|yarn|bun|node|python3?|pip3?|sh|bash|curl|wget|git|find|sleep|export|rm|mkdir|cp|mv|cat|echo|ffmpeg|sudo)\s/i.test(s) || /\b[A-Za-z_][A-Za-z0-9_]*=\S/.test(s)
+
+/** The AI's plain description of a command (box_shell `description`) as it may show in a step line: one line, at most
+ * 60 characters, without "$TRINA_WORK"-like paths or "NAME=value" settings, and without " · " (the line's divider);
+ * '' when nothing is left or it reads like a command itself. */
+export function shellDescription(v: unknown): string {
+  if (typeof v !== 'string') return ''
+  const s = maskSecrets(v.slice(0, 300))
+    .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+    .replace(/\$\{?TRINA_[A-Z_]+\}?(?:\/[^\s"'`]*)?/g, '')
+    .replace(/\s*·\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!s || commandLike(s)) return ''
+  return clip(s, 60)
+}
+
+/** The plain words for a dev-environment command (a step line, a card's question): the AI's description of it, else the
+ * words for the command's kind. Never the command. */
+export function shellWords(description: unknown, command: string, locale: Locale): string {
+  const kind = SHELL_KIND_WORDS[shellKind(command)]
+  return shellDescription(description) || (kind[locale] ?? kind.en)
+}
+
+/** The words a dev-environment command's step line shows (localizeStep): the description it was saved with, else the
+ * plain words for the command's kind; and the command for the step's opened part. Old lines ("<verb> · <command>"),
+ * bare commands and lines without a command all come here. */
+function shellStepLine(line: string, locale: Locale): { words: string; command: string } {
+  const verbs = new Set(Object.values(FILE_STEP_VERB.box_shell!))
+  const at = line.indexOf(' · ')
+  const head = at < 0 ? line : line.slice(0, at)
+  const command = at < 0 ? '' : line.slice(at + 3)
+  const kindWords = (c: string) => shellWords('', c, locale)
+  if (verbs.has(head)) return { words: kindWords(command), command }
+  if (at < 0 && commandLike(head)) return { words: kindWords(head), command: head }
+  const said = shellDescription(head)
+  return said ? { words: said, command } : { words: kindWords(command || head), command: command || head }
 }
 
 const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es', 'zh']
@@ -575,14 +648,15 @@ function reverb(verbs: T, label: string, locale: Locale, older: readonly string[
   return null
 }
 
-/** box_shell's ending in `locale`: " (job)", " (background)" or either in any language. */
-function resuffix(label: string, locale: Locale): string {
+/** box_shell's " (job)" / " (background)" ending in any language (English in every language before): the line
+ * without it, and which one it was. */
+function shellEnding(label: string): { line: string; key: 'jobSuffix' | 'backgroundSuffix' | null } {
   for (const [key, old] of [['jobSuffix', 'job'], ['backgroundSuffix', 'background']] as const) {
     for (const w of [old, ...LOCALES.map((l) => STEP_TEXT[key][l])]) {
-      if (label.endsWith(` (${w})`)) return `${label.slice(0, -w.length - 3)} (${STEP_TEXT[key][locale]})`
+      if (label.endsWith(` (${w})`)) return { line: label.slice(0, -w.length - 3), key }
     }
   }
-  return label
+  return { line: label, key: null }
 }
 
 /** A step whose card ran out without an answer (a question, or remember's "may I keep this?"): its detail says so, in
@@ -612,11 +686,21 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
-  else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
-  // a dev-environment command's " (job)" / " (background)" (English in every language before) in the language on screen
-  if (tool === 'box_shell' && label) label = resuffix(label, locale)
+  else if (tool !== 'box_shell' && FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
-  const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
+  let detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
+  // a dev-environment command: plain words on the line (the AI's description, else what kind of command it is), and the
+  // command itself only in the opened part (people are not developers); its " (job)" / " (background)" ending (English
+  // in every language before) in the language on screen, and why it went on without a card after it
+  if (tool === 'box_shell' && step.kind === 'tool') {
+    const why = coverWhy(step.label)
+    const { line, key } = shellEnding(why ? step.label.slice(0, -why.end.length) : step.label)
+    const tail = key ? ` (${STEP_TEXT[key][locale] ?? STEP_TEXT[key].en})` : ''
+    const shown = shellStepLine(line, locale)
+    label = `${shown.words}${tail}${why ? ` · ${STEP_TEXT[why.key][locale] ?? STEP_TEXT[why.key].en}` : ''}`
+    if (shown.command) detail = detail ? `${shown.command}\n\n${detail}` : shown.command
+    return { label, ...(detail !== undefined ? { detail } : {}) }
+  }
   // why a call went on without a card, at the end of a tool's line: in the screen's language too (not in the words of
   // a question, a memory or a sub-task, which are the AI's or the person's)
   let out = label ?? step.label

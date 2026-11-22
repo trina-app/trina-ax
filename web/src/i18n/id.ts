@@ -3171,6 +3171,8 @@ export const id: Record<MessageKey, string> = {
   'ask.detailLess': "Ciutkan",
   "ask.exactShow": "Lihat isi persis yang dikirim",
   "ask.exactHide": "Sembunyikan isi persis yang dikirim",
+  "ask.foldedShow": "Detail",
+  "ask.foldedHide": "Sembunyikan detail",
   'notice.openHistory': 'Riwayat versi',
   'notice.openSkills': 'Buka skill tim',
   'notice.open': 'Buka',

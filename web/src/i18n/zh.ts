@@ -3125,6 +3125,8 @@ export const zh: Record<MessageKey, string> = {
   "ask.detailLess": "收起",
   "ask.exactShow": "显示实际发送的内容",
   "ask.exactHide": "隐藏实际发送的内容",
+  "ask.foldedShow": "详细信息",
+  "ask.foldedHide": "收起详细信息",
   "notice.openHistory": "版本历史",
   "notice.openSkills": "打开团队技能",
   "notice.open": "打开",

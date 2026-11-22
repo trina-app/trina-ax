@@ -16,7 +16,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
@@ -3019,7 +3019,7 @@ export class TurnExec {
     const L = this.spec.locale
     // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
     const words = this.toolCard(tool, input)
-    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, this.cardInput(tool, input), L))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input, words)
@@ -5615,7 +5615,20 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+/** Tools whose room card lists the file or folder in its rows (roomChangeDetails): the question names the action alone,
+ * in words ("파일 수정"), not a raw path again. */
+const CARD_VERB_ONLY = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'save_room_file', 'save_url', 'save_connector_file'])
+
+/** What a room card's question says the AI is about to do: plain words (a dev-environment command by its description or
+ * its kind, never the command; a file change by its verb, the file in the rows below), else the step's line. */
+export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  if (tool === 'box_shell') return shellWords(a.description, typeof a.command === 'string' ? a.command : '', L)
+  if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
+  return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
+}
+
+export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean; folded?: true }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -5628,7 +5641,8 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
   // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
   const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
     label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
-    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }),
+    // what a file will hold (code, an SVG) is one click away ("자세히"), except in an instruction file: that shows in full
+    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(noSize || !text ? {} : { folded: true as const }) }),
     ...(noSize ? { noSize: true } : {}),
   }]
   switch (tool) {
@@ -5637,7 +5651,7 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
       const files = a.file_paths.map(String)
       return [
         { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
-        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
+        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, folded: true as const }) },
       ]
     }
     case 'write':
@@ -5686,6 +5700,9 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
       return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':
       return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+    case 'box_shell':
+      // what it does in words (the AI's description, else the command's kind); the command itself one click away
+      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellWords(a.description, str(a.command), L))], text: full(str(a.command)), collapsedAt: ROOM_CHANGE_PREVIEW, folded: true }]
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
       // names, that they may see; an id alone says nothing)

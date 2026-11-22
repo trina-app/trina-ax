@@ -3130,6 +3130,8 @@ export const es: Record<MessageKey, string> = {
   'ask.detailLess': "Ver menos",
   "ask.exactShow": "Ver exactamente lo que se envía",
   "ask.exactHide": "Ocultar exactamente lo que se envía",
+  "ask.foldedShow": "Detalles",
+  "ask.foldedHide": "Ocultar detalles",
   'notice.openHistory': "Historial de versiones",
   'notice.openSkills': "Abrir habilidades del equipo",
   'notice.open': "Abrir",
