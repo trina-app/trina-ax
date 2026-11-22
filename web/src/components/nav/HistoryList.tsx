@@ -3,7 +3,7 @@
 // or in one list, and "더 보기" for the next page. What the list holds and why: docs/DECISIONS.md "Trina history by
 // project", "Pinned chats", "Session markers". The filter's menu (RecentsMenu) and its state (useRecentsView) are here too.
 import clsx from 'clsx'
-import { Check, ChevronRight, ListFilter, Loader2 } from 'lucide-react'
+import { Check, ChevronRight, ListFilter, ListPlus, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Chat } from '@mycel/shared/api'
@@ -12,7 +12,7 @@ import { useT, type MessageKey } from '../../i18n'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
 import { useMe } from '../../store/session'
-import { loadChatList } from '../../lib/chatListLoad'
+import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
 import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
@@ -23,6 +23,8 @@ import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
 import { ChatItem, type ChatPeek } from './ChatItem'
+import { HistorySections, useSectionRows, type SectionRows } from './HistorySections'
+import { leftSectionToast, useSectionActions } from './SidebarSections'
 import { foldRuns, newestRunsOnly } from './TaskRunsRow'
 import { useLocation } from 'react-router-dom'
 
@@ -122,6 +124,18 @@ export type RecentsViewState = ReturnType<typeof useRecentsView>
 export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])).join(', ')
 export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
 
+/** My sections' rows as this view filters and sorts the history (Status, Last activity, Sort by). `on`: read them. */
+export function useHistorySections(view: RecentsView, on = true) {
+  const listed = useProjects((s) => s.listed)
+  const seesProject = useSeesProject()
+  const requests = useChats((s) => s.requests)
+  const cards = useMemo(() => cardChats(requests), [requests])
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const filter = useCallback((c: Chat) => passes(view, c, { card: cards.has(c.id), here: c.id === here }, Date.now(), (x) => !!x.projectId && (!listed || seesProject(x.projectId))), [view, cards, here, listed, seesProject])
+  const sort = useCallback((a: Chat, b: Chat) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : view.sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt)), [view.sort])
+  return useSectionRows({ filter, sort, on })
+}
+
 /**
  * The whole history as the filter and sort in the panel's header choose it (`viewState`; the list has no title row of
  * its own). `peek` is the hover quick view of the column it sits in.
@@ -129,7 +143,9 @@ export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
 /** `caps`: the Trina panel's grouped view (by hand, "Group by: Project"): at most five projects and three rows each,
  * "N more" and "Show all projects" (docs/DECISIONS.md "Trina history by project"); none: every project, every row (the
  * phone's drawer) */
-export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate: () => void; peek: ChatPeek; viewState: RecentsViewState; caps?: { projects: number; rows: number } }) {
+/** `sections`: the drawer draws my sections itself, above its "트리나 기록" fold, and hands their state here so these
+ * rows leave them out; without it the list draws them on top (Group by Project: none, the projects stand alone) */
+export function HistoryList({ onNavigate, peek, viewState, caps, sections: outside }: { onNavigate: () => void; peek: ChatPeek; viewState: RecentsViewState; caps?: { projects: number; rows: number }; sections?: SectionRows }) {
   const t = useT()
   const chats = useChats((s) => s.chats)
   // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
@@ -162,12 +178,17 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
   const listed = useProjects((s) => s.listed)
   const seesProject = useSeesProject()
   const inProject = useCallback((c: Chat) => !!c.projectId && (!listed || seesProject(c.projectId)), [listed, seesProject])
+  // my sections (nav/HistorySections.tsx): their chats show there, filtered and sorted as this view says, not again below
+  // (with Group by Project the sections are not drawn: every chat is in its project's group or the rest)
+  const own = useHistorySections(view, !outside)
+  const sections = outside ?? own
+  const leaveOut = view.group === 'project' ? null : sections.sectioned
   const filtered = useMemo(() => {
     const now = Date.now()
-    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject))
+    const shown = chats.filter((c) => !isUnused(c) && !c.pinnedAt && !leaveOut?.has(c.id) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject))
     const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
     return shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
-  }, [chats, view, cards, here, inProject])
+  }, [chats, view, cards, here, inProject, leaveOut])
   const pinnedRows = useMemo(() => {
     const now = Date.now()
     return pinnedFirst(chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now, inProject)))
@@ -199,7 +220,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
         {(!loaded || !byProject.ready) && !chatsError && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
         {!loaded && !!chatsError && <LoadError error={chatsError} onRetry={readChats} what="chats" minor className="mx-1 mt-2" />}
         {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
-        {loaded && chats.some((c) => !isUnused(c)) && !filtered.length && !pinnedRows.length && (
+        {loaded && chats.some((c) => !isUnused(c)) && !filtered.length && !pinnedRows.length && !(leaveOut && [...sections.rows.values()].some((r) => r.length)) && (
           <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
             {t('sidebar.filter.none')}
           </p>
@@ -209,6 +230,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
             {pinnedRows.map(row)}
           </ul>
         )}
+        {byProject.ready && !outside && view.group !== 'project' && <HistorySections state={sections} row={row} filtered={viewState.changed.length > 0} />}
         {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} menuSpace />}
         {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => {
           // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
@@ -227,7 +249,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
             disabled={more}
             onClick={async () => {
               setMore(true)
-              await loadChats(false).catch(() => {})
+              await loadMoreShown(loadChats, () => useChats.getState().chats.filter((c) => !isUnused(c) && !c.pinnedAt && !leaveOut?.has(c.id)).length)
               setMore(false)
             }}
           >
@@ -249,6 +271,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
             })
           }}
           onMoved={(c) => {
+            leftSectionToast(moving, c)
             useChats.getState().upsertChat(c)
             // the dialog read the project list a moment ago: the row goes to its project's group at once
             const p = c.projectId ? useProjects.getState().byId[c.projectId] : undefined
@@ -276,6 +299,7 @@ type MenuProps = { view: RecentsView; onChange: (v: RecentsView) => void; change
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
 function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
   const t = useT()
+  const sections = useSectionActions('chats')
   const [sub, setSub] = useState<ViewKey | null>(null)
   const [ask, setAsk] = useState(0)
   const button = useRef<HTMLButtonElement>(null)
@@ -294,15 +318,18 @@ function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
         buttonClassName="touch-hit"
         buttonRef={button}
         testId="recents-filter"
-        items={(Object.keys(VIEW) as ViewKey[]).map((k) => ({
-          label: t(VIEW[k].label),
-          hint: `· ${value(k)}`,
-          onSelect: () => {
-            setSub(k)
-            setAsk((n) => n + 1)
-          },
-          testId: `recents-view-${k}`,
-        }))}
+        items={[
+          ...(Object.keys(VIEW) as ViewKey[]).map((k) => ({
+            label: t(VIEW[k].label),
+            hint: `· ${value(k)}`,
+            onSelect: () => {
+              setSub(k)
+              setAsk((n) => n + 1)
+            },
+            testId: `recents-view-${k}`,
+          })),
+          { label: t('sidebarSections.new'), icon: <ListPlus size={16} aria-hidden />, onSelect: () => void sections.create({ thenAdd: true }), testId: 'recents-new-section' },
+        ]}
       />
       {sub && (
         <MenuButton
@@ -327,6 +354,7 @@ function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
 
 function RecentsDropdown({ view, onChange, changed, confidential }: MenuProps) {
   const t = useT()
+  const sections = useSectionActions('chats')
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
   /** the submenu does not fit beside the menu (a narrow window): it takes the menu's place, with a way back */
@@ -478,6 +506,21 @@ function RecentsDropdown({ view, onChange, changed, confidential }: MenuProps) {
                     </button>
                   </div>
                 ))}
+                {/* my sections of the history (docs/decisions/20261122-trina-history-sections.md): New section, then Add chats */}
+                <div role="separator" className="mx-1 my-1 border-t border-line" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    close(false)
+                    void sections.create({ thenAdd: true })
+                  }}
+                  className={clsx(row, 'text-ink')}
+                  data-testid="recents-new-section"
+                >
+                  <ListPlus size={14} className="shrink-0 text-faint" aria-hidden />
+                  <span>{t('sidebarSections.new')}</span>
+                </button>
               </div>
             )}
             {sub && (

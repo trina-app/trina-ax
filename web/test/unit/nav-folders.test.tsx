@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, NavFolder, Room } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { folderKindName, roomFolderPill } from '../../src/components/nav/NavFolders'
+import { roomFolderPill } from '../../src/components/nav/NavFolders'
 import { waitingChats } from '../../src/store/sessionMarkers'
 import { roomsByKind } from '../../src/components/panels/RoomsByKind'
 import { foldersOf, nameTaken } from '../../src/store/navFolders'
@@ -56,19 +56,12 @@ describe('an old folder link (the Trina list\'s folders are gone) keeps its addr
   })
 })
 
-// UX review M3: the two kinds never mix, so every place that shows or picks folders says which list they belong to
-describe('which list a folder belongs to', () => {
-  test('"트리나 폴더" and "대화 폴더" in every language, and the line that says they are separate', () => {
-    const name = '트리나'
-    expect(folderKindName((k, p) => translate('ko', k, { name, ...p }), 'chats')).toBe('트리나 폴더')
-    expect(folderKindName((k, p) => translate('ko', k, p), 'rooms')).toBe('대화 폴더')
-    expect(translate('ko', 'navFolders.separateRooms', { name })).toBe('대화 폴더는 트리나 폴더와 따로 있어요.')
+// docs/decisions/20261122-trina-history-sections.md: both lists say "section"; the old Trina folder words are gone
+describe('no folder words for the lists', () => {
+  test('the old "트리나 폴더" / "대화 폴더" words are not in any language', () => {
     for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
-      for (const k of ['navFolders.kindChats', 'navFolders.kindRooms', 'navFolders.separateRooms', 'navFolders.separateChats', 'teamMenu.switch'] as const) {
-        const v = translate(l, k, { name: 'Trina' })
-        expect(v).not.toBe(k)
-        expect(v).not.toContain('{')
-      }
+      for (const k of ['navFolders.kindChats', 'navFolders.kindRooms', 'navFolders.separateRooms', 'navFolders.separateChats', 'navFolders.projectStays'])
+        expect(translate(l, k as never)).toBe(k)
   })
 })
 

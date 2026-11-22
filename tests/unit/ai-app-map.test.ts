@@ -82,7 +82,7 @@ describe('the places it names still exist', () => {
     has('web/src/components/rooms/RoomMenu.tsx', 'rooms.menu.notify')
     has('web/src/components/rooms/RoomMenu.tsx', 'roomApps.menuList')
     has('web/src/components/chat/ChatTitleMenu.tsx', 'chat.rename')
-    has('web/src/components/nav/NavFolders.tsx', 'navFolders.moveTo')
+    has('web/src/components/nav/SidebarSections.tsx', 'sidebarSections.moveTo')
     has('web/src/components/chat/Messages.tsx', 'chat.regenerate')
     has('web/src/components/chat/Messages.tsx', 'chat.edit')
     has('web/src/pages/admin/Members.tsx', 'handover.menu')
