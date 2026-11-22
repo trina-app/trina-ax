@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { askerMessageId, askerSpec } from './asked-in'
 import { trashHint } from './trash-hint'
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
 import { chatKindOf, chatPlaces } from './place-ctx'
@@ -395,6 +396,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
   const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
+  /** every tool of the integrations provider (a connected service's: call_tool, api_request, its own tools …) */
+  const serviceTools = new Set<string>()
   // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
   const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
@@ -415,6 +418,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
       if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
+      if (p.name === 'integrations') serviceTools.add(t.name)
     }
     if (built.prompt) prompt.push(built.prompt)
     if (built.seen?.length) seen.push(...built.seen)
@@ -756,19 +760,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args); exec.releaseScheduleCover(name, args) } }
   // a safety card of these tools waits after the answer ends (chat/open-questions.ts; TurnExec.cardLater): the call
   // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
+  // (a connected service's tools too: each asks before it reaches the service, docs/decisions/20261122-late-card-answer-
+  // resumes.md; not connection_result, whose answer is kept for its own turn only, nor find_tools, which asks nothing)
+  const cardLaterTool = (name: string): boolean => CARD_LATER_TOOLS.has(name) || (serviceTools.has(name) && !NOT_LATER.has(name))
   const once = set.call
   set.call = async (name, args, caller) => {
-    const track = CARD_LATER_TOOLS.has(name) && (caller?.files ?? exec.files) === exec.files
-    if (!track) return once(name, args, caller)
-    const was = exec.callNow
+    const track = cardLaterTool(name) && (caller?.files ?? exec.files) === exec.files
+    // each call in its own context: a card raised by another call running beside it is never kept with this one
+    // (a test's stand-in turn without runAsCall: no tracking, the card waits inside the call)
+    if (!exec.runAsCall) return once(name, args, caller)
+    if (!track) return exec.runAsCall(null, () => once(name, args, caller))
     const call = { name, args, deferred: null as string | null }
-    exec.callNow = call
-    try {
-      const out = await once(name, args, caller)
-      if (!call.deferred) return out
-      exec.markCallWaiting(name)
-      return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
-    } finally { exec.callNow = was }
+    const out = await exec.runAsCall(call, () => once(name, args, caller))
+    if (!call.deferred) return out
+    exec.markCallWaiting(name)
+    return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
   }
   return set
 }
@@ -776,6 +782,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
  * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
  * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
+/** the integrations provider's tools that never wait after the answer: connection_result and find_tools
+ * (integrations/connections/tools.ts CONNECTION_RESULT, FIND_TOOLS; pinned by tests/unit/b-late-card-answer.test.ts) */
+export const NOT_LATER: ReadonlySet<string> = new Set(['connection_result', 'find_tools'])
+
 export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown) => string | null): WidenOf | undefined {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
   if (!a) return undefined
@@ -981,9 +991,10 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // chat: a file name a teammate chose reaches the AI in a chat that read nothing too (chat/shared-actions.ts)
     // ...and any team file where other people's words are in the chat (othersWordsIn); the person's own Always allow for
     // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
-    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, exec.spec, paths),
+    attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, askerSpec(exec), paths),
     othersWords: () => othersWordsIn(exec),
-    explicitPlace: (dir, paths) => paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
+    // (never while a waiting call runs again: that run reaches the card its press is checked against)
+    explicitPlace: (dir, paths) => exec.askedIn ? false : paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
     // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
@@ -1406,7 +1417,7 @@ function bTools(exec: TurnExec): Tool[] {
         const switchOn = autoMemoryOn(rt.db, spec.userId)
         // the switch off: kept only when the person's own message of this turn asks for it in so many words; the
         // model's `asked` never stands in for them (QA TC-7737). Nothing asks: the call is skipped quietly
-        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(spec.userMessageId)?.content ?? '')))
+        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(askerMessageId(exec))?.content ?? '')))
           return skip('Not kept: the user turned automatic memory off, so memories are kept only when they ask in their own words. Do not call remember unless they do; they can say "remember this" or add it in Settings › Memory. Do not mention this unless they ask about memory.', 'auto memory off, not asked')
         const auto = switchOn && exec.autoMemoryPlace
         const mine = rt.db.query('SELECT id, text, source FROM memories WHERE user_id = ?').all(spec.userId) as { id: string; text: string; source: string }[]

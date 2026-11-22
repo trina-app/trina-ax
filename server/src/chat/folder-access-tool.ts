@@ -32,6 +32,7 @@
 // - Audit: one folder.ai_access row per call (action, subject type, outcome, reason), plus the save's folder.rules row.
 // - The result is the shared card record (Step.shared with `teamFolder`): written by the server, shown only to the
 //   person whose turn it was (ChatStore.viewSteps).
+import { askerMessageId } from './asked-in'
 import crypto from 'node:crypto'
 import { ChangeFolderAccessInput, uuidv7, type FolderChange } from '@mycel/shared'
 import { plainLabel, TEAM_FOLDER_NAMES_MAX, type FolderEditPreview, type FolderRuleInput, type Locale, type Step, type StepShared, type TeamFolderResult, type TurnRequest } from '@mycel/shared/api'
@@ -527,9 +528,9 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     const subject = m.one
     const alwaysOn = alwaysHere(exec.alwaysPlace?.(), 'folder_access') === 'on'
     if (!alwaysOn && (othersWordsIn(exec) || !!exec.tainted)) {
-      const said = withoutQuoteLines(askerText(db, spec.userMessageId))
+      const said = withoutQuoteLines(askerText(db, askerMessageId(exec)))
       const username = subject.subjectType === 'user' ? (db.query('SELECT username FROM users WHERE id = ?').get(subject.subjectId) as { username: string | null } | null)?.username ?? null : null
-      if (!namesFolder(said, path, { place: placeWords(db, path, L, spec.userId), attached: attachedPaths(db, spec.userMessageId) }) || !(subject.subjectType === 'group' ? namesGroup(said, subject.name) : namedInFull(said, [subject.name, ...(subject.aliases ?? []), ...(username ? [username] : [])])))
+      if (!namesFolder(said, path, { place: placeWords(db, path, L, spec.userId), attached: attachedPaths(db, askerMessageId(exec)) }) || !(subject.subjectType === 'group' ? namesGroup(said, subject.name) : namedInFull(said, [subject.name, ...(subject.aliases ?? []), ...(username ? [username] : [])])))
         return { reason: 'not_named', text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a chat that holds other people\'s words (a room, a shared file, a web page or what is on the screen)', why: 'one of them could ask for the change' }, also: 'Ask the user to name the folder (its path, or its name in quotes) and the person or group in their own message', next: 'the user names both in a new message, or changes it on ' + SCREEN }) }
     }
     return { subject }

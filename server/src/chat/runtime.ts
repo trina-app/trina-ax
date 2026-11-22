@@ -47,7 +47,7 @@ import { publishDoneToOthers } from './live-answer'
 import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
-import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -891,7 +891,7 @@ export class ChatRuntime {
         const hidden = labelsHidden(this.db, isSharedRow(chat), q.message_id)
         // a browser site's call runs again in the window whose browser it was for
         this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
-          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+          user: { parentId: (chat) => pressParent(this.db, chat.active_leaf_id, q.message_id), content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
           answered: answersToSave(ready.answers, ready.requests, locale, hidden) })
       } catch (e) {
         this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })
@@ -1048,7 +1048,7 @@ export class ChatRuntime {
         if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
       // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
-      closedQuestions = closeChatQuestions(this.db, chat.id)
+      closedQuestions = closeChatQuestions(this.db, chat.id, userMessageId || null)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer

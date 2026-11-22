@@ -16,6 +16,7 @@
 // message, named in it, or that the AI made in this turn (otherwise another member's message could point the AI at the
 // asker's files). The explicit-ask skip (no card when the person's own message asked for exactly this share) is our own
 // text match, so it never applies where other people's words are.
+import { askerMessageId, madeHere } from './asked-in'
 import { ShareWithPersonInput } from '@mycel/shared'
 import { plainLabel, type Step, type ShareCardFile, type StepShared } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -27,7 +28,7 @@ import { isStaff } from '../policy/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, madeInTurn, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
@@ -142,8 +143,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // ...except in a shared chat with a guest among its people (the one limit kept): the old guards hold there
         const strict = guestInShared(exec)
         const free = on && !strict
-        const asked = others ? askerText(db, spec.userMessageId) : ''
-        const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
+        const asked = others ? askerText(db, askerMessageId(exec)) : ''
+        const attached = others ? attachedPaths(db, askerMessageId(exec)) : new Set<string>()
         const plan: { path: string; name: string; owner: { id: string; name: string } | null }[] = []
         /** a file passed the asker-named rule only by its name without the date or number: the card always shows */
         let coreNamed = false
@@ -206,9 +207,9 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           // into this turn only, while the person's "Always allow" for shares is off or a guest is in this shared chat
           // (on: final, Rule A B4)
           // (a file named only without its date or number, namesFileCore, passes here but always gets the card below)
-          const byCore = !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path)) && namesFileCore(asked, v.path)
+          const byCore = !(attached.has(v.path) || namesFile(asked, v.path) || madeHere(db, exec, v.path)) && namesFileCore(asked, v.path)
           if (byCore && others && !free) coreNamed = true
-          if (others && !free && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path) || byCore)) {
+          if (others && !free && !(attached.has(v.path) || namesFile(asked, v.path) || madeHere(db, exec, v.path) || byCore)) {
             return no(`Nothing was shared: in a chat other people write in, a file is shared only when the user named it in their own message, attached it, or you made it in this answer. Ask the user to say which file to share.`, 'refused: file not from the asker')
           }
           plan.push({ path: v.path, name: v.path.split('/').pop() ?? v.path, owner: v.owner })
@@ -270,8 +271,8 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
         // a shared chat with a guest among its people: the choice counts only for this person's own ask (their own
         // message of this turn asks to share or send and names every recipient), as before B4
-        const typed = strict ? ownWords(askerText(db, spec.userMessageId)) : ''
-        const alwaysOk = !strict || (asksToSend(db, spec.userMessageId)
+        const typed = strict ? ownWords(askerText(db, askerMessageId(exec))) : ''
+        const alwaysOk = !strict || (asksToSend(db, askerMessageId(exec))
           && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) })))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
@@ -279,14 +280,16 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // or attached by them. Our own text match, not the person's choice: never where other people's words are in the
         // chat (others, content: the person did not choose to skip the card there), never in a run nobody watches
         const marked = others || content
-        const said = ownWords(askerText(db, spec.userMessageId))
-        const mine = attachedPaths(db, spec.userMessageId)
+        const said = ownWords(askerText(db, askerMessageId(exec)))
+        const mine = attachedPaths(db, askerMessageId(exec))
         // a file or a person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts): unless
         // their own message names it, the explicit ask does not skip the card (the person's own "Always allow" stays final:
         // Rule A, #1143)
         const fromLook = plan.some((f) => lookedFile(exec, f.path, said, mine)) || who.some((w) => w.subjectType === 'user' && lookedPerson(exec, w.subjectId, recipientWords(db, w), said))
         // where other people's words are (marked) the explicit ask never skips the card; nor for a screen target (fromLook)
-        const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
+// (never while a waiting call runs again with the person's press, exec.askedIn: that run always reaches the card the
+        // press is checked against, docs/decisions/20261122-late-card-answer-resumes.md)
+        const explicit = !exec.askedIn && !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
           && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         // the card offers "Always allow" on its first showing wherever the choice counts, and once on it is final (Rule A,

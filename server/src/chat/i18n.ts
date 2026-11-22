@@ -43,6 +43,8 @@ export const TEXT = {
   /** the label of an answer's to-do step (todo_write): apps that know Step.todos show the checklist instead */
   todoList: t('할 일 목록', 'To-do list', 'Daftar tugas', "ToDoリスト", "Lista de tareas", "待办清单"),
   /** the step of a call whose safety card waits after the answer ends (chat/open-questions.ts) */
+  // a waiting card whose call, run again with the person's press, now raises a card that reads differently (chat/turn.ts)
+  cardChangedSince: t('누르신 뒤에 바뀐 게 있어요. 한 번 더 확인해 주세요.', 'Something changed since you answered. Please check once more.', 'Ada yang berubah sejak Anda menjawab. Mohon periksa sekali lagi.', "回答の後に変わったことがあります。もう一度確認してください。", "Algo cambió desde que respondió. Revíselo una vez más.", "你回答之后有变化，请再确认一次。"),
   cardWaits: t('카드에서 답을 기다려요', 'Waiting for your answer on the card', 'Menunggu jawaban Anda di kartu', "カードでの回答を待っています", "Esperando su respuesta en la tarjeta", "等待你在卡片上回答"),
   /** a browser site card's answers, as the person's message after the card waited (chat/open-questions.ts answerText) */
   siteOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅本次允许"),
