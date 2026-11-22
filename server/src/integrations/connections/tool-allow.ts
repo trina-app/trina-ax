@@ -19,7 +19,11 @@ import { savedTools, type Row } from './store'
 export function toolAllowed(db: Database, row: Pick<Row, 'id' | 'url' | 'account'>, userId: string, tool: string): boolean {
   if (!teamAllowsAlways(db)) return false
   const r = db.query("SELECT a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool = ? AND u.status = 'active' AND u.deleted_at IS NULL").get(userId, row.id, tool) as { url: string } | null
-  return !!r && r.url === sharedBind(row)
+  if (!r) return false
+  if (r.url === sharedBind(row)) return true
+  // the connection moved or signed in to another account: the old choice goes, so it never comes back on its own
+  db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, row.id, tool)
+  return false
 }
 
 /** Keep the person's "Always allow" for this tool (their own answer on the card). Audited. */
@@ -41,7 +45,10 @@ export const sharedBind = (row: Pick<Row, 'url' | 'account'>) => `${row.url}#${c
 export function sharedAllowed(db: Database, integrationId: string, userId: string, bind: string): boolean {
   if (!teamAllowsAlways(db)) return false
   const r = db.query("SELECT a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool = ? AND u.status = 'active' AND u.deleted_at IS NULL").get(userId, integrationId, SHARED_TOOL) as { url: string } | null
-  return !!r && r.url === bind
+  if (!r) return false
+  if (r.url === bind) return true
+  db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, integrationId, SHARED_TOOL)
+  return false
 }
 
 /** Keep the shared connection card's Always for good. Audited. */

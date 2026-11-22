@@ -237,6 +237,8 @@ describe('ownActTool: a call that acts on the person\'s own things', () => {
     expect(ownActTool({}, tool('create_task', null, ['to']), {})).toBe(false)
     expect(ownActTool({}, tool('create_task', null, ['title']), { title: 'x', to: 'outside@example.com' })).toBe(false)
     expect(ownActTool({}, tool('create_task', 'Send it'), {})).toBe(false)
+    expect(ownActTool({}, tool('create_event', null, ['title']), { title: 'x', options: { attendees: ['a@example.com'] } })).toBe(false)
+    expect(ownActTool({}, tool('make_note', null, ['title']), { title: 'x', 받는사람: 'kim' })).toBe(false)
     expect(ownActTool({}, tool('메시지_보내기'), {})).toBe(false)
     expect(ownActTool({}, tool('make_note', '메모 보내기'), {})).toBe(false)
     expect(ownActTool({ google_app: 'gmail' }, tool('draft_gmail_message'), {})).toBe(false)

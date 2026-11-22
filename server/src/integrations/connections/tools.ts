@@ -40,7 +40,7 @@ import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine,
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
-import { plainName, readKind, readsHere, takesRecipient } from './read-mark'
+import { argsReachOthers, plainName, readKind, readsHere, takesRecipient } from './read-mark'
 import { keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -297,7 +297,7 @@ export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
   const name = plainName(t.name), title = plainName(t.title)
   if (!ascii(name) || !ascii(title)) return false
   // a recipient in the schema, or in the call's own arguments (extra keys still reach the service)
-  return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !takesRecipient({ properties: args })
+  return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !argsReachOthers(args)
 }
 
 /** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */

@@ -101,7 +101,7 @@ export function readKind(shared: boolean, row: { google_app?: string | null }, t
 /** Verbs that read here but may put the result somewhere else, or change a state while they check */
 const ELSEWHERE_VERBS = new Set(['export', 'download', 'check'])
 /** A top-level argument that names who or where something is sent to (not an address that is read: url, link, host) */
-const SEND_TO = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)s?|chat_?id|webhooks?(_?url)?|share_?with|phones?|phone_?numbers?|send_?to|notify)$/i
+const SEND_TO = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)s?|chat_?id|webhooks?(_?url)?|share_?with|phones?|phone_?numbers?|send_?to|notify|attendees?|invitees?|participants?|guests?|collaborators?|assignees?|members?|mentions?)$/i
 /** The tool's input schema names an argument of SEND_TO. */
 export function takesRecipient(schema: unknown): boolean {
   const props = schema && typeof schema === 'object' ? (schema as { properties?: unknown }).properties : null
@@ -149,3 +149,14 @@ export function nounRead(w: readonly string[]): boolean {
 
 /** A call that only reads with no card of its own (readKind 'read'). */
 export const readsHere = (shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'> & { inputSchema?: unknown }): boolean => readKind(shared, row, t) === 'read'
+
+/** A call's own arguments name someone it reaches: a key of SEND_TO at any depth, or a key that is not plain ASCII
+ * (it cannot be read: "받는사람"). Used for a change's card, never to make a read (tools.ts ownActTool; code review). */
+export function argsReachOthers(args: unknown, depth = 0): boolean {
+  if (depth > 6 || !args || typeof args !== 'object') return false
+  if (Array.isArray(args)) return args.some((x) => argsReachOthers(x, depth + 1))
+  return Object.entries(args as Record<string, unknown>).some(([k, v]) => {
+    const key = plainName(k)
+    return !/^[\x21-\x7e]+$/.test(key) || SEND_TO.test(key) || argsReachOthers(v, depth + 1)
+  })
+}
