@@ -62,6 +62,17 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // AI is told after the call
     // what the AI is told after the call when something was hidden (null: nothing was)
     let hidden: string | null = null
+    // a chat shared with people "with files": a path to a file copied into it means the chat's copy, for everyone
+    // (chat/copy-paths.ts); fails closed: a lookup that throws runs nothing
+    if (extra?.mapPaths) {
+      try {
+        const mapped = extra.mapPaths(name, params?.arguments ?? {}, caller)
+        if (mapped !== (params?.arguments ?? {})) params = { ...params, arguments: mapped }
+      } catch {
+        audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the chat's copies could not be looked up)`, 0)
+        return failed('The files of this chat could not be looked up, so nothing was done. Try again.')
+      }
+    }
     if (extra?.hideKeys) {
       try {
         const h = extra.hideKeys(name, params?.arguments ?? {})

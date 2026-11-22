@@ -116,8 +116,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const reopened = useRef(false)
   // the already-shared step asked again (the files changed since): its list and key
   const [filesAgain, setFilesAgain] = useState<{ files: ChatMadeFile[]; key: string } | null>(null)
-  // "Share the files too": unticked until its owner ticks it (a file leaves My files only by a press that names files)
-  const [withFiles, setWithFiles] = useState(false)
+  // "Share the files too": the owner's own tick or untick, or null for the default (below, filesSafe)
+  const [filesPick, setWithFiles] = useState<boolean | null>(null)
   // Copy link (components/ShareCopyLink.tsx): the chat as this window knows it now (shared or not, how many), its toast says who opens it
   const copyLink = useCopyChatLink()
   const known = useChats((s) => s.chats.find((c) => c.id === chat.id))
@@ -198,8 +198,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     return () => { clearTimeout(shown); clearTimeout(asked) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picksKey, editable, audience, adding.length, chat.id])
-  // a new list of people: the files box unticked again (the tick was for the people it was ticked for)
-  useEffect(() => { setWithFiles(false) }, [picksKey])
+  // a new list of people: the files box back to its default (the tick was for the people it was ticked for)
+  useEffect(() => { setWithFiles(null) }, [picksKey])
   const current = preview?.for === picksKey ? preview : null
   // Share waits for the check of exactly these picks (from the first change, the 400 ms wait included)
   const checking = adding.length > 0 && (!current || current.state === 'loading')
@@ -310,6 +310,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // nobody in it (a chat never shared, nobody picked, or everyone taken out): no files box, nothing to share them with
   const filesStep = stepFiles.length > 0 && picks.length > 0 && !removesAll
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
+  // ticked by default when every listed file is safe for the people (the sharer's own outputs: no file marked made from
+  // files they can't open, no pick the check warns about: QA TC-v1d-02); otherwise unticked until its owner ticks it
+  // (#320: a file that carries what they can't open leaves My files only by a press that names files). The default
+  // waits for the check of these picks
+  const filesSafe = !stepFiles.some((f) => f.private) && !check?.warnPicks?.length && (!adding.length || current?.state === 'ready')
+  const withFiles = filesPick ?? filesSafe
   // the files go only when ticked (and there are files to go)
   const sendFiles = filesStep && withFiles
   const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} testId="chat-share-copy-link" />

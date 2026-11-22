@@ -4,7 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { trashHint } from './trash-hint'
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
-import { chatPlaces } from './place-ctx'
+import { chatKindOf, chatPlaces } from './place-ctx'
 import { chatFilesOf } from './chat-files'
 import { PLACE_WORDS } from '../files/places'
 import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
@@ -98,6 +98,8 @@ import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './gues
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
 import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
+import { mapCopyPaths } from './copy-paths'
+import { sharedCopyMap } from './chat-files-share'
 import { completeRedactorFor } from '../integrations/connections/redact'
 
 export interface Tool {
@@ -529,6 +531,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
     return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
   }
+  /** the files copied into this chat by its creator, by the path they came from (chat-files-share.ts sharedCopyMap):
+   * only in a chat shared with people now (not a project chat, not one made private again), else none */
+  const copiesHere = () => (chatKindOf(exec) === 'people' ? sharedCopyMap(exec.rt.ctx, exec.spec.chatId, exec.spec.userId) : new Map() as ReturnType<typeof sharedCopyMap>)
   const set: ChatToolSet = {
     prompt,
     seen,
@@ -544,6 +549,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // the person's stored connection keys in what a tool saves (a file, an artifact, a name): hidden before every
     // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
     // overwrites already holds
+    // a chat shared with people with its creator's files copied in: a path to such an original is the chat's copy for
+    // everyone here, the creator too (chat/copy-paths.ts; plan 20261122-0503-shared-chat-copy-paths.md). The main AI
+    // only: a sub-agent has no chat places (files/places.ts). Looked up again at every call (a share, a new copy)
+    mapPaths: (name, args, caller) => {
+      if (!exec.files || (caller && caller.files !== exec.files)) return args
+      return mapCopyPaths(name, args, copiesHere()).args
+    },
     hideKeys: (name, args) => {
       // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
       // card shows exactly what is sent and the service never gets the key (QA TC-3081)
@@ -620,7 +632,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_files names a chat file once however it is spelled (chat:files/<id>/…, an older version's id, its name):
     // an edit run twice would apply a replacement whose new text holds the old one again
     batchKey: (p) => {
-      const place = placeArg('edit', { file_path: p })
+      // a copied original and the copy's own path are one file (mapPaths maps each call the same way)
+      const place = placeArg('edit', mapCopyPaths('edit', { file_path: p }, copiesHere()).args)
       if (!chatVersionPlace(place)) return null
       try { return chatPlaces(exec, exec.files).head(place.id, place.name ?? '').path } catch { return null }
     },

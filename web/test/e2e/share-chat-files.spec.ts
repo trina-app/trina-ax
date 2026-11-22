@@ -105,9 +105,10 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const hint = dialog.getByTestId('chat-share-files-hint')
       await expect(hint).toHaveText('채팅에 사본이 생겨요. 원본은 그대로예요.')
       await expect(hint).toHaveAttribute('title', '원본은 내 파일에 그대로 있어요. 채팅을 삭제하면 채팅의 사본도 함께 삭제돼요.')
-      // unticked: a file leaves My files only when its owner ticks it; one Share button, no "with/without files" pair
+      // the chat's own outputs, nothing Bob can't open: ticked by default (QA TC-v1d-02); one Share button, no
+      // "with/without files" pair
       const box = dialog.getByTestId('chat-share-files-check')
-      await expect(box).not.toBeChecked()
+      await expect(box).toBeChecked()
       for (const id of ['chat-share-without-files', 'chat-share-with-files']) await expect(dialog.getByTestId(id)).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await audit(page, 'share step')
@@ -149,11 +150,14 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(step).toBeVisible()
       await expect(step).toHaveAttribute('data-already', '')
       await expect(step).toContainText('파일도 같이 공유 (2개)')
-      // nothing changed and nothing ticked: Save off; ticked, Save adds the files alone
+      // safe files: ticked by default, so Save adds the files alone; unticked, Save is off
+      const box = dialog.getByTestId('chat-share-files-check')
+      await expect(box).toBeChecked()
+      await box.uncheck()
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
       await audit(page, 'already-shared step')
       await shots(page, 'already-shared-step')
-      await dialog.getByTestId('chat-share-files-check').check()
+      await box.check()
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       await dialog.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '파일 2개를 대화에 추가했어요' })).toBeVisible()
