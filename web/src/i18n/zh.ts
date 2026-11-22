@@ -5511,7 +5511,6 @@ export const zh: Record<MessageKey, string> = {
   "welcome.tools.googleLine": "一个共享账号，或每个人用自己的账号",
   "welcome.tools.googleTeamOn": "共享账号 {account} · {who}",
   "welcome.tools.teamConnect": "为团队连接",
-  "welcome.tools.slackLine": "整个团队共用这个连接 · 在 Slack 中向 AI 提问",
   "welcome.tools.teamLine": "整个团队共用这个连接",
   "welcome.tools.mcp": "其他工具",
   "welcome.done.makeCardNews": "制作宣传卡片",

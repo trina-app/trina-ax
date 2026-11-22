@@ -255,6 +255,16 @@ export function renderSlot(user: string, signal?: AbortSignal): Promise<() => vo
     waiting.push(w)
   })
 }
+/** A render slot now or null (never waits): for a web page drawn for its text (tools/page-render.ts), which shares the
+ * prints' limit and cgroup and is skipped when the server is busy. It never goes before a print that waits. Each call
+ * counts as its own person (`key` unique per draw). */
+export function tryRenderSlot(key: string): (() => void) | null {
+  if (running >= renderParallel() || waiting.length || runningUsers.has(key)) return null
+  running++
+  runningUsers.set(key, 1)
+  let done = false
+  return () => { if (done) return; done = true; running--; runningUsers.delete(key); pump() }
+}
 /** tests: the queue's state */
 export const _queueForTest = () => ({ running, waiting: waiting.length })
 
@@ -267,7 +277,7 @@ export const _queueForTest = () => ({ running, waiting: waiting.length })
  * (the subprocess, which closes it when the child exits, and a socket over it, which closes it again when collected), so
  * a later print whose pipe had taken the number lost it and its browser quit.
  */
-class Cdp {
+export class Cdp {
   private next = 1
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>()
   private listeners = new Map<string, ((params: any, sessionId?: string) => void)[]>()
@@ -441,8 +451,9 @@ function fontsConf(work: string, dirs: string[]): string {
 }
 
 /** The browser's command line: headless, no sandbox of its own (the isolation is the sandbox; it cannot make namespaces
- * inside bwrap), nothing in the background, a host resolver that resolves nothing, JavaScript off, the DevTools pipes. */
-export function browserArgs(work: string): string[] {
+ * inside bwrap), nothing in the background, a host resolver that resolves nothing, JavaScript off (on only for a web page
+ * read for its text, whose every request the server answers: tools/page-render.ts), the DevTools pipes. */
+export function browserArgs(work: string, o: { scripts?: boolean } = {}): string[] {
   return [
     '--headless', '--remote-debugging-pipe', '--no-sandbox', '--no-zygote', '--disable-gpu', '--disable-dev-shm-usage',
     `--user-data-dir=${path.join(work, 'profile')}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions',
@@ -450,7 +461,7 @@ export function browserArgs(work: string): string[] {
     '--disable-domain-reliability', '--disable-client-side-phishing-detection', '--disable-breakpad', '--disable-crash-reporter',
     '--no-proxy-server', '--dns-prefetch-disable', '--host-resolver-rules=MAP * ~NOTFOUND', '--mute-audio', '--hide-scrollbars',
     '--disable-site-isolation-trials', '--disable-features=IsolateOrigins,site-per-process,Translate,MediaRouter,OptimizationHints,AutofillServerCommunication,DialMediaRouteProvider',
-    '--blink-settings=scriptEnabled=false', '--metrics-recording-only', '--password-store=basic', '--use-mock-keychain',
+    ...(o.scripts ? [] : ['--blink-settings=scriptEnabled=false']), '--metrics-recording-only', '--password-store=basic', '--use-mock-keychain',
     'about:blank',
   ]
 }
@@ -473,11 +484,61 @@ export async function renderHtmlPdf(req: HtmlPdfRequest): Promise<HtmlPdfResult>
 
 async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Promise<HtmlPdfResult> {
   const started = Date.now()
+  // The largest message the browser may send: its events carry the page's own addresses, a data: picture inside the
+  // page included (a 10 MB page can make a 10 MB event), so twice the page limit and room to spare, and never less
+  // than one read of the PDF stream (1 MiB in base64) needs.
+  const maxMessage = Math.max(8 * 1024 * 1024, 2 * L.maxHtmlBytes + 4 * 1024 * 1024)
+  const { value, usage } = await runBrowser(work, {
+    browser: req.browser, fonts: req.fonts, signal: req.signal, limits: L, maxMessage, scripts: false, noIsolationTestPrint: noIsolationTestPrint(),
+    tooLarge: () => new HtmlPdfError('protocol', `the browser sent a message larger than ${Math.round(maxMessage / 1024 / 1024)} MB; the page is too large to print`),
+    timeoutText: `printing took longer than ${Math.round(L.timeoutMs / 1000)} s`, memoryText: 'the page needs too much memory to print',
+  }, (c, race) => printPage(c, race, req, L, started))
+  if (usage) value.usage = usage
+  return value
+}
+
+/** How runBrowser starts the browser and when it stops it. */
+export interface BrowserRun {
+  browser: string
+  fonts?: string[]
+  signal?: AbortSignal
+  limits: Pick<HtmlPdfLimits, 'timeoutMs' | 'maxRssMiB' | 'maxWorkBytes'>
+  /** the largest protocol message taken (Cdp), and the error past it */
+  maxMessage: number
+  tooLarge: () => HtmlPdfError
+  /** JavaScript on (browserArgs): only for a web page read for its text (tools/page-render.ts), never for a print */
+  scripts: boolean
+  timeoutText: string
+  memoryText: string
+  /** printIn only, from its test hatch (noIsolationTestPrint()): a print may run without the isolation. Ignored when
+   * `scripts` is on. */
+  noIsolationTestPrint?: boolean
+}
+
+/** html-pdf.test.ts's check of the interception alone: a test process that says so prints without the isolation. Read
+ * by printIn only, never by the shared runBrowser, so a JavaScript-on page render cannot reach it. */
+const noIsolationTestPrint = () => process.env.NODE_ENV === 'test' && process.env.MYCEL_HTML_PDF_TEST_NO_ISOLATION === '1'
+export type BrowserUsage = { memoryMiB?: number; pids?: number }
+
+/**
+ * The locked-down headless browser of the top of this file, for `body` to drive over the DevTools protocol: in the
+ * converters' isolation (no network, an empty work folder), in a cgroup leaf of its own in Linux production, with the
+ * time, memory and disk limits, and killed with every process it started when `body` ends, fails or is stopped. `race`
+ * ends with the run's failure (time, memory, abort). Throws HtmlPdfError.
+ */
+export async function runBrowser<T>(work: string, o: BrowserRun, body: (cdp: Cdp, race: <X>(x: Promise<X>) => Promise<X>) => Promise<T>): Promise<{ value: T; usage?: BrowserUsage }> {
+  const L = o.limits
+  // never without the isolation (it is the browser's sandbox and its "no network") and never as root, whoever called
+  // with whichever browser
+  // (only a print, JavaScript off, may run without it: html-pdf.test.ts's check of the interception alone, printIn's
+  // test hatch; a JavaScript-on browser never)
+  if (isolation() === 'none' && !(o.noIsolationTestPrint === true && !o.scripts)) throw new HtmlPdfError('unavailable', 'the converter isolation is missing on this server, so no browser runs here')
+  if (rootRefused()) throw new HtmlPdfError('unavailable', 'a browser is never run as root')
   // the file trustedBrowser looks at is the file that runs: resolved once, checked, and run by that path
   let browser: string
-  try { browser = fs.realpathSync(req.browser) } catch { throw new HtmlPdfError('unavailable', 'the browser is not installed') }
+  try { browser = fs.realpathSync(o.browser) } catch { throw new HtmlPdfError('unavailable', 'the browser is not installed') }
   if (!trustedBrowser(browser)) throw new HtmlPdfError('unavailable', 'the browser is not in a folder only root or the server can change')
-  const fonts = (req.fonts ?? []).filter((d) => { try { return fs.statSync(d).isDirectory() } catch { return false } })
+  const fonts = (o.fonts ?? []).filter((d) => { try { return fs.statSync(d).isDirectory() } catch { return false } })
   const home = browserHome(browser)
   // Chromium on macOS keeps its temporary files in the user's temp folder, which the isolation hides, unless
   // MAC_CHROMIUM_TMPDIR names another one (base/files/file_util_apple.mm)
@@ -499,10 +560,10 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
   let watch: ReturnType<typeof setInterval> | undefined
   let onAbort: (() => void) | undefined
   let cdp: Cdp | undefined
-  let result: HtmlPdfResult | undefined
+  let result: { value: T; usage?: BrowserUsage } | undefined
   try {
     const { argv, env: fullEnv } = isolatedCommand({
-      cmd: shell, args: ['-c', BROWSER_SHELL, browser, ...browserArgs(work)], workDir: work, readPaths: [home, ...fonts], helpersIn: home, execAlso,
+      cmd: shell, args: ['-c', BROWSER_SHELL, browser, ...browserArgs(work, { scripts: o.scripts })], workDir: work, readPaths: [home, ...fonts], helpersIn: home, execAlso,
       browserProfile: true, ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: PRINT_OOM_SCORE_ADJ } } : {}), env, timeoutMs: L.timeoutMs, background: false, cpuThreads: 2,
     })
     // its own process group: the time limit, an abort and the end of the render kill it with every helper it started
@@ -510,11 +571,7 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
     const sink = proc.stdin
     // one message out; the promise is the moment the pipe has taken it (the next large one waits for it, printPage)
     const write = async (s: string) => { sink.write(s); await sink.flush() }
-    // The largest message the browser may send: its events carry the page's own addresses, a data: picture inside the
-    // page included (a 10 MB page can make a 10 MB event), so twice the page limit and room to spare, and never less
-    // than one read of the PDF stream (1 MiB in base64) needs.
-    const maxMessage = Math.max(8 * 1024 * 1024, 2 * L.maxHtmlBytes + 4 * 1024 * 1024)
-    const c = cdp = new Cdp(write, maxMessage, () => new HtmlPdfError('protocol', `the browser sent a message larger than ${Math.round(maxMessage / 1024 / 1024)} MB; the page is too large to print`))
+    const c = cdp = new Cdp(write, o.maxMessage, o.tooLarge)
     let stderr = ''
     let finish!: () => void
     const failed = new Promise<never>((_, reject) => { finish = () => reject(failure) })
@@ -532,17 +589,17 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
       try { for await (const ch of proc.stderr) if (stderr.length < 16 * 1024) stderr += dec.decode(ch, { stream: true }) } catch { /* ended */ }
     })()
     void proc.exited.then((code) => fail(new HtmlPdfError('browser', `the browser stopped (${code ?? proc.signalCode}): ${stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300)}`)))
-    timer = setTimeout(() => fail(new HtmlPdfError('timeout', `printing took longer than ${Math.round(L.timeoutMs / 1000)} s`)), L.timeoutMs)
+    timer = setTimeout(() => fail(new HtmlPdfError('timeout', o.timeoutText)), L.timeoutMs)
     // memory of the browser's processes, and the work folder (Chromium writes its profile and temporary files there;
     // macOS has no file size limit for it)
     watch = setInterval(() => {
-      if (proc.pid) void treeRssKiB(proc.pid).then((kib) => { if (kib > L.maxRssMiB * 1024) fail(new HtmlPdfError('memory', 'the page needs too much memory to print')) })
+      if (proc.pid) void treeRssKiB(proc.pid).then((kib) => { if (kib > L.maxRssMiB * 1024) fail(new HtmlPdfError('memory', o.memoryText)) })
       if (dirBytes(work) > L.maxWorkBytes) fail(new HtmlPdfError('too_large', 'the print needs too much disk space'))
     }, 250)
     onAbort = () => fail(new HtmlPdfError('aborted', 'stopped'))
-    req.signal?.addEventListener('abort', onAbort, { once: true })
-    const race = <T>(x: Promise<T>) => Promise.race([x, failed])
-    result = await printPage(c, race, req, L, started)
+    o.signal?.addEventListener('abort', onAbort, { once: true })
+    const race = <X>(x: Promise<X>) => Promise.race([x, failed])
+    result = { value: await body(c, race) }
     return result
   } catch (e) {
     if (failure) throw failure
@@ -551,7 +608,7 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
   } finally {
     clearTimeout(timer)
     clearInterval(watch)
-    if (onAbort) req.signal?.removeEventListener('abort', onAbort)
+    if (onAbort) o.signal?.removeEventListener('abort', onAbort)
     if (!failure) failure = new HtmlPdfError('aborted', 'done')
     cdp?.close(failure)
     if (p) {

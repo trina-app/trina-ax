@@ -5579,7 +5579,6 @@ export const id: Record<MessageKey, string> = {
   "welcome.tools.googleLine": "Satu akun bersama, atau akun masing-masing",
   "welcome.tools.googleTeamOn": "Akun bersama {account} · {who}",
   "welcome.tools.teamConnect": "Hubungkan untuk tim",
-  "welcome.tools.slackLine": "Seluruh tim memakai koneksi ini bersama · tanya AI di Slack",
   "welcome.tools.teamLine": "Seluruh tim memakai koneksi ini bersama",
   "welcome.tools.mcp": "Alat lainnya",
   "welcome.done.makeCardNews": "Buat kartu promosi",
