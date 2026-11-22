@@ -73,7 +73,7 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   // for it themselves from the link in the room (rooms/file-ask.ts, QA S-120); a file they have only by its /f/ link,
   // or a let_view the person grants, needs no such line
   const selfAsk = fixes.some((f) => f.kind === 'ask_owner') && gaps.some((g) => 'path' in g)
-    ? ' Teammates there who cannot open it can also ask for access themselves: the link in the room offers "Ask to view".' : ''
+    ? ` Teammates there who cannot open it can also ask for access themselves: the link in the room offers "${tr('roomFileAskButton', L)}" (call it by exactly that label).` : ''
   return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under your answer for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.${selfAsk}` }
 }
 

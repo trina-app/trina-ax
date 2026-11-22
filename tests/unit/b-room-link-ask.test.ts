@@ -83,6 +83,19 @@ describe('the poster\'s card', () => {
     expect(out.cannot_open).toContain('Ask to view')
   })
 
+  test('in Korean the AI is told the room link\'s button by its Korean label ("보기 요청"), never "Ask to view"', async () => {
+    const rel = 'groups/marketing/erins-plan-ko-120.md'
+    put(rel, '# 계획'); wroteIt('erin', rel)
+    const was = (h.ctx.db.query('SELECT locale FROM users WHERE id = ?').get('alice') as { locale: string | null }).locale
+    h.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+    try {
+      const r = await turn('alice', [fake({ tool: 'read', args: { file_path: rel } }), post({ room: rooms.all, text: `계획: ${link(rel)}` })].join('\n'), { answer: 'send' })
+      const out = JSON.parse(r.content)
+      expect(out.cannot_open).toContain('"보기 요청"')
+      expect(out.cannot_open).not.toContain('Ask to view')
+    } finally { h.ctx.db.query('UPDATE users SET locale = ? WHERE id = ?').run(was, 'alice') }
+  })
+
   test('a teammate\'s personal file I have only through a share: a count, nobody named', async () => {
     const rel = 'users/erin/notes-120.md'
     put(rel, '# Erin notes'); wroteIt('erin', rel)

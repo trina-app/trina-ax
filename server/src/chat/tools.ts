@@ -48,7 +48,7 @@ import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, KEEP_READ_LINE, lostAccessNote, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, KEEP_READ_LINE, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -843,9 +843,11 @@ const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x &&
  * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Null otherwise, and
  * for a guest or a restricted run (no carried reads).
  */
-export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
+export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'> & Partial<Pick<TurnExec, 'shared' | 'otherAuthors'>>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
   const earlier = [...(exec.files.carried?.hashes.keys() ?? []), ...exec.files.allReads.keys()]
   if (!earlier.length) return null
+  // other people read this chat's answers: never that a named person's access changed
+  const shared = !!exec.shared || !!exec.otherAuthors
   let me: Principal
   try { me = exec.livePrincipal() } catch { return null }
   const rules = exec.rt.files.rules(), fx = exec.rt.files.fx
@@ -870,8 +872,10 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     const place = places.get(placeKey(teamPlaceOf(rel, gone)))
     if (!rel || !place || !gone(rel) || !gone(place)) return null
     // the very file, still the version read: the file service already said its access ended (files/moved.ts)
-    if (text!.includes('but this person can no longer open it')) return KEEP_READ_LINE
-    return lostAccessNote(exec.rt.db, [place], exec.spec.locale)
+    // (who can restore it, named: the file service's own line says only "whoever manages the folder")
+    // (in a shared chat the full shared note: it says not to tell others that this person's access changed)
+    if (text!.includes('but this person can no longer open it') && !shared) return `${regrantLine(exec.rt.db, place, exec.spec.locale)} ${KEEP_READ_LINE}`
+    return lostAccessNote(exec.rt.db, [place], exec.spec.locale, { shared })
   }
   if (!SEARCH_TOOLS.has(name) || !args || typeof args !== 'object') return null
   const a = args as { path?: unknown }
@@ -880,7 +884,7 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   const hit = [...places].filter(([pk]) => !noted.has(pk) && (!k || pk === k || pk.startsWith(k + '/') || k.startsWith(pk + '/'))).filter(([, pl]) => gone(pl))
   if (!hit.length) return null
   for (const [pk] of hit) noted.add(pk)
-  return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale)
+  return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
 }
 
 /** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a

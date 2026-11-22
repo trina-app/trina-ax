@@ -315,12 +315,25 @@ export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) =>
 /** what earlier answers read stays true (the last part of lostAccessNote; alone after the file service's own lost-access
  * fact for the very file, files/moved.ts LOST_ACCESS_NOTE) */
 export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers read and checked there stays true: do not take it back or call it unverified.'
-export function lostAccessNote(db: Database, places: readonly string[], L: Locale): string {
+/** Who can give access to `place` again, said as the folder rules decide it (writeGranters: the project's creator by
+ * name where the person may see it, else an admin, never by name), with the screen in the user's language; never "whoever
+ * manages the folder", which names nobody (S-118 real run: "영업 폴더를 관리하는 분께"). */
+export function regrantLine(db: Database, place: string, L: Locale): string {
+  const g = writeGranters(db, place, L, () => false)
+  return `Who can give access again: ${g.who} (${g.how}); say exactly that, not "whoever manages the folder" or a guessed person.`
+}
+/** `shared`: other people read this chat's answers (a shared project or people chat, or others wrote in it): then only
+ * that the place cannot be opened from this chat now, never that this person's access changed. */
+export function lostAccessNote(db: Database, places: readonly string[], L: Locale, o: { shared?: boolean } = {}): string {
   const named = nameList(places.map((p) => `'${oneLine(p)}'`))
-  const g = writeGranters(db, places[0] ?? '', L, () => false)
-  return `Earlier in this chat this user opened ${named}; they can no longer open ${places.length > 1 ? 'them' : 'it'} (their groups or the folder's access changed, or it was moved). ` +
-    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uB354 \uC774\uC0C1 \uC5F4 \uC218 \uC5C6\uC5B4\uC694 (\uAD8C\uD55C\uC774 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC62E\uACA8\uC84C\uC5B4\uC694)"); do not say it is not among their folders or was never there. ' +
-    `${g.who[0]!.toUpperCase()}${g.who.slice(1)} can give access again (${g.how}). ${KEEP_READ_LINE}`
+  const it = places.length > 1 ? 'them' : 'it'
+  if (o.shared) {
+    return `Earlier in this chat ${named} could be opened; ${it} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. ` +
+      `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+  }
+  return `Earlier in this chat this user opened ${named}; access to ${it} has ended for them (their groups or the folder's access changed, or it was moved). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it is not among their folders or was never there. ' +
+    `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
 }
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */

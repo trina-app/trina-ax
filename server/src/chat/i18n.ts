@@ -396,6 +396,8 @@ export const TEXT = {
    * askAdmin): what the AI is told to point at (chat/share-next-steps.ts) */
   fixButtonLetView: t('볼 수 있게 하기', 'Let them view', 'Izinkan melihat', '見られるようにする', 'Permitir que lo vean', '允许查看'),
   fixButtonAskOwner: t('{owner} 님에게 요청', 'Ask {owner}', 'Minta ke {owner}', '{owner} さんに頼む', 'Pedir a {owner}', '请 {owner} 共享'),
+  // the room link's own button (web roomFileAsk.ask, components/RoomFileAsk.tsx): the AI names it exactly as shown (QA S-120)
+  roomFileAskButton: t('보기 요청', 'Ask to view', 'Minta akses lihat', '閲覧をリクエスト', 'Pedir acceso para ver', '请求查看'),
   fixButtonAskAdmin: t('관리자에게 요청', 'Ask an admin', 'Minta ke admin', '管理者に頼む', 'Pedir a un administrador', '请管理员处理'),
   /** the switch's name as Admin › Team settings shows it (web teamSettings.memberFileShares) */
   fixSwitchName: t('멤버가 자기 파일을 공유할 수 있음', 'Members can share files they own', 'Anggota bisa membagikan file milik mereka', 'メンバーが自分のファイルを共有できる', 'Los miembros pueden compartir sus propios archivos', '成员可以共享自己的文件'),

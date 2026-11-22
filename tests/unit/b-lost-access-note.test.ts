@@ -14,7 +14,7 @@ import { carriedReads, saveReads } from '../../server/src/chat/carried-reads'
 import { lostAccessFor } from '../../server/src/chat/tools'
 import { TurnFiles } from '../../server/src/files/service'
 import { lostAccessNote } from '../../server/src/policy/refusal'
-import { KEEP_VERIFIED_RULE } from '../../server/src/chat/prompt'
+import { KEEP_VERIFIED_RULE, TEAM_FACTS_FIRST_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -55,6 +55,7 @@ describe('a place read earlier in this chat, no longer open', () => {
       expect(again.text).toContain('but this person can no longer open it')
       expect(again.text).toContain('Do not ask them for a path')
       expect(again.text).toContain('do not take it back or call it unverified')
+      expect(again.text).toContain('Who can give access again: an admin')
       expect(again.text).not.toContain(LINE)
       // a file in the same group folder: the line, with who can give access again
       const near = await ask('alice', chat, `and the B sheet\n${fake({ tool: 'read', args: { file_path: `${dir}/b.md` }, sayResult: true })}`)
@@ -114,6 +115,10 @@ describe('a place read earlier in this chat, no longer open', () => {
       expect(lostAccessFor(exec('erin'), 'grep', false, { pattern: 'x', path: 'shared' }, '', noted)).toBeNull()
       expect(lostAccessFor(exec('erin'), 'grep', false, { pattern: 'x', path: `${dir}/sub` }, '', noted)).toContain(LINE)
       expect(lostAccessFor(exec('erin'), 'glob', false, { pattern: '**/*' }, '', noted)).toBeNull()
+      // erin's answer in a chat others write in: the shared wording
+      const sharedNote = lostAccessFor({ ...exec('erin'), otherAuthors: true } as Parameters<typeof lostAccessFor>[0], 'read', true, { file_path: `${dir}/prices.md` }, denied, new Set())
+      expect(sharedNote).toContain('cannot be opened from this chat now')
+      expect(sharedNote).not.toContain('this user opened')
     } finally { await setMembers(['alice', 'erin']) }
   })
 
@@ -145,9 +150,21 @@ describe('a place read earlier in this chat, no longer open', () => {
 
   test('the note and the prompt rule', () => {
     const n = lostAccessNote(h.ctx.db, ['groups/영업'], 'ko')
-    expect(n).toContain('이 폴더는 더 이상 열 수 없어요 (권한이 바뀌었거나 옮겨졌어요)')
-    expect(n).toContain('An admin can give access again')
+    expect(n).toContain('이 폴더는 이제 열 수 없어요. 접근 권한이 끝났어요')
+    // a fact, not a guess, and who restores it by the folder rules (never "whoever manages the folder")
+    expect(n).toContain('This is a fact, not a guess')
+    expect(n).toContain('Who can give access again: an admin (an admin adds them to the group in Admin › Groups')
+    expect(n).toContain('not "whoever manages the folder"')
+    // a chat other people read: only that it cannot be opened from this chat now, nobody's access named
+    const sh = lostAccessNote(h.ctx.db, ['groups/영업'], 'ko', { shared: true })
+    expect(sh).toContain('cannot be opened from this chat now')
+    expect(sh).toContain("never say that someone's access or groups changed")
+    expect(sh).not.toContain('this user opened')
+    expect(sh).toContain('Who can give access again: an admin')
     expect(n).not.toMatch(/does not exist|was deleted/)
     expect(KEEP_VERIFIED_RULE).toContain('do not take back or call unverified what you read')
+    // S-119: once the team's facts are found the document is made now, defaults said in one line
+    expect(TEAM_FACTS_FIRST_RULE).toContain('make the document now, without asking first (no question in plain text and no questions card)')
+    expect(TEAM_FACTS_FIRST_RULE).toContain('stays a visible blank')
   })
 })
