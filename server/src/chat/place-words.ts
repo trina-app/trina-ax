@@ -26,6 +26,11 @@ const isPlaceWord = (w: string) => PLACE_WORDS.has(norm(w)) || (ownFolderWord() 
 const otherFolder = new RegExp(Object.values(TEXT.placeOther).map((w) => `^${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{name\\}', '.+')}$`).join('|'))
 
 export function placeWords(db: Database, path: string, L: Locale, me: string): string {
+  // a chat place (chat:files/…, chat:work/…) or the work folder ($TRINA_WORK/…, which the file tools read as chat:work)
+  // in words, never the id or the variable. Not $TRINA_TEAM: a file tool takes it as a folder of that name, so a card
+  // shows it as written (review)
+  // (QA TC-r2u-30: "chat:work > out > 분기보고.pptx" on a card)
+  if (/^\s*(?:chat:|\$TRINA_WORK\b|\$\{TRINA_WORK\})/i.test(path)) { const w = placeName(path, L); if (w) return w }
   const segs = path.normalize('NFC').split('/').filter(Boolean)
   if (!segs.length) return tr('placeTop', L)
   // a path that steps up or stays put ("a/../b") is shown as it was given: words would hide where it really goes

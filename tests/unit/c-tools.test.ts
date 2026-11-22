@@ -338,7 +338,7 @@ describe('make_file', () => {
     expect(r.isError, r.text).toBe(false)
     const again = await call('erin', null, 'make_file', { source: 'shared/src.md', format: 'docx', output: 'shared/src.docx' })
     expect(again.isError).toBe(false)
-    expect(again.text).toMatch(/already exists .* saved as 'shared\/src \(conflict copy - Erin Yoo .*\)\.docx'/)
+    expect(again.text).toMatch(/already exists .* saved as 'shared\/src \(edited at the same time - Erin Yoo .*\)\.docx'/)
     // after reading it in the same turn, the file is replaced and the old one kept as a version
     const t = A.toolCtx('erin', null)
     await A.ctx.files.call('read', { file_path: 'shared/src.docx' }, t)
