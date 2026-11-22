@@ -48,7 +48,7 @@ const OUT_SHOWN = 32 << 10
 
 export const BoxShellInput = z.object({
   command: z.string().min(1).max(64 * 1024).describe('the shell command (bash -lc), for example "npm install" or "git status"'),
-  description: z.string().max(200).optional().describe('what this command does, as a short plain phrase for a non-developer in the language the person writes in (for example "영상 프레임 만들기" or "Install the video tool"); shown in the step list instead of the command'),
+  description: z.string().max(200).optional().describe('what this command does, as a short plain phrase for a non-developer in the language the person writes in (for example "Render the video frames" or "Install the video tool"); shown in the step list instead of the command'),
   cwd: z.string().max(1024).optional().describe('folder relative to the project folder (default: the project folder)'),
   timeout_sec: z.number().int().min(1).max(1800).optional().describe('time limit in seconds (default 120, at most 1800)'),
   background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to the log <log_name>.log (the tool text says where)'),

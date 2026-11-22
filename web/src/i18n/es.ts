@@ -2808,7 +2808,7 @@ export const es: Record<MessageKey, string> = {
   'audit.file.create': "Archivo nuevo",
   'audit.file.update': "Modificó un archivo",
   'audit.file.delete': "Movió a la papelera",
-  'audit.file.conflict': "Guardó una copia en conflicto",
+  'audit.file.conflict': "Guardó una copia (editado a la vez)",
   'audit.file.rejected': "Se rechazó el guardado",
   'audit.file.upload': "Subió un archivo",
   'audit.file.restore': "Restauró un archivo",

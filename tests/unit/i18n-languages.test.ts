@@ -149,7 +149,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
   'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en/id/ja/es)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
-  'server/src/files/store.ts': { why: 'conflict copy names (ko next to en/id/ja/es)', also: /충돌 사본\|/ },
+  'server/src/files/store.ts': { why: 'conflict copy names (ko next to en/id/ja/es)', also: /동시에 고친 사본/ },
   'server/src/jobs/service.ts': { why: 'job texts (ko next to en/id/ja/es)' },
   'server/src/jobs/transcribe.ts': { why: 'transcription texts (ko next to en/id/ja/es) and a whisper marker', also: /^\s*'[^']*',$|MUSIC\|음악/ },
   'server/src/jobs/openrouter-stt.ts': { why: 'voice input failures from OpenRouter (ko next to en/id/ja/es)', also: /^\s*('[^']*'|`[^`]*`),$/ },

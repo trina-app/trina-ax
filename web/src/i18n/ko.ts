@@ -2845,7 +2845,7 @@ export const ko = {
   'audit.file.create': '새 파일',
   'audit.file.update': '파일 수정',
   'audit.file.delete': '휴지통으로 옮김',
-  'audit.file.conflict': '충돌 사본 만듦',
+  'audit.file.conflict': '동시에 고친 사본 저장',
   'audit.file.rejected': '저장 거부됨',
   'audit.file.upload': '올림',
   'audit.file.restore': '되돌림',

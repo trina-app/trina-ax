@@ -45,7 +45,7 @@ describe('zone arithmetic', () => {
   test('conflict copies are named in the team\'s zone', () => {
     const d = new Date('2026-10-21T20:05:00Z')
     expect(conflictCopyName('a.md', 'Olga', d, 'en', SEOUL)).toBe('a (conflict copy - Olga 2026-10-22 05.05).md')
-    expect(conflictCopyName('a.md', 'Olga', d, 'ko', 'UTC')).toBe('a (충돌 사본 - Olga 2026-10-21 20.05).md')
+    expect(conflictCopyName('a.md', 'Olga', d, 'ko', 'UTC')).toBe('a (동시에 고친 사본 - Olga 2026-10-21 20.05).md')
   })
   test('the engines get TZ when the team\'s zone differs from the process\'s (a Mac\'s launch request stays as it was)', () => {
     const other = processTimeZone() === 'Pacific/Kiritimati' ? 'Pacific/Chatham' : 'Pacific/Kiritimati'

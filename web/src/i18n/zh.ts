@@ -2803,7 +2803,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.file.create": "新文件",
   "audit.file.update": "更改了文件",
   "audit.file.delete": "已移到回收站",
-  "audit.file.conflict": "保存了冲突副本",
+  "audit.file.conflict": "保存了副本（同时修改）",
   "audit.file.rejected": "保存被拒绝",
   "audit.file.upload": "已上传",
   "audit.file.restore": "已恢复",

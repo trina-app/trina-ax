@@ -526,6 +526,9 @@ const NOTES_NAMES = nfcSet(NOTES_FOLDER)
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
  * named in the team's language and the screen may be in another. */
 export function placeName(path: string, locale: Locale): string | null {
+  // box_shell's spelling of the team folder ($TRINA_TEAM/…): the team path it names
+  const team = /^\s*(?:\$TRINA_TEAM|\$\{TRINA_TEAM\})\/(.*)$/i.exec(path)
+  if (team) return placeName(team[1]!, locale) ?? team[1]!
   // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id; $TRINA_WORK/… (box_shell's
   // spelling of the work folder) reads the same as chat:work/… (QA TC-6937)
   const place = parsePlace(WORK_VAR.test(path.trim()) ? `chat:work${path.trim().replace(WORK_VAR, '')}` : path)
@@ -578,6 +581,26 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  * Any other line comes back as it is, without `path`.
  */
 export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+  const r = toolPlace(step, label, locale)
+  // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
+  // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
+  // words of a question, a memory or a sub-task, which are someone's own
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(r.label, locale) }
+}
+
+/** chat:files/<id>/, chat:work/, $TRINA_WORK and $TRINA_TEAM/ inside a step line, in words. */
+function plainPlaces(label: string, locale: Locale): string {
+  if (!/chat:|\$\{?TRINA_/i.test(label)) return label
+  const files = STEP_PLACE.chatFiles[locale] ?? STEP_PLACE.chatFiles.en
+  const work = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
+  return shellWorkWords(label
+    .replace(/\bchat:files\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?)?/gi, `${files} › `)
+    .replace(/\bchat:work\/?/gi, `${work} › `)
+    .replace(/(?:\$TRINA_TEAM|\$\{TRINA_TEAM\})\/?/gi, ''), locale)
+    .replace(/ › (?=\s|$)/g, '')
+}
+
+function toolPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
   // a command saved before its line said the work folder in words
   if (step.tool === 'box_shell') {
     const at = label.indexOf(' · ')

@@ -2846,7 +2846,7 @@ export const id: Record<MessageKey, string> = {
   'audit.file.create': 'Berkas baru',
   'audit.file.update': 'Mengubah berkas',
   'audit.file.delete': 'Dipindah ke sampah',
-  'audit.file.conflict': 'Menyimpan salinan konflik',
+  'audit.file.conflict': 'Menyimpan salinan (diubah bersamaan)',
   'audit.file.rejected': 'Penyimpanan ditolak',
   'audit.file.upload': 'Mengunggah',
   'audit.file.restore': 'Memulihkan',

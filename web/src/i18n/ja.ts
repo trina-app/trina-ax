@@ -2808,7 +2808,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.file.create': "新しいファイル",
   'audit.file.update': "ファイルを変更",
   'audit.file.delete': "ゴミ箱に移動",
-  'audit.file.conflict': "競合コピーを保存",
+  'audit.file.conflict': "同時に編集したコピーを保存",
   'audit.file.rejected': "保存を拒否",
   'audit.file.upload': "アップロード",
   'audit.file.restore': "復元",

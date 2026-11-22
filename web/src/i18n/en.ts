@@ -2847,7 +2847,7 @@ export const en: Record<MessageKey, string> = {
   'audit.file.create': 'New file',
   'audit.file.update': 'Changed a file',
   'audit.file.delete': 'Moved to trash',
-  'audit.file.conflict': 'Saved a conflict copy',
+  'audit.file.conflict': 'Saved a copy (edited at the same time)',
   'audit.file.rejected': 'Save refused',
   'audit.file.upload': 'Uploaded',
   'audit.file.restore': 'Restored',

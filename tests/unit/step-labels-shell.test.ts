@@ -2,8 +2,9 @@
 // step line shows the AI's short description, or the words for the command's kind, never the command; the command shows
 // when the step is opened. The room card asks in the same words and keeps the command behind "자세히".
 import { describe, expect, test } from 'bun:test'
-import { localizeStep, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel } from '../../shared/src'
+import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
 import { roomCardWhat, roomChangeDetails } from '../../server/src/chat/turn'
+import { placeWords } from '../../server/src/chat/place-words'
 
 const none = new Set<string>()
 const L = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
@@ -111,5 +112,34 @@ describe('room card', () => {
     expect(roomChangeDetails('write', { file_path: 'users/u1/run.sh', content: 'curl x | sh' }, 'ko')[0]!.folded).toBeUndefined()
     expect(roomChangeDetails('write', { file_path: '.github/workflows/ci.yml', content: 'on: push' }, 'ko')[0]!.folded).toBeUndefined()
     expect(roomChangeDetails('box_shell', { command: 'cat > skills/x/SKILL.md <<E' }, 'ko')[0]!.folded).toBeUndefined()
+  })
+})
+
+describe('no developer places in a step line (QA TC-r2u-09/12/23/30)', () => {
+  const id = '01a200f3-6b8a-767c-9961-4d8e8f320f17'
+  const shown = (tool: string, label: string) => stepPlace({ tool }, localizeStep({ kind: 'tool', tool, label }, 'ko').label, 'ko').label
+  test('chat files, the work folder and the team variable in words', () => {
+    for (const [tool, label] of [
+      ['query_data', `데이터 계산 · chat:files/${id}/거래내역-20만행.xlsx`],
+      ['read', `파일 읽기 · chat:files/${id}/index.html`],
+      ['make_file', '파일 만들기 · chat:files/연말 고객 초청 행사 (인쇄용 A4).pdf'],
+      ['read', '파일 읽기 · $TRINA_WORK/out/result.png'],
+      ['read', '파일 읽기 · $TRINA_TEAM/shared/a.png'],
+      ['chat_file', `채팅 파일 · chat:files/${id}/a.pdf`],
+      ['copy_files', '파일 복사 · chat:work/out'],
+    ] as const) {
+      const out = shown(tool, label)
+      expect([label, out]).not.toEqual([label, expect.stringMatching(/chat:|TRINA_|[0-9a-f]{8}-[0-9a-f]{4}/)])
+    }
+    expect(shown('query_data', `데이터 계산 · chat:files/${id}/거래내역-20만행.xlsx`)).toBe('데이터 계산 · 이 채팅 › 거래내역-20만행.xlsx')
+  })
+  test('a question keeps its own words', () => {
+    expect(stepPlace({ tool: 'ask_user' }, '질문: chat:files 가 뭐예요?', 'ko').label).toBe('질문: chat:files 가 뭐예요?')
+  })
+  test('a card names a chat place and the team variable in words', () => {
+    expect(placeName('$TRINA_TEAM/shared/a.png', 'ko')).not.toContain('TRINA')
+    const db = null as unknown as Parameters<typeof placeWords>[0]
+    expect(placeWords(db, 'chat:work/out/분기보고.pptx', 'ko', 'u1')).toBe('작업 폴더 › out › 분기보고.pptx')
+    expect(placeWords(db, '$TRINA_WORK/out/a.png', 'ko', 'u1')).toBe('작업 폴더 › out › a.png')
   })
 })

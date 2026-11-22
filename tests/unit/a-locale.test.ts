@@ -129,7 +129,7 @@ describe('own choice, team default and followers', () => {
     const { conflictCopyName } = await import('../../server/src/files/store')
     const d = new Date(2026, 9, 21, 10, 0)
     expect(conflictCopyName('plan.md', 'Bob', d)).toBe('plan (conflict copy - Bob 2026-10-21 10.00).md')
-    expect(conflictCopyName('plan.md', 'Bob', d, 'ko')).toBe('plan (충돌 사본 - Bob 2026-10-21 10.00).md')
+    expect(conflictCopyName('plan.md', 'Bob', d, 'ko')).toBe('plan (동시에 고친 사본 - Bob 2026-10-21 10.00).md')
     expect(conflictCopyName('plan.md', 'Bob', d, 'id')).toBe('plan (salinan konflik - Bob 2026-10-21 10.00).md')
   })
 })
