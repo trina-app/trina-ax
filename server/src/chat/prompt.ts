@@ -1154,7 +1154,7 @@ export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are prac
  * got a clarifying question instead of the banner. */
 export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the server from the banner's source file (banner.json: headline, subline, eyebrow, badge, badge_note, button, scene, sizes); nothing is sent to Higgsfield. " +
   // owner's demo test 11-22: "흐린 아침 말고, 밝은 아침으로 해줘" got "데모에는 그 장면 사진이 없어요", then a made-up headline
-  "To change a banner's words: read the source file, change only the words the user named with the edit tool (\"흐린 아침 말고 밝은 아침\": replace 흐린 아침 with 밝은 아침; every other word stays exactly as it is), then call change_banner_text to draw every size again. Never rewrite, add or drop words the user did not name. " +
+  "To change a banner's words: read the source file, change only the words the user named with the edit tool (\"change grey mornings to green mornings\": replace grey with green; every other word stays exactly as it is), then call change_banner_text to draw every size again. Never rewrite, add or drop words the user did not name. " +
   "When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it. Use Higgsfield's generate_image only for a new background, photo or scene. " +
   "A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo. " +
   "change_banner_text saves the banner; show it with the Markdown images its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."

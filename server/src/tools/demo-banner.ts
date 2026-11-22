@@ -51,7 +51,7 @@ export const CHANGE_BANNER_TEXT_DESCRIPTION =
   'Draw the demo\'s ad banner from its source file and save the pictures (every size). Runs here on the server: the words are a text layer over a prepared ' +
   'text-free photo, so nothing is generated or sent anywhere. The banner\'s words (headline, subline, eyebrow, badge, badge_note, button), its photo (scene) ' +
   `and its sizes are in a small JSON file, ${BANNER_SOURCE_NAME}, in this chat's project folder. To change words: read that file, edit only the words the user named ` +
-  'with the edit tool (e.g. "흐린 아침 말고 밝은 아침": replace 흐린 아침 with 밝은 아침; every other word stays), then call this tool to draw it again. ' +
+  'with the edit tool (e.g. "change grey mornings to green mornings": replace grey with green; every other word stays), then call this tool to draw it again. ' +
   'For a new background, photo or scene use Higgsfield\'s generate_image instead. The result gives the Markdown images to show the banner in your answer.'
 
 /** the folder of the chat's project this person may write, else their own folder */
