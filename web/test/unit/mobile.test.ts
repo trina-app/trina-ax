@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setAppBadge, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setAppBadge, setAppNav, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge, appSharesText, appPicksPhotos, pickPhotosFromApp, googleSignInInApp, phoneGoogleSignIn } from '../../src/lib/mobile'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../src/lib/share'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, OFF_HERE_PREFIX, phonePushView, registerMobilePush, setMobilePushSession, turnOffPhonePush, usePhonePush } from '../../src/lib/mobile-push'
@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -850,4 +850,29 @@ test('photo-pick-v1: a sign-out or another person during the pick stops it; no c
   expect(messages.filter((m) => m.type === 'photo-chunk')).toHaveLength(0)
   reply(second!, { files: [{ name: 'b.jpg', mime: 'image/jpeg', size: 3 }], tooBig: [] })
   expect((await again).files.map((f) => f.name)).toEqual(['b.jpg'])
+})
+
+test('Sign in with Google in the phone\'s auth session (google-signin-v1): Google\'s address only, the code or the reason back', async () => {
+  const google = 'https://accounts.google.com/o/oauth2/v2/auth?state=s1'
+  // a build without the capability: no button, and the page never asks
+  expect(phoneGoogleSignIn()).toBe(false)
+  await expect(googleSignInInApp(google)).rejects.toThrow('mobile_unavailable')
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, GOOGLE_SIGNIN_CAPABILITY] }
+  win.dispatchEvent(new Event('mycel:mobile-ready')); await tick()
+  expect(phoneGoogleSignIn()).toBe(true)
+  const code = 'C'.repeat(43)
+  handler = m => { if (m.type === 'google-signin') reply(m, { googleCode: code }); else reply(m) }
+  expect(await googleSignInInApp(google)).toEqual({ code })
+  expect(messages.at(-1)).toMatchObject({ type: 'google-signin', url: google })
+  handler = m => { if (m.type === 'google-signin') reply(m, { googleError: 'not_connected' }); else reply(m) }
+  expect(await googleSignInInApp(google)).toEqual({ error: 'not_connected' })
+  // closed by the person, or an answer of the wrong shape: nothing
+  handler = m => { if (m.type === 'google-signin') reply(m, { googleCode: 'short' } as Partial<MobileReply>); else reply(m) }
+  expect(await googleSignInInApp(google)).toBeNull()
+  handler = m => reply(m)
+  expect(await googleSignInInApp(google)).toBeNull()
+  // never another address
+  const count = messages.length
+  await expect(googleSignInInApp('https://evil.example/o/oauth2/v2/auth')).rejects.toThrow('mobile_external_refused')
+  expect(messages).toHaveLength(count)
 })

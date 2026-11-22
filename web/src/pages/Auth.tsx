@@ -6,14 +6,16 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, joinLineKey, type GuestPlaceView } from '../lib/guests'
-import { type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
+import { type InviteInfo, type Locale, type Me, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { removedFrom, removedHow, teamDefaultLocale, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind, desktop } from '../lib/desktop'
-import { mobileApp } from '../lib/mobile'
+import { googleSignInInApp, mobileApp, phoneGoogleSignIn } from '../lib/mobile'
+import { googleAuthorization } from '../lib/driveSignIn'
+import { afterGoogleSignIn, appSecretHash, googleSignInWay, keepGoogleSignIn, newAppSecret, readGoogleCode, takeGoogleSignIn, type GoogleSignInWay } from '../lib/googleSignIn'
 import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, setupTeamOf } from '../lib/setupLink'
@@ -389,18 +391,54 @@ const GOOGLE_RESULT: Record<string, MessageKey> = {
   cancelled: 'auth.google.cancelled', expired: 'auth.google.expired', failed: 'auth.google.failed',
 }
 
-/** "Sign in with Google" under the form (GET /api/setup googleSignIn: this server has a Google client and Google comes
- * back to this address). Google's page opens in this window; the server signs in on the way back and opens `next`. A
- * browser only: Google refuses to sign in inside the apps' own windows, which get their way in later. */
-function GoogleSignIn({ next }: { next: string | null }) {
+/** "Sign in with Google" under the form, in the way this client can (lib/googleSignIn.ts googleSignInWay).
+ * - A browser (GET /api/setup googleSignIn: this server has a Google client and Google comes back to this address):
+ *   Google's page opens in this window; the server signs in on the way back and opens `next`.
+ * - The desktop app (googleAppSignIn and its bridge flag): Google opens in the system browser (Google refuses the app's
+ *   own window); its return hands the app a one-time code, which the app opens here as /login/google (GoogleReturn).
+ * - The phone app (googleAppSignIn and google-signin-v1): Google in the phone's auth session, whose return address
+ *   carries the code; this page redeems it at once, so the session lands in the app.
+ * The apps' flow is bound to a secret this page keeps (sessionStorage); the server gets only its hash. */
+function GoogleSignIn({ next, way, onResult }: { next: string | null; way: GoogleSignInWay; onResult: (key: MessageKey | null) => void }) {
   const t = useT()
   const locale = useLocale()
+  const signedIn = useSession((s) => s.signedIn)
+  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  const [waiting, setWaiting] = useState(false)
   const go = async () => {
     setBusy(true)
+    onResult(null)
     try {
-      const r = await api.call(API.startGoogleSignIn, { body: next ? { next } : {} })
-      window.location.assign(r.url)
+      if (way === 'web') {
+        const r = await api.call(API.startGoogleSignIn, { body: next ? { next } : {} })
+        window.location.assign(r.url)
+        return
+      }
+      const secret = newAppSecret()
+      // the desktop app reloads this window with the code (GoogleReturn): the secret waits in this tab; the phone app
+      // answers this very page, which keeps it here
+      if (way === 'desktop') keepGoogleSignIn({ secret, client: way, next, at: Date.now() })
+      const r = await api.call(API.startGoogleSignIn, { body: { client: way, appSecretHash: await appSecretHash(secret), ...(next ? { next } : {}) } })
+      const url = googleAuthorization(r.url)
+      if (way === 'desktop') {
+        // the desktop's window handler sends it to the system browser (desktop/src/main/security.ts); the code comes
+        // back as a link the app opens here (/login/google)
+        window.open(url, '_blank')
+        setWaiting(true)
+        setBusy(false)
+        return
+      }
+      const answer = await googleSignInInApp(url)
+      if (!answer) { setBusy(false); return }
+      if ('error' in answer) {
+        setBusy(false)
+        onResult(answer.error === 'not_connected' ? 'auth.google.not_connected_app' : GOOGLE_RESULT[answer.error] ?? 'auth.google.failed')
+        return
+      }
+      const done = await api.call(API.redeemGoogleSignIn, { body: { code: answer.code, appSecret: secret, client: 'mobile', tokenMode: 'cookie' } })
+      navigate(afterGoogleSignIn(next), { replace: true })
+      signedIn(done.me, { adoptPick: true })
     } catch (e) {
       setBusy(false)
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -413,10 +451,87 @@ function GoogleSignIn({ next }: { next: string | null }) {
         {t('auth.or')}
         <span className="h-px flex-1 bg-line" />
       </div>
-      <Button type="button" className="w-full" busy={busy} onClick={() => void go()} data-testid="login-google">
+      <Button type="button" className="w-full" busy={busy} onClick={() => void go()} data-testid="login-google" data-way={way}>
         {t('auth.googleSignIn')}
       </Button>
+      {waiting && (
+        <p role="status" className="text-sm text-muted" data-testid="login-google-browser">
+          {t('auth.google.inBrowser')}
+        </p>
+      )}
     </div>
+  )
+}
+
+/** /login/google#code=<code>: the desktop app opens this in the team's window with the code from Google's return
+ * (desktop/src/common/address.ts googleSignInCode). The code leaves the address at once; the secret this tab kept at the
+ * start (GoogleSignIn) redeems it, so the session cookie lands in this window. Opened anywhere else (a browser, another
+ * window, after a restart) there is no secret: nothing is sent, and it says to start again in the app. */
+let takenGoogle: { code: string | null } | null = null
+function takeGoogleCodeOnce(): string | null {
+  if (!takenGoogle) {
+    takenGoogle = { code: readGoogleCode(window.location.hash) }
+    if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  }
+  return takenGoogle.code
+}
+/** One redeem per code, whatever re-renders or remounts (the session switch remounts the page). */
+let redeemingGoogle: { code: string; result: Promise<{ me: Me; next: string | null } | null> } | null = null
+function redeemGoogleOnce(code: string) {
+  if (redeemingGoogle?.code !== code) {
+    const kept = takeGoogleSignIn('desktop')
+    redeemingGoogle = { code, result: kept ? api.call(API.redeemGoogleSignIn, { body: { code, appSecret: kept.secret, client: 'desktop', tokenMode: 'cookie' } }).then((r) => ({ me: r.me, next: kept.next })) : Promise.resolve(null) }
+  }
+  return redeemingGoogle.result
+}
+
+export function GoogleReturn() {
+  const t = useT()
+  const locale = useLocale()
+  const signedIn = useSession((s) => s.signedIn)
+  const navigate = useNavigate()
+  const [code] = useState(takeGoogleCodeOnce)
+  const inApp = clientKind() === 'desktop'
+  const [state, setState] = useState<{ s: 'working' } | { s: 'lost' } | { s: 'gone'; text: string } | { s: 'other'; text: string } | { s: 'error'; text: string }>(() => (code && inApp ? { s: 'working' } : { s: 'lost' }))
+  useEffect(() => {
+    // a newer link while this page is open (the app loads the same page with a new fragment, which is no new page
+    // load): start again from it
+    const onHash = () => { if (readGoogleCode(window.location.hash)) window.location.reload() }
+    window.addEventListener('hashchange', onHash)
+    if (!code || !inApp) return () => window.removeEventListener('hashchange', onHash)
+    let live = true
+    redeemGoogleOnce(code).then(
+      (r) => {
+        if (!live) return
+        if (!r) return setState({ s: 'lost' })
+        // the sign-in page with ?next=: the router lands where a password sign-in does
+        navigate(afterGoogleSignIn(r.next), { replace: true })
+        signedIn(r.me, { adoptPick: true })
+      },
+      (e) => {
+        if (!live) return
+        const text = errorText(e, locale, t('error.network'))
+        // 409: this app is signed in as someone else on this team; the code never replaces that
+        setState(isApiError(e) && e.status === 410 ? { s: 'gone', text } : isApiError(e) && e.status === 409 ? { s: 'other', text } : { s: 'error', text })
+      },
+    )
+    return () => { live = false; window.removeEventListener('hashchange', onHash) }
+    // once per page load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (state.s === 'working')
+    return (
+      <AuthFrame title={t('auth.google.working')} switcher={false}>
+        <Loader2 size={20} className="animate-spin text-muted" aria-hidden />
+      </AuthFrame>
+    )
+  const title = state.s === 'lost' ? t('auth.google.lostTitle') : state.s === 'gone' ? t('auth.google.goneTitle') : state.s === 'other' ? t('appSignIn.otherTitle') : t('auth.google.failed')
+  return (
+    <AuthFrame title={title} sub={state.s === 'lost' ? t('auth.google.lost') : state.text} switcher={false}>
+      <Button variant="primary" className="w-full" onClick={() => navigate(state.s === 'other' ? '/' : '/login', { replace: true })} data-testid="google-return-back">
+        {state.s === 'other' ? t('appSignIn.continue') : t('auth.google.signIn')}
+      </Button>
+    </AuthFrame>
   )
 }
 
@@ -441,9 +556,10 @@ export function Login() {
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
-  // a Google sign-in that came back here: why, in words, until the next try
-  const googleResult = GOOGLE_RESULT[new URLSearchParams(location.search).get('google') ?? '']
-  const google = status.kind === 'signed-out' && !!status.googleSignIn && clientKind() === 'web'
+  // a Google sign-in that came back here: why, in words, until the next try; or one the phone app's auth session ended
+  const [appGoogleResult, setAppGoogleResult] = useState<MessageKey | null>(null)
+  const googleResult = appGoogleResult ?? GOOGLE_RESULT[new URLSearchParams(location.search).get('google') ?? '']
+  const googleWay = status.kind === 'signed-out' ? googleSignInWay({ client: clientKind(), googleSignIn: !!status.googleSignIn, googleAppSignIn: !!status.googleAppSignIn, desktopBridge: desktop()?.googleSignIn, phone: phoneGoogleSignIn() }) : null
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
@@ -495,7 +611,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        {google && <GoogleSignIn next={safeNext(location.search)} />}
+        {googleWay && <GoogleSignIn next={safeNext(location.search)} way={googleWay} onResult={setAppGoogleResult} />}
         {!removedTeam && <ForgotLine url={status.kind === 'signed-out' ? status.ownerRecoveryUrl : undefined} />}
       </form>
     </AuthFrame>

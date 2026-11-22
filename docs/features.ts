@@ -39,7 +39,7 @@ export const FEATURES: Feature[] = [
   { id: 'auth.signin', name: 'Sign in and sign out', area: 'Sign-in & account', endpoints: ['login', 'logout', 'me', 'health'], screens: ['/login'] },
   { id: 'auth.password', name: 'Change password (also a forced temporary one)', area: 'Sign-in & account', endpoints: ['changePassword'], screens: ['/password', '/settings/security/password'] },
   { id: 'auth.app-signin', name: 'Continue in the desktop app after setup, signed in with a one-time code', area: 'Sign-in & account', endpoints: ['appSignIn', 'redeemAppSignIn'], screens: ['/open-app', '/app-signin'] },
-  { id: 'auth.google', name: 'Sign in with Google: connect a Google account with the password, then sign in with it', area: 'Sign-in & account', endpoints: ['startGoogleSignIn', 'myGoogle', 'connectGoogle', 'disconnectGoogle'] },
+  { id: 'auth.google', name: 'Sign in with Google: connect a Google account with the password, then sign in with it', area: 'Sign-in & account', endpoints: ['startGoogleSignIn', 'redeemGoogleSignIn', 'myGoogle', 'connectGoogle', 'disconnectGoogle'], screens: ['/login/google'] },
   { id: 'auth.reset', name: 'Password reset link', area: 'Sign-in & account', endpoints: ['passwordResetInfo', 'completePasswordReset'], screens: ['/reset-password/:token'] },
   { id: 'auth.invite', name: 'Accept an invite', area: 'Sign-in & account', endpoints: ['inviteInfo', 'acceptInvite'], screens: ['/invite/:token'] },
   { id: 'auth.team-link', name: 'Join with the team link', area: 'Sign-in & account', endpoints: ['teamLinkInfo', 'joinTeamLink', '*TeamLink'], screens: ['/join'] },
