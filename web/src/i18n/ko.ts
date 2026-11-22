@@ -5607,6 +5607,8 @@ export const ko = {
   "shareRoom.sent": "{room}에 보냈어요",
   "shareRoom.open": "열기",
   "shareRoom.quoteHead": "{ai} 답변",
+  "shareRoom.madeHead": "이 답에서 만든 파일",
+  "shareRoom.madeGoes": "대화방에 함께 보내요. 모두 열 수 있어요",
   "shareRoom.filesHead": "링크된 파일",
   "shareRoom.fileAll": "모두 열 수 있어요",
   "shareRoom.fileSome": "{n}명은 못 열어요",

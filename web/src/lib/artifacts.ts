@@ -265,22 +265,8 @@ export function cleanStatic(doc: Document): Document {
   return doc
 }
 
-const EXT: Record<ArtifactType, string> = { html: 'html', react: 'jsx', svg: 'svg', mermaid: 'mmd', markdown: 'md', code: 'txt' }
-const LANG_EXT: Record<string, string> = {
-  python: 'py', py: 'py', javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', shell: 'sh', bash: 'sh', sh: 'sh', zsh: 'sh',
-  sql: 'sql', json: 'json', yaml: 'yml', yml: 'yml', html: 'html', css: 'css', go: 'go', rust: 'rs', java: 'java', kotlin: 'kt', swift: 'swift',
-  c: 'c', cpp: 'cpp', 'c++': 'cpp', csharp: 'cs', 'c#': 'cs', ruby: 'rb', php: 'php', markdown: 'md', xml: 'xml', toml: 'toml', r: 'r',
-}
-
-/** File name for download / "save to the team folder": html→.html, react→.jsx, svg→.svg, mermaid→.mmd, markdown→.md, code→language ext. */
-export function artifactFileName(a: { key: string; title: string | null; type: ArtifactType; language: string | null }): string {
-  const base = (a.title || a.key).replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 100) || 'artifact'
-  if (a.type === 'code') {
-    const l = (a.language ?? '').toLowerCase()
-    return `${base}.${LANG_EXT[l] ?? (/^[a-z0-9]{1,8}$/.test(l) ? l : 'txt')}`
-  }
-  return `${base}.${EXT[a.type]}`
-}
+/** File name for download / "save to the team folder" (shared/src/api/artifacts.ts). */
+export { artifactFileName } from '@mycel/shared/api'
 
 /** Why an artifact cannot be shown, for the error bar with "ask the AI to fix it" (R2-GEN-09): 'build' when it could
  * not be made into a page (unsupported import, compile error, no default export), 'run' when it failed in the frame. */

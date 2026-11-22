@@ -241,6 +241,16 @@ describe('the refusals: why, then the next step', () => {
     expect(postRefusal(new HttpError('not_found'), '#Sales', 'r1', false).content[0]!.text).toBe(POST_NO.notMine(false))
   })
 
+  test('the video or page could not be attached (QA TC-r2b-03): nothing posted, why, and never "posted"; a shared chat too', () => {
+    const e = new HttpError('conflict', 'x', { params: { reason: 'artifact_attach', why: 'storage_full' } })
+    for (const shared of [false, true]) {
+      const r = postRefusal(e, '#전체', 'r1', shared)
+      expect(r.isError).toBe(true)
+      expect(r.summary).toBe('post_to_room -> refused: artifact not attached')
+      expect(r.content[0]!.text).toBe("Nothing was posted to #전체: the file you made (the video or page beside the chat) could not be attached. The server's storage is full. Tell the user plainly that nothing was sent, and why; never say it was posted.")
+    }
+  })
+
   test('already has access is a note, not a refusal', () => {
     expect(SHARE_ALREADY_NOTE).toContain('This is not a refusal')
     expect(SHARE_ALREADY_NOTE).not.toMatch(/^Nothing was/)

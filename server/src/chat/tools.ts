@@ -522,7 +522,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
     // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
     const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
-    const note = [placed, skillNote, audience].filter(Boolean).join('\n')
+    // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
+    const copies = exec.roomCopies(files === exec.files && !guest)
+    const note = [placed, skillNote, audience, copies].filter(Boolean).join('\n')
     // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
     // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
     const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
@@ -603,7 +605,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
       // a search that found nothing while a file of that name is in the person's trash (chat/trash-hint.ts, QA TC-7242)
       const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && !exec.restricted && !exec.templateRun && !exec.otherAuthors && hintsHere(exec, true) && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
-      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed].filter(Boolean).join('\n') || undefined
+      // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
+      const copies = exec.roomCopies(main && !guest)
+      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

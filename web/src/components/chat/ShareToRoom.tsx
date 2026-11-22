@@ -33,7 +33,9 @@ import { ROOM_OPTION_CLS, RoomOptionLabel } from './RoomRefMenu'
 
 /** the server's "confirm"; `seq`: one more each time it asks (each is a step of its own); `again`: it asked again after
  * my yes because something changed meanwhile (not when only my choice of files changed its line) */
-export interface ConfirmAsk { files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean }
+export interface ConfirmAsk { files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean
+  /** what the answer made beside the chat (a video, a page) that goes with the message as files, always */
+  artifacts?: { name: string }[] }
 interface Ask extends ConfirmAsk { room: Room }
 type Confirm = Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
 
@@ -54,7 +56,7 @@ export function useConfirmStep<T extends ConfirmAsk = ConfirmAsk>() {
     setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
     // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
     // shown as it now reads
-    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice' }) as T)
+    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice', ...(r.artifacts?.length ? { artifacts: r.artifacts } : {}) }) as T)
   }
   return { ask, attach, setAttach, asked, close: () => setAsk(null) }
 }
@@ -323,6 +325,23 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
                   {t('shareRoom.hidden', { n: hidden })}
                 </li>
               )}
+            </ul>
+          </section>
+        )}
+        {/* what the answer made beside the chat (a video, a page): it goes with the message as a file, no switch */}
+        {!!ask.artifacts?.length && (
+          <section aria-labelledby={`${id}-made`}>
+            <h3 id={`${id}-made`} className="mb-1 text-xs font-medium text-muted">{t('shareRoom.madeHead')}</h3>
+            <ul className="divide-y divide-line" data-testid="share-room-made">
+              {ask.artifacts.map((a, i) => (
+                <li key={`${i}-${a.name}`} className="flex items-center gap-3 py-2.5" data-testid="share-room-made-file">
+                  <FileText size={16} className="mt-0.5 shrink-0 self-start text-faint" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink" title={a.name}>{a.name}</p>
+                    <p className="text-xs leading-5 break-keep text-muted">{t('shareRoom.madeGoes')}</p>
+                  </div>
+                </li>
+              ))}
             </ul>
           </section>
         )}

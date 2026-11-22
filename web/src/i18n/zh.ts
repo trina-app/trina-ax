@@ -5538,6 +5538,8 @@ export const zh: Record<MessageKey, string> = {
   "shareRoom.sent": "已发送到{room}",
   "shareRoom.open": "打开",
   "shareRoom.quoteHead": "{ai}的回答",
+  "shareRoom.madeHead": "这个回答里做的文件",
+  "shareRoom.madeGoes": "随消息一起发送。那里的每个人都能打开",
   "shareRoom.filesHead": "关联的文件",
   "shareRoom.fileAll": "所有人都能打开",
   "shareRoom.fileSome": "{n, plural, one {#人无法打开} other {#人无法打开}}",

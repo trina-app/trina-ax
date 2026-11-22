@@ -59,11 +59,14 @@ import { createHmac } from 'node:crypto'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import {
-  ANSWER_SHARE_FILES_MAX, answerFilePaths, answerShareBody, PRODUCT_NAMED_AFTER_AI, ROOM_FILES_MAX, SMALL_UPLOAD_MAX,
+  ANSWER_SHARE_FILES_MAX, answerFilePaths, artifactFileName, PROMO_ARTIFACT_KEY, type ArtifactType, answerShareBody, PRODUCT_NAMED_AFTER_AI, ROOM_FILES_MAX, SMALL_UPLOAD_MAX,
   type AnswerShareFile, type AnswerSharePlace, type AnswerShareProvenance, type Locale, type ShareAnswerToRoomResult,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { fail } from '../http/errors'
+import { fail, HttpError } from '../http/errors'
+import { promoVideoFile } from '../promo-video/render'
+import { dropWhoCanOpen } from './room-copy-words'
+export { dropWhoCanOpen }
 import { atLeast, loadPrincipal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { badSegment, hiddenEntry } from '../policy/names'
@@ -361,7 +364,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
  * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
  * places they may look themselves.
  */
-export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string, o: { own?: boolean } = {}) {
+export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string, o: { own?: boolean; artifacts?: readonly string[] | null } = {}) {
   const db = ctx.db
   const roomId = typeof to === 'string' ? to : null
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
@@ -378,6 +381,10 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   // `own`: the text is the person's own paste (checkShare): the branch's reads are not in it, its links still are (A)
   const use = o.own ? { answers: [], files: [], other: [], known: true, roomsUnseen: false } : withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
   const onBranch = new Set(use.answers)
+  // what the answer made beside the chat (its artifacts) goes with it as files: content of an answer on this branch, whose
+  // reads `use` counts already (never for the person's own words: nothing the chat made is in them)
+  // (`artifacts` null: post_to_room's own words, which carry nothing the chat made)
+  const artifacts = o.own || o.artifacts === null ? [] : answerArtifacts(db, userId, chatId, messageId, o.artifacts ?? [], use.answers).map((a) => withVideoFile(ctx, userId, a))
   // the hash rule looks at what turns on this branch saved
   const pc = provenanceChecker(ctx, userId, audience, use.answers)
   const { me, rules, people, reads, myFile, hashNow } = pc
@@ -462,8 +469,62 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
   const peopleWithout = async (): Promise<number> => unablePeople({ audience, rows }, new Set(), await provenance(new Set()))
 
-  return { audience, rows, offered, provenance, peopleWithout, linkRel }
+  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts }
 }
+
+/** An artifact that goes with a shared answer as a file: the version the answer made (or the newest on its branch), the
+ * name its file gets. */
+export interface ShareArtifact { id: string; key: string; type: ArtifactType; name: string
+  /** a promo video's rendered MP4 (the server's own file): it goes instead of the page, under its own name */
+  video?: string }
+/** At most this many artifacts go with one message (each is one of the message's files). */
+export const SHARE_ARTIFACTS_MAX = 3
+
+/**
+ * The artifacts that go with an answer sent to a room (QA TC-r2b-03: a promo video the answer made went nowhere, the room
+ * got only the text): for each key, the newest version the answer itself made; and for `keys` (post_to_room's
+ * `artifacts`, "post the video you made earlier") the newest version of that key made by an answer on its branch
+ * (`branch`). Only versions made by the person's own turns (a shared chat's other members' artifacts never ride along);
+ * at most SHARE_ARTIFACTS_MAX.
+ */
+export function answerArtifacts(db: Database, userId: string, chatId: string, messageId: string, keys: readonly string[], branch: readonly string[]): ShareArtifact[] {
+  const ids = [...new Set([messageId, ...branch])]
+  type R = { id: string; key: string; type: ArtifactType; title: string | null; language: string | null; message_id: string; version: number }
+  const rows = db.query(`SELECT a.id, a.key, a.type, a.title, a.language, a.message_id, a.version FROM artifacts a JOIN messages m ON m.id = a.message_id
+    LEFT JOIN turns t ON t.id = m.turn_id WHERE a.chat_id = ? AND a.message_id IN (${ids.map(() => '?').join(',')})
+    AND (t.user_id = ? OR (t.id IS NULL AND EXISTS (SELECT 1 FROM chats c WHERE c.id = a.chat_id AND c.user_id = ?)))
+    ORDER BY a.key, a.version DESC`).all(chatId, ...ids, userId, userId) as R[]
+  const want = new Set(keys)
+  const out: ShareArtifact[] = []
+  const seen = new Set<string>()
+  // the answer's own first (its newest version of each key), then the keys asked for (newest on the branch)
+  for (const own of [true, false]) {
+    for (const r of rows) {
+      if (seen.has(r.key) || (own ? r.message_id !== messageId : !want.has(r.key))) continue
+      seen.add(r.key)
+      out.push({ id: r.id, key: r.key, type: r.type, name: artifactFileName(r) })
+    }
+  }
+  return out.slice(0, SHARE_ARTIFACTS_MAX)
+}
+
+/** A promo video with its MP4 rendered goes as that file (it plays in the room as a video), named as the MP4 is; else
+ * as its page. */
+function withVideoFile(ctx: AppContext, userId: string, a: ShareArtifact): ShareArtifact {
+  if (a.key !== PROMO_ARTIFACT_KEY) return a
+  try { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } } catch { return a }
+}
+
+/** What goes into the room for an artifact: the MP4 found by the check (withVideoFile), else the artifact's page or text
+ * as its file. */
+function artifactSource(ctx: AppContext, userId: string, a: ShareArtifact): { name: string; src: { bytes: Uint8Array } | { abs: string } } {
+  if (a.video) return { name: a.name, src: { abs: a.video } }
+  const row = ctx.db.query('SELECT content FROM artifacts WHERE id = ?').get(a.id) as { content: string } | null
+  if (!row) throw new HttpError('not_found')
+  // (through the sender's redactor, as the answer's text is: a stored connection secret never reaches the room)
+  return { name: a.name, src: { bytes: new TextEncoder().encode(redactorFor(ctx, userId).hide(row.content)) } }
+}
+
 
 export type Check = Awaited<ReturnType<typeof answerCheck>>
 
@@ -495,9 +556,13 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
     v: 1, userId, roomId, messageId, members: c.audience,
     files: c.rows.map((r) => [r.rel ?? '', r.attach, r.unable]),
     sources: prov.keys,
+    ...(c.artifacts.length ? { artifacts: c.artifacts.map((a) => a.id) } : {}),
   })
   return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
+
+/** The answer that goes: its message, its text (through the sender's redactor), and post_to_room's `artifacts` keys. */
+export interface ShareAnswerText { messageId: string; content: string; artifacts?: readonly string[] }
 
 export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean
   /** post_to_room only (never from a request): the person's own paste in the text (chat/own-paste.ts) and the "@Name"s
@@ -605,7 +670,7 @@ export type PendingShare = Omit<PreparedShare, 'room' | 'me'> & { room: { id: st
  * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
  * `o.budget`: false only for post_to_room's 1:1 chat just made on the yes, whose check before it took the budget.
  */
-export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain' | 'pasted'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: ShareAnswerText, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain' | 'pasted'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
   const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
   if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
@@ -625,13 +690,14 @@ export async function prepareShare(ctx: AppContext, userId: string, chatId: stri
 
 /** The budget and the check of prepareShare, for a room (its id) or a 1:1 chat not made yet (its people): the message's
  * body, the check, and the key under `keyRoom` (keyRoomOf). */
-async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain' | 'pasted'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
+async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: ShareAnswerText, b: Pick<ShareAnswerInput, 'note' | 'plain' | 'pasted'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
   const rooms = roomsOf(ctx)
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   if (budget) rooms.takeSendToken(userId)
   // the person's own words (post_to_room's own_words): the text alone, no note, no quote; never cut (the tool refuses a
   // text too long for one message before any card)
-  const { body, at, cut } = b.plain ? { body: answer.content.trim(), at: 0, cut: false } : answerShareBody(b.note, answer.content, answerCutLine(locale))
+  // (the AI's words about who may open something, true only in the chat: left out of the room's copy, dropWhoCanOpen)
+  const { body, at, cut } = b.plain ? { body: answer.content.trim(), at: 0, cut: false } : answerShareBody(b.note, dropWhoCanOpen(answer.content), answerCutLine(locale))
   // and one more for every LINKS_PER_TOKEN links past the first: a row per file is a count per file, so an answer made to
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
@@ -640,7 +706,8 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
   // docs/decisions/20261118-dm-own-paste.md): nothing the chat read is in them, so what it read is not counted
   const own = !!b.plain && !!b.pasted && ownPaste(ctx.db, userId, answer.messageId, b.pasted.text) === b.pasted.text
     && body === (b.pasted.head ? `${b.pasted.head} ${b.pasted.text}` : b.pasted.text)
-  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at), { own })
+  // (own words carry nothing the chat made: no artifacts with them)
+  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at), { own, ...(b.plain ? { artifacts: null } : answer.artifacts ? { artifacts: answer.artifacts } : {}) })
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
   if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
@@ -655,7 +722,7 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
  * same checks with the other person as the audience, and nothing made. The chat is made only after the person's yes
  * (Rooms.openDm); prepareShare then runs on it, and its key is this one's when nothing changed (keyRoomOf).
  */
-export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean; pasted?: ShareAnswerInput['pasted'] }, locale: Locale): Promise<PendingShare> {
+export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: ShareAnswerText, b: { otherId: string; note?: string; plain?: boolean; pasted?: ShareAnswerInput['pasted'] }, locale: Locale): Promise<PendingShare> {
   if (confidentialChat(ctx.db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
   const keyRoom = keyRoomOfPair(userId, b.otherId)
   const r = await checkShare(ctx, userId, chatId, answer, b, { people: [b.otherId] }, keyRoom, locale)
@@ -723,6 +790,20 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
       fileIds.push(id)
       copies.push({ file: id, path: rel, links: [...c.linkRel].filter(([, r]) => r === rel).map(([link]) => link) })
     }
+    // what the answer made beside the chat (a video, a page): its files go with the message, or nothing goes (QA
+    // TC-r2b-03: "sent" with the text alone, the video nowhere). A failure says which file could not be attached
+    if (fileIds.length + c.artifacts.length > ROOM_FILES_MAX) fail('conflict', tr('answerShareArtifactFailed', locale, { name: c.artifacts[0]!.name }), { params: { reason: 'artifact_attach' } })
+    for (const a of c.artifacts) {
+      try {
+        const made = artifactSource(ctx, userId, a)
+        fileIds.push((await files.fromMade(userId, room.id, made.name, made.src)).id)
+      } catch (e) {
+        ctx.log.warn('answer share: an artifact could not be attached', { err: e })
+        // (why, in the words of the room's own refusals: the storage is full, the file is over the person's limit)
+        const why = e instanceof HttpError && e.code === 'storage_full' ? 'storage_full' : e instanceof HttpError && e.code === 'payload_too_large' ? 'too_large' : 'other'
+        fail('conflict', tr('answerShareArtifactFailed', locale, { name: a.name }), { params: { reason: 'artifact_attach', why } })
+      }
+    }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
     const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}), ...(o.always ? { always: true } : {}) })
@@ -746,6 +827,6 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   const none = await c.provenance(new Set())
   return {
     status: 'confirm', people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
-    files, provenance, confirmKey, ...(reason ? { reason } : {}),
+    files, provenance, confirmKey, ...(reason ? { reason } : {}), ...(c.artifacts.length ? { artifacts: c.artifacts.map((a) => ({ name: a.name })) } : {}),
   }
 }
