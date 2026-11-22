@@ -26,7 +26,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
-import { addressesIn, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
+import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
 import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
@@ -93,7 +93,7 @@ import { BULK_CARD_MS, bulkCard, type BulkAsk, type BulkWho } from '../devenv/bu
 import { WALK_MAX } from '../files/access-routes'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
-import { readRooms } from './read-rooms'
+import { readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
@@ -1393,7 +1393,12 @@ function bTools(exec: TurnExec): Tool[] {
         // never shows the value (review of #332, L1)
         if (value !== clean.text || secretIn(value)) return skip('It holds a password, key, token, card number or code. Memories are plain text, so secrets are never kept. Tell the user in one sentence; keys belong in Settings › Connections.', 'secret', tr('notRememberedSecret', L))
         // the person's switch, read now (not when the prompt was built), and the place of this turn
-        const auto = autoMemoryOn(rt.db, spec.userId) && exec.autoMemoryPlace
+        const switchOn = autoMemoryOn(rt.db, spec.userId)
+        // the switch off: kept only when the person's own message of this turn asks for it in so many words; the
+        // model's `asked` never stands in for them (QA TC-7737). Nothing asks: the call is skipped quietly
+        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(spec.userMessageId)?.content ?? '')))
+          return skip('Not kept: the user turned automatic memory off, so memories are kept only when they ask in their own words. Do not call remember unless they do; they can say "remember this" or add it in Settings › Memory. Do not mention this unless they ask about memory.', 'auto memory off, not asked')
+        const auto = switchOn && exec.autoMemoryPlace
         const mine = rt.db.query('SELECT id, text, source FROM memories WHERE user_id = ?').all(spec.userId) as { id: string; text: string; source: string }[]
         // which memory this one changes: the one named, or one that says nearly the same (the newer words win: what
         // the person says now counts); an exact one is already kept

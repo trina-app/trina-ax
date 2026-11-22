@@ -162,6 +162,21 @@ export interface ThumbOptions {
   /** below interactive work (tools/isolate.ts background); stopped with `signal` */
   background?: boolean
   signal?: AbortSignal
+  /** the converter's memory cap (tools/isolate.ts maxRssMiB); none: the isolate's default */
+  maxRssMiB?: number
+}
+
+/** ffmpeg's reader for a picture, chosen by its first bytes (never its name or a probe): a file named .png that is
+ * something else is read as a PNG and fails, it never reaches another demuxer (a playlist, a concat list, a URL).
+ * null: a format this does not know (TIFF, SVG...): ffmpeg probes it, with only local files allowed. */
+function demuxerOf(b: Uint8Array): string | null {
+  const f = imageFormat(b)
+  if (f === 'PNG') return 'png_pipe'
+  if (f === 'JPEG') return 'jpeg_pipe'
+  if (f === 'GIF') return 'gif'
+  if (f === 'WebP') return 'webp_pipe'
+  if (b.byteLength >= 2 && b[0] === 0x42 && b[1] === 0x4d) return 'bmp_pipe'
+  return null
 }
 
 /** Make a thumbnail (longest side `max`) of `src`: `<dstBase>.jpg`, or `<dstBase>.png` when the picture has pixels you
@@ -174,8 +189,10 @@ export async function makeThumbnail(src: string, dstBase: string, max = 320, wor
   // room and chat files are stored without their name: a HEIC is known by its first bytes too
   if (isHeic(src) || looksHeic(firstBytes(src))) return o.transparentOnly ? null : heicThumbnail(src, dstBase, max, o)
   if (!ffmpeg) return null
-  const alphaPossible = mayHaveAlpha(firstBytes(src))
+  const head = firstBytes(src)
+  const alphaPossible = mayHaveAlpha(head)
   if (o.transparentOnly && !alphaPossible) return null
+  const demuxer = demuxerOf(head)
   const work = makeWorkDir(workBase)
   try {
     const input = path.join(work, 'in' + path.extname(src).toLowerCase().replace(/[^.a-z0-9]/g, ''))
@@ -185,8 +202,8 @@ export async function makeThumbnail(src: string, dstBase: string, max = 320, wor
     // leave a link to another file there, and the server would copy that file as the thumbnail (tools/isolate.ts
     // readOutput)
     const run = (vf: string, out: string[], maxStdout: number) => runIsolated({
-      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, background: o.background, signal: o.signal,
-      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', vf, ...out, 'pipe:1'],
+      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, background: o.background, signal: o.signal, ...(o.maxRssMiB ? { maxRssMiB: o.maxRssMiB } : {}),
+      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file', ...(demuxer ? ['-f', demuxer] : []), '-i', path.basename(input), '-frames:v', '1', '-vf', vf, ...out, 'pipe:1'],
     })
     let png = false
     if (alphaPossible) {
