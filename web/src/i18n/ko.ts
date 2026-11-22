@@ -5738,7 +5738,7 @@ export const ko = {
   "notifications.event.project.joinedNamed": "{name}님이 '{project}' 프로젝트에 들어왔어요.",
   "notifications.event.project.joinedName": "{name}님이 프로젝트에 들어왔어요.",
   "notifications.event.project.joinedProject": "누군가 '{project}' 프로젝트에 들어왔어요.",
-  "notifications.event.project.addedYouBy": "{name}님이 나를 '{project}' 프로젝트에 추가했어요.",
+  "notifications.event.project.addedYouBy": "{name}님이 '{project}' 프로젝트에 나를 추가했어요.",
   "notifications.event.project.addedYouProject": "'{project}' 프로젝트에 추가됐어요.",
   "notifications.event.project.addedYou": "프로젝트에 추가됐어요.",
   "notifications.event.owner.reauth_locked": "비밀번호 확인이 여러 번 틀려서 15분 동안 막혔어요.",

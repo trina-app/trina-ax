@@ -946,7 +946,7 @@ export class TeamFiles {
   /** How many active people other than `userId` can read at least one of `rels` now (the folder rules and folder
    * shares, as audienceChange counts them). A path `userId` may not read, or one that is not there, adds nobody. For
    * the AI's card before many moves or renames in places other people use (tools/file-moves.ts, QA TC-r2u-25). */
-  othersReading(userId: string, rels: readonly string[]): number {
+  othersReading(userId: string, rels: readonly string[], o: { any?: boolean } = {}): number {
     const user = this.principal(userId)
     const rules = this.rules()
     const segs: string[][] = []
@@ -954,8 +954,24 @@ export class TeamFiles {
     if (!segs.length) return 0
     const reads = readerCheck(this.ctx.db, rules)
     let n = 0
-    for (const p of activePeople(this.ctx.db)) if (p.id !== user.id && segs.some((s) => reads(p, s))) n++
+    // `any`: stop at the first one (is anyone else there at all)
+    for (const p of activePeople(this.ctx.db)) if (p.id !== user.id && segs.some((s) => reads(p, s)) && (++n, o.any)) break
     return n
+  }
+  /** Which of `rels` someone other than `userId` can read now: the people and the rules loaded once, the first reader
+   * found ends a path's check (rename_files names up to 500 paths). */
+  readByOthers(userId: string, rels: readonly string[]): string[] {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const reads = readerCheck(this.ctx.db, rules)
+    const people = activePeople(this.ctx.db).filter((p) => p.id !== user.id)
+    const out: string[] = []
+    for (const rel of rels) {
+      let segs: string[]
+      try { segs = authorize(this.fx, rules, user, rel, 'read', { mustExist: false }).segs } catch { continue }
+      if (people.some((p) => reads(p, segs))) out.push(rel)
+    }
+    return out
   }
 
   /**

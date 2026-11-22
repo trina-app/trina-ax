@@ -864,7 +864,9 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
     files: {
       signal: exec.abort.signal,
       // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
-      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
+      // (any other call after a room read gets the room card first, every time: confirmRoomChange; roomCardEach tells a
+      // tool's own "many items" card not to ask a second time, tools/file-moves.ts)
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : call && readRooms(exec) ? { ...turnPerson(exec), roomCardEach: true } : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),

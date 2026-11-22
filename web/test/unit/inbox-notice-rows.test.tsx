@@ -70,7 +70,7 @@ test('someone joined a project I am in (docs/DECISIONS.md "Project contents only
   expect(text(joined({ name: null, project: acme }), 'en')).toBe('Someone joined &#x27;Acme launch&#x27;.')
   expect(text(joined({ name: null, project: null }), 'en')).toBe(en('notifications.event.project.joined'))
   // I was the one added (QA TC-r2u-03): who added me, and where
-  expect(text(joined({ name: 'Bo', project: acme, you: true, by: 'Dana' }))).toBe("Dana님이 나를 &#x27;Acme launch&#x27; 프로젝트에 추가했어요.")
+  expect(text(joined({ name: 'Bo', project: acme, you: true, by: 'Dana' }))).toBe("Dana님이 &#x27;Acme launch&#x27; 프로젝트에 나를 추가했어요.")
   expect(text(joined({ name: 'Bo', project: acme, you: true, by: 'Dana' }), 'en')).toBe('Dana added you to &#x27;Acme launch&#x27;.')
   expect(text(joined({ name: 'Bo', project: acme, you: true, by: null }), 'en')).toBe('You were added to &#x27;Acme launch&#x27;.')
   expect(text(joined({ name: 'Bo', project: null, you: true, by: 'Dana' }), 'en')).toBe('You were added to a project.')

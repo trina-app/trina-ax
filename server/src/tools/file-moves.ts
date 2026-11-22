@@ -52,7 +52,7 @@ export const TEXT = {
   bulkMove: t('AI가 {people}명이 함께 보는 곳에서 항목 {n}개를 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} that {people, plural, one {# other person sees} other {# other people see}} to {to}.', 'AI ingin memindahkan {n} item yang juga dilihat {people} orang lain ke {to}.', "AIが、ほかの{people}人も見ている項目{n}個を{to}に移動しようとしています。", "La IA quiere mover a {to} {n, plural, one {# elemento} other {# elementos}} que {people, plural, one {ve otra persona} other {ven otras # personas}}.", "AI 想把另外{people}人也能看到的{n}个项目移到{to}。"),
   bulkRename: t('AI가 {people}명이 함께 보는 곳에서 항목 {n}개의 이름을 바꾸려고 해요.', 'The AI wants to rename {n, plural, one {# item} other {# items}} that {people, plural, one {# other person sees} other {# other people see}}.', 'AI ingin mengganti nama {n} item yang juga dilihat {people} orang lain.', "AIが、ほかの{people}人も見ている項目{n}個の名前を変えようとしています。", "La IA quiere cambiar el nombre de {n, plural, one {# elemento} other {# elementos}} que {people, plural, one {ve otra persona} other {ven otras # personas}}.", "AI 想重命名另外{people}人也能看到的{n}个项目。"),
   bulkEarlier: t('이 답변에서 이미 {n}개를 옮기거나 이름을 바꿨어요.', 'It already moved or renamed {n, plural, one {# item} other {# items}} in this answer.', 'Di jawaban ini sudah {n} item dipindahkan atau diganti namanya.', "この回答ですでに{n}個を移動または名前変更しました。", "En esta respuesta ya movió o cambió el nombre de {n, plural, one {# elemento} other {# elementos}}.", "这次回答中已经移动或重命名了{n}个项目。"),
-  bulkRest: t('허용하면 이 답변의 나머지 옮기기와 이름 바꾸기는 다시 묻지 않아요. 진행할까요?', 'If you allow it, the rest of this answer\'s moves and renames go ahead without asking again. Go ahead?', 'Jika diizinkan, pemindahan dan penggantian nama berikutnya di jawaban ini tidak ditanyakan lagi. Lanjutkan?', "許可すると、この回答の残りの移動と名前変更は再び確認しません。進めますか？", "Si lo permite, el resto de los movimientos y cambios de nombre de esta respuesta se harán sin volver a preguntar. ¿Continuar?", "允许后，这次回答中其余的移动和重命名不会再询问。要继续吗？"),
+  bulkRest: t('허용하면 이 답변에서는 이 질문을 다시 하지 않아요. 진행할까요?', 'If you allow it, this answer won\'t ask this again. Go ahead?', 'Jika diizinkan, jawaban ini tidak akan menanyakan ini lagi. Lanjutkan?', "許可すると、この回答ではこの確認をもう一度しません。進めますか？", "Si lo permite, esta respuesta no volverá a preguntarlo. ¿Continuar?", "允许后，这次回答不会再问这个问题。要继续吗？"),
   bulkList: t('바뀌는 항목', 'What changes', 'Yang berubah', "変わる項目", "Lo que cambia", "将更改的项目"),
   bulkYes: t('진행하기', 'Go ahead', 'Lanjutkan', "進める", "Continuar", "继续"),
   yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover", "移动"),
@@ -98,12 +98,16 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
    * that is; `ask`: past BULK_CHANGE_FREE in this answer, not yet allowed. Nothing for a call nobody can be asked about
    * (no chat turn, a scheduled run: the person set it up). */
   function bulkPlan(tc: ToolCtx, paths: readonly string[], folder?: string) {
-    if (!tc.person || tc.person.unattended || !tc.turnId) return null
-    const extra = folder !== undefined ? [folder] : []
-    const shared = paths.filter((p) => svc.othersReading(tc.user.id, [p, ...extra]) > 0)
-    if (!shared.length) return null
+    // the room card asked for this very call already (a chat that read rooms): not a second card
+    if (!tc.person || tc.person.unattended || tc.person.roomCardEach || !tc.turnId) return null
     const b = bulkOf(tc.turnId)
-    return { b, shared, ask: !b.approved && b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]) }
+    // allowed for this answer: nothing left to count or ask
+    if (b.approved) return null
+    const target = folder !== undefined && svc.othersReading(tc.user.id, [folder], { any: true }) > 0
+    const shared = target ? [...paths] : svc.readByOthers(tc.user.id, paths)
+    if (!shared.length) return null
+    const extra = folder !== undefined ? [folder] : []
+    return { b, shared, ask: b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]) }
   }
   /** The card for many moves or renames; null on a yes (the rest of the answer goes on without it), else the refusal. */
   async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string } }): Promise<string | null> {
@@ -112,7 +116,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const lead = o.move ? fill(TEXT.bulkMove[L], { n, people: plan.people(), to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people: plan.people() }, L)
     const question = [lead, plan.b.done ? fill(TEXT.bulkEarlier[L], { n: plan.b.done }, L) : '', TEXT.bulkRest[L]].filter(Boolean).join(' ')
     const text = lines.slice(0, BULK_LINES_MAX).join('\n') + (n > BULK_LINES_MAX ? `\n${fill(TEXT.more[L], { n: n - BULK_LINES_MAX }, L)}` : '')
-    const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', details: [{ label: TEXT.bulkList[L], text }] })
+    const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
     if (end === 'yes') { plan.b.approved = true; return null }
     const verb = o.move ? 'moved' : 'renamed'
     return refusal({
@@ -183,8 +187,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       const count = ok.length
       const lead = TEXT[isNew ? (mode === 'move' ? 'moveNew' : 'copyNew') : mode][L]
       // the folder in words (전사 공유 › 영업, 팀 폴더 맨 위), not its path (chat/place-words.ts)
+      // (when this card stands for the "many items" card too, it says so: its yes covers the rest of the answer)
       const question = [fill(lead, { n: count, to: placeWords(ctx.db, folder, L, tc.user.id) }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
-        fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
+        bulk?.ask && bulk.b.done ? fill(TEXT.bulkEarlier[L], { n: bulk.b.done }, L) : '',
+        bulk?.ask ? TEXT.bulkRest[L] : fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
       const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files' })
       if (end !== 'yes') {
         throw new ToolError(refusal({
@@ -196,6 +202,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       confirmed = true
       if (bulk?.ask) bulk.b.approved = true
     }
+    // (counted before they run: an item that then fails still counts, so the card comes sooner, never later)
     if (bulk) bulk.b.done += bulk.shared.length
     // a new target folder: made now (after the yes), then filled; recorded once something went in, else taken away
     // again (a folder, a group folder for a member, a folder into itself: refused per item below)
@@ -290,8 +297,6 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return false
   }
 
-  /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
-   * (one that fails is reported, the rest go on), at most RENAME_FILES_MAX per call. */
   /** Many renames where other people look (QA TC-r2u-25): null to go on, else the refusal. Counts this call's items. */
   async function renameBulk(items: { path: string; new_name: string }[], tc: ToolCtx): Promise<string | null> {
     const plan = bulkPlan(tc, items.map((it) => it.path))
@@ -305,6 +310,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return null
   }
 
+  /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
+   * (one that fails is reported, the rest go on), at most RENAME_FILES_MAX per call. */
   async function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; at?: 'anywhere' | 'start' | 'end' }, tc: ToolCtx) {
     let items: { path: string; new_name: string }[]
     let left = 0

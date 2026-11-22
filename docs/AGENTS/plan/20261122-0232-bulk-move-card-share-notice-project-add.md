@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 0232
 - Branch: `fix/bulk-move-card-share-notice-project-add`
-- Status: in progress
+- Status: done
 - Where: server file tools (`server/src/tools/file-moves.ts`), post_to_room (`server/src/chat/post-to-room.ts`,
   `server/src/chat/share-next-steps.ts`), project joins (`server/src/chat/project-joins.ts`,
   `server/src/notifications/service.ts`), shared API (`shared/src/api/notifications.ts`), web Activity text.
@@ -19,8 +19,8 @@
    project folder" bulk card and delete_files, not moves.
    Fix: before the AI moves or renames more than a few items (more than 3 in one answer) in places other people see,
    the server asks once on one card that lists them; a yes covers the rest of that answer's moves and renames. The
-   person's own "Always allow" for moves (`move_files`, Rule A) skips it. A scheduled run (nobody to ask) is refused as
-   today's move card refuses.
+   person's own "Always allow" for moves (`move_files`, Rule A) skips it. Not asked: a scheduled run the person set up
+   or a call outside a chat (nobody to ask), a call the room card already asked for, copies.
 2. **TC-r2u-29.** "○○님이 "index.html" 파일을 공유했어요" after a post of chart-green.svg; "명함.jpg" after a post of a
    quote. Cause: the notice names the file the grant really opened. post_to_room's Send attached the posted file as a
    copy (no share, so no share notice) and gave view access to the copy's *source* files (what the chat that made it
@@ -46,8 +46,15 @@
 
 ## Tests
 
-- `tests/unit/file-moves-bulk-card.test.ts` (new), `tests/unit/c-who-can-open.test.ts`, project join notice test.
+- `tests/unit/c-file-moves.test.ts`, `tests/unit/b-post-to-room.test.ts`, `tests/unit/b-project-members-only.test.ts`,
+  `web/test/unit/inbox-notice-rows.test.tsx`.
 
 ## Result
 
-(filled at the end)
+- Built as planned. Decision: `docs/decisions/20261122-bulk-move-card-share-notice-project-add.md` (the post rule
+  narrows the 11-17 one-card decision for a Send with copies).
+- Review (fresh subagent): no must-fix. Fixed: no second card after the room card (`TurnPerson.roomCardEach`); the move
+  card says its yes covers the rest of the answer when it stands for the bulk card; one pass over the people for many
+  paths (`readByOthers`); the decision file; wording (ko/zh); no character count on the list.
+- Visual check on a private QA-Acme copy (port 19937, scripted AI): the card at 1440 and 390, no and yes; the added-you
+  notice in Activity.

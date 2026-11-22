@@ -23,7 +23,7 @@ const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
 const bytes = (rel: string) => fs.readFileSync(path.join(A.team, ...rel.split('/')))
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0x00, 0xfe])
 
-type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean; roomCardEach?: boolean }
 let rpcId = 0
 async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; turnId?: string; locale?: 'ko' | 'en' | 'es' } = {}) {
   const turnId = o.turnId ?? (o.turn ? A.turn(user, A.chat(user)) : null)
@@ -33,7 +33,7 @@ async function call(user: Person, name: string, args: unknown, o: { person?: Ask
     // like chat/tools.ts turnPerson: confirmWhy says how the card ended (a timeout is not a no); a scheduled run's person
     // is unattended and never asked
     tc.person = {
-      locale: o.locale ?? 'ko', unattended: p.unattended,
+      locale: o.locale ?? 'ko', unattended: p.unattended, ...(p.roomCardEach ? { roomCardEach: true } : {}),
       async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer },
       async confirmWhy(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer ? 'yes' : p.end ?? 'declined' },
       *turnUrls() {},
@@ -636,7 +636,7 @@ describe('many moves and renames where other people look: one card for the rest 
     expect(r0.text).toContain('did not allow')
     expect(no.questions).toHaveLength(1)
     expect(no.questions[0]).toMatch(/AI가 \d+명이 함께 보는 곳에서 항목 15개의 이름을 바꾸려고 해요/)
-    expect(no.questions[0]).toContain('다시 묻지 않아요')
+    expect(no.questions[0]).toContain('이 질문을 다시 하지 않아요')
     expect(has(files[0]!)).toBe(true)
 
     const yes = ask(true)
@@ -693,6 +693,16 @@ describe('many moves and renames where other people look: one card for the rest 
     expect(r.isError).toBe(false)
     expect(p.questions).toHaveLength(1)
     expect(p.questions[0]).toContain('더 이상 볼 수 없게 돼요')
+    // it says that its yes covers the rest of the answer, and then the next renames there go without a card
+    expect(p.questions[0]).toContain('이 질문을 다시 하지 않아요')
+  })
+
+  test('after a room read the room card asks before each call: no second card for many items', async () => {
+    const files = seed('shared/mkt-1229', 6)
+    const p = { ...ask(false), roomCardEach: true }
+    const r = await call('alice', 'rename_files', { renames: files.map((f, i) => ({ path: f, new_name: `r-${i}.txt` })) }, { person: p, turn: true })
+    expect(r.isError).toBe(false)
+    expect(p.questions).toHaveLength(0)
   })
 })
 

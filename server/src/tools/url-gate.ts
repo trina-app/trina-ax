@@ -152,6 +152,9 @@ export interface TurnPerson {
    * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
   roomsSeen?: boolean
+  /** this call was asked on the room card already (the chat read rooms and the tool has no card of its own that stands
+   * in for it: chat/turn.ts confirmRoomChange asks before each such call): a tool's "many items" card does not ask too */
+  roomCardEach?: boolean
   /** Team files a connection's send would attach (their team paths): true when the person's own message of this turn
    * did not bring every one of them (named or attached it, or the AI wrote it new in this answer), or the chat holds
    * other people's words. The send then asks on its card, also where an admin's rule sends without asking; the
