@@ -57,6 +57,7 @@ import { MoveToProjectDialog } from './ChatProject'
 import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
 import { useCopyChatLink } from './copyChatLink'
+import { useChatActions } from './chatActions'
 import { ShareCopyLink } from '../ShareCopyLink'
 
 /** The check for one list of picks (`for`: its audienceKey): asking, answered (with the key a save carries), or failed.
@@ -116,6 +117,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // Copy link (components/ShareCopyLink.tsx): the chat as this window knows it now (shared or not, how many), its toast says who opens it
   const copyLink = useCopyChatLink()
   const known = useChats((s) => s.chats.find((c) => c.id === chat.id))
+  const actions = useChatActions()
 
   const shown = (a: ChatAudience) => {
     setAudience(a)
@@ -143,10 +145,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     ...(audience?.subjects ?? []).map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId, name: s.name, ...(s.title ? { title: s.title } : {}), ...(s.avatarVersion ? { avatarVersion: s.avatarVersion } : {}), ...(s.mine ? { mine: true } : {}) })),
   ], [audience, creator])
   const options = useParticipantOptions(extra)
-  // not offered: me and the creator (always in it); their row is found by key. And never a guest: a chat shared with
-  // people is no place of theirs (the server refuses them too), so they are not listed to be refused
+  // not offered: me and the creator (always in it); their row is found by key. A guest is never added (a chat shared with
+  // people is no place of theirs, the server refuses them too): a search that finds one shows them greyed out with why,
+  // not "No matches" (QA TC-7284)
   const people = usePeopleList()
-  const exclude = useMemo(() => new Set([me ? `user:${me.user.id}` : '', creator ? `user:${creator.id}` : '', ...(people ?? []).filter((p) => p.guest).map((p) => `user:${p.id}`)].filter(Boolean)), [me, creator, people])
+  const exclude = useMemo(() => new Set([me ? `user:${me.user.id}` : '', creator ? `user:${creator.id}` : ''].filter(Boolean)), [me, creator])
+  const guests = useMemo(() => new Map((people ?? []).filter((p) => p.guest).map((p) => [`user:${p.id}`, { text: t('chat.share.guestNo') }])), [people, t])
   const fixed = useMemo(() => new Map(creator ? [[`user:${creator.id}`, t('chat.share.started')]] : []), [creator, t])
   // a phone: my own row says "You" (the whole tag in its tooltip and name), someone else's "Started this chat"
   const phoneTags = useMemo(() => new Map(creator && creator.id === me?.user.id ? [[`user:${creator.id}`, t('projects.youTag')]] : []), [creator, me, t])
@@ -315,6 +319,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       ) : <span className="block min-w-0 truncate" data-testid="chat-share-title">{title}</span>}
       footer={listing ? undefined : personal || !editable ? (
         <>
+          {/* someone it was shared with by name: "Leave this chat" (QA TC-7651; asks first, chatActions.leave) */}
+          {!personal && audience && !editable && audience.subjects.some((x) => x.subjectType === 'user' && x.subjectId === me?.user.id) && <Button variant="ghost" className="mr-auto text-danger" onClick={() => { onClose(); void actions.leave(known ?? chat, undefined, audience.by.name) }} data-testid="chat-share-leave">{t('chat.leave')}</Button>}
           {copyButton}
           <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
         </>
@@ -364,7 +370,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
             <MembersField label={t('chat.share.withAccess')}>
               {editable ? (
                 <ParticipantPicker options={options} value={picks} onChange={(v) => { setPicks(v); setError(null) }} fixed={fixed} current={saved}
-                  placeholder={t('chat.share.add')} exclude={exclude} phoneTags={phoneTags} testId="chat-share-picker" />
+                  placeholder={t('chat.share.add')} exclude={exclude} unavailable={guests} phoneTags={phoneTags} testId="chat-share-picker" />
               ) : (
                 <ParticipantPicker options={options} value={saved} onChange={() => {}} fixed={fixed} readOnly testId="chat-share-picker" />
               )}

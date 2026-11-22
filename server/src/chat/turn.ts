@@ -349,6 +349,8 @@ export class TurnExec {
   steps: StoredStep[] = []
   readonly abort = new AbortController()
   stopReason: 'stopped' | 'timeout' | 'shutdown' | null = null
+  /** set before a Stop for its requester's account (runtime.ts stopUserTurns): saved with the stopped answer */
+  stoppedFor: 'requester_removed' | 'requester_disabled' | null = null
   /** the answer reached a per-answer limit (tool rounds, working time): it ends 'done' with this reason, the chat
    * offers "continue" and the next turn is told where it stopped (docs/DECISIONS.md "Continue after the per-answer limit") */
   limitReason: TurnStopReason | null = null
@@ -5330,9 +5332,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, status === 'stopped' ? this.stoppedFor : null, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure

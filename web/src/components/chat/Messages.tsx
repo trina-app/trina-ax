@@ -919,8 +919,10 @@ export function AssistantMessage({
           </div>
         )}
         {m.status === 'stopped' && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-faint">
-            <Square size={11} className="fill-current" aria-hidden /> {t('chat.stopped')}
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-faint" data-testid="answer-stopped" data-reason={m.stoppedFor?.reason}>
+            <Square size={11} className="shrink-0 fill-current" aria-hidden />
+            {/* stopped because its requester's account went: why, by name (QA TC-7431) */}
+            {m.stoppedFor ? t(m.stoppedFor.reason === 'requester_removed' ? 'chat.stoppedRemoved' : 'chat.stoppedDisabled', { name: m.stoppedFor.name }) : t('chat.stopped')}
           </p>
         )}
         {m.status === 'done' && m.stopReason && (

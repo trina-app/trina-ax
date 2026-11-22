@@ -7,7 +7,8 @@
 // offered only their own groups, never a guest), and one press saves the picks (PUT /api/files/shares add); "People with
 // access": the owner, then each person or group with "Can view" and ✕ (asked first: "Remove access for Bob?"); a team
 // file's one grey line that the folder's people open it too. Footer: Copy link and Share (with picks) or Done. Someone who
-// may not share sees who has it, the reason in one grey line, and Copy link; the file's owner keeps ✕ even then (the
+// may not share sees who has it, the reason in one grey line (naming the owner to ask), and Copy link; with an owner
+// and sharing on, they pick people and press "Ask <owner>" (the access request asked for them, QA TC-7230); the file's owner keeps ✕ even then (the
 // team's switch off, edit access lost: docs/decisions/20261116-ai-share-card-and-stop.md). Not here: general access, roles, notify,
 // message. "Everyone on the team" (QA TC-3509) is the search's first option, with one line before the press that the
 // whole team, also people who join later, will be able to open it. A refusal (403 not the owner or sharing off, 400, 429) says why in the server's words.
@@ -25,6 +26,7 @@ import { useLocale, useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
+import { isGuestMe } from '../lib/guests'
 import { fileSharesChanged } from '../store/live'
 import { blockedKey, confirmStop, holdsText, removedToast } from './FolderShareParts'
 import { Avatar } from './Avatar'
@@ -124,6 +126,24 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
     }
   }
 
+  /** Someone who may not share it asks the owner to share it with the people picked (POST /api/files/shared/:id/ask-for,
+   * the existing access request asked for other people; the owner answers in Activity). */
+  const ask = async () => {
+    if (!shares?.owner || !picks.length || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const id = shares.link?.id ?? (await api.call(API.fileLink, { body: { path } })).id
+      const r = await api.call(API.askFileShareFor, { params: { id }, body: { people: picks.filter((p) => p.subjectType === 'user').map((p) => p.subjectId) } })
+      setPicks([])
+      toast({ level: 'success', text: r.asked || r.already ? t('fileShare.asked', { owner: shares.owner.name }) : t('fileShare.askedNone') })
+    } catch (e) {
+      setError(refusal(e, locale, t('chat.share.saveFailed')))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** a removal or Stop took effect: the rows now, and Undo while the server offers it */
   const removed = (r: FileShares, text: string) => {
     setShares(r)
@@ -175,6 +195,9 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
   const mayRemove = !!shares && (shares.canShare || shares.mine || !!shares.canStop)
   const blocked = shares?.blocked
   const ownerRow = shares?.owner
+  // may not share, but can ask the file's owner to (a file with an owner, sharing not off, never a guest): people only
+  const askable = !!shares && !shares.canShare && !shares.off && !shares.mine && !folder && !blocked && !!ownerRow && !isGuestMe(me)
+  const askOptions = useMemo(() => options.filter((o) => o.subjectType === 'user'), [options])
   return (
     <Modal
       open
@@ -186,13 +209,15 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="file-share-error">{error}</p>}
           {/* a folder that can't be shared has no link (the server refuses one) */}
-          {!blocked && <ShareCopyLink onCopy={() => void copyLink(path)} unsaved={canShare && picks.length > 0 ? t('fileShare.share') : null} testId="file-share-copy-link" />}
+          {!blocked && <ShareCopyLink onCopy={() => void copyLink(path)} unsaved={picks.length > 0 && (canShare || askable) ? (canShare ? t('fileShare.share') : t('fileShare.askOwner', { owner: ownerRow?.name ?? '' })) : null} testId="file-share-copy-link" />}
           {folder && mayRemove && shares.people.length > 0 && !picks.length && (
             <Button variant="ghost-danger" busy={busy} onClick={() => void stop()} data-testid="file-share-stop">{t('fileShare.stop')}</Button>
           )}
           {canShare && picks.length > 0
             ? <Button variant="primary" busy={busy} onClick={() => void share()} data-testid="file-share-save">{t('fileShare.share')}</Button>
-            : <Button variant="primary" onClick={onClose} data-testid="file-share-done">{t('common.done')}</Button>}
+            : askable && picks.length > 0
+              ? <Button variant="primary" busy={busy} onClick={() => void ask()} data-testid="file-share-ask">{t('fileShare.askOwner', { owner: ownerRow?.name ?? '' })}</Button>
+              : <Button variant="primary" onClick={onClose} data-testid="file-share-done">{t('common.done')}</Button>}
         </>
       }
     >
@@ -260,7 +285,14 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
             {shares.teamFile && <p className="mt-2 text-sm break-keep text-muted" data-testid="file-share-folder-too">{t('fileShare.folderToo')}</p>}
           </section>
         )}
-        {shares && !shares.canShare && !blocked && <p className="text-sm break-keep text-muted" data-testid="file-share-why">{t(shares.off ? (folder ? 'fileShare.offFolder' : 'fileShare.off') : 'fileShare.ownerOnly')}</p>}
+        {shares && !shares.canShare && !blocked && (
+          <p className="text-sm break-keep text-muted" data-testid="file-share-why">
+            {shares.off ? t(folder ? 'fileShare.offFolder' : 'fileShare.off') : ownerRow && !shares.mine ? t('fileShare.ownerOnlyNamed', { owner: ownerRow.name }) : t('fileShare.ownerOnly')}
+          </p>
+        )}
+        {askable && (
+          <ParticipantPicker options={askOptions} value={picks} onChange={(v) => { setPicks(v); setError(null) }} placeholder={t('fileShare.askPick')} exclude={exclude} hideEmpty testId="file-share-ask-picker" />
+        )}
       </div>
     </Modal>
   )

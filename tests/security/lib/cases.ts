@@ -304,6 +304,13 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300) throw new Error(`${who} unhid alice's own chat`)
       if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
     } },
+  // "Leave this chat": only someone a chat was shared with by name; alice's own chat is left by nobody (her: 400, anyone
+  // else: the 404 of a missing chat)
+  leaveChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/leave`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} left alice's own chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
   // the delete-account dialog's count: the owner and admins only, a number and nothing else
   userSharedChats: { build: (c) => c.get('/api/admin/users/alice/shared-chats'), scope: 'byLevel',
     check: (r) => { if (r.status < 300 && (typeof r.json?.sharedChats !== 'number' || Object.keys(r.json).length !== 1)) throw new Error(`more than a count: ${r.text}`) } },
