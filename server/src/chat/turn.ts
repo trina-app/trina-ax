@@ -52,7 +52,7 @@ import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt,
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
-import { isProjectPlainName } from '@mycel/shared'
+import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { autoMemoryOn, NOT_OUTSIDE_TOOLS } from './auto-memory'
@@ -2090,6 +2090,13 @@ export class TurnExec {
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
         if (tool === 'agent' && this.subtasks.has(e.id)) return this.endSubtask(e.id, e.ok, e.agent, patch)
+        // a remember call that failed before its handler ran (a wrong tool name, input the engine refused) never says
+        // "Remembered": the handler's own words, when it ran, are already on the step (patchToolStep)
+        if (tool === 'remember' && patch.status === 'error') {
+          const st = this.steps.find((x) => x.id === stepId(e.id))
+          const said = st && !st.memory ? rememberedText(st.label) : null
+          if (said !== null) patch.label = tr('notRemembered', this.spec.locale, { text: said }).slice(0, 500)
+        }
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
         return
@@ -5771,4 +5778,13 @@ export function copyCardFiles(tool: string, input: unknown, locale: Locale): { t
   }))]
   if (!names.length) return null
   return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
+}
+
+/** The memory text of a step labelled "Remembered: <text>" in any language (shared/src/step-labels.ts), or null. */
+function rememberedText(label: string): string | null {
+  for (const words of Object.values(STEP_TEXT.remembered) as string[]) {
+    const [head, tail] = words.split('{text}') as [string, string]
+    if (label.startsWith(head) && label.endsWith(tail)) return label.slice(head.length, label.length - tail.length)
+  }
+  return null
 }

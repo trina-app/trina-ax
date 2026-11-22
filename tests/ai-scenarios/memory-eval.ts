@@ -36,7 +36,7 @@ interface Case {
   /** chats, each a list of messages; a 'follow' case: chat 1 says it, chat 2 checks the answer */
   chats: string[][]
   /** after: the memories must match */
-  expect: (mem: Memory[], before: number, answers: string[]) => { ok: boolean; why: string }
+  expect: (mem: Memory[], before: number, answers: string[], autoRows: number) => { ok: boolean; why: string }
   repeat?: number
   codex?: boolean
 }
@@ -103,7 +103,9 @@ const CASES: Case[] = [
     expect: (m, b) => ({ ok: added(m, b) === 0, why: 'nothing kept in a shared chat' }) },
   { id: 'N8', kind: 'not', title: 'a confidential chat (no silent save)', repeat: 3, place: 'confidential',
     chats: [['앞으로 보고서는 항상 결론부터 써줘. 오늘은 인사만 해줘.']],
-    expect: (m, b) => ({ ok: added(m, b) === 0, why: 'no memory kept on its own (confidential)' }) },
+    // today's silent path stays there (a save the person asked for is kept as 'ai'); what must not happen is a save on
+    // the AI's own judgement ('auto')
+    expect: (_m, _b, _a, autoRows) => ({ ok: autoRows === 0, why: 'no memory kept on its own (no source auto; today\'s asked-for save may happen)' }) },
   { id: 'N9', kind: 'not', title: 'an already kept preference', repeat: 3,
     seed: [{ text: '보고서는 표 먼저 쓰기를 원함', source: 'auto' }],
     chats: [['보고서는 표 먼저 써줘. 가격표 파일 짧게 요약해줘.']],
@@ -206,9 +208,13 @@ async function runOnce(c: Case) {
     answers.push(last)
   }
   const after = await memories(api)
-  const v = c.expect(after, before, answers)
+  const db2 = new Database(path.join(DATA, 'app.db'))
+  const autoRows = (db2.query("SELECT count(*) n FROM memories WHERE user_id = ? AND source = 'auto'").get(uid) as { n: number }).n
+  const sources = (db2.query('SELECT text, source FROM memories WHERE user_id = ?').all(uid) as { text: string; source: string }[])
+  db2.close()
+  const v = c.expect(after, before, answers, autoRows)
   const newOnes = after.filter((m) => !(c.seed ?? []).some((s) => s.text === m.text)).map((m) => m.text)
-  return { ok: v.ok, why: v.why, saved: newOnes, count: after.length, before, cards, prompts, steps, answer: answers.at(-1)?.slice(0, 300) ?? '' }
+  return { ok: v.ok, why: v.why, saved: newOnes.map((t) => `${t} [${sources.find((x) => x.text === t)?.source ?? '?'}]`), count: after.length, before, cards, prompts, steps, answer: answers.at(-1)?.slice(0, 300) ?? '' }
 }
 
 const out: { id: string; kind: Kind; title: string; runs: Awaited<ReturnType<typeof runOnce>>[] }[] = []
