@@ -264,15 +264,19 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }
   /** "Restore this version": a new newest version with its bytes; at the cap the oldest after the first goes, and the
    * notice says which (QA TC-6949) */
+  // (a second press while its confirm is being asked opens no second one)
+  const asking = useRef(false)
   const restore = async (n: number) => {
-    if (file.source !== 'chat' || restoring !== null) return
+    if (file.source !== 'chat' || restoring !== null || asking.current) return
+    asking.current = true
     // the Files screen's confirm (QA TC-v1c-01, TC-f2-d01): whose later versions drop out of the newest, and who in the
     // chat sees the change (the people who see it now but me; the read failing leaves that line out)
     const dropouts = chatRestoreDropouts(versions?.items ?? [], n, me?.user.id ?? '')
     const seeing = await api.call(API.getChatAudience, { params: { id: file.chatId } }).then((a) => a.mentionable ?? [], () => [])
     const body = [dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody'),
       seeing.length ? t('chatFile.restoreSeen', { names: nameList(locale, seeing) }) : ''].filter(Boolean).join(' ')
-    if (!(await confirmDialog({ title: t('files.restoreTitle', { version: n }), body, confirm: t('common.restore') }))) return
+    const yes = await confirmDialog({ title: t('files.restoreTitle', { version: n }), body, confirm: t('common.restore') }).finally(() => { asking.current = false })
+    if (!yes) return
     setRestoring(n)
     try {
       const r = await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
