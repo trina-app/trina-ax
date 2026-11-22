@@ -35,6 +35,9 @@
 // hosting service is the Google sign-in: every Google card set up by it, the company's own app can be set), active?,
 // canGoBack?, stale? (the team's address changed since it was set), by?: {id, name}, at?, people?, shared?} (the company's own Google app, shared/src/api/google-apps.ts
 // GoogleOwnAppStatus; people and shared are counted from the connections unless given; until the next reset),
+// POST /__test/google-login {client?: 'here' | 'elsewhere' | null (where this server's Google client returns to: this
+// address offers Sign in with Google, another does not), account?: {sub, email} (who the fake Google signs in as)}
+// (server/src/auth/google-login.ts; Google's own page is the spec's; until the next reset),
 // POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
@@ -328,6 +331,20 @@ export class MockServer {
   tempLogins = new Set<string>()
   /** the desktop app's one-time sign-in codes (server/src/auth/app-signin.ts): code → who and until when; spent on redeem */
   appCodes = new Map<string, { userId: string; until: number }>()
+  /** Sign in with Google (server/src/auth/google-login.ts): POST /__test/google-login */
+  googleLogin = MockServer.freshGoogleLogin()
+  /** `client`: where this server's Google client returns to: 'here' (this page's own address, so it is offered),
+   * 'elsewhere' (another address of the team, so it is not), null (no client). `account`: the Google account the fake
+   * Google page signs in with. `linked`: user id → the Google account they connected. `flows`: state → a start on its
+   * way (bound to the browser's gsi cookie, and a connect to the session that started it; works once). */
+  static freshGoogleLogin() {
+    return {
+      client: null as 'here' | 'elsewhere' | null,
+      account: { sub: '100', email: 'olga@acme.test' },
+      linked: new Map<string, { sub: string; email: string; connectedAt: string; lastUsedAt: string | null }>(),
+      flows: new Map<string, { intent: 'signin' | 'connect'; userId: string | null; session: string | null; next: string | null; binding: string; used: boolean }>(),
+    }
+  }
   users: User[] = []
   /** members who told an admin that Trina isn't ready (POST /api/me/ai-not-ready/tell; GET /api/me/ai-access notReadyTold) */
   notReadyTold = new Set<string>()
@@ -774,6 +791,7 @@ export class MockServer {
     this.driveShares = []
     this.driveShareFlow = null
     this.googleOwn = MockServer.freshGoogleOwn()
+    this.googleLogin = MockServer.freshGoogleLogin()
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -1698,10 +1716,65 @@ export class MockServer {
   }
 
   userOf(req: Request): User | null {
-    const cookie = req.headers.get('cookie') ?? ''
-    const m = cookie.match(new RegExp(`${DEV_SESSION_COOKIE}=([^;]+)`))
-    const id = m ? this.sessions.get(m[1]!) : undefined
+    const token = this.sessionTokenOf(req)
+    const id = token ? this.sessions.get(token) : undefined
     return this.users.find((u) => u.id === id && u.status === 'active') ?? null
+  }
+  sessionTokenOf(req: Request): string | null {
+    return (req.headers.get('cookie') ?? '').match(new RegExp(`${DEV_SESSION_COOKIE}=([^;]+)`))?.[1] ?? null
+  }
+
+  /** Sign in with Google's start (server/src/auth/google-login.ts begin): a flow, the browser's binding cookie and
+   * Google's address, which comes back to this server's Drive callback address */
+  googleStart(req: Request, intent: 'signin' | 'connect', who: { userId: string; session: string | null } | null, next: string | null) {
+    const g = this.googleLogin
+    if (g.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', this.localeOf(req)))
+    const token = () => (uuidv7() + uuidv7()).replace(/-/g, '').slice(0, 43)
+    const state = token(), binding = token()
+    // a person's earlier connect still open goes, like the server
+    if (who) for (const [k, f] of g.flows) if (f.userId === who.userId && !f.used) g.flows.delete(k)
+    g.flows.set(state, { intent, userId: who?.userId ?? null, session: who?.session ?? null, next, binding, used: false })
+    const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
+    for (const [k, v] of Object.entries({ client_id: 'mock-client.apps.googleusercontent.com', redirect_uri: `${new URL(req.url).origin}/api/integrations/google-drive/callback`, response_type: 'code', scope: 'openid email profile', state, nonce: token(), code_challenge: token(), code_challenge_method: 'S256', prompt: 'select_account' })) url.searchParams.set(k, v)
+    return { cookie: `mycel-dev-gsi=${binding}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`, body: { url: url.href } }
+  }
+
+  /** Google's return to the Drive callback address (server/src/auth/google-login.ts finishGoogle): sign in or connect,
+   * then to the page that says how it went. Google's account is `googleLogin.account`, matched by its sub only. */
+  googleReturn(req: Request, url: URL): Response {
+    const g = this.googleLogin
+    const f = g.flows.get(url.searchParams.get('state') ?? '')!
+    const back = (result: string) => (f.intent === 'connect' ? `/settings/security?google=${result}` : `/login?google=${result}${f.next ? `&next=${encodeURIComponent(f.next)}` : ''}`)
+    const headers = new Headers({ 'cache-control': 'no-store' })
+    headers.append('set-cookie', 'mycel-dev-gsi=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0')
+    const go = (to: string) => { headers.set('location', to); return new Response(null, { status: 302, headers }) }
+    const binding = (req.headers.get('cookie') ?? '').match(/mycel-dev-gsi=([^;]+)/)?.[1]
+    if (binding !== f.binding || f.used) return go(back('expired'))
+    f.used = true
+    const error = url.searchParams.get('error')
+    if (error) return go(back(error === 'access_denied' ? 'cancelled' : 'failed'))
+    const a = g.account
+    const holder = [...g.linked].find(([, x]) => x.sub === a.sub)
+    if (f.intent === 'connect') {
+      const u = this.userOf(req)
+      if (!u || u.id !== f.userId || this.sessionTokenOf(req) !== f.session || u.mustChangePassword) return go(back('expired'))
+      if (holder && holder[0] !== u.id) return go(back('in_use'))
+      g.linked.set(u.id, { sub: a.sub, email: a.email, connectedAt: holder?.[1].connectedAt ?? now(), lastUsedAt: holder?.[1].lastUsedAt ?? null })
+      return go(back('connected'))
+    }
+    const u = holder ? this.users.find((x) => x.id === holder[0]) : undefined
+    if (!u || u.role === 'guest') return go(back('not_connected'))
+    if (u.status !== 'active') return go(back('account_off'))
+    if (u.mustChangePassword) return go(back('password_first'))
+    holder![1].lastUsedAt = now()
+    u.lastSeenAt = now()
+    headers.append('set-cookie', this.startSession(u))
+    return go(f.next ?? '/')
+  }
+
+  /** the language of a request's words: the page's header, else the team default */
+  localeOf(req: Request): Locale {
+    return Locale.safeParse(req.headers.get(LOCALE_HEADER)).data ?? this.settings.defaultLocale
   }
 
   branchInfo(m: Message): Message['branch'] {
@@ -2682,7 +2755,8 @@ export class MockServer {
       return { path: entry, name: o.name, from: o.from.label, to: t!.label }
     },
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
-    setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
+    // googleSignIn: like server/src/routes/auth.ts, a team that is set up whose Google client returns to this address
+    setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale, ...(!this.setupNeeded && this.googleLogin.client === 'here' ? { googleSignIn: true as const } : {}) }),
     setup: (c) => {
       if (!this.setupNeeded) fail('conflict', 409)
       if (c.body.setupToken !== 'setup-token-0123456789') fail('forbidden', 403, 'wrong setup token')
@@ -2732,6 +2806,25 @@ export class MockServer {
       const u = a && a.until > Date.now() ? this.users.find((x) => x.id === a.userId && x.status === 'active') : undefined
       if (!u) fail('gone', 410, 'This link has expired. Press the button in your browser again, or sign in with your password.')
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
+    },
+    // Sign in with Google (server/src/auth/google-login.ts): connect with the current password from a cookie session,
+    // then sign in with it; Google's page is the spec's (google-login.spec.ts), it comes back to googleReturn
+    startGoogleSignIn: (c) => this.googleStart(c.req, 'signin', null, typeof c.body.next === 'string' && c.body.next.startsWith('/') && !c.body.next.startsWith('//') && !c.body.next.includes('\\') ? c.body.next : null),
+    myGoogle: (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      const a = this.googleLogin.linked.get(c.user.id)
+      return { available: this.googleLogin.client === 'here', account: a ? { email: a.email, connectedAt: a.connectedAt, lastUsedAt: a.lastUsedAt } : null }
+    },
+    connectGoogle: (c) => {
+      const loc = this.localeOf(c.req)
+      if (c.user.role === 'guest') fail('forbidden', 403, serverMsg('googleGuest', loc))
+      if (this.googleLogin.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', loc))
+      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, serverMsg('wrongPassword', loc), { 'body.password': 'wrong password' })
+      return this.googleStart(c.req, 'connect', { userId: c.user.id, session: this.sessionTokenOf(c.req) }, null)
+    },
+    disconnectGoogle: (c) => {
+      if (c.user.role === 'guest') fail('forbidden', 403)
+      this.googleLogin.linked.delete(c.user.id)
     },
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
@@ -2842,6 +2935,8 @@ export class MockServer {
       this.tempLogins.delete(u.id)
       l!.usedAt = now()
       for (const [token, id] of this.sessions) if (id === u.id) this.sessions.delete(token)
+      // like the server: a completed reset link disconnects Google too
+      this.googleLogin.linked.delete(u.id)
       u.lastSeenAt = now()
       return { cookie: this.startSession(u), body: { me: this.me(u, '') } }
     },
@@ -4051,6 +4146,8 @@ export class MockServer {
       const temp = c.body?.temporaryPassword ?? 'maple0385'
       this.passwords.set(u!.username, temp)
       u!.mustChangePassword = true
+      // like the server: an admin's temporary password disconnects Google too
+      this.googleLogin.linked.delete(u!.id)
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
@@ -6136,6 +6233,8 @@ export class MockServer {
       return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
     }
     this.log.push(`${req.method} ${p}`)
+    // Sign in with Google comes back to the Drive callback address (server/src/routes/drive.ts): its states first
+    if (p === '/api/integrations/google-drive/callback' && req.method === 'GET' && this.googleLogin.flows.has(url.searchParams.get('state') ?? '')) return this.googleReturn(req, url)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
     const route = this.routeOf(req.method, p)
@@ -6253,6 +6352,11 @@ export class MockServer {
     // {percent, roomsBytes?}: the 80 % / 95 % notice in every owner's and admin's Inbox (server/src/notifications/service.ts notifyStorageFilling)
     else if (p === '/__test/storage-notice') for (const u of this.users.filter((x) => (x.role === 'owner' || x.role === 'admin') && x.status === 'active')) this.note(u.id, { kind: 'storage_filling', percent: Number(body.percent), roomsBytes: body.roomsBytes == null ? null : Number(body.roomsBytes) })
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
+    else if (p === '/__test/google-login') {
+      // {client?: 'here' | 'elsewhere' | null, account?: {sub, email}}: Sign in with Google (freshGoogleLogin)
+      if (body.client !== undefined) this.googleLogin.client = body.client === 'here' || body.client === 'elsewhere' ? body.client : null
+      if (body.account) this.googleLogin.account = body.account as { sub: string; email: string }
+    }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
     else if (p === '/__test/member-welcome') {
       this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
