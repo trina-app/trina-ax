@@ -65,7 +65,7 @@ import {
 import type { AppContext } from '../context'
 import { fail, HttpError } from '../http/errors'
 import { promoVideoFile } from '../promo-video/render'
-import { dropWhoCanOpen } from './who-can-open'
+import { dropWhoCanOpen } from './room-copy-words'
 export { dropWhoCanOpen }
 import { atLeast, loadPrincipal } from '../policy/access'
 import { authorize } from '../policy/authorize'
