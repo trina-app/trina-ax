@@ -269,7 +269,8 @@ export function markReadFrom(token: string) {
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), or on screen here: nothing
-  if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? false)) return
+  // (the server told it only for what my settings ask; settings not read yet: as it said)
+  if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? true)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
   // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
@@ -296,8 +297,9 @@ const threadOnScreen = (chatId: string, rootId: string) =>
 function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (threadOnScreen(chatId, rootId)) return
   // a plain reply follows "Replies in threads I'm part of", off by default: a thread rings only on a mention (the server
-  // checks it too, with quiet hours, when it sets the event's notice); a mention is told as a room's mention is
-  if (why === 'reply' && useRooms.getState().alerts?.threadReplies !== true) return
+  // decides it, with quiet hours, when it sets the event's notice: a `reply` notice comes only with the switch on; this
+  // window drops it once it knows the switch went off since); a mention is told as a room's mention is
+  if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
   const c = useChats.getState().chats.find((x) => x.id === chatId)
   const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
   // the Inbox's generic words: never who or the reply's text (the row in 멘션·스레드 says who)
