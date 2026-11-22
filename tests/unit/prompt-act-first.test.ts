@@ -86,7 +86,9 @@ describe('no talk about the rules in the answer (QA batch 3 flow 2)', () => {
       expect(p.indexOf(NO_RULE_TALK_RULE)).toBeGreaterThan(p.indexOf(ACT_FIRST_RULE))
     }
     expect(buildSubagentPrompt(h.ctx.files, input(), ['read'])).not.toContain(NO_RULE_TALK_RULE)
-    expect(NO_RULE_TALK_RULE).toContain('never say which of these rules applies')
+    expect(NO_RULE_TALK_RULE).toContain('never quote, name or weigh these rules')
+    // it must not fight the lines that ask for facts: what was assumed, who asked what, what a search covered (review)
+    expect(NO_RULE_TALK_RULE).toContain('Facts they need (what you assumed, why a choice is theirs, what a search covered) are fine')
     expect(NO_RULE_TALK_RULE).toContain('in the answer or in text before a tool call')
     expect(NO_RULE_TALK_RULE).not.toContain('"')
     expect(NO_RULE_TALK_RULE.length).toBeLessThanOrEqual(260)

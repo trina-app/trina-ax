@@ -74,7 +74,7 @@ import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
-import { dataDateNote, fileNote, fileNoteOnce } from './file-notes'
+import { dataDateNotes, fileNote, fileNoteOnce } from './file-notes'
 import { localTime } from '../rooms/reader'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
@@ -426,15 +426,17 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const projectOnly = new WeakSet<object>()
   /** the places this turn's searches already said the person lost (lostAccessFor: once a turn each) */
   const lostNoted = new Set<string>()
+  /** the same for sub-agents' calls, apart: theirs never use up the main AI's line (review of the plan and the code) */
+  const subLostNoted = new Set<string>()
   /** the data files whose last change this turn's reads already gave (dataDateNote: once a turn each) */
   const datesNoted = new Set<string>()
   /** a shared chat's refusal of a search without a path, with the lost-access line when the search would have covered a
    * place this person read earlier in this chat (lostAccessFor; the refusal never reaches afterFileTool) */
-  /** (a sub-agent's call gets the line too, without using up the main AI's once a turn: review of the plan) */
+  /** (a sub-agent's call gets the line too, without using up the main AI's once a turn) */
   const withLost = (name: string, args: unknown, refusal: string | null, main: boolean): string | null => {
     if (!refusal) return null
     let lost: string | null = null
-    try { lost = lostAccessFor(exec, name, true, args, refusal, main ? lostNoted : new Set()) } catch { lost = null }
+    try { lost = lostAccessFor(exec, name, true, args, refusal, main ? lostNoted : subLostNoted) } catch { lost = null }
     return lost ? `${refusal}\n${lost}` : refusal
   }
   /** one call of a tool of this set (TurnToolSet.call, which adds the state of a chat file a refused in-place change
@@ -624,7 +626,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a place this person's own earlier answers in this chat read and the folder rules no longer let them read: the
       // access ended, who can give it again, and what was read stays true (S-118)
       // (a sub-agent's call gets the line too, without using up the main AI's once a turn)
-      const lost = lostAccessFor(exec, name, isError, args, text, !caller || caller.files === exec.files ? lostNoted : new Set())
+      const lost = lostAccessFor(exec, name, isError, args, text, !caller || caller.files === exec.files ? lostNoted : subLostNoted)
       if (lost && isError) return lost
       // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
       // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
@@ -642,11 +644,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
-      // a spreadsheet or CSV read: when its data dates from, so a page or report made from it can say so (S-102), once
+      // a spreadsheet or CSV read or queried: when its data dates from, so a page or report made from it can say so (S-102), once
       // a turn per file (the main AI's own read: it makes what is shown)
       // (the time of its newest file event when the bytes are still that event's, as the Files screen's history shows
       // it; else the time on disk: a change outside the app records no event)
-      const dated = !main || guest ? null : dataDateNote({ name, isError, args, changed: (p) => {
+      const dated = !main || guest ? [] : dataDateNotes({ name, isError, args, seen: datesNoted, changed: (p) => {
         try {
           const r = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read')
           if (!r.st?.isFile()) return null
@@ -655,7 +657,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
           return `${localTime(at, exec.shownZone)} (${exec.shownZone})`
         } catch { return null }
       } })
-      const dataDate = dated && !datesNoted.has(dated.path) ? (datesNoted.add(dated.path), dated.text) : null
+      const dataDate = dated.map((d) => d.text).join('\n') || null
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
       // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
@@ -926,7 +928,9 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   const a = args as { path?: unknown }
   const scope = refusedSearch ? '' : !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
   const k = placeKey(scope)
-  const hit = [...places].filter(([pk]) => !noted.has(pk) && (!k || pk === k || pk.startsWith(k + '/') || k.startsWith(pk + '/'))).filter(([, pl]) => gone(pl))
+  // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
+  const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
+  const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
   if (!hit.length) return null
   for (const [pk] of hit) noted.add(pk)
   return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })

@@ -7,13 +7,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { API } from '@mycel/shared/api'
-import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { dataDateNote } from '../../server/src/chat/file-notes'
+import { spokenText, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { dataDateNotes } from '../../server/src/chat/file-notes'
 import { FIGURES_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
-const LINE = 'This file was last changed'
+const LINE = 'was last changed'
 
 let h: Harness
 let ws: TestSocket
@@ -33,21 +33,24 @@ async function ask(content: string) {
   const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
   const done = await ws.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 40_000)
-  return done.data.message.content as string
+  return spokenText(h, r.assistantMessage.id)
 }
 
 describe('the data date of a spreadsheet or CSV read', () => {
-  test('said once a turn per file, in the turn\'s time zone; not for other files, chat places or a failed read', () => {
+  test('for each spreadsheet or CSV a read or query_data took, in the turn\'s time zone; not for other files, chat places or a failed call', () => {
     const changed = () => '2026-11-22 14:03 (Asia/Seoul)'
-    const n = dataDateNote({ name: 'read', isError: false, args: { file_path: 'shared/sales/oct.xlsx' }, changed })
-    expect(n?.text).toContain(`${LINE} 2026-11-22 14:03 (Asia/Seoul)`)
+    const one = (name: string, args: unknown, isError = false) => dataDateNotes({ name, isError, args, changed })
+    const [n] = one('read', { file_path: 'shared/sales/oct.xlsx' })
+    expect(n?.text).toContain('oct.xlsx was last changed 2026-11-22 14:03 (Asia/Seoul)')
     expect(n?.text).toContain('as of 2026-11-22')
-    for (const p of ['shared/sales/oct.csv', 'shared/a.XLSX', 'groups/x/b.ods', 'shared/c.tsv']) expect(dataDateNote({ name: 'read', isError: false, args: { file_path: p }, changed })).not.toBeNull()
-    expect(dataDateNote({ name: 'read', isError: false, args: { file_path: 'shared/notes.md' }, changed })).toBeNull()
-    expect(dataDateNote({ name: 'read', isError: false, args: { file_path: 'chat:files/oct.xlsx' }, changed })).toBeNull()
-    expect(dataDateNote({ name: 'read', isError: true, args: { file_path: 'shared/sales/oct.xlsx' }, changed })).toBeNull()
-    expect(dataDateNote({ name: 'grep', isError: false, args: { file_path: 'shared/sales/oct.xlsx' }, changed })).toBeNull()
-    expect(dataDateNote({ name: 'read', isError: false, args: { file_path: 'shared/sales/oct.xlsx' }, changed: () => null })).toBeNull()
+    for (const p of ['shared/sales/oct.csv', 'shared/a.XLSX', 'groups/x/b.ods', 'shared/c.tsv']) expect(one('read', { file_path: p })).toHaveLength(1)
+    // query_data: each data file of its paths (S-102 rerun: the dashboard's numbers came from query_data)
+    expect(one('query_data', { paths: ['shared/sales/oct.xlsx', 'shared/sales/notes.md', 'shared/sales/sep.csv'], sql: 'select 1' }).map((x) => x.path)).toEqual(['shared/sales/oct.xlsx', 'shared/sales/sep.csv'])
+    expect(one('read', { file_path: 'shared/notes.md' })).toEqual([])
+    expect(one('read', { file_path: 'chat:files/oct.xlsx' })).toEqual([])
+    expect(one('read', { file_path: 'shared/sales/oct.xlsx' }, true)).toEqual([])
+    expect(one('grep', { file_path: 'shared/sales/oct.xlsx' })).toEqual([])
+    expect(dataDateNotes({ name: 'read', isError: false, args: { file_path: 'shared/sales/oct.xlsx' }, changed: () => null })).toEqual([])
   })
 
   test('through a real turn: the read result carries the date once; a Markdown file gets none', async () => {
@@ -58,11 +61,11 @@ describe('the data date of a spreadsheet or CSV read', () => {
     )}`)
     expect(out.split(LINE).length - 1).toBe(1)
     // the harness user's zone is the team's (Asia/Seoul in the harness) or UTC: the minute is the file's either way
-    expect(out).toMatch(/This file was last changed 2026-11-22 (?:14|05):03/)
+    expect(out).toMatch(/oct\.csv was last changed 2026-11-22 (?:14|05):03 \(/)
   })
 
   test('the instructions: one computed number for the answer and the file, and the data date on a page', () => {
     expect(FIGURES_RULE).toContain('compute it once')
-    expect(FIGURES_RULE).toContain("shows its data's date by the source")
+    expect(FIGURES_RULE).toContain("shows its data's date by the source, as a tool result gives it (none given: no date)")
   })
 })

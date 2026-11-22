@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { API } from '@mycel/shared/api'
-import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { spokenText, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { carriedReads, saveReads } from '../../server/src/chat/carried-reads'
 import { lostAccessFor } from '../../server/src/chat/tools'
 import { TurnFiles } from '../../server/src/files/service'
@@ -40,7 +40,7 @@ const newChat = async (user: string) => (await h.api(user).call(API.createChat, 
 async function ask(user: string, chatId: string, content: string) {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const done = await ws[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 60_000)
-  return { text: done.data.message.content as string, assistantId: r.assistantMessage.id as string }
+  return { text: spokenText(h, r.assistantMessage.id), assistantId: r.assistantMessage.id as string }
 }
 const count = (s: string, sub: string) => s.split(sub).length - 1
 

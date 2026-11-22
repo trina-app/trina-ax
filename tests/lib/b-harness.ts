@@ -293,3 +293,17 @@ export async function ask(h: Harness, sock: TestSocket, user: string, chatId: st
   const done = await sock.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, o.ms ?? 20_000)
   return { started: r, done: done.data.message }
 }
+
+/**
+ * Everything the AI wrote in an answer, in order: the thinking steps' details (text a tool call followed is a thinking
+ * step in every answer language since docs/decisions/20261122-interim-text-every-language.md, so a fake engine's
+ * `say`/`echo`/`sayResult` before another call lands there), then the answer itself. For tests that check what a tool
+ * result or a note said, wherever the text ended up; a test about the answer itself reads the message's content.
+ */
+export function spokenText(h: Pick<Harness, 'ctx'>, messageId: string): string {
+  const row = h.ctx.db.query('SELECT content, steps FROM messages WHERE id = ?').get(messageId) as { content: string; steps: string | null } | null
+  if (!row) return ''
+  let steps: { kind?: string; detail?: string }[] = []
+  try { steps = JSON.parse(row.steps ?? '[]') } catch { steps = [] }
+  return [...steps.filter((s) => s.kind === 'thinking' && s.detail).map((s) => s.detail!), row.content].join('\n')
+}
