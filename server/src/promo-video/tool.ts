@@ -15,7 +15,7 @@ import { audioCues } from './audio'
 import { DURATION } from './layout'
 import { mp4Available } from './render'
 import { registerSavePromoVideo, SAVE_PROMO_TOOL } from './save'
-import { checkPromoInput } from './spec'
+import { checkPromoInput, LOGO_MIN_PX, PICTURE_MIN_PX, readPicture } from './spec'
 import { artifactDocument, type PlayerText } from './template'
 
 /** The font face file the artifact page loads from this server (web/scripts/build-vendor.ts writes it). */
@@ -77,7 +77,7 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
   // exactly the slots of an earlier version of this chat's video ("go back to Junho's version"; QA TC-r2u-10): that
   // version as it was checked then, again as the newest one. Its sources may be in the asker's own folder, which the
   // person asking now cannot read; everyone here saw that video already
-  const same = sameAsEarlier(ctx, turn.chatId, a)
+  const same = sameAsEarlier(ctx, t, turn.chatId, a)
   const checked = same ? { ok: true as const, spec: same } : await checkPromoInput(ctx, t, a, lang)
   if (!checked.ok) {
     const list = checked.problems.map((p) => `- ${p}`).join('\n')
@@ -109,15 +109,34 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
   }
 }
 
-/** The checked spec of an earlier version of this chat's video whose slots were exactly `a`, or null */
-function sameAsEarlier(ctx: AppContext, chatId: string, a: PromoVideoInput): { doc: Parameters<typeof artifactDocument>[0]; sources: string[]; pictures: string[] } | null {
+/** This chat's promo video versions the asker may see: never one an answer hidden from them made, nor a later one of
+ * the key (Artifacts.hiddenVersions; review of batch 2: a hidden answer's wording and private paths reached another
+ * person's AI) */
+function visibleRows(ctx: AppContext, userId: string, chatId: string) {
+  const hidden = componentC(ctx).artifacts.hiddenVersions(userId, chatId)
+  const rows = ctx.db.query(`SELECT p.artifact_id, p.user_id, p.spec, p.created_at, a.version, u.name FROM promo_videos p JOIN artifacts a ON a.id = p.artifact_id
+    LEFT JOIN users u ON u.id = p.user_id WHERE p.chat_id = ? AND a.key = ? ORDER BY a.version`).all(chatId, PROMO_ARTIFACT_KEY) as { artifact_id: string; user_id: string; spec: string; created_at: string; version: number; name: string | null }[]
+  return rows.filter((r) => !hidden.has(r.artifact_id))
+}
+
+/** The checked spec of an earlier version of this chat's video, one the asker may see, whose slots were exactly `a`:
+ * that version as it was checked then (its sources may be in its asker's own folder; everyone here saw that video).
+ * Its pictures and logo are read again with the asker's rights (readPicture); any problem, or none such: null, and the
+ * usual check runs. */
+export function sameAsEarlier(ctx: AppContext, t: ToolCtx, chatId: string, a: PromoVideoInput): { doc: Parameters<typeof artifactDocument>[0]; sources: string[]; pictures: string[] } | null {
   const want = JSON.stringify(a)
-  const rows = ctx.db.query('SELECT spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC').all(chatId) as { spec: string }[]
-  for (const r of rows) {
-    try {
-      const s = JSON.parse(r.spec) as { input?: unknown; doc?: Parameters<typeof artifactDocument>[0]; sources?: string[] }
-      if (s.input && s.doc && JSON.stringify(PromoVideoInput.parse(s.input)) === want) return { doc: s.doc, sources: s.sources ?? [], pictures: [] }
-    } catch { /* an older row */ }
+  for (const r of visibleRows(ctx, t.user.id, chatId).reverse()) {
+    let s: { input?: unknown; doc?: Parameters<typeof artifactDocument>[0]; sources?: string[] }
+    try { s = JSON.parse(r.spec) } catch { continue }
+    let same = false
+    try { same = !!s.input && !!s.doc && JSON.stringify(PromoVideoInput.parse(s.input)) === want } catch { same = false }
+    if (!same) continue
+    const problems: string[] = []
+    const pics = [a.promise.picture, a.work.picture, a.proof.picture].filter((p): p is string => !!p)
+    for (const p of pics) readPicture(ctx, t, p, PICTURE_MIN_PX, 'picture', problems)
+    if (a.logo) readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems)
+    if (problems.length) return null
+    return { doc: s.doc!, sources: s.sources ?? [], pictures: [] }
   }
   return null
 }
@@ -133,8 +152,7 @@ export const PromoVersionsInput = z.strictObject({
  * videos (the turn's chat), which everyone who sees the chat saw. */
 export function promoVersions(ctx: AppContext, a: z.output<typeof PromoVersionsInput>, t: ToolCtx): { text: string; summary: string } {
   const turn = turnChat(ctx, t)
-  const rows = ctx.db.query(`SELECT p.user_id, p.spec, p.created_at, a.version, u.name FROM promo_videos p JOIN artifacts a ON a.id = p.artifact_id
-    LEFT JOIN users u ON u.id = p.user_id WHERE p.chat_id = ? AND a.key = ? ORDER BY a.version`).all(turn.chatId, PROMO_ARTIFACT_KEY) as { user_id: string; spec: string; created_at: string; version: number; name: string | null }[]
+  const rows = visibleRows(ctx, t.user.id, turn.chatId)
   if (!rows.length) return { text: 'This chat has no promo video yet: make one with promo_video.', summary: `${PROMO_VERSIONS_TOOL} -> none` }
   const parse = (s: string) => { try { return JSON.parse(s) as { title?: string; doc?: { family?: string; music?: string }; input?: unknown } } catch { return {} } }
   const head = rows[rows.length - 1]!.version
