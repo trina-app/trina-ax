@@ -1173,6 +1173,13 @@ export class FileShares {
     return { ids, owner: ids.length === 1 && ids[0] === o.share.owner_id }
   }
 
+  /** Who a request on this share would go to now (requestTargets), with no access check: for a caller that already
+   * decided the person may ask (rooms/file-ask.ts: a link in a room message they see). */
+  requestTargetsOf(shareId: string): string[] {
+    const s = this.row(shareId)
+    return s && s.state === 'live' ? this.requestTargets(s) : []
+  }
+
   /**
    * "Ask <owner>" for other people (after a post to a room, or under a refused share): `askerId`, who can open the file
    * but may not share it, asks whoever answers its requests (requestTargets) to give `forIds` view access. One request

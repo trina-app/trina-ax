@@ -20,6 +20,7 @@ import { mapErrors } from '../team-files/errors'
 import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
 import { assertRoomUpload } from '../rooms/project-room'
 import { roomFileMovesOf } from '../rooms/file-moves'
+import { requestRoomFile, roomFileAccess } from '../rooms/file-ask'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -81,6 +82,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.hideRoomLinkPreview, ({ auth, params, body }) => rooms.hidePreview(auth.user.id, params.id, params.messageId, body.linkedMessageId))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
+    // "Ask to view" on a team-file link in a message I see that does not open for me (rooms/file-ask.ts, QA S-120)
+    kit.handle(API.roomFileAccess, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return roomFileAccess(ctx, auth.user.id, params.id, params.messageId, query.path) })
+    kit.handle(API.requestRoomFile, ({ c, auth, params, body }) => requestRoomFile(ctx, auth.user.id, params.id, params.messageId, body.path, c.get('locale')))
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
     kit.handle(API.reactRoomMessage, ({ c, auth, params, body }) => rooms.react(auth.user.id, params.id, params.messageId, body.emoji, body.on, c.get('locale')))
     kit.handle(API.editRoomMessage, ({ c, auth, params, body }) => rooms.edit(auth.user.id, params.id, params.messageId, body, c.get('locale')))

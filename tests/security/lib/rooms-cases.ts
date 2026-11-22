@@ -291,6 +291,18 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // and my place in it, and a reaction, are the DM's two people's only; a body naming another person is refused
   listRoomThread: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/thread`), scope: 'room-dm' },
   markRoomThreadRead: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/thread/read`, { seq: 1 }), scope: 'room-dm' },
+  // "Ask to view" on a team-file link in a message (rooms/file-ask.ts, QA S-120), aimed at the DM's message (no link in
+  // it) and a finance file: the DM's two people get the one generic 'no', everyone else the room's 404; the ask is
+  // nobody's (404 for all), and never leaves a request row
+  roomFileAccess: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/file-access?path=${encodeURIComponent('groups/finance/budget.md')}`), scope: 'room-dm',
+    check: (r, _w, who) => {
+      if (r.status === 200 && r.json?.status !== 'no') throw new Error(`${who}: file-access answered ${r.json?.status} for a path the message does not link`)
+    } },
+  requestRoomFile: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/file-access`, { path: 'groups/finance/budget.md' }), scope: 'nobody',
+    check: (_r, w, who) => {
+      const n = w.inst.ctx.db.query("SELECT COUNT(*) n FROM file_access_requests r JOIN file_shares s ON s.id = r.share_id WHERE s.path = 'groups/finance/budget.md'").get() as { n: number }
+      if (n.n) throw new Error(`${who}: an ask on a path the message does not link left a request`)
+    } },
   reactRoomMessage: {
     build: (c, w) => c.req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '👍', on: true }), scope: 'room-dm',
     check: async (r, w, who) => {
