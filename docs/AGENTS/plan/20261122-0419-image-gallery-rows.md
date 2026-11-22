@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 04:19
 - Branch: `feat/image-gallery-rows`
-- Status: in progress
+- Status: done
 - Where: `web/src/components/rooms/`. Why: how a room message draws its pictures is web UI (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A display fix in the message list; no API, data or setting changes.
 
@@ -20,7 +20,8 @@ In:
 - 2 or more: rows of 2 or 3 (2 → one row of 2, 3 → one row of 3, 4 → 2 + 2, 5 → 3 + 2, 7 → 3 + 2 + 2, at most 10
   per message, ROOM_FILES_MAX), each row as wide as the gallery (at most 480 px, the column's width on a phone).
   In a row every tile has the same height; widths follow each picture's shape, kept between tall (0.6) and wide (1.9),
-  then widened or narrowed together so the row is between 120 and 240 px high at 480 px. The picture fills its tile
+  then widened or narrowed together so the row is between 120 and 240 px high at 480 px (a gallery of several rows:
+  150 to 190 px, so a tall pair does not tower over a row of three). The picture fills its tile
   (`object-fit: cover`), rounded corners, 4 px gaps.
 - The space is held from the stored width and height before the thumbnails load (CSS `aspect-ratio`; no measuring in
   script). A picture without a stored size counts as square.
@@ -58,4 +59,9 @@ the room e2e specs that open pictures (`image-viewer`, `room-files-open`, `file-
 
 ## Result
 
-(to fill in)
+Built as planned in `web/src/lib/imageGallery.ts` and `PictureGallery` in `RoomMessages.tsx`. Two changes on the way:
+rows of a several-row gallery keep a narrower height band (150–190 px) after the first screenshots showed a 240 px row
+under a 120 px one; a tile draws its hairline as an overlay, because a border adds to a tile's width but not its height
+and left the tiles of a row 2 px apart in height. New e2e `web/test/e2e/room-image-gallery.spec.ts` checks one height
+per row, both edges lined up, no sideways scroll at 390 and the viewer's ← →, and writes the screenshots with
+`SHOTS_DIR`.
