@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { FileChangeSummary, Locale } from '@mycel/shared/api'
+import { TOP_FOLDER_LABELS } from '@mycel/shared'
 import { translate, useLocaleStore } from '../../src/i18n'
 import FileSummary from '../../src/components/chat/FileSummary'
 
@@ -65,5 +66,41 @@ describe('file summary: many files', () => {
     expect(html).toContain('data-testid="file-summary-more"')
     expect(html).toContain(esc(translate('en', 'files.summary.more', { n: 13081, folders: 2 })))
     expect((html.match(/<li class="flex items-center gap-2">/g) ?? []).length).toBe(100)
+  })
+})
+
+// QA TC-7337: the rows showed raw paths (projects/QA284-scratch/notes/note-092.txt) and the overflow read "50 more files
+// in 1 folder, for example:" then "Projects › QA284-scratch › notes: 50"
+describe('file summary: friendly names, the count first', () => {
+  for (const locale of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+    test(`${locale}: each file by its place in words (path on hover); the rest as a count, then "count · folder" rows`, () => {
+      setLocale(locale)
+      const f: FileChangeSummary = {
+        saved: Array.from({ length: 100 }, (_, i) => ({ path: `projects/QA284-scratch/notes/note-${String(i).padStart(3, '0')}.txt`, action: 'create' as const })),
+        conflicts: [], rejected: [],
+        more: { count: 50, folders: [{ path: 'projects/QA284-scratch/notes', count: 50 }] },
+      }
+      const html = render(f)
+      const projects = TOP_FOLDER_LABELS.projects[locale]
+      expect(html).toContain('title="projects/QA284-scratch/notes/note-092.txt"')
+      expect(html).toContain(esc(`${projects} › QA284-scratch › notes › note-092.txt`))
+      expect(html).not.toContain('>projects/QA284-scratch/notes/note-092.txt<')
+      expect(html).not.toMatch(/for example|예:|misalnya|例：|por ejemplo|例如/)
+      const more = esc(translate(locale, 'files.summary.more', { n: 50, folders: 1 }))
+      const row = esc(translate(locale, 'files.summary.moreFolder', { n: 50, path: `${projects} › QA284-scratch › notes` }))
+      expect(html).toContain(more)
+      expect(html).toContain(row)
+      expect(html.indexOf(more)).toBeLessThan(html.indexOf(row))
+      // the count leads the row
+      expect(translate(locale, 'files.summary.moreFolder', { n: 50, path: 'X' }).indexOf('50')).toBeLessThan(translate(locale, 'files.summary.moreFolder', { n: 50, path: 'X' }).indexOf('X'))
+    })
+  }
+
+  test('past 5 folders: the 5 busiest by name, then how many more', () => {
+    setLocale('en')
+    const folders = Array.from({ length: 8 }, (_, i) => ({ path: `shared/f${i}`, count: 10 - i }))
+    const html = render({ saved: Array.from({ length: 100 }, (_, i) => ({ path: `shared/x${i}.txt`, action: 'create' as const })), conflicts: [], rejected: [], more: { count: 60, folders } })
+    expect(html).toContain(esc(translate('en', 'files.summary.moreFolders', { n: 3 })))
+    expect(html).not.toContain('f5')
   })
 })

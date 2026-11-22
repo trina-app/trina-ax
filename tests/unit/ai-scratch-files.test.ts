@@ -19,7 +19,8 @@ import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool, callerOf, PROJECT_SCRATCH_TEXT, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
-import { BULK_BYTES, BULK_FILES, bulkCard, movableRoots, moveScript, overBulk, newBulkState, type BulkAsk } from '../../server/src/devenv/bulk'
+import { BULK_BYTES, BULK_FILES, bulkCard, movableRoots, moveScript, overBulk, newBulkState, sizeWords, type BulkAsk } from '../../server/src/devenv/bulk'
+import { bulkCardFacts } from '../../server/src/chat/tools'
 import { fileSummaryOf } from '../../server/src/chat/turn'
 import { ownMade, OWN_TRASH_MAX_ENTRIES } from '../../server/src/chat/own-files'
 import { DELETE_REFUSAL, deleteFilesTool, OWN_OVERRIDES, type DeleteExec } from '../../server/src/chat/delete-files'
@@ -211,9 +212,51 @@ describe('the bulk guard', () => {
     expect(overBulk({ files: 0, bytes: 0, kept: true }, 10_000, 0)).toBe(false)
     const c = bulkCard({ files: 13181, bytes: 120 * 1024 * 1024, folders: [{ path: '_tools/ppt-master/', files: 13181 }], project: 'projects/p' }, 'ko')
     expect(c.question).toContain('13,181')
-    expect(c.question).toContain('120MB')
-    expect(c.details[0]!.text).toContain('_tools/ppt-master/')
+    expect(c.question).toContain('(120 MB)')
+    expect(c.details[0]!.text).toContain('_tools › ppt-master (13,181)')
     expect(moveScript('.l', 'from-project/x')).toContain('mv -n --')
+  })
+
+  // QA TC-7335: "which the whole team sees" for a project only its creator sees, "(0.0 MB)", "My files › projects ›
+  // <name>" and "Mostly in … 11 characters"
+  test('the card says who really sees the folder, the project by its name, a size that means something, and the folders with no character count', () => {
+    const ask: BulkAsk = { files: 600, bytes: 600 * 4, folders: [{ path: 'bulk/', files: 590 }, { path: '(the project folder)', files: 10 }], project: 'users/alice/projects/qa-solo' }
+    const only = bulkCard(ask, 'en', { name: 'QA Solo', who: { kind: 'only' } })
+    expect(only.question).toBe('An AI command made 600 new files (2 KB) in the folder of the project “QA Solo”. Only you can see that folder. Keep them in the project folder, or move them to this chat\'s work folder?')
+    expect(only.question).not.toContain('whole team')
+    expect(only.question).not.toContain('users/')
+    expect(only.question).not.toContain('My files')
+    expect(only.details).toEqual([{ label: 'Folders with the most new files', text: 'bulk (590)\nRight in the project folder (10)', noSize: true }])
+    expect(bulkCard(ask, 'en', { who: { kind: 'team' } }).question).toContain('“qa-solo”. The whole team can see that folder.')
+    expect(bulkCard(ask, 'ko', { name: 'QA 솔로', who: { kind: 'some', n: 3 } }).question).toBe('AI 명령이 “QA 솔로” 프로젝트 폴더에 새 파일 600개(2 KB)를 만들었어요. 이 폴더는 3명이 볼 수 있어요. 프로젝트 폴더에 둘까요, 이 채팅의 작업 폴더로 옮길까요?')
+    // tiny files: no size at all (never "0.0 MB"); who unknown: nothing said about it
+    const tiny = bulkCard({ ...ask, bytes: 600 }, 'en', { name: 'QA Solo', who: null })
+    expect(tiny.question).toBe('An AI command made 600 new files in the folder of the project “QA Solo”. Keep them in the project folder, or move them to this chat\'s work folder?')
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const q = bulkCard({ ...ask, bytes: 600 }, L, { name: 'X', who: { kind: 'only' } }).question
+      expect({ L, q }).toEqual({ L, q: expect.not.stringMatching(/\{|0\.0|MB|\(\)|（）/) })
+    }
+    expect(sizeWords(0)).toBeNull()
+    expect(sizeWords(1023)).toBeNull()
+    expect(sizeWords(24_000)).toBe('23 KB')
+    expect(sizeWords(3 * 1024 * 1024)).toBe('3.0 MB')
+  })
+
+  test('the card\'s facts come from the real folder: a personal project is "only you", a team project its members', async () => {
+    const solo = await h.api('alice').call(API.createProject, { body: { name: 'Bulk Solo', scope: 'personal', instructions: '' } })
+    const exec = { rt: h.rt(), spec: { userId: 'alice', locale: 'en' } } as unknown as Parameters<typeof bulkCardFacts>[0]
+    expect(bulkCardFacts(exec, { project: solo.folderPath, projectId: solo.id })).toEqual({ name: 'Bulk Solo', who: { kind: 'only' } })
+    const team = bulkCardFacts(exec, { project: P.folderPath, projectId: P.id })
+    expect(team.name).toBe(P.name)
+    expect(team.who?.kind).not.toBe('only')
+  })
+
+  test('the tool text names the line and never has the AI promise a card below it (QA TC-7336)', () => {
+    for (const d of [srtShellDescription(false), sharedShellDescription(true)]) {
+      expect(d).toContain(`more than ${BULK_FILES} new files or 200 MB`)
+      expect(d).toContain('never tell the person a question about keeping files may come')
+      expect(d).not.toContain('When one answer adds many new files to the project folder, the person is asked')
+    }
   })
 
   test('movableRoots: a folder born during the command goes whole; nested ones once; older folders keep theirs', () => {
@@ -327,5 +370,24 @@ describe('delete_files and the AI\'s own files', () => {
     const r = await deleteFilesTool(exec).call({ paths: [rel] }, new TurnFiles())
     expect(r.content[0]).toEqual({ type: 'text', text: DELETE_REFUSAL.subagent })
     expect(fs.existsSync(abs(rel))).toBe(true)
+  })
+})
+
+// QA TC-7338: deleting a personal project left users/<id>/projects/<name>/c.txt on disk. By design
+// (docs/DECISIONS.md "Share a personal project": "Deleting a personal project says 'Only the project goes. Its files stay
+// in My files › Projects.'"; web projects.deletePersonal): the folder is the person's own, so it stays, and the Files
+// screen lists it there. Not a leftover.
+describe('deleting a personal project (QA TC-7338)', () => {
+  test('only the project goes: its files stay in the person\'s own folder and the Files screen lists them', async () => {
+    const p = await h.api('alice').call(API.createProject, { body: { name: 'Keep Files', scope: 'personal', instructions: '' } })
+    expect(p.folderPath.startsWith('users/alice/projects/')).toBe(true)
+    fs.writeFileSync(path.join(abs(p.folderPath), 'c.txt'), 'c\n')
+    await h.api('alice').call(API.deleteProject, { params: { id: p.id } })
+    expect(h.ctx.db.query('SELECT 1 FROM projects WHERE id = ?').get(p.id)).toBeNull()
+    expect(fs.existsSync(path.join(abs(p.folderPath), 'c.txt'))).toBe(true)
+    const tree = await h.api('alice').call(API.tree, { query: { path: p.folderPath } })
+    expect(tree.entries.map((e) => e.name)).toContain('c.txt')
+    // nobody else sees it
+    expect((await h.api('bob').call(API.tree, { query: { path: p.folderPath } }).then(() => 200, (e: { status: number }) => e.status))).toBe(404)
   })
 })

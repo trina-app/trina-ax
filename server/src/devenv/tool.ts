@@ -40,7 +40,7 @@ import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, wai
 import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
-import { auditBulk, BULK_FILES, bulkFolders, mb, moveToScratch, newBulkState, overBulk, type BulkAsk, type BulkState } from './bulk'
+import { auditBulk, BULK_BYTES, BULK_FILES, bulkFolders, moveToScratch, newBulkState, overBulk, sizeWords, type BulkAsk, type BulkState } from './bulk'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -126,7 +126,9 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
  * $TRINA_WORK next to the project folder; only finished files go into the team's folder. */
 export const PROJECT_SCRATCH_TEXT = 'Put downloads, git clones, tools and their installs (a venv, node_modules), previews and every other scratch file in $TRINA_WORK, and run downloaded code from there. '
   + 'Put only the finished files the person asked for (the deck, the PDF) in the project folder, for example cp $TRINA_WORK/out/deck.pptx ./; never a downloaded repository or tool, and nothing into the team\'s skills or another team folder, unless the person asks for exactly that. Say where third-party code came from and its licence. '
-  + 'A download or clone as a job (job=true) goes in $TRINA_WORK too: cd $TRINA_WORK first. When one answer adds many new files to the project folder, the person is asked whether to keep them there or move them to $TRINA_WORK. '
+  + 'A download or clone as a job (job=true) goes in $TRINA_WORK too: cd $TRINA_WORK first. '
+  // QA TC-7336: "the app may ask you whether to keep them" after 150 files, and no card came (the line is 500)
+  + `Only when one answer adds more than ${BULK_FILES} new files or ${BULK_BYTES / 1024 / 1024} MB of new files to the project folder does the server stop and ask the person whether to keep them there or move them to $TRINA_WORK; below that nothing is asked, so never tell the person a question about keeping files may come. `
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
@@ -363,12 +365,12 @@ async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef
   const base = { userId: h.userId, turnId: h.turnId, chatId: h.chatId ?? null, projectId: o.project.id, files: created.length, bytes }
   // a sub-agent and a run nobody watches cannot ask: the files move (keeping them needs the person's yes or their
   // "Always allow", which keepBulk answers without a card)
-  const ask: BulkAsk = { files: created.length, bytes, folders: bulkFolders(o.project.folderPath, created), project: o.project.folderPath }
+  const ask: BulkAsk = { files: created.length, bytes, folders: bulkFolders(o.project.folderPath, created), project: o.project.folderPath, projectId: o.project.id }
   const keep = !h.helper && h.keepBulk ? await h.keepBulk(ask).catch(() => null) : null
   if (keep === true) {
     st.kept = true; st.files += created.length; st.bytes += bytes
     auditBulk(h.ctx, { ...base, decision: 'keep', asked: true })
-    o.notes.push(`The person chose to keep the ${created.length} new files (${mb(bytes)} MB) of this command in the project folder.`)
+    o.notes.push(`The person chose to keep the ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) of this command in the project folder.`)
     return none
   }
   const r = await moveToScratch(h.ctx, { space: o.space, project: o.project.folderPath, created, startedMs: o.startedMs, present: o.present, signal: h.signal })
@@ -376,12 +378,12 @@ async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef
   st.files += left.length; st.bytes += left.reduce((n, c) => n + (c.size ?? 0), 0)
   if ('error' in r) {
     auditBulk(h.ctx, { ...base, decision: 'move_failed', asked: !h.helper && !!h.keepBulk })
-    o.notes.push(`This command added ${created.length} new files (${mb(bytes)} MB) to the project folder, more than one answer may add without the person's yes, and they could not be moved to $TRINA_WORK (${r.error}). They stay in the project folder: tell the person, and put scratch files in $TRINA_WORK from now on.`)
+    o.notes.push(`This command added ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) to the project folder, more than one answer may add without the person's yes, and they could not be moved to $TRINA_WORK (${r.error}). They stay in the project folder: tell the person, and put scratch files in $TRINA_WORK from now on.`)
     return r.moved
   }
   auditBulk(h.ctx, { ...base, decision: 'move', asked: !h.helper && !!h.keepBulk, moved: r.moved.size, dest: r.dest })
   const why = h.helper ? 'a sub-agent cannot ask the person to keep them' : keep === false ? 'the person chose to move them' : 'the person did not say to keep them'
-  o.notes.push(`This command added ${created.length} new files (${mb(bytes)} MB) to the project folder. That is more than one answer may add there without the person's yes, and ${why}, so ${r.moved.size} of them were moved out of the project folder to $TRINA_WORK/${r.dest}/ (chat:work/${r.dest}/ in the file tools), with their folders. Use them from there, keep downloads, tools and previews in $TRINA_WORK, and copy only finished files into the project folder.`)
+  o.notes.push(`This command added ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) to the project folder. That is more than one answer may add there without the person's yes, and ${why}, so ${r.moved.size} of them were moved out of the project folder to $TRINA_WORK/${r.dest}/ (chat:work/${r.dest}/ in the file tools), with their folders. Use them from there, keep downloads, tools and previews in $TRINA_WORK, and copy only finished files into the project folder.`)
   return r.moved
 }
 
