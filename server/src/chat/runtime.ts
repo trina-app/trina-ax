@@ -42,6 +42,7 @@ import { memoryLines } from './prompt'
 import { noteSharedMessage, unreadByUser, type Ring } from './message-notices'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
+import { emptyAnswerText } from './step-record'
 import { Audiences, chatView, chatWriters, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
 import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
@@ -1190,7 +1191,12 @@ export class ChatRuntime {
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
     // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
     if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld, shared.everyone, shared.copies)
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ id: m.id, role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    // (an answer stopped or failed before any text, that ran tools: a line in its place, for its step record)
+    return this.store.pathTo(leafId).flatMap((m): { id: string; role: 'user' | 'assistant'; content: string }[] => {
+      if (m.role === 'user') return [{ id: m.id, role: m.role, content: composeMessage(m, this.store.attachmentsOf(m)) }]
+      const content = m.content.trim() ? m.content : emptyAnswerText(m)
+      return content === null ? [] : [{ id: m.id, role: m.role, content }]
+    })
   }
 
   siteGranted(userId: string, host: string): boolean {

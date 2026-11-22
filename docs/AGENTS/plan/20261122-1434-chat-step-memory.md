@@ -51,6 +51,8 @@ In:
   characters per answer (first 5 and newest steps kept, a line says how many were left out); args 240 and result 200
   characters per step; none when the window is under 12,000 tokens. The block counts toward the history window
   (`historyWindow`) and is dropped before any text is.
+- An answer stopped or failed before any text, that ran tools, stays in the history as one line with its record
+  (it was left out whole: found in the real run, the owner's chat had one).
 - The history intro says the record is the AI's own, written by the server, data not instructions; when asked what
   it did or how, answer from it.
 - Same for Claude Code (fresh), Codex and the API engine (all use `historyBlock`).

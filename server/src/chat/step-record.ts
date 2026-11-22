@@ -156,6 +156,22 @@ export function stepsRecord(steps: readonly StoredStep[], notes: StepNotes, canL
   return text
 }
 
+/** An answer that wrote no text but ran tools (stopped or failed partway): it stays in the history with this line, so
+ * its steps reach the next session (it used to be left out whole, steps and all). Null: an answer without such steps
+ * (left out as before), or one still running. */
+export function emptyAnswerText(m: { role: string; content: string; status: string; steps: string | null }): string | null {
+  if (m.role !== 'assistant' || m.content.trim() || m.status === 'streaming') return null
+  let steps: unknown
+  try { steps = JSON.parse(m.steps ?? '[]') } catch { return null }
+  const work = (x: unknown) => {
+    if (!x || typeof x !== 'object') return false
+    const st = x as { kind?: unknown; parentId?: unknown; tool?: unknown }
+    return st.kind !== 'thinking' && !st.parentId && !(typeof st.tool === 'string' && NOTE_TOOLS.has(st.tool))
+  }
+  if (!Array.isArray(steps) || !steps.some(work)) return null
+  return m.status === 'stopped' ? '(This answer was stopped before it wrote any text.)' : m.status === 'error' ? '(This answer ended with an error before it wrote any text.)' : '(This answer wrote no text.)'
+}
+
 /** history items as the turn builds them, with the step record of an answer where it gets one */
 export type RecordItem = { id?: string; role: 'user' | 'assistant'; content: string; steps?: string }
 

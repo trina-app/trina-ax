@@ -29,6 +29,8 @@
     others see). A check that fails keeps the notes out.
   - Results of tools that return content (read, grep, a page, a mail, a message list, a search: by name) are not kept:
     the AI reads them again, and the person may have lost access since. Memory tools keep no line.
+  - An answer that ran tools and was stopped or failed before it wrote any text was left out of the history whole
+    (steps and all). It now stays, as one line saying so, with its record.
   - Caps: the newest 6 eligible answers, 40 lines and 3,000 characters per answer (the first steps and the newest),
     6,000 characters in all, none for a model whose window is under 12,000 tokens. A record counts toward the history
     window and is the first thing left out: the text is never dropped or cut for it.

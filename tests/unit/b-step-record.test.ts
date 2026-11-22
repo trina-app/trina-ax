@@ -140,6 +140,21 @@ describe('a fresh session gets its own earlier steps', () => {
     expect(JSON.stringify(ws.alice!.frames.filter((f) => f.type === 'message.step'))).not.toContain('content=(16')
   })
 
+  test('an answer that ran tools and stopped or failed before any text stays in the history with its steps', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'codex' } })
+    const failed = await ask('alice', chat.id, 'save then fail\n' + fake({ tool: 'write', args: { file_path: 'users/alice/notes/half-DONE.md', content: 'x' } }, { fail: 'something broke' }))
+    expect([failed.done.status, failed.done.content]).toEqual(['error', ''])
+    const r = await ask('alice', chat.id, 'what happened?\n' + fake({ echo: 'system' }))
+    expect(r.done.content).toContain('Assistant: (This answer ended with an error before it wrote any text.)\n<steps_record>')
+    expect(records(r.done.content)).toContain('file_path="users/alice/notes/half-DONE.md"')
+    // an empty answer without tool steps is still left out
+    const plain = await ask('alice', chat.id, fake({ fail: 'nothing done' }))
+    expect([plain.done.status, plain.done.steps.length]).toEqual(['error', 0])
+    const ids = h.rt().history(plain.done.id).map((x) => x.id)
+    expect(ids).toContain(failed.done.id)
+    expect(ids).not.toContain(plain.done.id)
+  })
+
   test('a shared chat: the asker gets their own steps, never another person\'s, never an answer hidden from them', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
     const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'ALICEPATTERN*', path: 'projects/falcon' } }, { say: 'Looked.' }))
