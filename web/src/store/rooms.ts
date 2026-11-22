@@ -88,6 +88,9 @@ export interface PendingSend {
   /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
    * may have reached the server. Try again is safe (the same client id). */
   restored?: true
+  /** kept on this device as not sent (it had failed before the page went): put back, it waits for Try again; one still
+   * on its way when the page went goes again by itself (QA TC-r2d-06) */
+  keptFailed?: true
 }
 
 /** Where the reader was in a room they left: the first message in sight and how far below the list's top its top was.
@@ -521,6 +524,8 @@ const tooOld = (at: number) => !(at > Date.now() - ROOM_DEVICE_DAYS * 86_400_000
 /** the rooms whose kept sends are in this page's store already (restoreUnsent: the first change to the room's sends, or
  * opening it): until then a change to them adds to what the device kept, never writes over it */
 const restoredUnsent = new Set<string>()
+/** rooms whose kept sends this page sent again by itself already (open: once per room and page) */
+const retriedUnsent = new Set<string>()
 /** the sends this page saw end (sent, settled, let go, back in the box): never written back from another tab's copy */
 const goneHere = new Set<string>()
 /** sends this page is still making that another tab of mine saw end (let go, sent): failing here, they go, not back */
@@ -607,7 +612,7 @@ function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
   const mine = list ?? []
   const ids = new Set(mine.map((p) => p.clientMessageId))
   const others = storedUnsent(roomId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
-  const all = [...mine.map(({ state: _s, error: _e, restored: _r, ...p }) => p), ...others].sort(byCreated)
+  const all = [...mine.map(({ state, error: _e, restored: _r, keptFailed: _k, ...p }) => ({ ...p, ...(state === 'failed' ? { keptFailed: true as const } : {}) })), ...others].sort(byCreated)
   writeDraft(me, unsentStoreId(roomId), all.length ? JSON.stringify(all) : '')
 }
 
@@ -934,13 +939,19 @@ export const useRooms = create<RoomsState>((set, get) => {
       // (its answer lost when the app closed) is on that page and settles at once (settledPending), not shown failed
       // (a send before that page came adds them at once: setPending)
       void (kept ? get().loadAfter(roomId) : get().loadNewest(roomId)).finally(() => {
-        if (restoredUnsent.has(roomId) || get().openRoomId !== roomId) return
-        setPending(roomId, (list) => list)
-        // the ones that settled at once are gone from the device too
-        keepUnsent(roomId, get().pending[roomId])
-        // the rest go again by themselves (QA TC-r2d-06: a message written offline is sent once the connection is
-        // back, also after a reload), with the same client id: one the server did get comes back as that message
-        for (const p of get().pending[roomId] ?? []) if (p.restored) get().retry(roomId, p.clientMessageId)
+        if (get().openRoomId !== roomId) return
+        if (!restoredUnsent.has(roomId)) {
+          setPending(roomId, (list) => list)
+          // the ones that settled at once are gone from the device too
+          keepUnsent(roomId, get().pending[roomId])
+        }
+        // the ones still on their way when the page went go again by themselves, once per room and page (QA TC-r2d-06:
+        // a message written offline is sent once the connection is back, also after a reload; also when a send in the
+        // room put them back before this page came), with the same client id: one the server did get comes back as that
+        // message. The ones that had failed wait for Try again.
+        if (retriedUnsent.has(roomId)) return
+        retriedUnsent.add(roomId)
+        for (const p of get().pending[roomId] ?? []) if (p.restored && !p.keptFailed) get().retry(roomId, p.clientMessageId)
       })
       void get().loadMembers(roomId)
     },
@@ -1205,7 +1216,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     retry(roomId, clientMessageId) {
       const p = get().pending[roomId]?.find((x) => x.clientMessageId === clientMessageId)
       if (!p || p.state === 'sending') return
-      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined } : x)))
+      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined, keptFailed: undefined } : x)))
       // the same client id: a send the server did get before the failure comes back as that message, not a second one
       void post(roomId, { ...p, state: 'sending' })
     },
@@ -1568,6 +1579,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       roomDrafts.clear()
       roomDraftMentions.clear()
       restoredUnsent.clear()
+      retriedUnsent.clear()
       goneHere.clear()
       goneElsewhere.clear()
       useSideChats.getState().reset()

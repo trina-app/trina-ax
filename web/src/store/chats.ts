@@ -9,6 +9,7 @@ import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { connectionDown, whenConnected } from '../lib/connectionWait'
 import { readUnsentChat, writeUnsentChat, type KeptChatSend } from '../lib/unsentChats'
+import { draftKey } from '../lib/localData'
 import { useSession } from './session'
 import { keepFaces } from '../lib/sharedChat'
 import { browserTimeZone } from '../lib/time-zones'
@@ -120,6 +121,8 @@ const outbox = new Map<string, OutboxJob>()
 /** clientMessageIds of sends this page saw end (sent, let go): never put back from the device, whatever another tab of
  * mine still keeps */
 const goneHere = new Set<string>()
+/** localIds of sends waiting for the connection to come back (Stop does not wait for them) */
+const waitingOffline = new Set<string>()
 /** chats whose kept sends this page has put back already (once per chat and session) */
 const restoredUnsent = new Set<string>()
 const myId = () => {
@@ -148,6 +151,31 @@ function endSend(localId: string) {
   goneHere.add(job.clientMessageId)
   keepUnsent(job.chatId)
 }
+/** Another tab of mine changed a chat's kept sends (the window's "storage" event): a "not sent" bubble of this page whose
+ * send is gone from there was let go or sent in that tab, and goes here too (one on its way stays: its own answer
+ * decides). Nothing is ever sent from here. */
+export function onChatUnsentElsewhere(key: string | null, value: string | null) {
+  const me = myId()
+  const head = draftKey(me ?? '', 'chatUnsent:')
+  if (!me || !key?.startsWith(head)) return
+  const chatId = key.slice(head.length)
+  let there: Set<string>
+  try {
+    const v = JSON.parse(value || '[]') as unknown
+    there = new Set(Array.isArray(v) ? v.map((p) => (p as { clientMessageId?: unknown })?.clientMessageId).filter((x): x is string => typeof x === 'string') : [])
+  } catch { return }
+  const gone = [...outbox.entries()].filter(([, j]) => j.chatId === chatId && j.failed && !there.has(j.clientMessageId)).map(([id]) => id)
+  if (!gone.length) return
+  for (const id of gone) {
+    goneHere.add(outbox.get(id)!.clientMessageId)
+    outbox.delete(id)
+  }
+  useChats.setState((s) => {
+    const t = s.threads[chatId]
+    return t ? { threads: { ...s.threads, [chatId]: { ...t, messages: t.messages.filter((m) => !gone.includes(m.id)) } } } : {}
+  })
+}
+
 /** A send that waited (offline, or put back after a reload): the conversation may have gone on meanwhile, so it goes
  * under the newest end of the branch through the message it answered, not under that message (a new version). */
 function goesAtEnd(job: OutboxJob) {
@@ -397,7 +425,7 @@ export const useChats = create<ChatsState>((set, get) => {
             replayingFailed = false
           }
           // the sends this device kept for the chat come back, after the server's copy is in (or could not be read)
-          restoreUnsent(chatId, failed)
+          restoreUnsent(chatId)
           if (failed && retry && get().threads[chatId]) {
             setThread(chatId, (t) => ({ ...t, stale: true }))
             if (!loadRetries.has(chatId)) loadRetries.set(chatId, setTimeout(() => {
@@ -538,6 +566,12 @@ export const useChats = create<ChatsState>((set, get) => {
         })
         if (session !== generation) return
         endSend(localId)
+        // a send put back after a reload that the server did get before (its answer was lost when the page went): the
+        // server's copy is on screen already, in its place; only the bubble goes
+        if (started.userMessage && thread(job.chatId).messages.some((m) => m.id === started.userMessage!.id && !m.local)) {
+          setThread(job.chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
+          return
+        }
         afterStarted(job.chatId, started, { replaceId: localId }, epoch)
         return
       } catch (e) {
@@ -558,7 +592,8 @@ export const useChats = create<ChatsState>((set, get) => {
         if (isNetworkError(e) && connectionDown()) {
           goesAtEnd(job)
           keepUnsent(job.chatId)
-          await whenConnected()
+          waitingOffline.add(localId)
+          try { await whenConnected() } finally { waitingOffline.delete(localId) }
           if (session !== generation || !outbox.has(localId)) return
           job.firstTry = Date.now()
           attempt = -1
@@ -609,9 +644,9 @@ export const useChats = create<ChatsState>((set, get) => {
   }
 
   /** The chat's sends this device kept (a reload, the app closed while offline) back on screen, once per chat: the ones
-   * on their way go again (the same clientMessageId), the ones that did not go show "not sent [send again]". One whose
-   * message the server's copy already has (its answer was lost when the page went) is not put back. */
-  const restoreUnsent = (chatId: string, unread: boolean) => {
+   * on their way go again (the same clientMessageId: one the server did get comes back as that message, never a second
+   * one), the ones that did not go show "not sent [send again]". */
+  const restoreUnsent = (chatId: string) => {
     const me = myId()
     if (!me || restoredUnsent.has(chatId) || !get().threads[chatId]) return
     restoredUnsent.add(chatId)
@@ -619,11 +654,9 @@ export const useChats = create<ChatsState>((set, get) => {
     if (!kept.length) return
     const have = new Set([...outbox.values()].map((j) => j.clientMessageId))
     const shown = thread(chatId).messages
-    const delivered = (p: KeptChatSend) => !unread && shown.some((m) => !m.local && m.role === 'user' && m.author?.id === me && m.content === p.content && Date.parse(m.createdAt) >= Date.parse(p.createdAt) - 60_000)
     const back: string[] = []
     for (const p of kept) {
       if (have.has(p.clientMessageId) || goneHere.has(p.clientMessageId) || shown.some((m) => m.id === p.localId)) continue
-      if (delivered(p)) { goneHere.add(p.clientMessageId); continue }
       const job: OutboxJob = { chatId, clientMessageId: p.clientMessageId, content: p.content, attachments: p.attachments, attachmentIds: p.attachments.map((a) => a.id), parentId: p.parentId, after: p.after, engine: p.engine, model: p.model, firstTry: Date.now(), author: p.author, createdAt: p.createdAt, ...(p.failed ? { failed: { error: p.error } } : {}) }
       goesAtEnd(job)
       outbox.set(p.localId, job)
@@ -648,6 +681,7 @@ export const useChats = create<ChatsState>((set, get) => {
       outbox.clear()
       goneHere.clear()
       restoredUnsent.clear()
+      waitingOffline.clear()
       pending.clear()
       delivering.clear()
       loads.clear()
@@ -759,7 +793,8 @@ export const useChats = create<ChatsState>((set, get) => {
       // nothing and the answer would start anyway. Wait until the send returns its turn (or fails), then stop it.
       // (a send started after this press is not waited for: the box holds new messages while an answer runs)
       const session = generation
-      const sending = [...delivering.values()].filter((d) => d.chatId === chatId).map((d) => d.done)
+      // (one waiting for the connection to come back is not waited for: the stop goes now)
+      const sending = [...delivering.entries()].filter(([id, d]) => d.chatId === chatId && !waitingOffline.has(id)).map(([, d]) => d.done)
       if (sending.length) {
         await Promise.all(sending)
         if (session !== generation) return
@@ -971,3 +1006,8 @@ export const useChats = create<ChatsState>((set, get) => {
 export const useProviderBusy = (messageId: string | undefined) => useChats((s) => (messageId ? !!s.busy[messageId] : false))
 /** Queue position of a message, or undefined when not queued. */
 export const useQueuePosition = (messageId: string | undefined) => useChats((s) => (messageId ? s.queue[messageId] : undefined))
+
+// another tab of mine changed what this device keeps of a chat's sends
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => onChatUnsentElsewhere(e.key, e.newValue))
+}

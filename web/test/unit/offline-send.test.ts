@@ -130,7 +130,7 @@ describe('chat', () => {
     expect(readUnsentChat(ME.id, CHAT)).toEqual([])
   })
 
-  test('one the server already has (its answer was lost when the page went) is not put back', async () => {
+  test('one the server already has (its answer was lost when the page went): sent again, the server copy stays in its place', async () => {
     const answer = msg({ role: 'assistant', content: 'earlier' })
     useChats.setState({ threads: { [CHAT]: { messages: [answer], nextCursor: null, stale: false } } })
     useUi.setState({ conn: 'offline' })
@@ -141,11 +141,17 @@ describe('chat', () => {
     useUi.setState({ conn: 'open' })
     calls = []
     const saved = msg({ role: 'user', parentId: answer.id, content: 'landed', author: me })
-    route = (m, p) => (m === 'GET' && p === `/api/chats/${CHAT}/messages` ? json({ items: [answer, saved], nextCursor: null }) : json({ items: [] }))
+    const reply = msg({ role: 'assistant', parentId: saved.id, content: 'echo' })
+    const later = msg({ role: 'user', parentId: reply.id, content: 'later', author: me })
+    route = (m, p) => {
+      if (m === 'GET' && p === `/api/chats/${CHAT}/messages`) return json({ items: [answer, saved, reply, later], nextCursor: null })
+      if (m === 'GET') return json({ items: [] })
+      return json({ userMessage: saved, assistantMessage: reply, turnId: uuidv7(), queuePosition: 0 }, 202)
+    }
     await useChats.getState().loadThread(CHAT)
     await tick(10)
-    expect(calls.some((c) => c.method === 'POST')).toBe(false)
-    expect(useChats.getState().threads[CHAT]!.messages.some((m) => m.local)).toBe(false)
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1)
+    expect(useChats.getState().threads[CHAT]!.messages.map((m) => m.id)).toEqual([answer.id, saved.id, reply.id, later.id])
     expect(readUnsentChat(ME.id, CHAT)).toEqual([])
   })
 
@@ -178,7 +184,7 @@ describe('room', () => {
     let online = false
     route = (_m, _p, body) => {
       if (!online) throw new TypeError('Failed to fetch')
-      return json(message({ roomId: r.id, seq: 1, authorId: ME.id, body: body.body, clientMessageId: body.clientMessageId }))
+      return json(message({ roomId: r.id, seq: 1, author: me, body: body.body, clientMessageId: body.clientMessageId }))
     }
     useRooms.getState().send(r.id, { body: '확인할게요', mentions: [], files: [] })
     await tick(10)
@@ -205,7 +211,7 @@ describe('room', () => {
     useUi.setState({ conn: 'open' })
     calls = []
     route = (m, p, body) => {
-      if (m === 'POST' && p === `/api/rooms/${r.id}/messages`) return json(message({ roomId: r.id, seq: 1, authorId: ME.id, body: body.body, clientMessageId: body.clientMessageId }))
+      if (m === 'POST' && p === `/api/rooms/${r.id}/messages`) return json(message({ roomId: r.id, seq: 1, author: me, body: body.body, clientMessageId: body.clientMessageId }))
       if (m === 'GET' && p === `/api/rooms/${r.id}/messages`) return json({ items: [], nextCursor: null, newerCursor: null })
       return json({ items: [] })
     }
