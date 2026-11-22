@@ -18,8 +18,8 @@ Plan: docs/AGENTS/plan/20261122-2301-fewer-asks-b5.md.
   the tools: in a side chat, share_with_person, share_folder (adding) and post_to_room are refused before any card when
   neither the asker's own message nor their message before it in the chat has any word about sharing, sending,
   showing, posting, replying or linking (six languages, `talksOfSharing`, far wider than the explicit-ask word lists:
-  it fails open). Not for a scheduled run or Slack. It applies with "Always allow" on too: that choice is for shares the
-  person asks for, and this refuses only a share nobody asked for (it never makes a card ask again).
+  it fails open). Not for a scheduled run or Slack, and not when the person's own "Always allow" for that kind is on
+  (Rule A: no guard on top of it; the gate only stops a card nobody asked for).
 - **The chat's own file in the person's folder asks nothing.** A copy_files of only this chat's places (chat:work/…,
   chat:files/…) into a team folder weighs the files it lands as (the names copyOne gives them, `landingPaths`), not
   the folder: a new name asks nothing, as any save. A landing name that is there and is the chat's own file

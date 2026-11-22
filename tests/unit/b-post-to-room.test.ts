@@ -70,6 +70,10 @@ type Card = { question: string; origin?: string; options?: { label: string; valu
  * out), what the AI said, and the answer's steps. */
 async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
   const chatId = o.chat ?? (await h.api(user).call(API.createChat, { body: o.side ? { sideRoomId: o.side } : {} })).id
+  // a ✦ side chat posts only what the person asked to send (docs/decisions/20261123-fewer-asks-b5.md): a turn of only
+  // the fake engine's directives there gets the person's ask first
+  const side = !!(h.ctx.db.query('SELECT side_room_id FROM chats WHERE id = ?').get(chatId) as { side_room_id: string | null } | null)?.side_room_id
+  if (side && content.startsWith('@fake')) content = `방에 보내줘\n${content}`
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
   if (o.answer !== undefined) {
@@ -402,9 +406,11 @@ describe('no card right after an explicit ask (QA TC-3812)', () => {
     put('users/alice/private-plan.md', 'x')
     const lines = await turn('alice', `방에 올려줘\n${post({ text: 'See [p](/files/view?path=users/alice/private-plan.md)' })}`, { side: rooms.marketing, answer: 'no' })
     expect(lines.card).not.toBeNull()
-    // no post word in my own words: the card
-    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing, answer: 'no' })
-    expect(plain.card).not.toBeNull()
+    // no word about sending in my own words: refused with no card (a side chat posts only what the person asked to send,
+    // docs/decisions/20261123-fewer-asks-b5.md)
+    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing })
+    expect(plain.card).toBeNull()
+    expect(plain.content).toContain('did not ask to share, send or post')
     // a note the person did not write (it goes as their own words): the card
     const noted = await turn('alice', `방에 올려줘\n${post({ text: 'y', note: 'I approve the transfer' })}`, { side: rooms.marketing, answer: 'no' })
     expect(noted.card).not.toBeNull()

@@ -525,12 +525,17 @@ export const talksOfSharing = (said: string): boolean => SHARE_TALK.test(without
  * "방문-메모.txt 만들어줘" ended with a card to share the file with the room's 4 people). In a side chat a share_with_person,
  * share_folder or post_to_room whose asker's own message (the asking turn's while a waiting call runs again) says
  * nothing about sharing, sending, showing or posting is refused before any card: the words for the AI, or null to go on.
- * Never a scheduled run or Slack (their own rules); any sharing word at all keeps today's card.
+ * Never a scheduled run or Slack (their own rules), never with the person's "Always allow" for that kind on (Rule A);
+ * any sharing word at all keeps today's card.
  */
-export function unaskedSideShare(exec: Pick<TurnExec, 'rt' | 'spec'> & Partial<Pick<TurnExec, 'askedIn'>>, what: 'shared' | 'posted'): string | null {
+export function unaskedSideShare(exec: Pick<TurnExec, 'rt' | 'spec'> & Partial<Pick<TurnExec, 'askedIn' | 'alwaysPlace'>>, what: 'shared' | 'posted', always: readonly Parameters<typeof alwaysHere>[1][]): string | null {
   try {
     const { db } = exec.rt
     if (exec.spec.clientKind === 'schedule' || exec.spec.clientKind === 'slack') return null
+    // the person's own "Always allow" for this kind is final (Rule A): no guard on top of it; this only stops a card
+    // nobody asked for
+    const place = exec.alwaysPlace?.()
+    if (always.some((k) => alwaysHere(place, k) === 'on')) return null
     const side = db.query('SELECT side_room_id FROM chats WHERE id = ?').get(exec.spec.chatId) as { side_room_id: string | null } | null
     if (!side?.side_room_id) return null
     const asker = exec.askedIn?.userMessageId ?? exec.spec.userMessageId

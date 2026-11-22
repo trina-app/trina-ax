@@ -246,7 +246,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (main === 'sub-agent') return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
         if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
         // a ✦ side chat: nothing is posted that the person never asked to send (no card for it either)
-        const unasked = unaskedSideShare(exec, 'posted')
+        const unasked = unaskedSideShare(exec, 'posted', ['post_to_room', 'post_files'])
         if (unasked) return no(unasked, 'refused: not asked (side chat)')
         // what this answer read so far joins the chat's read scope first: the check counts every place of it
         exec.noteReads()

@@ -116,7 +116,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         if (main === 'sub-agent') return no('Nothing was changed: only the main assistant can share folders, after the user\'s yes on its card. Name the folder in your result instead.', 'refused: sub-agent')
         if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
         // a ✦ side chat: no folder is shared that the person never asked to share (stopping a share is never refused)
-        const unasked = a.data.add.length > 0 ? unaskedSideShare(exec, 'shared') : null
+        const unasked = a.data.add.length > 0 ? unaskedSideShare(exec, 'shared', ['share_folder']) : null
         if (unasked) return no(unasked, 'refused: not asked (side chat)')
         const me = exec.livePrincipal()
         const shares = fileSharesOf(rt.ctx)
