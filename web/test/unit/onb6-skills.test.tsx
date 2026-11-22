@@ -579,7 +579,7 @@ describe('the example viewer', () => {
     for (const team of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) {
       // as the server picks them: the everyday skill in the team's language, the intro deck's text in Korean or English
       const deck = team === 'ko' ? 'ko' : 'en'
-      const items = everydayCatalog().filter((s) => s.name === 'meeting-notes' || s.name === 'intro-deck')
+      const items: PackCatalogSkill[] = everydayCatalog().filter((s) => s.name === 'meeting-notes' || s.name === 'intro-deck')
         .map((s) => (s.name === 'meeting-notes' ? { ...s, locale: team, example: packExample(team, s.name, team) } : { ...s, locale: deck, example: packExample(deck, s.name, team) }))
       const m = await rows(items)
       try {
