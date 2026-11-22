@@ -133,7 +133,7 @@ describe('the snapshot of Steepling (en)', () => {
     const demo = JSON.parse(fs.readFileSync(L.demo, 'utf8'))
     expect(demo).toMatchObject({ kind: 'freeRoam', fakes: { content: 'fakes' }, signupUrl: 'https://demo.trina.app/__demo/go/start-free' })
     expect(demo.personas.map((p: { username: string }) => p.username)).toEqual(['mina'])
-    expect(demo.freeRoam.suggestions.length).toBe(3)
+    expect(demo.freeRoam.suggestions.length).toBe(4)
     expect(JSON.parse(fs.readFileSync(L.config, 'utf8'))).toMatchObject({ engine: { authMode: 'managed' }, fileList: { enabled: false }, dataDir: '../data', teamRoot: '../team' })
     // a snapshot that was not scrubbed is told apart
     const dirty = path.join(tmp, 'dirty')
