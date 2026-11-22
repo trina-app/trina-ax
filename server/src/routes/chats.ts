@@ -771,16 +771,15 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.userSharedChats, ({ params }) => ({ sharedChats: peopleSharedChatsOf(ctx, params.id) }))
     kit.handle(API.hideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), true))
     // "Mute this chat" / "Unmute" (chat/message-notices.ts): a chat shared with people I see; mine only. Anything else: 400
-    const muted = (c: Context<AppEnv>, auth: AuthInfo, id: string, mute: boolean): Chat => {
-      const a = chatOf(rt, c, auth, id, 'view')
+    const muted = (auth: AuthInfo, a: ChatAccess, mute: boolean): Chat => {
       if (a.kind !== 'people') fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
       setMuted(ctx, auth.user.id, a.row.id, mute)
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
       rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: out } })
       return out
     }
-    kit.handle(API.muteChat, ({ c, params, auth }) => muted(c, auth, params.id, true))
-    kit.handle(API.unmuteChat, ({ c, params, auth }) => muted(c, auth, params.id, false))
+    kit.handle(API.muteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), true))
+    kit.handle(API.unmuteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), false))
     // a file kept with a chat shared with people (chat/chat-files.ts): whoever sees the chat now (its creator in the trash
     // too), else the 404 of a missing chat; a file not sent yet only for its sender. Sent as a room file is (streamFile:
     // nosniff, a sandbox CSP, a page or script type inline as text/plain); one on the download-only list only as a

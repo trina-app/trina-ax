@@ -48,10 +48,12 @@ export function forgetChatNotices(db: Database, userId: string, chatId: string) 
   db.query('DELETE FROM chat_mutes WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
 }
 
-/** My unread notices in this chat (the row's number) and whether one of them mentions me (the row's "@"). */
-export function unreadOf(db: Database, userId: string, chatId: string): { n: number; mention: boolean } {
-  const r = db.query('SELECT COUNT(*) n, MAX(mention) m FROM chat_message_notices WHERE user_id = ? AND chat_id = ? AND read_at IS NULL AND suppressed = 0').get(userId, chatId) as { n: number; m: number | null }
-  return { n: r.n, mention: r.m === 1 }
+/** My unread notices in this chat (the row's number), whether one of them mentions me (the row's "@") and my mute, in
+ * one read (chat/shared.ts chatView runs it for each chat shared with people in a list). */
+export function unreadOf(db: Database, userId: string, chatId: string): { n: number; mention: boolean; muted: boolean } {
+  const r = db.query(`SELECT COUNT(*) n, MAX(mention) m, EXISTS(SELECT 1 FROM chat_mutes WHERE chat_id = ?2 AND user_id = ?1) muted
+    FROM chat_message_notices WHERE user_id = ?1 AND chat_id = ?2 AND read_at IS NULL AND suppressed = 0`).get(userId, chatId) as { n: number; m: number | null; muted: number }
+  return { n: r.n, mention: r.m === 1, muted: r.muted === 1 }
 }
 
 /** I had the chat on screen, or wrote in it: its notices are read and their pushes that still wait go. True when

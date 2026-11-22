@@ -328,7 +328,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   const peopleChat = isPeopleShared(chat)
   // a chat shared with people: who the box's "@" may mention (GET …/audience mentionable), read again when who sees it changes
   const [mentionPeople, setMentionPeople] = useState<UserRef[] | undefined>(undefined)
-  const audienceKey = peopleChat ? `${chatId}:${shared?.audience ?? 0}` : null
+  // (read again as the chat changes: who sees it may have changed meanwhile; a member is not told the count)
+  const audienceKey = peopleChat ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
   useEffect(() => {
     if (!audienceKey) { setMentionPeople(undefined); return }
     let live = true

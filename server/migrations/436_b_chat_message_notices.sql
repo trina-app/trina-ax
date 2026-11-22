@@ -4,7 +4,7 @@
 -- (shared-chat leave notices).
 --   chat_message_notices: one row per message and person who sees the chat (never its sender). kind 'message': a
 --     person's message (pushed while it holds); kind 'answer': Trina's answer to someone else (the unread number only,
---     never pushed). quiet: made inside the person's quiet hours, never pushed. mention: the message mentions them ("@" in the box: it reaches them in a chat they muted too).
+--     never pushed). quiet: never pushed (made inside the person's quiet hours, with their room default "nothing", or an answer). mention: the message mentions them ("@" in the box: it reaches them in a chat they muted too).
 --     source_id is the message, so the Inbox
 --     reads it like every notice table (it never lists these: the chat row's number shows them). Metadata only.
 --   chat_message_push_deliveries: the same columns as push_deliveries (server/src/notifications/push-service.ts SOURCES).

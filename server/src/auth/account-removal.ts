@@ -102,7 +102,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_messages.asked_by': 'as author_id',
   'room_message_mentions.user_id': 'where a message mentions them, kept by triggers from room_messages.mentions (which keeps their id like author_id): goes when the message is deleted, its mentions cleared or the room goes',
   'chat_thread_notices.by_user': 'other people\'s Inbox notices name the newest replier only while that account is active (chat/threads.ts chatThreadNoticeOut); the id alone stays until the notice is read or ages out',
-  'chat_message_notices.by_user': 'who wrote the message of another person\'s notice in a shared chat: a phone\'s notification names them only while that account is active (chat/message-notices.ts chatMessageLabel); the id alone stays until the notice ages out',
+  'chat_message_notices.by_user': 'who wrote the message of another person\'s notice in a shared chat: never shown (chat/message-notices.ts); the id alone stays until the notice ages out',
   'access_requests.owner_id': 'whose chat or project another person asked to open: the key of the per-owner daily limit (chat/access-requests.ts), never shown; the request goes with the asker\'s account or ages with its target',
   'access_requests.decided_by': 'who answered another person\'s request (Share or Decline), never shown to anyone; the audit log has the history',
   'storage_notices.by_user': 'the admin who asked people to clean up (the next step of docs/decisions/20261116-storage-full-notices.md), named only while that account is active; the id alone stays until the notice ages out',

@@ -59,6 +59,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
   { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest', 'chatFileAccess', 'requestChatFile', 'chatFileVersions', 'saveChatFile', 'restoreChatFileVersion'] },
   { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer; the AI reads it when asked, or someone sends it)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
+  { id: 'chat.message-notices', name: 'New messages in a chat shared with people tell the others (unread number, push, desktop), Mute this chat, @mentions', area: 'AI chat', endpoints: ['muteChat', 'unmuteChat'], screens: ['/c/:chatId/m/:target'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },

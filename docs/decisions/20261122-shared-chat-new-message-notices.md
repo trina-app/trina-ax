@@ -19,11 +19,14 @@
   (`kind='answer'`): never pushed, rung or told on the desktop, so the chat is not noisy.
 - **Mute:** "Mute this chat" (`chat_mutes`) in the row's ··· menu, per person. Muted: no notices at all, no grey count
   (unlike a room at 끄기: lean). A message that mentions them still reaches them.
-- **Mentions:** the main box lists everyone who sees the chat but me ("@", the rooms' mention box; no "@everyone": every
-  message tells everyone anyway). Picked ids go with the message (`mentions`); the server keeps only those who see the
+- **Mentions:** the main box lists everyone who sees the chat but me (a group's people only for the creator and admins
+  and for my own groups: S8, never who is in someone else's group), with the rooms' mention box ("@"; no "@everyone":
+  every message tells everyone anyway). Picked ids go with the message (`mentions`); the server keeps only those who see the
   chat. A mention's notice reaches a muted chat, the desktop says "mentioned you", the row shows "@".
 - **Reading:** opening the chat (POST /api/chats/:id/seen, any viewer) or writing in it reads that person's notices and
-  cancels pushes that still wait. Someone taken out loses their notices and mute.
+  cancels pushes that still wait. Someone taken out by the creator loses their notices and mute; someone who loses the
+  chat another way (a group change) keeps their unread notices, made while they saw it, and sees them again if they get
+  it back (no push meanwhile: the push checks who sees the chat).
 - **Left out:** an Activity row per message (a room's DM message has none either: the chat row shows it), the message's
   text or the sender's name on the phone (the gateway asks the team for words only for room codes and chat.shared: a
   gateway and phone app change), a push delay for a window that has the chat on screen (rooms push at once too; the away

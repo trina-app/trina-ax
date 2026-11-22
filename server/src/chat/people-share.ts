@@ -140,8 +140,13 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
   const made = a.creator ? madeFilesOf(ctx, r) : []
   const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
-  // who the message box may mention (chat/message-notices.ts): the people who see it now but me, as a thread lists them
-  const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
+  // who the message box may mention (chat/message-notices.ts): the people who see it now but me. A group's people only
+  // for the creator and admins (S8, as above) and in the groups I am in myself: anyone else sees the creator, the people
+  // named and their own groups' people, so the list never says who or how many are in someone else's group
+  const named = new Set([r.user_id, ...subjects.filter((s) => s.type === 'user').map((s) => s.id)])
+  const myGroups = subjects.filter((s) => s.type === 'group' && !!me?.groups.includes(s.id)).map((s) => s.id)
+  const visibleTo = (id: string) => full || named.has(id) || (myGroups.length > 0 && groupsOfIn(db, id, myGroups).length > 0)
+  const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId && visibleTo(id)).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
     .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
   return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, mentionable }
 }
