@@ -251,11 +251,12 @@ export function createPublic(d: PublicDeps) {
     if (current) { res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end() }
     if (d.paused()) { stats.bump(locale, 'refusedPaused'); return page(res, 503, 'busy', locale) }
     if (pool.liveCount() >= cfg.pool.maxLive) { stats.bump(locale, 'refusedFull'); return page(res, 503, 'busy', locale) }
-    const limit = state.startRefusal(ip, cfg.limits.startsPerHour, cfg.limits.startsPerDay)
+    const exempt = state.isExempt(ip, cfg.limits.exemptIpHashes)
+    const limit = exempt ? null : state.startRefusal(ip, cfg.limits.startsPerHour, cfg.limits.startsPerDay)
     if (limit) { stats.bump(locale, 'refusedLimit'); log.info('start refused: limit', { visitor: tag, limit }); return page(res, 429, 'limit', locale, {}, limit) }
     if (!(await turnstileOk(form.get('cf-turnstile-response') ?? '', ip))) { stats.bump(locale, 'turnstileFail'); log.info('start refused: turnstile', { visitor: tag }); return page(res, 400, 'check', locale) }
     stats.bump(locale, 'turnstilePass')
-    const got = pool.take(locale, ip)
+    const got = pool.take(locale, ip, exempt ? cfg.limits.exemptLivePerIp : cfg.limits.livePerIp)
     if (typeof got === 'string') {
       log.info('start refused', { visitor: tag, reason: got })
       stats.bump(locale, got === 'ip_live' ? 'refusedLimit' : got === 'paused' ? 'refusedPaused' : 'refusedFull')
@@ -267,7 +268,7 @@ export function createPublic(d: PublicDeps) {
     const token = crypto.randomBytes(32).toString('base64url')
     visitors.set(token, got.id)
     stats.bump(locale, 'starts')
-    log.info('visitor started', { visitor: tag, instance: got.id, locale })
+    log.info('visitor started', { visitor: tag, instance: got.id, locale, exempt: exempt || undefined })
     // `fresh=1`: the web app clears the tab's own per-user keys on this first load and drops the parameter. Clear-Site-Data
     // is not enough on its own: WebKit (Safari) ignores it on this redirect (checked by hand 2026-11-22; Chrome honours it)
     res.writeHead(303, {
