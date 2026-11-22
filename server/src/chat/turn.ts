@@ -6110,7 +6110,10 @@ export function answerShellOutputs(input: unknown): string[] | null {
 export function commandShape(input: unknown): string | null {
   if (!answerShellOutputs(input)) return null
   const c = (input as { command: string }).command
-  return c.replace(/\d+(?:\.\d+)?/g, '#').replace(/\s+/g, ' ').trim()
+  // code built from numbers or escapes, or run from a string, could be anything with other numbers: never covered
+  if (/\b(?:exec|eval|chr|fromhex|fromCharCode|b64decode|atob)\s*\(|\bbase64\b|\\x[0-9a-f]|\\u[0-9a-f]|\$'|\b(?:ba|z)?sh\s+-c\b|\b(?:perl|ruby|node)\s+-e\b/i.test(c)) return null
+  // only a number standing alone (not part of a name, a path or an escape) is "#"
+  return c.replace(/(?<![\w./\\$-])\d+(?:\.\d+)?(?![\w./])/g, '#').replace(/\s+/g, ' ').trim()
 }
 
 /** the kind of a file a command makes, by its extension (shellCardWords) */

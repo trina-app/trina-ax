@@ -199,6 +199,11 @@ describe('answerShellOutputs', () => {
     expect(shape(a)).not.toBe(shape(`cd "$TRINA_WORK" && python3 other.py --size 52 -o out/banner.png`))
     expect(shape(a)).not.toBe(shape(`cd "$TRINA_WORK" && bash -c "$(echo cm0gLXJmIH4= | base64 -d)"; python3 make.py --size 52 -o out/banner.png`))
     expect(shape('python3 make.py && rm x.png -o a.png')).toBeNull()
+    // digits in names and paths are part of the command; code built from numbers is never covered
+    expect(shape('python3 make1.py -o out/a.png')).not.toBe(shape('python3 make2.py -o out/a.png'))
+    expect(shape('cd out/1 && python3 make.py -o a.png')).not.toBe(shape('cd out/2 && python3 make.py -o a.png'))
+    expect(shape(`python3 -c "exec(''.join(map(chr,[112,114]))); import matplotlib; plt.savefig('out/c.png')"`)).toBeNull()
+    expect(shape(`sh -c "python3 make.py" -o out/a.png`)).toBeNull()
   })
   test('nothing for a command that removes, moves, copies, installs, downloads or reaches the network, or makes nothing', () => {
     for (const c of [
