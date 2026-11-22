@@ -24,7 +24,7 @@ export const SCANS: { name: string; roots: string[]; exts: string[]; re: RegExp 
     name: 'server card',
     roots: ['server/src'],
     exts: ['.ts'],
-    re: /waitForPerson\(|askPerson\(|askAlways\(|askConfirm\(|withAlways\(|\.confirm\(|type: 'turn\.request'|kind: 'ask_user'|kind: 'connect_service'|kind: 'browser_site'|kind: 'dev_env_site'|status: 'confirm'|state: 'confirm'|ACTION_POST\w* =|ACTION_LINK =/,
+    re: /waitForPerson\(|askPerson\(|askAlways\(|askConfirm\(|withAlways\(|\.confirm\(|type: 'turn\.request'|kind: 'ask_user'|kind: 'connect_service'|kind: 'browser_site'|kind: 'dev_env_site'|status: 'confirm'|state: 'confirm'|ACTION_POST\w* =|ACTION_LINK =|\.choose!?\(|confirmWhy!?\(|askerPicks\(|confirmWidening\(|confirmRoomChange\(|confirmSharedRead\(|confirmSkillWrite\(|confirmSharedConnection\(/,
   },
   {
     // the web app's confirm dialogs (components/ui.tsx, chat/ShareToRoom.tsx, a password again: ReauthDialog), the
@@ -32,19 +32,22 @@ export const SCANS: { name: string; roots: string[]; exts: string[]; re: RegExp 
     name: 'web dialog',
     roots: ['web/src'],
     exts: ['.ts', '.tsx'],
-    re: /confirmDialog\(|choiceDialog\(|useConfirmStep[<(]|window\.confirm\(|<ReauthDialog\b|Notification\.requestPermission|getUserMedia\(|beforeinstallprompt/,
+    re: /confirmDialog\(|choiceDialog\(|useConfirmStep[<(]|window\.confirm\(|<ReauthDialog\b|t\('[\w.]+[cC]onfirmTitle'|data-testid="[\w-]*-confirm(-step)?"|addEventListener\('beforeunload'|Notification\.requestPermission|getUserMedia\(|beforeinstallprompt/,
   },
   {
     // the desktop, menu bar and phone apps: system permission prompts and native dialogs
     name: 'app prompt',
     roots: ['desktop/src', 'desktop/electron-builder.config.ts', 'desktop/electron-builder.devid.config.ts', 'menubar/Sources', 'mobile/App.tsx', 'mobile/app.config.ts', 'mobile/src', 'mobile/modules', 'mobile/plugins', 'native'],
-    exts: ['.ts', '.tsx', '.js', '.swift', '.kt', '.go', '.m'],
-    re: /showMessageBox|showOpenDialog|askForMediaAccess|requestPermission|requestPermissionsAsync|new Notification\(|pane\.ask\(|launchImageLibraryAsync|alertdialog|getUserMedia\(|requestAuthorization|PermissionsAndroid|\.confirm\(|NS\w+UsageDescription|android\.permission\.|'(RECORD_AUDIO|CAMERA|POST_NOTIFICATIONS|READ_MEDIA_\w+)'/,
+    exts: ['.ts', '.tsx', '.js', '.swift', '.kt', '.java', '.go', '.m', '.plist', '.xml'],
+    re: /showMessageBox|showOpenDialog|showSaveDialog|'will-download'|askForMediaAccess|requestPermission|requestPermissionsAsync|new Notification\(|pane\.ask\(|launchImageLibraryAsync|alertdialog|getUserMedia\(|requestAuthorization|PermissionsAndroid|\.confirm\(|NS\w+UsageDescription|android\.permission\.|'(RECORD_AUDIO|CAMERA|POST_NOTIFICATIONS|READ_MEDIA_\w+)'/,
   },
 ]
-const SKIP_DIR = new Set(['node_modules', 'dist', 'build', 'e2e', 'test', 'tests', '__tests__', '.expo', 'ios', 'android'])
+// mobile/modules/<name>/ios and android are native code of our own and are scanned; the generated app projects
+// (mobile/ios, mobile/android after a prebuild) are not
+const SKIP_DIR = new Set(['node_modules', 'dist', 'build', 'e2e', 'test', 'tests', '__tests__', '.expo', 'Pods'])
+const SKIP_PATH = new Set(['mobile/ios', 'mobile/android'])
 /** a comment line names an ask without raising one */
-const COMMENT = /^\s*(\/\/|\/\*|\*|#)/
+const COMMENT = /^\s*(\/\/|\/\*|\*(\s|\/|$)|#)/
 const isTestFile = (f: string) => /\.(test|spec)\.[a-z]+$/.test(f)
 
 function walk(rel: string, exts: string[], out: string[]): void {
@@ -53,7 +56,7 @@ function walk(rel: string, exts: string[], out: string[]): void {
   const st = fs.statSync(abs)
   if (st.isFile()) { if (exts.some((e) => rel.endsWith(e)) && !isTestFile(rel)) out.push(rel); return }
   for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
-    if (e.isDirectory() ? SKIP_DIR.has(e.name) : false) continue
+    if (e.isDirectory() && (SKIP_DIR.has(e.name) || SKIP_PATH.has(path.posix.join(rel, e.name)))) continue
     walk(path.posix.join(rel, e.name), exts, out)
   }
 }
@@ -123,7 +126,7 @@ export function indexOf(md: string): Map<string, { sites: number; ids: string[] 
   for (const t of tablesIn(md, 'Code index')) {
     const f = t.header.indexOf('file'), s = t.header.indexOf('sites'), i = t.header.indexOf('ids')
     if (f < 0 || s < 0 || i < 0) continue
-    for (const r of t.rows) m.set(unquote(r[f]!), { sites: Number(r[s]), ids: idsOf(r[i]!) })
+    for (const r of t.rows) m.set(unquote(r[f]!), { sites: /^\d+$/.test(r[s] ?? '') ? Number(r[s]) : -1, ids: idsOf(r[i]!) })
   }
   return m
 }
@@ -136,7 +139,8 @@ export function indexProblems(code: Map<string, number>, index: Map<string, { si
   const out: string[] = []
   for (const [f, n] of code) {
     const row = index.get(f)
-    if (!row) out.push(`${f}: ${n} ask call site(s) and no Code index row in ${REGISTRY}. Add an entry for each new ask and a row "| \`${f}\` | ${n} | <ids> |".`)
+    if (row && row.sites < 0) out.push(`${f}: the Code index's "sites" is not a number.`)
+    else if (!row) out.push(`${f}: ${n} ask call site(s) and no Code index row in ${REGISTRY}. Add an entry for each new ask and a row "| \`${f}\` | ${n} | <ids> |".`)
     // more: a new ask. Fewer passes (an ask removed; its entry is cleaned up when the row is next touched).
     else if (n > row.sites) out.push(`${f}: ${n} ask call site(s), the Code index says ${row.sites}. A card, dialog or prompt was added: give it an entry and update the row in ${REGISTRY}.`)
   }
@@ -194,6 +198,15 @@ describe('ask registry (docs/ASKS.md)', () => {
     expect([...table.keys()].filter((k) => !code.has(k)).map((k) => `${k}: in the Kinds table, not in the code`)).toEqual([])
     const unknown = [...table].flatMap(([k, ids]) => (ids.length ? ids : ['(none)']).filter((id) => !entries.has(id)).map((id) => `${k}: ${id} has no registry entry`))
     expect(unknown).toEqual([])
+  })
+
+  test('each pattern group finds the calls it is for', () => {
+    const [server, web, app] = SCANS.map((x) => x.re)
+    for (const l of ["await exec.askPerson({", "await withAlways(place, 'share_files', o, 'y', ask)", "person.choose(q, opts)", "this.hub.publish(u, { type: 'turn.request', data })"]) expect(server!.test(l), l).toBe(true)
+    for (const l of ["await confirmDialog({ title })", "const c = useConfirmStep<Ask>()", "<ReauthDialog", "t('officeUpdate.confirmTitle')", '<div data-testid="room-mention-all-confirm">']) expect(web!.test(l), l).toBe(true)
+    for (const l of ["await dialog.showMessageBox(w, opts)", "NSCameraUsageDescription: 'x'", "await pane.ask({ scope: 'site' })"]) expect(app!.test(l), l).toBe(true)
+    expect(COMMENT.test(' * a comment')).toBe(true)
+    expect(COMMENT.test(' *ptr = 1')).toBe(false)
   })
 
   test('the guard fails on a new ask without an entry', () => {

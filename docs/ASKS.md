@@ -14,7 +14,8 @@ confirm dialogs, and the system prompts of the desktop, menu bar and phone apps.
 
 1. Raise it through one of the existing calls (server: `askPerson`, `askAlways`, `withAlways`, a TurnPerson `confirm` /
    `askConfirm`; web: `confirmDialog`, `choiceDialog`, `useConfirmStep`; apps: the dialog helpers named in the Code
-   index). A new way of asking adds its pattern to `SCANS` in the test.
+   index). A hand-built confirm (a `Modal` or an inline strip) gives its container or button a `data-testid` that ends
+   in `-confirm` so the scan sees it. A new way of asking adds its pattern to `SCANS` in the test.
 2. Add its entry below, in its category, with every field. No field is empty: write `none` or `n/a` with a reason.
 3. Decide **Always**: an AI card for the person's own action that can come again offers "Always allow" on the first
    card, per person and card kind (a new kind goes in `CARD_ALWAYS_KINDS`), and the Always holds in every chat and in
@@ -61,13 +62,13 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Websites (웹사이트) | 8 | 5 | 3 | 0 | 1 |
 | Commands and dev environment (명령 실행·개발 환경) | 3 | 3 | 0 | 0 | 0 |
 | Memory, skills and schedules (기억·스킬·예약) | 11 | 6 | 5 | 0 | 3 |
-| Rooms (대화방) | 3 | 3 | 0 | 0 | 0 |
+| Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 6 | 1 | 5 | 0 | 0 |
-| Screen confirm dialogs (화면 확인창) | 102 | 4 | 98 | 0 | 5 |
+| Screen confirm dialogs (화면 확인창) | 110 | 4 | 106 | 0 | 5 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
-| System permissions (시스템 권한) | 19 | 17 | 2 | 0 | 0 |
-| **all** | 216 | 73 | 143 | 4 | 18 |
+| System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
+| **all** | 228 | 75 | 153 | 4 | 18 |
 
 ## Registry
 
@@ -127,7 +128,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | `conn.write.noalways` | `server/src/integrations/connections/tools.ts:728` | As `conn.write` with no Always offered: a Slack turn, the team switch off, a demo server, and in a shared chat every send to others, every team-connection change, `api_request`, a call with team files. | as `conn.write` | Send / Don't send | none | n/a | refused | same | sends-to-others | OPEN: in a shared chat it asks every time and ignores the person's per-connection Always; Rule A names shared chats; confirm the exception |
 | `conn.write.own` | `server/src/integrations/connections/tools.ts:873` | Shared chat; a call on the person's own connection that reaches nobody else. | {what} in {name} / {name}에서 "{what}" 작업을 해요 (`actTool`) | Allow / Always allow / Don't allow | per connector tool, or the own connection's write rule | Settings › 트리나에게 허용한 것 | runs under Always, else refused | chat-only Always | other:own-action | OK |
 | `desktop.localapp.connect` | `desktop/src/main/local-apps.ts:102` and `desktop/src/common/local-apps.ts:459` | The first call to a local-app connector on this computer, and again when its command changes. | Connect this program? {name} for {team} wants to run this on your computer… / 이 프로그램을 연결할까요? (`localApp.*`) | Cancel / Connect | per team, connection and command on this computer | none in the app (only a changed command asks again) | runs only if the app is open; times out as not confirmed | n/a | security | OPEN: no place in the app to take the Connect back |
-| `slack.link` | `server/src/routes/slack.ts:142` and `server/src/integrations/slack/service.ts:89` | An unlinked Slack user asks the app in Slack. | Connect {product} account; Link your Slack account / Slack 계정 연결 (`slack.link.title`) | Link / Cancel | none (one sign-in) | Settings › Connectors › Slack (unlink) | n/a | n/a | security, other:sign-in | OK |
+| `slack.link` | `web/src/pages/SlackLink.tsx:83`, `server/src/routes/slack.ts:142` and `server/src/integrations/slack/service.ts:89` | An unlinked Slack user asks the app in Slack. | Connect {product} account; Link your Slack account / Slack 계정 연결 (`slack.link.title`) | Link / Cancel | none (one sign-in) | Settings › Connectors › Slack (unlink) | n/a | n/a | security, other:sign-in | OK |
 | `slack.post` | `server/src/integrations/slack/service.ts:85` | An answer to a channel question goes to the asker only, with a button. | Post to channel / 채널에 올리기 (`post`) | Post to channel | none (the person presses it each time) | n/a | n/a | n/a | sends-to-others | OK |
 | `slack.post.anyway` | `server/src/integrations/slack/service.ts:87` | "Post to channel" while the answer used places not everyone can see. | This answer used places not everyone on the team can see: {places}. Post it to the channel anyway? / 이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요… (`postCheck`) | Post anyway / Cancel | none | n/a | n/a | n/a | shows-private-to-others | OK |
 | `slack.card.notice` | `server/src/integrations/slack/service.ts:1553` | A Slack turn waits on any card: Slack says to answer in the app. No Always is read or offered in a Slack turn. | {product} needs your answer. Answer it in {product}. / {product}가 확인할 것이 있어요… (`needsAnswer`) | a link to the chat | none | n/a | n/a | n/a | other:notice | OK (a limit decision 20261122-always-allow-holds-everywhere keeps) |
@@ -174,9 +175,11 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `room.change` | `server/src/chat/turn.ts:3410` | Any change after the chat read room messages (other people's words). Skipped: read-only tools, a tool with its own card, a call already allowed in this answer, an undoable own-folder command, a new file in the person's own folder, a room grant, the 12 h exact-file approval, Always on. | Messages from your conversations came in here, so changes are asked first. {ai} wants to … / 여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요… (`roomsSeenWhy`, `roomAiConfirmNew`, `roomsSeenConfirm`) | Allow once / Always allow / Don't allow | `card:room_change`; chat-only with a guest. Allow once keeps a 12 h exact-file approval in this chat | Settings › 트리나에게 허용한 것 | runs under Always or the task's card cover; otherwise refused | chat-only Always | security | OK |
+| `room.change` | `server/src/chat/turn.ts:3410` | Any change after the chat read room messages (other people's words). Skipped: read-only tools, a tool with its own card, a call already allowed in this answer, an undoable own-folder command, a new file in the person's own folder, a room grant, the 12 h exact-file approval, Always on. | Messages from your conversations came in here, so changes are asked first. {ai} wants to … / 여기에 대화 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요… (`roomsSeenWhy`, `roomAiConfirmNew`, `roomsSeenConfirm`) | Allow once / Always allow / Don't allow | `card:room_change`; chat-only with a guest. Allow once keeps a 12 h exact-file approval in this chat. The same card follows a read of a shared file someone else wrote (`sharedFileSeenConfirm*`) | Settings › 트리나에게 허용한 것 | runs under Always or the task's card cover; otherwise refused | chat-only Always | security | OK |
 | `room.read` | `server/src/chat/turn.ts:3410` | The same card for a read from a connected service with an address in its arguments, after a room read. | …so reading from other services is asked first too… / …다른 서비스에서 읽어 오기 전에도 먼저 물어봐요… (`roomsSeenConfirmRead`) | Allow once / Always allow / Don't allow | `card:room_change` (no 12 h approval for a read) | Settings › 트리나에게 허용한 것 | as `room.change` | as `room.change` | security | OK |
 | `room.change.widen` | `server/src/chat/turn.ts:4905` | A change after a room read that also saves where more people see; one card for both while `room_change` Always is off. | Save {file} to {area}, where {n} people can see it? / {area}에 {file} 저장할까요? {n}명이 볼 수 있는 곳이에요. (`widenConfirm` + `roomsSeenWhy`) | Save / Always allow / Don't save | keeps `card:room_change` and `card:save_wider` together | Settings › 트리나에게 허용한 것 | Always or cover, else refused | chat-only Always | security, shows-private-to-others | OK |
+| `room.mentionAll` | `web/src/components/rooms/RoomComposer.tsx:669` | Sending a room message with @everyone (@전체) to more than a few people. | This notifies # people. Send it? / {n}명에게 알림이 가요. 보낼까요? (`rooms.mentionAllConfirm`) | Send / Don't ask again / Cancel | per person, every room and device (`prefs.mentionAllAsk`) | Settings › Notifications (turn the question back on) | n/a (the AI's @everyone post is `post.room`) | same | sends-to-others | OK |
+| `room.messageLink` | `web/src/components/rooms/MessageLinkChoice.tsx:79` | Sending a link to a message some people in this room cannot see. | Some people here can't see that message. / … (`rooms.link.*`) | Only show link / Show message | none | n/a | n/a | same | shows-private-to-others | OK |
 
 ### AI questions (AI의 질문)
 
@@ -301,10 +304,18 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.admin.system.connectedRemove` | `web/src/pages/admin/System.tsx:762` | Disconnect a connected folder. | Disconnect folder / 연결 끊기 (`connected.removeTitle`) | Disconnect / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.system.connectFolder` | `web/src/pages/admin/System.tsx:793` | Connect a folder for the team; password again. | Connect a folder / 폴더 연결 | Connect / Cancel | none | n/a | n/a | admin only | shows-private-to-others | OK |
 | `ui.admin.system.restoreBackup` | `web/src/pages/admin/System.tsx:1050` | Restore a server backup; password again. | Restore this backup? / 이 백업으로 복원할까요? | Restore / Cancel | none | n/a | n/a | admin only | irreversible | OK |
+| `ui.admin.officeUpdate` | `web/src/pages/admin/OfficeUpdate.tsx:126` | Update the office Mac's app now; password again. | (`officeUpdate.confirmTitle`, `officeUpdate.confirmBody`) | Update now / Cancel | none | n/a | n/a | admin only | other:restart | OK |
 | `ui.admin.system.update` | `web/src/pages/admin/jobs.tsx:86` | Install, retry or roll back an update; password again; with tasks running: wait or update now. | (the install title) + password | Continue / Update now anyway / Cancel | none | n/a | waits for running tasks unless "anyway" | admin only | other:restart | OK |
 | `ui.admin.team.iconRemove` | `web/src/pages/admin/TeamSettings.tsx:354` | Remove the team logo. | Remove the team logo? / 팀 로고를 지울까요? | Remove / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.team.removeAllShares` | `web/src/pages/admin/TeamSettings.tsx:512` | Remove every share with outside people. | Remove access for # people to {what}? / {people}명의 {what} 접근 권한을 없앨까요? | Remove all / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.team.speechKeyRemove` | `web/src/pages/admin/TeamSettings.tsx:725` | Remove the speech key. | Remove the OpenRouter key? / OpenRouter 키를 지울까요? | Remove key / Cancel | none | n/a | n/a | admin only | other:feature-stops | OK |
+| `ui.handover.transfer` | `web/src/components/handover/HandoverDialog.tsx:152` | The owner hands the team to another member; password again. | Make {name} the owner? / {name}님을 팀장으로 정할까요? (`handover.title`) | Transfer / Cancel | none | n/a | n/a | admin only | irreversible, security | OK |
+| `ui.share.chatProject` | `web/src/components/chat/ShareChat.tsx:85` | The web side of `dialog.chat.project`: share a chat with its project's members. | Share this chat so {n} people can see it? / 이 채팅을 공유해서 {n}명이 볼 수 있게 할까요? (`chat.shareChat.title`) | Cancel / Share | none | n/a | n/a | same | irreversible, shows-private-to-others | OK |
+| `ui.room.makeProject` | `web/src/components/rooms/MakeProjectDialog.tsx:190` | Make a project from a room or a 1:1 chat (its people become members). | Make project / 프로젝트 만들기 (`rooms.makeProject.confirm`) | Cancel / Make project | none | n/a | n/a | same | sends-to-others | OK |
+| `ui.drive.confirmAccount` | `web/src/components/integrations/DriveConnector.tsx:106` | After the Google sign-in for Drive: is this the right account? | (`drive.confirmAccount`) | Connect / Cancel | none | n/a | n/a | hidden for guests | other:sign-in | OK |
+| `ui.leave.unsaved` | `web/src/components/FilePanel.tsx:321` | Closing the browser tab with an unsaved file edit (the browser's own "Leave site?"). | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
+| `ui.leave.uploads` | `web/src/components/FolderUploads.tsx:33` and `web/src/store/roomUploads.ts:254` | Closing the tab while files or room files are still uploading. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
+| `ui.leave.recording` | `web/src/lib/useVoiceInput.ts:603` | Closing the tab while a voice recording runs. | (browser) | Leave / Stay | none | n/a | n/a | same | other:unsaved | OK |
 
 ### Sign-in, setup and updates (로그인·설정·업데이트)
 
@@ -346,10 +357,11 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `os.phone.speech` | `mobile/modules/dictation/ios/DictationEngine.swift:304` | iPhones before iOS 26, the on-device recogniser. | Turn your voice into text on this iPhone, without sending the recording anywhere. / 녹음을 밖으로 보내지 않고 이 iPhone에서 바로 글자로 바꿀 때 사용해요. | Allow / Don't Allow | the system remembers per app | iOS Settings › Privacy › Speech Recognition | n/a | n/a | other:privacy | OK |
 | `os.phone.photos` | `mobile/src/photo-io.ts:20` | A photo pick (the older Android picker asks for storage). | Choose a photo to attach in chat. / 채팅에 첨부할 사진을 고를 때 사용해요. | system | the system remembers per app | phone Settings › app › Photos | n/a | n/a | other:privacy | OK |
 | `os.phone.camera` | `mobile/app.config.ts:84` | Taking a photo for chat from the page's file input. | Take a photo to attach in chat. / 채팅에 첨부할 사진을 찍을 때 사용해요. | system | the system remembers per app | phone Settings › app › Camera | n/a | n/a | other:privacy | OK |
+| `os.web.pushAsk` | `web/src/components/WebPushAsk.tsx:32` | The app's own line offering notifications (web and phone), before the browser or phone asks. | Turn on notifications / 알림 켜기 (`push.askOn`, `push.askWeb`) | Turn on / Later | the app remembers Later | Settings › Notifications | n/a | same | other:privacy | OK |
+| `desktop.downloads.save` | `desktop/src/main/downloads.ts:82` | A download in the desktop app: the system save window stays for runnable files, many saves, or a folder it cannot use. | (system save window) | Save / Cancel | none | n/a | n/a | same | security | OK |
 | `os.web.push` | `web/src/lib/push.ts:87` | Settings › Notifications › Receive alerts on this device, in a browser. | (browser) after Receive alerts on this device / 이 기기에서 알림 받기 (`push.enable`) | Allow / Block | the browser remembers per site | the browser's site settings | n/a | same | other:privacy | OK |
 | `os.web.mic` | `web/src/lib/recorder.ts:130` | The first voice input in a browser. | (browser) | Allow / Block | the browser remembers per site | the browser's site settings | n/a | same | other:privacy | OK |
 | `os.web.install` | `web/src/lib/pwa.ts:18` | The browser offers to install the web app; the app holds the prompt until the person presses Install. | (browser) | Install / Cancel | the browser remembers | n/a | n/a | same | other:setup | OK |
-
 
 ## Kinds
 
@@ -428,6 +440,7 @@ lines than the row fails the test; fewer passes.
 | `desktop/src/common/keyboard-focus.ts` | 1 | `not-an-ask` |
 | `desktop/src/common/local-apps.ts` | 1 | `desktop.localapp.connect` |
 | `desktop/src/main/app-window.ts` | 5 | `os.mac.notify`, `desktop.files.choose`, `desktop.folder.refused`, `desktop.browser.allowall`, `not-an-ask` |
+| `desktop/src/main/downloads.ts` | 1 | `desktop.downloads.save` |
 | `desktop/src/main/local-apps.ts` | 2 | `desktop.localapp.connect`, `helper` |
 | `desktop/src/main/main.ts` | 1 | `desktop.linux.sandbox` |
 | `desktop/src/main/pane/net-guard.ts` | 3 | `desktop.site.web`, `desktop.site.private` |
@@ -449,46 +462,52 @@ lines than the row fails the test; fewer passes.
 | `server/src/chat/folder-access-tool.ts` | 6 | `folder.access`, `folder.access.many` |
 | `server/src/chat/open-questions.ts` | 2 | `helper` |
 | `server/src/chat/people-share.ts` | 5 | `dialog.chat.people`, `dialog.chat.people.files` |
-| `server/src/chat/places-copy.ts` | 1 | `files.copy.places` |
-| `server/src/chat/post-to-room.ts` | 2 | `post.room`, `post.room.files`, `post.room.guest` |
+| `server/src/chat/places-copy.ts` | 5 | `files.copy.places` |
+| `server/src/chat/post-to-room.ts` | 3 | `post.room`, `post.room.files`, `post.room.guest` |
 | `server/src/chat/project-members.ts` | 3 | `project.members` |
+| `server/src/chat/room-tools.ts` | 2 | `save.wider`, `helper` |
 | `server/src/chat/runtime.ts` | 1 | `helper` |
 | `server/src/chat/schedule-edit.ts` | 1 | `schedule.edit` |
 | `server/src/chat/schedule-review.ts` | 1 | `schedule.review`, `schedule.recheck` |
 | `server/src/chat/share-chat.ts` | 1 | `dialog.chat.project` |
-| `server/src/chat/share-folder.ts` | 3 | `share.folder`, `share.folder.stop` |
-| `server/src/chat/share-with-person.ts` | 2 | `share.files` |
-| `server/src/chat/shared-actions.ts` | 2 | `share.files.pick`, `share.folder.pick`, `unshare.files.pick`, `post.room.pick` |
+| `server/src/chat/share-folder.ts` | 4 | `share.folder`, `share.folder.stop` |
+| `server/src/chat/share-with-person.ts` | 3 | `share.files` |
+| `server/src/chat/shared-actions.ts` | 3 | `share.files.pick`, `share.folder.pick`, `unshare.files.pick`, `post.room.pick` |
 | `server/src/chat/skill-files.ts` | 2 | `skill.files` |
-| `server/src/chat/stop-sharing.ts` | 2 | `unshare.files` |
-| `server/src/chat/tools.ts` | 17 | `dev.bulk`, `dev.login`, `dev.site`, `skill.move`, `skill.copy`, `memory.remember`, `ai.ask_user`, `ai.ask_user.in_call`, `site.office`, `helper` |
-| `server/src/chat/turn.ts` | 22 | `room.change`, `room.read`, `room.change.widen`, `save.wider`, `share.read`, `share.skill`, `share.copy`, `share.save`, `share.chat_file`, `conn.shared`, `skill.save`, `skill.save.name_taken`, `ai.ask_user`, `definition`, `helper` |
+| `server/src/chat/stop-sharing.ts` | 3 | `unshare.files` |
+| `server/src/chat/tools.ts` | 33 | `dev.bulk`, `dev.login`, `dev.site`, `skill.move`, `skill.copy`, `memory.remember`, `ai.ask_user`, `ai.ask_user.in_call`, `site.office`, `helper` |
+| `server/src/chat/turn.ts` | 30 | `room.change`, `room.read`, `room.change.widen`, `save.wider`, `share.read`, `share.skill`, `share.copy`, `share.save`, `share.chat_file`, `conn.shared`, `skill.save`, `skill.save.name_taken`, `ai.ask_user`, `definition`, `helper` |
 | `server/src/devenv/tool.ts` | 1 | `dev.login` |
-| `server/src/integrations/connections/tools.ts` | 3 | `conn.shared`, `conn.write.noalways`, `conn.read.unsure`, `conn.write.own` |
+| `server/src/integrations/connections/tools.ts` | 5 | `conn.shared`, `conn.write.noalways`, `conn.read.unsure`, `conn.write.own` |
 | `server/src/integrations/slack/service.ts` | 4 | `slack.post`, `slack.post.anyway`, `slack.link` |
 | `server/src/routes/slack.ts` | 1 | `slack.link` |
 | `server/src/tools/connection-urls.ts` | 1 | `site.redirect` |
 | `server/src/tools/file-moves.ts` | 2 | `files.bulk.move`, `files.bulk.rename`, `files.move`, `files.copy` |
-| `server/src/tools/higgsfield.ts` | 1 | `video.make` |
+| `server/src/tools/higgsfield.ts` | 2 | `video.make` |
+| `server/src/tools/make-file.ts` | 1 | `save.wider` |
+| `server/src/tools/save-connector-file.ts` | 1 | `save.wider` |
 | `server/src/tools/save-url.ts` | 1 | `download.big` |
-| `server/src/tools/schedules.ts` | 1 | `schedule.create` |
-| `server/src/tools/url-gate.ts` | 3 | `site.web`, `site.web.marked`, `site.web.echo`, `definition` |
+| `server/src/tools/schedules.ts` | 2 | `schedule.create` |
+| `server/src/tools/url-gate.ts` | 5 | `site.web`, `site.web.marked`, `site.web.echo`, `definition` |
 | `web/src/components/AccessRequestNotice.tsx` | 1 | `ui.access.approve` |
-| `web/src/components/FilePanel.tsx` | 1 | `ui.file.discardEdit` |
+| `web/src/components/FilePanel.tsx` | 2 | `ui.file.discardEdit`, `ui.leave.unsaved` |
 | `web/src/components/FileShareDialog.tsx` | 1 | `ui.share.fileRemove` |
 | `web/src/components/FolderShareParts.tsx` | 1 | `ui.share.fileStop` |
-| `web/src/components/GuestInvite.tsx` | 1 | `ui.guest.inviteSkills` |
+| `web/src/components/FolderUploads.tsx` | 1 | `ui.leave.uploads` |
+| `web/src/components/GuestInvite.tsx` | 2 | `ui.guest.inviteSkills` |
 | `web/src/components/LeaveProject.tsx` | 1 | `ui.project.leave` |
 | `web/src/components/ProjectForm.tsx` | 1 | `ui.project.skillsOn` |
-| `web/src/components/ProjectMembersDialog.tsx` | 2 | `ui.project.members`, `ui.project.addMe` |
+| `web/src/components/ProjectMembersDialog.tsx` | 4 | `ui.project.members`, `ui.project.addMe` |
 | `web/src/components/chat/ChatShareDialog.tsx` | 1 | `ui.chat.shareDiscard` |
 | `web/src/components/chat/ChatThreadPanel.tsx` | 1 | `ui.chat.threadDelete` |
-| `web/src/components/chat/ShareToRoom.tsx` | 2 | `ui.share.room`, `definition` |
+| `web/src/components/chat/ShareChat.tsx` | 1 | `ui.share.chatProject` |
+| `web/src/components/chat/ShareToRoom.tsx` | 3 | `ui.share.room`, `definition` |
 | `web/src/components/chat/chatActions.ts` | 2 | `ui.chat.delete`, `ui.chat.leave` |
 | `web/src/components/chat/restoreConfirm.ts` | 1 | `ui.chat.restoreVersion` |
 | `web/src/components/handover/HandoverNotice.tsx` | 1 | `ui.handover.remove` |
 | `web/src/components/integrations/AnswerDialog.tsx` | 1 | `ui.conn.requestDecline` |
-| `web/src/components/integrations/DriveShares.tsx` | 1 | `ui.drive.shareStop` |
+| `web/src/components/integrations/DriveConnector.tsx` | 2 | `ui.drive.confirmAccount` |
+| `web/src/components/integrations/DriveShares.tsx` | 2 | `ui.drive.shareStop` |
 | `web/src/components/integrations/GoogleAppConnector.tsx` | 1 | `ui.gapps.disconnect` |
 | `web/src/components/integrations/GoogleAppTeam.tsx` | 1 | `ui.gapps.teamRemove` |
 | `web/src/components/integrations/GoogleSignInRow.tsx` | 1 | `ui.gsign.remove` |
@@ -498,36 +517,41 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/nav/SidebarSections.tsx` | 1 | `ui.nav.sectionDelete` |
 | `web/src/components/onboarding/TeamLinkPanel.tsx` | 1 | `ui.team.linkRevoke` |
 | `web/src/components/projectActions.tsx` | 1 | `ui.project.delete` |
+| `web/src/components/rooms/MakeProjectDialog.tsx` | 2 | `ui.room.makeProject` |
 | `web/src/components/rooms/MembersDialog.tsx` | 1 | `ui.room.memberRemove` |
+| `web/src/components/rooms/RoomComposer.tsx` | 1 | `room.mentionAll` |
 | `web/src/components/rooms/RoomMenu.tsx` | 1 | `ui.room.leave` |
 | `web/src/components/rooms/RoomMessages.tsx` | 1 | `ui.room.messageDelete` |
-| `web/src/components/rooms/SaveToTeamSheet.tsx` | 1 | `ui.room.saveWiden` |
+| `web/src/components/rooms/SaveToTeamSheet.tsx` | 2 | `ui.room.saveWiden` |
 | `web/src/components/rooms/SendHere.tsx` | 1 | `ui.share.roomSideChat` |
 | `web/src/components/rooms/apps/AppsDialog.tsx` | 2 | `ui.roomApp.newAddress`, `ui.roomApp.remove` |
-| `web/src/components/settings/AccountDeletion.tsx` | 1 | `ui.settings.accountDelete` |
+| `web/src/components/settings/AccountDeletion.tsx` | 2 | `ui.settings.accountDelete` |
 | `web/src/components/settings/DevEnvSites.tsx` | 2 | `ui.devEnv.siteRemove`, `ui.devEnv.fullInternet` |
-| `web/src/components/settings/DriveConnection.tsx` | 1 | `ui.drive.disconnect` |
+| `web/src/components/settings/DriveConnection.tsx` | 2 | `ui.drive.disconnect` |
 | `web/src/components/settings/PushNotifications.tsx` | 1 | `ui.push.offEverywhere` |
 | `web/src/components/settings/SettingsDialog.tsx` | 1 | `ui.auth.signOut` |
 | `web/src/components/settings/SlackAccount.tsx` | 1 | `ui.slack.unlink` |
-| `web/src/components/ui.tsx` | 2 | `definition` |
+| `web/src/components/ui.tsx` | 3 | `definition` |
 | `web/src/components/viewers/OfficeView.tsx` | 1 | `ui.preview.openLink` |
 | `web/src/lib/push.ts` | 1 | `os.web.push` |
 | `web/src/lib/pwa.ts` | 1 | `os.web.install` |
 | `web/src/lib/recorder.ts` | 1 | `os.web.mic` |
+| `web/src/lib/useVoiceInput.ts` | 1 | `ui.leave.recording` |
 | `web/src/pages/AiApps.tsx` | 1 | `ui.settings.aiApps.disconnect` |
-| `web/src/pages/BrowserSettings.tsx` | 2 | `ui.settings.browser.allowAll`, `ui.settings.browser.clearSites` |
+| `web/src/pages/BrowserSettings.tsx` | 3 | `ui.settings.browser.allowAll`, `ui.settings.browser.clearSites` |
 | `web/src/pages/Chat.tsx` | 1 | `ui.chat.branch` |
 | `web/src/pages/Files.tsx` | 14 | `ui.files.bulkMove.narrow`, `ui.files.bulkMove.widen`, `ui.files.bulkShare`, `ui.files.bulkDelete`, `ui.files.uploadClash`, `ui.files.move.skillsOn`, `ui.files.move.widen`, `ui.files.move.narrow`, `ui.files.share`, `ui.files.trashUndo.widen`, `ui.files.delete`, `ui.files.restoreVersion`, `ui.files.restoreVersion.widen`, `ui.files.trash.restore.widen` |
-| `web/src/pages/Projects.tsx` | 1 | `ui.projects.share.skillsOn` |
+| `web/src/pages/Projects.tsx` | 2 | `ui.projects.share.skillsOn` |
 | `web/src/pages/Scheduled.tsx` | 1 | `ui.scheduled.delete` |
-| `web/src/pages/SentFiles.tsx` | 1 | `ui.sentFiles.delete` |
+| `web/src/pages/SentFiles.tsx` | 2 | `ui.sentFiles.delete` |
 | `web/src/pages/Settings.tsx` | 3 | `ui.settings.security.signOutDevice`, `ui.settings.memory.clear`, `ui.settings.memory.forget` |
+| `web/src/pages/SlackLink.tsx` | 1 | `slack.link` |
 | `web/src/pages/admin/Credentials.tsx` | 2 | `ui.admin.credentials.delete`, `ui.settings.providers.deleteMine` |
-| `web/src/pages/admin/FolderSharing.tsx` | 3 | `ui.admin.folderSharing.discard`, `ui.admin.folderSharing.removeRow`, `ui.admin.folderSharing.save` |
+| `web/src/pages/admin/FolderSharing.tsx` | 4 | `ui.admin.folderSharing.discard`, `ui.admin.folderSharing.removeRow`, `ui.admin.folderSharing.save` |
 | `web/src/pages/admin/Groups.tsx` | 1 | `ui.admin.groups.delete` |
 | `web/src/pages/admin/Guests.tsx` | 1 | `ui.admin.guests.remove` |
 | `web/src/pages/admin/Members.tsx` | 5 | `ui.admin.members.revokeTeamLink`, `ui.admin.members.resetLink`, `ui.admin.members.disable`, `ui.admin.members.remove`, `ui.admin.members.removeReauth` |
+| `web/src/pages/admin/OfficeUpdate.tsx` | 1 | `ui.admin.officeUpdate` |
 | `web/src/pages/admin/OldProjectsCard.tsx` | 1 | `ui.admin.home.oldProjects.join` |
 | `web/src/pages/admin/Plugins.tsx` | 1 | `ui.admin.plugins.remove` |
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
@@ -535,8 +559,10 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/System.tsx` | 5 | `ui.admin.system.askCleanup`, `ui.admin.system.changeMode`, `ui.admin.system.connectedRemove`, `ui.admin.system.connectFolder`, `ui.admin.system.restoreBackup` |
 | `web/src/pages/admin/TeamAiSettings.tsx` | 1 | `ui.admin.ai.sharedSubscriptions` |
 | `web/src/pages/admin/TeamSettings.tsx` | 3 | `ui.admin.team.iconRemove`, `ui.admin.team.removeAllShares`, `ui.admin.team.speechKeyRemove` |
+| `web/src/pages/admin/common.tsx` | 1 | `definition` |
 | `web/src/pages/admin/jobs.tsx` | 1 | `ui.admin.system.update` |
 | `web/src/pages/admin/originKept.tsx` | 1 | `ui.admin.originKept` |
+| `web/src/store/roomUploads.ts` | 1 | `ui.leave.uploads` |
 
 ## Findings
 
