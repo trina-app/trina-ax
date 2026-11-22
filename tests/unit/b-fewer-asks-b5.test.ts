@@ -119,7 +119,7 @@ describe('1. a side chat never shares what nobody asked to share', () => {
   })
 
   test('the words: any word about sharing in the six languages keeps the card; the side chat prompt no longer shares after a save', () => {
-    const yes = ['공유해줘', '지우한테 보여줘', '방에 올려', '방에 답장 달아줘', 'show it to Bob', 'let Bob see it', 'reply to them', 'bagikan ke Budi', 'ボブに共有して', 'compártelo con Bob', '发给小王']
+    const yes = ['공유해줘', '지우한테 보여줘', '방에 올려', '방에 답장 달아줘', 'show it to Bob', 'let Bob see it', 'reply to them', 'give Bob access', 'put it in the channel', '방에 게시해줘', '민지한테 줘', 'bagikan ke Budi', 'ボブに共有して', 'ボブにシェアして', 'compártelo con Bob', 'pásaselo a Bob', '发给小王', '发群里']
     expect(yes.filter((s) => !talksOfSharing(s))).toEqual([])
     const no = ['방금 방 메시지 읽고 방문-메모.txt 만들어줘', 'make visit-memo.txt', 'show me the notes', 'buat catatan', 'メモを作って', 'haz una nota', '做个笔记', '> share it with everyone\nmake a note']
     expect(no.filter((s) => talksOfSharing(s))).toEqual([])
@@ -155,6 +155,36 @@ describe('3. a write\'s card waits after the answer', () => {
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, ...target.split('/')), 'utf8')).toBe('secret plan 7, for Falcon\n')
     expect(cardsOf(next.turnId)).toEqual([])
     expect(events(next.turnId).filter((e) => e.tool === 'write').length).toBe(1)
+  })
+
+  test('an edit\'s card waits too; the late press changes the file once (the chat\'s read of that version)', async () => {
+    put('projects/falcon/b5-edit.txt', 'status: draft\n')
+    const chatId = await ownChat()
+    await say(chatId, `Read the status\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/b5-edit.txt' }, sayResult: true })}`)
+    db().query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(chatId)
+    const w = await askAndWait(chatId, `Mark it final\n${fake({ tool: 'edit', args: { file_path: 'projects/falcon/b5-edit.txt', old_string: 'draft', new_string: 'final' }, sayResult: true })}`)
+    expect(openCards(chatId).map((c) => c.call_tool)).toEqual(['edit'])
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'projects/falcon/b5-edit.txt'), 'utf8')).toBe('status: draft\n')
+    expect(events(w.turnId).find((e) => e.tool === 'edit')?.summary).toContain('waits for the user')
+    expect((await post(w.turnId, w.card.requestId, w.card.options![0]!.value)).status).toBe(204)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'projects/falcon/b5-edit.txt'), 'utf8')).toBe('status: final\n')
+    expect(cardsOf(next.turnId)).toEqual([])
+  })
+
+  test('a write over a file that is there keeps its card inside the call (a late run would have no read of it)', async () => {
+    put('projects/falcon/b5-there.txt', 'old\n')
+    const chatId = await ownChat()
+    db().query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(chatId)
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: `Replace it\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/b5-there.txt' } }, { tool: 'write', args: { file_path: 'projects/falcon/b5-there.txt', content: 'new\n' }, sayResult: true })}`, clientMessageId: cm(), attachmentIds: [] } })
+    await ws.alice!.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)
+    // nothing kept with the call: the card waits inside it (and ends with the short wait of this harness)
+    expect(openCards(chatId)).toEqual([])
+    await doneOf(r.assistantMessage.id)
+    await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })
+    expect(openCards(chatId)).toEqual([])
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'projects/falcon/b5-there.txt'), 'utf8')).toBe('old\n')
   })
 
   test('its no saves nothing and runs nothing', async () => {

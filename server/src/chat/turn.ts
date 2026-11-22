@@ -6008,6 +6008,8 @@ export class TurnExec {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
     }
+    // (also when the end above failed: the live list never outlives its turn)
+    liveSources(db, this.spec.assistantId, null)
     if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // a dev environment job that ended while this answer ran told nothing then: the request's notice is now (devenv/jobs.ts)
     this.finishStep('dev env jobs', () => tellHeldJobs(this.rt.ctx, this.spec.chatId))

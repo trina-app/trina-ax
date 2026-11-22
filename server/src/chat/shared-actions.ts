@@ -503,16 +503,18 @@ const SHARE_TALK = re([
   // ko: 공유, 보내, 보낼, 올려, 올리, 올릴, 전달, 보여, 볼 수, 알려, 알리, 공지, 넘겨, 뿌려; 답장, 답해, 답글, 댓글, 전해, 링크
   '\\uACF5\\uC720', '\\uBCF4\\uB0B4', '\\uBCF4\\uB0BC', '\\uC62C\\uB824', '\\uC62C\\uB9AC', '\\uC62C\\uB9B4', '\\uC804\\uB2EC', '\\uBCF4\\uC5EC', '\\uBCFC\\s?\\uC218', '\\uC54C\\uB824', '\\uC54C\\uB9AC', '\\uACF5\\uC9C0', '\\uB118\\uACA8', '\\uBFCC\\uB824',
   '\\uB2F5\\uC7A5', '\\uB2F5\\uD574', '\\uB2F5\\uAE00', '\\uB313\\uAE00', '\\uC804\\uD574', '\\uB9C1\\uD06C',
+  // 게시, 권한, 초대, 한테 줘 / 에게 줘 / 께 드려
+  '\\uAC8C\\uC2DC', '\\uAD8C\\uD55C', '\\uCD08\\uB300', '(\\uD55C\\uD14C|\\uC5D0\\uAC8C)\\s?(\\uC918|\\uC8FC)', '\\uAED8\\s?\\uB4DC\\uB824',
   // en
-  '\\b(share|sharing|shared|send|sending|sent|post|posting|forward|announce|publish|notify|reply|respond|link)\\b', '\\bshow\\b(?!\\s+me\\b)', '\\b(tell|answer|update)\\s+(them|him|her|everyone|everybody|the\\s+(room|team|group|channel))\\b', '\\blet\\b[^\\n]{0,40}\\b(see|view|open|know|have)\\b',
+  '\\b(share|sharing|shared|send|sending|sent|post|posting|forward|announce|publish|notify|reply|respond|link)\\b', '\\bshow\\b(?!\\s+me\\b)', '\\b(give|invite|access|dm|email|e-mail|mail)\\b', '\\b(put|drop|paste)\\b[^\\n]{0,40}\\b(channel|room|thread|chat|group)\\b', '\\b(tell|answer|update)\\s+(them|him|her|everyone|everybody|the\\s+(room|team|group|channel))\\b', '\\blet\\b[^\\n]{0,40}\\b(see|view|open|know|have)\\b',
   // id
   '\\b(bagi|bagikan|berbagi|kirim|kirimkan|tunjukkan|teruskan|unggah|posting|umumkan|beri\\s?tahu|kasih\\s?tahu|balas|balaskan|tautan)\\b',
   // ja: 共有, 送, 見せ, 投稿, 転送, 伝え, 知らせ, 返信, リンク
-  '\\u5171\\u6709', '\\u9001', '\\u898B\\u305B', '\\u6295\\u7A3F', '\\u8EE2\\u9001', '\\u4F1D\\u3048', '\\u77E5\\u3089\\u305B', '\\u8FD4\\u4FE1', '\\u30EA\\u30F3\\u30AF',
+  '\\u5171\\u6709', '\\u9001', '\\u898B\\u305B', '\\u6295\\u7A3F', '\\u8EE2\\u9001', '\\u4F1D\\u3048', '\\u77E5\\u3089\\u305B', '\\u8FD4\\u4FE1', '\\u30EA\\u30F3\\u30AF', '\\u30B7\\u30A7\\u30A2', '\\u30A2\\u30C3\\u30D7',
   // es
-  '\\b(compart\\w*|comp\\u00E1rt\\w*|envi\\w*|env\\u00ED\\w*|mand\\w*|public\\w*|muestr\\w*|mostr\\w*|reenv\\w*|avis\\w*|dile|dales|cu\\u00E9ntale\\w*|respond\\w*|contest\\w*|enlace)\\b',
+  '\\b(compart\\w*|comp\\u00E1rt\\w*|envi\\w*|env\\u00ED\\w*|mand\\w*|public\\w*|muestr\\w*|mostr\\w*|reenv\\w*|avis\\w*|dile|dales|cu\\u00E9ntale\\w*|respond\\w*|contest\\w*|enlace|p\\u00E1sale\\w*|pasa\\w*|pon\\w*\\s+en|invit\\w*|acceso)\\b',
   // zh: 分享, 共享, 发送, 发给, 发到, 转发, 告诉, 发布, 通知, 给…看, 回复, 链接
-  '\\u5206\\u4EAB', '\\u5171\\u4EAB', '\\u53D1\\u9001', '\\u53D1\\u7ED9', '\\u53D1\\u5230', '\\u8F6C\\u53D1', '\\u544A\\u8BC9', '\\u53D1\\u5E03', '\\u901A\\u77E5', '\\u7ED9[^\\n]{0,12}\\u770B', '\\u56DE\\u590D', '\\u94FE\\u63A5',
+  '\\u5206\\u4EAB', '\\u5171\\u4EAB', '\\u53D1\\u9001', '\\u53D1\\u7ED9', '\\u53D1\\u5230', '\\u8F6C\\u53D1', '\\u544A\\u8BC9', '\\u53D1\\u5E03', '\\u901A\\u77E5', '\\u7ED9[^\\n]{0,12}\\u770B', '\\u56DE\\u590D', '\\u94FE\\u63A5', '\\u53D1',
 ])
 
 /** The asker's own words (quoted lines left out) say anything about sharing, sending, showing or posting (SHARE_TALK). */

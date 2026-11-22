@@ -47,6 +47,8 @@ export interface TurnToolSet {
   /** a file tool call of the main AI whose card may wait after the answer ends (chat/tools.ts: write, edit, make_file):
    * `run` is the whole call (its checks, cards and the tool); `waiting(text)` the result when its card was kept with
    * the call to run again with the person's answer. Not for a file of a batch (edit_files) */
+  /** this call's card was kept to wait after the answer (fileCallLater): its audit row says so */
+  callWaiting?(): boolean
   fileCallLater?<T>(name: string, args: unknown, caller: ToolCaller | undefined, run: () => Promise<T>, waiting: (text: string) => T): Promise<T>
   /** edit_files: the one name of the file a path argument names when the turn knows it better than the team path rules
    * (a chat file by its id, a version's id or its name: its chain's path), so a file named twice runs once; else null */

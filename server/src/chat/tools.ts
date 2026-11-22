@@ -815,6 +815,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   // ...and the file tools whose checks and cards run in mcp/protocol.ts (write, edit): the same, for the main AI's own
   // call (never a file of an edit_files batch: protocol.ts calls this only for a call of its own)
+  set.callWaiting = () => !!exec.callNow?.deferred
   set.fileCallLater = async (name, args, caller, run, waiting) => {
     if (!exec.runAsCall) return run()
     if (!(CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args) && (caller?.files ?? exec.files) === exec.files)) return exec.runAsCall(null, run)

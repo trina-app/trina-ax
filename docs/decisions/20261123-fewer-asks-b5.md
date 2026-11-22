@@ -18,14 +18,16 @@ Plan: docs/AGENTS/plan/20261122-2301-fewer-asks-b5.md.
   the tools: in a side chat, share_with_person, share_folder (adding) and post_to_room are refused before any card when
   neither the asker's own message nor their message before it in the chat has any word about sharing, sending,
   showing, posting, replying or linking (six languages, `talksOfSharing`, far wider than the explicit-ask word lists:
-  it fails open). Not for a scheduled run or Slack.
+  it fails open). Not for a scheduled run or Slack. It applies with "Always allow" on too: that choice is for shares the
+  person asks for, and this refuses only a share nobody asked for (it never makes a card ask again).
 - **The chat's own file in the person's folder asks nothing.** A copy_files of only this chat's places (chat:work/…,
   chat:files/…) into a team folder weighs the files it lands as (the names copyOne gives them, `landingPaths`), not
   the folder: a new name asks nothing, as any save. A landing name that is there and is the chat's own file
   (`chatOwnsFile`), and any save over such a file, counts as the chat's. `chatOwnsFile` is the old chatMadeOwnFile
   check (unchanged bytes, the answers that wrote it ran while the chat was shared as now, none a k or x answer), and
-  takes a file the chat handed over from its work folder too, with later hand-overs of its own over it. A file over
-  8 MB (no hash kept) still asks.
+  takes a file the chat handed over from its work folder too, with later hand-overs of its own over it (so the Share
+  dialog's "Share with files" offers such a file too). A file over 8 MB (no hash kept), and one with a mixed history
+  (written, then handed over, or the reverse), still asks.
 - **File cards wait across turns.** write, edit and make_file join the tools whose cards wait after the answer ends
   (their checks and cards all come before any write; mcp/protocol.ts runs write and edit through `fileCallLater`).
   Only where a late run works: write and make_file for a NEW file (a whole-file replace in the next turn has no read
