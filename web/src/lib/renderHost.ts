@@ -13,7 +13,7 @@ export type Undo = void | (() => void)
 
 /** The preview's box: the DOM calls a drawing's start needs (a plain element; tests pass a small stand-in). */
 export interface DrawBox<H> {
-  replaceChildren(...nodes: H[]): void
+  textContent: string | null
   appendChild(node: H): unknown
 }
 
@@ -29,7 +29,8 @@ export interface DrawHandlers {
  * nothing it does afterwards reaches `box` or the handlers. */
 export function startDraw<H>(box: DrawBox<H>, makeHost: () => H, render: (host: H, signal: AbortSignal) => Promise<Undo>, on: DrawHandlers): () => void {
   const host = makeHost()
-  box.replaceChildren(host)
+  box.textContent = ''
+  box.appendChild(host)
   const ctrl = new AbortController()
   let live = true
   let undo: (() => void) | undefined

@@ -10,7 +10,9 @@ class Box {
   parent: Box | null = null
   constructor(public name = '') {}
   appendChild(n: Box) { n.parent?.children.splice(n.parent.children.indexOf(n), 1); n.parent = this; this.children.push(n); return n }
-  replaceChildren(...nodes: Box[]) { for (const c of this.children) c.parent = null; this.children = []; for (const n of nodes) this.appendChild(n) }
+  replaceChildren() { for (const c of this.children) c.parent = null; this.children = [] }
+  get textContent(): string { return '' }
+  set textContent(_v: string) { this.replaceChildren() }
   /** the slide names drawn under this box, in order */
   slides(): string[] { return this.children.flatMap((c) => (c.name.startsWith('slide') ? [c.name] : c.slides())) }
 }

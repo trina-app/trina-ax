@@ -41,7 +41,7 @@ function useRender(render: (host: HTMLDivElement, signal: AbortSignal) => Promis
     setError(null)
     return startDraw(el, () => {
       const host = document.createElement('div')
-      host.dataset.drawHost = ''
+      host.setAttribute('data-draw-host', '')
       return host
     }, render, { error: setError, done: () => setBusy(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
