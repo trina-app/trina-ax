@@ -9,6 +9,6 @@ import { cancelAccountDeletion, myDeletionRequest, requestAccountDeletion } from
 
 export function registerAccountDeletionRoutes(kit: RouteKit, ctx: AppContext): void {
   kit.handle(API.myDeletionRequest, ({ c }) => myDeletionRequest(c, ctx))
-  kit.handle(API.requestAccountDeletion, ({ c, body }) => requestAccountDeletion(c, ctx, body.password))
+  kit.handle(API.requestAccountDeletion, ({ c, body }) => requestAccountDeletion(c, ctx, body))
   kit.handle(API.cancelAccountDeletion, ({ c }) => cancelAccountDeletion(c, ctx))
 }

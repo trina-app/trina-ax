@@ -655,8 +655,8 @@ export default function Members() {
           body={removeBody(removing.user, removing.off, removing.sharedChats)}
           confirm={t('common.delete')}
           onClose={() => setRemoving(null)}
-          onConfirm={async (password) => {
-            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.user.id }, body: { password } })))) return
+          onConfirm={async (proof) => {
+            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.user.id }, body: { ...proof } })))) return
             if (removing.off.length) void connections.reload()
             setRemoving(null)
             await users.reload()

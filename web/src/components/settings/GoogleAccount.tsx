@@ -3,7 +3,9 @@
 // page opens in this window and comes back here with ?google=<result>. Connect shows only where it can work: this
 // server has a Google client and Google returns to this address (GET /api/me/google `available`), in a browser (Google
 // refuses to sign in inside the apps' own windows). A connected account always shows, with Disconnect. Right after a
-// connect, one line offers Google Drive and Gmail with the same Google account (AlsoConnect; part A2).
+// connect, one line offers Google Drive and Gmail with the same Google account (AlsoConnect; part A2). An account made
+// with Google has no password: its connect confirms with Google instead (ReauthDialog), and it has no Disconnect until
+// a password is set (docs/decisions/20261122-google-reauth.md).
 import { LogIn } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -14,7 +16,9 @@ import { connectorHref } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { passwordRefusal, ReauthDialog } from '../../pages/admin/common'
+import { passwordRefusal, ReauthDialog, type ReauthProof } from '../../pages/admin/common'
+import { needsGoogleCheck } from '../../lib/googleCheck'
+import { useMe } from '../../store/session'
 import { Button, confirmDialog } from '../ui'
 import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { SettingRow } from './SettingRow'
@@ -35,6 +39,9 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
   const [asking, setAsking] = useState(false)
   // just connected (?google=connected): the line offering Google Drive and Gmail
   const [offer, setOffer] = useState(false)
+  // an account made with Google has no password: Google is its only way in, so it cannot be disconnected until a
+  // password is set (the server refuses it too)
+  const noPassword = needsGoogleCheck(useMe())
   const load = async () => {
     try { setValue(await api.call(API.myGoogle)) } catch { setValue(null) }
   }
@@ -54,9 +61,9 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
   const canConnect = !!value?.available && clientKind() === 'web'
   if (!value || (!value.account && !canConnect)) return null
   const account = value.account
-  const connect = async (password: string): Promise<string | null> => {
+  const connect = async (proof: ReauthProof): Promise<string | null> => {
     try {
-      const r = await api.call(API.connectGoogle, { body: { password } })
+      const r = await api.call(API.connectGoogle, { body: { ...proof } })
       window.location.assign(r.url)
       return null
     } catch (e) {
@@ -85,12 +92,12 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
   if (phone) {
     return (
       <>
-        <PhoneListGroup title={t('settings.google.title')} footer={<>{t('settings.google.desc')}{offer && account && <AlsoConnect className="mt-1 block" />}</>} testId="security-google">
+        <PhoneListGroup title={t('settings.google.title')} footer={<>{account && noPassword ? <span className="block" data-testid="google-password-first">{t('settings.google.passwordFirst')}</span> : t('settings.google.desc')}{offer && account && <AlsoConnect className="mt-1 block" />}</>} testId="security-google">
           <PhoneListRow
             icon={<LogIn size={16} />}
             title={account ? <span className="block min-w-0"><span className="block truncate" data-testid="google-email">{account.email ?? t('settings.google.title')}</span><span className="block truncate text-xs text-faint">{used}</span></span> : t('settings.google.none')}
-            onClick={account ? () => void disconnect() : () => setAsking(true)}
-            end={<span className="shrink-0 text-sm text-accent-text" data-testid={account ? 'google-disconnect' : 'google-connect'}>{account ? t('settings.google.disconnect') : t('settings.google.connect')}</span>}
+            onClick={account ? (noPassword ? undefined : () => void disconnect()) : () => setAsking(true)}
+            end={account && noPassword ? undefined : <span className="shrink-0 text-sm text-accent-text" data-testid={account ? 'google-disconnect' : 'google-connect'}>{account ? t('settings.google.disconnect') : t('settings.google.connect')}</span>}
           />
         </PhoneListGroup>
         {dialog}
@@ -106,7 +113,9 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
       desc={used ?? undefined}
       below={offer && account ? <AlsoConnect className="mt-1.5 block text-meta text-muted" /> : undefined}
       control={account
-        ? <Button size="sm" variant="ghost" onClick={() => void disconnect()} data-testid="google-disconnect">{t('settings.google.disconnect')}</Button>
+        ? noPassword
+          ? <span className="max-w-56 text-meta text-muted" data-testid="google-password-first">{t('settings.google.passwordFirst')}</span>
+          : <Button size="sm" variant="ghost" onClick={() => void disconnect()} data-testid="google-disconnect">{t('settings.google.disconnect')}</Button>
         : <Button size="sm" onClick={() => setAsking(true)} data-testid="google-connect">{t('settings.google.connect')}</Button>}
     />
   )

@@ -36,6 +36,8 @@ import { teamAddressHost } from '../lib/team-address'
 import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
+import { ReauthInput, useReauth } from './admin/common'
+import { needsGoogleCheck } from '../lib/googleCheck'
 import { FreeRoamStart } from '../components/demo/FreeRoam'
 import { freeRoamSignInLocales } from '../lib/freeRoam'
 import { useDemo, useFreeRoam } from '../store/demo'
@@ -1384,19 +1386,24 @@ export function ResetPassword() {
 /**
  * Change own password. Settings: current + new + again. Forced change right after signing in with a temporary
  * password (`Me.session.tempLogin`): only new + again, the sign-in just proved the temporary one (the server allows
- * that only for such a session). A forced change in an older session still asks for the temporary password.
+ * that only for such a session). A forced change in an older session still asks for the temporary password. An account
+ * made with Google has none yet: "Set a password", new + again, then a Google check (POST /api/me/password;
+ * docs/decisions/20261122-google-reauth.md).
  */
 export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; forced?: boolean }) {
   const t = useT()
   const me = useMe()
   const withoutCurrent = !!forced && !!me?.session.tempLogin
+  // no password yet (made with Google): nothing current to type, a Google check instead
+  const firstPassword = !forced && needsGoogleCheck(me)
+  const google = useReauth()
   const [form, setForm] = useState({ current: '', next: '', next2: '' })
   // typing blind twice: let the person see what they typed, and say when Caps Lock is on
   const reveal = usePasswordReveal()
   const { busy, error, run, setError } = useSubmit()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
-    current: withoutCurrent || form.current ? null : 'auth.required',
+    current: withoutCurrent || firstPassword || form.current ? null : 'auth.required',
     next: form.next ? null : 'auth.required',
     next2: form.next2 ? null : 'auth.required',
   })
@@ -1405,6 +1412,20 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
     if (!check(e.currentTarget)) return
     if (form.next !== form.next2) return setError('auth.passwordMismatch')
     if ([...form.next].length < PASSWORD_MIN) return setError('auth.passwordRule')
+    if (firstPassword) {
+      // in the press: the Google window opens here
+      const proof = google.proof()
+      void run(async () => {
+        const p = await proof
+        // no check: the Google line says why
+        if (!p || !('reauthFlow' in p)) return
+        await api.call(API.setPassword, { body: { newPassword: form.next, reauthFlow: p.reauthFlow } })
+        setForm({ current: '', next: '', next2: '' })
+        await useSession.getState().refreshMe()
+        onDone()
+      })
+      return
+    }
     void run(async () => {
       await api.call(API.changePassword, { body: withoutCurrent ? { newPassword: form.next } : { currentPassword: form.current, newPassword: form.next } })
       setForm({ current: '', next: '', next2: '' })
@@ -1415,7 +1436,7 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
     <form onSubmit={submit} noValidate className="space-y-3">
       {/* lets a password manager file the new password under the right account */}
       {me && <input type="text" name="username" value={me.user.username} autoComplete="username" readOnly hidden />}
-      {!withoutCurrent && (
+      {!withoutCurrent && !firstPassword && (
         <Field label={forced ? t('auth.temporaryPassword') : t('auth.currentPassword')} error={errorOf('current')}>
           <input className={inputCls} name="current" type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" data-testid="password-current" />
         </Field>
@@ -1424,6 +1445,7 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
       {/* the one eye button above shows both fields */}
       <PasswordField label={t('auth.passwordAgain')} error={errorOf('next2')} reveal={reveal} eye={false} name="next2" value={form.next2} onChange={set('next2')} required autoComplete="new-password" data-testid="password-new2" />
       <CapsLockNote reveal={reveal} />
+      {firstPassword && <ReauthInput r={google} autoFocus={false} />}
       {/* the forced change is a sign-in style page: its button stays above a phone's keyboard; in Settings it is a plain row,
           and on a phone (Settings › Security & devices › Change password, QA TC-382) one button the form's width */}
       <SubmitBar plain={!forced}>
@@ -1432,8 +1454,8 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
             {error}
           </p>
         )}
-        <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : 'max-md:mt-2 max-md:w-full'} data-testid="password-submit">
-          {t('auth.changePassword')}
+        <Button type="submit" variant="primary" busy={busy || google.waiting} disabled={firstPassword && !google.ready} className={forced ? 'w-full' : 'max-md:mt-2 max-md:w-full'} data-testid="password-submit">
+          {t(firstPassword ? 'settings.password.setTitle' : 'auth.changePassword')}
         </Button>
       </SubmitBar>
     </form>

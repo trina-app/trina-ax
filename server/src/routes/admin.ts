@@ -13,6 +13,7 @@ import { fail } from '../http/errors'
 import { createGuestInviteFor, createInvite, guestInviteLimit, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
 import { convertGuest, disablePlacelessGuests, updateGuestAi } from '../admin/guests'
 import { msg } from '../auth/messages'
+import { requireReauth } from '../auth/reauth'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
@@ -94,7 +95,7 @@ export const adminRoutes: RouteModule = {
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
-    kit.handle(API.deleteUser, ({ c, params, query, body }) => deleteUser(c, ctx, params.id, query.personalFolder, body.password))
+    kit.handle(API.deleteUser, ({ c, params, query, body }) => deleteUser(c, ctx, params.id, query.personalFolder, body))
     kit.handle(API.resetPassword, ({ c, params, body }) => resetPassword(c, ctx, params.id, body))
     kit.handle(API.createResetLink, ({ c, params, auth }) => {
       guardResetLink(c, ctx, params.id)
@@ -447,10 +448,8 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.speechHost, () => ctx.files.speechHost())
     kit.handle(API.setSpeechKey, async ({ c, body, auth }) => {
       const locale = c.get('locale')
-      // the password again (route.ts reauth), admins may do it too: audio goes to a third party
-      if (!(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
-        fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
-      }
+      // the password again (or a Google check without one: auth/reauth.ts), admins may do it too: audio goes to a third party
+      await requireReauth(c, ctx, body)
       const cc = credentialsOf(ctx)
       let key: string | null = null
       if (body.sealed) {

@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -31,6 +31,10 @@ export const Me = z.object({
     /** their own choice; null = follow the team default (changes when an admin changes the team default) */
     localeChoice: Locale.nullable(),
     mustChangePassword: z.boolean(),
+    /** the account has a password. false: it was made with Google (docs/decisions/20261122-google-reauth.md): every
+     * re-check confirms with Google instead (`reauthToken`), and Settings › Security & devices offers "Set a password".
+     * Absent (older server) = true */
+    hasPassword: z.boolean().optional(),
     prefs: UserPrefs,
     /** may pick the engine / model (composer, retry with another model, own default): owner and admins always, others
      * when Admin > AI engines allows them. Absent (older server) = admins only. */
@@ -322,7 +326,19 @@ export const GoogleJoinBody = z.object({
   /** the language the person picked on the page; omitted = follow the team default */
   locale: Locale.optional(),
 })
-export const ConnectGoogleBody = z.object({ password: z.string().min(1).max(256) })
+export const ConnectGoogleBody = z.object({ ...ReauthFields })
+/** A Google check instead of the password, for an account without one (docs/decisions/20261122-google-reauth.md):
+ * Google's address to open in a new window, and the check's id. The tab asks GET /api/me/google/reauth/:id until it is
+ * `confirmed`, then sends the request that needed the check with `reauthFlow: <id>` (once, within 5 minutes). */
+export const GoogleReauthStart = z.object({ url: z.string().url(), flow: Uuid7 })
+export type GoogleReauthStart = z.infer<typeof GoogleReauthStart>
+/** waiting: still at Google; confirmed: send the id now; failed: over without a confirmation (expired, cancelled,
+ * another Google account, already used): the Google window said why */
+export const GoogleReauthState = z.object({ state: z.enum(['waiting', 'confirmed', 'failed']) })
+export type GoogleReauthState = z.infer<typeof GoogleReauthState>
+/** "Set a password" for an account without one (made with Google): after a Google check. Refused (409) once the
+ * account has a password: that one is changed with POST /api/auth/password. */
+export const SetPasswordBody = z.object({ newPassword: Password, reauthFlow: Uuid7 })
 export const MyGoogle = z.object({
   /** this page can connect one now (the same rule as SetupStatus.googleSignIn) */
   available: z.boolean(),
@@ -411,7 +427,12 @@ export const AUTH = {
   startGoogleInvite: endpoint({ method: 'POST', path: '/api/invites/google', auth: 'public', owner: 'A', body: GoogleJoinBody, response: GoogleStart, summary: 'Start joining with an invite and a Google account instead of a password (not for guest invites): Google\'s address to open.' }),
   myGoogle: endpoint({ method: 'GET', path: '/api/me/google', auth: 'user', owner: 'A', response: MyGoogle, summary: 'My connected Google account, and whether one can be connected here.' }),
   // not allowWhilePasswordChange (a temporary-password session cannot connect one), not for guests (GUEST_ENDPOINTS)
-  connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password): Google\'s address to open.' }),
-  disconnectGoogle: endpoint({ method: 'DELETE', path: '/api/me/google', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Disconnect my Google account: it no longer signs me in.' }),
+  connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password, or a Google check without one): Google\'s address to open.' }),
+  disconnectGoogle: endpoint({ method: 'DELETE', path: '/api/me/google', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Disconnect my Google account: it no longer signs me in. Refused (409) while I have no password.' }),
+  // a re-check without a password (server/src/auth/reauth.ts): not allowWhilePasswordChange, not for guests; only an
+  // account without a password, with a Google account connected, from a browser's cookie session
+  startGoogleReauth: endpoint({ method: 'POST', path: '/api/me/google/reauth', auth: 'user', owner: 'A', response: GoogleReauthStart, summary: 'Start a Google check instead of the password (an account without one): Google\'s address to open in a new window, and the check\'s id. Refused while my re-check limit is locked.' }),
+  googleReauthState: endpoint({ method: 'GET', path: '/api/me/google/reauth/:id', auth: 'user', owner: 'A', response: GoogleReauthState, summary: 'Whether my Google check came back confirmed (only the session that started it; no-store).' }),
+  setPassword: endpoint({ method: 'POST', path: '/api/me/password', auth: 'user', owner: 'A', body: SetPasswordBody, response: Ok, summary: 'Set a first password for an account made with Google, after a Google check. Refused (409) when the account has a password. Other sessions stay; open reset links stop.' }),
 } as const
 

@@ -53,8 +53,11 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/setup/google` | Anyone | Start making the team and its owner with Google (only while no user exists; needs the setup token): Google's address to open. |
 | `POST` | `/api/invites/google` | Anyone | Start joining with an invite and a Google account instead of a password (not for guest invites): Google's address to open. |
 | `GET` | `/api/me/google` | Signed in | My connected Google account, and whether one can be connected here. |
-| `POST` | `/api/me/google/connect` | Signed in | Start connecting my Google account (needs my current password): Google's address to open. |
-| `DELETE` | `/api/me/google` | Signed in | Disconnect my Google account: it no longer signs me in. |
+| `POST` | `/api/me/google/connect` | Signed in | Start connecting my Google account (needs my current password, or a Google check without one): Google's address to open. |
+| `DELETE` | `/api/me/google` | Signed in | Disconnect my Google account: it no longer signs me in. Refused (409) while I have no password. |
+| `POST` | `/api/me/google/reauth` | Signed in | Start a Google check instead of the password (an account without one): Google's address to open in a new window, and the check's id. Refused while my re-check limit is locked. |
+| `GET` | `/api/me/google/reauth/:id` | Signed in | Whether my Google check came back confirmed (only the session that started it; no-store). |
+| `POST` | `/api/me/password` | Signed in | Set a first password for an account made with Google, after a Google check. Refused (409) when the account has a password. Other sessions stay; open reset links stop. |
 
 ## Chats and projects
 

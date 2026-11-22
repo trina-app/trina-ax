@@ -45,6 +45,7 @@ const people: Record<string, AuthInfo> = {
 const fakeSessions: SessionService = {
   async resolve(req) { return people[req.headers.get('x-test-user') ?? ''] ?? null },
   async verifyPassword(_u, pw) { return pw === 'correct horse' },
+  async verifyReauth(_u, _s, p) { return 'password' in p && p.password === 'correct horse' },
 }
 
 // test-only endpoints exercising every RouteKit feature

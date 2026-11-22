@@ -1,7 +1,7 @@
 // Health, diagnostics, update, backup / restore / export, connection mode. Owner: G (server/src/routes/system.ts,
 // server/src/system/*). Everything but health is owner-only; update and restore ask for the password again (tab 4).
 import { z } from 'zod'
-import { IsoTime, JobAccepted } from './common'
+import { IsoTime, JobAccepted, ReauthFields } from './common'
 import { UserRef } from './entities'
 import { empty, endpoint, stream } from './endpoint'
 import { SourceCodeOffer } from '../source'
@@ -119,7 +119,7 @@ export const AfterUpdateAction = z.object({
   to: z.string(),
 })
 export type AfterUpdateAction = z.infer<typeof AfterUpdateAction>
-export const ReauthBody = z.object({ password: z.string().min(1).max(256) })
+export const ReauthBody = z.object({ ...ReauthFields })
 export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
   version: z.string().max(50).optional(),
@@ -191,7 +191,7 @@ export const UpdateConnectionBody = z.object({
   /** claim code from the account console (the official relay add-on, control-plane 3.13): registers the address
    * without proof of work at a relay with closed registration. Used once, at the next start. */
   claimCode: z.string().trim().min(16).max(64).regex(/^[A-Za-z0-9 -]+$/).optional(),
-  password: z.string().min(1).max(256),
+  ...ReauthFields,
 })
 
 /**

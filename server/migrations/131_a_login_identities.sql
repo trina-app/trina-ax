@@ -4,7 +4,8 @@
 -- account is found by (provider, subject) only, Google's `sub`, never by e-mail: e-mails here are free text, not unique
 -- and the person can edit their own (docs/decisions/20261122-google-login-identity.md). `email` and `hd` are as of the
 -- last sign-in, shown, never used to match. One Google account per person, and per team.
--- google_signin_flows: a Google sign-in or connect on its way (10 minutes). Only the state's and the browser binding's
+-- google_signin_flows: a Google sign-in, connect or re-check on its way (10 minutes; a confirmed re-check 5 minutes
+-- from its confirmation). Only the state's and the browser binding's
 -- SHA-256 are kept; the PKCE verifier and the nonce are sealed (the Drive store's vault, context 'google-login').
 -- A connected Google account is a sign-in credential like users.password_hash: adding or removing one advances the
 -- safe operations policy generation (319_c_policy_epoch.sql does it for the password). The triggers name
@@ -36,7 +37,11 @@ CREATE TABLE google_signin_flows (
   next TEXT,
   secret_enc TEXT,
   key_version INTEGER NOT NULL DEFAULT 1,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'used')),
+  -- 'confirmed': a reauth flow Google answered for the person's connected account (auth/reauth.ts); the request that
+  -- needed the check spends it once (then 'used'), within 5 minutes of confirmed_at, for the Google account in subject
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'used', 'confirmed')),
+  confirmed_at TEXT,
+  subject TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   -- signin, setup (the first owner, with the setup token) and join (an invite or team link) have nobody signed in yet;

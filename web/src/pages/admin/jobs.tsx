@@ -8,7 +8,7 @@ import { useT } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
 import { updateOutcome } from '../../lib/updateOutcome'
-import { ReauthDialog, useReauthCall } from './common'
+import { ReauthDialog, useReauthCall, type ReauthProof } from './common'
 
 /** Progress line of a running job. */
 export function JobLine({ jobId }: { jobId: string }) {
@@ -55,9 +55,9 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
   const [ask, setAsk] = useState<'update' | 'retry' | 'rollback' | 'anyway' | null>(null)
   // tasks running now: the update waits for them (at most 30 minutes) unless the owner picks "Update now anyway"
   const running = o.running ?? 0
-  const start = async (password: string, force: boolean) => {
+  const start = async (proof: ReauthProof, force: boolean) => {
     // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the install started
-    const r = await reauth(() => api.call(API.startUpdate, { body: ask === 'rollback' ? { password, rollback: true, ...(force ? { force } : {}) } : { password, version: o.version, ...(force ? { force } : {}) } }))
+    const r = await reauth(() => api.call(API.startUpdate, { body: ask === 'rollback' ? { ...proof, rollback: true, ...(force ? { force } : {}) } : { ...proof, version: o.version, ...(force ? { force } : {}) } }))
     if (r && 'refused' in r) return r.refused
     setAsk(null)
     if (!r) return
@@ -87,9 +87,9 @@ export function useUpdateInstall(o: { version?: string; previous?: string | null
       title={ask === 'rollback' ? t('system.rollback', { version: o.previous ?? '' }) : ask === 'retry' ? t('system.retryTitle', { version: o.version ?? '' }) : ask === 'anyway' ? t('system.updateAnyway') : t('system.installUpdate')}
       body={choice || ask === 'anyway' ? <>{t('system.updateNote')} <span className="mt-2 block font-medium text-ink" data-testid="update-running">{t('system.updateRunning', { count: running })}</span></> : ask === 'retry' ? t('system.retryBody', { version: o.version ?? '' }) : t('system.updateNote')}
       confirm={choice ? t('system.updateWait') : ask === 'anyway' ? t('system.updateAnyway') : ask === 'retry' ? t('system.retryShort') : t('common.continue')}
-      alt={choice ? { label: t('system.updateAnyway'), testId: 'update-anyway', onConfirm: (password) => start(password, true) } : undefined}
+      alt={choice ? { label: t('system.updateAnyway'), testId: 'update-anyway', onConfirm: (proof) => start(proof, true) } : undefined}
       onClose={() => setAsk(null)}
-      onConfirm={(password) => start(password, ask === 'anyway')}
+      onConfirm={(proof) => start(proof, ask === 'anyway')}
     />
   )
   return { jobId: runner.jobId, ask: setAsk, dialog }

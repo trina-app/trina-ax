@@ -225,6 +225,15 @@ export const SPECS: Record<string, Spec> = {
   connectGoogle: { skipPositive: true, build: (c) => c.post('/api/me/google/connect', { password: 'Not-the-password-0000' }), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google connect started with a wrong password: ${r.text}`) } },
   disconnectGoogle: { build: (c) => c.del('/api/me/google'), scope: 'self' },
+  // a Google check instead of the password (server/src/auth/reauth.ts): only for an account without a password, with a
+  // Google account connected; everyone here has a password and the team no Google client, so nothing starts; a check's
+  // state only for the session that started it (a made-up id is a 404); a first password only for an account without one
+  startGoogleReauth: { skipPositive: true, build: (c) => c.post('/api/me/google/reauth', {}), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google check started for an account with a password: ${r.text}`) } },
+  googleReauthState: { skipPositive: true, build: (c) => c.get('/api/me/google/reauth/019a0000-0000-7000-8000-000000000000'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: read a Google check that is not theirs: ${r.text}`) } },
+  setPassword: { skipPositive: true, build: (c) => c.post('/api/me/password', { newPassword: 'A-new-password-0000', reauthFlow: '019a0000-0000-7000-8000-000000000000' }), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: set a password without a Google check: ${r.text}`) } },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 
