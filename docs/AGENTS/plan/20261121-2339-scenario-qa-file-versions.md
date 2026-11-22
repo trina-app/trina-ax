@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:39
 - Branch: `fix/scenario-qa-file-versions`
-- Status: in progress
+- Status: done
 - Where: server (tools, chat, devenv), shared (step labels, API), web (file panel, steps). Why: five findings of the
   multi-person scenario QA on dev 3d747563a (QA sheet TC-7039, 7040, 7043, 7044, 7048).
 - Version impact: patch (fixes of shipped features; one optional response field added, older clients ignore it)
@@ -109,4 +109,20 @@ config, prompt), web unit, full tests/unit and tests/security once; visual check
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus what the plan review and the coordinator's later QA rows added:
+- putVersion keeps a version's bytes once its row is in (prune and audit failures are logged, not thrown).
+- A refused edit_office / edit_pdf on a chat file gets one line with the file's real state, added at the call site in
+  chat/tools.ts (every refusal path), and never "nothing was saved" when the head moved during the call.
+- A produce tool's output that names an existing chat file by its own path (chat:files/<id>/<name>, same name) saves a
+  new version (files/place-output.ts versionProduced, edit_office's rules) instead of a "(2)" copy (TC-7267, 7283,
+  7243); prompt and make_file text say to remake a chat file that way. edit_pdf output naming the same file is in place.
+- Restore when the newest version is held by the safety check stays off (unchanged rule).
+- Prompt: look before describing how something made looks; check the result for what the person asked to leave out
+  (TC-7263, 7276); artifacts changed by their key (TC-7247); a picture request makes a PNG (TC-7235); the API engine's
+  deferred-tool list says the names are not for answers.
+- Not folded (other roots): TC-7234 (an edit after the file was moved to a project or room) and TC-7241 (a person's
+  upload with a taken name: "Save as a new version / Keep both" needs a UI decision).
+- Visual check on a private QA copy (Linux container, srt, OpenRouter sonnet-4.5, about 1.04 USD): a PDF date change made
+  version 2 with Restore at 1440 and 390; speaker notes got no test slide and no version; drawtext without a font file
+  rendered Hangul (fc-match sans-serif = Noto Sans CJK KR inside srt); steps read "This chat › …". Sonnet still named
+  edit_office in one answer despite the rules (model behaviour).
