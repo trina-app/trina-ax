@@ -134,7 +134,16 @@ export function readyAnswers(db: Database, messageId: string, userId: string): {
   const all = db.query('SELECT * FROM open_questions WHERE message_id = ? AND user_id = ? ORDER BY created_at, request_id').all(messageId, userId) as Row[]
   if (!all.length || all.some((x) => x.answer === null)) return null
   const requests = all.map((x) => parse(x.request) ?? { kind: 'ask_user' as const, requestId: x.request_id, question: '' })
-  const answers = all.map((x, i) => { const call = callOf(x, requests[i]!); return { question: cardWords(requests[i]!), answer: JSON.parse(x.answer!) as unknown, ...(call ? { call } : {}) } })
+  // a waiting call saved before call_meta (migration 444): its asking turn is the row's own turn, the same person's
+  const askedOf = (x: Row): AskedIn | undefined => {
+    const t = db.query('SELECT id, user_message_id, message_id FROM turns WHERE id = ? AND user_id = ?').get(x.turn_id, x.user_id) as { id: string; user_message_id: string | null; message_id: string | null } | null
+    return t?.user_message_id && t.message_id ? { turnId: t.id, userMessageId: t.user_message_id, assistantId: t.message_id } : undefined
+  }
+  const answers = all.map((x, i) => {
+    const call = callOf(x, requests[i]!)
+    if (call && !call.asked) { const asked = askedOf(x); if (asked) call.asked = asked }
+    return { question: cardWords(requests[i]!), answer: JSON.parse(x.answer!) as unknown, ...(call ? { call } : {}) }
+  })
   return { requests, answers, window: all.find((x) => x.window_id)?.window_id ?? null }
 }
 
@@ -173,7 +182,8 @@ export function closeChatQuestions(db: Database, chatId: string, under: string |
   // a message whose waiting call's card is still open keeps its call cards (answered or not), while the new turn goes
   // on under its asking answer (`under`: the new turn's user message): an edit, a regenerate or another branch went on
   // without it, so its card goes there as an AI question does
-  const onBranch = (id: string) => !!under && descends(db, under, id)
+  // (a turn with no message of its own, a scheduled run: the chat did not go on from a branch, the cards stay)
+  const onBranch = (id: string) => !under || descends(db, under, id)
   const waiting = new Set(rows.filter((r) => r.call_tool && r.answer === null && onBranch(r.message_id)).map((r) => `${r.message_id}\u0000${r.user_id}`))
   const keep = (r: (typeof rows)[number]) => !!r.call_tool && waiting.has(`${r.message_id}\u0000${r.user_id}`)
   const gone = rows.filter((r) => !keep(r))

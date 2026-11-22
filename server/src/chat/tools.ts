@@ -1341,7 +1341,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const yesValue = copy ? 'copy' : 'move'
       const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
-        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), copy, turnId: spec.turnId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), copy, turnId: spec.turnId, answer: answer === null || answer === undefined ? (exec.callNow?.deferred ? 'deferred' : 'none') : 'declined' } })
         return bad(`The user did not allow ${copy ? 'copying' : 'moving'} the skill "${neutralizeTags(plan.skill.name)}" from ${en(plan.from)} to ${en(plan.to)}, so nothing was ${verb}. The card said: ${people(plan)} Do not do it another way unless the user asks again, and never leave a README or an empty skills folder as a stand-in.`, 'not allowed by the user')
       }
       try {

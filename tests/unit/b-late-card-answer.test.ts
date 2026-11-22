@@ -20,6 +20,7 @@ import { NOT_LATER } from '../../server/src/chat/tools'
 import { CHANGED_MARK, declined, sameCard } from '../../server/src/chat/open-questions'
 import { ALWAYS_VALUE } from '../../server/src/chat/always-allow'
 import { tr } from '../../server/src/chat/i18n'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 
 setDefaultTimeout(90_000)
 
@@ -104,6 +105,38 @@ describe('a share card in a shared chat (QA of #403)', () => {
     expect(cardsOf(next.turnId)).toEqual([])
     expect(db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_files'").get()).toEqual({ n: 1 })
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+  })
+})
+
+describe('Always allow pressed on a waiting card', () => {
+  const always = () => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_files'").get() as { n: number }).n
+  const waitingShare = async (name: string) => {
+    put(`users/alice/QA-late/${name}`, 'x')
+    const chatId = await ownChat()
+    const w = await askAndWait(chatId, `share ${name} with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
+    return { chatId, w }
+  }
+  test('kept even when the run ends before its card (the file is gone now): the person\'s choice for that kind', async () => {
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+    const { chatId, w } = await waitingShare('gone-later.txt')
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/gone-later.txt'))
+    expect((await post(w.turnId, w.card.requestId, ALWAYS_VALUE)).status).toBe(204)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(cardsOf(next.turnId)).toEqual([])
+    expect(always()).toBe(1)
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+  })
+
+  test('not kept when the team turned Always allow off meanwhile', async () => {
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+    const { chatId, w } = await waitingShare('switch-off.txt')
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/switch-off.txt'))
+    updateTeamSettings(db(), { roomAlwaysAllow: false })
+    try {
+      expect((await post(w.turnId, w.card.requestId, ALWAYS_VALUE)).status).toBe(204)
+      await nextTurn(chatId, w.answerId)
+      expect(always()).toBe(0)
+    } finally { updateTeamSettings(db(), { roomAlwaysAllow: true }) }
   })
 })
 
