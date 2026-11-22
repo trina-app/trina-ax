@@ -33,7 +33,8 @@ test('a person\'s message in a shared chat: one phone push each, the badge count
   let r = await put()
   if (r.status === 'confirm') r = await put(r.confirmKey)
   expect(r.status).toBe('saved')
-  const ended = async () => { for (let i = 0; i < 100 && h.ctx.db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(chat.id); i++) await new Promise((x) => setTimeout(x, 50)) }
+  // (the harness has no AI login: each turn ends in an error, which can take about 11 s on a machine without one)
+  const ended = async () => { for (let i = 0; i < 600 && h.ctx.db.query("SELECT 1 FROM turns WHERE chat_id = ? AND status IN ('queued','running')").get(chat.id); i++) await new Promise((x) => setTimeout(x, 50)) }
   for (const text of ['one', 'two']) {
     await owner.call('POST', `/api/chats/${chat.id}/messages`, { content: text, attachmentIds: [], clientMessageId: cm() })
     await ended()
