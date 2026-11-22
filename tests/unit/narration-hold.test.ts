@@ -257,6 +257,8 @@ describe('NarrationHold', () => {
     // a change to its own work as an order to itself (Claude Code, the same day)
     expect(dropped('Shrink the chart a bit so it fits on one page.')).toBe(true)
     expect(dropped('Encoding is wrapping up.')).toBe(true)
+    // make_file's slide guidance said back as a plan to itself (TC-r2b-05, Claude Code rerun)
+    expect(dropped('Use only "##" headings; the title slide becomes the first one.')).toBe(true)
     expect(dropped('Rendering is still running.')).toBe(true)
     expect(dropped('Sales is growing fast this quarter, team!')).toBe(false)
     for (const line of ['Now the SKILL.md.', 'Now the 견적서.pdf.', 'Now the PDF.']) {

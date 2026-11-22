@@ -74,7 +74,7 @@ const STATUS_PLAN = new RegExp(`[,;]\\s*(?:so\\s+|then\\s+)?(?:(?:i'll|i will|le
 const CONTENT_LINE = /^let me know|^let me introduce|^i'?m (?:happy|pleased|excited|writing)|^i am writing|out of (?:the )?office|^looking forward|^following up|[?!]/i
 /** A note about the work (2026-11-17): what the AI works on, by name ("the CSV", "both rooms", "page 2", "edit_pdf",
  * "users/sora") … */
-const WORK_NOUN = /\b(?:file|files|filename|folders?|subfolders?|threads?|rooms?|messages?|mails?|pages?|skills?|cop(?:y|ies)|scan|scanned|csv|pdf|docx|xlsx|pptx|hwpx?|path|links?|rows?|columns?|seal|stamped|chart|root|parameters?|statements?|naming)\b|\b[a-z]+_[a-z_]+\b|\b(?:users|groups|projects|shared|skills)\/[^\s/]/i
+const WORK_NOUN = /\b(?:file|files|filename|folders?|subfolders?|threads?|rooms?|messages?|mails?|pages?|skills?|cop(?:y|ies)|scan|scanned|csv|pdf|docx|xlsx|pptx|hwpx?|path|links?|rows?|columns?|seal|stamped|chart|root|parameters?|statements?|naming|slides?|headings?|decks?|layouts?)\b|\b[a-z]+_[a-z_]+\b|\b(?:users|groups|projects|shared|skills)\/[^\s/]/i
 /** … an order to itself at the start of a sentence: "Need to …", or a verb rarely said to people ("Find the CSV.",
  * "Search files.", not "Find attached …"), or a common verb in a note's shape: after an earlier sentence ("Only one
  * thread; read it."), or ending on first / instead / both / it ("Use edit_pdf instead."), not "Read the attached file
@@ -133,7 +133,9 @@ const isWorkNote = (t: string) => {
   if (META.test(t)) return true
   if (REPORT.test(t)) return false
   if (RETRY_NOTE.test(t) && WORK_NOUN.test(t) && t.length <= 100) return true
-  if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
+  // (a ';' joining two fragments about the work is a note's shape even after such a verb: 'Use only "##" headings; the
+  // title slide becomes the first one.', TC-r2b-05)
+  if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t) && !(t.includes(';') && WORK_NOUN.test(t) && t.length <= 100)) return false
   return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || (PROGRESS.test(t) && t.length <= 80) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && (NOTE_MARK.test(t) || EDIT_ORDER.test(t)))) && t.length <= 100)
 }
 
@@ -169,6 +171,8 @@ const isBracketName = (inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z
  * work-note checks, where a file name is the work named ("Now the SKILL.md.", 2026-11-22: taken out, it left "Now the ."
  * which named nothing, and the line led a Korean answer) */
 const withoutNames = (s: string, as = '') => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, as)
+  // a quoted mark of no letters ("##", '---'): a name of markup, not a quote (TC-r2b-05)
+  .replace(/["“'‘][^A-Za-z0-9\s"”'’]{1,4}["”'’]/g, as)
   // a short piece of another script in brackets is a name too: a form's own label ("Seal lands on (인) correctly.",
   // 2026-11-18 CHT-02.room); no Latin letter and no sentence mark in it
   .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => isBracketName(inner) ? '' : m)
