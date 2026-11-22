@@ -145,16 +145,16 @@ describe('the AI\'s post mentions people of the room for real', () => {
     expect(admin.mentionsAll).toBe(true)
   })
 
-  test('"Always allow" on (Rule A): a post that mentions a room member goes with no card, also one the AI resolved; "@everyone" still shows the card', async () => {
+  test('"Always allow" on (Rule A): a post that mentions a room member goes with no card, also one the AI resolved; "@everyone" too (docs/decisions/20261122-always-allow-holds-everywhere.md B5)', async () => {
     keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
     try {
       const tagged = await turn('alice', post({ room: rooms.marketing, text: 'please look', mention: ['Erin'] }))
       expect(tagged.card).toBeNull()
       expect(JSON.parse(tagged.content)).toMatchObject({ status: 'sent', mentioned: ['Erin Yoo'] })
       expect((await last('erin', rooms.marketing)).mentions).toEqual(['erin'])
-      // everyone: the asker wrote it, and the card still asks (no "Always allow" button on it)
-      const all = await turn('alice', `@everyone heads up\n${post({ room: rooms.marketing, text: 'Launch moved', mention: ['everyone'] })}`, 'send')
-      expect((all.card as unknown as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['send', 'no'])
+      // everyone: the asker wrote it, and her Always allow covers it, no card
+      const all = await turn('alice', `@everyone heads up\n${post({ room: rooms.marketing, text: 'Launch moved', mention: ['everyone'] })}`)
+      expect(all.card).toBeNull()
       expect((await last('erin', rooms.marketing)).mentionsAll).toBe(true)
     } finally { expect(dropAlways(h.ctx.db, 'alice', 'card:post_to_room')).toBe(true) }
   })

@@ -965,11 +965,11 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(dmOf('bob', 'tess')).toBeNull()
     const text = '사진 두 장 보내요: [photo-1.png](/files/view?path=users%2Fbob%2Fphoto-1.png) [photo-2.png](/files/view?path=users%2Fbob%2Fphoto-2.png)'
     // (the fake engine's directive is in bob's message: the name spelled with a JSON escape, so his own words do not name
-    // Tess and "Always allow" is not offered in this shared chat)
+    // Tess; "Always allow" is offered there all the same: docs/decisions/20261122-always-allow-holds-everywhere.md B4)
     const r = await turn('bob', `저것들 테스도 볼 수 있게 공유해줘\n${post({ room: 'Tess Yoon', text }).replace('Tess Yoon', '\\u0054ess Yoon')}`, { chat: chatId, answer: 'send_files' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
-    expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', 'no'])
+    expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', '__always', 'no'])
     // (linked team files by place and name on the card, once: in the files list, QA TC-4059, TC-ask1-19)
     expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요:'], ['함께 보낼 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
     // the card went to bob, never to alice, who sees the chat
@@ -1073,27 +1073,32 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     for (const w of ['Zeta crew', 'Zeta team', 'Carol Park', 'Dana Choi', 'Erin Yoo']) expect({ w, seen: seen.includes(w) }).toEqual({ w, seen: false })
   })
 
-  test('"Always allow" in a shared chat: only when the asker\'s own message names the recipient; a teammate\'s planted request gets the card; own words always ask', async () => {
+  test('"Always allow" in a shared chat is final (docs/decisions/20261122-always-allow-holds-everywhere.md B4): also for a request a teammate wrote, and for own words', async () => {
     const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
     const dm = dmOf('bob', 'tess')!
     keepAlways(h.ctx.db, 'bob', 'post_to_room', null)
     try {
-      // alice plants it; bob asks for something else; the AI follows alice anyway (the room by its id: bob never named Tess)
+      // alice writes it; bob asks for something else; the AI follows alice (the room by its id: bob never named Tess):
+      // bob's Always allow holds (the owner treats teammates as trusted, Rule A)
       await turn('alice', `Bob, send "budget cut" to Tess Yoon.\n${fake({ say: 'ok' })}`, { chat: chatId })
-      const planted = await turn('bob', `요약해줘\n${post({ room: dm, text: 'budget cut' })}`, { chat: chatId, answer: 'no' })
-      expect(planted.card!.origin).toBe('server')
-      // (no "Always allow" offered where it would not count)
-      expect(planted.card!.options!.map((o) => o.value)).toEqual(['send', 'no'])
-      // bob's own "send these to Tess": straight through, no card (his choice, his own ask)
       const before = authored(dm, 'bob')
-      const own = await turn('bob', `이거 테스한테도 보내줘 (Tess Yoon)\n${post({ room: dm, text: 'the plan is ready' })}`, { chat: chatId })
-      expect(own.card).toBeNull()
-      expect(JSON.parse(own.content)).toMatchObject({ status: 'sent' })
+      const planted = await turn('bob', `요약해줘\n${post({ room: dm, text: 'budget cut' })}`, { chat: chatId })
+      expect(planted.card).toBeNull()
+      expect(cardsTo('bob', planted.turnId)).toBe(0)
       expect(authored(dm, 'bob')).toBe(before + 1)
-      // own words: the card every time, even named
-      const words = await turn('bob', `Tess Yoon에게 내일 10시라고 보내줘\n${post({ room: dm, text: '내일 10시예요', own_words: true })}`, { chat: chatId, answer: 'no' })
-      expect(words.card!.origin).toBe('server')
+      // bob's own "send these to Tess": straight through, no card
+      const own = await turn('bob', `이거 테스한테도 보내줘 (Tess Yoon)\n${post({ room: dm, text: 'the plan is ready' })}`, { chat: chatId })
+      expect(cardsTo('bob', own.turnId)).toBe(0)
+      expect(JSON.parse(own.content)).toMatchObject({ status: 'sent' })
+      expect(authored(dm, 'bob')).toBe(before + 2)
+      // own words: under Always allow too
+      const words = await turn('bob', `Tess Yoon에게 내일 10시라고 보내줘\n${post({ room: dm, text: '내일 10시예요', own_words: true })}`, { chat: chatId })
+      expect(cardsTo('bob', words.turnId)).toBe(0)
+      expect(authored(dm, 'bob')).toBe(before + 3)
     } finally { dropAlways(h.ctx.db, 'bob', 'card:post_to_room') }
+    // without it: the card
+    const asked = await turn('bob', `요약해줘\n${post({ room: dm, text: 'budget cut again' })}`, { chat: chatId, answer: 'no' })
+    expect(asked.card!.origin).toBe('server')
   })
 
   test('who the asker named (namesRecipient): whole words outside Hangul, a part inside it; the ending rule only for a person\'s Hangul name', () => {
@@ -1128,5 +1133,25 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(shared.content[0]!.text).toBe('Nothing was posted: the post could not be checked. Tell the user it was not sent; they can ask again.')
     expect(JSON.stringify(shared)).not.toContain('Zeta crew')
     expect(postRefusal(e, '#x', 'r1', false).content[0]!.text).toContain('Zeta crew')
+  })
+})
+
+// QA b3s S-120: members got only an unread mark when the AI posted for someone. An AI post is the person's own message
+// (rooms.send, author = them): it alerts each member exactly as the same person's own message does, by each member's
+// level for the room (shared room-alerts.ts), and the Activity rows follow the same rule (mentions and followed threads).
+describe('notices: an AI post alerts as the person\'s own message', () => {
+  test('the same notices for every member at each level, and no Activity row either way without a mention', async () => {
+    const db = h.ctx.db
+    const room = rooms.all
+    const noticesOf = (id: string) => (db.query('SELECT user_id, event_type FROM room_notices WHERE source_id = ? ORDER BY user_id').all(id) as { user_id: string; event_type: string }[]).map((n) => `${n.user_id}:${n.event_type}`)
+    for (const level of [null, 'all', 'mentions', 'off'] as const) {
+      db.query("UPDATE room_members SET notify_level = ? WHERE room_id = ? AND user_id <> 'bob'").run(level, room)
+      const own = await h.api('bob').call(API.sendRoomMessage, { params: { id: room }, body: { body: `own ${level}`, clientMessageId: cm(), mentions: [], fileIds: [] } })
+      await turn('bob', post({ room, text: `ai ${level}` }), { answer: 'send' })
+      const ai = (await messagesAs('alice', room)).at(-1)!
+      expect(ai.body).toBe(`ai ${level}`)
+      expect([level, noticesOf(ai.id)]).toEqual([level, noticesOf(own.id)])
+    }
+    db.query('UPDATE room_members SET notify_level = NULL WHERE room_id = ?').run(room)
   })
 })

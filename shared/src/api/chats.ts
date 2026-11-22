@@ -211,7 +211,7 @@ export const CHAT_GROUPS_FOLD_DAYS = 7
 export const CHAT_GROUPS_TOP = 3
 /** A chat of a group that shows a session marker now (docs/DECISIONS.md "Session markers"): what the marker is made of,
  * so a folded header or a group's "N more" shows the strongest mark of rows that are not in `top`. */
-export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true, unreadCount: true, mentioned: true })
+export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true, unreadCount: true })
 export type ChatMark = z.infer<typeof ChatMark>
 const GroupHead = {
   /** every chat of the group I can open now (never one I cannot), pinned ones left out (they are under `pinned`) */
@@ -327,8 +327,8 @@ export const SendMessageBody = z.object({
   model: z.string().max(100).nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
-  /** a chat shared with people or a project's shared chat: the people picked with "@" in the box (ids). The server keeps only those who see the chat
-   * now, never the sender; each gets a mention notice (it reaches them in a chat they muted too). Elsewhere ignored */
+  /** ignored: the box of an AI chat mentions nobody, a person is mentioned in a thread under an AI answer
+   * (docs/decisions/20261122-ai-session-no-main-mention.md). Still accepted so an older page's send does not fail */
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).optional(),
   timeZone: TurnTimeZone,
 }).refine((b) => b.content.trim().length > 0 || b.attachmentIds.length > 0, { message: 'empty message', path: ['content'] })
@@ -475,9 +475,9 @@ export const ChatAudience = z.object({
    * a file I may open: docs/decisions/20261122-qa-ux-followups-1122.md). Names read now; people whose account is off only for
    * its creator and admins. A chat that went back to being only its creator's keeps its lines for them. Absent: none. */
   events: z.array(z.object({ at: IsoTime, kind: z.enum(['added', 'removed', 'left', 'restored']), actor: z.string(), names: z.array(z.string()), version: z.number().int().positive().optional() })).optional(),
-  /** a chat shared with people or a project's shared chat: who the message box may mention ("@"): everyone who sees it
-   * now but me (its creator, its people and its groups' people; a project's: its people, as a thread's reply box lists
-   * them), sorted by name */
+  /** a chat shared with people or a project's shared chat: everyone who sees it now but me (its creator, its people and
+   * its groups' people; a project's: its people, as a thread's reply box lists them), sorted by name. The Files screen's
+   * restore confirm names them; the message box offers no "@" (docs/decisions/20261122-ai-session-no-main-mention.md) */
   mentionable: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 })
 export type ChatAudience = z.infer<typeof ChatAudience>
@@ -743,7 +743,7 @@ export const CHATS = {
   userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups someone else sees now. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
   leaveChat: endpoint({ method: 'POST', path: '/api/chats/:id/leave', auth: 'user', owner: 'B', response: z.object({ ok: z.literal(true) }), summary: '"Leave this chat": someone a chat outside projects was shared with by name takes themselves out of it (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md); their turns there stop and nothing of it stays theirs. Its creator gets 400 chat_leave_creator, a chat not shared with people 400 chat_leave_not_shared, someone who would still see it through a listed group 409 chat_leave_group; anyone who cannot see it the 404 of a missing chat.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
-  muteChat: endpoint({ method: 'POST', path: '/api/chats/:id/mute', auth: 'user', owner: 'B', response: Chat, summary: '"Mute this chat": a chat shared with people, or a team project\'s shared chat, that I see stops telling me about new messages (no unread number, push or desktop notification) but the ones that mention me; what was unread there is read. Mine only. 400 chat_mute_people_only for any other chat (a chat of one person); anyone who cannot see it gets the 404 of a missing chat.' }),
+  muteChat: endpoint({ method: 'POST', path: '/api/chats/:id/mute', auth: 'user', owner: 'B', response: Chat, summary: '"Mute this chat": a chat shared with people, or a team project\'s shared chat, that I see stops telling me about new messages (no unread number, push or desktop notification); what was unread there is read. Mine only. 400 chat_mute_people_only for any other chat (a chat of one person); anyone who cannot see it gets the 404 of a missing chat.' }),
   unmuteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/mute', auth: 'user', owner: 'B', response: Chat, summary: 'Unmute a chat shared with people or a project\'s shared chat that I muted: its new messages tell me again.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment, version=n an earlier version (the newest without it; one pruned or not of this chain: 404). Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),

@@ -48,7 +48,8 @@ import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
 import { openFileShare } from './FileShareDialog'
 import { isGuestMe } from '../lib/guests'
-import { chatRestoreDropouts, nameList } from '../lib/restoreDropouts'
+import { chatRestoreDropouts } from '../lib/restoreDropouts'
+import { confirmChatRestore } from './chat/restoreConfirm'
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
@@ -270,12 +271,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     if (file.source !== 'chat' || restoring !== null || asking.current) return
     asking.current = true
     // the Files screen's confirm (QA TC-v1c-01, TC-f2-d01): whose later versions drop out of the newest, and who in the
-    // chat sees the change (the people who see it now but me; the read failing leaves that line out)
+    // chat sees the change (chat/restoreConfirm.ts, a page's panel asks the same)
     const dropouts = chatRestoreDropouts(versions?.items ?? [], n, me?.user.id ?? '')
-    const seeing = await api.call(API.getChatAudience, { params: { id: file.chatId } }).then((a) => a.mentionable ?? [], () => [])
-    const body = [dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody'),
-      seeing.length ? t('chatFile.restoreSeen', { names: nameList(locale, seeing) }) : ''].filter(Boolean).join(' ')
-    const yes = await confirmDialog({ title: t('chatFile.restoreTitle', { n }), body, confirm: t('common.restore') }).finally(() => { asking.current = false })
+    const yes = await confirmChatRestore({ chatId: file.chatId, n, dropouts, t, locale }).finally(() => { asking.current = false })
     if (!yes) return
     setRestoring(n)
     try {

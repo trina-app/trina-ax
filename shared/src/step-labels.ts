@@ -243,6 +243,9 @@ export const STEP_TEXT = {
   scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada", "已在定时任务中允许"),
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta", "未询问直接保存：你自己的文件夹"),
+  /** the step of a dev-environment command after a room read with no card: its changes in the person's own folder keep
+   * versions and go to the trash (server devenv/track.ts withOwnFolderWindow) */
+  ownUndoStep: t('내 폴더 변경은 되돌릴 수 있어 묻지 않고 실행', 'ran without asking: changes in your folder can be undone', 'dijalankan tanpa bertanya: perubahan di folder Anda bisa dibatalkan', "自分のフォルダーの変更は元に戻せるため確認せずに実行", "ejecutado sin preguntar: los cambios en su carpeta se pueden deshacer", "未询问直接运行：你文件夹里的更改可以撤销"),
   /** the step of a call the person allowed on a card for the same file or recipients earlier in this chat
    * (server chat/card-approvals.ts) */
   chatOnceStep: t('이 대화에서 허용한 대로 진행', 'allowed earlier in this chat', 'diizinkan sebelumnya di chat ini', "このチャットで許可済み", "permitido antes en este chat", "已在此聊天中允许过"),
@@ -253,7 +256,7 @@ export type StepTextKey = keyof typeof STEP_TEXT
 const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
 
 /** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
-export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
+export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'ownUndoStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
@@ -321,6 +324,26 @@ const roomWord = (v: unknown) => {
   return /^(room:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim()) ? '' : s.replace(/^#/, '')
 }
 
+/** A glob step in words (QA b3s TC-b3s-8: the step showed the pattern itself, 매출 with two wildcard folders): the folder it looks in (its path
+ * and the pattern's folders before the first wildcard), then the kind of file by its extension (".xlsx") or the name it
+ * looks for without the wildcards ("배너"); no wildcard characters. A pattern with no wildcard is a name and shows as one. */
+export function globLabel(verb: string, pattern: unknown, folder: unknown): string {
+  const p = String(pattern ?? '').trim()
+  const wild = /[*?[\]{}]/
+  if (!wild.test(p)) return `${verb} "${clip(p, 60)}"${folder ? ` · ${clip(folder, 50)}` : ''}`
+  const segs = p.split('/').filter(Boolean)
+  const fixed: string[] = []
+  for (const x of segs) { if (wild.test(x)) break; fixed.push(x) }
+  const place = [String(folder ?? '').replace(/\/+$/, ''), ...fixed].filter(Boolean).join('/')
+  const last = segs.length > fixed.length ? segs.at(-1)! : ''
+  // "*.xlsx", "*.{png,jpg}": the kinds; else the name's own letters ("*배너*" -> 배너)
+  const exts = /^\*+\.(?:\{([\w,]+)\}|(\w+))$/.exec(last)
+  const what = exts ? (exts[1] ?? exts[2]!).split(',').filter(Boolean).slice(0, 3).map((e) => `.${e}`).join(', ')
+    : last.replace(/[*?[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
+  const quoted = what && !exts ? `"${clip(what, 40)}"` : what
+  return [verb, place ? clip(place, 60) : '', quoted].filter(Boolean).join(' · ')
+}
+
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
 export function stepLabel(tool: string, input: unknown, locale: Locale, browserTools: ReadonlySet<string>): string {
   const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
@@ -332,7 +355,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   const verb = FILE_STEP_VERB[tool]?.[locale]
   switch (tool) {
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
-    case 'glob': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'glob': return globLabel(verb!, a.pattern, a.path)
     case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))
@@ -450,6 +473,34 @@ export const SHELL_KIND_WORDS = {
 } satisfies Record<string, T>
 export type ShellKind = keyof typeof SHELL_KIND_WORDS
 
+/** A command with what is inside closed quotes left out ('…' always, "…" unless something in it runs: $ or `), read
+ * left to right as the shell does (a quote inside the other kind is text; a backslash escapes the next character
+ * outside single quotes). Anything unbalanced: the command as written (a ">" then still counts). */
+function withoutQuoted(c: string): string {
+  // a "…" inside "$(…)" or `…` would close the outer quote early: no double-quoted text is left out then (review)
+  const nested = /\$\(|`/.test(c)
+  let out = '', i = 0
+  while (i < c.length) {
+    const ch = c[i]!
+    if (ch === '\\') { out += c.slice(i, i + 2); i += 2; continue }
+    if (ch === "'" || ch === '"') {
+      let j = i + 1
+      for (; j < c.length; j++) {
+        if (ch === '"' && c[j] === '\\') { j++; continue }
+        if (c[j] === ch) break
+      }
+      if (j >= c.length) return c
+      const inner = c.slice(i + 1, j)
+      out += ch === '"' && (nested || /[$`]/.test(inner)) ? c.slice(i, j + 1) : ch + ch
+      i = j + 1
+      continue
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
 /** What a shell command does, roughly, from its parts (split at && || ; | and new lines). Anything that changes or
  * removes files (rm, mv, a "> file" redirect, sed -i, find -delete…) is said as such first, whatever else the command
  * does; then an install, making something (a render, a build), a download, a pause, a look at files (only programs that
@@ -458,7 +509,9 @@ export type ShellKind = keyof typeof SHELL_KIND_WORDS
 export function shellKind(command: string): ShellKind {
   const c = command.slice(0, 4000)
   // a redirect into a file (not 2>&1 or > /dev/null), sed -i, find -delete / -exec, tee: it writes
-  const quiet = c.replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
+  // (a ">" inside quotes is text, not a redirect: grep -o '<title>[^<]*</title>' reads a page, QA b4s S4-E; double quotes
+  // only when nothing in them runs: "$(…)" or `…` can hold a redirect)
+  const quiet = withoutQuoted(c).replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
   if (/>/.test(quiet.replace(/<<-?\s*['"]?\w+['"]?/g, '')) || /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(c) || /\bsort\b[^|;&\n]*\s-o\b/.test(c) || /\bsed\s+(?:-\w*\s+)*-i/.test(c)) return 'change'
   const parts = c.split(/&&|\|\||[;|\n]/).map((p) => p.trim()
     // leading VAR=value assignments, export / env / sudo / time / exec in front of the program

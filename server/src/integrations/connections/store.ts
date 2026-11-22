@@ -183,6 +183,10 @@ export function pruneMemberAllows(db: Database): void {
   db.query(`DELETE FROM integration_user_allow WHERE NOT EXISTS (SELECT 1 FROM integration_access a WHERE a.integration_id = integration_user_allow.integration_id
     AND (a.subject_type = 'everyone' OR (a.subject_type = 'user' AND a.subject_id = integration_user_allow.user_id)
       OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = integration_user_allow.user_id))))`).run()
+  // and their "Always allow" on a team connection's read tool (connector_tool_allow, migration 441), the same way
+  db.query(`DELETE FROM connector_tool_allow WHERE integration_id IN (SELECT id FROM integrations WHERE scope = 'team') AND NOT EXISTS (SELECT 1 FROM integration_access a WHERE a.integration_id = connector_tool_allow.integration_id
+    AND (a.subject_type = 'everyone' OR (a.subject_type = 'user' AND a.subject_id = connector_tool_allow.user_id)
+      OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = connector_tool_allow.user_id))))`).run()
 }
 
 const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations

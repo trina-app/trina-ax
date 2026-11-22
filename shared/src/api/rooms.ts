@@ -260,7 +260,7 @@ export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
  * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
 export const SIDE_CHAT_SEND = {
   thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo', zh: '发送到话题' },
-  room: { ko: '대화에 보내기', en: 'Send to conversation', id: 'Kirim ke percakapan', ja: 'トークに送る', es: 'Enviar a la conversación', zh: '发送到聊天' },
+  room: { ko: '대화에 보내기', en: 'Send to chat', id: 'Kirim ke percakapan', ja: 'トークに送る', es: 'Enviar a la conversación', zh: '发送到聊天' },
 } as const satisfies Record<string, Record<Locale, string>>
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
  * save_room_file, whose card says where and who will see it) */

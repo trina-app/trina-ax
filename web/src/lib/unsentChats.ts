@@ -13,8 +13,6 @@ export interface KeptChatSend {
   localId: string
   clientMessageId: string
   content: string
-  /** the people it mentions ("@", a chat shared with people): they go with it when it is sent again */
-  mentions?: string[]
   attachments: Attachment[]
   /** the message it answered under when it was written (sent again: under the newest end of that branch) */
   parentId?: string

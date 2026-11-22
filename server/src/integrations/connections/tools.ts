@@ -12,8 +12,9 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
 import { steerableRun } from '../../chat/shared-run'
-import { teamAllowsAlways } from '../../chat/always-allow'
+import { isConfidentialChat } from '../../safe-ops/confidential'
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
@@ -39,7 +40,8 @@ import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine,
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
-import { readKind, readsHere } from './read-mark'
+import { argsReachOthers, plainName, readKind, readsHere, takesRecipient } from './read-mark'
+import { keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
@@ -233,7 +235,7 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
 async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolContext, h: Hiding): Promise<Row> {
   if (!b.shared) return row
   if (row.scope === 'team' && b.shared.guestHere()) throw new CallError(GUEST_HERE(row.name), 'refused (guest in the shared chat)')
-  const no = await b.shared.confirm({ id: row.id, key: sharedKey(row), name: row.name, sources: answerSources(row) })
+  const no = await b.shared.confirm({ id: row.id, key: sharedKey(row), name: row.name, sources: answerSources(row), bind: sharedBind(row) })
   if (no) throw new CallError(no, 'not fetched (shared chat)')
   const now = h.use(integrationsOf(ctx).forCall(tc.userId, row.id))
   if (now.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
@@ -270,7 +272,50 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   attach?: string[]
   /** set by the gate: 'card' when the person said yes on this call's card, 'chat' when their yes on an earlier card in
    * this chat covered it (chat/card-approvals.ts) */
-  via?: 'card' | 'chat' }
+  via?: 'card' | 'chat'
+  /** the tool acts on the person's own things and sends nothing to other people (ownActTool): in a shared chat its card
+   * offers Always allow for this tool (tool-allow.ts) */
+  ownAct?: boolean
+  /** the key the person's Always for good is kept under in a shared chat (tool-allow.ts): the tool's name (an HTTP API's
+   * request has none: some APIs act on a GET, so in a shared chat it asks every time) */
+  allowKey?: string
+  /** an app on the person's computer runs code the call gives (codeKeyOf) */
+  runs?: boolean
+  /** the short title or description the AI gave the call (titleArg): the card's plain sentence */
+  title?: string | null }
+
+/** Words in a tool's name or title that say it reaches other people (a post, a mail, a message, a share, an invite …) */
+const TO_OTHERS = /send|post|mail|messag|repl(y|ies)|forward|invit|publish|tweet|comment|notif|broadcast|sms|chat|respond|answer|share|member|permission|access|grant|collaborat|visib|schedul|meeting|calendar|event/i
+
+/** A tool that acts on the person's own things and sends nothing to other people: a plain ASCII name and title with no
+ * word of TO_OTHERS, no recipient argument in its schema or the call (read-mark.ts takesRecipient), never a Google app's sending tool
+ * (docs/decisions/20261122-connector-always-allow.md: Aside's Repl runs code in the person's own browser profile). */
+export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title'> & { inputSchema?: unknown }, args: unknown): boolean {
+  if (row.google_app && SENDING_TOOLS.has(t.name)) return false
+  // a name or title these words cannot be read in (not plain ASCII: "메시지_보내기") is never one (code review)
+  const ascii = (x: string) => /^[\x20-\x7e]*$/.test(x)
+  const name = plainName(t.name), title = plainName(t.title)
+  if (!ascii(name) || !ascii(title)) return false
+  // a recipient in the schema, or in the call's own arguments (extra keys still reach the service)
+  return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !argsReachOthers(args)
+}
+
+/** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */
+function titleArg(args: unknown): string | null {
+  const a = args && typeof args === 'object' ? (args as Record<string, unknown>) : {}
+  const v = [a.title, a.description, a.purpose].find((x) => typeof x === 'string' && x.trim())
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 120) : null
+}
+
+/** Argument names that hold code an app on the person's computer runs (Aside's Repl "code", ego lite's "script") */
+const CODE_KEY = /^(code|script|js|javascript|program)$/i
+/** The argument that is code an app on the person's computer runs: a declared CLI's stdin, or a top-level string
+ * argument named like code; none for any other connection */
+function codeKeyOf(row: Pick<Row, 'local_app'> | null, tool: string, args: unknown): string | undefined {
+  const own = scriptArg(row, tool)
+  if (own || !row?.local_app || !args || typeof args !== 'object') return own
+  return Object.entries(args as Record<string, unknown>).find(([k, v]) => CODE_KEY.test(k) && typeof v === 'string' && v.trim())?.[0]
+}
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). `code`: the argument that is a script (a declared CLI's
@@ -545,15 +590,16 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'tell the user; once the setting allows it, ask again', names: [row.name],
     }), 'refused (write policy deny)')
   }
-  // a scheduled run in a shared chat that another person wrote in (chat/shared-run.ts; security review of #1353, H2):
-  // their words could steer it, and nobody watches it, so no change at any service: not a team connection set to send
-  // without asking, not the task's pinned recipients, not anyone's Always allow
-  if (b.scheduled && steerableRun(ctx.db, b.turnId)) {
+  // a scheduled run in a shared chat that another person wrote in goes by the rules below like any of the maker's runs
+  // (the team's "send without asking" with the task's card, the maker's own Always; Rule A, docs/decisions/
+  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2), except while a guest is among the
+  // people there (the one limit kept): then no change at any service, as before
+  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId)) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
-      also: `this scheduled run is in a shared chat where other people wrote, so it sends nothing to a connected service`,
+      also: `this scheduled run is in a shared chat where other people wrote and a guest is among the people, so it sends nothing to a connected service`,
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
-    }), 'refused (nobody to ask: scheduled run in a shared chat)')
+    }), 'refused (nobody to ask: scheduled run in a shared chat with a guest)')
   }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
@@ -586,6 +632,13 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // a change (docs/decisions/20261118-shared-chat-connections.md, security review of #1276)
   const sharedMode = !!b.shared
   if (allowed && !outside && (!attachAsks || ownAllow) && !sharedMode) return false
+  // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
+  // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
+  // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
+  // 해야하네"). A call that reaches other people, a team connection's change, or team files ask every time.
+  if (sharedMode && sharedAlwaysKey(row, sent) && alwaysPlaceOf(ctx, b) && (toolAllowed(ctx.db, row, b.userId, sharedAlwaysKey(row, sent)!) || (teamOn && ownAllow && row.scope === 'personal'))) return false
+  // a guest among the people: the person's "Always in this chat" for that tool, for everyone who sees the chat now
+  if (sharedMode && sharedAlwaysKey(row, sent) && chatAllowed(ctx, row, b, sharedAlwaysKey(row, sent)!, 'acts')) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -630,7 +683,16 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
   // a demo server's practice connection (practiceRow): the card says first that nothing really goes out
   const practice = practiceRow(row) ? `${say('practiceLead', L)}\n\n` : ''
-  const question = `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  // code that an app on the person's computer runs (Aside's Repl): what it does in plain words, the code under its lines
+  // a call that acts on the person's own things (Sent.ownAct, no team files): one plain sentence of what happens, the
+  // tool's title ("Create a task in Tasks"); code an app on the computer runs (Aside's repl): the title the AI gave it, else
+  // a generic line, and its code, parameters and ids behind "자세히" (the owner: "코드를 보여주면 뭐 어케 하라는거냐").
+  // A call that reaches other people keeps "send" and its recipients in view (security review of #1338, L2)
+  const plain = !!sent.ownAct && !sent.request && !sent.attach?.length
+  const sentence = sent.runs ? (sent.title ? say('actTitled', L, { name: row.name, title: sent.title }) : say('runCode', L, { name: row.name })) : say('actTool', L, { name: row.name, what: what(L) })
+  const question = plain
+    ? `${practice}${lead}${sentence}`
+    : `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const full = new Map(whole.map((f) => [f.name, f.value]))
@@ -638,7 +700,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const shown = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
-  const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
+  const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}), ...(plain && sent.runs ? { hidden: true as const } : {}) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
@@ -646,9 +708,16 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // own choice counts there)
   // never on a demo server (its fakes on): a visitor's practice copy has nothing to allow for good, so its card is Send /
   // Don't send without the note about every change at the service
+  // a shared chat: the same one card with Always allow for that tool (cardWithAlways), for a call that reaches nobody else
+  const alwaysKey = sharedMode ? sharedAlwaysKey(row, sent) : null
+  if (alwaysKey) {
+    await cardWithAlways(ctx, row, b, person, question, details, alwaysKey, what(L), 'acts')
+    sent.via = 'card'
+    return true
+  }
   if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks) && !activeDemoFakes()) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
-    const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
+    const v = await person.choose(question, [{ label: say(plain ? 'unsureOnce' : 'once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say(plain ? 'unsureNo' : 'no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
     if (v === 'always') return 'always'
     throw new CallError(refusal({
@@ -656,7 +725,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'ask the user what they want', names: [row.name],
     }), cardEndShort('declined'))
   }
-  const end = await askConfirm(person, question, say('yes', L), say('no', L), { details })
+  const end = await askConfirm(person, question, say(plain ? 'unsureOnce' : 'yes', L), say(plain ? 'unsureNo' : 'no', L), { details })
   if (end !== 'yes') {
     throw new CallError(refusal({
       done: end === 'declined' ? `The user did not allow this, so nothing was sent to ${row.name}.` : `Nothing was sent to ${row.name}.`,
@@ -668,27 +737,50 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   return true
 }
 
-/** "Allow once" on a "can't tell" card: this tool of this connection for the rest of the answer (per turn) */
+/** "Allow" on a read card: this tool of this connection for the rest of the answer (per turn) */
 const unsureOnce = new WeakMap<BuildCtx, Set<string>>()
 
+/** The one web address a call names, short (host and path, no scheme, query or fragment), for the read card's first
+ * line; null when it names none or more than one */
+function pageOf(args: unknown): string | null {
+  const urls = new Set<string>()
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 4 || urls.size > 1) return
+    if (typeof v === 'string') { if (/^https?:\/\/\S+$/i.test(v.trim())) urls.add(v.trim()); return }
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return }
+    if (v && typeof v === 'object') for (const x of Object.values(v as Record<string, unknown>)) walk(x, depth + 1)
+  }
+  walk(args, 0)
+  if (urls.size !== 1) return null
+  try {
+    const u = new URL([...urls][0]!)
+    const page = `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`
+    return page.length > 60 ? `${page.slice(0, 59)}…` : page
+  } catch { return null }
+}
+
 /**
- * A shared chat's tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
- * docs/decisions/20261118-shared-readonly-tools.md): before it runs, the person of the turn sees what it sends and may
- * allow it once (the rest of this answer), always in this chat (this tool of this connection as it is now) or not at
- * all. Kept apart from the write card: that one asks every time and its Always is never offered in a shared chat.
- * Throws the refusal (nothing was sent).
+ * A shared chat's tool the service marks read-only whose name holds a change word as a noun ("get_post"; read-mark.ts
+ * 'unsure', docs/decisions/20261122-connector-always-allow.md): before it runs, the person of the turn sees what it
+ * reads and may allow it once (the rest of this answer), always (this tool of this connection, in every chat, until
+ * they remove it in Settings: tool-allow.ts) or not at all. Kept apart from the write card: that one asks every time in
+ * a shared chat and never offers Always there. The person's own Always counts in their scheduled runs too, also when
+ * another person's words are on the run's branch (Rule A, as chat/always-allow.ts alwaysHere). Throws the refusal
+ * (nothing was sent).
  */
 async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknown, b: BuildCtx, tc: TurnToolContext): Promise<void> {
   const key = writeKey(row, t.name)
   const once = unsureOnce.get(b) ?? new Set<string>()
   unsureOnce.set(b, once)
-  if (once.has(key) || approved(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'shared_unsure_tool', target: key })) return
+  if (once.has(key)) return
+  if (alwaysPlaceOf(ctx, b) && toolAllowed(ctx.db, row, b.userId, t.name)) return
+  if (chatAllowed(ctx, row, b, t.name, 'reads')) return
   const person = b.scheduled ? null : tc.files.person
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `${t.name} of ${row.name} did not run.`, why: cardReason('unattended'),
-      also: `${row.name} says this tool only reads, but its name does not show that, so it needs the user's yes on a card in a shared chat`,
-      next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
+      also: `its name says it may change something although ${row.name} says it only reads, so it needs the user's yes on a card in a shared chat`,
+      next: 'say so in the summary; the user can allow it in a chat, where they answer the card', names: [row.name],
     }), 'refused (nobody to ask)')
   }
   const L = person.locale
@@ -697,22 +789,90 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const shown = argLines(args ?? {}, L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
-  const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}) }]
-  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t, L, kindOf(row)) })
+  const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}), hidden: true as const }]
+  const what = toolTitle(t, L, kindOf(row))
+  const page = pageOf(args)
+  const question = page ? say('unsureReadPage', L, { name: row.name, page }) : say('unsureRead', L, { name: row.name, what })
+  if (await cardWithAlways(ctx, row, b, person, question, details, t.name, what, 'reads') === 'once') once.add(key)
+}
+
+/** Where the person's own Always for a connection tool counts and may be kept (as chat/always-allow.ts alwaysHere): a
+ * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A); never a
+ * Slack question, a confidential chat, or a shared chat with a guest (someone outside the team) among its people, as
+ * chat/turn.ts sharedConnMayKeep: there it holds for that chat only (chatAlwaysPlaceOf) */
+function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
+  if (guestShared(b)) return false
+  return (b.scheduled || LIVE_CLIENTS.has(turnClient(ctx, b))) && !isConfidentialChat(ctx.db, b.chatId)
+}
+
+const turnClient = (ctx: AppContext, b: BuildCtx) => (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? ''
+
+/** A shared chat with a guest among its people, in a turn the person watches from their own app (never a scheduled run
+ * or a confidential chat): the card's Always holds for this chat only, for the people who see it now
+ * (chat/card-approvals.ts) */
+function chatAlwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
+  return !!b.shared && !b.scheduled && guestShared(b) && LIVE_CLIENTS.has(turnClient(ctx, b)) && !isConfidentialChat(ctx.db, b.chatId)
+}
+const chatAlwaysKind = (mode: 'reads' | 'acts') => (mode === 'reads' ? 'shared_unsure_tool' as const : 'shared_own_act' as const)
+/** The people who see the shared chat now (none: fails closed) */
+function audienceNow(b: BuildCtx): string[] {
+  try { return b.shared?.audience() ?? [] } catch { return [] }
+}
+/** The person's "Always in this chat" for this tool of this connection covers this call: kept in this chat for everyone
+ * who sees it now (a person who joined since makes it ask again) */
+function chatAllowed(ctx: AppContext, row: Row, b: BuildCtx, key: string, mode: 'reads' | 'acts'): boolean {
+  if (!chatAlwaysPlaceOf(ctx, b) || !teamAllowsAlways(ctx.db)) return false
+  const now = audienceNow(b)
+  if (!now.length) return false
+  return approvalsFor(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key) })
+    .some((d) => Array.isArray(d.c) && now.every((id) => (d.c as unknown[]).includes(id)))
+}
+
+/** A guest is among the people of this shared chat (fails closed) */
+function guestShared(b: BuildCtx): boolean {
+  try { return !!b.shared?.guestHere() } catch { return true }
+}
+
+/** The key a shared chat's card keeps the person's Always under: a call that reaches nobody else (Sent.ownAct) with no
+ * team files, on the person's own connection; null for a call that must ask every time there */
+const sharedAlwaysKey = (row: Pick<Row, 'scope'>, sent: Sent): string | null =>
+  // a change only on the person's own connection (their own account, their own app): a team connection's service holds
+  // other people's things too, so a change there asks every time in a shared chat
+  (sent.ownAct && sent.allowKey && !sent.request && !sent.attach?.length && row.scope === 'personal' ? sent.allowKey : null)
+
+/**
+ * The one card for a connector tool that the person may allow for good (docs/decisions/20261122-connector-always-allow.md):
+ * a read card (unsureGate), and in a shared chat a call that acts on the person's own things (gate). Buttons Allow /
+ * Always allow / Don't allow, one press; Always is kept per person, connection and tool (tool-allow.ts, Settings ›
+ * Allowed for Trina) where it may be (alwaysPlaceOf, the team's switch on, not a demo server). 'once': allowed for this
+ * call; 'always': kept. Throws the refusal on no, no answer or a closed card.
+ */
+async function cardWithAlways(ctx: AppContext, row: Row, b: BuildCtx, person: NonNullable<TurnToolContext['files']['person']>, question: string, details: unknown[], key: string, what: string, mode: 'reads' | 'acts'): Promise<'once' | 'always'> {
+  const L = person.locale
   const no = (end: CardEnd) => new CallError(refusal({
-    done: end === 'declined' ? `The user did not allow this, so ${t.name} of ${row.name} did not run.` : `${t.name} of ${row.name} did not run.`,
+    done: end === 'declined' ? `The user did not allow this, so ${key} of ${row.name} did not run and nothing was sent.` : `${key} of ${row.name} did not run and nothing was sent.`,
     why: cardReason(end), also: 'Do not try it another way',
     next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
   }), cardEndShort(end))
+  const always = alwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
+  // a guest among the people (chatAlwaysPlaceOf): Always for this chat only, never for good
+  const inChat = !always && chatAlwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
   if (person.choose) {
-    const v = await person.choose(question, [{ label: say('unsureOnce', L), value: 'allow' }, { label: say('unsureAlways', L), value: 'always' }, { label: say('unsureNo', L), value: 'deny' }], { details, buttons: true })
-    if (v === 'always') { noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'shared_unsure_tool', target: key }); return }
-    if (v === 'allow') { once.add(key); return }
+    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }] : inChat ? [{ label: say('unsureAlwaysChat', L), value: 'chat' }] : []), { label: say('unsureNo', L), value: 'deny' }]
+    const note = always ? say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name: row.name, what }) : inChat ? say('unsureAlwaysChatNote', L, { name: row.name, what }) : null
+    const v = await person.choose(question, options, { details: details as never, buttons: true, ...(note ? { note } : {}) })
+    if (v === 'always' && always) { keepToolAllow(ctx.db, row, b.userId, key, b.turnId); return 'always' }
+    if (v === 'chat' && inChat) {
+      const c = audienceNow(b)
+      if (c.length) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key), detail: { c } })
+      return 'always'
+    }
+    if (v === 'allow') return 'once'
     throw no(v === null ? 'timeout' : 'declined')
   }
-  const end = await askConfirm(person, question, say('unsureOnce', L), say('unsureNo', L), { details })
+  const end = await askConfirm(person, question, say('unsureOnce', L), say('unsureNo', L), { details: details as never })
   if (end !== 'yes') throw no(end)
-  once.add(key)
+  return 'once'
 }
 
 /** chat/card-approvals.ts targets: one tool of one connection as it is now (its version: a changed address, account or
@@ -1030,7 +1190,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name), fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
+          const codeKey = codeKeyOf(current, t.name, args)
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
@@ -1534,7 +1695,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const sharedNote = (row: Row): string => !sh ? ''
         : asks(row)
           ? row.scope === 'personal'
-            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow once, Always in this chat, Cancel). Never ask in your own words first; if they cancel, answer without it and do not try another way`
+            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow, Always allow, Don't allow; no card once they chose Always allow). Never ask in your own words first; if they cancel, answer without it and do not try another way`
             : `; some people in this shared chat may not use it: before its first call the server asks the user on a card only they see whether what it returns may be shown to everyone here. If they cancel, answer without it and do not try another way`
           : '; everyone in this shared chat may use it, so it works here with no extra card'
       const tools: TurnTool[] = []

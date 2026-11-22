@@ -35,6 +35,7 @@ import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, PreviewLoading, Spinner } from './ui'
 import { PanelExpandButton } from './SidePanelFrame'
+import { confirmChatRestore } from './chat/restoreConfirm'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -53,6 +54,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [asked, setAsked] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState<string | null>(null)
+  const asking = useRef(false)
   const [pickFolder, setPickFolder] = useState(false)
   // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
   const scripts = useFrameScripts(chatId)
@@ -123,8 +125,17 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   }
 
   // an earlier version back as the newest (nothing is deleted); the panel then follows the newest, which the server's
-  // artifact.updated brings
+  // artifact.updated brings. First the chat file panel's confirm (chat/restoreConfirm.ts, QA b3s S-033): whose later
+  // versions drop out of the newest (who asked for them, by name: a page's versions carry no id) and who in the chat sees
+  // the change; the server then writes the chat's line, and the others' windows get the new version and the line
+  // (a second press while the confirm is open opens no second one)
   const restore = async (v: ArtifactSummary) => {
+    if (restoring !== null || asking.current) return
+    asking.current = true
+    const later = new Map<string, { id: string; name: string }>()
+    for (const x of [...versions].reverse()) if (x.version > v.version && x.byName && x.byName !== me.user.name && !later.has(x.byName)) later.set(x.byName, { id: x.byName, name: x.byName })
+    const yes = await confirmChatRestore({ chatId, n: v.version, dropouts: [...later.values()], t, locale }).finally(() => { asking.current = false })
+    if (!yes) return
     setRestoring(v.id)
     try {
       await api.call(API.restoreArtifact, { params: { id: v.id } })

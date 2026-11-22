@@ -12,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { API } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, uuidv7, WEB_ALLOW_ALL_RISK, WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
@@ -422,16 +423,53 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
     }
   })
 
-  test('a scheduled run and a company-profile draft: refused without a card, saying the setting does not apply', async () => {
+  test('the person\'s own scheduled run: the switch holds (Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md); a company-profile draft: refused without a card, saying the setting does not apply', async () => {
     on()
     const run = await turnWith('schedule', 'https://kind-schedule.example/a')
     await doneOf(run.turnId)
-    expect(summaries(run.turnId)).toContain('does not apply in a run the user does not answer step by step')
+    expect(summaries(run.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
+    // past the gate: the name is looked up (the stub resolves nothing)
+    expect(looked('kind-schedule.example')).toBeGreaterThan(0)
     const draft = await turnWith('web', 'https://draft-scope.example/about', { draft: true })
     await doneOf(draft.turnId)
     expect(summaries(draft.turnId)).toContain('does not apply in a run the user does not answer step by step')
     for (const t of [run, draft]) expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === t.turnId)).toBe(false)
-    expect(looked('kind-schedule.example') + looked('draft-scope.example')).toBe(0)
+    expect(looked('draft-scope.example')).toBe(0)
+  })
+
+  // review of #403: the one limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md): with a guest
+  // among the people and another person's words on the run's branch, the switch does not hold in a scheduled run
+  test('a scheduled run in a chat shared with a guest, where another person wrote: the switch does not hold; without the guest it does', async () => {
+    on()
+    // a shared project chat (the finance group reads projects/falcon) that bob made: a guest is never in a people-shared
+    // chat, and sees only the project chat they made (chat/shared.ts chatAudienceOf)
+    const projectId = (await oldProject(h, 'alice', { name: 'Falcon WA', folderPath: 'projects/falcon', instructions: '' })).id
+    await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
+    const id = (await h.api('bob').call(API.createChat, { body: { projectId } })).id as string
+    // bob's words on the branch (a message of his, as he would write it)
+    const leaf = h.rt().store.chatRow(id)!.active_leaf_id
+    const bobMsg = uuidv7()
+    db().query("INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, status) VALUES (?, ?, ?, 'user', 'bob', 'look up the price list', 'done')").run(bobMsg, id, leaf)
+    db().query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(bobMsg, id)
+    const scheduled = (url: string) => {
+      const row = h.rt().store.chatRow(id)!
+      return h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+        user: { parentId: row.active_leaf_id, content: fake({ tool: 'web_fetch', args: { url } }, { say: 'done' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
+    }
+    // bob as a guest invited to the project (his guests row names it, and a person rule on its folder)
+    db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, ?)").run(projectId, projectId, new Date().toISOString())
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('wa-guest', 'f_projects_falcon', 'user', 'bob', 'read')").run()
+    try {
+      const g = await scheduled('https://kind-guest-run.example/a')
+      await doneOf(g.turnId)
+      expect(summaries(g.turnId)).toContain('does not apply in a run the user does not answer step by step')
+      expect(looked('kind-guest-run.example')).toBe(0)
+    } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run(); db().query("DELETE FROM folder_rules WHERE id = 'wa-guest'").run(); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
+    const t = await scheduled('https://kind-team-run.example/a')
+    await doneOf(t.turnId)
+    expect(summaries(t.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
+    expect(looked('kind-team-run.example')).toBeGreaterThan(0)
   })
 
   test('web_fetch of a turn by someone who does not own the chat uses that person\'s switch (t.user.id)', async () => {

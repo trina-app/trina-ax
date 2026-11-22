@@ -38,7 +38,10 @@ describe('the three honesty lines', () => {
       expect(CHECK_MADE_RULE).toContain(s)
     // about 250 tokens together, measured in characters
     // (+60: a changed file keeps its name, so it is a version: ask audit TC-ask2-2)
-    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1220)
+    // (+280: one computed number for the answer and the file, and the data's date on a page: TC-b3s-7 / S-102)
+    // (+20: that S-102 line came out at 1515 after its review fixes; batch 20261123-a keeps the prompt as reviewed)
+    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1520)
+    for (const s of ['compute it once', 'never a second calculation in your head', "shows its data's date by the source, as a tool result gives it (none given: no date)"]) expect(FIGURES_RULE).toContain(s)
   })
 
   test('once in a personal, a shared and a guest-free English turn; the API engine no longer repeats the facts line', () => {
@@ -100,7 +103,9 @@ describe('language, shared chats, rooms, who can open', () => {
     expect(WHO_CAN_OPEN_RULE).toContain('A file you just saved: say who can open it from the "Who can open the new file now" line')
     const note = saveAudienceNote(h.ctx.db, h.ctx.files.rules(), ['users/alice/x.md'], 'alice')
     expect(note).toContain('users/alice/x.md: only the user')
-    expect(note).toContain('Say in your answer where it is and who can open it, in these words (only the user: "only you")')
+    expect(note).toContain('Say in your answer where it is and who can open it, in plain words of the language your answer is in')
+    // QA b4s r110: a Korean answer said "나만 열 수 있어요(only you)": the line quotes no English phrase to echo
+    expect(note).not.toContain('"only you"')
   })
 
   test('the app map says what a file view does, and nothing it does not show is a feature (TC-7391)', () => {

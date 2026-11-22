@@ -42,12 +42,13 @@ import { memoryLines } from './prompt'
 import { noteSharedMessage, unreadByUser, type Ring } from './message-notices'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
+import { emptyAnswerText } from './step-record'
 import { Audiences, chatView, chatWriters, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
 import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
-import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -891,7 +892,7 @@ export class ChatRuntime {
         const hidden = labelsHidden(this.db, isSharedRow(chat), q.message_id)
         // a browser site's call runs again in the window whose browser it was for
         this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
-          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+          user: { parentId: (chat) => pressParent(this.db, chat.active_leaf_id, q.message_id), content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
           answered: answersToSave(ready.answers, ready.requests, locale, hidden) })
       } catch (e) {
         this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })
@@ -1006,7 +1007,7 @@ export class ChatRuntime {
     timeZone?: string
     /** `parentId` a function: read inside the admission transaction from the chat `chat()` returned (a scheduled run that
      * continues an existing chat under its newest answer) */
-    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string; mentions?: readonly string[] }
+    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
     /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
@@ -1048,7 +1049,7 @@ export class ChatRuntime {
         if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
       // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
-      closedQuestions = closeChatQuestions(this.db, chat.id)
+      closedQuestions = closeChatQuestions(this.db, chat.id, userMessageId || null)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
@@ -1090,7 +1091,7 @@ export class ChatRuntime {
     // a person's message in a chat shared with people or a project's shared chat tells the others (chat/message-notices.ts), before the chat.updated
     // below carries their unread number. Only what the person wrote: never a scheduled run's, the answer to the AI's
     // question or card (`answered`: their pick, written for the AI), or a question asked from Slack
-    const told = o.user && !o.scheduled && !o.answered?.length && o.clientKind !== 'slack' ? noteSharedMessage(this.ctx, chat, userMessageId, o.userId, o.user.mentions) : undefined
+    const told = o.user && !o.scheduled && !o.answered?.length && o.clientKind !== 'slack' ? noteSharedMessage(this.ctx, chat, userMessageId, o.userId) : undefined
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {
@@ -1190,7 +1191,12 @@ export class ChatRuntime {
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
     // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
     if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld, shared.everyone, shared.copies)
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ id: m.id, role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    // (an answer stopped or failed before any text, that ran tools: a line in its place, for its step record)
+    return this.store.pathTo(leafId).flatMap((m): { id: string; role: 'user' | 'assistant'; content: string }[] => {
+      if (m.role === 'user') return [{ id: m.id, role: m.role, content: composeMessage(m, this.store.attachmentsOf(m)) }]
+      const content = m.content.trim() ? m.content : emptyAnswerText(m)
+      return content === null ? [] : [{ id: m.id, role: m.role, content }]
+    })
   }
 
   siteGranted(userId: string, host: string): boolean {

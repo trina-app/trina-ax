@@ -17,7 +17,7 @@ import { answeredNote } from '../../server/src/chat/open-questions'
 import { POST_TO_ROOM_DESCRIPTION, postRefusal } from '../../server/src/chat/post-to-room'
 import { SHARE_WITH_PERSON_DESCRIPTION } from '../../server/src/chat/share-with-person'
 import {
-  CARD_WORDS_RULE, cardTextWords, fileWords, optionWords, threadOptionWords, OTHERS_WORDS_RULE, othersWordsCard, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_ACT_LINE, SAME_NAME_RULE,
+  CARD_WORDS_RULE, cardTextWords, fileWords, optionWords, threadOptionWords, pathsToWords, plainQuote, POST_FILE_DESCRIPTION, POST_FILE_RULE, POST_NO, REFUSAL_NEXT_RULE, SAME_NAME_ACT_LINE, SAME_NAME_RULE,
   sendNotConnectedRule, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_NO, shareableIn, answerCommentsLine, WHICH_THREAD_RULE,
 } from '../../server/src/chat/share-words'
 import { TEXT, tr } from '../../server/src/chat/i18n'
@@ -80,23 +80,6 @@ describe('the rules', () => {
     expect(sendNotConnectedRule('ko', false)).toContain('say where to connect it (Settings › Connectors ("설정 › 커넥터"))')
   })
 
-  test('a card that comes back after "Always allow": why (other people\'s words were read), and what skips it', () => {
-    expect(OTHERS_WORDS_RULE).toContain('"I read something other people wrote in this chat, so I ask before sharing"')
-    expect(OTHERS_WORDS_RULE).toContain('naming the file and the person in their message, or confirming on the card, is enough')
-    expect(tr('othersWordsWhy', 'en')).toBe('Something other people wrote was read in this chat, so this is asked first. To skip the card, name the file and who gets it in your message.')
-    for (const L of LOCALES) expect(TEXT.othersWordsWhy[L]).toBeTruthy()
-    // the card's line: only an own chat that read content by others, with the choice on, when it does not count now
-    const on = { db: null as never, userId: 'u', turnId: null, on: (k: string) => k === 'share_files' }
-    const place = () => on as never
-    const base = { othersWords: true, alwaysPlace: place }
-    expect(othersWordsCard({ othersWords: false, alwaysPlace: place }, 'share_files', false)).toBe(false)
-    expect(othersWordsCard(base, 'share_files', true)).toBe(false)
-    expect(othersWordsCard({ ...base, shared: {} }, 'share_files', false)).toBe(false)
-    // a chat that read rooms keeps its own line (roomsSeenWhy)
-    expect(othersWordsCard({ ...base, roomsSeen: true }, 'share_files', false)).toBe(false)
-    expect(othersWordsCard({ othersWords: true }, 'share_files', false)).toBe(false)
-  })
-
   test('comments under an answer (QA MAN-003): read with answer_comments when referred to; without the tool, ask to quote it, never "cannot"', () => {
     const line = answerCommentsLine('Alice Kim', true)
     expect(line).toContain('read them with answer_comments')
@@ -122,7 +105,7 @@ describe('where the rules are', () => {
 
   test('a person\'s own chat with the tools: every rule once, the post rules right after the post rule', () => {
     const p = buildTurnPrompt(h.ctx.files, input({ tools: OWN }))
-    for (const r of [POST_FILE_RULE, WHICH_THREAD_RULE, SAME_NAME_RULE, CARD_WORDS_RULE, REFUSAL_NEXT_RULE, OTHERS_WORDS_RULE, sendNotConnectedRule('en', true)]) expect(p.split(r).length).toBe(2)
+    for (const r of [POST_FILE_RULE, WHICH_THREAD_RULE, SAME_NAME_RULE, CARD_WORDS_RULE, REFUSAL_NEXT_RULE, sendNotConnectedRule('en', true)]) expect(p.split(r).length).toBe(2)
     expect(p).toContain(`${ROOMS_POST_RULE} ${POST_FILE_RULE} ${WHICH_THREAD_RULE}`)
     // the card rule extends the link rule: right after it
     expect(p).toContain(`${SOURCE_LINK_RULE}\n${CARD_WORDS_RULE}`)
@@ -147,7 +130,6 @@ describe('where the rules are', () => {
     expect(p).toContain(REFUSAL_NEXT_RULE)
     expect(p).toContain(CARD_WORDS_RULE)
     expect(p).not.toContain('Asked to send something by Gmail')
-    expect(p).not.toContain(OTHERS_WORDS_RULE)
     // a chat shared with people (no project), in Korean: no button is named
     expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko', true)).not.toContain('트리나에게 보내기')
     // an own chat has no such line

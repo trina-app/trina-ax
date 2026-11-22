@@ -68,7 +68,7 @@ export async function cleanUpDeletedAccounts(ctx: AppContext): Promise<number> {
 
 /** Columns that removeAccount (admin/users.ts) removes itself, in its own write (the coverage test reads this list). */
 export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
-  'group_members.user_id', 'password_resets.user_id', 'integrations.owner_user_id', 'integration_user_allow.user_id',
+  'group_members.user_id', 'password_resets.user_id', 'integrations.owner_user_id', 'integration_user_allow.user_id', 'connector_tool_allow.user_id',
   'engine_credentials.owner_user_id', 'user_profiles.user_id', 'user_status_messages.user_id', 'chat_pins.user_id',
   'room_pins.user_id', 'nav_folders.user_id',
 ]

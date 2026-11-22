@@ -3,8 +3,8 @@
 // launcher. alice makes a chat and shares it with bob and carol by name; erin never sees it. Covered: a person's message
 // gives everyone else a notice (not the sender), the chat.updated `notice` and the per-viewer unread number, Trina's answer
 // as an unread number only (never pushed; not for the asker), the push's wanted and path, reading by /seen and by
-// writing, the room default "nothing" and quiet, "Mute this chat" (a mention still reaches), mentions kept only among
-// who sees it, and someone taken out losing their notices.
+// writing, the room default "nothing" and quiet, "Mute this chat" (nothing gets through it: the main box mentions nobody,
+// docs/decisions/20261122-ai-session-no-main-mention.md), and someone taken out losing their notices.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -103,20 +103,17 @@ describe('settings, mute and mentions', () => {
     savePreferences(h.ctx.db, 'alice', { roomLevel: 'direct' })
   })
 
-  test('a muted chat tells nothing, but a mention still reaches; a mention of someone outside is dropped', async () => {
+  test('a muted chat tells nothing, also a message naming me with "@" (an older page\'s `mentions` are ignored)', async () => {
     const muted = await h.api('carol').call(API.muteChat, { params: { id: chatId } })
     expect(muted.muted).toBe(true)
     expect(unread('carol')).toEqual([])
     const plain = await say('bob', 'no ping')
     expect(notices('carol').some((n) => n.source_id === plain.userMessage!.id)).toBe(false)
     const ping = await say('bob', '@Carol Park look', ['carol', 'erin', 'bob'])
-    const n = notices('carol').find((x) => x.source_id === ping.userMessage!.id)!
-    expect(n).toMatchObject({ kind: 'message', mention: 1, quiet: 0 })
-    expect(chatMessageWanted(h.ctx, n.id)).toBe(true)
-    expect((await viewOf('carol')).mentioned).toBe(true)
+    expect(notices('carol').some((n) => n.source_id === ping.userMessage!.id)).toBe(false)
+    expect(updates('carol').some((f) => f.data.notice?.messageId === ping.userMessage!.id)).toBe(false)
     // erin does not see the chat, bob sent it: neither gets a notice of it
     expect(h.ctx.db.query('SELECT COUNT(*) n FROM chat_message_notices WHERE user_id IN (?, ?) AND source_id = ?').get('erin', 'bob', ping.userMessage!.id)).toEqual({ n: 0 })
-    expect(updates('carol').some((f) => f.data.notice?.messageId === ping.userMessage!.id && f.data.notice.mention)).toBe(true)
     // muting again later: the plain ones of a mute never come back; unmute tells again
     expect((await h.api('carol').call(API.unmuteChat, { params: { id: chatId } })).muted).toBeUndefined()
   })
@@ -136,7 +133,7 @@ describe('settings, mute and mentions', () => {
     expect(chatMessageWanted(h.ctx, n.id)).toBe(false)
   })
 
-  test('the people the box may mention: everyone who sees it but me', async () => {
+  test('the audience\'s people: everyone who sees it but me', async () => {
     await share([{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'user', subjectId: 'carol' }])
     const a = await h.api('bob').call(API.getChatAudience, { params: { id: chatId } })
     expect(a.mentionable?.map((p) => p.id).sort()).toEqual(['alice', 'carol'])

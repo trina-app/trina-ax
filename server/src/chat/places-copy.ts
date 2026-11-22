@@ -552,7 +552,7 @@ function workTarget(exec: TurnExec, files: TurnFiles): WorkTarget | null {
 }
 
 /** A chat file a place names, as the person may open it now, or why not (plain words). */
-function chatFileFor(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }>): ChatFileRow | string {
+export function chatFileFor(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }>): ChatFileRow | string {
   const { rt, spec } = exec
   const name = place.name || place.id || ''
   const notFound = `No file "${oneLine(name, 120)}" sent in this chat.`
@@ -593,7 +593,7 @@ function teamSource(exec: TurnExec, p: string): { source: WorkSource; sources: R
 }
 
 /** Why a copy will not be placed at the team path `target` whatever the person says, or null. */
-function teamTargetRefusal(exec: TurnExec, target: string): string | null {
+export function teamTargetRefusal(exec: TurnExec, target: string): string | null {
   const rt = exec.rt
   if (inSkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
   if (instructionLike(target)) return `'${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md); pick another name.`

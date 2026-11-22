@@ -131,7 +131,7 @@ test('the instructions name the room and its id, say the chat is private and tha
   expect(text).toContain('room id 01a1b10f-4c39-7478-a2d8-f2d048b335aa')
   expect(text).toContain('room_read (room "01a1b10f-4c39-7478-a2d8-f2d048b335aa")')
   expect(text).toContain('"Send to thread"')
-  expect(text).toContain('"Send to conversation"')
+  expect(text).toContain('"Send to chat"')
   expect(text).toContain('thread_id <id> in this room')
   // the buttons as the person sees them, in their language
   const ko = sideRoomSection({ id: 'r', kind: 'team', name: 'design' }, 'ko')

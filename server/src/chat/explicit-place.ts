@@ -6,6 +6,7 @@
 // person's own words only (quoted lines left out, no "don't"), never in a chat with other people's words, a room read,
 // a scheduled run, Slack, a restricted or template run, a confidential chat, or a message the app sent for them. When
 // unsure, the card stays. Korean and other non-Latin words as escapes (no Korean text outside the language tables).
+import { askerMessageId, askerSpec } from './asked-in'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import nodePath from 'node:path'
@@ -166,7 +167,7 @@ export function explicitPlaceAsk(exec: PlaceExec, dir: string): boolean {
     if (!path.length || path.some((s) => s.startsWith('.') || s === '..') || inSkills(path.join('/')) || inSkills(`${path.join('/')}/x`)) return false
     if (othersWordsIn(exec) || actionOff(exec, null)) return false
     const db = exec.rt.db
-    const m = db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(exec.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
+    const m = db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(askerMessageId(exec)) as { content: string | null; auto_sent: number | null } | null
     if (!m || m.auto_sent) return false
     return asksToPlaceIn(m.content ?? '', placeFacts(db, exec.spec.chatId, path.join('/'), { files: exec.rt.files, userId: exec.spec.userId }))
   } catch { return false }
@@ -179,5 +180,5 @@ export function explicitPlaceAsk(exec: PlaceExec, dir: string): boolean {
  * card. Fails closed.
  */
 export function explicitPlaceFor(exec: PlaceExec, dir: string, paths: readonly string[]): boolean {
-  try { return !!paths.length && explicitPlaceAsk(exec, dir) && fromAsker(exec.rt.db, exec.spec, paths) } catch { return false }
+  try { return !!paths.length && explicitPlaceAsk(exec, dir) && fromAsker(exec.rt.db, askerSpec(exec), paths) } catch { return false }
 }

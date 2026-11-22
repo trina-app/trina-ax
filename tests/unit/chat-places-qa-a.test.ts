@@ -112,8 +112,9 @@ describe('TC-6939 / TC-6940: the shared read card for a copy names the files and
     expect(ko).toContain('이 채팅을 보는')
     // the chip of a chat file says the same word
     expect(placeName('chat:files/a.pptx', 'ko')).toBe('이 채팅 › a.pptx')
-    // a value whose reading cannot be told keeps the written-out form (as the web app does)
-    expect(tr('sharedConnectionConfirm', 'ko', { service: 'Xyzq', n: '2' })).toContain('Xyzq을(를)')
+    // a value whose reading cannot be told keeps the written-out form (as the web app does); the shared connection card
+    // needs no particle after the service name since docs/decisions/20261122-connector-always-allow.md
+    expect(tr('sharedConnectionConfirm', 'ko', { service: 'Xyzq', n: '2' })).toBe('AI가 Xyzq에서 가져온 내용을 이 채팅의 2명이 함께 봐요.')
   })
 })
 

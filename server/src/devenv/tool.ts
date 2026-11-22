@@ -30,7 +30,7 @@ import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
-import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
+import { changesByOthers, markSeen, OwnNotUndoable, withChangeWindow, withOwnFolderWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
@@ -42,6 +42,7 @@ import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
 import { auditBulk, BULK_BYTES, BULK_FILES, bulkFolders, bulkWhoForAi, moveToScratch, newBulkState, overBulk, sizeWords, type BulkAsk, type BulkState } from './bulk'
+import { RAN_UNDER_ALWAYS } from '../chat/always-allow'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -88,6 +89,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files (for a file in $TRINA_WORK its path is chat:work/<path>). '
   + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
+  + 'A change a command makes to an existing file in users/<id> or the project folder keeps the earlier content as a file version, and a file it deletes goes to the trash, so the person can restore them (not for a file over 8 MB in users/<id> or 1 MB in a project folder: the answer says when a change cannot be undone). '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
   + 'It also has this chat\'s own work folder $TRINA_WORK, which only this chat uses and which is not a team folder (chat:work/ in the file tools). '
@@ -198,8 +200,11 @@ export interface BoxShellHost {
   /** the waiting state of this call's command or job on its step (Step.devEnvRun) */
   queueStep?(run: NonNullable<Step['devEnvRun']>): void
   signal: AbortSignal
-  /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null */
-  confirm(question: string, options: { label: string; value: string }[], details: string[]): Promise<string | null>
+  /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null. `always`: the
+   * card offers "Always allow" for that kind (chat/always-allow.ts), and with it on answers the first option at once */
+  confirm(question: string, options: { label: string; value: string }[], details: string[], o?: { always?: 'dev_login' }): Promise<string | null>
+  /** the person's "Always allow" for this kind is on here (no card will show): the result says so */
+  alwaysOn?(kind: 'dev_login'): boolean
   /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
   askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
@@ -216,6 +221,13 @@ export interface BoxShellHost {
   helper?: boolean
   /** the sub-agent's key (its Agent call id, '?' when not known) on a helper's call: in the audit line */
   agent?: string
+  /** this command went without the room card because its changes in the person's own folder can be undone
+   * (chat/turn.ts ownBoxRun): its window checks that again before it runs, and undoes guarded changes after it */
+  mustUndo?(command: string): boolean
+  /** a command that went without the room card changed what the AI follows (put back, or not), or could not run: the card from now on */
+  reverted?(): void
+  /** a command that went without the room card (so with no network) failed: the same command asks the card next time */
+  offlineFailed?(command: string): void
   /** the bulk card (devenv/bulk.ts): keep this command's many new files in the project folder? true: keep (also the
    * person's "Always allow", kind bulk_files); false or null: move them to the chat's scratch folder */
   keepBulk?(ask: BulkAsk): Promise<boolean | null>
@@ -228,7 +240,16 @@ export interface BoxShellHost {
  * in the chat may open, and never what is hidden or why. */
 export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (a new file or folder there fails with "Permission denied"), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
 
-type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
+/** `lost`: changes whose earlier content was not kept (cannot be undone); `reverted`: changes undone at once (track.ts
+ * ownGuarded, a command let through without the room card) */
+type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; reverted?: Change[]; unreverted?: Change[] }
+
+/** a command let through without the room card (its changes could be undone) whose own folder could not be kept when
+ * it was about to start (a file grew past the limit meanwhile): nothing ran */
+export const NOT_UNDOABLE = 'Not run: this chat holds messages from the team\'s chat rooms (other people\'s words), and a command here goes without asking only while every file it could change in the person\'s own folder can be put back, which is not so now (a file there is too large to keep a copy of). Nothing was changed. Call box_shell again with the same command: the person is asked first.'
+
+/** a command let through without the room card runs with no network; when it fails, the AI may try again with the card */
+export const OFFLINE_RUN = 'Note: this chat holds messages from the team\'s chat rooms (other people\'s words), so this command ran without asking the person and with NO network (no site, not even npm, PyPI or GitHub). If it failed because it needs the network, call box_shell again with the same command: the person is asked first, and it runs with the network when they allow it.'
 
 /** May the person of this call open the team file `rel` now (their own read access; false when it cannot be told)? */
 function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): boolean {
@@ -257,6 +278,15 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (left.length) parts.push(...left)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
+  // what cannot be undone, and what was undone at once, said plainly (the person's earlier content is gone / kept)
+  // what can be put back (QA: the AI told the person a deleted file was gone for good)
+  const gone = new Set((w.lost ?? []).map((c) => c.path))
+  const kept = w.changes.filter((c) => c.action !== 'create' && !gone.has(c.path))
+  if (kept.length) parts.push(`Undo: ${[kept.some((c) => c.action === 'update') ? 'the earlier content of each changed file is kept as a file version (File history)' : '', kept.some((c) => c.action === 'delete') ? 'each deleted file is in the trash' : ''].filter(Boolean).join(', and ')}; the person can restore them there.`)
+  const lost = (w.lost ?? []).filter((c) => personCanOpen(h, c.path) || c.action === 'delete')
+  if (lost.length) parts.push(`No earlier version was kept of these files (too large to keep a copy of): this change cannot be undone. Tell the person.\n${changeLines(lost, 10)}`)
+  if (w.reverted?.length) parts.push(`Undone right away: this chat holds other people's words from the team's chat rooms, so a command that went without asking may not change what the person's AI follows (skills, CLAUDE.md, AGENTS.md) or hidden files in the person's own folder. These changes were put back (the command's file is in the trash):\n${changeLines(w.reverted, 10)}\nIf the person wants them, call box_shell again with the same command after telling them: they are asked first.`)
+  if (w.unreverted?.length) parts.push(`This command changed what the person's AI follows or hidden files in their own folder, and these changes could not be put back (an earlier version is kept where there was one): tell the person to check them.\n${changeLines(w.unreverted, 10)}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
   return { ...text(h.redact(parts.join('\n')), failed), summary: `${what} -> ${e.signal || 'exit ' + e.code} ${e.ms} ms, ${w.changes.length} files` }
 }
@@ -309,24 +339,49 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     if (!got.ok) return { ...text(h.redact([...notes, ...await o.jobNotes(), got.message].join('\n')), true), summary: `${o.what} -> ${got.summary}` }
     slot = got
   }
+  // the person's own folder (users/<id>, written straight to the disk by a run of a chat that is not shared): a
+  // foreground command's changes there keep the earlier content as versions and in the trash (track.ts
+  // withOwnFolderWindow, docs/decisions/20261122-ask-less-side-chat-runs.md). Always outside the project window (one
+  // order: no wait on each other); a personal project's folder inside it is that window's. A command that went without
+  // the room card (`mustUndo`) runs with no network at all: what it does is not on a card, so it cannot send the
+  // person's files anywhere (a command's words never show all it reaches: git -C . push, a script written first)
+  const own = !space.shared && !jobName && !background
+  const mustUndo = own && !h.helper && !!h.mustUndo?.(input.command)
   const run = async (): Promise<Out> => { try { return await go() } finally { slot?.release() } }
   type Out = { kind: 'exit'; r: Awaited<ReturnType<typeof runCommand>> } | { kind: 'job'; r: Awaited<ReturnType<typeof submitJob>> } | { kind: 'server'; r: Awaited<ReturnType<typeof startServer>> }
   const go = async (): Promise<Out> => {
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background', ...(input.port ? { port: input.port } : {}) }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact, ...(mustUndo ? { offline: true } : {}) }) }
   }
   let w: Window & { value: Out }
-  if (o.tracked) {
+  const by = { userId: h.userId, turnId: h.turnId }, extra = { command: input.command.slice(0, 500) }
+  const inner = async (): Promise<Window & { value: Out }> => {
+    if (!o.tracked) return { ...NO_WINDOW, value: await run() }
     const tracked = o.tracked
-    w = await withChangeWindow(ctx, tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run, {
+    return withChangeWindow(ctx, tracked, by, extra, run, {
       bulk: (changes, startedMs, present) => bulkGuard(h, { space, project: tracked, changes, startedMs, present, notes }),
-    }).finally(() => slot?.release())
-    // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
-    // (both are the main AI's; the helper never sees the card)
-    if (!h.helper) markSeen(ctx, o.tracked.id, h.userId)
-  } else w = { ...NO_WINDOW, value: await run() }
+    })
+  }
+  try {
+    if (own) {
+      const ex = o.tracked && o.tracked.folderPath.startsWith(`users/${h.userId}/`) ? [o.tracked.folderPath] : []
+      const ow = await withOwnFolderWindow(ctx, h.userId, by, extra, inner, { mustUndo, exclude: ex })
+      w = { ...ow.value, changes: [...ow.changes, ...ow.value.changes], lost: [...ow.lost, ...(ow.value.lost ?? [])], reverted: ow.reverted, unreverted: ow.unreverted }
+      if (ow.reverted.length || ow.unreverted.length) h.reverted?.()
+    } else w = await inner()
+  } catch (e) {
+    if (!(e instanceof OwnNotUndoable)) throw e
+    // let through without the room card because its changes could be undone, and now they could not: not run, and the
+    // card is back for the rest of the answer (the AI is told to call again: the person is asked then, no loop)
+    h.reverted?.()
+    audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: { turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, runner: 'srt', result: { error: 'not_undoable' } } })
+    return { ...text(h.redact([...notes, NOT_UNDOABLE].join('\n')), true), summary: `${what} -> not run (own folder cannot be kept)` }
+  } finally { slot?.release() }
+  // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
+  // (both are the main AI's; the helper never sees the card)
+  if (o.tracked && !h.helper) markSeen(ctx, o.tracked.id, h.userId)
   notes.push(...await o.jobNotes())
   // a job or dev server that added many files to the project folder since the last command (not guarded: moving a
   // running job's files would break it): the AI is told where such output belongs
@@ -383,7 +438,10 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : e.signal === 'stopped' ? 'Stopped.'
     : e.signal === 'setting' ? 'Stopped: the dev environment setting or your access to this folder changed. Check the access, then try again.'
     : `Exit code ${e.code}.`
-  if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
+  // a command that went without the room card ran with no network: when it failed, the same command asks the card next
+  // time and then runs with the network the person allows (the AI is told so; chat/turn.ts ownBoxRun)
+  if (mustUndo && (e.code !== 0 || e.signal !== '')) { h.offlineFailed?.(input.command); notes.push(OFFLINE_RUN) }
+  else if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what, space })
 }
 
@@ -538,14 +596,13 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     // a shared chat: only changes in folders this run may see, and no count of the others (sharedVisible)
     if (h.shared) { const see = sharedVisible(ctx, space); const items = foreign.items.filter((c) => see(c.path)); foreign = { ...foreign, items, total: items.length } }
     if (usesCredentials(data.command) && foreign.total > 0) {
-      if (h.helper) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
-      const ok = await h.confirm(
-        `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
-        [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
-        foreign.items.slice(0, 20).map((c) => `${c.by.name}${c.background ? ' (background process)' : ''}: ${c.action} ${c.path}`),
-      )
-      if (ok !== 'run') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
+      // (a sub-agent cannot ask; under the person's own Always it needs no card)
+      if (h.helper && !h.alwaysOn?.('dev_login')) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
+      const asked = await askLoginAfterOthers(h, data.command, foreign.items)
+      if (asked === 'no') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
       markSeen(ctx, tracked.id, h.userId, foreign.lastId)
+      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
+      if (asked === 'always') notes.push(RAN_UNDER_ALWAYS)
     } else if (firstCall && foreign.total > 0) {
       notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
     }
@@ -564,6 +621,23 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     notes.push(...asked.notes)
   }
   return srtShell(h, data, { space, tracked, cwd, what, jobName, notes, jobNotes, once })
+}
+
+/**
+ * The card before a command that can use a login, after other people changed files in the project (hole 2: the person
+ * checks the changes first). It offers "Always allow" (kind dev_login, per person, removable in Settings › Allowed for
+ * Trina; Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md M2): with it on, no card ('always'; the result
+ * still lists the changes). 'run': the person's yes on the card; 'no': anything else.
+ */
+export async function askLoginAfterOthers(h: Pick<BoxShellHost, 'confirm' | 'alwaysOn'>, command: string, changes: readonly ForeignChange[]): Promise<'run' | 'always' | 'no'> {
+  const quiet = !!h.alwaysOn?.('dev_login')
+  const ok = await h.confirm(
+    `This command can use a login: ${command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
+    [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
+    changes.slice(0, 20).map((c) => `${c.by.name}${c.background ? ' (background process)' : ''}: ${c.action} ${c.path}`),
+    { always: 'dev_login' },
+  )
+  return ok !== 'run' ? 'no' : quiet ? 'always' : 'run'
 }
 
 /** The sites the AI asked for (request_sites): each host is checked; one that is allowed already needs no card; for the

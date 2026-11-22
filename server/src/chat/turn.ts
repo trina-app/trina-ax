@@ -2,7 +2,9 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, chatScoped, keepAlways, keepAlwaysAt, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
+import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
@@ -19,6 +21,8 @@ import crypto from 'node:crypto'
 import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { webAllowAll } from '../tools/web-allow-all'
+import { ownFolderUndoable } from '../devenv/track'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -80,7 +84,8 @@ import { notificationsOf, notifyEngineStartFailed } from '../notifications/servi
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { noteSharedAnswer } from './message-notices'
-import { takeAnsweredCalls, answeredNote, closedQuestionNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
+import { takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -97,7 +102,7 @@ import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTea
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
-import { devEnvDownReason } from '../devenv/srt/runner'
+import { chatRunsLive, devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -123,6 +128,7 @@ import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
+import { stepArgs, stepResult, STEP_NOTES_MAX, STEP_RECORD_MIN_BUDGET, withStepRecords, type StepNotes } from './step-record'
 import { HISTORY_MAX_TOKENS, memoryTokensOf } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
@@ -165,10 +171,11 @@ import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
-import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
+import { mapCopyText } from './copy-paths'
+import { answerHiddenFrom, answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
-import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
+import { publicStep, SHARED_LATER, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
 import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { savePathArg } from '../tools/save-target'
@@ -379,6 +386,9 @@ export function engineErrorOf(err: { code: Parameters<typeof engineError>[0]; re
 /** The tools whose chat-file target is a new version of an existing chat file (P4: chat/chat-file-write.ts, edit_office
  * without output), not a new file attached to the answer */
 export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office'])
+
+/** the tracked call of the async context a card is raised in (TurnExec.callNow) */
+const CALL_NOW = new AsyncLocalStorage<{ name: string; args: unknown; deferred: string | null }>()
 
 export class TurnExec {
   content = ''
@@ -1079,7 +1089,29 @@ export class TurnExec {
     // a chat shared with people with files copied in: its answers' paths to those originals as the copies'
     // (chat/copy-paths.ts mapCopyText), the same files the tool calls open (chat/tools.ts mapPaths)
     const copiesNow = () => (chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined)
-    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies: copiesNow() } : null)
+    // with the record of the steps of the asker's own earlier answers (chat/step-record.ts): what Claude Code keeps in
+    // its own session, for a fresh one. A failure leaves the text alone, as before
+    // In a shared chat the new answer is everyone's to read: a line names the paths it keeps aside only when everyone who
+    // sees the chat now may list them, and an earlier answer hidden from any of them, or from before the share, gives
+    // no arguments or results. None for a model whose window is small (the text comes first)
+    const historyOf = (leaf: string | null): HistoryItem[] => {
+      const copies = copiesNow()
+      const h = rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies } : null)
+      if (historyBudget !== undefined && historyBudget < STEP_RECORD_MIN_BUDGET) return h
+      try {
+        const me = this.principal
+        const rules = rt.files.rules()
+        const audience = this.shared ? this.sharedAudience() : []
+        const everyone = this.shared ? this.audienceReadable() : null
+        const canList = (p: string) => !!me && rules.canList(me, p.split('/').filter(Boolean)) && (!everyone || everyone(p))
+        const shared = this.shared ? {
+          hiddenFrom: (id: string) => answerHiddenFrom(rt.db, rt.files, spec.chatId, id, audience).size > 0,
+          // (no turn row: counted as before the share, as ChatStore.viewSteps does)
+          sharedLater: (id: string) => { const r = rt.db.query('SELECT t.shared_checked AS c FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?').get(id) as { c: number | null } | null; return !r || r.c === null || r.c === SHARED_LATER },
+        } : undefined
+        return withStepRecords(rt.db, h, { asker: spec.userId, several, withheld: this.sharedWithheld, canList, shared, ...(copies?.size ? { mapText: (t: string) => mapCopyText(t, copies) } : {}) })
+      } catch (e) { rt.log.warn('step records for the history failed', { err: e, turn: this.id }); return h }
+    }
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
@@ -1260,7 +1292,10 @@ export class TurnExec {
     if (this.stopReason) return
     // another person's question this message closed unanswered (QA S-125): their request is named, not dropped
     const closedQ = this.shared ? closedQuestionNote(spec.closedOthers ?? []) : ''
-    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '')
+    // a waiting call's card of this person still open here (the person wrote instead of pressing it): the AI points to it
+    let waitingQ = ''
+    if (!this.restricted) { try { waitingQ = waitingCardsNote(rt.db, spec.chatId, spec.userId, this.id) } catch (e) { rt.log.warn('reading the waiting cards failed', { err: e, turn: this.id }) } }
+    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '') + (waitingQ ? `${waitingQ}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
     // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
     const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
@@ -2143,6 +2178,10 @@ export class TurnExec {
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
         const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        // the call's key arguments, for the next fresh session's record of this answer (chat/step-record.ts); a read
+        // of the work folder by the path the step shows, never the server's own
+        // (set whole: an engine that numbers its calls again in a relaunch reuses an id, never the old call's note)
+        if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input), undefined, tool) }, true)
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -2190,6 +2229,8 @@ export class TurnExec {
         }
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
+        // the start of its result, for the same record (secrets hidden before it is cut)
+        if (this.stepNotes[stepId(e.id)] && e.output) this.noteStep(stepId(e.id), { o: stepResult(tool, this.redact(e.output)) })
         return
       }
       case 'agent_progress':
@@ -2511,6 +2552,34 @@ export class TurnExec {
     this.live?.attachments(stored)
   }
 
+  /** what each of the main AI's tool steps was called with and the start of what came back (chat/step-record.ts):
+   * saved with the answer (messages.step_notes), never sent to an app */
+  private stepNotes: StepNotes = {}
+  private noteStep(id: string, note: { i?: string; o?: string }, fresh = false) {
+    const cur = fresh ? undefined : this.stepNotes[id]
+    if (!this.stepNotes[id] && Object.keys(this.stepNotes).length >= STEP_NOTES_MAX) return
+    const next = { ...cur }
+    if (note.i) next.i = note.i
+    if (note.o) next.o = note.o
+    this.stepNotes[id] = next
+    this.dirty = true
+  }
+  private notesJson(): string | null {
+    // only the steps the answer still keeps (a refusal retry or a replaced step leaves none behind)
+    const ids = new Set(this.steps.map((x) => x.id))
+    const kept = Object.fromEntries(Object.entries(this.stepNotes).filter(([id, n]) => ids.has(id) && (n.i || n.o)))
+    return Object.keys(kept).length ? JSON.stringify(kept) : null
+  }
+  /** a tool's input with the person's stored connection secrets hidden in every text (before stepArgs cuts them) */
+  private redactValues(v: unknown, depth = 0): unknown {
+    const r = this.redactor()
+    if (nothingToHide(r)) return v
+    if (typeof v === 'string') return r.hide(v)
+    if (depth > 3 || !v || typeof v !== 'object') return v
+    if (Array.isArray(v)) return v.map((x) => this.redactValues(x, depth + 1))
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, this.redactValues(x, depth + 1)]))
+  }
+
   private publishStep(stored: StoredStep) {
     // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
     const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
@@ -2581,7 +2650,10 @@ export class TurnExec {
   /** Something from outside the team's own words came in (chats.room_outside): the chat skips no room card from then
    * on, until a new
    * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */
-  markOutside() {
+  /** something from outside the team other than a command's own run came in during this answer (sameAnswerTarget) */
+  private outsideInAnswer = false
+  markOutside(o: { run?: boolean } = {}) {
+    if (!o.run) this.outsideInAnswer = true
     this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
     this.syncOutsideMark()
   }
@@ -3046,8 +3118,11 @@ export class TurnExec {
    * connection, the browser, anything unknown) marks the chat as having used something from outside for the rest of
    * its session; then no room card is skipped there. */
   noteRoomTool(tool: string, input?: unknown) {
+    // (a command's own run marks it too, but only something else from outside stops this answer's covers:
+    // sameAnswerTarget; a read of the work folder brings in what earlier commands fetched)
+    const run = tool === 'box_shell'
     if (this.workRead(tool, input)) tool = 'box_shell'
-    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside()
+    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside({ run })
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
@@ -3159,13 +3234,37 @@ export class TurnExec {
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
-    // a dev-environment command keeps this card after a room read, also in the person's own chat and a ✦ side chat: a room
-    // message could steer a command that changes the person's own files, and runs keep no versions of those yet
-    // (docs/decisions/20261122-ask-less-side-chat-runs.md, owner decision 11-22)
     let args = ''
-    try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
+    // (box_shell's request_sites is not part of what the room card asked: the same command again with the sites it
+    // needs goes on under the person's yes and asks only the site card; QA b4s S4-E: one curl, three cards)
+    try { args = JSON.stringify(roomCardInput(tool, input) ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
-    if (this.roomAllowed.has(key)) return null
+    const command = tool === 'box_shell' && input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+    if (this.roomAllowed.has(key)) {
+      // the person allowed it on the card: not a command that goes on the promise of undo
+      if (typeof command === 'string' && o.main !== false) this.boxUndo.delete(command)
+      return null
+    }
+    // a dev-environment command in the person's own chat with no project (a ✦ side chat too) whose changes in the own
+    // folder can all be undone (versions, the trash: devenv/track.ts withOwnFolderWindow) goes on without the room card
+    // (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2); its window checks again before it runs and puts back
+    // what the person's AI follows. Anything else keeps the card
+    if (typeof command === 'string' && o.main !== false) {
+      if (this.ownBoxRun(input) && ownFolderUndoable(this.rt.ctx, this.spec.userId).ok) {
+        this.boxUndo.add(command)
+        this.coverStep(tool, 'ownUndoStep')
+        return null
+      }
+      // asked on the card: not a command that went on the promise of undo
+      this.boxUndo.delete(command)
+    }
+    // one answer asks once about one target (#381; QA b3s TC-b3s-23: four cards for one banner edit): a command that
+    // makes only the files an earlier command of this answer was allowed to make, and a rename in place of a file this
+    // answer made, go on under that yes (sameAnswerTarget)
+    if (!o.noCover && this.sameAnswerTarget(tool, input)) {
+      if (o.main !== false) this.coverStep(tool, 'roomOnceStep')
+      return null
+    }
     // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
     // in its save folder, a send to a pinned connection: chat/schedule-cover.ts); `send` is the connection a call writes
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
@@ -3297,6 +3396,8 @@ export class TurnExec {
     // "Always allow" here is the person's own for every change after a room read (chat/always-allow.ts), on the first
     // card, in their own chats and side chats alike; it replaces the room's folder grant ("이 방에서는 항상 허용")
     const always = roomAlways === 'offer'
+    // a guest among the people: "Always in this chat", its own value (chat/always-allow.ts ALWAYS_CHAT_VALUE)
+    const inChat = always && chatScoped(this.alwaysPlace())
     // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
@@ -3304,17 +3405,24 @@ export class TurnExec {
       ? `${tr(seenWhy(this, 'roomsSeenWhy'), L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
       : reads ? tr(seenWhy(this, 'roomsSeenConfirmRead'), L, { what, ai: aiCalled(L) })
       : tr(seenWhy(this, 'roomsSeenConfirm'), L, { what, ai: aiCalled(L) })
-    const { value: answer, missing } = await this.askPerson({
+    // (its Always is offered by hand: a card that waits after the answer keeps the kind with its call, as withAlways does)
+    if (always) this.alwaysOffer = 'room_change'
+    const asked = this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
-      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
+      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [inChat ? { label: tr('cardAlwaysChat', L), value: ALWAYS_CHAT_VALUE } : { label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L, this.alwaysPlace()) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    this.alwaysOffer = null
+    const { value: answer, missing } = await asked
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
-    if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
+    const pressedAlways = always && (inChat ? v === ALWAYS_CHAT_VALUE : v === ALWAYS_VALUE)
+    if (pressedAlways) keepAlwaysAt(this.alwaysPlace(), 'room_change', { inChat })
+    if (v === 'allow' || pressedAlways) {
       this.roomAllowed.add(key)
+      // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
+      if (tool === 'box_shell') { const shape = commandShape(input); if (shape) this.shellAllowed.add(shape) }
       // [이번만 허용]: this kind of change to this file goes without the room card for the rest of this chat
       if (v === 'allow' && !reads) keepApproval()
       if (target && coverOnce) {
@@ -3509,6 +3617,45 @@ export class TurnExec {
    */
 
   /**
+   * After a room read, may a dev-environment command go on without the room card once its own-folder changes can be
+   * undone (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2)? Only where what it shows and changes reaches
+   * nobody but the person: the person's own live chat (a ✦ side chat too), not shared with anyone, not a restricted or
+   * scheduled run, not a guest, not a confidential chat, and the commands run in the chat's own work folder (no project:
+   * a project folder is the team's). Such a run writes only the chat's work folder and the person's own folder. A
+   * foreground command only (a job or a dev server writes after the call's window). The card stays when the command
+   * itself uses the network (shellUsesNetwork) or "Allow all websites" is on for the person, so a room message cannot
+   * send the person's files out without a card; and for the rest of the answer once a command's change to what the AI
+   * follows was put back (boxUndone). The words of a command never show all it reaches (git -C . push, a script written
+   * by one command and run by the next), so such a run also has no network at all (devenv/tool.ts mustUndo): one that
+   * failed asks the card when the AI calls it again (boxOffline), and so does a call that asks for sites; and while a job
+   * or dev server of this chat runs (it has the network, and a command could change its code). Fails closed.
+   */
+  private ownBoxRun(input: unknown): boolean {
+    try {
+      const d = this.devEnv
+      if (!d || d.project || d.shared || this.shared || this.restricted || this.boxUndone || isGuestUser(this.rt.db, this.spec.userId)) return false
+      const a = input && typeof input === 'object' ? input as { command?: unknown; job?: unknown; background?: unknown; request_sites?: unknown } : null
+      if (!a || typeof a.command !== 'string' || a.job === true || a.background === true || this.boxOffline.has(a.command)) return false
+      // a call that asks for sites wants the network, which a run without the card never has (devenv/tool.ts)
+      if (Array.isArray(a.request_sites) && a.request_sites.length) return false
+      if (shellUsesNetwork(a.command) || webAllowAll(this.rt.db, this.spec.userId)) return false
+      if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+      // a job or dev server of this chat or of the person runs (or waits) with the network: a command could change the
+      // code it runs (a hot reload, files in the person's own folder)
+      if (chatRunsLive(this.rt.ctx, this.spec.chatId, this.spec.userId)) return false
+      return !confidentialChat(this.rt.db, this.spec.chatId)
+    } catch { return false }
+  }
+  /** the commands that went on without the room card because their changes can be undone (ownBoxRun); box_shell's
+   * window checks that again (devenv/tool.ts BoxShellHost.mustUndo) */
+  readonly boxUndo = new Set<string>()
+  /** a command that went without the card changed what the AI follows and it was put back: the card for the rest */
+  boxUndone = false
+  /** the commands that went without the card (so with no network: devenv/tool.ts) and failed: the card next time, and
+   * then the network the person allows */
+  readonly boxOffline = new Set<string>()
+
+  /**
    * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA
    * TC-f2-c02): true when every target (`targets`: the paths the copies land at) is a NEW file in the person's own folder
    * that write's exception lets go without a card (ownFolderPlace: nobody else reads it; never skills, instruction files,
@@ -3651,6 +3798,43 @@ export class TurnExec {
     try { return authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'read').rel } catch { return null }
   }
 
+  /** the dev-environment commands of this answer the person allowed on a room card, by their shape (commandShape) */
+  private shellAllowed = new Set<string>()
+  /**
+   * One answer, one card per target after a room read (#381 "One answer never asks twice about the same target"; QA b3s
+   * TC-b3s-23, S-110: one banner edit raised two command cards for the same picture and a rename card for the copy the
+   * answer had just made). Nothing is covered once this answer used something from outside the team other than a
+   * command's own run (outsideInAnswer: a web page, a search, a connection, a work-folder read):
+   * - box_shell: the same command as one the person allowed in this answer, but for its numbers (a font size, a
+   *   position: commandShape), when it only makes files (answerShellOutputs: no removing, moving, copying,
+   *   installing, network or instruction file). Any other command asks: the card is the only look at what runs, and a
+   *   command's words cannot show all it does (docs/decisions/20261122-ask-less-side-chat-runs.md).
+   * - rename_file: a file this answer made (a create of this turn nobody else changed since, roomMadeHere) renamed in its
+   *   folder (the same people, the same bytes), keeping its extension, to no instruction, script or hidden name. Whatever
+   *   let the answer put it there (a card, a cover) stands for its name too.
+   * Fails closed: any error is false.
+   */
+  private sameAnswerTarget(tool: string, input: unknown): boolean {
+    try {
+      if (tool !== 'box_shell' && tool !== 'rename_file') return false
+      // a web page, a search, a connection's answer … in this answer: its author is no member (a command's own run is
+      // not: it is the run this answer's yes allowed)
+      if (this.outsideInAnswer) return false
+      if (tool === 'box_shell') {
+        const shape = this.shellAllowed.size ? commandShape(input) : null
+        return !!shape && this.shellAllowed.has(shape)
+      }
+      if (!input || typeof input !== 'object') return false
+      const a = input as { path?: unknown; new_name?: unknown }
+      const name = typeof a.new_name === 'string' ? a.new_name.trim() : ''
+      if (typeof a.path !== 'string' || !name || /[\\/]/.test(name) || name.startsWith('.') || instructionLike(name) || runnableFile(name)) return false
+      const ext = (n: string) => (/\.([^./]+)$/.exec(n)?.[1] ?? '').toLowerCase()
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), a.path, 'write')
+      if (!r.exists || !r.st?.isFile() || inSkills(r.rel) || instructionLike(r.rel) || ext(r.rel) !== ext(name)) return false
+      return this.roomMadeHere(r.rel)
+    } catch { return false }
+  }
+
   /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
    * move into place, which keeps an older file), and nobody else (a person, another answer) changed it since. */
   private roomMadeHere(rel: string): boolean {
@@ -3699,7 +3883,7 @@ export class TurnExec {
 
   /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
    * 저장", "이 대화에서 허용한 대로 진행"). */
-  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep' | 'chatOnceStep') {
+  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep' | 'ownUndoStep' | 'chatOnceStep') {
     const said = tr(why, this.spec.locale)
     // a tool that labels its own step patches it once per call (save_room_file): the words go with that patch
     if (SELF_LABELLED_TOOLS.has(tool)) { this.stepSuffixes.set(tool, [...(this.stepSuffixes.get(tool) ?? []), said]); return }
@@ -4325,7 +4509,7 @@ export class TurnExec {
    * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
    * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
    */
-  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string }): Promise<string | null> {
     if (!this.shared) return null
     // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
     // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
@@ -4348,6 +4532,9 @@ export class TurnExec {
       // covered: the people the card was answered for (recorded as they were: those who were told)
       const once = this.sharedConnAllowed.get(c.key)
       if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
+      // the person's own Always for good (docs/decisions/20261122-connector-always-allow.md, the owner: "매 대화마다
+      // 해야한다니"): any audience of teammates; a guest (someone outside the team) in the chat still asks
+      if (this.sharedConnForGood(c, audience)) return this.noteSharedReads(c.sources, audience, true, true) ? null : failed()
       const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
         .find((d) => Array.isArray(d.c) && covers(d.c))
       if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
@@ -4356,13 +4543,16 @@ export class TurnExec {
       let pending = this.sharedConnPending.get(c.key)
       if (!pending) {
         const asked = [...new Set(audience)].sort()
-        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        const made = { asked, forGood: this.sharedConnMayKeep(c, asked), p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
         pending = made
         this.sharedConnPending.set(c.key, made)
         const decision = await made.p
         if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
         this.sharedConnAllowed.set(c.key, new Set(asked))
-        if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        if (decision === 'always') {
+          if (this.sharedConnMayKeep(c, asked) && made.forGood) keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
+          else noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        }
         continue
       }
       const decision = await pending.p
@@ -4372,10 +4562,25 @@ export class TurnExec {
     return failed()
   }
 
+  /** The person's Always for good on the shared connection card may be kept and used here: a turn they watch from their
+   * own app or their own scheduled run (also one a teammate's words are in: Rule A), not a confidential chat, the
+   * team's "Always allow" switch on, and nobody outside the team (a guest) among the people. */
+  private sharedConnMayKeep(c: { bind?: string }, people: readonly string[]): boolean {
+    if (!c.bind || !teamAllowsAlways(this.rt.db) || isConfidentialChat(this.rt.db, this.spec.chatId)) return false
+    const scheduled = this.spec.clientKind === 'schedule'
+    if (!scheduled && !LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+    try { return !people.some((id) => isGuestUser(this.rt.db, id)) } catch { return false }
+  }
+
+  private sharedConnForGood(c: { id: string; bind?: string }, people: readonly string[]): boolean {
+    return this.sharedConnMayKeep(c, people) && sharedAllowed(this.rt.db, c.id, this.spec.userId, c.bind!)
+  }
+
   /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
    * said: someone outside the team). */
-  private async askSharedConnection(c: { id: string; name: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
+  private async askSharedConnection(c: { id: string; name: string; bind?: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
     const L = this.spec.locale
+    const forGood = this.sharedConnMayKeep(c, asked)
     const scheduled = this.spec.clientKind === 'schedule'
     const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
     let guests = 0
@@ -4385,12 +4590,16 @@ export class TurnExec {
       question: guests
         ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
         : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
-      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr('sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      // one press (QA TC-ask1-15): three buttons, the main one first. Always is for good where it may be kept (no
+      // guest here: sharedConnMayKeep), with one line saying what it covers; with a guest it stays for this chat
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr(forGood ? 'sharedConnectionAlwaysAll' : 'sharedConnectionAlways', L), value: forGood ? 'always' : 'always_chat' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      buttons: true, ...(forGood ? { note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(value) && value.length === 1 ? value[0] : value
-    const decision: SharedDecision | 'always' = v === 'always' ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
+    // ("Always in this chat" has its own value: a press that waited is never taken for the Always for good, open-questions.ts sameCard)
+    const decision: SharedDecision | 'always' = (forGood ? v === 'always' : v === 'always_chat') ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
     try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
     catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
     return decision
@@ -4693,7 +4902,7 @@ export class TurnExec {
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
     const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
       if (!o.room) return this.askAlways('save_wider', req, 'save')
-      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
+      return this.askAlways('room_change', req, 'save', { onAlways: (inChat) => keepAlwaysAt(this.alwaysPlace(), 'save_wider', { inChat }) })
     }
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
@@ -5095,7 +5304,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: (inChat: boolean) => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
@@ -5104,7 +5313,8 @@ export class TurnExec {
       const r = await this.askPerson({ ...request, options, ...more, ...(note ? { note } : {}) } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
       missing = r.missing
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
-      if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
+      const pressed = Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value
+      if (pressed === ALWAYS_VALUE || pressed === ALWAYS_CHAT_VALUE) o.onAlways?.(pressed === ALWAYS_CHAT_VALUE)
       return r.value
     }, o.label)
     return { value, missing }
@@ -5112,7 +5322,31 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted }
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => this.guestAmong(), audience: () => this.turnPeople(), offering: (k) => { this.alwaysOffer = k } }
+  }
+
+  /** The people of this turn (TurnExec.guestAmong's): the person, who sees this shared chat, the members of this side
+   * chat's room. Throws when they cannot be read (an "Always in this chat" then holds for nobody) */
+  turnPeople(): string[] {
+    const db = this.rt.db
+    const out = new Set<string>([this.spec.userId])
+    if (this.shared) for (const id of this.sharedAudience()) out.add(id)
+    const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
+    if (side) for (const m of db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(side) as { user_id: string }[]) out.add(m.user_id)
+    return [...out].sort()
+  }
+
+  /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
+   * the room of this side chat. The one scope limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md,
+   * as 20261122-connector-always-allow.md decided for the shared connection card). Fails closed. */
+  guestAmong(): boolean {
+    const db = this.rt.db
+    try {
+      if (isGuestUser(db, this.spec.userId)) return true
+      if (this.shared && this.sharedAudience().some((id) => isGuestUser(db, id))) return true
+      const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
+      return !!side && (db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(side) as { user_id: string }[]).some((m) => isGuestUser(db, m.user_id))
+    } catch { return true }
   }
 
   async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<CardAnswer> {
@@ -5159,10 +5393,22 @@ export class TurnExec {
   }
 
   /** the main AI's call of a tool whose safety card may wait after the answer ends (chat/tools.ts CARD_LATER_TOOLS):
-   * set while it runs; `deferred` names the card it left open */
-  callNow: { name: string; args: unknown; deferred: string | null } | null = null
-  /** the call the person's answer runs again (replayCalls): its card takes their answer at once, once */
-  private replaying: { card: TurnRequest; answer: unknown; used: boolean } | null = null
+   * set while it runs, for that call alone (its own async context: read-only calls run side by side, and a card of
+   * another call must never be kept with this one); `deferred` names the card it left open */
+  get callNow(): { name: string; args: unknown; deferred: string | null } | null { return CALL_NOW.getStore() ?? null }
+  /** run `fn` as `call` (callNow inside it); null: as no tracked call */
+  runAsCall<T>(call: { name: string; args: unknown; deferred: string | null } | null, fn: () => Promise<T>): Promise<T> { return call ? CALL_NOW.run(call, fn) : CALL_NOW.exit(fn) }
+  /** the call the person's answer runs again (replayCalls): its cards take their answers at once, each once, in order
+   * (`answers`: the earlier cards of the call and the card they pressed last) */
+  private replaying: { answers: (PriorAnswer & { used: boolean })[]; changedSaid: boolean } | null = null
+  /**
+   * While a waiting call runs again (replayCalls): the turn that asked for it (docs/decisions/20261122-late-card-answer-
+   * resumes.md). The call's checks of "the asker's own message", "made in this answer" and the answer its content came
+   * from read these (chat/asked-in.ts), not this turn's message, which is only the button's words.
+   */
+  askedIn: AskedIn | null = null
+  /** the kind of "Always allow" the card being raised now offers (AlwaysPlace.offering): kept with a waiting call */
+  private alwaysOffer: CardAlwaysKind | null = null
 
   /**
    * A safety card raised inside a CARD_LATER_TOOLS call of the main AI, in a chat a person watches: kept with the call
@@ -5172,7 +5418,8 @@ export class TurnExec {
    */
   private cardLater(request: TurnRequest, o: { window?: string | null }): boolean {
     const call = this.callNow
-    if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !CARD_LATER_TOOLS.has(call.name) || !this.rt.safetyCardsWait) return false
+    // (callNow is set only for a call of a tool whose cards may wait: chat/tools.ts cardLaterTool)
+    if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !this.rt.safetyCardsWait) return false
     if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
     // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
     // inside the call as before (with its time limit)
@@ -5180,7 +5427,12 @@ export class TurnExec {
     if (!nothingToHide(r)) { const raw = JSON.stringify(call.args ?? {}); if (r.hide(raw) !== raw) return false }
     const { expiresAt: _no, ...card } = request as TurnRequest & { expiresAt?: string }
     const window = o.window ?? null
-    saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window } })
+    // what the replay needs (open-questions.ts CallMeta): the first asking turn (a card re-raised while the call runs
+    // again keeps it), the Always kind this card offers, the answers its earlier cards already took
+    const asked: AskedIn = this.askedIn ?? { turnId: this.id, userMessageId: this.spec.userMessageId, assistantId: this.spec.assistantId }
+    const prior = this.replaying ? this.replaying.answers.filter((x) => x.used).map(({ card: c, answer }) => ({ card: c, answer })) : []
+    const always = this.alwaysOffer
+    saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window, asked, ...(always ? { always } : {}), ...(prior.length ? { prior } : {}) } })
     call.deferred = request.requestId
     this.questionsLeft++
     const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request: card as TurnRequest } }
@@ -5210,22 +5462,43 @@ export class TurnExec {
     for (const c of calls) {
       if (this.stopReason) break
       const id = `card-${crypto.randomUUID()}`
-      this.replaying = { card: c.card, answer: c.answer, used: false }
-      this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
-      let said = '', ok = false
+      const argsAi = neutralizeTags(JSON.stringify(c.args ?? {})).slice(0, 2000)
+      // the card's no (or Skip) runs nothing: the call is not run again, so no check of this moment can act on a no
+      // (docs/decisions/20261122-late-card-answer-resumes.md)
+      if (declined(c.card, c.answer)) {
+        // (the step says so, as the call's own "no" did)
+        this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
+        this.onEvent({ type: 'tool_end', id, ok: true, output: 'Not done: the user said no on the card.' }, errors)
+        out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}, which is the card's no. It did not run and nothing was done. Do not do it another way unless the user asks again.`)
+        continue
+      }
+      let said = '', ok = false, tookLast = false
       try {
+        // the asking turn (a row saved before call_meta: its own turn, open-questions.ts readyAnswers)
+        this.askedIn = c.asked ?? null
+        this.replaying = { answers: [...(c.prior ?? []), { card: c.card, answer: c.answer }].map((x) => ({ ...x, used: false })), changedSaid: false }
+        this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
         const res = await handler({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: c.tool, arguments: c.args, _meta: { 'claudecode/toolUseId': id } } })
         const r = (res?.result ?? {}) as { content?: { type?: string; text?: string }[]; isError?: boolean }
         said = (r.content ?? []).flatMap((x) => (x?.type === 'text' ? [String(x.text ?? '')] : [])).join('\n')
         ok = !r.isError
       } catch (e) { said = 'Error: internal error'; this.rt.log.warn('running a card\'s call again failed', { err: e, turn: this.id }) }
-      finally { this.replaying = null }
+      finally { tookLast = !!this.replaying?.answers.at(-1)?.used || !!this.replaying?.changedSaid; this.replaying = null; this.askedIn = null }
+      // "Always allow" on the card the person pressed holds even when this run ended before that card (refused now, or
+      // no card needed): their choice for that kind, where it may be offered now (team switch, confidential, guest).
+      // Not when the card reads differently now (asked again: their choice waits for that card)
+      const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
+      // (offered here now, and never while a guest is among the people of this shared chat: there each card's own rule
+      // decides whether its Always counts, which a run that never reached the card could not check)
+      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !this.guestAmong()) {
+        try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
+      }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
-      out.push(`- ${c.tool} ${neutralizeTags(JSON.stringify(c.args ?? {})).slice(0, 2000)}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
+      out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
     }
     this.attemptHadOutput = false
     if (!out.length) return ''
-    return `<answered_cards>\nThis message is the user's answer to the card${out.length > 1 ? 's' : ''} your call${out.length > 1 ? 's' : ''} raised in your previous answer (the card waited until they answered). Each call ran again with their answer:\n${out.join('\n')}\nGo on from there.\n</answered_cards>`
+    return `<answered_cards>\nThis message is the user's answer to the card${out.length > 1 ? 's' : ''} your call${out.length > 1 ? 's' : ''} raised in an earlier answer (the card waited until they answered). Each call, with their answer:\n${out.join('\n')}\nGo on from there.\n</answered_cards>`
   }
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
@@ -5238,9 +5511,19 @@ export class TurnExec {
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
-    // a call running again with the person's answer (replayCalls): the same card takes it at once
+    // a call running again with the person's answers (replayCalls): the same card takes its answer at once, once. The
+    // first card that reads differently now (something changed since the press) says so in its first line, and waits
+    // the same way (one press)
     const rp = this.replaying
-    if (rp && !rp.used && sameCard(rp.card, request)) { rp.used = true; return Promise.resolve(rp.answer) }
+    if (rp) {
+      const hit = rp.answers.find((x) => !x.used && sameCard(x.card, request))
+      if (hit) { hit.used = true; return Promise.resolve(hit.answer) }
+      // (only while the card they pressed is still to come: a second card of the call after it is simply its next card)
+      if (!rp.changedSaid && !rp.answers.at(-1)!.used && request.kind === 'ask_user') {
+        rp.changedSaid = true
+        request = { ...request, question: `${CHANGED_MARK}${tr('cardChangedSince', this.spec.locale)}\n\n${request.question}` }
+      }
+    }
     // a safety card that waits after the answer ends (the call ends having done nothing)
     if (this.cardLater(request, o)) return Promise.resolve(null)
     const held = this.exclusiveCard
@@ -5507,8 +5790,8 @@ export class TurnExec {
     if (!this.dirty) return
     this.dirty = false
     try {
-      this.rt.db.query('UPDATE messages SET content = ?, steps = ?, updated_at = ? WHERE id = ?')
-        .run(this.content, JSON.stringify(this.storedSteps()), new Date().toISOString(), this.spec.assistantId)
+      this.rt.db.query('UPDATE messages SET content = ?, steps = ?, step_notes = ?, updated_at = ? WHERE id = ?')
+        .run(this.content, JSON.stringify(this.storedSteps()), this.notesJson(), new Date().toISOString(), this.spec.assistantId)
     } catch (e) { this.rt.log.error('saving the answer failed', { err: e, turn: this.id }); this.dirty = true }
   }
 
@@ -5563,7 +5846,7 @@ export class TurnExec {
     const ok = db.transaction(() => {
       const r = db.query("UPDATE turns SET status='queued', dispatched_at=NULL, wall_deadline_at=NULL, ended_at=NULL, error=NULL, people_checked=0, shared_checked=CASE WHEN shared_checked = 1 THEN 0 ELSE shared_checked END WHERE id=? AND status='running'").run(this.id)
       if (!r.changes) return false
-      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]' WHERE id=?").run(this.spec.assistantId)
+      db.query("UPDATE messages SET status='streaming', error=NULL, content='', steps='[]', step_notes=NULL WHERE id=?").run(this.spec.assistantId)
       return true
     })()
     if (!ok) return false
@@ -5649,8 +5932,8 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
-        this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
+      db.query('UPDATE messages SET content = ?, steps = ?, step_notes = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, stopped_for = ?, updated_at = ? WHERE id = ?').run(
+        this.content, JSON.stringify(this.storedSteps()), this.notesJson(), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, status === 'stopped' ? this.stoppedFor : null, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
@@ -6036,6 +6319,34 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 
+/** a script in a command that removes, moves, renames or copies files (python, node), past what SHELL_DESTRUCTIVE reads */
+const SCRIPT_REMOVES = /\b(?:os\.(?:remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(?:rmtree|move|copy\w*)|unlinkSync|rmSync|rmdirSync|renameSync|copyFileSync|\.unlink\(|\.rmdir\(|\.rename\()/
+/** The files a dev-environment command makes when that is all its words show (TurnExec sameAnswerTarget): its output
+ * names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE, cp, ln, chmod, chown,
+ * touch, tee, a script's os.remove …), installs or downloads programs, reaches the network or names an instruction or
+ * skill file. null: not such a command. */
+export function answerShellOutputs(input: unknown): string[] | null {
+  const c = input && typeof input === 'object' && typeof (input as { command?: unknown }).command === 'string' ? (input as { command: string }).command : ''
+  if (!c || c.length > 20_000) return null
+  const outs = shellOutputs(c, { paths: true })
+  if (!outs.length || SHELL_DESTRUCTIVE.test(c) || /(?:^|[\s;&|(`])(?:cp|ln|chmod|chown|touch|tee|install)\s/.test(c) || shellUsesNetwork(c) || INSTRUCTION_IN_TEXT.test(c) || SCRIPT_REMOVES.test(c)) return null
+  const kind = shellKind(c)
+  return kind === 'install' || kind === 'download' ? null : outs
+}
+
+/** A command as one "kind of run" for one answer's yes (TurnExec sameAnswerTarget): its text with runs of spaces as one
+ * and every number as "#", so the same run again with another size or position is the same run; any other difference
+ * (a word, a program, a path, a quoted string) is another command. null for a command that does more than make files
+ * (answerShellOutputs). */
+export function commandShape(input: unknown): string | null {
+  if (!answerShellOutputs(input)) return null
+  const c = (input as { command: string }).command
+  // code built from numbers or escapes, or run from a string, could be anything with other numbers: never covered
+  if (/\b(?:exec|eval|chr|fromhex|fromCharCode|b64decode|atob)\s*\(|\bbase64\b|\\x[0-9a-f]|\\u[0-9a-f]|\$'|\b(?:ba|z)?sh\s+-c\b|\b(?:perl|ruby|node)\s+-e\b/i.test(c)) return null
+  // only a number standing alone (not part of a name, a path or an escape) is "#"
+  return c.replace(/(?<![\w./\\$-])\d+(?:\.\d+)?(?![\w./])/g, '#').replace(/\s+/g, ' ').trim()
+}
+
 /** the kind of a file a command makes, by its extension (shellCardWords) */
 const SHELL_OUT_KIND: Record<string, 'roomShellKindPicture' | 'roomShellKindPdf' | 'roomShellKindVideo' | 'roomShellKindAudio' | 'roomShellKindSheet' | 'roomShellKindDoc'> = {
   png: 'roomShellKindPicture', jpg: 'roomShellKindPicture', jpeg: 'roomShellKindPicture', gif: 'roomShellKindPicture', webp: 'roomShellKindPicture', svg: 'roomShellKindPicture',
@@ -6051,14 +6362,17 @@ const SHELL_DESTRUCTIVE = /(?:^|[\s;&|(`])(?:rm|rmdir|mv|unlink|shred|truncate|d
 /** The files a dev-environment command says it makes (their names only, as the command names them): what a picture, a
  * PDF, a table or a video is saved as (savefig("chart.png"), -o out.mp4, > report.csv, open("x.csv", "w"), ffmpeg's last
  * name). Only names with a known output extension and no variable in them; at most 20. */
-export function shellOutputs(command: string): string[] {
+export function shellOutputs(command: string, o: { paths?: boolean } = {}): string[] {
   const c = command.slice(0, 20_000)
   const got: string[] = []
   const add = (raw: string | undefined) => {
-    const n = (raw ?? '').trim().replace(/^["']|["']$/g, '').split('/').pop() ?? ''
+    const p = (raw ?? '').trim().replace(/^["']|["']$/g, '')
+    const n = p.split('/').pop() ?? ''
     const m = /^([^\s${}*?`<>|;&()'"\\]{1,80})\.([A-Za-z0-9]{2,5})$/.exec(n)
-    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(n) || got.length >= 20) return
-    got.push(n)
+    // `paths`: each as the command writes it (its folders too), for matching one command's outputs with another's
+    const v = o.paths ? p : n
+    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(v) || got.length >= 20) return
+    got.push(v)
   }
   const each = (re: RegExp) => { for (const m of c.matchAll(re)) add(m[1]) }
   each(/\b(?:savefig|save|to_csv|to_excel|to_html|to_json|write_image|write_html|imwrite|write_videofile|write_audiofile|write_pdf|output_pdf|saveas|save_as)\s*\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']/gi)
@@ -6088,6 +6402,8 @@ export function shellCardWords(command: string, L: Locale): string {
   const net = (byFiles || (kind !== 'install' && kind !== 'download')) && SHELL_NETWORK.test(c)
   if (install && net) return tr('roomShellPlusBoth', L, { what })
   if (install) return tr('roomShellPlusInstall', L, { what })
+  // (a plain run whose only other part is the internet: said as one thing, QA b4s S4-E)
+  if (net && !byFiles && kind === 'run') return tr('roomShellNetRun', L)
   if (net) return tr('roomShellPlusNet', L, { what })
   return what
 }
@@ -6109,6 +6425,13 @@ const SHELL_INSTALL = /(?:^|[\s;&|(`])(?:(?:npm|pnpm|yarn|bun|deno)\s+(?:i|insta
  * axios, httpx, aiohttp, socket): a command that can send files out or bring things in. Rough on purpose: a false
  * "yes" only keeps a card. */
 const SHELL_NETWORK = /(?:^|[\s;&|(`/])(?:curl|wget|ssh|scp|sftp|rsync|nc|ncat|netcat|ftp|lftp|telnet|socat|aria2c)(?=\s|$)|\bgit\s+(?:clone|pull|fetch|push|ls-remote)\b|\bpython3?\s+-m\s+http\.server\b|\b(?:requests|urllib|urllib3|httpx|aiohttp|http\.client|socket|axios|smtplib|ftplib|paramiko)\b|\bfetch\s*\(|https?:\/\//i
+/** A call as the room card weighs it: box_shell without request_sites (the sites a command asks for have their own
+ * card, devenv/tool.ts askSites; the command itself is what the room card showed). */
+export function roomCardInput(tool: string, input: unknown): unknown {
+  if (tool !== 'box_shell' || !input || typeof input !== 'object' || Array.isArray(input) || !('request_sites' in input)) return input
+  const { request_sites: _sites, ...rest } = input as Record<string, unknown>
+  return rest
+}
 /** The command uses the network (SHELL_NETWORK), or installs programs (which downloads them). */
 export function shellUsesNetwork(command: string): boolean {
   const c = command.slice(0, 20_000)
