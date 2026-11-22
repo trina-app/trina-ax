@@ -25,7 +25,7 @@ describe('shellKind', () => {
 
   test('a command that changes or removes files is said so first, whatever else it does', () => {
     for (const c of ['rm -rf build', 'npm install && rm -rf ~/x', 'find . -delete', 'find . -name "*.tmp" -exec rm {} \\;', "sed -i 's/a/b/' f.txt",
-      'ls | xargs rm -rf', 'echo hi > ~/.bashrc', 'cat a >> b', "mkdir -p p && cd p && cat > p.html <<'E'", 'git push origin main', 'cd x && rm -rf ../snap3 && npx hyperframes render']) {
+      'ls | xargs rm -rf', 'echo hi > ~/.bashrc', 'cat a >> b', "mkdir -p p && cd p && cat > p.html <<'E'", 'git push origin main', 'find . -fprint out.txt', 'sort -o b.txt a.txt', 'cd x && rm -rf ../snap3 && npx hyperframes render']) {
       expect([c, shellKind(c)]).toEqual([c, 'change'])
     }
     // not a look at files when it can run something else
