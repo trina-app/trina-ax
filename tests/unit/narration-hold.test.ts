@@ -418,7 +418,7 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.done).toBe(t.stored)
     expect(t.stored).not.toContain('Let me check')
     // 2026-11-22 (structural): every piece a call follows is interim; only the text after the last call is the answer
-    expect(t.stored.trim()).toBe('Dear Mr. Smith, thank you for your order.')
+    expect(t.stored).toBe('Dear Mr. Smith, thank you for your order.')
   })
 
   test.skipIf(!native)('Korean: a work note in no fixed opening is dropped; one copied into the call is kept (11-17)', async () => {
@@ -431,7 +431,8 @@ describe('a turn with an English line before a tool call', () => {
     ))
     expect(t.streamed).toBe(t.stored)
     expect(t.done).toBe(t.stored)
-    expect(t.stored.trim()).toBe('단가표가 없어요.')
+    // the piece copied into the call is content and stays; the work note before the first call is interim
+    expect(t.stored).toBe('Only one file; read it.\n\n단가표가 없어요.')
   })
 
   test.skipIf(!native)('Korean, ending on a tool call: the dropped line does not come back as the whole text', async () => {
@@ -447,7 +448,7 @@ describe('a turn with an English line before a tool call', () => {
       { say: '두 폴더 다 확인했어요.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored.trim()).toBe('두 폴더 다 확인했어요.')
+    expect(t.stored).toBe('두 폴더 다 확인했어요.')
   })
 
   test.skipIf(!native)('Korean, stopped with a status line held: it is dropped; the stream and the saved answer agree', async () => {
@@ -486,7 +487,7 @@ describe('a turn with an English line before a tool call', () => {
   test.skipIf(!native)('no text after the last call: the last interim piece is the answer, so it is never blank', async () => {
     const t = await turn('ko', '파일 확인해줘\n' + fake({ say: '파일을 확인했고 내용은 비어 있어요.' }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored.trim()).toBe('파일을 확인했고 내용은 비어 있어요.')
+    expect(t.stored).toBe('파일을 확인했고 내용은 비어 있어요.')
   })
 
   test.skipIf(!native)('Korean with English pieces between calls: only the Korean final reply is saved, the pieces are thinking steps', async () => {
@@ -498,6 +499,12 @@ describe('a turn with an English line before a tool call', () => {
       { say: '보고서를 만들었어요.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored.trim()).toBe('보고서를 만들었어요.')
+    expect(t.stored).toBe('보고서를 만들었어요.')
+  })
+
+  test.skipIf(!native)('a bookkeeping call after the answer (a title) ends no piece: the answer stays', async () => {
+    const t = await turn('ko', '단가 알려줘\n' + fake({ say: 'A형은 1,200,000원이에요.' }, { tool: 'set_title', args: { title: '단가 확인' } }, { say: ' 더 필요하면 말씀해 주세요.' }))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.stored.replace(/\s+/g, ' ')).toBe('A형은 1,200,000원이에요. 더 필요하면 말씀해 주세요.')
   })
 })

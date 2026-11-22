@@ -15,7 +15,9 @@
   thinking step. Only the text after the last call is the answer. If nothing follows the last call, the last interim
   piece that is not a status line is the answer, so it is never blank. A turn with no calls is unchanged. Elsewhere (English, a Latin-letter message) the text between calls stays, as in
   Claude Code, and only the pattern guard applies: there it is at least in the person's language. A sub-agent's
-  calls do not end the main AI's piece. Both engines' events go through the same place (chat/turn.ts endPiece).
+  calls do not end the main AI's piece; neither do bookkeeping calls (a title, a to-do list, remember / forget), so
+  "answer, then remember" keeps the answer, and a piece copied into the call's arguments (a message it posts, a file it
+  writes) stays as content. Both engines' events go through the same place (chat/turn.ts endPiece).
 - **Why:** position, not wording, tells narration from the reply. Claude Code's own CLI shows text between calls as
   progress, and the final message as the result.
 - The pattern filter (chat/narration.ts) stays as a second guard: it still keeps status lines out while a piece streams

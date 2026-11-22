@@ -255,6 +255,8 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
+/** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
+const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -1445,6 +1447,7 @@ export class TurnExec {
           rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_refused_retry', message: tr('refusedRetry', spec.locale, { model: next }) } })
           // the retry answers again from the start: only its answer stays, not the declined partial one (B-W5-2)
           this.discardTextFrom(textStart)
+          this.lastInterim = ''; this.interimDropped = 0
           model = next
           // the declined attempt may have left a half turn in the session: continue on a fresh session with history
           resume = false; sid = crypto.randomUUID()
@@ -2034,7 +2037,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else if (!this.endPiece()) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2195,14 +2198,20 @@ export class TurnExec {
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
   appendText(t: string) {
+    // after interim pieces left, the reply's leading separator has nothing above it
+    if (this.interimDropped && !this.writtenText) { t = t.replace(/^\s+/, ''); if (!t) return }
     if (this.pieceStart === null && t) this.pieceStart = this.writtenText.length
     this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t))))
   }
   /** A call of the main AI ends the current text piece: it is interim narration, taken out of the answer (streamed and
    * saved: the apps get a reset) and kept as a step's detail under the thinking label; the last one is the fallback
    * answer (endInterimFallback). Both engines' text and calls come through here. */
-  private endPiece() {
+  private endPiece(name: string, input: unknown) {
+    // bookkeeping calls (a title, a to-do list, a memory) end no piece: "answer, then remember" keeps its answer (review)
+    const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+    if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
     const at = this.pieceStart
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
     this.pieceStart = null
     // only where the answer's language is not written in Latin letters and the person did not ask for another one
     // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
@@ -2221,9 +2230,6 @@ export class TurnExec {
   private endInterimFallback() {
     if (!this.interimDropped) return
     if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
-    // the separator the engine wrote before the final reply has nothing above it any more
-    const lead = /^\s+/.exec(this.content)?.[0].length ?? 0
-    if (lead && this.content.trim()) { const rest = this.content.slice(lead); this.discardTextFrom(0); this.appendText(rest); this.flushText() }
   }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
@@ -2245,6 +2251,8 @@ export class TurnExec {
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
     if (this.pieceStart !== null && this.pieceStart >= at) this.pieceStart = null
+    // a card placed in the cut text sits where the text now ends (review)
+    for (const st of this.steps) if (st.textAt !== undefined && st.textAt > at) st.textAt = at
     this.answerText.clear()
     this.fileLinks.clear()
     this.narration.clear()
