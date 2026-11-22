@@ -1,6 +1,7 @@
 // The kept skills in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6: skills catalog and 내 스킬",
 // "W7"; FLOW-v6 §2, §4.2): the owner's skills step (components/onboarding/SkillsStep.tsx) lists only the kept skills the
-// team does not have (회사 소개서, 카드뉴스, 홍보 영상 checked when a company profile is saved, 자연스러운 글 never),
+// team does not have among the six the setup offers (docs/decisions/20261122-onboarding-everyday-skills.md: 회의록 정리,
+// 주간 보고·공지, 고객 답장, 자연스러운 글 checked; 계약서 검토 and 회사 소개서 not; 카드뉴스 and 홍보 영상 only on Team skills),
 // under ONE primary that names what goes in; nothing there brings own skills (no folder button, no hidden-folder hint,
 // no Claude Code line). 예시 opens the viewer with the example made on the invented 예시커피 / Example Coffee (one per
 // open, Esc back to the row). A press that does not all go in stays with the reason (a request that failed with 다시
@@ -24,9 +25,13 @@ const BOB = { username: 'bob', password: 'bob password 1' }
 const H = { [CSRF_HEADER]: '1' }
 /** a saved company profile (what 회사 소개 saves): the visual kept skills come checked */
 const PROFILE = { website: 'https://acme.example/', oneLine: 'Acme는 조용한 책상 선풍기를 만들어요', products: '책상 선풍기', audience: '작은 사무실', tone: [], avoid: '', sources: [] }
-/** the kept skills in the catalog's order, with their Korean titles */
-const KEPT = ['intro-deck', 'card-news', 'promo-video', 'humanizer']
-const TITLES = ['회사 소개서', '카드뉴스', '홍보 영상', '자연스러운 글']
+/** the six skills the setup step offers, in the catalog's order, with their Korean titles */
+const KEPT = ['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck']
+const TITLES = ['회의록 정리', '주간 보고·공지', '고객 답장', '계약서 검토', '자연스러운 글', '회사 소개서']
+/** the ones checked when the step first shows them */
+const CHECKED = ['meeting-notes', 'team-report', 'customer-reply', 'humanizer']
+/** every kept skill (Team skills' fold), in the catalog's order */
+const ALL_TITLES = [...TITLES, '카드뉴스', '홍보 영상']
 
 /** A .claude folder with two skills (welcome-skills.spec.ts has the full one). */
 const TREE = {
@@ -55,9 +60,9 @@ async function stubFolderWindow(page: Page) {
   }, TREE)
 }
 
-/** The owner on 2/4 내 스킬 with all four kept skills offered: 회사 소개 put off (no deck), with or without a saved
+/** The owner on 2/4 내 스킬 with all six setup skills offered: 회사 소개 put off (no deck), with or without a saved
  * profile. The mock's team start may still put the visual three in (an older mock, like the server before W6): they are
- * taken out and the step opened again, so the step offers all four either way. */
+ * taken out and the step opened again, so the step offers all six either way. */
 async function toSkillsStep(page: Page, o: { profile?: boolean } = {}) {
   await signIn(page)
   if (o.profile) expect((await page.request.put('/api/onboarding/profile', { headers: H, data: PROFILE })).ok()).toBeTruthy()
@@ -67,7 +72,7 @@ async function toSkillsStep(page: Page, o: { profile?: boolean } = {}) {
   await post(page, '/__test/rmdir', { path: 'skills/general' })
   await page.reload()
   await expect(page.getByTestId('skills-step')).toBeVisible()
-  await expect(page.getByTestId('skill-packs').getByTestId('skill-pack-row')).toHaveCount(4)
+  await expect(page.getByTestId('skill-packs').getByTestId('skill-pack-row')).toHaveCount(6)
 }
 
 const packRow = (root: Page | Locator, name: string) => root.locator(`[data-testid="skill-pack-row"][data-name="${name}"]`)
@@ -81,7 +86,7 @@ async function noOwnPart(page: Page) {
 }
 const inTeam = async (page: Page) => ((await (await page.request.get('/api/onboarding/packs')).json()).skills as { name: string; inTeam: boolean }[]).filter((s) => s.inTeam).map((s) => s.name)
 
-test('내 스킬 with a company profile: four kept skills, the visual three checked; 예시 with ‹ › and Esc; one press puts them in; 이전 shows 다음', async ({ page }) => {
+test('내 스킬 with a company profile: the six setup skills, four checked, no card news or video; 예시 with Esc; one press puts them in; 이전 shows 다음', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await toSkillsStep(page, { profile: true })
@@ -90,42 +95,44 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(packs.getByRole('heading', { name: `${NAMED}가 준비한 스킬` })).toBeVisible()
   await expect(packs.getByTestId('skill-pack-title')).toHaveText(TITLES)
   expect(await packs.getByTestId('skill-pack-row').evaluateAll((rs) => rs.map((r) => r.getAttribute('data-name')))).toEqual(KEPT)
-  await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
-  await expect(packRow(packs, 'intro-deck').getByTestId('skill-pack-line')).toHaveText('회사 소개로 6~10장짜리 소개서를 만들어요')
-  expect(await checks(packs)).toEqual([true, true, true, false])
+  await expect(packs.getByTestId('skill-pack-line')).toHaveCount(6)
+  await expect(packRow(packs, 'meeting-notes').getByTestId('skill-pack-line')).toHaveText('회의 메모나 녹음 대본으로 결정 사항과 담당·기한이 붙은 할 일을 정리해요')
+  await expect(packRow(packs, 'card-news')).toHaveCount(0)
+  await expect(packRow(packs, 'promo-video')).toHaveCount(0)
+  expect(await checks(packs)).toEqual(KEPT.map((n) => CHECKED.includes(n)))
   // one primary naming what goes in; 나중에 하기 beside it; only the skills Trina prepared, no own skills
   const primary = page.getByTestId('skills-primary')
   await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 3 }))
+  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 4 }))
   await expect(page.getByTestId('skills-later')).toBeVisible()
   await noOwnPart(page)
-  // a check moves the words: 자연스러운 글 too → four items, counted
-  await packRow(packs, 'humanizer').getByTestId('skill-pack-check').check()
+  // a check moves the words: 계약서 검토 too → five items, counted
+  await packRow(packs, 'contract-review').getByTestId('skill-pack-check').check()
+  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 5 }))
+  await packRow(packs, 'contract-review').getByTestId('skill-pack-check').uncheck()
   await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 4 }))
-  await packRow(packs, 'humanizer').getByTestId('skill-pack-check').uncheck()
-  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 3 }))
 
-  // 예시: that row's example, one per open (the picture the skill made on the invented 예시커피; no stepping to the next
-  // row), Esc closes and the focus goes back to that row's 예시
-  await packRow(packs, 'card-news').getByTestId('skill-pack-example').click()
+  // 예시: that row's example, one per open (the minutes the skill made from the invented 예시커피 memo; no stepping to the
+  // next row), with its Apache-2.0 source and the link to the original; Esc closes and the focus goes back to its 예시
+  await packRow(packs, 'meeting-notes').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
-  await expect(viewer).toHaveAttribute('data-name', 'card-news')
+  await expect(viewer).toHaveAttribute('data-name', 'meeting-notes')
   await expect(viewer).toHaveAttribute('data-state', 'shown')
-  const picture = viewer.getByTestId('skill-example-image')
-  await expect(picture).toHaveAttribute('src', '/skill-examples/ko/card-news.webp')
-  await expect(picture).toBeVisible()
-  expect(await picture.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1280)
+  await expect(viewer.getByTestId('skill-example-body').locator('blockquote')).toContainText('지훈: 겨울 블렌드 샘플 50봉 금요일까지')
+  await expect(viewer.getByTestId('skill-example-body')).toContainText('겨울 블렌드 샘플 50봉 볶아 두기')
   await expect(viewer).not.toContainText('예시를 준비하고 있어요')
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
-  await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${NAMED} 팀이 만들었어요`)
-  await expect(page.getByRole('dialog')).toContainText("'카드뉴스' 예시")
+  await expect(viewer.getByTestId('skill-example-source')).toHaveAttribute('data-kind', 'adapted')
+  await expect(viewer.getByTestId('skill-example-source')).toContainText('Apache-2.0')
+  await expect(viewer.getByTestId('skill-example-original')).toHaveAttribute('href', /^https:\/\/github\.com\/anthropics\/knowledge-work-plugins\/tree\/0e0fcacddcc892eb92a1b7873ff9d68159c47571\//)
+  await expect(page.getByRole('dialog')).toContainText("'회의록 정리' 예시")
   await expect(viewer.getByTestId('skill-example-next')).toHaveCount(0)
   await expect(viewer.getByTestId('skill-example-prev')).toHaveCount(0)
   await page.keyboard.press('ArrowRight')
-  await expect(viewer).toHaveAttribute('data-name', 'card-news')
+  await expect(viewer).toHaveAttribute('data-name', 'meeting-notes')
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
-  await expect(packRow(packs, 'card-news').getByTestId('skill-pack-example')).toBeFocused()
+  await expect(packRow(packs, 'meeting-notes').getByTestId('skill-pack-example')).toBeFocused()
   await packRow(packs, 'humanizer').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
   // the before → after text, drawn in the page: the AI-sounding notice quoted, its rewrite under it
@@ -139,19 +146,19 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(viewer).toHaveCount(0)
   await expect(packRow(packs, 'humanizer').getByTestId('skill-pack-example')).toBeFocused()
   // the checks never moved
-  expect(await checks(packs)).toEqual([true, true, true, false])
+  expect(await checks(packs)).toEqual(KEPT.map((n) => CHECKED.includes(n)))
 
   // the press: all in → a toast and 3/4 팀 파일; the server recorded 내 스킬 done
   await primary.click()
-  await expect(page.getByTestId('toast').filter({ hasText: '스킬 3개를 팀에 넣었어요' })).toBeVisible()
+  await expect(page.getByTestId('toast').filter({ hasText: '스킬 4개를 팀에 넣었어요' })).toBeVisible()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   expect((await progress(page)).steps.skills).toBe('done')
-  expect(await inTeam(page)).toEqual(['intro-deck', 'card-news', 'promo-video'])
-  // ← 이전: only the one still missing, unchecked (a revisit checks nothing); the primary is 다음, no 나중에 하기
+  expect(await inTeam(page)).toEqual(CHECKED)
+  // ← 이전: only the two still missing, unchecked (a revisit checks nothing); the primary is 다음, no 나중에 하기
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('skills-step')).toBeVisible()
-  await expect(packs.getByTestId('skill-pack-row')).toHaveCount(1)
-  await expect(packRow(packs, 'humanizer').getByTestId('skill-pack-check')).not.toBeChecked()
+  await expect(packs.getByTestId('skill-pack-row')).toHaveCount(2)
+  expect(await checks(packs)).toEqual([false, false])
   await expect(primary).toHaveAttribute('data-state', 'next')
   await expect(primary).toHaveText('다음: 팀 파일 가져오기')
   await expect(page.getByTestId('skills-later')).toHaveCount(0)
@@ -214,9 +221,9 @@ test('내 스킬, a request that fails: the note with 다시 시도, the primary
   await expect(primary).toHaveText('다음: 팀 파일 가져오기')
   expect(await inTeam(page)).toEqual([])
   await failed.getByRole('button', { name: '다시 시도' }).click()
-  await expect(page.getByTestId('toast').filter({ hasText: '스킬 3개를 팀에 넣었어요' })).toBeVisible()
+  await expect(page.getByTestId('toast').filter({ hasText: '스킬 4개를 팀에 넣었어요' })).toBeVisible()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
-  expect(await inTeam(page)).toEqual(['intro-deck', 'card-news', 'promo-video'])
+  expect(await inTeam(page)).toEqual(CHECKED)
   expect((await progress(page)).steps.skills).toBe('done')
   // the one failed request (500) is the browser's log line, and no other
   expect(realErrors(errors).filter((e) => !/status of 500/.test(e))).toEqual([])
@@ -227,16 +234,16 @@ test('내 스킬, a name already taken: that one stays out with why, the others 
   const errors = watchConsole(page)
   await reset(page)
   await toSkillsStep(page, { profile: true })
-  // after the rows showed, another team skill takes the name 카드뉴스 uses
-  await post(page, '/__test/file', { path: 'skills/mine/card-news/SKILL.md', text: '---\nname: card-news\ndescription: 우리 팀 카드뉴스\n---\n# 우리 팀 카드뉴스\n' })
+  // after the rows showed, another team skill takes the name 고객 답장 uses
+  await post(page, '/__test/file', { path: 'skills/mine/customer-reply/SKILL.md', text: '---\nname: customer-reply\ndescription: 우리 팀 고객 답장\n---\n# 우리 팀 고객 답장\n' })
   const primary = page.getByTestId('skills-primary')
-  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 3 }))
+  await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 4 }))
   await primary.click()
   const packs = page.getByTestId('skill-packs')
   await expect(page.getByTestId('skill-pack-taken')).toHaveText('1개는 넣지 못했어요 · 같은 이름의 스킬이 이미 있어요')
-  await expect(packRow(packs, 'card-news')).toHaveAttribute('data-state', 'out')
-  await expect(packRow(packs, 'card-news')).toContainText('같은 이름의 스킬이 이미 있어요')
-  for (const name of ['intro-deck', 'promo-video']) {
+  await expect(packRow(packs, 'customer-reply')).toHaveAttribute('data-state', 'out')
+  await expect(packRow(packs, 'customer-reply')).toContainText('같은 이름의 스킬이 이미 있어요')
+  for (const name of ['meeting-notes', 'team-report', 'humanizer']) {
     await expect(packRow(packs, name)).toHaveAttribute('data-state', 'in')
     await expect(packRow(packs, name)).toContainText('팀에 넣었어요')
   }
@@ -244,8 +251,8 @@ test('내 스킬, a name already taken: that one stays out with why, the others 
   await expect(page.getByTestId('toast').filter({ hasText: '팀에 넣었어요' })).toHaveCount(0)
   await expect(primary).toHaveAttribute('data-state', 'next')
   await expect(primary).toHaveText('다음: 팀 파일 가져오기')
-  // the server kept the team's own 카드뉴스 and put the other two in
-  expect((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('skills/general')}`)).json()).entries.map((e: { name: string }) => e.name).sort()).toEqual(['intro-deck', 'promo-video'])
+  // the server kept the team's own 고객 답장 and put the other three in
+  expect((await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('skills/work')}`)).json()).entries.map((e: { name: string }) => e.name).sort()).toEqual(['humanizer', 'meeting-notes', 'team-report'])
   expect((await progress(page)).steps.skills).toBe('done')
   await primary.click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
@@ -259,7 +266,7 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   await page.goto('/skills')
   const fold = page.getByTestId('skill-catalog')
   const toggle = page.getByTestId('skill-catalog-toggle')
-  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 4개 더`)
+  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 8개 더`)
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(fold.getByTestId('skill-pack-row')).toHaveCount(0)
   // the search box hides it; emptied, it is back
@@ -267,11 +274,11 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   await expect(fold).toHaveCount(0)
   await page.getByTestId('skill-search').fill('')
   await expect(toggle).toBeVisible()
-  // open: the four, nothing checked, the button counts what is
+  // open: all eight (card news and the promo video too), nothing checked, the button counts what is
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(fold.getByTestId('skill-pack-title')).toHaveText(TITLES)
-  expect(await checks(fold)).toEqual([false, false, false, false])
+  await expect(fold.getByTestId('skill-pack-title')).toHaveText(ALL_TITLES)
+  expect(await checks(fold)).toEqual(ALL_TITLES.map(() => false))
   const install = page.getByTestId('skill-catalog-install')
   await expect(install).toHaveText('팀에 넣기 · 0개')
   await expect(install).toBeDisabled()
@@ -284,17 +291,16 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   const list = page.getByTestId('skill-list')
   await expect(list.locator('[data-testid="skill-row"][data-path="skills/general/card-news/SKILL.md"]')).toBeVisible()
   await expect(list.locator('[data-testid="skill-row"][data-path="skills/work/humanizer/SKILL.md"]')).toBeVisible()
-  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 2개 더`)
-  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['회사 소개서', '홍보 영상'])
+  await expect(toggle).toHaveText(`${NAMED}가 준비한 스킬 · 6개 더`)
+  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['회의록 정리', '주간 보고·공지', '고객 답장', '계약서 검토', '회사 소개서', '홍보 영상'])
   // 접기, open again, the rest in: the fold is gone
   await page.getByTestId('skill-catalog-fold').click()
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await toggle.click()
-  expect(await checks(fold)).toEqual([false, false])
-  await packRow(fold, 'intro-deck').getByTestId('skill-pack-check').check()
-  await packRow(fold, 'promo-video').getByTestId('skill-pack-check').check()
+  expect(await checks(fold)).toEqual([false, false, false, false, false, false])
+  for (const n of ['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'intro-deck', 'promo-video']) await packRow(fold, n).getByTestId('skill-pack-check').check()
   await install.click()
-  await expect(page.getByTestId('toast').filter({ hasText: '스킬 2개를 넣었어요.' }).last()).toBeVisible()
+  await expect(page.getByTestId('toast').filter({ hasText: '스킬 6개를 넣었어요.' })).toBeVisible()
   await expect(fold).toHaveCount(0)
   await expect(list.locator('[data-testid="skill-row"][data-path^="skills/general/"]')).toHaveCount(3)
   // 내 스킬 가져오기 (an owner): the bring sheet, its folder button
@@ -371,7 +377,7 @@ test('Team skills, an English team: the English examples (Example Coffee); 자�
   await page.goto('/skills')
   await page.getByTestId('skill-catalog-toggle').click()
   const fold = page.getByTestId('skill-catalog')
-  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Company slide deck', 'Promo cards', 'Promo video', 'Natural writing'])
+  await expect(fold.getByTestId('skill-pack-title')).toHaveText(['Meeting notes', 'Reports & announcements', 'Customer replies', 'Contract review', 'Natural writing', 'Company slide deck', 'Promo cards', 'Promo video'])
   await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
@@ -433,24 +439,25 @@ test.describe('a phone (390 × 844, dark)', () => {
     const packs = page.getByTestId('skill-packs')
     await expect(packs.getByTestId('skill-pack-title')).toHaveText(TITLES)
     // each row keeps its one line on a phone too
-    await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
-    await expect(packRow(packs, 'card-news').getByTestId('skill-pack-line')).toHaveText('회사 소개로 정사각형 카드 5장을 만들어요')
-    expect(await checks(packs)).toEqual([true, true, true, false])
+    await expect(packs.getByTestId('skill-pack-line')).toHaveCount(6)
+    await expect(packRow(packs, 'customer-reply').getByTestId('skill-pack-line')).toHaveText('고객 문의나 불만에 보낼 정중한 답장 초안을 써요')
+    expect(await checks(packs)).toEqual(KEPT.map((n) => CHECKED.includes(n)))
     await noOwnPart(page)
     const primary = page.getByTestId('skills-primary')
-    await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 3 }))
+    await expect(primary).toHaveText(ko('welcome.skills.putN', { n: 4 }))
     const [p, s] = [await primary.boundingBox(), await page.getByTestId('skills-step').boundingBox()]
     expect(Math.round(p!.width)).toBe(Math.round(s!.width))
     // nothing wider than the screen
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-    // the examples on a phone, dark: the tallest picture (the video's frames) fits the sheet; the text in the page's
-    // own colours, as wide as the screen at most
-    await packRow(packs, 'promo-video').getByTestId('skill-pack-example').click()
+    // the examples on a phone, dark: the minutes with their to-do table fit the sheet (the page does not scroll
+    // sideways); the text in the page's own colours, as wide as the screen at most
+    await packRow(packs, 'meeting-notes').getByTestId('skill-pack-example').click()
     const viewer = page.getByTestId('skill-example')
     await expect(viewer).toHaveAttribute('data-state', 'shown')
-    const pic = (await viewer.getByTestId('skill-example-image').boundingBox())!
-    expect(pic.x).toBeGreaterThanOrEqual(0)
-    expect(pic.x + pic.width).toBeLessThanOrEqual(390)
+    const minutes = (await viewer.getByTestId('skill-example-body').boundingBox())!
+    expect(minutes.x).toBeGreaterThanOrEqual(0)
+    expect(minutes.x + minutes.width).toBeLessThanOrEqual(390)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await page.keyboard.press('Escape')
     await expect(viewer).toHaveCount(0)
     await packRow(packs, 'humanizer').getByTestId('skill-pack-example').click()
@@ -461,7 +468,7 @@ test.describe('a phone (390 × 844, dark)', () => {
     await page.keyboard.press('Escape')
     await expect(viewer).toHaveCount(0)
     await primary.click()
-    await expect(page.getByTestId('toast').filter({ hasText: '스킬 3개를 팀에 넣었어요' })).toBeVisible()
+    await expect(page.getByTestId('toast').filter({ hasText: '스킬 4개를 팀에 넣었어요' })).toBeVisible()
     await expect(page.getByTestId('welcome-team-files')).toBeVisible()
     expect((await progress(page)).steps.skills).toBe('done')
     // Team skills on a phone: the plain line, no button

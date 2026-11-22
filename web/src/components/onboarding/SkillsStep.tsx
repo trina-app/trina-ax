@@ -1,10 +1,12 @@
 // The skills step, the owner's welcome step (docs/DECISIONS.md "W6 — Onboarding v6: skills catalog and 내 스킬", "W7 —
 // Onboarding: no own skills in the setup"; FLOW-v6 §2; pages/Welcome.tsx renders the eyebrow, the progress bar and the
-// focus; this is the heading and what is under it). Only the skills Trina prepared: the kept skills the team does not
-// have yet (components/skills/PackRows.tsx: GET /api/onboarding/packs), each with 예시 (the viewer). 회사 소개서, 카드뉴스
-// and 홍보 영상 come checked when a company profile is saved (all three are made from it), 자연스러운 글 never; no AI
-// decides, and the checks never move while the step is up. Nothing is checked on a revisit of a done step. With every
-// kept skill in the team already, one line says so and the primary goes on. Own skills (a .claude or .codex folder,
+// focus; this is the heading and what is under it). Only the skills Trina prepared for the setup: the kept skills whose
+// catalog entry has `onboarding` and that the team does not have yet (components/skills/PackRows.tsx: GET
+// /api/onboarding/packs), each with 예시 (the viewer), in the catalog's order: 회의록 정리, 주간 보고·공지, 고객 답장,
+// 계약서 검토, 자연스러운 글, 회사 소개서 (docs/decisions/20261122-onboarding-everyday-skills.md). The `checked` ones come
+// checked (계약서 검토 and 회사 소개서 do not); 카드뉴스 and 홍보 영상 are only on Team skills' fold. No AI decides, and the
+// checks never move while the step is up. Nothing is checked on a revisit of a done step. With every setup
+// skill in the team already, one line says so and the primary goes on. Own skills (a .claude or .codex folder,
 // Claude Code or Codex) are not brought here: office workers rarely have them, and the hidden folder confused them
 // (owner, 2026-11-11). They go in from Team skills › Bring my skills (components/skills/BringSkillsSheet.tsx).
 // The one primary names what goes in: one skill by its name, two or more counted ("스킬 3개 넣기"),
@@ -25,10 +27,18 @@ import { Button, ErrorNote, Skeleton, useMediaQuery } from '../ui'
 /** The primary names what it puts in while it covers at most this many skills (a row of names ran together, "A·B·C"). */
 const NAMED_MAX = 1
 
-/** The kept skills checked when the step first shows them: the visual ones when a company profile is saved, none on a
- * revisit of a done step. */
-export function preChecked(rows: readonly Pick<PackCatalogSkill, 'name' | 'visual'>[], o: { profile: boolean; done: boolean }): Set<string> {
-  return new Set(o.done || !o.profile ? [] : rows.filter((r) => r.visual).map((r) => r.name))
+/** The kept skills the step offers: the ones the catalog marks for the setup. A server from before the field (no row has
+ * `onboarding`) offers every row, as it did. */
+export function setupRows<T extends Pick<PackCatalogSkill, 'onboarding'>>(rows: readonly T[]): T[] {
+  return rows.some((r) => r.onboarding !== undefined) ? rows.filter((r) => !!r.onboarding) : [...rows]
+}
+
+/** The kept skills checked when the step first shows them: the catalog's `checked` ones, none on a revisit of a done
+ * step. A server from before the field: the visual ones when a company profile is saved, as it did. */
+export function preChecked(rows: readonly Pick<PackCatalogSkill, 'name' | 'visual' | 'onboarding'>[], o: { profile: boolean; done: boolean }): Set<string> {
+  if (o.done) return new Set()
+  if (rows.some((r) => r.onboarding !== undefined)) return new Set(rows.filter((r) => r.onboarding === 'checked').map((r) => r.name))
+  return new Set(o.profile ? rows.filter((r) => r.visual).map((r) => r.name) : [])
 }
 
 /** The primary's words (null: nothing to put in): up to NAMED_MAX skills it is named; more: "Add 3 skills". */
@@ -61,7 +71,7 @@ export function SkillsStep({ nextLabel, onNext, onSkip, busy, note }: SkillsStep
   const [rows, setRows] = useState<PackCatalogSkill[] | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   if (catalog && rows === null) {
-    const missing = catalog.skills.filter((s) => !s.inTeam)
+    const missing = setupRows(catalog.skills).filter((s) => !s.inTeam)
     setRows(missing)
     setChecked(preChecked(missing, { profile: catalog.profile, done }))
   }
