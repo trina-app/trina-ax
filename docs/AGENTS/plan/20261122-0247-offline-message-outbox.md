@@ -27,8 +27,13 @@
 - Chats: the waiting and not-sent messages are kept on the device per person and chat (`chatUnsent:<chatId>`, cleared at
   sign-out with the drafts). The chat read again after a reload puts them back: on their way → sent by themselves;
   not sent → "다시 보내기". One the server's copy already has is not put back.
-- Rooms: the same wait on a network failure while offline; sends put back after a reload go again by themselves (same
-  client id; the server answers a repeated id with the first message).
+- Rooms: the same wait on a network failure while offline; sends still on their way when the page went go again by
+  themselves after a reload (same client id; the server answers a repeated id with the first message). Ones that had
+  failed before the page went (`keptFailed`) still wait for 다시 시도, as before (QA TC-374).
+- Review: a chat send put back after a reload is always sent again (no guess by text, which could drop a repeated
+  "네"); when the server's copy is on screen already only the bubble goes. Stop does not wait for a send waiting
+  offline. A "not sent" chat bubble another tab of mine let go goes here too (storage event).
+- Found on the way: on a phone Enter is a new line in the box, so a phone send is always the button.
 
 ## Tests
 
