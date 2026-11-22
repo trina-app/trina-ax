@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 10:23
 - Branch: `mobile-waking-sleeping-team`
-- Status: in progress
+- Status: done
 - Where: mobile/ (App.tsx, src/reconnect.ts). Why: the phone app is in this repo; no server or relay change.
 - Version impact: patch (fix in the phone app; it ships with the next app build)
 
@@ -59,4 +59,7 @@ tests/unit/wake-add-team.test.ts tests/unit/team-link.test.ts`, `bun run check:d
 
 ## Result
 
-Filled in at the end.
+Built as planned. Also: `checkTeam` passes its signal to each request (health and wake), and a stopped check answers
+`cancelled`, so the add-team Cancel stops a request on its way too. The waking screen has "Change team", not Try
+again (Try again started the wait again). The retry before this change already woke a sleeping team, but it said
+"Could not reach your team" for the whole wait. PR: see the branch.

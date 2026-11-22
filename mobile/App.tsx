@@ -14,7 +14,7 @@ import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } f
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { PhoneDictation, type DictationNative } from './src/dictation'
 import { PhotoPicks } from './src/photos'
-import { Reconnect } from './src/reconnect'
+import { httpFailure, probeAnswer, Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
 import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
@@ -462,6 +462,9 @@ type Failure = 'offline' | 'unreachable' | 'updating'
 function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; leaving: { current: Leaving | null }; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
+  // a sleeping hosted team (QA TC-1952): 'check' while the app asks the team after its page answered 503 (a spinner),
+  // 'waking' while the team starts ("Resuming your team…"); null: the failure screen says why, as before
+  const [starting, setStarting] = useState<'check' | 'waking' | null>(null), checkNow = useRef(false)
   // where Back goes in the document on screen, as the page said (nav-v1, src/nav.ts); null until it has (an older
   // server, a page loading): the WebView's own history then, as before
   const [pageNav, setPageNav] = useState<PageNav | null>(null)
@@ -617,15 +620,25 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   }
   const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setPageNav(null); setFailed(kind) }
   // The failure screen tries again by itself (src/reconnect.ts, QA TC-2265): when the team answers its health check
-  // again, the page loads again, as Try again does (the source is still the page that failed: a tapped push's chat)
+  // again, the page loads again, as Try again does (the source is still the page that failed: a tapped push's chat).
+  // A sleeping hosted team is woken by the check and waited for, with "Resuming your team…" on screen (QA TC-1952)
   const reconnect = useRef<Reconnect | null>(null)
   if (!reconnect.current) reconnect.current = new Reconnect(
-    // (Trina is updating: the screen says so, and keeps trying)
-    async () => { const c = await checkTeam(address.origin, service.teamDomain); if (!c.ok && c.updating) setFailed(f => (f ? 'updating' : f)); return c.ok || c.reason !== 'unreachable' },
-    () => setFailed(null))
+    async signal => {
+      const c = await checkTeam(address.origin, service.teamDomain, () => { if (!signal.aborted) setStarting('waking') }, signal)
+      const answer = probeAnswer(c)
+      // (Trina is updating: the screen says so, and keeps trying)
+      if (answer === 'updating') setFailed(f => (f ? 'updating' : f))
+      if (answer !== 'load' && !signal.aborted) setStarting(null)
+      return answer === 'load'
+    },
+    () => { setStarting(null); setFailed(null) })
   useEffect(() => {
     const again = reconnect.current!
-    if (failed) again.start(); else again.stop()
+    if (!failed) { again.stop(); setStarting(null); return }
+    again.start()
+    // the page answered 503: ask now, not after the backoff's first step
+    if (checkNow.current) { checkNow.current = false; again.now() }
   }, [failed])
   useEffect(() => {
     const again = reconnect.current!
@@ -653,6 +666,11 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   }
   // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page; the
   // app also does by itself once the team answers (reconnect above)
+  // The team is starting (or the app asks it after a 503): the native note, not the relay's page in the web view (whose
+  // reloads would install the bridge on the relay's page) and not "Could not reach your team"
+  if (failed && starting) return <Center>
+    {starting === 'waking' ? <WakingNote /> : <ActivityIndicator color={product.accent} testID="team-checking" />}
+    <Pressable style={s.link} onPress={changeTeam} testID="waking-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   if (failed) return <Center>
     <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header" testID={failed === 'updating' ? 'updating-title' : undefined}>{failed === 'offline' ? t.offlineTitle : failed === 'updating' ? t.updatingTitle : t.unreachableTitle}</Text>
     <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : failed === 'updating' ? t.updatingHint : t.unreachableHint}</Text>
@@ -744,7 +762,15 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       }}
       onFileDownload={event => { const url = event.nativeEvent.downloadUrl; if (sameTeam(address.origin, url)) web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('mycel:download',{detail:{url:${JSON.stringify(url)}}}));true;`) }}
       onError={event => { loadFailed.current = true; fail(offlineError(event.nativeEvent.code, event.nativeEvent.description) ? 'offline' : 'unreachable') }}
-      onHttpError={event => { if (event.nativeEvent.statusCode >= 500) fail('unreachable') }}
+      // a 503 may be a sleeping hosted team (the relay's team_waking / team_offline_cloud; the event has no headers): the
+      // app asks the team at once, and that check wakes it (src/reconnect.ts httpFailure). Other 5xx: as before
+      onHttpError={event => {
+        const step = httpFailure(event.nativeEvent.statusCode)
+        if (!step) return
+        loadFailed.current = true
+        if (step === 'check') { checkNow.current = true; setStarting('check') }
+        fail('unreachable')
+      }}
       onContentProcessDidTerminate={() => fail('unreachable')} onRenderProcessGone={() => fail('unreachable')}
       startInLoadingState renderLoading={() => <View style={[StyleSheet.absoluteFill, s.center, { backgroundColor: c.canvas }]}><ActivityIndicator color={product.accent} /></View>}
       testID="team-web" />
