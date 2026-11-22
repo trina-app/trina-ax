@@ -36,6 +36,9 @@ export type ApprovalKind =
    * among its people ("Always in this chat": Always is never kept for good there): target = connection, its version and
    * the tool's Always key; detail.c = who saw the chat then */
   | 'shared_own_act'
+  /** a server card's "Always in this chat" (chat/always-allow.ts keepAlwaysAt) in a turn with a guest among the people,
+   * where Always is never kept for good: target = the card's kind; detail.c = who saw the chat then */
+  | 'card_always'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12

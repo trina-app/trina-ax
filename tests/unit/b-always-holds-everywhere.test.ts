@@ -20,7 +20,7 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { gateUrl, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
-import { alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
+import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
 import { steerableRun } from '../../server/src/chat/shared-run'
 import { askLoginAfterOthers } from '../../server/src/devenv/tool'
 
@@ -287,6 +287,37 @@ describe('B6: the maker\'s Always in a scheduled run in a shared chat a teammate
       await removeInSettings('card:save_wider')
     }
     expect(alwaysHere(place({ chatId: chat, turnId: runTurn }), 'shared_read')).toBeNull()
+  })
+})
+
+// review of #412/#413: a turn the person watches with a guest among the people: no Always for good is offered, kept or
+// used there, for every card with Always (delete, remember, skills, room changes, the login card ...); the card offers
+// "Always in this chat", for the people who see it then (as the connector cards)
+describe('a live turn with a guest: Always holds for this chat only', () => {
+  test('a standing Always is not used; the card offers "Always in this chat", keeps nothing for good, and asks again for someone new or in another chat', async () => {
+    const chat = await newShared()
+    const other = await newShared()
+    const live = (o: Partial<AlwaysPlace> = {}): AlwaysPlace => ({ db: db(), userId: 'alice', chatId: chat, turnId: uuidv7(), locale: 'en', clientKind: 'web', ...o })
+    const guest = (o: Partial<AlwaysPlace> = {}) => live({ sharedGuest: () => true, audience: () => ['alice', 'bob'], ...o })
+    const forGood = (kind: string) => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = ?").get(kind) as { n: number }).n
+    keepAlways(db(), 'alice', 'delete_files', null)
+    try {
+      expect(alwaysHere(live(), 'delete_files')).toBe('on')
+      expect(alwaysHere(guest(), 'delete_files')).toBe('offer')
+      for (const kind of ['remember', 'skill_files', 'dev_login'] as const) {
+        const asked: { options: { label: string; value: string }[]; note?: string }[] = []
+        const v = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async (options, extra) => { asked.push({ options, ...extra }); return ALWAYS_VALUE })
+        expect([kind, v]).toEqual([kind, 'yes'])
+        expect(asked[0]!.options.map((o) => o.label)).toEqual(['Yes', 'Always in this chat', 'No'])
+        expect(asked[0]!.note).toContain('in this chat only')
+        expect([kind, forGood(kind)]).toEqual([kind, 0])
+        // this chat, the same people: no card; someone new, another chat, or no guest any more: it asks (or the usual)
+        expect(alwaysHere(guest(), kind)).toBe('on')
+        expect(alwaysHere(guest({ audience: () => ['alice', 'bob', 'gina'] }), kind)).toBe('offer')
+        expect(alwaysHere(guest({ chatId: other }), kind)).toBe('offer')
+        expect(alwaysHere(live(), kind)).toBe('offer')
+      }
+    } finally { db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 })
 

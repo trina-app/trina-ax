@@ -2,7 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, chatScoped, keepAlways, keepAlwaysAt, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
@@ -3405,15 +3405,15 @@ export class TurnExec {
     if (always) this.alwaysOffer = 'room_change'
     const asked = this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
-      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
+      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr(chatScoped(this.alwaysPlace()) ? 'cardAlwaysChat' : 'cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L, this.alwaysPlace()) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     this.alwaysOffer = null
     const { value: answer, missing } = await asked
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
+    if (v === ALWAYS_VALUE && always) keepAlwaysAt(this.alwaysPlace(), 'room_change')
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
       // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
@@ -4896,7 +4896,7 @@ export class TurnExec {
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
     const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
       if (!o.room) return this.askAlways('save_wider', req, 'save')
-      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
+      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlwaysAt(this.alwaysPlace(), 'save_wider') })
     }
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
@@ -5315,7 +5315,7 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => !!this.shared && this.guestAmong(), offering: (k) => { this.alwaysOffer = k } }
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => this.guestAmong(), audience: () => (this.shared ? this.sharedAudience() : []), offering: (k) => { this.alwaysOffer = k } }
   }
 
   /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
@@ -5472,7 +5472,7 @@ export class TurnExec {
       const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
       // (offered here now, and never while a guest is among the people of this shared chat: there each card's own rule
       // decides whether its Always counts, which a run that never reached the card could not check)
-      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !(this.shared && this.guestAmong())) {
+      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !this.guestAmong()) {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
       }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
