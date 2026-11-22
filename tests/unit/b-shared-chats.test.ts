@@ -635,7 +635,7 @@ describe('what a shared turn has', () => {
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'memories', 'sideRoom', 'situation'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'memories', 'memoryReminder', 'sideRoom', 'situation'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
