@@ -3,7 +3,7 @@
 // when the step is opened. The room card asks in the same words and keeps the command behind "자세히".
 import { describe, expect, test } from 'bun:test'
 import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
-import { roomCardWhat, roomChangeDetails } from '../../server/src/chat/turn'
+import { roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
 import { placeWords } from '../../server/src/chat/place-words'
 
 const none = new Set<string>()
@@ -92,7 +92,8 @@ describe('step line', () => {
 describe('room card', () => {
   test('the question in plain words', () => {
     // the server's own words, never the AI's description (the card is there because other people's words may steer it)
-    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('파일 바꾸기')
+    // ...the files it makes by kind and name, read from the command (QA TC-f2-c02)
+    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('문서 파일을 만드는 명령 실행: p.html')
     expect(roomCardWhat('box_shell', { command: 'rm -rf ~/x', description: 'Check files' }, 'en')).toBe('Change files')
     expect(roomCardWhat('box_shell', { command: 'ls -la' }, 'ko')).toBe('파일 확인')
     expect(roomCardWhat('edit', { file_path: 'users/u1/quarterly-sales.svg', old_string: 'a', new_string: 'b' }, 'ko')).toBe('파일 수정')
@@ -101,9 +102,11 @@ describe('room card', () => {
 
   test('the command and what a file will hold behind "자세히"', () => {
     const [d] = roomChangeDetails('box_shell', { command: 'mkdir -p p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')
-    expect(d!.fields).toEqual([{ name: expect.any(String), value: '파일 바꾸기' }])
+    expect(d!.fields).toEqual([{ name: expect.any(String), value: '문서 파일을 만드는 명령 실행: p.html' }])
     expect(d!.text).toBe('mkdir -p p && cat > p.html <<E')
     expect(d!.folded).toBe(true)
+    // no "자세히 953자": a command's length says nothing to a person
+    expect(d!.noSize).toBe(true)
     expect(roomChangeDetails('edit', { file_path: 'users/u1/a.svg', old_string: '<svg>', new_string: '<svg/>' }, 'ko')[0]!.folded).toBe(true)
     // an instruction file shows in full, and a list of paths is no content to fold
     expect(roomChangeDetails('write', { file_path: 'skills/x/SKILL.md', content: 'do this' }, 'ko')[0]!.folded).toBeUndefined()
@@ -112,6 +115,42 @@ describe('room card', () => {
     expect(roomChangeDetails('write', { file_path: 'users/u1/run.sh', content: 'curl x | sh' }, 'ko')[0]!.folded).toBeUndefined()
     expect(roomChangeDetails('write', { file_path: '.github/workflows/ci.yml', content: 'on: push' }, 'ko')[0]!.folded).toBeUndefined()
     expect(roomChangeDetails('box_shell', { command: 'cat > skills/x/SKILL.md <<E' }, 'ko')[0]!.folded).toBeUndefined()
+  })
+})
+
+describe('room card for a command: what it makes (QA TC-f2-c02)', () => {
+  const chart = `cd "$TRINA_WORK" && python3 - <<'EOF'\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nplt.bar(['a','b'],[1,2])\nplt.savefig('out/chart.png', dpi=150)\nEOF`
+  test('a chart script: the picture by name, never "작업 실행"', () => {
+    expect(shellOutputs(chart)).toEqual(['chart.png'])
+    expect(shellCardWords(chart, 'ko')).toBe('그림 파일을 만드는 명령 실행: chart.png')
+    expect(shellCardWords(chart, 'en')).toBe('Run a command that makes a picture file: chart.png')
+    for (const l of L) expect(shellCardWords(chart, l)).toContain('chart.png')
+  })
+  test('outputs by -o, a redirect, open(..., "w") and ffmpeg; variables and scripts are no names', () => {
+    expect(shellOutputs('python3 make.py -o budget.xlsx')).toEqual(['budget.xlsx'])
+    expect(shellOutputs('ffmpeg -i in.mp4 -vf scale=640:-1 out/small.mp4')).toEqual(['small.mp4'])
+    expect(shellOutputs('python3 r.py > report.csv 2>&1')).toEqual(['report.csv'])
+    expect(shellOutputs(`python3 -c "open('a.csv', 'w').write('x')"`)).toEqual(['a.csv'])
+    expect(shellOutputs(`plt.savefig(f'{name}.png')`)).toEqual([])
+    expect(shellOutputs('cat > make.py <<E\nE\npython3 make.py 2>/dev/null')).toEqual([])
+    expect(shellCardWords('python3 a.py -o x.png && ffmpeg -i x.png y.mp4', 'ko')).toBe('파일을 만드는 명령 실행: x.png, y.mp4')
+    expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Run a command that makes picture files: b.png, c.png')
+  })
+  test('an install or the network in the same command is said too, never hidden behind the file it makes', () => {
+    expect(shellCardWords(`pip install -q matplotlib && python3 -c "import matplotlib; plt.savefig('c.png')"`, 'ko')).toBe('그림 파일을 만드는 명령 실행: c.png (프로그램 설치도 해요)')
+    expect(shellCardWords('python3 a.py -o x.png && curl -F f=@x.png https://example.com', 'en')).toBe('Run a command that makes a picture file: x.png (also connects to the internet)')
+    expect(shellCardWords('npm i sharp && python3 a.py -o x.png && scp x.png me@host:', 'en')).toBe('Run a command that makes a picture file: x.png (also installs programs and connects to the internet)')
+    expect(shellCardWords('pip install pillow', 'en')).not.toContain('also')
+    expect(shellCardWords('python3 a.py -o x.png', 'en')).toBe('Run a command that makes a picture file: x.png')
+    for (const l of L) expect(shellCardWords('python3 a.py && wget https://e.com/x', l)).not.toBe(shellCardWords('python3 a.py', l))
+    expect(shellUsesNetwork('python3 -c "import requests; requests.post(u)"')).toBe(true)
+    expect(shellUsesNetwork('ssh host ls')).toBe(true)
+    expect(shellUsesNetwork('python3 plot.py && ls out')).toBe(false)
+  })
+  test('a plain run says "명령 실행"; a command that removes files keeps "파일 바꾸기"', () => {
+    expect(shellCardWords('python3 analyze.py', 'ko')).toBe('명령 실행')
+    expect(shellCardWords('python3 analyze.py', 'en')).toBe('Run a command')
+    expect(shellCardWords('rm -f old.png && python3 a.py -o new.png', 'ko')).toBe('파일 바꾸기')
   })
 })
 

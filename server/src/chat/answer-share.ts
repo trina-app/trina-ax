@@ -493,11 +493,13 @@ export const SHARE_ARTIFACTS_MAX = 3
  */
 export function answerArtifacts(db: Database, userId: string, chatId: string, messageId: string, keys: readonly string[], branch: readonly string[]): ShareArtifact[] {
   const ids = [...new Set([messageId, ...branch])]
-  type R = { id: string; key: string; type: ArtifactType; title: string | null; language: string | null; message_id: string; version: number }
-  const rows = db.query(`SELECT a.id, a.key, a.type, a.title, a.language, a.message_id, a.version FROM artifacts a JOIN messages m ON m.id = a.message_id
-    LEFT JOIN turns t ON t.id = m.turn_id WHERE a.chat_id = ? AND a.message_id IN (${ids.map(() => '?').join(',')})
-    AND (t.user_id = ? OR (t.id IS NULL AND EXISTS (SELECT 1 FROM chats c WHERE c.id = a.chat_id AND c.user_id = ?)))
-    ORDER BY a.key, a.version DESC`).all(chatId, ...ids, userId, userId) as R[]
+  type R = { id: string; key: string; type: ArtifactType; title: string | null; language: string | null; message_id: string | null; version: number }
+  // (and the person's own restores of a page in its panel, which no answer made: tools/artifact.ts restoreByPerson)
+  const rows = db.query(`SELECT a.id, a.key, a.type, a.title, a.language, a.message_id, a.version FROM artifacts a LEFT JOIN messages m ON m.id = a.message_id
+    LEFT JOIN turns t ON t.id = m.turn_id WHERE a.chat_id = ? AND ((a.message_id IN (${ids.map(() => '?').join(',')})
+    AND (t.user_id = ? OR (t.id IS NULL AND EXISTS (SELECT 1 FROM chats c WHERE c.id = a.chat_id AND c.user_id = ?))))
+    OR (a.message_id IS NULL AND a.asked_by = ?))
+    ORDER BY a.key, a.version DESC`).all(chatId, ...ids, userId, userId, userId) as R[]
   const want = new Set(keys)
   const out: ShareArtifact[] = []
   const seen = new Set<string>()

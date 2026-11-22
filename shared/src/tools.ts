@@ -374,9 +374,12 @@ export const DeleteFilesInput = z.strictObject({
 export const DeleteFilesOutput = z.object({ trashed: z.array(z.object({ path: z.string(), trashId: z.string(), purgeAt: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 
 export const ArtifactInput = z.strictObject({
-  action: z.enum(['create', 'update', 'rewrite']),
+  action: z.enum(['create', 'update', 'rewrite', 'read', 'restore']),
   key: z.string().min(1).max(100),
-  type: z.enum(['html', 'react', 'svg', 'mermaid', 'markdown', 'code']),
+  /** create and rewrite need it; update, read and restore keep the page's own */
+  type: z.enum(['html', 'react', 'svg', 'mermaid', 'markdown', 'code']).optional(),
+  /** read: which version (default the newest); restore: the version to bring back as the newest */
+  version: z.number().int().positive().optional(),
   title: z.string().max(200).optional(),
   language: z.string().max(40).optional(),
   content: z.string().optional(),

@@ -191,6 +191,29 @@ export async function shareMany(items: readonly FileEntry[], folder: string, o: 
   return out
 }
 
+/**
+ * Does moving these items to the trash ask first? Not when nobody else can open any of them (QA TC-ask1-16: a question
+ * and then an Undo toast were two asks): a file in the person's own folder (users/<me>/…) that the listing does not mark
+ * shared (FileEntry.shared: people of its own, or a shared folder above it) and that is in no project folder but one
+ * only the person sees (Project.audience 1). The client cannot know what a folder holds deeper (a file in it may be
+ * shared one by one), nor anything while the projects list is not read, so a folder, or an unknown, still asks. An
+ * entry's `shared` is filled only in a listing of the person's own folder (GET /api/files/tree): a row from anywhere
+ * else (a search, recent files, a link) has it undefined whether or not it is shared, so only rows the caller says came
+ * from such a listing (`fromListing`) may go without the question. The "moved to the trash · Undo" toast comes either
+ * way.
+ */
+export function trashAsksFirst(items: readonly Pick<FileEntry, 'path' | 'type' | 'shared'>[], myId: string, projects: readonly { folderPath: string; audience?: number }[] | null, o: { fromListing?: boolean } = {}): boolean {
+  if (!o.fromListing || !projects) return true
+  const key = (p: string) => p.normalize('NFC').toLowerCase()
+  const shared = projects.filter((p) => p.audience !== 1).map((p) => key(p.folderPath))
+  return items.some((e) => {
+    const segs = e.path.split('/')
+    if (e.type !== 'file' || e.shared || segs.length < 3 || segs[0] !== 'users' || segs[1] !== myId) return true
+    const at = key(e.path)
+    return shared.some((f) => isInside(at, f))
+  })
+}
+
 /** DELETE /api/files for each item (to the trash, 30 days); the trash ids are for "Undo". */
 export async function trashMany(items: readonly FileEntry[], o: { remove: (path: string) => Promise<{ trashId: string }> }): Promise<Outcome & { trashIds: string[] }> {
   const out: Outcome & { trashIds: string[] } = { done: [], failed: [], declined: [], trashIds: [] }

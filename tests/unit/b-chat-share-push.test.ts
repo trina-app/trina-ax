@@ -155,7 +155,9 @@ describe('what stops it', () => {
     } finally { await prefs('bob', { chatShares: true }); await ph.p.stop() }
   })
 
-  test('a switched-off sharer is named nowhere: not in Activity (the browser push reads it), not in the iPhone label', async () => {
+  // Activity keeps the sharer's name once their account is off (the tombstone keeps it: QA TC-f3-08,
+  // docs/decisions/20261122-qa-ux-followups-1122.md); the iPhone label keeps its own rule (chat-shares.ts sharerName)
+  test('a switched-off sharer stays named in Activity, never in the iPhone label', async () => {
     const ph = phone('bob')
     try {
       await new Promise((r) => setTimeout(r, 5))
@@ -167,7 +169,7 @@ describe('what stops it', () => {
       expect(await named()).toBe('Alice Kim')
       db().query("UPDATE users SET status = 'disabled' WHERE id = 'alice'").run()
       try {
-        expect(await named()).toBeNull()
+        expect(await named()).toBe('Alice Kim')
         expect(ph.label(n.id)).toEqual({})
       } finally { db().query("UPDATE users SET status = 'active' WHERE id = 'alice'").run() }
       expect(await named()).toBe('Alice Kim')

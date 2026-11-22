@@ -293,6 +293,9 @@ export const TEXT = {
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
   cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
+  /** cardAlwaysNote for a kind without a line of its own (QA TC-ask2-15: "이런 확인" did not say what Always allow covers,
+   * and a copy card after Always allow on read and save looked like a broken promise): {what} is ALWAYS_WHAT[kind] */
+  cardAlwaysNoteKind: t('항상 허용하면 앞으로 {what} 다시 묻지 않아요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'With Always allow, Trina no longer asks {what}, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Dengan Selalu izinkan, Trina tidak lagi bertanya {what}, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '常に許可にすると、今後トリナは{what}も確認しません。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。', 'Con Permitir siempre, Trina ya no pregunta {what}, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.', '选择始终允许后，Trina{what}不会再询问你，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。'),
   /** cardAlwaysNote for the wider-audience card (save_wider), shorter (docs/decisions/20261122-widening-card-wording.md);
    * it still says that it holds after reading files or web pages */
   cardAlwaysNoteSaveWider: t('항상 허용하면 파일이나 웹페이지를 읽은 뒤에도 묻지 않고 저장해요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'Always allow: Trina saves like this without asking, even after reading files or web pages. Undo in Settings › Allowed for Trina.', 'Selalu izinkan: Trina menyimpan seperti ini tanpa bertanya, bahkan setelah membaca file atau halaman web. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可にすると、ファイルやWebページを読んだ後でも確認せずに保存します。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina guarda así sin preguntar, incluso tras leer archivos o páginas web. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过文件或网页，Trina也会直接这样保存。可以在设置 › 允许Trina做的事中撤销。"),
@@ -302,6 +305,11 @@ export const TEXT = {
   cardAlwaysNoteFolderAccess: t('항상 허용하면 이제부터 트리나가 묻지 않고 팀 폴더를 열 수 있는 사람을 바꿔요. 파일이나 메시지가 시켜도 마찬가지예요. 안에서 따로 공유된 파일은 그대로 둬요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'From now on Trina changes who can open team folders without asking, even when a file or message tells it to. Files inside that were shared one by one stay shared. Undo it in Settings › Allowed for Trina.', 'Mulai sekarang Trina mengubah siapa yang dapat membuka folder tim tanpa bertanya, bahkan saat file atau pesan menyuruhnya. File di dalamnya yang dibagikan satu per satu tetap dibagikan. Batalkan di Pengaturan › Diizinkan untuk Trina.', "今後トリナは確認せずにチームフォルダを開ける人を変更します。ファイルやメッセージに指示された場合も同じです。中で個別に共有されたファイルはそのまま共有されます。設定 › トリナに許可したこと で元に戻せます。", "A partir de ahora Trina cambia quién puede abrir las carpetas del equipo sin preguntar, incluso cuando un archivo o un mensaje se lo pide. Los archivos de dentro compartidos uno a uno siguen compartidos. Puede deshacerlo en Configuración › Permisos para Trina.", "从现在起，Trina会不经询问就更改谁能打开团队文件夹，即使是文件或消息让它这样做。其中单独共享的文件仍保持共享。可以在设置 › 允许Trina做的事中撤销。"),
   /** cardAlwaysNote for the room post card whose Send carries copies of the linked files (kind post_files; review of #1235) */
   cardAlwaysNotePostFiles: t('항상 허용하면 앞으로 올리는 글도 링크된 파일을 사본으로 함께 보내서, 그곳의 모두가 열 수 있게 돼요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'With Always allow, later posts will also send their linked files as copies, so everyone there can open them. Undo it in Settings › Allowed for Trina.', 'Dengan Selalu izinkan, postingan berikutnya juga mengirim berkas yang ditautkan sebagai salinan, sehingga semua orang di sana bisa membukanya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '常に許可にすると、今後の投稿でもリンクされたファイルをコピーとして一緒に送るため、そこにいる全員が開けるようになります。設定 › トリナに許可したこと で元に戻せます。', 'Con Permitir siempre, las próximas publicaciones también enviarán sus archivos enlazados como copias, para que todos allí puedan abrirlos. Puede deshacerlo en Configuración › Permisos para Trina.', '选择始终允许后，之后发的消息也会把链接的文件作为副本一起发送，那里的所有人都能打开。可以在设置 › 允许Trina做的事中撤销。'),
+  /** cardAlwaysNote for the move / copy card whose people change (kind move_files: tools/file-moves.ts, chat/places-copy.ts;
+   * QA TC-cards-8: the generic "after reading web pages or files" did not say what it covers) */
+  cardAlwaysNoteMoveFiles: t('항상 허용하면 이제부터 보는 사람이 늘거나 줄어드는 곳으로도 묻지 않고 파일을 옮기거나 복사해요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'From now on Trina moves or copies files without asking, also to places where more or fewer people can see them, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Mulai sekarang Trina memindahkan atau menyalin file tanpa bertanya, juga ke tempat yang bisa dilihat lebih banyak atau lebih sedikit orang, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '今後トリナは、見られる人が増えたり減ったりする場所へも、確認せずにファイルを移動・コピーします。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。', 'A partir de ahora Trina mueve o copia archivos sin preguntar, también a lugares donde los pueden ver más o menos personas, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.', '从现在起，Trina会不经询问就移动或复制文件，包括移到能看到的人更多或更少的地方，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。'),
+  /** cardAlwaysNote for the room post card (kind post_to_room: chat/post-to-room.ts; QA TC-cards-8) */
+  cardAlwaysNotePostToRoom: t('항상 허용하면 이제부터 트리나가 묻지 않고 대화에 글을 보내요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'From now on Trina sends posts to conversations without asking, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Mulai sekarang Trina mengirim pesan ke percakapan tanpa bertanya, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', '今後トリナは確認せずにトークへ投稿します。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。', 'A partir de ahora Trina envía mensajes a las conversaciones sin preguntar, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.', '从现在起，Trina会不经询问就往聊天里发消息，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。'),
   /** the step of a call a room grant let through, after its own words */
   roomGrantStep: STEP_TEXT.roomGrantStep,
   /** the step of a call this answer's [이번만 허용] for its folder let through */
@@ -315,6 +323,22 @@ export const TEXT = {
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos", "文件"),
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría", "将要修改的内容"),
   roomAiChangeAction: t('하는 일', 'Action', 'Tindakan', "操作", "Acción", "操作"),
+  /** a room card's words for a dev-environment command, from the command itself (chat/turn.ts shellCardWords): the files it
+   * makes by kind and name, else "run a command"; never the AI's description, never the command (behind 자세히) */
+  roomShellMakesOne: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes a {kind} file: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea un archivo de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
+  roomShellMakesMany: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes {kind} files: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
+  roomShellMakesAny: t('파일을 만드는 명령 실행: {files}', 'Run a command that makes files: {files}', 'Jalankan perintah yang membuat file: {files}', "ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos: {files}", "运行生成文件的命令：{files}"),
+  roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
+  /** what else the command does, after its words (shellCardWords): installs programs, reaches the internet */
+  roomShellPlusInstall: t('{what} (프로그램 설치도 해요)', '{what} (also installs programs)', '{what} (juga memasang program)', "{what}（プログラムのインストールもします）", "{what} (también instala programas)", "{what}（还会安装程序）"),
+  roomShellPlusNet: t('{what} (인터넷에도 연결해요)', '{what} (also connects to the internet)', '{what} (juga terhubung ke internet)', "{what}（インターネットにも接続します）", "{what} (también se conecta a internet)", "{what}（还会连接互联网）"),
+  roomShellPlusBoth: t('{what} (프로그램 설치와 인터넷 연결도 해요)', '{what} (also installs programs and connects to the internet)', '{what} (juga memasang program dan terhubung ke internet)', "{what}（プログラムのインストールとインターネット接続もします）", "{what} (también instala programas y se conecta a internet)", "{what}（还会安装程序并连接互联网）"),
+  roomShellKindPicture: t('그림', 'picture', 'gambar', "画像", "imagen", "图片"),
+  roomShellKindPdf: t('PDF', 'PDF', 'PDF', "PDF", "PDF", "PDF"),
+  roomShellKindVideo: t('동영상', 'video', 'video', "動画", "vídeo", "视频"),
+  roomShellKindAudio: t('소리', 'audio', 'audio', "音声", "audio", "音频"),
+  roomShellKindSheet: t('표', 'spreadsheet', 'tabel', "表", "hoja de cálculo", "表格"),
+  roomShellKindDoc: t('문서', 'document', 'dokumen', "文書", "documento", "文档"),
   roomAiChangeFile: t('파일', 'File', 'Berkas', "ファイル", "Archivo", "文件"),
   roomAiChangeFolder: t('넣을 폴더', 'Into folder', 'Ke folder', "移動先のフォルダー", "A la carpeta", "放入文件夹"),
   roomAiChangeNewName: t('새 이름', 'New name', 'Nama baru', "新しい名前", "Nuevo nombre", "新名称"),
@@ -344,6 +368,8 @@ export const TEXT = {
   postRoomAskThread: t("{room}({n}명)에서 '{quote}' 메시지의 스레드에 보낼까요?", "Send to the thread of '{quote}' in {room} ({n, plural, one {# person} other {# people}})?", "Kirim ke utas pesan '{quote}' di {room} ({n} orang)?", '{room}（{n, plural, one {#人} other {#人}}）の「{quote}」のスレッドに送りますか？', '¿Enviar al hilo de «{quote}» en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中“{quote}”的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskThreadNoQuote: t('{room}({n}명)의 메시지 스레드에 보낼까요?', 'Send to a message\'s thread in {room} ({n, plural, one {# person} other {# people}})?', 'Kirim ke utas sebuah pesan di {room} ({n} orang)?', '{room}（{n, plural, one {#人} other {#人}}）のメッセージのスレッドに送りますか？', '¿Enviar al hilo de un mensaje en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中一条消息的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskNewDm: t('{name}님과의 새 1:1 대화로 보낼까요?', 'Send to {name} in a new 1:1 chat?', 'Kirim ke {name} di obrolan 1:1 baru?', '{name}さんとの新しい1:1で送りますか？', '¿Enviar a {name} en un chat 1:1 nuevo?', '要在新的私信中发送给{name}吗？'),
+  // S-119: a card sending to a guest says she is from outside (a 1:1 chat with her, made or not)
+  postRoomGuest: t('{name}님은 게스트(외부)예요. 초대받은 곳만 볼 수 있어요.', '{name} is a guest (from outside). They can see only the places they were invited to.', '{name} adalah tamu (dari luar). Mereka hanya bisa melihat tempat yang mereka diundang.', '{name}さんはゲスト（外部）です。招待された場所だけを見られます。', '{name} es un invitado (externo). Solo puede ver los lugares a los que lo invitaron.', '{name}是访客（外部人员），只能看到受邀加入的地方。'),
   postRoomOwnWords: t('내 메시지', 'Your message', 'Pesan Anda', 'あなたのメッセージ', 'Su mensaje', '你的消息'),
   postRoomMentions: t('알림 받을 사람 (멘션)', 'Mentions (they get a notice)', 'Disebut (mendapat pemberitahuan)', 'メンション（通知が届きます）', 'Menciones (reciben un aviso)', '提及（会收到通知）'),
   postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di percakapan ini ({word})', 'このトークの全員（{word}）', 'Todos en esta conversación ({word})', '此聊天室的所有人（{word}）'),
@@ -394,6 +420,8 @@ export const TEXT = {
    * askAdmin): what the AI is told to point at (chat/share-next-steps.ts) */
   fixButtonLetView: t('볼 수 있게 하기', 'Let them view', 'Izinkan melihat', '見られるようにする', 'Permitir que lo vean', '允许查看'),
   fixButtonAskOwner: t('{owner} 님에게 요청', 'Ask {owner}', 'Minta ke {owner}', '{owner} さんに頼む', 'Pedir a {owner}', '请 {owner} 共享'),
+  // the room link's own button (web roomFileAsk.ask, components/RoomFileAsk.tsx): the AI names it exactly as shown (QA S-120)
+  roomFileAskButton: t('보기 요청', 'Ask to view', 'Minta akses lihat', '閲覧をリクエスト', 'Pedir acceso para ver', '请求查看'),
   fixButtonAskAdmin: t('관리자에게 요청', 'Ask an admin', 'Minta ke admin', '管理者に頼む', 'Pedir a un administrador', '请管理员处理'),
   /** the switch's name as Admin › Team settings shows it (web teamSettings.memberFileShares) */
   fixSwitchName: t('멤버가 자기 파일을 공유할 수 있음', 'Members can share files they own', 'Anggota bisa membagikan file milik mereka', 'メンバーが自分のファイルを共有できる', 'Los miembros pueden compartir sus propios archivos', '成员可以共享自己的文件'),
@@ -592,6 +620,23 @@ export const TEXT = {
 export function aiCalled(locale: Locale): string {
   return tr(PRODUCT_NAMED_AFTER_AI ? 'aiOwnName' : 'aiPlainName', locale)
 }
+
+/** What a kind's "Always allow" covers, in the words of cardAlwaysNoteKind's {what} (a time: "before it …" / "…할 때"):
+ * every card kind without a line of its own in chat/always-allow.ts KIND_NOTE (tests/unit/b-always-allow.test.ts). */
+export const ALWAYS_WHAT = {
+  room_change: t('트리나가 대화를 읽은 뒤 파일을 바꿀 때', 'before it changes files after reading conversations', 'sebelum mengubah file setelah membaca percakapan', '会話を読んだ後にファイルを変えるとき', 'antes de cambiar archivos tras leer conversaciones', '在读过聊天后修改文件时'),
+  remember: t('기억해 둘 내용을 저장할 때', 'before it remembers something', 'sebelum mengingat sesuatu', '何かを覚えておくとき', 'antes de recordar algo', '在记住内容时'),
+  shared_read: t('공유 대화에서 일부 사람이 못 여는 곳을 읽을 때', 'before it reads, in a shared chat, a place not everyone there can open', 'sebelum membaca, di obrolan bersama, tempat yang tidak bisa dibuka semua orang di sana', '共有チャットで一部の人が開けない場所を読むとき', 'antes de leer, en un chat compartido, un lugar que no todos allí pueden abrir', '在共享聊天中读取并非所有人都能打开的位置时'),
+  shared_save: t('공유 대화에서 일부 사람이 못 여는 곳에 저장할 때', 'before it saves, in a shared chat, where not everyone there can open it', 'sebelum menyimpan, di obrolan bersama, di tempat yang tidak bisa dibuka semua orang di sana', '共有チャットで一部の人が開けない場所に保存するとき', 'antes de guardar, en un chat compartido, donde no todos allí pueden abrirlo', '在共享聊天中保存到并非所有人都能打开的位置时'),
+  skill_files: t('스킬을 옮기거나 복사하거나 이름을 바꿀 때', 'before it moves, copies or renames skills', 'sebelum memindahkan, menyalin, atau mengganti nama skill', 'スキルを移動・コピー・名前変更するとき', 'antes de mover, copiar o renombrar habilidades', '在移动、复制或重命名技能时'),
+  skill_save: t('팀 스킬이나 규칙을 저장할 때', 'before it saves team skills and rules', 'sebelum menyimpan skill dan aturan tim', 'チームスキルやルールを保存するとき', 'antes de guardar habilidades y reglas del equipo', '在保存团队技能和规则时'),
+  delete_files: t('파일을 휴지통으로 옮길 때', 'before it moves files to the trash', 'sebelum memindahkan file ke tempat sampah', 'ファイルをゴミ箱に移動するとき', 'antes de mover archivos a la papelera', '在把文件移到回收站时'),
+  project_members: t('프로젝트 멤버를 바꿀 때', 'before it changes project members', 'sebelum mengubah anggota proyek', 'プロジェクトのメンバーを変えるとき', 'antes de cambiar los miembros de un proyecto', '在更改项目成员时'),
+  video: t('크레딧을 쓰는 AI 영상을 만들 때', 'before it makes AI videos that use credits', 'sebelum membuat video AI yang memakai kredit', 'クレジットを使うAI動画を作るとき', 'antes de crear videos con IA que usan créditos', '在制作消耗点数的AI视频时'),
+  big_download: t('1GB 넘는 파일을 내려받을 때', 'before it downloads files over 1 GB', 'sebelum mengunduh file di atas 1 GB', '1GBを超えるファイルをダウンロードするとき', 'antes de descargar archivos de más de 1 GB', '在下载超过1GB的文件时'),
+  share_files: t('내 파일을 사람들에게 공유할 때', 'before it shares your files with people', 'sebelum membagikan file Anda kepada orang lain', 'あなたのファイルを人に共有するとき', 'antes de compartir sus archivos con personas', '在把你的文件共享给别人时'),
+  bulk_files: t('프로젝트 폴더에 새 파일을 많이 둘 때', 'before it keeps many new files in a project folder', 'sebelum menyimpan banyak file baru di folder proyek', 'プロジェクトフォルダーに新しいファイルをたくさん置くとき', 'antes de dejar muchos archivos nuevos en una carpeta de proyecto', '在项目文件夹中保留大量新文件时'),
+} as const
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
   // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), no second honorific after a

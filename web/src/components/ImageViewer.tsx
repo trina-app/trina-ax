@@ -59,6 +59,7 @@ import { Avatar } from './Avatar'
 import { AiFace, AiMark } from './rooms/AiFace'
 import { useViewerColumn, VIEWER_COLUMN_PX, ViewerColumn, ViewerSheet } from './rooms/ViewerColumn'
 import { Tooltip } from './Tooltip'
+import { useGuestAiOff } from './GuestView'
 import { useFocusTrap, useMediaQuery } from './ui'
 import { scrollsSideways, ViewerDocument } from './ViewerDocument'
 
@@ -240,6 +241,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const [missing, setMissing] = useState<string | null>(null)
   // a download-only document: no 트리나에게 묻기 (the AI is refused its bytes too)
   const [held, setHeld] = useState<string | null>(null)
+  const guestAiOff = useGuestAiOff()
   // the conversation beside a room's picture or file (computers): its thread, or my Trina side chat of the room
   const wide = useMediaQuery('(min-width: 768px)')
   const place = room?.messageId ? (room as RoomPlace & { messageId: string }) : null
@@ -260,7 +262,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
     openViewerSheet()
   }
   // 트리나에게 묻기 about this one: the column's side chat with it quoted (a phone: in the sheet)
-  const askable = !!place && !gone && held !== item.key && missing !== item.key
+  // (a guest whose invite gives no AI asks nothing: QA TC-f2-b01)
+  const askable = !!place && !gone && held !== item.key && missing !== item.key && !guestAiOff
   const askTrina = (from: HTMLElement) => {
     if (!place) return
     column.ask(fileSeed(place.fileId, item.name))

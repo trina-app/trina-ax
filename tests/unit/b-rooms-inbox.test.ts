@@ -451,3 +451,20 @@ test("only=notices (활동 beside the rail, phase P3): the app's notices alone, 
   // a word that is not one: refused
   await expect(nora.client.call('GET', '/api/notifications?only=everything')).rejects.toThrow()
 })
+
+test('a DM with a file is a DM like any other (QA TC-f2-b02): its notice and push, no Activity row, counted in Chats', async () => {
+  const { mia, nora, n, send, rows, notices, rooms } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const form = new FormData()
+  form.set('file', new File([new TextEncoder().encode('%PDF-1.4 quote')], 'quote.pdf', { type: 'application/pdf' }))
+  const up = await (await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })).json() as { id: string }
+  await send(mia.client, dm.id, '', { fileIds: [up.id], mentions: [] })
+  await send(mia.client, dm.id, 'and a text one')
+  // the same for both: a notice that would push, never a row of Activity or its count
+  expect(notices().map((x) => x.event_type)).toEqual(['room.dm', 'room.dm'])
+  for (const x of notices()) expect(noticeWanted(h.ctx.db, x.id)).toBe(true)
+  expect(rows()).toEqual([])
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  // the Chats list counts both
+  expect((await rooms(nora.client)).find((r) => r.id === dm.id)?.unreadCount).toBe(2)
+})

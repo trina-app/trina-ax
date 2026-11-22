@@ -24,7 +24,7 @@ import { AppLinkChip } from './AppLinkChip'
 import { appLinkRef, labelIsAddress } from '../lib/appLinks'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
-import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import { openFilePreview, openTeamFile, RoomLinkMessage, type PreviewFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
 import { StepShownImages } from '../lib/stepImages'
@@ -304,13 +304,14 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
   const t = useT()
   const target = useLinkTarget(path)
   const askChat = useAskChat()
+  const room = useContext(RoomLinkMessage)
   if (target.kind === 'locked') return <LockedFile path={path}>{children}</LockedFile>
   const copy = target.kind === 'copy' ? target.copy : null
   const canPreview = previewKind(copy?.name ?? path) !== null
   return (
     <button
       type="button"
-      onClick={() => (copy ? openFilePreview(copy) : openTeamFile(path, at, askChat))}
+      onClick={() => (copy ? openFilePreview(copy) : openTeamFile(path, at, askChat, room))}
       className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
       title={copy ? t('rooms.fileAttachedCopy') : canPreview ? t('common.preview') : t('preview.unsupportedShort')}
       data-testid="team-file-chip"
@@ -363,6 +364,8 @@ function LockedFile({ children, path }: { children: ReactNode; path?: string }) 
   // shared with me since (the sender's "Let them view", docs/decisions/20261116-ai-share-who-can-open.md): the folder
   // still does not let me in, the file's own link does
   const link = useGrantedLink(path)
+  // in a room message: the panel offers to ask to view it (components/RoomFileAsk.tsx, QA S-120)
+  const room = useContext(RoomLinkMessage)
   if (link) {
     return (
       <Link to={`/f/${link}`} className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text" title={t('common.preview')} data-testid="team-file-shared-link">
@@ -375,8 +378,8 @@ function LockedFile({ children, path }: { children: ReactNode; path?: string }) 
     <Tooltip label={why} description>
       <button
         type="button"
-        onClick={() => toast({ level: 'info', text: why })}
-        className="not-prose inline cursor-default rounded-sm text-left text-muted [overflow-wrap:anywhere]"
+        onClick={() => (room && path ? openTeamFile(path, null, null, room) : toast({ level: 'info', text: why }))}
+        className={clsx('not-prose inline rounded-sm text-left text-muted [overflow-wrap:anywhere]', room && path ? 'cursor-pointer hover:underline' : 'cursor-default')}
         data-testid="team-file-text"
       >
         <Lock className="mr-0.5 inline-block size-[0.9em] shrink-0 align-[-0.1em]" aria-hidden data-testid="team-file-lock" />
@@ -395,6 +398,7 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   const [failed, setFailed] = useState(false)
   const target = useLinkTarget(path)
   const askChat = useAskChat()
+  const room = useContext(RoomLinkMessage)
   const asLink = useContext(TeamImagesAsLinks)
   // a picture one of the answer's steps shows already (lib/stepImages.ts): not drawn a second time in its text
   const shownAbove = useContext(StepShownImages).has(path)
@@ -406,7 +410,7 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   if (asLink) return <TeamFileLink path={path}>{alt || baseName(path) || t('md.image')}</TeamFileLink>
   if (!isDisplayableImagePath(path) || failed)
     return (
-      <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path, null, askChat)}>
+      <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path, null, askChat, room)}>
         <ImageOff size={14} aria-hidden /> {alt || baseName(path) || t('md.image')}
       </button>
     )

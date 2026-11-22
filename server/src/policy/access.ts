@@ -128,6 +128,15 @@ const hiddenKey = (p: string) => p.normalize('NFC').toLowerCase()
 export function withHiddenFolders<T>(scope: HiddenFolders | null, fn: () => T): T {
   return hiddenScope.run(scope && scope.folders.length ? { userId: scope.userId, keys: scope.folders.map(hiddenKey) } : null, fn)
 }
+/** Run `fn` with `scope`'s folders hidden from its person on top of what the running call hides already (a shared
+ * chat's search that leaves out the places some of its people cannot open: chat/turn.ts sharedSearchLeftOut). null or
+ * nothing to add: `fn` as it is. Another person's outer scope is replaced, never joined. */
+export function withMoreHiddenFolders<T>(scope: HiddenFolders | null, fn: () => T): T {
+  if (!scope || !scope.folders.length) return fn()
+  const h = hiddenScope.getStore()
+  const keys = [...(h && h.userId === scope.userId ? h.keys : []), ...scope.folders.map(hiddenKey)]
+  return hiddenScope.run({ userId: scope.userId, keys }, fn)
+}
 /** Is `segs` at or below a folder hidden from `p` in the running call? */
 export function hiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): boolean {
   const h = hiddenScope.getStore()

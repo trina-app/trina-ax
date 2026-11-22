@@ -17,6 +17,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { TurnFiles } from '../../server/src/files/service'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
 
+import { expectNoRawPlace } from '../lib/card-places'
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -51,6 +52,7 @@ async function run(user: string, chatId: string, content: string, attachmentIds:
     if (f && f.type === 'turn.request') {
       const c = f.data.request as unknown as Card
       cards.push(c)
+      expectNoRawPlace(c)
       await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: 'skip' } })
       continue
     }

@@ -4,7 +4,8 @@ import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
-import { loadPrincipal, withHiddenFolders } from '../policy/access'
+import { loadPrincipal, withHiddenFolders, withMoreHiddenFolders } from '../policy/access'
+import { SEARCH_LEFT_OUT } from '../chat/search-path'
 import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
@@ -107,14 +108,20 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     }
     const registry = extra ? null : toolRegistry(files)
     // fail closed: a check that throws stops the save
-    const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, params?.arguments ?? {}, caller).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
+    // one argument object for the check, the left-out lookup and the call (a call sent without arguments got a new {} at
+    // each, so the search ran without the places its check had hidden)
+    const args = params?.arguments ?? {}
+    const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, args, caller).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
     if (refusal) {
       // a wider-audience refusal: the audit line says how its card ended (a scheduled run asked nobody)
       const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> ${((e) => (e === 'failed' ? 'the check failed' : cardEndShort(e)))(endOfText(refusal))} (wider audience)` } : refusal
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
       return withNote(failed(r.refusal))
     }
-    const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
+    // a shared chat's search or listing that leaves out what some of its people cannot open (chat/turn.ts
+    // sharedSearchLeftOut, set by beforeFileTool): run with those places hidden, as its read card's check was
+    const leftOut = typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.scope ?? null : null
+    const out = await withMoreHiddenFolders(leftOut, () => (registry?.has(name) ? registry.call(name, args, callCtx) : files.call(name, args, callCtx)))
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
     try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller, out.images?.length ?? 0) } catch {}
