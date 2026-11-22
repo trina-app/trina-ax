@@ -226,6 +226,8 @@ export interface BoxShellHost {
   mustUndo?(command: string): boolean
   /** a command that went without the room card changed what the AI follows (put back, or not), or could not run: the card from now on */
   reverted?(): void
+  /** a command that went without the room card (so with no network) failed: the same command asks the card next time */
+  offlineFailed?(command: string): void
   /** the bulk card (devenv/bulk.ts): keep this command's many new files in the project folder? true: keep (also the
    * person's "Always allow", kind bulk_files); false or null: move them to the chat's scratch folder */
   keepBulk?(ask: BulkAsk): Promise<boolean | null>
@@ -245,6 +247,9 @@ type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lo
 /** a command let through without the room card (its changes could be undone) whose own folder could not be kept when
  * it was about to start (a file grew past the limit meanwhile): nothing ran */
 export const NOT_UNDOABLE = 'Not run: this chat holds messages from the team\'s chat rooms (other people\'s words), and a command here goes without asking only while every file it could change in the person\'s own folder can be put back, which is not so now (a file there is too large to keep a copy of). Nothing was changed. Call box_shell again with the same command: the person is asked first.'
+
+/** a command let through without the room card runs with no network; when it fails, the AI may try again with the card */
+export const OFFLINE_RUN = 'Note: this chat holds messages from the team\'s chat rooms (other people\'s words), so this command ran without asking the person and with NO network (no site, not even npm, PyPI or GitHub). If it failed because it needs the network, call box_shell again with the same command: the person is asked first, and it runs with the network when they allow it.'
 
 /** May the person of this call open the team file `rel` now (their own read access; false when it cannot be told)? */
 function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): boolean {
@@ -334,13 +339,21 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     if (!got.ok) return { ...text(h.redact([...notes, ...await o.jobNotes(), got.message].join('\n')), true), summary: `${o.what} -> ${got.summary}` }
     slot = got
   }
+  // the person's own folder (users/<id>, written straight to the disk by a run of a chat that is not shared): a
+  // foreground command's changes there keep the earlier content as versions and in the trash (track.ts
+  // withOwnFolderWindow, docs/decisions/20261122-ask-less-side-chat-runs.md). Always outside the project window (one
+  // order: no wait on each other); a personal project's folder inside it is that window's. A command that went without
+  // the room card (`mustUndo`) runs with no network at all: what it does is not on a card, so it cannot send the
+  // person's files anywhere (a command's words never show all it reaches: git -C . push, a script written first)
+  const own = !space.shared && !jobName && !background
+  const mustUndo = own && !h.helper && !!h.mustUndo?.(input.command)
   const run = async (): Promise<Out> => { try { return await go() } finally { slot?.release() } }
   type Out = { kind: 'exit'; r: Awaited<ReturnType<typeof runCommand>> } | { kind: 'job'; r: Awaited<ReturnType<typeof submitJob>> } | { kind: 'server'; r: Awaited<ReturnType<typeof startServer>> }
   const go = async (): Promise<Out> => {
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background', ...(input.port ? { port: input.port } : {}) }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact, ...(mustUndo ? { offline: true } : {}) }) }
   }
   let w: Window & { value: Out }
   const by = { userId: h.userId, turnId: h.turnId }, extra = { command: input.command.slice(0, 500) }
@@ -351,12 +364,6 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
       bulk: (changes, startedMs, present) => bulkGuard(h, { space, project: tracked, changes, startedMs, present, notes }),
     })
   }
-  // the person's own folder (users/<id>, written straight to the disk by a run of a chat that is not shared): a
-  // foreground command's changes there keep the earlier content as versions and in the trash (track.ts
-  // withOwnFolderWindow, docs/decisions/20261122-ask-less-side-chat-runs.md). Always outside the project window (one
-  // order: no wait on each other); a personal project's folder inside it is that window's
-  const own = !space.shared && !jobName && !background
-  const mustUndo = own && !h.helper && !!h.mustUndo?.(input.command)
   try {
     if (own) {
       const ex = o.tracked && o.tracked.folderPath.startsWith(`users/${h.userId}/`) ? [o.tracked.folderPath] : []
@@ -431,7 +438,10 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : e.signal === 'stopped' ? 'Stopped.'
     : e.signal === 'setting' ? 'Stopped: the dev environment setting or your access to this folder changed. Check the access, then try again.'
     : `Exit code ${e.code}.`
-  if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
+  // a command that went without the room card ran with no network: when it failed, the same command asks the card next
+  // time and then runs with the network the person allows (the AI is told so; chat/turn.ts ownBoxRun)
+  if (mustUndo && (e.code !== 0 || e.signal !== '')) { h.offlineFailed?.(input.command); notes.push(OFFLINE_RUN) }
+  else if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what, space })
 }
 

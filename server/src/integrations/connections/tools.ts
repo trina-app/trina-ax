@@ -637,6 +637,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
   // 해야하네"). A call that reaches other people, a team connection's change, or team files ask every time.
   if (sharedMode && sharedAlwaysKey(row, sent) && alwaysPlaceOf(ctx, b) && (toolAllowed(ctx.db, row, b.userId, sharedAlwaysKey(row, sent)!) || (teamOn && ownAllow && row.scope === 'personal'))) return false
+  // a guest among the people: the person's "Always in this chat" for that tool, for everyone who sees the chat now
+  if (sharedMode && sharedAlwaysKey(row, sent) && chatAllowed(ctx, row, b, sharedAlwaysKey(row, sent)!, 'acts')) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -772,6 +774,7 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   unsureOnce.set(b, once)
   if (once.has(key)) return
   if (alwaysPlaceOf(ctx, b) && toolAllowed(ctx.db, row, b.userId, t.name)) return
+  if (chatAllowed(ctx, row, b, t.name, 'reads')) return
   const person = b.scheduled ? null : tc.files.person
   if (!person || person.unattended) {
     throw new CallError(refusal({
@@ -794,11 +797,35 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
 }
 
 /** Where the person's own Always for a connection tool counts and may be kept (as chat/always-allow.ts alwaysHere): a
- * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A, unless a
- * guest is among the people there); never a Slack question or a confidential chat */
+ * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A); never a
+ * Slack question, a confidential chat, or a shared chat with a guest (someone outside the team) among its people, as
+ * chat/turn.ts sharedConnMayKeep: there it holds for that chat only (chatAlwaysPlaceOf) */
 function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
-  const client = (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? null
-  return (b.scheduled ? !(guestShared(b) && steerableRun(ctx.db, b.turnId)) : LIVE_CLIENTS.has(client ?? '')) && !isConfidentialChat(ctx.db, b.chatId)
+  if (guestShared(b)) return false
+  return (b.scheduled || LIVE_CLIENTS.has(turnClient(ctx, b))) && !isConfidentialChat(ctx.db, b.chatId)
+}
+
+const turnClient = (ctx: AppContext, b: BuildCtx) => (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? ''
+
+/** A shared chat with a guest among its people, in a turn the person watches from their own app (never a scheduled run
+ * or a confidential chat): the card's Always holds for this chat only, for the people who see it now
+ * (chat/card-approvals.ts) */
+function chatAlwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
+  return !!b.shared && !b.scheduled && guestShared(b) && LIVE_CLIENTS.has(turnClient(ctx, b)) && !isConfidentialChat(ctx.db, b.chatId)
+}
+const chatAlwaysKind = (mode: 'reads' | 'acts') => (mode === 'reads' ? 'shared_unsure_tool' as const : 'shared_own_act' as const)
+/** The people who see the shared chat now (none: fails closed) */
+function audienceNow(b: BuildCtx): string[] {
+  try { return b.shared?.audience() ?? [] } catch { return [] }
+}
+/** The person's "Always in this chat" for this tool of this connection covers this call: kept in this chat for everyone
+ * who sees it now (a person who joined since makes it ask again) */
+function chatAllowed(ctx: AppContext, row: Row, b: BuildCtx, key: string, mode: 'reads' | 'acts'): boolean {
+  if (!chatAlwaysPlaceOf(ctx, b) || !teamAllowsAlways(ctx.db)) return false
+  const now = audienceNow(b)
+  if (!now.length) return false
+  return approvalsFor(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key) })
+    .some((d) => Array.isArray(d.c) && now.every((id) => (d.c as unknown[]).includes(id)))
 }
 
 /** A guest is among the people of this shared chat (fails closed) */
@@ -828,10 +855,18 @@ async function cardWithAlways(ctx: AppContext, row: Row, b: BuildCtx, person: No
     next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
   }), cardEndShort(end))
   const always = alwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
+  // a guest among the people (chatAlwaysPlaceOf): Always for this chat only, never for good
+  const inChat = !always && chatAlwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
   if (person.choose) {
-    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }] : []), { label: say('unsureNo', L), value: 'deny' }]
-    const v = await person.choose(question, options, { details: details as never, buttons: true, ...(always ? { note: say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name: row.name, what }) } : {}) })
+    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }] : inChat ? [{ label: say('unsureAlwaysChat', L), value: 'chat' }] : []), { label: say('unsureNo', L), value: 'deny' }]
+    const note = always ? say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name: row.name, what }) : inChat ? say('unsureAlwaysChatNote', L, { name: row.name, what }) : null
+    const v = await person.choose(question, options, { details: details as never, buttons: true, ...(note ? { note } : {}) })
     if (v === 'always' && always) { keepToolAllow(ctx.db, row, b.userId, key, b.turnId); return 'always' }
+    if (v === 'chat' && inChat) {
+      const c = audienceNow(b)
+      if (c.length) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key), detail: { c } })
+      return 'always'
+    }
     if (v === 'allow') return 'once'
     throw no(v === null ? 'timeout' : 'declined')
   }

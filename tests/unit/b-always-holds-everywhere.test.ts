@@ -117,7 +117,7 @@ function person(answer: string | null, asked: Asked[], o: { forGood?: boolean; s
     async choose(question, options, extra) { asked.push({ question, options, extra }); return answer },
     turnUrls: () => [],
     sitesForGood: () => o.forGood !== false,
-    ...(o.scheduled ? { unattended: true, scheduledRun: true } : {}),
+    ...(o.scheduled ? { unattended: true, scheduledRun: () => true } : {}),
   }
 }
 async function ownChat(user = 'alice') {

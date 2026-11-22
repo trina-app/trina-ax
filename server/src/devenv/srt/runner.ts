@@ -612,7 +612,7 @@ export function dropRowRun(r: Pick<RunRow, 'shared_key' | 'chat_id' | 'user_id' 
   dropSharedRun(srtConfig(), { userId: r.user_id, chatId: r.chat_id, shared: NOBODY }, runId)
 }
 
-interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string; stage?: string }
+interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; offline?: boolean; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string; stage?: string }
 
 function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'root' | 'logKey'>, runId: string, teamRoot: string) {
   const p = devenvPaths(c.base)
@@ -733,7 +733,8 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const p = prepare(c, s.space, s.runId, ctx.files.fx.root)
   // the chat's own running jobs and dev servers this run may reach on localhost (macOS: their ports in the sandbox
   // profile; Linux: a bridge into this run's network namespace each, started below)
-  const reach = reachTargets(ctx, s.space)
+  // (none for a run with no network at all: a dev server of this chat has the network, devenv/tool.ts mustUndo)
+  const reach = s.offline ? [] : reachTargets(ctx, s.space)
   const bridged = runPlatform() === 'darwin' ? [] : reach
   // Linux: a bridge listens only once the run's network namespace exists; the command waits for it a moment (bash's
   // /dev/tcp, at most 5 s per port; a program that is not bash goes on at once)
@@ -813,6 +814,11 @@ export function reachSupported(): boolean {
  * macOS: the port of the row's slot (a slot that went to another run has no state for this run any more). Linux: the
  * port the AI named for the dev server. Nothing else on localhost: not the server's ports, not another chat's runs.
  */
+/** A job or dev server of this chat is running (it has the network, and a command may change the code it runs) */
+export function chatRunsLive(ctx: AppContext, chatId: string): boolean {
+  try { return openRuns(ctx.db, 'running').some((r) => r.chat_id === chatId) } catch { return true }
+}
+
 export function reachTargets(ctx: AppContext, space: Space): ReachTarget[] {
   if (!space.chatId || !reachSupported()) return []
   const rows = openRuns(ctx.db, 'running').filter((r) => r.chat_id === space.chatId && r.root === space.root && r.unit)
@@ -1009,7 +1015,10 @@ export function runProblem(ctx: AppContext): string | null {
 /** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
 export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string
   /** a copy into the work folder (devenv/work-write.ts): its stage folder, read-only in this run */
-  stage?: string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
+  stage?: string
+  /** no network at all for this run, whatever the team and the person allow (devenv/tool.ts: a command that went
+   * without the room card, chat/turn.ts ownBoxRun) */
+  offline?: boolean }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -1030,7 +1039,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     let oom = false
     try {
       const sp = await spawnRun(ctx, c, {
-        runId, space: o.space, cwd: o.cwd, command: o.command, network: lim.l.network, once: o.once ?? [],
+        runId, space: o.space, cwd: o.cwd, command: o.command, network: o.offline ? 'offline' : lim.l.network, ...(o.offline ? { offline: true } : {}), once: o.offline ? [] : o.once ?? [],
         limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err, ...(o.stage ? { stage: o.stage } : {}),
       })
       a.pid = sp.pid

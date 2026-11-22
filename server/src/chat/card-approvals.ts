@@ -32,6 +32,10 @@ export type ApprovalKind =
    * 20261122-connector-always-allow.md, whose Always is kept for good in connector_tool_allow): target = connection,
    * its version and the tool. Never a change: those ask every time */
   | 'shared_unsure_tool'
+  /** a call that acts on the person's own things (Sent.ownAct, tools.ts cardWithAlways) in a shared chat with a guest
+   * among its people ("Always in this chat": Always is never kept for good there): target = connection, its version and
+   * the tool's Always key; detail.c = who saw the chat then */
+  | 'shared_own_act'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12
