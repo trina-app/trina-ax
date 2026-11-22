@@ -95,4 +95,14 @@ test('a main-box @mention: a Mentions row for the person picked and a push; noth
   const told2 = chatUpdates(mark2)
   expect(told2.length).toBeGreaterThan(0)
   expect(told2.at(-1)!.data.data.chat?.mentioned).toBeUndefined()
+  // taken out of the chat: a mention left unread there is read with nothing of the chat sent
+  await owner.call('POST', `/api/chats/${chat.id}/messages`, { content: '@JUN last one', mentions: [jun.id], attachmentIds: [], clientMessageId: cm() })
+  await ended()
+  const junRow = chatRows(await rows(jun.client)).find((i) => !i.readAt)!
+  let rr = await owner.call('PUT', `/api/chats/${chat.id}/audience`, { subjects: [{ subjectType: 'user', subjectId: nora.id }] })
+  if (rr.status === 'confirm') rr = await owner.call('PUT', `/api/chats/${chat.id}/audience`, { subjects: [{ subjectType: 'user', subjectId: nora.id }], confirmKey: rr.confirmKey })
+  expect(rr.status).toBe('saved')
+  const mark3 = h.hub.events.length
+  await jun.client.call('POST', `/api/notifications/${junRow.id}/read`).catch(() => null)
+  expect((h.hub.events.slice(mark3) as { target: string; data: Upd }[]).some((e) => e.target === jun.id && e.data?.type === 'chat.updated' && e.data.data.chat !== null)).toBe(false)
 })

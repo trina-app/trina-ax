@@ -212,7 +212,8 @@ export function tellChatsRead(ctx: AppContext, userId: string, chatIds: Iterable
   for (const id of new Set(chatIds)) {
     try {
       const r = rt.store.chatRow(id)
-      if (r && !r.deleted_at) rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat: chatView(rt, userId, r) } })
+      // only while I still see the chat (a mention can outlive my access to it: nothing of the chat then)
+      if (r && chatOpenFor(ctx, userId, id)) rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat: chatView(rt, userId, r) } })
     } catch { ctx.log.warn('chat read not told') }
   }
 }
