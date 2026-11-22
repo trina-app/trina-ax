@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { API } from '@mycel/shared/api'
-import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { spokenText, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { carriedReads, saveReads } from '../../server/src/chat/carried-reads'
 import { lostAccessFor } from '../../server/src/chat/tools'
 import { TurnFiles } from '../../server/src/files/service'
@@ -40,7 +40,7 @@ const newChat = async (user: string) => (await h.api(user).call(API.createChat, 
 async function ask(user: string, chatId: string, content: string) {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const done = await ws[user]!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 60_000)
-  return { text: done.data.message.content as string, assistantId: r.assistantMessage.id as string }
+  return { text: spokenText(h, r.assistantMessage.id), assistantId: r.assistantMessage.id as string }
 }
 const count = (s: string, sub: string) => s.split(sub).length - 1
 
@@ -115,6 +115,23 @@ describe('a place read earlier in this chat, no longer open', () => {
       expect(lostAccessFor(exec('erin'), 'grep', false, { pattern: 'x', path: 'shared' }, '', noted)).toBeNull()
       expect(lostAccessFor(exec('erin'), 'grep', false, { pattern: 'x', path: `${dir}/sub` }, '', noted)).toContain(LINE)
       expect(lostAccessFor(exec('erin'), 'glob', false, { pattern: '**/*' }, '', noted)).toBeNull()
+      // TC-b3s-22: a search a shared chat refused for having no path would have looked everywhere: the line (once);
+      // listing a folder above the place ("/", "groups") looks where it was: the line; a sibling folder: nothing
+      const refused = 'Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open ("shared").'
+      expect(lostAccessFor(exec('erin'), 'glob', true, { pattern: '**/prices*' }, refused, new Set())).toContain(LINE)
+      const once = new Set<string>()
+      expect(lostAccessFor(exec('erin'), 'grep', true, { pattern: 'price' }, refused, once)).toContain(LINE)
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: '/' }, '', once)).toBeNull()
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: '/' }, '', new Set())).toContain(LINE)
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: 'groups' }, '', new Set())).toContain(LINE)
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: 'shared' }, '', new Set())).toBeNull()
+      // a listing inside the place (still open there through a deeper grant) is not the place: nothing
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: `${dir}/sub` }, '', new Set())).toBeNull()
+      // another refusal of a search (not "Not searched"), or a refused listing of another kind: nothing
+      expect(lostAccessFor(exec('erin'), 'glob', true, { pattern: '*' }, 'pattern too long', new Set())).toBeNull()
+      expect(lostAccessFor(exec('erin'), 'list', true, { path: 'groups' }, 'Error: internal error', new Set())).toBeNull()
+      // alice never read the place: a refused search says nothing to her
+      expect(lostAccessFor(exec('alice'), 'glob', true, { pattern: '**/prices*' }, refused, new Set())).toBeNull()
       // erin's answer in a chat others write in: the shared wording
       const sharedNote = lostAccessFor({ ...exec('erin'), otherAuthors: true } as Parameters<typeof lostAccessFor>[0], 'read', true, { file_path: `${dir}/prices.md` }, denied, new Set())
       expect(sharedNote).toContain('cannot be opened from this chat now')

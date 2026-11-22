@@ -42,3 +42,29 @@ export function fileNoteOnce(turn: object, kind: FileNoteKind | null, L: Locale)
   seen.add(kind)
   return kind === 'version' ? versionKeptNote(L) : hangulReadNote()
 }
+
+/** A table of data whose numbers a page, chart or report is made from (QA TC-b3s-7 / S-102: the dashboard showed
+ * "출처: …xlsx" and no date, so after the file changed nobody could tell which numbers it showed). */
+const DATA_FILE = /\.(?:xlsx|xlsm|xls|ods|csv|tsv)$/i
+
+/** The file's last change in the person's shown time zone ("2026-11-22 14:03 (Asia/Seoul)": a time in a tool result
+ * with no zone is UTC to the AI, prompt.ts time line), for each spreadsheet or CSV team file a read or a query_data took
+ * (never a chat place: its card says when it came); [] for anything else. The S-102 rerun computed the dashboard's
+ * numbers with query_data, not read. */
+export function dataDateNotes(o: { name: string; isError: boolean; args: unknown; changed: (path: string) => string | null; seen?: Set<string> }): { path: string; text: string }[] {
+  if (o.isError || (o.name !== 'read' && o.name !== 'query_data')) return []
+  const a = (o.args ?? {}) as { file_path?: unknown; paths?: unknown }
+  const given = o.name === 'read' ? [a.file_path] : Array.isArray(a.paths) ? a.paths.slice(0, 20) : []
+  const out: { path: string; text: string }[] = []
+  for (const p of given) {
+    if (typeof p !== 'string' || isReservedPlace(p) || !DATA_FILE.test(p.trim())) continue
+    // (once a turn per file: `seen` is checked before the file is looked at, and filled here)
+    const key = p.trim().normalize('NFC')
+    if (o.seen?.has(key)) continue
+    const at = o.changed(p)
+    if (!at) continue
+    o.seen?.add(key)
+    out.push({ path: key, text: `${p.trim().split('/').pop()} was last changed ${at}. A page, chart or report you make from it shows that as the date of its data next to the source (e.g. "Source: <file name>, as of ${at.slice(0, 10)}").` })
+  }
+  return out
+}

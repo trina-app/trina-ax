@@ -45,7 +45,7 @@ import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
-import { fromAsker, othersWordsIn } from './shared-actions'
+import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
@@ -74,7 +74,8 @@ import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
-import { fileNote, fileNoteOnce } from './file-notes'
+import { dataDateNotes, fileNote, fileNoteOnce } from './file-notes'
+import { localTime } from '../rooms/reader'
 import { skillFilesTool } from './skill-files'
 import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { shareWithPersonOff, shareWithPersonTool } from './share-with-person'
@@ -309,7 +310,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     async call() { return { ...text('Error: internal error', true), summary: `${EDIT_FILES_TOOL} -> not run (outside the file gate)` } } })
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
-    add(wrapRegistered(exec, t))
+    add(wrapRegistered(exec, t, (name, isError, args, files) => !guest && !callerOf(files, exec.files).helper ? dataDateFor(name, isError, args) : null))
   }
   // copy_files between the team folder, this chat's files (chat:files/) and its work folder (chat:work/): a call that
   // names a chat place runs the places copy (chat/places-copy.ts); any other the team copy, unchanged
@@ -433,6 +434,32 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const projectOnly = new WeakSet<object>()
   /** the places this turn's searches already said the person lost (lostAccessFor: once a turn each) */
   const lostNoted = new Set<string>()
+  /** the same for sub-agents' calls, apart: theirs never use up the main AI's line (review of the plan and the code) */
+  const subLostNoted = new Set<string>()
+  /** the data files whose last change this turn's reads already gave (dataDateNotes: once a turn each) */
+  const datesNoted = new Set<string>()
+  /** a spreadsheet or CSV read (afterFileTool) or queried (query_data, a registered tool: wrapRegistered): when its data
+   * dates from, so a page or report made from it can say so (S-102), once a turn per file; the main AI's own calls
+   * only (it makes what is shown). The time of the file's newest file event while the bytes are still that event's, as
+   * the Files screen's history shows it; else the time on disk (a change outside the app records no event). */
+  const dataDateFor = (name: string, isError: boolean, args: unknown): string | null => dataDateNotes({ name, isError, args, seen: datesNoted, changed: (p) => {
+    try {
+      const r = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read')
+      if (!r.st?.isFile()) return null
+      const ev = exec.rt.db.query("SELECT at, sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { at: string; sha256: string | null } | null
+      const at = ev && sameBytesAsEvent(exec.rt.files.fx.root, r.rel, ev.sha256) ? ev.at : r.st.mtime.toISOString()
+      return `${localTime(at, exec.shownZone)} (${exec.shownZone})`
+    } catch { return null }
+  } }).map((d) => d.text).join('\n') || null
+  /** a shared chat's refusal of a search without a path, with the lost-access line when the search would have covered a
+   * place this person read earlier in this chat (lostAccessFor; the refusal never reaches afterFileTool) */
+  /** (a sub-agent's call gets the line too, without using up the main AI's once a turn) */
+  const withLost = (name: string, args: unknown, refusal: string | null, main: boolean): string | null => {
+    if (!refusal) return null
+    let lost: string | null = null
+    try { lost = lostAccessFor(exec, name, true, args, refusal, main ? lostNoted : subLostNoted) } catch { lost = null }
+    return lost ? `${refusal}\n${lost}` : refusal
+  }
   /** one call of a tool of this set (TurnToolSet.call, which adds the state of a chat file a refused in-place change
    * names) */
   const callTool = async (name: string, args: unknown, caller: Parameters<ChatToolSet['call']>[2]): ReturnType<ChatToolSet['call']> => {
@@ -484,7 +511,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a chat shared with people: a new file made in the asker's own folder goes to the chat (QA TC-7261, TC-7279),
       // before every card below weighs the call
       args = exec.sharedOutput(name, args, files === exec.files).args
-      const noPlace = exec.sharedSearchRefusal(name, args)
+      const noPlace = withLost(name, args, exec.sharedSearchRefusal(name, args), files === exec.files)
       if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
       args = exec.sharedArgs(name, args)
       // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
@@ -619,7 +646,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       // a place this person's own earlier answers in this chat read and the folder rules no longer let them read: the
       // access ended, who can give it again, and what was read stays true (S-118)
-      const lost = lostAccessFor(exec, name, isError, args, text, lostNoted)
+      // (a sub-agent's call gets the line too, without using up the main AI's once a turn)
+      const lost = lostAccessFor(exec, name, isError, args, text, !caller || caller.files === exec.files ? lostNoted : subLostNoted)
       if (lost && isError) return lost
       // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
       // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
@@ -637,6 +665,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
+      const dataDate = main && !guest ? dataDateFor(name, isError, args) : null
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
       // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
@@ -650,7 +679,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared chat's search or listing that left out places some of its people cannot open: how many, never which
       const left = !isError && args && typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.count ?? 0 : 0
       const leftNote = left > 0 ? searchLeftOutNote(left) : null
-      return [lost, placed, skillNote, heldNote, rooms, fact, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
+      return [lost, placed, skillNote, heldNote, rooms, fact, dataDate, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -716,7 +745,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // arguments, so they are changed in place)
         const lifted = exec.liftGlobPath(name, args)
         if (lifted !== args) Object.assign(args as object, lifted)
-        const noPlace = exec.sharedSearchRefusal(name, args)
+        const noPlace = withLost(name, args, exec.sharedSearchRefusal(name, args), caller ? caller.files === exec.files : true)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {
           // a project chat's search in the project folder (no path, or a path in it): its result says it looked only
@@ -884,7 +913,11 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!gone(rel) || granted(rel)) continue
     places.set(placeKey(pl), pl)
   }
-  if (isError) {
+  // a search a shared chat refused for having no path ("Not searched: … needs a folder", peopleSearchPlace): it would
+  // have looked everywhere, so it covers the lost place like a path-less search (TC-b3s-22: after the refusal the AI
+  // searched other folders, listed "/" and "groups" and asked for a path, never told that access had ended)
+  const refusedSearch = isError && SEARCH_TOOLS.has(name) && !!text?.startsWith('Not searched:')
+  if (isError && !refusedSearch) {
     const m = text ? /Access denied: not found or no access: '([^']*)'/.exec(text) : null
     if (!m) return null
     const rel = relOf(m[1]!)
@@ -896,11 +929,16 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (text!.includes('but this person can no longer open it') && !shared) return `${regrantLine(exec.rt.db, place, exec.spec.locale)} ${KEEP_READ_LINE}`
     return lostAccessNote(exec.rt.db, [place], exec.spec.locale, { shared })
   }
-  if (!SEARCH_TOOLS.has(name) || !args || typeof args !== 'object') return null
+  // (a listing of a folder above the place, "/" or "groups", looks where it was: it counts like a search there; a
+  // listing of the place itself is refused and answered above)
+  const listing = name === 'list' && !isError
+  if ((!SEARCH_TOOLS.has(name) && !listing) || !args || typeof args !== 'object') return null
   const a = args as { path?: unknown }
-  const scope = !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
+  const scope = refusedSearch ? '' : !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
   const k = placeKey(scope)
-  const hit = [...places].filter(([pk]) => !noted.has(pk) && (!k || pk === k || pk.startsWith(k + '/') || k.startsWith(pk + '/'))).filter(([, pl]) => gone(pl))
+  // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
+  const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
+  const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
   if (!hit.length) return null
   for (const [pk] of hit) noted.add(pk)
   return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
@@ -1049,7 +1087,8 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
   }
 }
 
-function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
+/** `note`: a fact for the AI after the call's result (the data date of query_data's files), or null */
+function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isError: boolean, args: unknown, files: Parameters<Tool['call']>[1]) => string | null): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
@@ -1061,7 +1100,9 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
         const shown = r.stepImages
         exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
       }
-      return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
+      let extra: string | null = null
+      try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
+      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
 }

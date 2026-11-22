@@ -480,6 +480,16 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.stored).toBe('Let me check that the seal printed correctly.\n\nDone.')
   })
 
+  test.skipIf(!native)('Korean, QA batch 3 flow 2: the AI\'s reasoning about its rules before an edit is a thinking step, not the answer', async () => {
+    const k = await turn('ko', '빨간색 좀 더 진하게\n' + fake(
+      { say: 'Same requester (QA Member) changing their own red, so just do it. #c81e1e → darker, e.g. #9b1515 (rgb 155,21,21).' },
+      { tool: 'read', args: { file_path: 'shared/missing.txt' } },
+      { say: '헤더를 더 진한 빨간색으로 바꿨어요.' },
+    ))
+    expect(k.streamed).toBe(k.stored)
+    expect(k.stored).toBe('헤더를 더 진한 빨간색으로 바꿨어요.')
+  })
+
   test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {
     const t = await turn('ko', '안녕\n' + fake({ say: '안녕하세요. 무엇을 도와드릴까요?' }))
     expect(t.streamed).toBe(t.stored)

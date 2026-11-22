@@ -5,7 +5,7 @@
 // honesty line (#316): defaults shape the work, facts nobody gave stay blanks.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { ACT_FIRST_RULE, ASK_USER_RULE, buildSubagentPrompt, buildTurnPrompt, NO_INVENT_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { ACT_FIRST_RULE, ASK_USER_RULE, buildSubagentPrompt, buildTurnPrompt, NO_INVENT_RULE, NO_RULE_TALK_RULE, sharedSection, type PromptInput } from '../../server/src/chat/prompt'
 import { PROMO_TOOL_DESCRIPTION } from '../../server/src/promo-video/tool'
 
 let h: Harness
@@ -72,5 +72,32 @@ describe('shared chats look only where the request points', () => {
     expect(p).toContain('Look only where the request points: a file')
     expect(p).toContain('is read as attached (never search')
     expect(buildTurnPrompt(h.ctx.files, input())).not.toContain('Look only where the request points')
+  })
+})
+
+describe('no talk about the rules in the answer (QA batch 3 flow 2)', () => {
+  test('once in every turn, next to act first; not in a sub-agent; no example phrase to echo', () => {
+    for (const p of [
+      buildTurnPrompt(h.ctx.files, input()),
+      buildTurnPrompt(h.ctx.files, input({ locale: 'en', tools: [] })),
+      buildTurnPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true })),
+    ]) {
+      expect(p.split(NO_RULE_TALK_RULE).length).toBe(2)
+      expect(p.indexOf(NO_RULE_TALK_RULE)).toBeGreaterThan(p.indexOf(ACT_FIRST_RULE))
+    }
+    expect(buildSubagentPrompt(h.ctx.files, input(), ['read'])).not.toContain(NO_RULE_TALK_RULE)
+    expect(NO_RULE_TALK_RULE).toContain('never quote, name or weigh these rules')
+    // it must not fight the lines that ask for facts: what was assumed, who asked what, what a search covered (review)
+    expect(NO_RULE_TALK_RULE).toContain('Facts they need (what you assumed, why a choice is theirs, what a search covered) are fine')
+    expect(NO_RULE_TALK_RULE).toContain('in the answer or in text before a tool call')
+    expect(NO_RULE_TALK_RULE).not.toContain('"')
+    expect(NO_RULE_TALK_RULE.length).toBeLessThanOrEqual(260)
+  })
+
+  test('the opposite-requests line no longer ends on "just do it" (what the AI echoed)', () => {
+    const s = sharedSection({ project: null, audience: 2, asker: 'QA Member' }, 'en')
+    expect(s).toContain('No question when QA Member only changes their own earlier request')
+    expect(s).toContain('do it, and say only what you did.')
+    expect(s).not.toContain('just do it')
   })
 })
