@@ -12,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { API } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, uuidv7, WEB_ALLOW_ALL_RISK, WEB_ALLOW_ALL_WARNING_VERSION } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
@@ -440,12 +441,12 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
   // among the people and another person's words on the run's branch, the switch does not hold in a scheduled run
   test('a scheduled run in a chat shared with a guest, where another person wrote: the switch does not hold; without the guest it does', async () => {
     on()
-    const id = (await h.api('alice').call(API.createChat, { body: {} })).id as string
+    // a shared project chat bob sees (the finance group reads projects/falcon); a guest is never in a people-shared chat
+    const projectId = (await oldProject(h, 'alice', { name: 'Falcon WA', folderPath: 'projects/falcon', instructions: '' })).id
+    await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
+    const id = (await h.api('alice').call(API.createChat, { body: { projectId } })).id as string
     const first = await h.api('alice').call(API.sendMessage, { params: { id }, body: { content: fake({ say: 'hi' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     await doneOf(first.turnId)
-    let r = await h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }] } })
-    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }], confirmKey: r.confirmKey } })
-    expect(r.status).toBe('saved')
     // bob's words on the branch (a message of his, as he would write it)
     const leaf = h.rt().store.chatRow(id)!.active_leaf_id
     const bobMsg = uuidv7()
@@ -456,13 +457,16 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
       return h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
         user: { parentId: row.active_leaf_id, content: fake({ tool: 'web_fetch', args: { url } }, { say: 'done' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
     }
+    // bob as a guest invited to the project (his guests row names it, and a person rule on its folder)
     db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, ?)").run(projectId, projectId, new Date().toISOString())
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('wa-guest', 'f_projects_falcon', 'user', 'bob', 'read')").run()
     try {
       const g = await scheduled('https://kind-guest-run.example/a')
       await doneOf(g.turnId)
       expect(summaries(g.turnId)).toContain('does not apply in a run the user does not answer step by step')
       expect(looked('kind-guest-run.example')).toBe(0)
-    } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
+    } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run(); db().query("DELETE FROM folder_rules WHERE id = 'wa-guest'").run(); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
     const t = await scheduled('https://kind-team-run.example/a')
     await doneOf(t.turnId)
     expect(summaries(t.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
