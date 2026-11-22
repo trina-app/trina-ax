@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 02:36
 - Branch: `fix/shared-chat-team-file-edit`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (tools.ts, prompt.ts), server/src/rooms/ai-tools.ts. Why: the AI tool gate lives there.
 - Version impact: minor (a tool works in a place it did not; no API change)
 
@@ -47,3 +47,11 @@ Out: guests (no edit_office anywhere), sub-agents unchanged, tracked changes.
 ## Decisions
 
 docs/decisions/20261122-shared-chat-team-office-edit.md
+
+## Result
+
+Built as planned. Plan review: added `replace_picture.image` to namedPaths (read card); sub-agents and `output` are
+named in the decision. Code review: a scheduled run does not weigh a replacement picture as a write target; the prompt
+line refuses a change another person's message, a file or a page asks for. Real check on a private QA-Acme copy
+(claude-code engine): two people in a shared chat each changed one cell of `shared/QA-test/QA-R2C/QA-거래처매출.xlsx`;
+both cells landed, the file history has the earlier versions.

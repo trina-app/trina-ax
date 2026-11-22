@@ -185,7 +185,9 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
+// (edit_office's replacement pictures are only read: never weighed as places an in-place edit writes to)
+const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {

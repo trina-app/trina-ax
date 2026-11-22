@@ -131,7 +131,7 @@ describe('edit_office on a team file in a chat shared with people (S-028)', () =
   })
 
   test('a replacement picture counts as a read of the chat, like the document (the read card weighs it)', () => {
-    const named = namedPaths('edit_office', { file_path: 'shared/deck.pptx', changes: [{ slide: 1, replace_picture: { image: 'users/bob/photo.png' } }] })
+    const named = namedPaths('edit_office', { file_path: 'shared/deck.pptx', changes: [{ replace_picture: { slide: 1, picture: 1, image: 'users/bob/photo.png' } }] })
     expect(named).toContainEqual({ key: 'file_path', value: 'shared/deck.pptx' })
     expect(named).toContainEqual({ key: 'replace_picture.image', value: 'users/bob/photo.png' })
   })
