@@ -41,6 +41,10 @@ const NAMES: Record<string, KoEnding> = {
   'wordpress.com': C,
 }
 
+/** File extensions with a vowel letter, or not read letter by letter, by their usual Korean reading (docx 독스, json
+ * 제이슨, jpeg 제이펙, zip 집, gif 지아이에프, webp 웹피, mov 엠오브이, hwpx 에이치더블유피엑스 is spelled) */
+const FILE_EXT: Record<string, KoEnding> = { docx: V, doc: V, json: C, jpeg: C, zip: C, gif: V, webp: V, mov: V, key: V, pages: V, numbers: V, epub: C, heic: C }
+
 /** A number ends as it is read: 0 영, 3 삼, 6 육 end in a consonant; 1 일, 7 칠, 8 팔 in ㄹ; 2 4 5 9 in a vowel. */
 const DIGIT: Record<string, KoEnding> = { 0: C, 1: L, 2: V, 3: C, 4: V, 5: V, 6: C, 7: L, 8: L, 9: V }
 /** A letter read on its own (an abbreviation like MCP or SQL): L 엘 and R 알 end in ㄹ, M 엠 and N 엔 in a consonant, the
@@ -64,6 +68,14 @@ export function koEnding(value: string): KoEnding | null {
   const word = /[A-Za-z0-9.&+-]+$/.exec(v)?.[0].replace(/^[.&+-]+/, '') ?? ''
   const known = NAMES[v.toLowerCase()] ?? NAMES[word.toLowerCase()]
   if (known) return known
+  // a file name ends as its extension is read (QA b3s TC-b3s-17: "주간 실적.xlsx을(를)"): a known one by its usual reading,
+  // else letter by letter when it has no vowel letter (pdf 피디에프, xlsx 엑스엘에스엑스, html 에이치티엠엘)
+  const ext = /[^\s.]\.([A-Za-z]{2,5})$/.exec(v)?.[1]
+  if (ext) {
+    const e = FILE_EXT[ext.toLowerCase()]
+    if (e) return e
+    if (!/[aeiou]/i.test(ext)) return letterEnding(ext.slice(-1).toUpperCase())
+  }
   // an abbreviation in capitals is read letter by letter only when it has no vowel letter (MCP, HWP, SQL, CRM, PDF) or
   // is a known one (AI, API, URL, AWS, IBM); other capital words (WEB, HOME, FILE) are read as words: not told
   if (/^[A-Z][A-Z0-9]{1,4}$/.test(word) && (!/[AEIOU]/.test(word) || SPELLED.has(word))) return letterEnding(last)

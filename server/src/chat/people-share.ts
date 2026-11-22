@@ -55,6 +55,8 @@ import { isPeopleRow, peopleAudience, rememberAudience, resolveSubjects, subject
 import { tr } from './i18n'
 import { notificationsOf } from '../notifications/service'
 import { chatFilesOf } from './chat-files'
+import { componentC } from '../team-files/component'
+import { PAGE_EVENT_PREFIX } from '../tools/artifact'
 import { pollSrt } from '../devenv/jobs'
 import { devEnvFlag } from '../devenv/setting'
 import { personLocale } from '../files/media-text'
@@ -237,11 +239,22 @@ function chatEventsOf(ctx: AppContext, chatId: string, viewer: string, full: boo
   let rows = page(0)
   if (!rows.length) return people
   const seen = new Map(chatFilesOf(ctx).visibleTo(viewer, chatId).map((v) => [v.id, v.root.name]))
+  // a page's restore (tools/artifact.ts restoreByPerson, PAGE_EVENT_PREFIX + the new version's id): shown to a viewer
+  // who sees that version (the artifacts' own rule, hiddenVersions), named by its title (its key without one)
+  let hiddenPages: ReadonlySet<string> | null = null
+  const nameOf = (fileId: string): string | undefined => {
+    if (!fileId.startsWith(PAGE_EVENT_PREFIX)) return seen.get(fileId)
+    const id = fileId.slice(PAGE_EVENT_PREFIX.length)
+    const page = db.query('SELECT title, key FROM artifacts WHERE id = ? AND chat_id = ?').get(id, chatId) as { title: string | null; key: string } | null
+    if (!page) return undefined
+    hiddenPages ??= componentC(ctx).artifacts.hiddenVersions(viewer, chatId)
+    return hiddenPages.has(id) ? undefined : page.title || page.key
+  }
   const files: NonNullable<ChatAudience['events']> = []
   for (let n = 0; rows.length && files.length < AUDIENCE_EVENTS_SHOWN && n < EVENT_PAGES; n++, rows = rows.length < AUDIENCE_EVENTS_SHOWN ? [] : page(n * AUDIENCE_EVENTS_SHOWN)) {
     for (const e of rows) {
       if (files.length >= AUDIENCE_EVENTS_SHOWN) break
-      const name = seen.get(e.file_id)
+      const name = nameOf(e.file_id)
       if (!name) continue
       const u = db.query('SELECT name, status, deleted_at FROM users WHERE id = ?').get(e.actor_id) as { name: string; status: string; deleted_at: string | null } | null
       if (!u || !(full || (u.status === 'active' && !u.deleted_at))) continue

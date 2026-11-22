@@ -3166,6 +3166,13 @@ export class TurnExec {
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
     if (this.roomAllowed.has(key)) return null
+    // one answer asks once about one target (#381; QA b3s TC-b3s-23: four cards for one banner edit): a command that
+    // makes only the files an earlier command of this answer was allowed to make, and a rename in place of a file this
+    // answer made, go on under that yes (sameAnswerTarget)
+    if (!o.noCover && this.sameAnswerTarget(tool, input)) {
+      if (o.main !== false) this.coverStep(tool, 'roomOnceStep')
+      return null
+    }
     // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
     // in its save folder, a send to a pinned connection: chat/schedule-cover.ts); `send` is the connection a call writes
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
@@ -3315,6 +3322,8 @@ export class TurnExec {
     if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
+      // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
+      if (tool === 'box_shell') for (const f of answerShellOutputs(input) ?? []) this.shellAllowedOuts.add(f)
       // [이번만 허용]: this kind of change to this file goes without the room card for the rest of this chat
       if (v === 'allow' && !reads) keepApproval()
       if (target && coverOnce) {
@@ -3653,6 +3662,36 @@ export class TurnExec {
 
   /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
    * move into place, which keeps an older file), and nobody else (a person, another answer) changed it since. */
+  /** the files dev-environment commands of this answer were allowed to make on a room card (answerShellOutputs) */
+  private shellAllowedOuts = new Set<string>()
+  /**
+   * One answer, one card per target after a room read (#381 "One answer never asks twice about the same target"; QA b3s
+   * TC-b3s-23, S-110: one banner edit raised two command cards for the same picture and a rename card for the copy the
+   * answer had just made):
+   * - box_shell: a command whose output files (shellOutputs) are all ones an earlier command of this answer was allowed to
+   *   make, and that removes, moves, copies, installs or reaches the network nothing and names no instruction file
+   *   (answerShellOutputs). The first command after a room read still asks (docs/decisions/20261122-ask-less-side-chat-runs.md).
+   * - rename_file: a file this answer made (a create of this turn nobody else changed since, roomMadeHere) renamed in its
+   *   folder (the same people, the same bytes) to a name that is no instruction, script or hidden file. Whatever let the
+   *   answer put it there (a card, a cover) stands for its name too.
+   * Fails closed: any error is false.
+   */
+  private sameAnswerTarget(tool: string, input: unknown): boolean {
+    try {
+      if (tool === 'box_shell') {
+        const outs = this.shellAllowedOuts.size ? answerShellOutputs(input) : null
+        return !!outs && outs.every((f) => this.shellAllowedOuts.has(f))
+      }
+      if (tool !== 'rename_file' || !input || typeof input !== 'object') return false
+      const a = input as { path?: unknown; new_name?: unknown }
+      const name = typeof a.new_name === 'string' ? a.new_name.trim() : ''
+      if (typeof a.path !== 'string' || !name || /[\\/]/.test(name) || name.startsWith('.') || instructionLike(name) || runnableFile(name)) return false
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), a.path, 'write')
+      if (!r.exists || !r.st?.isFile() || inSkills(r.rel) || instructionLike(r.rel)) return false
+      return this.roomMadeHere(r.rel)
+    } catch { return false }
+  }
+
   private roomMadeHere(rel: string): boolean {
     return !!this.rt.db.query(`SELECT 1 FROM file_events e WHERE e.turn_id = ? AND e.path = ? AND e.action = 'create' AND json_extract(e.detail, '$.movedFrom') IS NULL
       AND NOT EXISTS (SELECT 1 FROM file_events x WHERE x.path = e.path AND x.id > e.id AND (x.turn_id IS NULL OR x.turn_id <> e.turn_id)) LIMIT 1`).get(this.id, rel)
@@ -6036,6 +6075,25 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 
+/** The files a dev-environment command makes when that is all it does as far as its words tell (TurnExec
+ * sameAnswerTarget): its output names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE,
+ * cp, ln, chmod, chown, touch, tee), installs or downloads programs, reaches the network or names an instruction or
+ * skill file. null: not such a command. */
+/** a script in a command that removes, moves or renames files (python, node), past what SHELL_DESTRUCTIVE reads */
+const SCRIPT_REMOVES = /\b(?:os\.(?:remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(?:rmtree|move|copy\w*)|unlinkSync|rmSync|rmdirSync|renameSync|copyFileSync|\.unlink\(|\.rmdir\(|\.rename\()/
+export function answerShellOutputs(input: unknown): string[] | null {
+  const c = input && typeof input === 'object' && typeof (input as { command?: unknown }).command === 'string' ? (input as { command: string }).command : ''
+  if (!c || c.length > 20_000) return null
+  // (as the command writes them, folders too: the same name elsewhere is another target)
+  const outs = shellOutputs(c, { paths: true })
+  if (!outs.length || SHELL_DESTRUCTIVE.test(c) || /(?:^|[\s;&|(`])(?:cp|ln|chmod|chown|touch|tee|install)\s/.test(c) || shellUsesNetwork(c) || INSTRUCTION_IN_TEXT.test(c) || SCRIPT_REMOVES.test(c)) return null
+  const kind = shellKind(c)
+  if (kind === 'install' || kind === 'download' || /\b(?:pushd|popd|chdir)\b/.test(c)) return null
+  // where it runs is part of the target: the same relative name after another "cd" is another file
+  const at = [...c.matchAll(/(?:^|[\s;&|(])cd\s+("[^"]*"|'[^']*'|[^\s;&|)]+)/g)].map((m) => m[1]!).join('\u0001')
+  return outs.map((f) => `${at}\u0000${f}`)
+}
+
 /** the kind of a file a command makes, by its extension (shellCardWords) */
 const SHELL_OUT_KIND: Record<string, 'roomShellKindPicture' | 'roomShellKindPdf' | 'roomShellKindVideo' | 'roomShellKindAudio' | 'roomShellKindSheet' | 'roomShellKindDoc'> = {
   png: 'roomShellKindPicture', jpg: 'roomShellKindPicture', jpeg: 'roomShellKindPicture', gif: 'roomShellKindPicture', webp: 'roomShellKindPicture', svg: 'roomShellKindPicture',
@@ -6051,14 +6109,17 @@ const SHELL_DESTRUCTIVE = /(?:^|[\s;&|(`])(?:rm|rmdir|mv|unlink|shred|truncate|d
 /** The files a dev-environment command says it makes (their names only, as the command names them): what a picture, a
  * PDF, a table or a video is saved as (savefig("chart.png"), -o out.mp4, > report.csv, open("x.csv", "w"), ffmpeg's last
  * name). Only names with a known output extension and no variable in them; at most 20. */
-export function shellOutputs(command: string): string[] {
+export function shellOutputs(command: string, o: { paths?: boolean } = {}): string[] {
   const c = command.slice(0, 20_000)
   const got: string[] = []
   const add = (raw: string | undefined) => {
-    const n = (raw ?? '').trim().replace(/^["']|["']$/g, '').split('/').pop() ?? ''
+    const p = (raw ?? '').trim().replace(/^["']|["']$/g, '')
+    const n = p.split('/').pop() ?? ''
     const m = /^([^\s${}*?`<>|;&()'"\\]{1,80})\.([A-Za-z0-9]{2,5})$/.exec(n)
-    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(n) || got.length >= 20) return
-    got.push(n)
+    // `paths`: each as the command writes it (its folders too), for matching one command's outputs with another's
+    const v = o.paths ? p : n
+    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(v) || got.length >= 20) return
+    got.push(v)
   }
   const each = (re: RegExp) => { for (const m of c.matchAll(re)) add(m[1]) }
   each(/\b(?:savefig|save|to_csv|to_excel|to_html|to_json|write_image|write_html|imwrite|write_videofile|write_audiofile|write_pdf|output_pdf|saveas|save_as)\s*\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']/gi)

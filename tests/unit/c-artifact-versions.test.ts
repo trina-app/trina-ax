@@ -109,6 +109,12 @@ describe('page versions', () => {
     // bob restores too (he may continue the chat)
     const b = await A.json(`/api/artifacts/${first.id}/restore`, { method: 'POST', as: 'bob', headers: { 'x-mycel-csrf': '1' } })
     expect(b.body).toMatchObject({ version: 4, byName: 'Bob Lee', restoredFrom: 1 })
+    // each restore is the chat's line, as a chat file's restore (#375; QA b3s S-033): "{actor} restored {page} to version
+    // {n}", read with the chat's audience, for everyone who sees that version
+    for (const who of ['alice', 'bob'] as const) {
+      const ev = (await A.json(`/api/chats/${chat}/audience`, { as: who })).body.events as { kind: string; actor: string; names: string[]; version?: number }[]
+      expect(ev.filter((e) => e.kind === 'restored').map((e) => [e.actor, e.names, e.version])).toEqual([['Alice Kim', ['P'], 1], ['Bob Lee', ['P'], 1]])
+    }
     // the AI's read names a person's restore as theirs
     const t2 = answerTurn('alice', chat)
     expect((await call('alice', t2, { action: 'read', key: 'p' })).text).toContain('asked by Bob Lee (restored it in the panel)')

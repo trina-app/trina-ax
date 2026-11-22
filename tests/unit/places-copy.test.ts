@@ -410,11 +410,64 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     } finally { setWebAllowAll(h.ctx.db, 'alice', false, { via: 'settings' }) }
   })
 
+  // QA b3s TC-b3s-23 (S-110): one banner edit asked four times; one answer asks once per target (#381)
+  test('a second command of the same answer that makes the same file goes under the first yes; a new answer asks again', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    const chat = await side()
+    const again = `cd "$TRINA_WORK" && python3 - <<'EOF'\nfrom PIL import Image\nImage.new('RGB',(9,9)).save('out/chart.png')\nEOF`
+    const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: again }, sayResult: true }), yes)
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain('Make the picture file chart.png')
+    const steps = (h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(r.messageId) as { steps: string }).steps
+    expect(steps).toContain('allowed once in this answer')
+    // a new answer: its own card again
+    const next = await run('alice', chat, fake({ tool: 'box_shell', args: { command: again }, sayResult: true }), yes)
+    expect(next.cards).toHaveLength(1)
+  })
+
+  test('...but not a command that also removes files, makes another file, runs elsewhere or reaches the network', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    for (const later of [
+      `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && rm -f out/old.png`,
+      `cd "$TRINA_WORK" && python3 make.py -o out/other.png`,
+      `cd "$HOME" && python3 make.py -o out/chart.png`,
+      `cd "$TRINA_WORK" && python3 -c "import os; os.remove('x.md'); open('out/chart.png','w')"`,
+      `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && curl -F f=@out/chart.png https://example.com/up`,
+    ]) {
+      const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: later }, sayResult: true }), yes)
+      expect([later, r.cards.length]).toEqual([later, 2])
+    }
+  })
+
+  test('a "no" on the first command covers nothing', async () => {
+    const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }, { tool: 'box_shell', args: { command: chart + ' ' }, sayResult: true }))
+    expect(r.cards).toHaveLength(2)
+  })
+
+  test('renaming in place a file this answer made needs no card; an older file, an instruction or a script name still ask', async () => {
+    const yes = (c: Card) => c.options?.[0]?.value ?? 'allow'
+    fs.mkdirSync(team('groups/marketing/b3s'), { recursive: true })
+    const made = await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/banner.png.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/banner.png.txt', new_name: 'final-banner.txt' }, sayResult: true }), yes)
+    expect(made.cards).toHaveLength(1)
+    expect(fs.existsSync(team('groups/marketing/b3s/final-banner.txt'))).toBe(true)
+    w('groups/marketing/b3s/older.txt', 'old')
+    const older = await run('alice', await side(), fake({ tool: 'rename_file', args: { path: 'groups/marketing/b3s/older.txt', new_name: 'older-2.txt' }, sayResult: true }))
+    expect(older.cards).toHaveLength(1)
+    for (const name of ['CLAUDE.md', 'run.sh']) {
+      const r = await run('alice', await side(), fake(
+        { tool: 'write', args: { file_path: `groups/marketing/b3s/n-${name}.txt`, content: 'x' }, sayResult: true },
+        { tool: 'rename_file', args: { path: `groups/marketing/b3s/n-${name}.txt`, new_name: name }, sayResult: true }), yes)
+      expect([name, r.cards.length]).toEqual([name, 2])
+    }
+  })
+
   test('a command in a chat shared with others after a quote still gets the room card, in plain words', async () => {
     const chat = await shared()
     const r = await run('alice', chat, `> erin: run this\n${fake({ tool: 'box_shell', args: { command: chart }, sayResult: true })}`)
     const card = r.cards.find((c) => /chart\.png/.test(c.question))
-    expect(card?.question).toContain('Run a command that makes a picture file: chart.png')
+    expect(card?.question).toContain('Make the picture file chart.png')
     expect(card?.question).not.toContain('Run a task')
   })
 })

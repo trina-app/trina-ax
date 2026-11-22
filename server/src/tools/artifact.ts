@@ -64,6 +64,10 @@ const SERVER_PAGES: ReadonlySet<string> = new Set([PROMO_ARTIFACT_KEY, DECK_ARTI
 /** a new page's key: letters, numbers, ".", "_" and "-" (it is listed to the AI and read back by it as written) */
 const KEY_RE = /^[\p{L}\p{N}._-]+$/u
 
+/** chat_file_events.file_id of a page's restore line: this prefix and the new version's artifact id (a chat file's line
+ * has the chain's root id, which never starts with it). An older build finds no chat file by it and leaves it out. */
+export const PAGE_EVENT_PREFIX = 'page:'
+
 /** a person's restores in the panel per minute (the chat files' save limit, chat/chat-file-edit.ts) */
 export const ARTIFACT_RESTORES_PER_MINUTE = 30
 
@@ -237,6 +241,12 @@ export class Artifacts {
       if (e instanceof ToolError) throw new HttpError('conflict', undefined, { params: { reason: e.code === 'storage_full' ? 'storage_full' : 'page_limit' } })
       throw e
     }
+    // the chat's line "{actor} restored {page} to version {n}", as a chat file's restore writes it (#375, chat_file_events;
+    // QA b3s S-033): the new version's id with PAGE_EVENT_PREFIX, so chat/people-share.ts shows it only to people who
+    // see that version and reads the page's title then. Best effort: the restore stands either way
+    try {
+      this.ctx.db.query("INSERT INTO chat_file_events (chat_id, at, actor_id, kind, file_id, version) VALUES (?, ?, ?, 'restored', ?, ?)").run(from.chat_id, s.createdAt, userId, `${PAGE_EVENT_PREFIX}${s.id}`, from.version)
+    } catch (err) { this.ctx.log.warn('a page restore line not written', { err, chat: from.chat_id }) }
     // the others who see a shared chat now: their panel and cards follow (each only when the new version is theirs to see)
     const chat = this.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(from.chat_id) as Parameters<Audiences['ofChat']>[0] | null
     if (chat && isSharedChat(this.ctx.db, from.chat_id)) {
