@@ -167,6 +167,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? (item.chatShared.name ? t('notifications.event.chat.sharedGoneNamed', { name: item.chatShared.name }) : t('notifications.event.chat.sharedGoneAny')) : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   // a chat shared with me that I lost (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): why, and who
   if (item.code === 'chat.lost' && item.chatLost) return chatLostText(item.chatLost, t, locale)
+  // someone left a chat I shared (QA TC-v1a-02)
+  if (item.code === 'chat.left') return item.chatLeft?.name ? t('notifications.event.chat.leftNamed', { name: item.chatLeft.name }) : t('notifications.event.chat.left')
   // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did

@@ -431,7 +431,9 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          // DMs: a DM's own messages (with files or without) are in Chats, never a row here (server rooms/inbox.ts
+          // LISTED_SQL): the tab says where they are (QA TC-f2-b02)
+          <EmptyState screen icon={<Inbox size={28} />} title={filter === 'dms' && !unreadOnly && !q ? t('feed.dmsEmpty') : items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
@@ -547,7 +549,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   // what it is about: a project, or the chat someone shared with me (its title while I still see it)
-  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : null
+  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : item.code === 'chat.left' && item.chatLeft?.title ? item.chatLeft.title : null
   // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
   // (the row opens the app's setup), and "Added" once members can connect it
   const sr = item.code === 'service.request' ? item.serviceRequest : undefined

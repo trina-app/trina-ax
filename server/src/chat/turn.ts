@@ -363,6 +363,15 @@ export function limitError(locale: Locale, retryAt: string | null | undefined, n
   return { ...e, params: { ...e.params, until: new Date(at).toISOString() } }
 }
 
+/** An engine's own error as the answer's: a limit the engine told the reset time of (Claude Code's rate_limit_event,
+ * engine/claude-parse.ts) says when, as the proxy's does (limitError: a long one is usage_used_up with params.until); a
+ * weekly limit without a time is usage_used_up (retrying soon cannot help, QA TC-f3-01); anything else engineError. */
+export function engineErrorOf(err: { code: Parameters<typeof engineError>[0]; retryAt?: string; weekly?: true }, locale: Locale, status?: number): ApiErrorBody {
+  if (err.code === 'rate_limit' && err.retryAt) return limitError(locale, err.retryAt)
+  if (err.code === 'rate_limit' && err.weekly) return engineError('usage_used_up', locale)
+  return engineError(err.code, locale, undefined, status)
+}
+
 /** The tools whose chat-file target is a new version of an existing chat file (P4: chat/chat-file-write.ts, edit_office
  * without output), not a new file attached to the answer */
 export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office'])
@@ -1538,7 +1547,7 @@ export class TurnExec {
         }
         if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
-        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineErrorOf(err, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
         // still too long after the fresh starts: that session is not kept, so the person's next message ("continue")
@@ -1608,7 +1617,7 @@ export class TurnExec {
         const named = err.code === 'context' ? noteContextRefusal(api, err.message) : null
         let small = false
         if (named !== null) { try { small = named < HISTORY_MAX_TOKENS || !!this.apiFixedLeavesNoRoom?.(named) } catch { small = named < HISTORY_MAX_TOKENS } }
-        this.error = engineError(small ? 'model_too_small' : err.code, spec.locale, undefined, err.status)
+        this.error = small ? engineError('model_too_small', spec.locale, undefined, err.status) : engineErrorOf(err, spec.locale, err.status)
       }
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
@@ -1732,7 +1741,7 @@ export class TurnExec {
           attempt--
           continue
         }
-        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
+        if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineErrorOf(err, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
       }

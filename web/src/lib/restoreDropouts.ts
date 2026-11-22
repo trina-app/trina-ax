@@ -1,7 +1,7 @@
 // Who loses their changes from the latest content when a team file goes back to an earlier version (Files › version
 // history, QA TC-7246): the people other than me who made a version after the restored one. Their versions stay in the
 // history; the restore confirm names them so the person restoring knows whose work drops out of the file.
-import type { FileVersion, HistoryResponse, Locale, UserRef } from '@mycel/shared/api'
+import type { ChatFileVersion, FileVersion, HistoryResponse, Locale, UserRef } from '@mycel/shared/api'
 import { intlTag } from './format'
 
 type Current = Pick<NonNullable<HistoryResponse['current']>, 'author'>
@@ -22,6 +22,19 @@ export function restoreDropouts(items: readonly FileVersion[], current: Current 
     if (!m.who || seen.has(m.who.id)) continue
     seen.add(m.who.id)
     out.push(m.who)
+  }
+  return out
+}
+
+/** A chat file's versions (the chat file panel's restore, QA TC-v1c-01): the people (newest first, each once, never
+ * `meId`) who saved a version newer than `restored`, an AI version as the person whose answer saved it. */
+export function chatRestoreDropouts(items: readonly Pick<ChatFileVersion, 'version' | 'by' | 'byName'>[], restored: number, meId: string): UserRef[] {
+  const out: UserRef[] = []
+  const seen = new Set<string>([meId])
+  for (const v of [...items].sort((a, b) => b.version - a.version)) {
+    if (v.version <= restored || !v.by || !v.byName || seen.has(v.by)) continue
+    seen.add(v.by)
+    out.push({ id: v.by, name: v.byName })
   }
   return out
 }

@@ -35,7 +35,7 @@ import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
-import { useGuestFolderHref } from './GuestView'
+import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { keptFolder } from '../store/teamFiles'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
@@ -48,6 +48,7 @@ import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
 import { openFileShare } from './FileShareDialog'
 import { isGuestMe } from '../lib/guests'
+import { chatRestoreDropouts, nameList } from '../lib/restoreDropouts'
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
@@ -171,6 +172,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // (a narrow window too) and a wide touch screen keep the pencil, so there is never a second edit
   const phone = useMediaQuery(PAGE_FIT_QUERY)
   const me = useMe()
+  // a guest without AI (their invite gave none): no "Ask Trina" on a file (QA TC-f2-b01)
+  const guestAiOff = useGuestAiOff()
   const [pdfBusy, setPdfBusy] = useState(false)
   const writable = useWritable(file, canEdit && !error && !downloadOnly)
   const showEdit = (canEdit && writable) || (canEditChat && !downloadOnly)
@@ -263,6 +266,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
    * notice says which (QA TC-6949) */
   const restore = async (n: number) => {
     if (file.source !== 'chat' || restoring !== null) return
+    // the Files screen's confirm (QA TC-v1c-01, TC-f2-d01): whose later versions drop out of the newest, and who in the
+    // chat sees the change (the people who see it now but me; the read failing leaves that line out)
+    const dropouts = chatRestoreDropouts(versions?.items ?? [], n, me?.user.id ?? '')
+    const seeing = await api.call(API.getChatAudience, { params: { id: file.chatId } }).then((a) => a.mentionable ?? [], () => [])
+    const body = [dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody'),
+      seeing.length ? t('chatFile.restoreSeen', { names: nameList(locale, seeing) }) : ''].filter(Boolean).join(' ')
+    if (!(await confirmDialog({ title: t('files.restoreTitle', { version: n }), body, confirm: t('common.restore') }))) return
     setRestoring(n)
     try {
       const r = await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
@@ -445,7 +455,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           {file.name}
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
-          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
+          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && !guestAiOff && (
             <Tooltip label={t('files.askAi', { name: aiName(t) })}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
@@ -453,7 +463,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               </button>
             </Tooltip>
           )}
-          {file.source === 'room' && !noAccess && (
+          {file.source === 'room' && !noAccess && !guestAiOff && (
             <Tooltip label={t('sideChat.askAboutFile')}>
               <button type="button" onClick={() => askTrinaInRoom(file.roomId, fileSeed(file.fileId, file.name))}
                 className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-trina">

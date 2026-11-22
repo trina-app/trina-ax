@@ -7,7 +7,9 @@ import { createRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { Chat, type Me } from '@mycel/shared/api'
 import { ChatEventLine, eventsBetween, type AudienceEvent } from '../../src/components/chat/ChatEvents'
-import { chatLostText } from '../../src/components/settings/Notifications'
+import { chatLostText, noticeText } from '../../src/components/settings/Notifications'
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { InboxNotification } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import { ChatTitleMenu } from '../../src/components/chat/ChatTitleMenu'
 import { useChatMenuItems } from '../../src/components/chat/chatMenuItems'
@@ -95,5 +97,32 @@ describe('"Leave this chat" in the menus', () => {
       expect(ids.includes('chat-leave')).toBe(want)
       await m.unmount()
     }
+  })
+})
+
+describe('QA 11-22 follow-ups', () => {
+  test('a restore is a line of the chat: who, the file and the version (QA TC-v1c-01)', async () => {
+    const m = await mount(<div><ChatEventLine e={{ at: '2026-11-22T01:00:00.000Z', kind: 'restored', actor: 'Doyun', names: ['quote.md'], version: 1 }} /></div>)
+    expect(m.get('chat-event').textContent).toBe(en('chat.event.restored', { actor: 'Doyun', file: 'quote.md', n: 1 }))
+    expect(en('chat.event.restored', { actor: 'Doyun', file: 'quote.md', n: 1 })).toBe('Doyun restored quote.md to version 1')
+    await m.unmount()
+  })
+  test("someone left a chat I shared: one notice with who (QA TC-v1a-02)", () => {
+    const item = { id: 'n1', eventType: 'chat.left', sourceId: 's', code: 'chat.left', createdAt: '2026-11-22T01:00:00.000Z', readAt: null, chatId: CHAT, link: 'chat', outcome: null, chatLeft: { name: 'Jiwoo', title: 'Plan' } } as unknown as InboxNotification
+    expect(renderToStaticMarkup(<>{noticeText(item, t, 'en')}</>)).toBe(en('notifications.event.chat.leftNamed', { name: 'Jiwoo' }))
+    expect(renderToStaticMarkup(<>{noticeText({ ...item, chatLeft: { name: null, title: null } }, t, 'en')}</>)).toBe(en('notifications.event.chat.left'))
+  })
+  test('the AI usage used up: never "Try again" while it lasts, with or without the time (QA TC-f3-01)', async () => {
+    const used = (params: Record<string, unknown>) => msg({ role: 'assistant', status: 'error', content: '', error: { code: 'rate_limited', message: 'x', params: { reason: 'usage_used_up', ...params } } } as never)
+    for (const params of [{}, { until: new Date(Date.now() + 3 * 86_400_000).toISOString() }]) {
+      const m = await mount(<MemoryRouter><AssistantMessage m={used(params)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} /></MemoryRouter>)
+      expect(m.find('answer-error')).not.toBeNull()
+      expect(m.find('retry')).toBeNull()
+      await m.unmount()
+    }
+    // a short limit keeps it
+    const short = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', status: 'error', content: '', error: { code: 'rate_limited', message: 'x', params: { reason: 'rate_limit' } } } as never)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} /></MemoryRouter>)
+    expect(short.find('retry')).not.toBeNull()
+    await short.unmount()
   })
 })

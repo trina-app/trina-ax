@@ -75,7 +75,21 @@ export function agentStats(v: unknown): AgentStats | null {
 /** the Agent tool (Task in the init event of 2.1.305) */
 const isAgentTool = (name: unknown) => name === 'Agent' || name === 'Task'
 
+/** A limit's reset time in Claude Code's own words (QA TC-f3-01: a weekly limit read "try again a bit later"): the
+ * older "Claude AI usage limit reached|<epoch seconds>" form. null: none in the text. */
+export function limitResetIn(text: string): string | null {
+  const m = /limit reached\|(\d{9,11})\b/i.exec(text)
+  if (!m) return null
+  const ms = Number(m[1]) * 1000
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+}
+/** The text names a limit of a week or longer ("weekly limit", "7-day", "monthly"): retrying soon cannot help. */
+export const LONG_LIMIT = /weekly|seven.?day|7.?day|monthly|opus limit/i
+
 export class ClaudeStreamParser {
+  /** the newest reset time of a refused subscription limit Claude Code reported (stream-json rate_limit_event,
+   * rate_limit_info.status 'rejected', resetsAt in epoch seconds), with whether it is a week or longer */
+  private limit: { at: string; long: boolean } | null = null
   private sawDeltas = false
   private textOpen = false
   /** ids of the main AI's Agent calls (their tool results carry the sub-agent's totals) */
@@ -98,6 +112,12 @@ export class ClaudeStreamParser {
     // reach the answer or the turn's outcome: a failed child comes back to the main AI as an error result of its
     // Agent call, and the main AI decides what to tell the person (review M2).
     const parent = typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id ? ev.parent_tool_use_id as string : null
+    if (ev.type === 'rate_limit_event') {
+      const info = ev.rate_limit_info ?? {}
+      const at = typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt) ? info.resetsAt * 1000 : NaN
+      if (info.status === 'rejected' && Number.isFinite(at)) this.limit = { at: new Date(at).toISOString(), long: LONG_LIMIT.test(String(info.rateLimitType ?? '')) }
+      return out
+    }
     if (ev.type === 'system' && ev.subtype === 'init') {
       this.init = ev
       if (ev.session_id) { this.sessionId = ev.session_id; out.push({ type: 'session', sessionId: ev.session_id }) }
@@ -145,7 +165,7 @@ export class ClaudeStreamParser {
         }
         else if (b.type === 'text' && !this.sawDeltas && b.text && !apiError) { this.text += (this.text ? '\n\n' : '') + b.text; out.push({ type: 'text', delta: b.text }) }
       }
-      if (apiError) out.push({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) })
+      if (apiError) out.push(this.limited({ type: 'error', code: classifyError(String(ev.error) + ' ' + JSON.stringify(msg.content ?? '')), message: String(msg.content?.[0]?.text ?? ev.error) }))
       if (ev.error === 'refusal') this.refused = true
     } else if (ev.type === 'user') {
       const results = Array.isArray(ev.message?.content) ? ev.message.content.filter((b: any) => b?.type === 'tool_result') : []
@@ -180,10 +200,19 @@ export class ClaudeStreamParser {
       // versions also say terminal_reason "max_turns"): the answer so far stands and the person may continue
       if (this.refused) out.push({ type: 'error', code: 'refused', message: 'the model declined this request' })
       else if (ev.subtype === 'error_max_turns' || ev.terminal_reason === 'max_turns') { this.maxTurns = true; out.push({ type: 'limit', kind: 'turns' }) }
-      else if (ev.is_error) out.push({ type: 'error', code: classifyError(String(ev.result ?? ev.subtype ?? '') + ' ' + String(ev.terminal_reason ?? '')), message: String(ev.result ?? ev.subtype ?? 'engine error') })
+      else if (ev.is_error) out.push(this.limited({ type: 'error', code: classifyError(String(ev.result ?? ev.subtype ?? '') + ' ' + String(ev.terminal_reason ?? '')), message: String(ev.result ?? ev.subtype ?? 'engine error') }))
       if (!this.text && typeof ev.result === 'string' && !ev.is_error) { this.text = ev.result; out.push({ type: 'text', delta: ev.result }) }
     }
     return out
+  }
+
+  /** A limit error with when it starts again, as Claude Code told it: its rate_limit_event, else the time in its words;
+   * `weekly` when it names a week or longer and gives no time. Any other error as it is. */
+  private limited(e: Extract<EngineEvent, { type: 'error' }>): Extract<EngineEvent, { type: 'error' }> {
+    if (e.code !== 'rate_limit') return e
+    const at = this.limit?.at ?? limitResetIn(e.message)
+    if (at && Date.parse(at) > Date.now()) return { ...e, retryAt: at }
+    return LONG_LIMIT.test(e.message) || this.limit?.long ? { ...e, weekly: true } : e
   }
 }
 
