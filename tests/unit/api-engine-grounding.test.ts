@@ -89,7 +89,8 @@ describe('grounded links (B-API-2)', () => {
     ], async () => ({ result: { content: [{ type: 'text', text: `Saved people/alice/deck.pptx. Link for the user: [deck.pptx](${real})` }] } }))
     expect(r.bodies[0].messages[0].content).toBe(`sys\n\n${API_GROUNDING_RULES}`)
     expect(API_GROUNDING_RULES).toMatch(/copying it exactly/)
-    expect(API_GROUNDING_RULES).toMatch(/If you do not know, say so/)
+    // "state facts only when a tool, a file or the user gave them" is the every-engine NO_INVENT_RULE now (chat/prompt.ts)
+    expect(API_GROUNDING_RULES).not.toMatch(/State facts/)
     expect(r.bodies[1].messages.at(-1).content).toContain(`copy them exactly; there are no other links to these files):\n- ${real}`)
   })
 

@@ -1,7 +1,7 @@
 // Chat places QA-A findings (2026-11-22, TC-6935..6944): the words people and the AI get, one test per finding where the
 // fix is in shared or server code without a running chat (the turn-level cases are in the area tests).
 import { describe, expect, test } from 'bun:test'
-import { localizeStep, placeName, READ_SLIDES_VERB, shellWorkWords, slidesStep, stepLabel, stepPlace } from '@mycel/shared'
+import { chatPlaceWords, localizeStep, placeName, READ_SLIDES_VERB, shellWorkWords, slidesStep, stepLabel, stepPlace } from '@mycel/shared'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import type { Locale } from '@mycel/shared/api'
 import { tr } from '../../server/src/chat/i18n'
@@ -139,5 +139,26 @@ describe('TC-6944: a guest on a team whose AI they may not use', () => {
       expect(CHAT_ERROR_MESSAGES.guest_no_ai[l]).toBeTruthy()
       expect(CHAT_ERROR_MESSAGES.guest_no_ai[l]).not.toMatch(/admin|관리자/i)
     }
+  })
+})
+
+describe('scenario QA TC-7048: no file id or inner chat path in a step', () => {
+  const ID = '01a2005b-a31e-7699-bd85-bf7b65111001'
+  test('a command\'s guessed path: the work folder in words, the file id left out', () => {
+    expect(shellWorkWords(`ffmpeg -i "$TRINA_WORK/../files/${ID}/qa_demo.mp4" out.mp4`, 'en')).toBe('ffmpeg -i "Work folder › .. › files › qa_demo.mp4" out.mp4')
+    expect(shellWorkWords(`cp "chat:files/${ID}/견적서.pdf" .`, 'ko')).toBe('cp "이 채팅 › 견적서.pdf" .')
+  })
+  test('a step line: a chat file in words with no tooltip path; one cut short or after an arrow too', () => {
+    expect(stepPlace({ tool: 'edit_pdf' }, `Edit PDF · chat:files/${ID}/Northwind_견적서.pdf`, 'en')).toEqual({ label: 'Edit PDF · This chat › Northwind_견적서.pdf' })
+    expect(stepPlace({ tool: 'read' }, `Read · chat:files/${ID}/Northwind_proposal_final_v…`, 'en').label).toBe('Read · This chat › Northwind_proposal_final_v…')
+    expect(stepPlace({ tool: 'edit_office' }, `Edit Office file · chat:files/${ID}/a.pptx -> chat:files/b.pptx`, 'en').label).not.toContain(ID)
+    // a team path keeps its tooltip
+    expect(stepPlace({ tool: 'read' }, 'Read · shared/브랜드/logo.png', 'en').path).toBe('shared/브랜드/logo.png')
+  })
+  test('an error detail: quoted places with spaces, bare ones, and text without any', () => {
+    expect(chatPlaceWords(`No file 'chat:files/${ID}/Northwind 견적서 (2).pdf' in this chat's files`, 'en')).toBe("No file 'This chat › Northwind 견적서 (2).pdf' in this chat's files")
+    expect(chatPlaceWords(`read chat:files/${ID}/a.pdf first`, 'en')).toBe('read This chat › a.pdf first')
+    expect(chatPlaceWords('copy it to chat:work/out/a.png, then', 'en')).toBe('copy it to Work folder › out › a.png, then')
+    expect(chatPlaceWords('nothing here', 'en')).toBe('nothing here')
   })
 })

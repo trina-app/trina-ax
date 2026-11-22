@@ -202,6 +202,24 @@ export class RoomSound {
     return true
   }
 
+  /** A reply in a thread under a shared AI chat's answer that the server gave me a notice of (the chat.thread event's
+   * `notice`: it decided my settings and quiet hours already): rings like a room's message, once per event (`id`), not
+   * while `onScreen()` says the thread is in front of me (also after the settle), and only for the tab that takes the
+   * device's slot. Resolves whether it rang. */
+  async notice(id: string, onScreen: () => boolean, replay: boolean): Promise<boolean> {
+    const seen = this.seen.has(id)
+    this.remember(id)
+    if (seen || replay || !roomSoundOn(this.d.storage) || this.d.quiet() || onScreen() || !this.d.audio.ready()) return false
+    const settle = this.d.settle
+    if (settle) {
+      await (settle.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(settle.ms)
+      if (this.stopped || onScreen() || !roomSoundOn(this.d.storage) || this.d.quiet() || !this.d.audio.ready()) return false
+    }
+    if (!(await this.claim())) return false
+    try { this.d.audio.play() } catch { /* no sound, no error */ }
+    return true
+  }
+
   /** Does this page take care of the sound of a room notice now, so the service worker shows it silently? Yes when
    * this device's sound is off (none is wanted), or when the page gets the room's events (connected) and may play. */
   handles(connected: boolean): boolean {

@@ -74,6 +74,7 @@ import { OpenAppLine } from '../components/onboarding/OpenAppLine'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
+import { nameList, restoreDropouts } from '../lib/restoreDropouts'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
 import { Badge, Button, buttonClass, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
@@ -1680,6 +1681,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
 function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: () => void; onRestored: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMeStrict()
   const [items, setItems] = useState<FileVersion[] | null>(null)
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
@@ -1710,7 +1712,10 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
   const restore = async (v: FileVersion) => {
-    if (!(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body: t('files.restoreBody'), confirm: t('common.restore') }))) return
+    // the people whose later versions drop out of the latest content are named (QA TC-7246); nobody else: today's words
+    const dropouts = restoreDropouts(items ?? [], now, v.version, me.user.id)
+    const body = dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody')
+    if (!(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body, confirm: t('common.restore') }))) return
     setBusy(v.id)
     try {
       await sendWidening((confirm) => api.call(API.restoreVersion, { body: { path, versionId: v.id, ...(confirm ? { confirm: true } : {}) } }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') }))

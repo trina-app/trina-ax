@@ -317,7 +317,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       name={noticeText(item, t, locale)}
       nameTestId="activity-panel-text"
       // a chat shared with me: its title under the words, while I still see it
-      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
+      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : item.code === 'chat.lost' && item.chatLost?.title ? <><bdi data-testid="activity-panel-chat">{item.chatLost.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
       end={
         unread && (
           <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">

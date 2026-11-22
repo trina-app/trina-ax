@@ -26,7 +26,7 @@ import { createContext, useContext, useState } from 'react'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
-import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, slidesStep, stepPlace, unansweredStep } from '@mycel/shared'
+import { chatPlaceWords, localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, slidesStep, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
@@ -204,7 +204,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
   const unanswered = mark === 'unanswered'
-  const detail = unanswered ? undefined : words.detail
+  // a tool's error text names a chat file by its inner path: in words, never its file id (QA TC-7048)
+  const detail = unanswered || !words.detail ? undefined : thinking ? words.detail : chatPlaceWords(words.detail, locale)
   const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
@@ -381,7 +382,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint select-none hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
-        {showsFailures(steps, failed, marks.gotPast) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
+        {showsFailures(steps, failed, marks.gotPast) && <Tooltip label={t('steps.someFailed')}><CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} role="img" data-testid="steps-failed" /></Tooltip>}
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>

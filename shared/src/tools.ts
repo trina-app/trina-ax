@@ -265,9 +265,9 @@ export const EditPdfOperation = z.union([
   }) }),
 ])
 export const EditPdfInput = z.strictObject({
-  file_path: relPath.describe('The PDF to change'),
+  file_path: relPath.describe('The PDF to change: a team path, or a file of this chat chat:files/<file_id>/<name> (read it first; without output it gets a new version)'),
   operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn is changed in place)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn, or a file of this chat, is changed in place)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
 })
 export const MergePdfsInput = z.strictObject({

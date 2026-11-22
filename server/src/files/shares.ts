@@ -1180,7 +1180,7 @@ export class FileShares {
    * existing view-only grant. Only active members who are not guests and cannot open the file now; nobody is added.
    * One ask (all its people) counts once toward the asker's budget (FILE_REQUESTS_PER_HOUR, _PER_OWNER_DAY).
    */
-  requestFor(askerId: string, shareId: string, forIds: readonly string[], L: Locale): { asked: string[]; already: string[]; to: string[] } {
+  requestFor(askerId: string, shareId: string, forIds: readonly string[], L: Locale, via: 'ai' | 'dialog' = 'ai'): { asked: string[]; already: string[]; to: string[] } {
     const me = this.principal(askerId)
     const o = this.open(askerId, shareId)
     if (!me || me.role === 'guest' || o.kind !== 'open') throw new HttpError('not_found')
@@ -1208,7 +1208,7 @@ export class FileShares {
       asked.push(id)
       for (const target of to) this.notify(target, 'file.access_requested', `${s.id}:${id}`, true)
     }
-    if (asked.length) audit(this.db, { actor: askerId, action: 'file.access_request', target: this.auditTarget(s), detail: { ...this.auditPath(s), for: asked.length, via: 'ai' } })
+    if (asked.length) audit(this.db, { actor: askerId, action: 'file.access_request', target: this.auditTarget(s), detail: { ...this.auditPath(s), for: asked.length, via } })
     return { asked, already, to }
   }
 
@@ -1322,6 +1322,16 @@ export class FileShares {
     if (!r) return null
     return { share: s, request: q, requester, may: this.shareRight(me, rules, r.segs).may }
   }
+  /** The file at `path` is inside a live team project (projects/<name>/…) whose folder `personId` cannot open now. */
+  private outsideProject(path: string, personId: string): boolean {
+    const segs = segsOf(path)
+    if (segs[0] !== 'projects' || segs.length < 3) return false
+    const folder = segs.slice(0, 2).join('/')
+    if (!this.db.query('SELECT 1 FROM projects WHERE folder_path = ? AND trashed_with IS NULL').get(folder)) return false
+    const p = this.principal(personId)
+    if (!p) return false
+    try { authorize(this.ctx.files.fx, this.rules(), p, folder, 'read'); return false } catch { return true }
+  }
   /** The push of an access request (files/share-push.ts): only while the request still waits and this person may answer
    * it now, and the asker's account is still active (an admin or the owner answered, the file went, the person lost the
    * right to share it, the asker was switched off: no push). */
@@ -1393,7 +1403,10 @@ export class FileShares {
       const { share: s, request: q, requester, may } = a
       // asked for the person by someone else (requestFor): `by` is who asked, `for` who would get it
       const forName = q.asked_by ? name(requester ?? null) : null
-      return { ...base, link: 'file', fileShare: { by: name(q.asked_by ?? requester ?? null), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(forName ? { for: plainLabel(forName, 120) } : {}), ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(may && q.state === 'pending' ? { canAnswer: true as const } : {}) } }
+      const answerable = may && q.state === 'pending'
+      // (the card's line under Share: the person is not in the team project the file is in, so only this file opens)
+      const outside = answerable && this.outsideProject(s.path, requester)
+      return { ...base, link: 'file', fileShare: { by: name(q.asked_by ?? requester ?? null), name: plainLabel(baseName(s.path), 120), linkId: s.id, ...(forName ? { for: plainLabel(forName, 120) } : {}), ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(answerable ? { canAnswer: true as const } : {}), ...(outside ? { outside: 'project' as const } : {}) } }
     }
     if (row.event_type === 'file.unshared_by_move') {
       const a = this.db.query('SELECT actor_id, action, target FROM audit_log WHERE id = ?').get(Number(row.source_id)) as { actor_id: string | null; action: string; target: string | null } | null

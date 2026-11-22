@@ -28,10 +28,10 @@ import { usePeople } from './people'
 import { usePresence } from './presence'
 import { useTyping } from './typing'
 import { useRooms } from './rooms'
-import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
+import { chatThreadSound, roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
 import { isGuestMe } from '../lib/guests'
-import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
+import { chatThreadEvent, chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
 import { useWelcome } from './welcome'
 
@@ -115,7 +115,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       useChats.getState().handleEvent(ev)
       return
     case 'chat.thread':
-      // a thread under an AI answer of a shared chat (store/chatThreads.ts): its replies and the line under the answer
+      // a thread under an AI answer of a shared chat (store/chatThreads.ts): its replies and the line under the answer;
+      // a reply that gave me a notice is told in the desktop app (store/sessionMarkers.ts)
+      chatThreadEvent(ev, meta)
+      chatThreadSound(ev.data, meta.replay)
       useChatThreads.getState().handleEvent(ev.data)
       return
     case 'deck.progress':

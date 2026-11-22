@@ -85,7 +85,7 @@ export const PLACE_WORDS = {
   hiddenTurn: 'This answer used a connection whose results some people who may join this chat cannot see, so it cannot attach files to the chat.',
   lockedSave: 'Files are not attached in a confidential chat.',
   workWrite: 'Files come into the work folder only with copy_files (to_folder "chat:work/…") or your box_shell commands, in a chat whose commands run in a work folder; write and edit do not change it.',
-  inPlace: 'This tool does not change a chat file in place: write, edit and edit_office (without output) save a new version of it; this tool makes a new file (output chat:files/<new name>, or a team folder).',
+  inPlace: 'This tool does not change a chat file in place: write, edit, edit_office and edit_pdf (without output) save a new version of it; this tool makes a new file (output chat:files/<new name>, or a team folder).',
   projectReadOnly: "In a project chat the chat's files are read-only: save a changed copy in the project folder (its path in projects/), where its people find it.",
   hiddenVersion: "This answer used a connection whose results some people who may join this chat cannot see, so it cannot change this chat's files.",
   versionNotHere: "A chat file is not changed here (a confidential chat, a scheduled run or a guest's chat): read it, and save a changed copy in a team folder.",

@@ -51,6 +51,8 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/admin/users.ts": { n: {"users/": 5}, why: "the archive of a removed member (never shared, D3); their folder shares end with fresh sessions" },
   "server/src/auth/guest-invites.ts": { n: {"access": 1, "users/": 1}, why: "a guest place is never under users/" },
   "server/src/auth/guests.ts": { n: {"access": 2}, why: "a guest's one place (guests are never on a share)" },
+  "server/src/chat/attach-copies.ts": { n: {"access": 1}, why: "whether everyone in a people-shared chat may read the sender's own attached file (a copy only when not); the copy reads through authorize as the sender" },
+  "server/src/chat/people-share.ts": { n: {"access": 1}, why: "the Share warning names a file only when the sharer may read it now (no reader count, no share)" },
   "server/src/chat/chat-files-share.ts": { n: {"users/": 1}, why: "only the chat creator's own files are offered for copying into the chat; reads go through authorize as the creator (no reader count, no share)" },
   "server/src/chat/shared-run.ts": { n: {"users/": 1}, why: "only narrows where a steerable scheduled run may write (its maker's own folder or the save folder); every write still passes the wider-audience checks" },
   "server/src/chat/answer-share.ts": { n: {"missingReaders": 1, "access": 1, "import:missingReaders": 1, "import:viewersByHistory": 1}, why: "missingReaders -> viewersOf; its access line: who may open a linked file BY PATH (a share opens by link only, D5)" },

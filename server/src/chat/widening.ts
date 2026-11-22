@@ -80,6 +80,8 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   const paths = new Map((db.query('SELECT id, path FROM folders').all() as { id: string; path: string }[]).map((r) => [r.id, r.path]))
   const readersAmong = (s: ReadSource, people: Principal[], set: RuleSet): Set<string> => {
     stats.checks++
+    // one chat's Share check: that chat's own files are seen by everyone being added to it (QA TC-7042)
+    if (s.type === 'chat' && target.kind === 'chat' && s.id === target.chatId) return new Set(people.map((x) => x.id))
     if (s.type === 'folder' || s.type === 'root') {
       const p = s.type === 'root' ? '' : paths.get(s.id)
       if (p === undefined) return new Set()

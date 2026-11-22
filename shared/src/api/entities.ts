@@ -353,6 +353,12 @@ export const Chat = z.object({
     people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
     /** how many other people wrote in it (with `people`) */
     peopleCount: z.number().int().nonnegative().optional(),
+    /** a chat shared with people, for someone it names by name (not its creator): they may leave it ("Leave this
+     * chat", POST /api/chats/:id/leave). Absent: in it through a group only, its creator, or another kind of chat. */
+    named: z.literal(true).optional(),
+    /** a chat shared with people whose creator's account is gone, for the others in it (QA TC-7431): deleted (`until`:
+     * when the chat goes for good, auth/sweeper.ts) or switched off. Absent: their account is there (or it is mine). */
+    byGone: z.discriminatedUnion('state', [z.object({ state: z.literal('deleted'), until: IsoTime }), z.object({ state: z.literal('disabled') })]).optional(),
   }).optional(),
 })
 export type Chat = z.infer<typeof Chat>
@@ -666,6 +672,10 @@ export const Message = z.object({
   branch: z.object({ index: z.number().int().nonnegative(), count: z.number().int().positive(), siblingIds: z.array(Uuid7) }),
   /** answers only: the answer paused at a per-answer limit (TurnStopReason); absent or null: it ended normally */
   stopReason: TurnStopReason.nullable().optional(),
+  /** an answer stopped because its requester's account was deleted ('requester_removed') or switched off
+   * ('requester_disabled'): who, by name, so the people still in a shared chat read why it stopped (QA TC-7431;
+   * messages.stopped_for, migration 435). Absent: any other end. */
+  stoppedFor: z.object({ reason: z.enum(['requester_removed', 'requester_disabled']), name: z.string() }).optional(),
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),

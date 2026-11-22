@@ -2,7 +2,8 @@
 // environment on srt, behind a flag"). box_shell with job: true starts a background command that has an exit status and
 // a log (srt/runner.ts, the rows in dev_env_runs). The tracker polls the runner while one runs and picks up open rows
 // after a restart. When a job ends, the person who started it gets a plain notice of the result (no code, no log) and a
-// link to the chat; an audit line is written; and the next box_shell call in that chat gives the AI the result. The AI does
+// link to the chat (while their answer in that chat still runs, the notice waits for its end and tells the request's
+// outcome instead: tellHeldJobs); an audit line is written; and the next box_shell call in that chat gives the AI the result. The AI does
 // not go on by itself.
 //
 // dev_env_jobs and dev_env_stops are the tables of the removed box runner (docs/DECISIONS.md "Dev environment: box
@@ -18,6 +19,8 @@ import { carryLength, redactorFor, type Redactor } from '../integrations/connect
 import { notifyDevEnv } from '../notifications/service'
 import { dropRowRun, pollRuns, RCOLS, reconcile, startWaiting, type RunRow } from './srt/runner'
 import { END_NOTE, setEnder, type EndReason } from './srt/end'
+import { REQUEST_SOURCE, requestOutcome, requestSource, requestSourcePrefix, type RequestOutcome, type RequestStop } from './request-outcome'
+export { REQUEST_SOURCE, requestOutcome, requestSource, type RequestOutcome, type RequestStop }
 
 export const JOB_POLL_MS = 10_000
 const JOB_KEEP_MS = 30 * 86400_000
@@ -125,6 +128,7 @@ export function startJobTracker(ctx: AppContext): { stop(): void } {
     busy = true
     try {
       await pollSrt(ctx)
+      tellHeldJobs(ctx)
       if (++ticks % 360 === 1) purgeOldJobs(ctx.db)
     } catch (err) { ctx.log.warn('dev env job poll failed', { err }) } finally { busy = false }
   }
@@ -156,15 +160,119 @@ function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: 
     seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000), runner: 'srt',
   } })
   if (row.kind === 'server') return
+  // a step of an answer that is still going (QA: "‘…’에서 부탁한 작업을 트리나가 마쳤어요." at 00:55Z on 11-22 while the
+  // answer went on for long after): the AI gets the result on its next box_shell call, and the person hears about the
+  // request when the answer ends (tellHeldJobs), never "done" for one step of it
+  if (answerRunning(ctx, row.user_id, row.chat_id, row.turn_id)) return
+  tellJob(ctx, row, end.code, end.reason)
+}
+
+/** The live notice and the Activity row of one job's own result (done, unknown, failed). */
+function tellJob(ctx: AppContext, row: Pick<RunRow, 'id' | 'user_id' | 'chat_id' | 'project_id'>, code: number | null, reason: string | null) {
   // the chat's title while it is there (the person started the job in it); the toast opens the chat
   const chat = row.chat_id ? ctx.db.query('SELECT title FROM chats WHERE id = ? AND deleted_at IS NULL').get(row.chat_id) as { title: string } | null : null
-  const outcome = jobOutcome(end.code, end.reason)
+  const outcome = jobOutcome(code, reason)
   const message = jobNoticeText(localeOf(ctx.db, row.user_id), outcome, chat?.title ?? null)
   const link = chat ? `/c/${encodeURIComponent(row.chat_id!)}` : row.project_id ? `/projects/${encodeURIComponent(row.project_id)}` : '/'
+  // the Activity row first: it is the mark that this job was told, and the toast goes only with a new one
+  if (!notifyDevEnv(ctx, row.user_id, 'dev_env.job', row.id)) return
   try {
     ctx.services.realtime.publish(row.user_id, { type: 'notice', data: { level: outcome === 'failed' ? 'warn' : 'info', code: 'dev_env_job', message, link } })
   } catch (err) { ctx.log.warn('dev env job notice failed', { err }) }
-  notifyDevEnv(ctx, row.user_id, 'dev_env.job', row.id)
+}
+
+// ---------------- the request a job was a step of ----------------
+// A job the AI started inside an answer (box_shell job: true) is a step of that answer. While an answer of the same
+// person is queued or running in the job's chat (the one that started it, or the next one), its end tells the person
+// nothing: the AI reads the result and goes on. When the chat's answers have ended, one notice says how the request
+// ended, from the answer that was running when the job ended: done only when that answer finished; else stopped, with
+// why. Its Activity row is a dev_env_notices row 'dev_env.job' whose source is REQUEST_SOURCE + the answer's turn id
+// (one per answer, no migration). A job that ends after its answer ended keeps its own notice (endRun).
+
+/** how far back the backstop looks for a job whose answer's end was not seen (a restart cut the answer off) */
+const HELD_LOOKBACK_MS = 2 * 86400_000
+
+/** Has this person an answer queued or running in this chat (or is the job's own answer still going)? */
+function answerRunning(ctx: AppContext, userId: string, chatId: string | null, turnId: string | null): boolean {
+  if (turnId && ctx.db.query("SELECT 1 FROM turns WHERE id = ? AND status IN ('queued','running')").get(turnId)) return true
+  return !!chatId && !!ctx.db.query("SELECT 1 FROM turns WHERE chat_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(chatId, userId)
+}
+
+export const REQUEST_DONE = JOB_DONE
+export const REQUEST_DONE_NO_CHAT = JOB_DONE_NO_CHAT
+export const REQUEST_STOPPED: Record<Locale, (title: string, why: string) => string> = {
+  ko: (t, w) => `‘${t}’에서 부탁한 작업이 멈췄어요 — ${w}`,
+  en: (t, w) => `The job you asked for in “${t}” stopped: ${w}`,
+  id: (t, w) => `Pekerjaan yang Anda minta di “${t}” berhenti: ${w}`,
+  ja: (t, w) => `「${t}」で頼んだ作業が止まりました — ${w}`,
+  es: (t, w) => `El trabajo que pidió en «${t}» se detuvo: ${w}`,
+  zh: (t, w) => `你在“${t}”中交给 Trina 的任务停下了：${w}`,
+}
+export const REQUEST_STOPPED_NO_CHAT: Record<Locale, (why: string) => string> = {
+  ko: (w) => `부탁한 작업이 멈췄어요 — ${w}`,
+  en: (w) => `A job you asked for stopped: ${w}`,
+  id: (w) => `Pekerjaan yang Anda minta berhenti: ${w}`,
+  ja: (w) => `頼んだ作業が止まりました — ${w}`,
+  es: (w) => `Un trabajo que pidió se detuvo: ${w}`,
+  zh: (w) => `你交给 Trina 的任务停下了：${w}`,
+}
+export const REQUEST_WHY: Record<Locale, Record<RequestStop, string>> = {
+  ko: { limit: '한 번에 할 수 있는 단계나 시간 한도에 닿았어요. 채팅에서 이어서 부탁해 보세요.', error: '오류가 났어요. 채팅에서 확인해 보세요.', stopped: '멈춤을 눌렀어요.', restart: '서버가 다시 시작됐어요. 채팅에서 다시 부탁해 보세요.', question: '트리나가 채팅에서 답을 기다려요.' },
+  en: { limit: 'it reached the step or time limit of one answer. Ask again in the chat to go on.', error: 'something went wrong. Check the chat.', stopped: 'Stop was pressed.', restart: 'the server restarted. Ask again in the chat.', question: 'Trina is waiting for your answer in the chat.' },
+  id: { limit: 'sudah mencapai batas langkah atau waktu untuk satu jawaban. Minta lagi di obrolan untuk melanjutkan.', error: 'terjadi kesalahan. Lihat di obrolan.', stopped: 'tombol Berhenti ditekan.', restart: 'server dimulai ulang. Minta lagi di obrolan.', question: 'Trina menunggu jawaban Anda di obrolan.' },
+  ja: { limit: '1回の回答でできるステップか時間の上限に達しました。チャットで続きを頼んでください。', error: 'エラーが起きました。チャットで確認してください。', stopped: '停止が押されました。', restart: 'サーバーが再起動しました。チャットでもう一度頼んでください。', question: 'トリナがチャットで返事を待っています。' },
+  es: { limit: 'llegó al límite de pasos o de tiempo de una respuesta. Pídalo de nuevo en el chat para seguir.', error: 'algo salió mal. Revíselo en el chat.', stopped: 'se pulsó Detener.', restart: 'el servidor se reinició. Pídalo de nuevo en el chat.', question: 'Trina espera su respuesta en el chat.' },
+  zh: { limit: '已达到单次回答的步骤或时间上限。请在对话中让它继续。', error: '出错了。请在对话中查看。', stopped: '已按下停止。', restart: '服务器重启了。请在对话中再说一次。', question: 'Trina 在对话中等你的回复。' },
+}
+/** the live notice's words for a request */
+export function requestNoticeText(locale: Locale, o: RequestOutcome, chatTitle: string | null): string {
+  const title = chatTitle?.trim()
+  if (o.outcome === 'done') return title ? REQUEST_DONE[locale](title) : REQUEST_DONE_NO_CHAT[locale]
+  const why = REQUEST_WHY[locale][o.reason]
+  return title ? REQUEST_STOPPED[locale](title, why) : REQUEST_STOPPED_NO_CHAT[locale](why)
+}
+
+/** Jobs whose end was held while an answer ran: once their chat has no answer of that person queued or running, one
+ * notice per answer that was running when they ended (the request's outcome, kept in the notice's source), or, with no
+ * such answer (its row is gone), the job's own notice. Called at each answer's end (chat/turn.ts) for its chat, and by
+ * the tracker's poll for all chats (an answer a restart cut off). Each job and each answer is told once: the notice row
+ * is the mark, and the toast goes only with a new row. */
+export function tellHeldJobs(ctx: AppContext, chatId?: string, now = Date.now()) {
+  const since = new Date(now - HELD_LOOKBACK_MS).toISOString()
+  // ended jobs of a chat with no notice of their own and none for their own answer, of an active person, with no answer
+  // of theirs going in that chat
+  const rows = ctx.db.query(`SELECT r.id, r.user_id, r.chat_id, r.project_id, r.turn_id, r.exit_code, r.end_reason, r.ended_at FROM dev_env_runs r JOIN users u ON u.id = r.user_id AND u.status = 'active' AND u.deleted_at IS NULL
+    WHERE r.kind = 'job' AND r.chat_id IS NOT NULL ${chatId ? 'AND r.chat_id = ?' : ''} AND r.ended_at IS NOT NULL AND r.ended_at >= ?
+      AND NOT EXISTS (SELECT 1 FROM dev_env_notices n WHERE n.user_id = r.user_id AND n.event_type = 'dev_env.job' AND n.source_id = r.id)
+      AND NOT EXISTS (SELECT 1 FROM dev_env_notices n WHERE n.user_id = r.user_id AND n.event_type = 'dev_env.job' AND r.turn_id IS NOT NULL AND substr(n.source_id, 1, length(r.turn_id) + ?) = ? || r.turn_id || ':')
+      AND NOT EXISTS (SELECT 1 FROM turns t WHERE t.chat_id = r.chat_id AND t.user_id = r.user_id AND t.status IN ('queued','running'))
+    ORDER BY r.ended_at`).all(...(chatId ? [chatId] : []), since, REQUEST_SOURCE.length + 1, REQUEST_SOURCE) as HeldRow[]
+  const told = new Set<string>()
+  for (const r of rows) {
+    const turnId = answerAtEnd(ctx, r)
+    if (!turnId) { tellJob(ctx, r, r.exit_code, r.end_reason); continue }
+    if (told.has(turnId)) continue
+    told.add(turnId)
+    if (ctx.db.query("SELECT 1 FROM dev_env_notices WHERE user_id = ? AND event_type = 'dev_env.job' AND substr(source_id, 1, ?) = ?").get(r.user_id, requestSourcePrefix(turnId).length, requestSourcePrefix(turnId))) continue
+    const o = requestOutcome(ctx.db, turnId)
+    if (!o || !notifyDevEnv(ctx, r.user_id, 'dev_env.job', requestSource(turnId, o))) continue
+    const chat = ctx.db.query('SELECT title FROM chats WHERE id = ? AND deleted_at IS NULL').get(r.chat_id) as { title: string } | null
+    const message = requestNoticeText(localeOf(ctx.db, r.user_id), o, chat?.title ?? null)
+    const link = chat ? `/c/${encodeURIComponent(r.chat_id)}` : '/'
+    try {
+      ctx.services.realtime.publish(r.user_id, { type: 'notice', data: { level: o.outcome === 'done' ? 'info' : 'warn', code: 'dev_env_job', message, link } })
+    } catch (err) { ctx.log.warn('dev env request notice failed', { err }) }
+  }
+}
+type HeldRow = { id: string; user_id: string; chat_id: string; project_id: string | null; turn_id: string | null; exit_code: number | null; end_reason: string; ended_at: string }
+
+/** The answer that was running when a held job ended: its own answer when that ended after it (also one put back in the
+ * queue for an update and run again, whose start moved), else the first of that person's in that chat to end after it. */
+function answerAtEnd(ctx: AppContext, r: HeldRow): string | null {
+  const ENDED = "status IN ('done','error','stopped','interrupted')"
+  if (r.turn_id && ctx.db.query(`SELECT 1 FROM turns WHERE id = ? AND user_id = ? AND chat_id = ? AND ended_at >= ? AND ${ENDED}`).get(r.turn_id, r.user_id, r.chat_id, r.ended_at)) return r.turn_id
+  return (ctx.db.query(`SELECT id FROM turns WHERE chat_id = ? AND user_id = ? AND started_at <= ? AND ended_at >= ? AND ${ENDED} ORDER BY ended_at LIMIT 1`)
+    .get(r.chat_id, r.user_id, r.ended_at, r.ended_at) as { id: string } | null)?.id ?? null
 }
 
 setEnder((c, rowId, end) => {

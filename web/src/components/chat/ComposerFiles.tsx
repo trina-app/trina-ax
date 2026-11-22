@@ -487,13 +487,17 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
  */
 export function SharedUploadLine({ files, audience, kind, className }: { files: Pending[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
   const t = useT()
-  const team = useMe()?.team.defaultLocale
+  const me = useMe()
+  const team = me?.team.defaultLocale
   if (kind === 'people') {
     const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || keptWithChat(f)))
-    if (!ups.length) return null
+    // a My files attachment (QA TC-7286): one some people here can't open goes in as a copy everyone opens, people
+    // added later and guests too (server chat/attach-copies.ts); said before Send, which is the consent
+    const mine = files.some((f) => f.source === 'team' && ownFolderPath(f.attachment?.path ?? f.path, me?.user.id))
+    if (!ups.length && !mine) return null
     return (
       <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="shared-upload-line">
-        {t('chat.share.uploadLine')}
+        {ups.length ? t('chat.share.uploadLine') : t('chat.share.attachCopyLine')}
       </p>
     )
   }
@@ -539,3 +543,10 @@ function restoreChips(userId: string, draftId: string, reload: boolean): Pending
 
 /** "groups/marketing/brief.md" -> "groups/marketing" */
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/** Is this team path in the person's own folder (users/<id>/…)? */
+export const ownFolderPath = (p: string | undefined | null, me: string | undefined): boolean => {
+  if (!p || !me) return false
+  const segs = p.split('/').filter(Boolean)
+  return segs.length >= 3 && segs[0] === 'users' && segs[1] === me
+}

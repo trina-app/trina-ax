@@ -44,7 +44,7 @@ export type StoredAttachment = Attachment & { fromSha256?: string }
 
 /** (the client's view of a copy: chat/store.ts copyForViewer) */
 export { copyForViewer } from './store'
-import { madeInChat } from './shared-actions'
+import { handedOverInChat, madeInChat } from './shared-actions'
 import { isPeopleRow, peopleAudience } from './chat-audience'
 import { answerRecords, chatNodes, withheldAmong, withheldFrom } from './shared-answers'
 
@@ -125,6 +125,15 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
         AND e.turn_id IN (SELECT id FROM turns WHERE chat_id = ? AND user_id = ?) GROUP BY e.path ORDER BY last DESC LIMIT ${MADE_SCAN_MAX}`).all(creator.id, chat.id, creator.id) as { path: string }[]).map((r) => r.path)
   const copies = copiesIn(ctx, chat.id)
   const rules = ctx.files.rules()
+  // a helper file (QA TC-7269: the .md or .html a later make_file of this chat turned into the PDF) is not a result of
+  // the chat: it is left out when the file made from it is offered too (file_events detail.from of that create)
+  const madeFrom = new Map<string, string[]>()
+  for (const r of db.query(`SELECT path, json_extract(detail, '$.from') AS src FROM file_events WHERE user_id = ? AND action = 'create'
+      AND json_extract(detail, '$.from') IS NOT NULL AND turn_id IN (SELECT id FROM turns WHERE chat_id = ? AND user_id = ?)`).all(creator.id, chat.id, creator.id) as { path: string; src: string }[]) {
+    if (typeof r.src === 'string' && r.src !== r.path) madeFrom.set(r.src, [...(madeFrom.get(r.src) ?? []), r.path])
+  }
+  const listed = new Set(paths)
+  const helper = (rel: string) => (madeFrom.get(rel) ?? []).some((p) => listed.has(p))
   // made by an answer hidden from anyone who sees the chat (or is being added): never offered
   const hidden = hiddenAnswers(ctx, chat.id, o.audience ?? [])
   const out: MadeFile[] = []
@@ -132,7 +141,9 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
     try {
       if (!rel.startsWith(own) || rel.split('/').some((s) => !s || s.startsWith('.') || s === '..')) continue
       if (instructionLike(rel)) continue
-      if (!madeInChat(db, chat.id, creator.id, rel)) continue
+      if (o.only === undefined && helper(rel)) continue
+      // written by the chat, or handed over from its work folder (a box_shell video: QA TC-7261)
+      if (!madeInChat(db, chat.id, creator.id, rel) && !handedOverInChat(db, chat.id, creator.id, rel)) continue
       const last = db.query("SELECT sha256, size FROM file_events WHERE path = ? AND action IN ('create', 'update') ORDER BY id DESC LIMIT 1").get(rel) as { sha256: string | null; size: number | null } | null
       if (!last?.sha256 || !/^[0-9a-f]{64}$/.test(last.sha256)) continue
       const made = db.query("SELECT id, turn_id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number; turn_id: string | null } | null

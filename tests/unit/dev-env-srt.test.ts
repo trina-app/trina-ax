@@ -14,12 +14,13 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, REQUEST_DONE, REQUEST_SOURCE, REQUEST_WHY, requestNoticeText, runResultsForAI, tellHeldJobs, type RequestStop } from '../../server/src/devenv/jobs'
+import { closeChatQuestions } from '../../server/src/chat/open-questions'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
@@ -522,6 +523,29 @@ describe('the srt settings file', () => {
     expect(e.TRINA_TEAM).toBe(TEAM)
     expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
     expect(() => personHome(BASE, '../bob')).toThrow()
+  })
+  test('the box\'s default fonts (QA TC-7043): Noto CJK first for sans-serif, serif and monospace, before the system rules; Linux only', () => {
+    const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null }
+    const dir = boxFontsDir(BASE)
+    expect(dir).toBe(`${BASE}/devenv/bin/fonts`)
+    const e = runEnv({ ...o, platform: 'linux', fonts: dir })
+    expect(e.FONTCONFIG_FILE).toBe(`${dir}/fonts.conf`)
+    expect(e.MATPLOTLIBRC).toBe(`${dir}/matplotlibrc`)
+    // read in a run: the server's bin folder is (srtSettings allowRead), never writable
+    expect(runEnv({ ...o, platform: 'linux', fonts: null }).FONTCONFIG_FILE).toBeUndefined()
+    // a Mac's tools find Apple's fonts: nothing set by default
+    expect(runEnv({ ...o, platform: 'darwin' }).FONTCONFIG_FILE).toBeUndefined()
+    // the preferences come before the system's rules (a <prefer> added first stays first), then the system's file
+    const prefer = BOX_FONTS_CONF.indexOf('<prefer><family>Noto Sans CJK KR'), include = BOX_FONTS_CONF.indexOf('<include')
+    expect(prefer).toBeGreaterThan(0)
+    expect(prefer).toBeLessThan(include)
+    expect(BOX_FONTS_CONF).toContain('<include ignore_missing="yes">/etc/fonts/fonts.conf</include>')
+    for (const g of ['sans-serif', 'serif', 'monospace']) expect(BOX_FONTS_CONF).toContain(`<family>${g}</family><prefer>`)
+    expect(BOX_MATPLOTLIBRC).toContain('font.sans-serif: Noto Sans CJK KR')
+    // the fonts come from the one list (scripts/system/packages.json, group fonts: image and default installs)
+    const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
+    expect(Object.keys(list.groups.fonts.packages)).toContain('fonts-noto-cjk')
+    expect(list.groups.fonts.install).toBe('default')
   })
   test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH', () => {
     const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'linux' as const }
@@ -1875,5 +1899,156 @@ describe('starts that meet (one start at a time)', () => {
   test('the server\'s data folder is hidden from a run even outside the base folder', async () => {
     await alice().call({ command: 'echo x' })
     expect(lastSettings().filesystem.denyRead).toContain(path.resolve(h.ctx.config.dataDir))
+  })
+})
+
+// ---------------- a job inside an answer that is still going (owner's report 11-22) ----------------
+// "‘트리숲 홍보영상 제작’에서 부탁한 작업을 트리나가 마쳤어요." came while the answer went on: the AI's background render
+// (box_shell job: true) had ended, not the request. A job's end tells nothing while its person's answer in that chat is
+// queued or running; the request's notice comes when the answer ends, from how it ended.
+describe('a job that ends while its answer still runs', () => {
+  const TITLE = '트리숲 홍보영상 제작'
+  let n = 0
+  const newTurn = (chatId: string, userId = 'alice', status = 'running') => {
+    const id = `turn-held-${++n}`
+    h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at) VALUES (?, ?, ?, 'claude-code', ?, ?)").run(id, chatId, userId, status, new Date().toISOString())
+    return id
+  }
+  const endTurn = (id: string, status: string, stopReason: string | null = null) =>
+    h.ctx.db.query('UPDATE turns SET status = ?, ended_at = ?, stop_reason = ? WHERE id = ?').run(status, new Date().toISOString(), stopReason, id)
+  const inTurn = (turnId: string, chatId = chatPlain) =>
+    boxShellTool({ ctx: h.ctx, project: null, userId: 'alice', turnId, chatId, signal: new AbortController().signal, confirm: async () => null, redact: (s) => s })
+  const jobNotices = () => publish.filter((p) => p.frame.data.code === 'dev_env_job')
+  const noticeRows = () => h.ctx.db.query("SELECT source_id FROM dev_env_notices WHERE user_id = 'alice' ORDER BY created_at").all() as { source_id: string }[]
+  const said = (f: Record<string, (t: string) => string>) => Object.values(f).map((x) => x(TITLE))
+  beforeEach(() => { h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(TITLE, chatPlain); h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'turn-held-%'").run() })
+  afterAll(() => { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain); h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'turn-held-%'").run() })
+
+  test('no "finished" while the answer runs; one notice for the request when it ends, and only once', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'hf_render' })
+    finish(runIdOfRow(rows()[0]!), 0, 'render.mp4 written\n')
+    await pollSrt(h.ctx)
+    expect(rows()[0]).toMatchObject({ state: 'ended', exit_code: 0 })
+    // the owner's case: the job ended, the answer goes on: nothing said, nothing in Activity
+    expect(jobNotices()).toHaveLength(0)
+    expect(noticeRows()).toHaveLength(0)
+    // the tracker's poll while the answer still runs: still nothing
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // the AI still gets the result in the answer
+    expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('Job hf_render ended with exit code 0.')
+    // a second job of the same answer ends too: still one notice at the end
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'hf_render2' })
+    finish(runIdOfRow(rows()[1]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // the answer ends with its final answer: now the request's notice, once
+    endTurn(turn, 'done')
+    tellHeldJobs(h.ctx, chatPlain)
+    tellHeldJobs(h.ctx, chatPlain)
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+    expect(said(REQUEST_DONE)).toContain(jobNotices()[0]!.frame.data.message!)
+    expect(jobNotices()[0]!.frame.data).toMatchObject({ level: 'info', link: `/c/${chatPlain}` })
+    expect(noticeRows()).toEqual([{ source_id: `${REQUEST_SOURCE}${turn}:done` }])
+    const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.code === 'dev_env.job')!
+    expect(item).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { request: { outcome: 'done', chatTitle: TITLE } } })
+    expect(item.devEnv!.job).toBeUndefined()
+    // someone else's request row shows nothing of it
+    expect((await h.api('bob').call(API.listNotifications, { query: {} })).items.filter((i) => i.code === 'dev_env.job')).toHaveLength(0)
+  })
+
+  test('an answer that stops says it stopped and why, never "finished"', async () => {
+    const cases: [string, string | null, RequestStop][] = [['error', null, 'error'], ['done', 'tool_limit', 'limit'], ['done', 'time_limit', 'limit'], ['stopped', null, 'stopped']]
+    for (const [status, stopReason, why] of cases) {
+      publish.length = 0
+      const turn = newTurn(chatPlain)
+      await inTurn(turn).call({ command: 'sleep', job: true, log_name: `r-${n}` })
+      finish(runIdOfRow(rows().at(-1)!), 0)
+      await pollSrt(h.ctx)
+      expect(jobNotices()).toHaveLength(0)
+      endTurn(turn, status, stopReason)
+      tellHeldJobs(h.ctx, chatPlain)
+      expect([status, stopReason, jobNotices().length]).toEqual([status, stopReason, 1])
+      const msg = jobNotices()[0]!.frame.data.message!
+      expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: why }, TITLE))).toContain(msg)
+      expect(said(JOB_DONE)).not.toContain(msg)
+      expect(jobNotices()[0]!.frame.data).toMatchObject({ level: 'warn' })
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.sourceId === `${REQUEST_SOURCE}${turn}:${why}`)!
+      expect(item.devEnv!.request).toMatchObject({ outcome: 'stopped', reason: why })
+    }
+    expect(requestNoticeText('ko', { outcome: 'stopped', reason: 'limit' }, TITLE)).toBe(`‘${TITLE}’에서 부탁한 작업이 멈췄어요 — 한 번에 할 수 있는 단계나 시간 한도에 닿았어요. 채팅에서 이어서 부탁해 보세요.`)
+  })
+
+  test('an answer a restart cut off: the tracker\'s poll tells it (stopped: the server restarted)', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'cut' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // what chat/runtime.ts does to a running turn at start; no turn end runs
+    endTurn(turn, 'interrupted')
+    tellHeldJobs(h.ctx)
+    expect(jobNotices().map((p) => p.frame.data.message)).toEqual([expect.stringMatching(/./)])
+    expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: 'restart' }, TITLE))).toContain(jobNotices()[0]!.frame.data.message!)
+  })
+
+  test('an answer that ended on a question says Trina waits, and keeps saying it after the person answers', async () => {
+    const first = newTurn(chatPlain)
+    await inTurn(first).call({ command: 'sleep', job: true, log_name: 'q' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    // the answer ends on a question card (chat/open-questions.ts)
+    h.ctx.db.query("INSERT INTO messages (id, chat_id, role) VALUES ('msg-held', ?, 'assistant')").run(chatPlain)
+    h.ctx.db.query("INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, created_at) VALUES ('oq-held', ?, 'msg-held', ?, 'alice', '{}', ?)").run(chatPlain, first, new Date().toISOString())
+    endTurn(first, 'done')
+    tellHeldJobs(h.ctx, chatPlain)
+    expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: 'question' }, TITLE))).toContain(jobNotices()[0]!.frame.data.message!)
+    // the person answers: the questions close and the next answer starts (chat/runtime.ts); Activity still says it waited
+    closeChatQuestions(h.ctx.db, chatPlain)
+    const next = newTurn(chatPlain)
+    const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.sourceId.startsWith(`${REQUEST_SOURCE}${first}:`))!
+    expect(item.devEnv!.request).toMatchObject({ outcome: 'stopped', reason: 'question' })
+    endTurn(next, 'done')
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+    h.ctx.db.query("DELETE FROM messages WHERE id = 'msg-held'").run()
+  })
+
+  test('an answer put back in the queue for an update and run again: still the request\'s notice, not the job\'s', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'requeued' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    // chat/turn.ts endBackInQueue, then the queue starts it again: its start moves past the job's end
+    await Bun.sleep(5)
+    h.ctx.db.query("UPDATE turns SET status = 'running', started_at = ? WHERE id = ?").run(new Date().toISOString(), turn)
+    endTurn(turn, 'done')
+    tellHeldJobs(h.ctx, chatPlain)
+    expect(noticeRows()).toEqual([{ source_id: `${REQUEST_SOURCE}${turn}:done` }])
+    expect(said(REQUEST_DONE)).toContain(jobNotices()[0]!.frame.data.message!)
+  })
+
+  test('a job that ends after its answer ended keeps its own notice (the AI ended its answer while it ran)', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'after' })
+    endTurn(turn, 'done')
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+    expect(said(JOB_DONE)).toContain(jobNotices()[0]!.frame.data.message!)
+    expect(noticeRows()).toEqual([{ source_id: String(rows()[0]!.id) }])
+    // and nothing more at the next poll
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+  })
+
+  test('another person\'s answer in a different chat does not hold it', async () => {
+    newTurn(chatErin, 'erin')
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'free' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
   })
 })

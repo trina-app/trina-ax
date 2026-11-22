@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import type { EngineEvent } from '@mycel/shared'
 import { errorOf, runApiAgent, type ApiEngineConf } from '../../server/src/engine/api-agent'
-import { CONFIRM_ARG, dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog, readBytes, samePath, saysSomethingFailed, SHRINK_MIN_OLD_BYTES } from '../../server/src/engine/api-honest'
+import { answerLocale, CONFIRM_ARG, dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog, readBytes, samePath, saysSomethingFailed, SHRINK_MIN_OLD_BYTES } from '../../server/src/engine/api-honest'
 import { engineError, tr } from '../../server/src/chat/i18n'
 
 const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
@@ -229,6 +229,130 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     k.note('write', { file_path: 'users/me/budget.xlsx', content: 'x' }, true)
     k.note('box_shell', { command: 'python3 make.py -o budget.xlsx' }, true)
     expect(k.tools()).toEqual(['edit'])
+  })
+
+  test('TC-7051 / TC-6959: a refused save of any chat place that the answer did elsewhere is not a failure', () => {
+    // a chat made private again refuses chat:files/; the AI saved the file in the person's own folder
+    const f = new FailedSteps()
+    f.note('write', { file_path: 'chat:files/todo.md', content: 'x' }, false)
+    expect(f.tools()).toEqual(['write'])
+    f.note('write', { file_path: 'users/qa-owner/todo.md', content: 'x' }, true)
+    expect(f.tools()).toEqual([])
+    expect(failedStepsNote(f.tools(), 'I saved todo.md in your own folder.', 'en')).toBeNull()
+    // an edit of a chat file in its id folder, made again by make_file under the same name
+    const g = new FailedSteps()
+    g.note('edit', { file_path: 'chat:files/0198aa/notes.md' }, false)
+    g.note('make_file', { source: 'x', output: 'users/me/Notes.md' }, true)
+    expect(g.tools()).toEqual([])
+    // another name does not settle it, nor a read of that name
+    const h = new FailedSteps()
+    h.note('write', { file_path: 'chat:files/todo.md', content: 'x' }, false)
+    h.note('write', { file_path: 'users/me/todo-old.md', content: 'x' }, true)
+    h.note('read', { file_path: 'users/me/todo.md' }, true)
+    expect(h.tools()).toEqual(['write'])
+    // a team file's refused save still counts, whatever else made a file of that name (as before)
+    const k = new FailedSteps()
+    k.note('write', { file_path: 'shared/plan.md', content: 'x' }, false)
+    k.note('write', { file_path: 'chat:files/plan.md', content: 'x' }, true)
+    k.note('write', { file_path: 'users/me/plan.md', content: 'x' }, true)
+    expect(k.tools()).toEqual(['write'])
+  })
+
+  test('TC-7045: a failed file-edit tool whose file the AI made again is not a failure', () => {
+    // edit_pdf of the chat's PDF failed; make_file made the PDF again and it was attached
+    const f = new FailedSteps()
+    f.note('read', { file_path: 'chat:files/0198ab/Northwind_견적서.pdf' }, true)
+    f.note('edit_pdf', { file_path: 'chat:files/0198ab/Northwind_견적서.pdf', operations: [] }, false)
+    f.note('make_file', { source: 'chat:work/quote.md', output: 'chat:files/Northwind_견적서.pdf' }, false)
+    expect(f.tools()).toEqual(['edit_pdf', 'make_file'])
+    f.note('make_file', { source: 'chat:work/quote.html', output: 'chat:files/Northwind_견적서.pdf' }, true)
+    expect(f.tools()).toEqual([])
+    // edit_office's output made by a command, in the work folder
+    const g = new FailedSteps()
+    g.note('edit_office', { file_path: 'chat:work/in/q.xlsx', changes: [] }, false)
+    g.note('box_shell', { command: 'cd "$TRINA_WORK" && python3 fix.py -o q.xlsx' }, true)
+    expect(g.tools()).toEqual([])
+    // a team file: settled only by a file made at the very same path
+    const h = new FailedSteps()
+    h.note('stamp_pdf', { file_path: 'shared/contract.pdf', image: 'shared/seal.png' }, false)
+    h.note('make_file', { source: 'x', output: 'users/me/contract.pdf' }, true)
+    expect(h.tools()).toEqual(['stamp_pdf'])
+    h.note('make_file', { source: 'x', output: './shared/contract.pdf' }, true)
+    expect(h.tools()).toEqual([])
+    // an edit into `output`: settled by that output made, not by its source made again
+    const o = new FailedSteps()
+    o.note('edit_pdf', { file_path: 'shared/a.pdf', operations: [], output: 'shared/b.pdf' }, false)
+    o.note('make_file', { source: 'x', output: 'users/me/b.pdf' }, true)
+    expect(o.tools()).toEqual(['edit_pdf'])
+    o.note('make_file', { source: 'x', output: 'shared/b.pdf' }, true)
+    expect(o.tools()).toEqual([])
+    // a failed copy that nothing replaced stays (flow 5: the file was not attached)
+    const k = new FailedSteps()
+    k.note('write', { file_path: 'projects/A/summary.md', content: 'x' }, true)
+    k.note('copy_files', { paths: ['projects/A/summary.md'], to_folder: 'chat:files/' }, false)
+    expect(k.tools()).toEqual(['copy_files'])
+  })
+
+  test('TC-7052: a failed read of a chat file that a later read of the same file did is not a failure', () => {
+    // chat_file with no file (bad arguments), then read of its chat place path
+    const f = new FailedSteps()
+    f.note('chat_file', { file: 'notes.md' }, true)
+    f.note('chat_file', {}, false)
+    expect(f.tools()).toEqual(['chat_file'])
+    f.note('read', { file_path: 'chat:files/0198ac/notes.md', versions: true }, true)
+    expect(f.tools()).toEqual([])
+    // chat_file by id, read by path, and the other way round
+    const g = new FailedSteps()
+    g.note('chat_file', { file: '0198ac', version: 9 }, false)
+    g.note('read', { file_path: 'chat:files/0198ac/notes.md' }, true)
+    g.note('read', { file_path: 'chat:files/0198ad/plan.md', pages: '99' }, false)
+    g.note('chat_file', { file: 'plan.md' }, true)
+    expect(g.tools()).toEqual([])
+    // another chat file, or a team file of that name, does not settle it
+    const h = new FailedSteps()
+    h.note('chat_file', { file: 'notes.md', version: 9 }, false)
+    h.note('chat_file', { file: 'other.md' }, true)
+    h.note('read', { file_path: 'shared/notes.md' }, true)
+    expect(h.tools()).toEqual(['chat_file'])
+    expect(failedStepsNote(h.tools(), 'Done.', 'en')).toBe("One step didn't work: Read chat file.")
+    // another chat file of the same name (another id) does not settle a read by id either
+    const i = new FailedSteps()
+    i.note('read', { file_path: 'chat:files/0198ae/notes.md', pages: '99' }, false)
+    i.note('read', { file_path: 'chat:files/0198af/notes.md' }, true)
+    expect(i.tools()).toEqual(['read'])
+    // chat_file with no file is settled by a read of a chat file, not by a read of a team file
+    const j = new FailedSteps()
+    j.note('chat_file', {}, false)
+    j.note('read', { file_path: 'shared/x.md' }, true)
+    expect(j.tools()).toEqual(['chat_file'])
+    j.note('chat_file', { file: 'notes.md' }, true)
+    expect(j.tools()).toEqual([])
+  })
+
+  test('TC-7045: the line is in the answer\'s language, with plain step words', () => {
+    expect(answerLocale('날짜를 12월 5일로 변경한 견적서를 새로 만들어 첨부했습니다.', 'en')).toBe('ko')
+    expect(answerLocale('northwind-summary.md 파일을 프로젝트 폴더에 저장했습니다. Northwind 고객에 대한 견적 금액 1,200,000원을 요약하여 작성했습니다.', 'en')).toBe('ko')
+    expect(answerLocale('Here is the updated quote, Northwind_견적서.pdf, with the new date.', 'ko')).toBe('en')
+    expect(answerLocale('見積書を作り直して添付しました。', 'en')).toBe('ja')
+    expect(answerLocale('我已重新制作报价单并附上。', 'en')).toBe('zh')
+    expect(answerLocale('He guardado el archivo.', 'es')).toBe('es')
+    expect(answerLocale('Saved the file.', 'ko')).toBe('en')
+    expect(answerLocale('```\n코드\n```\nDone, I saved the report: [보고서](https://x.example/보고서).', 'en')).toBe('en')
+    expect(answerLocale('👍', 'ja')).toBe('ja')
+    // a Korean answer from a person whose app is in English: the line in Korean, the tool in plain words (not edit_pdf)
+    const ko = failedStepsNote(['edit_pdf'], '견적서를 첨부했습니다.', 'en')
+    expect(ko).toBe(tr('apiStepFailed', 'ko', { names: 'PDF 고치기' }))
+    expect(ko).not.toContain('edit_pdf')
+    expect(failedStepsNote(['copy_files'], '파일을 저장했습니다.', 'en')).not.toMatch(/[A-Za-z]/)
+    expect(failedStepsNote(['write'], 'I saved the file.', 'ko')).toBe("One step didn't work: Save.")
+  })
+
+  test('in the loop: a Korean answer gets the Korean line though the app is in English', async () => {
+    const { text } = await run([
+      sse({ calls: [{ id: 'w1', name: 'write', args: JSON.stringify({ file_path: 'shared/a.md', content: 'x' }) }] }),
+      sse({ text: ['정리해 두었어요.'] }),
+    ], () => ({ text: 'Error: access denied', isError: true }), { locale: 'en' })
+    expect(text).toBe(`정리해 두었어요.\n\n${tr('apiStepFailed', 'ko', { names: '파일 저장' })}`)
   })
 
   test('the line: server words only, nothing when the answer already says something failed', () => {
