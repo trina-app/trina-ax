@@ -23,25 +23,25 @@
 - **Rule, which read-only tools ask (`read-mark.ts` readKind):** a tool the service marks read-only (`readOnlyHint` and
   not `destructiveHint`) never asks in the person's own chat (unchanged). In a shared chat it is a read with no card when
   its name is plain ASCII and neither name nor title holds a change word, whatever its verb (`scrape_as_markdown`,
-  `crawl_site`). Three cases keep the read card: a look-up whose change words are only nouns (`get_post`:
-  `nounRead`); a verb that can put the result elsewhere or change a state (`export`, `download`, `check`); a tool whose
-  own input schema takes a recipient (`to`, `cc`, `channel`, `webhook_url`, `share_with`, `phone_number`…, decided per
-  tool from its schema; plan review).
+  `crawl_site`). Two cases keep the read card: a look-up whose change words are only nouns (`get_post`:
+  `nounRead`); a verb that can put the result elsewhere or change a state (`export`, `download`, `check`).
+  Look-ups whose own input schema takes a recipient (`to`, `cc`, `channel`, `webhook_url`, `share_with`,
+  `phone_number`…) are changes: their card keeps the recipients in view and offers no Always (plan and code review).
 - **Rule, Always allow for good (`connections/tool-allow.ts`, migration 441 `connector_tool_allow`):** every connector
   card offers 항상 허용 on its first showing, kept per person and per connection: per tool for the read card and a
   shared chat's change card (Claude Code's "Yes, and don't ask again" keeps one tool, `mcp__server__tool`), and for the
   connection on the shared chat card ("what it returns may show to the people here", tool `''`). Each counts in every
   chat until the person removes it in Settings › Allowed for Trina (`connector_tool` rows, "Bright Data · Get post",
   "Aside · Show what it returns in shared chats"). It counts only while the connection has the address it had when
-  chosen (and, for the shared card, the same account), while the team's "Always allow" switch is on (`roomAlwaysAllow`;
+  chosen and is signed in to the same account (`sharedBind`; a stale row is removed when Settings lists them), while the team's "Always allow" switch is on (`roomAlwaysAllow`;
   off: rows are ignored and no card offers Always), in a turn the person watches from their own app or their own
   scheduled run that no other person's words steer (`steerableRun`), never in a confidential chat or on a demo server.
   It goes when the account is disabled or removed, and when a team connection's rule no longer includes the person
   (`pruneMemberAllows`). Rule A: once given it is final, also when more teammates join the chat.
 - **Rule, what keeps asking:** a call that reaches other people asks every time in a shared chat, with no Always: a
   tool whose name or title says it sends, posts, mails, messages, replies, shares, invites, publishes, notifies,
-  schedules or changes access, or whose schema takes a recipient (`ownActTool`), a Google app's sending tool, an HTTP
-  API's change, a change at a team connection's service (other people's things are there), and any call with team
+  schedules or changes access, or is not plain ASCII, or whose schema or call takes a recipient (`ownActTool`), a Google
+  app's sending tool, every HTTP API request (some APIs act on a GET), a change at a team connection's service (other people's things are there), and any call with team
   files. The shared chat card with a guest (someone outside the team) in the chat keeps "Always in this chat" only.
   The card goes to the asker only, and the answer's read record still hides it from a later joiner who may not use
   the connection (20261118-shared-chat-connections.md).
@@ -51,7 +51,8 @@
   characters) or "Bright Data에서 읽어 와요: Get post". The shared card: "AI가 Aside에서 가져온 내용을 이 채팅의 5명이
   함께 봐요." (no particle after a service name). A change on the person's own things: "Tasks에서 할 일 만들기을(를)
   해요" style ("Create a task in Tasks"). Code an app on the computer runs (Aside's repl, a declared CLI's script): the
-  title the AI gave the call ("Aside에서 이 작업을 해요: 열린 탭 확인"), else "Aside에서 작업을 실행해요", and the code,
+  generic line with the title the AI gave the call said as the AI's ("Aside에서 작업을 실행해요 · AI 설명: 열린 탭 확인":
+  the call carries it, so it is never stated as fact; code review), and the code,
   parameters and ids only behind one "자세히" (`ConfirmDetail.hidden`). A call that reaches other people keeps "send"
   and its recipients in view (security review of #1338, L2).
 - **Consistent with:** Rule A (20261116-always-allow-final-rule-a.md), local-app connectors (20261118-local-app-connectors.md:

@@ -276,26 +276,28 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** the tool acts on the person's own things and sends nothing to other people (ownActTool): in a shared chat its card
    * offers Always allow for this tool (tool-allow.ts) */
   ownAct?: boolean
-  /** the key the person's Always for good is kept under in a shared chat (tool-allow.ts): the tool's name, or an HTTP
-   * API's read method (REQUEST_KEY) */
+  /** the key the person's Always for good is kept under in a shared chat (tool-allow.ts): the tool's name (an HTTP API's
+   * request has none: some APIs act on a GET, so in a shared chat it asks every time) */
   allowKey?: string
   /** an app on the person's computer runs code the call gives (codeKeyOf) */
   runs?: boolean
   /** the short title or description the AI gave the call (titleArg): the card's plain sentence */
   title?: string | null }
 
-/** An HTTP API connection's read method as a tool for the person's Always (`request:GET`; a name no MCP tool has) */
-const REQUEST_KEY = 'request:'
-
 /** Words in a tool's name or title that say it reaches other people (a post, a mail, a message, a share, an invite …) */
 const TO_OTHERS = /send|post|mail|messag|repl(y|ies)|forward|invit|publish|tweet|comment|notif|broadcast|sms|chat|respond|answer|share|member|permission|access|grant|collaborat|visib|schedul|meeting|calendar|event/i
 
-/** A tool that acts on the person's own things and sends nothing to other people: no word of TO_OTHERS in its name or
- * title, no recipient argument in its schema (read-mark.ts takesRecipient), never a Google app's sending tool
+/** A tool that acts on the person's own things and sends nothing to other people: a plain ASCII name and title with no
+ * word of TO_OTHERS, no recipient argument in its schema or the call (read-mark.ts takesRecipient), never a Google app's sending tool
  * (docs/decisions/20261122-connector-always-allow.md: Aside's Repl runs code in the person's own browser profile). */
-function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title'> & { inputSchema?: unknown }): boolean {
+export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title'> & { inputSchema?: unknown }, args: unknown): boolean {
   if (row.google_app && SENDING_TOOLS.has(t.name)) return false
-  return !TO_OTHERS.test(plainName(t.name)) && !TO_OTHERS.test(plainName(t.title)) && !takesRecipient(t.inputSchema)
+  // a name or title these words cannot be read in (not plain ASCII: "메시지_보내기") is never one (code review)
+  const ascii = (x: string) => /^[\x20-\x7e]*$/.test(x)
+  const name = plainName(t.name), title = plainName(t.title)
+  if (!ascii(name) || !ascii(title)) return false
+  // a recipient in the schema, or in the call's own arguments (extra keys still reach the service)
+  return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !takesRecipient({ properties: args })
 }
 
 /** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */
@@ -306,7 +308,7 @@ function titleArg(args: unknown): string | null {
 }
 
 /** Argument names that hold code an app on the person's computer runs (Aside's Repl "code", ego lite's "script") */
-const CODE_KEY = /^(code|script|source|js|javascript|program)$/i
+const CODE_KEY = /^(code|script|js|javascript|program)$/i
 /** The argument that is code an app on the person's computer runs: a declared CLI's stdin, or a top-level string
  * argument named like code; none for any other connection */
 function codeKeyOf(row: Pick<Row, 'local_app'> | null, tool: string, args: unknown): string | undefined {
@@ -706,9 +708,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // a shared chat: the same one card with Always allow for that tool (cardWithAlways), for a call that reaches nobody else
   const alwaysKey = sharedMode ? sharedAlwaysKey(row, sent) : null
   if (alwaysKey) {
-    const kept = await cardWithAlways(ctx, row, b, person, question, details, alwaysKey, what(L), 'acts')
+    await cardWithAlways(ctx, row, b, person, question, details, alwaysKey, what(L), 'acts')
     sent.via = 'card'
-    void kept
     return true
   }
   if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks) && !activeDemoFakes()) {
@@ -800,11 +801,11 @@ function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
 }
 
 /** The key a shared chat's card keeps the person's Always under: a call that reaches nobody else (Sent.ownAct) with no
- * team files, on the person's own connection or an HTTP API's read; null for a call that must ask every time there */
+ * team files, on the person's own connection; null for a call that must ask every time there */
 const sharedAlwaysKey = (row: Pick<Row, 'scope'>, sent: Sent): string | null =>
   // a change only on the person's own connection (their own account, their own app): a team connection's service holds
-  // other people's things too, so a change there asks every time in a shared chat; an HTTP API's read (GET) anywhere
-  (sent.ownAct && sent.allowKey && !sent.attach?.length && (sent.request || row.scope === 'personal') ? sent.allowKey : null)
+  // other people's things too, so a change there asks every time in a shared chat
+  (sent.ownAct && sent.allowKey && !sent.request && !sent.attach?.length && row.scope === 'personal' ? sent.allowKey : null)
 
 /**
  * The one card for a connector tool that the person may allow for good (docs/decisions/20261122-connector-always-allow.md):
@@ -1149,7 +1150,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
@@ -1399,7 +1400,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
           }
           // a request that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
           dropMade(ctx, row, { path: a.path, query: a.query ?? null, body: a.body ?? null })
-          const answer = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true, ...(a.method === 'GET' || a.method === 'HEAD' ? { ownAct: true, allowKey: `${REQUEST_KEY}${a.method}` } : {}) }, b, tc)
+          const answer = await gate(ctx, row, (L) => methodWord(a.method, L), { text: req.shown, fields: [{ name: 'URL', value: seen }, ...recipientFields(a.body)], dest: ((b) => (b ? [url, ...b] : null))(pinTargets(a.body)), raw: { url, body: a.body ?? null }, lines, request: true }, b, tc)
           confirmed = answer !== false
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
@@ -1653,7 +1654,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const sharedNote = (row: Row): string => !sh ? ''
         : asks(row)
           ? row.scope === 'personal'
-            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow once, Always in this chat, Cancel). Never ask in your own words first; if they cancel, answer without it and do not try another way`
+            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow, Always allow, Don't allow; no card once they chose Always allow). Never ask in your own words first; if they cancel, answer without it and do not try another way`
             : `; some people in this shared chat may not use it: before its first call the server asks the user on a card only they see whether what it returns may be shown to everyone here. If they cancel, answer without it and do not try another way`
           : '; everyone in this shared chat may use it, so it works here with no extra card'
       const tools: TurnTool[] = []

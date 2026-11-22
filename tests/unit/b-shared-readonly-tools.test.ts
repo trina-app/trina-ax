@@ -6,6 +6,7 @@
 // name says it sends asks on its own write card in a shared chat, also after "Always in this chat" and on a team
 // connection that needs no shared card; a real read still runs with no extra card; an
 // api_request GET asks there too; outside a shared chat the service's mark is taken as before; the name check itself.
+import { ownActTool } from '../../server/src/integrations/connections/tools'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -177,10 +178,10 @@ describe('the name check (read-mark.ts)', () => {
     // a verb that can put the result elsewhere (export, download, check): the read card
     for (const n of ['export_report', 'download_file', 'check_status', 'acme_export_rows']) expect([n, kind(n)]).toEqual([n, 'unsure'])
   })
-  test('a tool whose own schema takes a recipient asks on the read card, whatever its name', () => {
+  test('a tool whose own schema takes a recipient is a change, whatever its name (its card keeps the recipients in view)', () => {
     const withArgs = (name: string, ...keys: string[]) => readKind(true, {}, { name, title: null, readOnly: true, inputSchema: { type: 'object', properties: Object.fromEntries(keys.map((k) => [k, { type: 'string' }])) } })
-    for (const k of ['to', 'cc', 'channel', 'channel_id', 'webhook_url', 'recipients', 'email', 'share_with', 'phone_number']) expect([k, withArgs('scrape_as_markdown', 'url', k)]).toEqual([k, 'unsure'])
-    expect(withArgs('get_issue', 'to')).toBe('unsure')
+    for (const k of ['to', 'cc', 'channel', 'channel_id', 'webhook_url', 'recipients', 'email', 'share_with', 'phone_number']) expect([k, withArgs('scrape_as_markdown', 'url', k)]).toEqual([k, 'change'])
+    expect(withArgs('get_issue', 'to')).toBe('change')
     for (const k of ['url', 'link', 'host', 'query', 'format']) expect([k, withArgs('scrape_as_markdown', k)]).toEqual([k, 'read'])
     // outside a shared chat the mark is taken as it is
     expect(readKind(false, {}, { name: 'scrape_as_markdown', title: null, readOnly: true, inputSchema: { properties: { to: {} } } })).toBe('read')
@@ -221,5 +222,23 @@ describe('the name check (read-mark.ts)', () => {
   test('plainName: NFKC and no invisible characters', () => {
     expect(plainName('ｓｅｎｄ')).toBe('send')
     expect(plainName('s​end⁠')).toBe('send')
+  })
+})
+
+// docs/decisions/20261122-connector-always-allow.md: which changes a shared chat's card may allow for good (code review)
+describe('ownActTool: a call that acts on the person\'s own things', () => {
+  const tool = (name: string, title: string | null = null, props: string[] = []) => ({ name, title, inputSchema: { type: 'object', properties: Object.fromEntries(props.map((k) => [k, {}])) } })
+  test('own things: an app running code, creating a task', () => {
+    expect(ownActTool({}, tool('repl', 'Repl', ['title', 'code', 'profile_id']), { title: 't', code: 'x' })).toBe(true)
+    expect(ownActTool({}, tool('create_task', 'Create a task', ['title']), { title: 'Plan' })).toBe(true)
+  })
+  test('reaching other people: send words, a recipient in the schema or in the call, a Google app\'s send, a name not in ASCII', () => {
+    for (const n of ['send_message', 'post_update', 'share_file', 'invite_user', 'reply_to_thread', 'create_calendar_event', 'notify_team', 'SendMail']) expect([n, ownActTool({}, tool(n), {})]).toEqual([n, false])
+    expect(ownActTool({}, tool('create_task', null, ['to']), {})).toBe(false)
+    expect(ownActTool({}, tool('create_task', null, ['title']), { title: 'x', to: 'outside@example.com' })).toBe(false)
+    expect(ownActTool({}, tool('create_task', 'Send it'), {})).toBe(false)
+    expect(ownActTool({}, tool('메시지_보내기'), {})).toBe(false)
+    expect(ownActTool({}, tool('make_note', '메모 보내기'), {})).toBe(false)
+    expect(ownActTool({ google_app: 'gmail' }, tool('draft_gmail_message'), {})).toBe(false)
   })
 })

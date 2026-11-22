@@ -16,16 +16,16 @@ import { toolTitle } from './card-lines'
 import { savedTools, type Row } from './store'
 
 /** Is this tool of this connection allowed for good by this person, as things are now? */
-export function toolAllowed(db: Database, row: Pick<Row, 'id' | 'url'>, userId: string, tool: string): boolean {
+export function toolAllowed(db: Database, row: Pick<Row, 'id' | 'url' | 'account'>, userId: string, tool: string): boolean {
   if (!teamAllowsAlways(db)) return false
   const r = db.query("SELECT a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool = ? AND u.status = 'active' AND u.deleted_at IS NULL").get(userId, row.id, tool) as { url: string } | null
-  return !!r && r.url === row.url
+  return !!r && r.url === sharedBind(row)
 }
 
 /** Keep the person's "Always allow" for this tool (their own answer on the card). Audited. */
-export function keepToolAllow(db: Database, row: Pick<Row, 'id' | 'url'>, userId: string, tool: string, turnId: string | null): void {
+export function keepToolAllow(db: Database, row: Pick<Row, 'id' | 'url' | 'account'>, userId: string, tool: string, turnId: string | null): void {
   db.query('INSERT INTO connector_tool_allow (user_id, integration_id, tool, url, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, integration_id, tool) DO UPDATE SET url = excluded.url, created_at = excluded.created_at')
-    .run(userId, row.id, tool, row.url, new Date().toISOString())
+    .run(userId, row.id, tool, sharedBind(row), new Date().toISOString())
   audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_tool', integration: row.id, tool, on: true, via: 'card', turnId } })
 }
 
@@ -65,7 +65,11 @@ function parseId(id: string): [string, string] | null {
 export function listToolAllows(db: Database, userId: string): ConnectorToolAllowance[] {
   const rows = db.query(`SELECT a.integration_id, a.tool, a.url AS bound, a.created_at, i.name, i.tools_rev, i.url, i.account FROM connector_tool_allow a JOIN integrations i ON i.id = a.integration_id
     WHERE a.user_id = ? ORDER BY a.created_at DESC`).all(userId) as { integration_id: string; tool: string; bound: string; created_at: string; name: string; tools_rev: number; url: string; account: string | null }[]
-  return rows.filter((r) => r.bound === (r.tool === SHARED_TOOL ? sharedBind(r) : r.url)).map((r) => {
+  // a row whose connection moved or signed in to another account no longer counts: removed here, so it never comes back
+  // on its own if the address returns (code review)
+  const stale = rows.filter((r) => r.bound !== sharedBind(r))
+  for (const r of stale) db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, r.integration_id, r.tool)
+  return rows.filter((r) => r.bound === sharedBind(r)).map((r) => {
     if (r.tool === SHARED_TOOL) return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: '', shared: true, createdAt: r.created_at }
     const saved = savedTools(db, { id: r.integration_id, tools_rev: r.tools_rev }).find((t) => t.name === r.tool)
     return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: toolTitle(saved ?? { name: r.tool }), createdAt: r.created_at }

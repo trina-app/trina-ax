@@ -4,8 +4,9 @@
 -- per person, connection and tool that this person answered with "Always allow": from then on that tool's read card
 -- (a tool the service marks read-only whose name holds a change word as a noun, read-mark.ts 'unsure') is not raised
 -- for them, until they delete the row in Settings › Allowed for Trina or an admin turns the team's "Always allow"
--- switch off (rows are then ignored, not deleted). The row holds the connection's address when it was chosen: it
--- counts only while the address is the same. 441: 440 is the highest on dev, and no open PR adds a migration.
+-- switch off (rows are then ignored, not deleted). `url` holds the connection's address and a hash of the account it
+-- was signed in to when chosen (tool-allow.ts sharedBind): it counts only while both are the same. tool '' is the shared
+-- chat card's Always (the connection's answers), any other the tool's. 441: 440 is the highest on dev, and no open PR adds a migration.
 -- Additive only (reader 1): an older build ignores the table and asks as before.
 CREATE TABLE connector_tool_allow (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

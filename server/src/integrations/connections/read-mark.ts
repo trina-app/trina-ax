@@ -88,11 +88,13 @@ export function readKind(shared: boolean, row: { google_app?: string | null }, t
     if (title && namedAsChange(title) && !nounRead(nameWords(title))) return 'change'
     return nounRead(nameWords(name)) ? 'unsure' : 'change'
   }
-  // a verb that can write elsewhere (export, download, check: not strict read verbs), or a tool that takes a recipient
-  // (its own schema has a "to", "channel", "webhook"…): the read card, which the person may allow for good (plan review
-  // of 20261122-connector-always-allow.md). Decided once per tool, never from a call's arguments
+  // a verb that can write elsewhere (export, download, check: not strict read verbs): the read card, which the person may
+  // allow for good; a tool whose own schema takes a recipient ("to", "channel", "webhook"…): a change (plan and code
+  // review of 20261122-connector-always-allow.md). Decided once per tool
   const w = nameWords(name)
-  if (ELSEWHERE_VERBS.has(w[0] ?? '') || (w.length > 2 && ELSEWHERE_VERBS.has(w[1]!)) || takesRecipient(t.inputSchema)) return 'unsure'
+  // a tool that takes a recipient is a change: its card keeps the recipients in view and never offers Always (code review)
+  if (takesRecipient(t.inputSchema)) return 'change'
+  if (ELSEWHERE_VERBS.has(w[0] ?? '') || (w.length > 2 && ELSEWHERE_VERBS.has(w[1]!))) return 'unsure'
   return 'read'
 }
 

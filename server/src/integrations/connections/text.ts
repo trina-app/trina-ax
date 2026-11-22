@@ -29,8 +29,9 @@ export const TEXT = {
   // the line under a shared chat's card for a call that acts on the person's own things (tools.ts cardWithAlways)
   actsAlwaysNote: t('항상 허용: 앞으로 모든 대화에서 {name}의 {what}을(를) 묻지 않고 해요. 설정에서 지울 수 있어요.', 'Always allow: from now on, in every chat, the AI does {what} in {name} without asking. You can remove it in Settings.', 'Selalu izinkan: mulai sekarang, di semua obrolan, AI melakukan {what} di {name} tanpa bertanya. Anda bisa menghapusnya di Pengaturan.', "常に許可：今後はどのチャットでも、AIは確認なしで{name}の{what}を行います。設定で削除できます。", "Permitir siempre: a partir de ahora, en todos los chats, la IA hace {what} en {name} sin preguntar. Puede quitarlo en Configuración.", "始终允许：从现在起，在所有对话中，AI 会直接在{name}中执行{what}，不再询问。你可以在设置中移除。"),
   // a call that acts on the person's own things (tools.ts gate, Sent.ownAct): what happens in one plain sentence, from the
-  // title the call carries ({title}), else the tool's title ({what}), else code an app on the computer runs
-  actTitled: t('{name}에서 이 작업을 해요: {title}', 'In {name}: {title}', 'Di {name}: {title}', "{name}で次の作業をします：{title}", "En {name}: {title}", "在{name}中：{title}"),
+  // tool's title ({what}); code an app on the computer runs: a generic line, with the AI's own words for it said as the
+  // AI's ({title}: the call carries it, so it is never stated as fact; code review)
+  actTitled: t('{name}에서 작업을 실행해요 · AI 설명: {title}', 'Run a task in {name} · the AI calls it: {title}', 'Menjalankan tugas di {name} · kata AI: {title}', "{name}で作業を実行します · AIの説明：{title}", "Ejecutar una tarea en {name} · la IA lo llama: {title}", "在{name}中运行任务 · AI 的说明：{title}"),
   actTool: t('{name}에서 {what}을(를) 해요', '{what} in {name}', '{what} di {name}', "{name}で{what}をします", "{what} en {name}", "在{name}中{what}"),
   runCode: t('{name}에서 작업을 실행해요', 'Run a task in {name}', 'Menjalankan tugas di {name}', "{name}で作業を実行します", "Ejecutar una tarea en {name}", "在{name}中运行任务"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
