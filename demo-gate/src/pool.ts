@@ -186,12 +186,13 @@ export class Pool {
     return locale ? (c.warmByLocale[locale] ?? 0) > 0 : Object.values(c.warmByLocale).some((x) => x > 0)
   }
 
-  /** A warm instance for this visitor, now live; or why not. */
-  take(locale: Locale, ip: string): Instance | TakeRefusal {
+  /** A warm instance for this visitor, now live; or why not. `livePerIp`: this address's live copies at once (the
+   * caller passes limits.exemptLivePerIp for a listed address) */
+  take(locale: Locale, ip: string, livePerIp = this.cfg.limits.livePerIp): Instance | TakeRefusal {
     if (this.paused()) return 'paused'
     const all = [...this.instances.values()]
     if (all.filter((i) => i.state === 'live').length >= this.cfg.pool.maxLive) return 'full'
-    if (all.filter((i) => i.state === 'live' && i.ip === ip).length >= this.cfg.limits.livePerIp) return 'ip_live'
+    if (all.filter((i) => i.state === 'live' && i.ip === ip).length >= livePerIp) return 'ip_live'
     const inst = all.find((i) => i.state === 'warm' && i.locale === locale)
     if (!inst) return 'no_warm'
     const now = Date.now()

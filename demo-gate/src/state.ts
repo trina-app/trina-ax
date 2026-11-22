@@ -31,10 +31,20 @@ export class GateState {
       for (const [k, v] of Object.entries(s.starts ?? {})) if (Array.isArray(v)) this.starts.set(k, v.filter((x) => typeof x === 'number'))
     } catch {}
   }
-  private h(ip: string) { return crypto.createHmac('sha256', this.key).update(ip).digest('hex').slice(0, 32) }
+  /** the keyed hash an address is stored under (and listed under in limits.exemptIpHashes) */
+  hash(ip: string): string { return crypto.createHmac('sha256', this.key).update(ip).digest('hex').slice(0, 32) }
+  private h(ip: string) { return this.hash(ip) }
 
-  /** null = may start now; else which limit says no */
-  startRefusal(ip: string, perHour: number, perDay: number, now = Date.now()): 'hour' | 'day' | null {
+  /** is this address in limits.exemptIpHashes (a full hash or a prefix of one, lower case)? */
+  isExempt(ip: string, exempt: readonly string[]): boolean {
+    if (!exempt.length) return false
+    const k = this.hash(ip)
+    return exempt.some((x) => x.length >= 8 && k.startsWith(x))
+  }
+
+  /** null = may start now; else which limit says no. A listed address (`exempt`) is never refused here */
+  startRefusal(ip: string, perHour: number, perDay: number, now = Date.now(), exempt: readonly string[] = []): 'hour' | 'day' | null {
+    if (this.isExempt(ip, exempt)) return null
     const list = (this.starts.get(this.h(ip)) ?? []).filter((t) => now - t < DAY)
     if (list.length >= perDay) return 'day'
     if (list.filter((t) => now - t < HOUR).length >= perHour) return 'hour'
