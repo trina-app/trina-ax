@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import type { CellObject } from 'xlsx'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
+import { startDraw } from '../../lib/renderHost'
 import { PreviewLoading } from '../ui'
 import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
 import { fillFormulaResults, type SheetFormula } from '../../lib/sheetFormulas'
@@ -25,8 +26,10 @@ function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
   }, deps)
 }
 
-/** render may return a cleanup function; it runs when the file changes or the view closes. */
-function useRender(render: (el: HTMLDivElement) => Promise<void | (() => void)>, deps: unknown[]) {
+/** render draws into `host`, an element of its own for this drawing (lib/renderHost.ts: a drawing still on its way when
+ * the file or the width changes can only empty its own host, never the next drawing's slides); it may return a cleanup
+ * function, run when the file changes or the view closes; `signal` is aborted then. */
+function useRender(render: (host: HTMLDivElement, signal: AbortSignal) => Promise<void | (() => void)>, deps: unknown[]) {
   const ref = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
@@ -34,23 +37,13 @@ function useRender(render: (el: HTMLDivElement) => Promise<void | (() => void)>,
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    let live = true
     setBusy(true)
     setError(null)
-    el.innerHTML = ''
-    let cleanup: (() => void) | undefined
-    render(el)
-      .then((done) => {
-        if (typeof done !== 'function') return
-        if (live) cleanup = done
-        else done()
-      })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => live && setBusy(false))
-    return () => {
-      live = false
-      cleanup?.()
-    }
+    return startDraw(el, () => {
+      const host = document.createElement('div')
+      host.setAttribute('data-draw-host', '')
+      return host
+    }, render, { error: setError, done: () => setBusy(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   return { ref, error, busy }
@@ -102,10 +95,13 @@ export function DocxView({ blob, width }: { blob: Blob; width: number }) {
 export function PptxView({ blob, width, startSlide }: { blob: Blob; width: number; startSlide?: number }) {
   const t = useT()
   const w = Math.max(320, width - 32)
-  const { ref, error, busy } = useRender(async (el) => {
+  const { ref, error, busy } = useRender(async (host, signal) => {
     const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import('@aiden0z/pptx-renderer')
+    const bytes = await blob.arrayBuffer()
+    if (signal.aborted) return
     // Embedded content only: external media links are not fetched, and the optional PDF.js fallback is off.
-    const viewer = await PptxViewer.open(await blob.arrayBuffer(), el, {
+    const viewer = await PptxViewer.open(bytes, host, {
+      signal,
       width: w,
       fitMode: 'contain',
       externalMedia: 'block',
@@ -116,8 +112,13 @@ export function PptxView({ blob, width, startSlide }: { blob: Blob; width: numbe
       renderMode: 'list',
       listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
     })
+    if (signal.aborted) {
+      viewer.destroy()
+      return
+    }
+    host.dataset.slides = String(viewer.slideCount)
     if (startSlide && startSlide >= 1 && startSlide <= viewer.slideCount) {
-      el.dataset.startSlide = String(startSlide)
+      host.dataset.startSlide = String(startSlide)
       await viewer.goToSlide(startSlide - 1, { block: 'start' })
     }
     return () => viewer.destroy()
