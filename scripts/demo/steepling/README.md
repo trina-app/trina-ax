@@ -46,8 +46,8 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   chat and her ✦ side chat in #Marketing; Leo's and Sara's in the launch project; one in each new project.
 - **Connections**: Mina's Gmail and Google Drive, the team's Higgsfield (auth none). Mina's welcome card says Sara
   invited her.
-- **The bar** (`freeRoam.suggestions`): "Draft next week's posts", "Summarise customer reviews", "Did Chris reply?" (ko:
-  the same in Korean).
+- **Home's suggestions** (`freeRoam.suggestions`, the chips above Home's message box, not in the bar): "Draft next
+  week's posts", "Summarize customer reviews", "Did Chris reply?" (each language: the same in its words).
 - **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
   "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
   week"), so a snapshot built on another day still reads right. No day of the month either ("the 23rd", 23일, 23日). `tests/unit/demo-story-no-dates.test.ts` checks it.

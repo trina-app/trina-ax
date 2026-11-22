@@ -35,6 +35,8 @@ const Generation = z.object({
   picture: z.string().max(300),
   mime: z.string().max(100),
   createdAt: z.string().max(64),
+  /** the chat it was made in (demo/fakes/scope.ts; none from before 11-22, or a call with no chat known) */
+  chat: z.string().max(100).optional(),
   /** a banner change_banner_text drew (banners.ts): its size, scene and words (the next one starts from them) */
   banner: z.object({
     size: z.string().max(20),

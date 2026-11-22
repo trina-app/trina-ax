@@ -32,7 +32,7 @@ export interface BulkState { files: number; bytes: number; kept: boolean }
 export const newBulkState = (): BulkState => ({ files: 0, bytes: 0, kept: false })
 
 /** The card's facts: the new files of this command, their size, the folders (project-relative) that hold most of them. */
-export interface BulkAsk { files: number; bytes: number; folders: { path: string; files: number }[]; project: string }
+export interface BulkAsk { files: number; bytes: number; folders: { path: string; files: number }[]; project: string; projectId?: string }
 
 export const mb = (n: number) => (n / 1024 ** 2 >= 10 ? Math.round(n / 1024 ** 2).toString() : (n / 1024 ** 2).toFixed(1))
 
@@ -150,22 +150,47 @@ function auditRow(ctx: AppContext, o: Parameters<typeof auditBulk>[1]) {
 
 type T = Record<'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh', string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
-/** The bulk card's words ({files}, {mb}, {project}: filled by bulkCard). */
+/** The bulk card's words ({files}, {size}, {project}, {who}, {n}: filled by bulkCard). QA TC-7335: the card said "which
+ * the whole team sees" for a project only its creator sees, "(0.0 MB)" for small files, the path "My files › projects ›
+ * <name>" and a character count beside the folder list. */
 export const BULK_TEXT = {
-  ask: t('AI 명령이 프로젝트 폴더 {project}에 새 파일 {files}개({mb}MB)를 만들었어요. 팀 모두가 보는 폴더예요. 프로젝트 폴더에 둘까요, 이 채팅의 작업 폴더로 옮길까요?',
-    'An AI command made {files} new files ({mb} MB) in the project folder {project}, which the whole team sees. Keep them in the project folder, or move them to this chat\'s work folder?',
-    'Perintah AI membuat {files} berkas baru ({mb} MB) di folder proyek {project}, yang dilihat seluruh tim. Simpan di folder proyek, atau pindahkan ke folder kerja obrolan ini?',
-    'AIのコマンドがプロジェクトフォルダー{project}に新しいファイルを{files}個（{mb}MB）作りました。チーム全員が見るフォルダーです。プロジェクトフォルダーに残しますか、このチャットの作業フォルダーに移しますか？',
-    'Un comando de la IA creó {files} archivos nuevos ({mb} MB) en la carpeta del proyecto {project}, que ve todo el equipo. ¿Los deja en la carpeta del proyecto o los mueve a la carpeta de trabajo de este chat?',
-    'AI 命令在项目文件夹 {project} 中新建了 {files} 个文件（{mb} MB），整个团队都能看到这个文件夹。要留在项目文件夹，还是移到这个对话的工作文件夹？'),
-  folders: t('주로 들어간 폴더', 'Mostly in', 'Sebagian besar di', '主なフォルダー', 'Sobre todo en', '主要在'),
+  ask: t('AI 명령이 “{project}” 프로젝트 폴더에 새 파일 {files}개{size}를 만들었어요. {who} 프로젝트 폴더에 둘까요, 이 채팅의 작업 폴더로 옮길까요?',
+    'An AI command made {files} new files{size} in the folder of the project “{project}”. {who} Keep them in the project folder, or move them to this chat\'s work folder?',
+    'Perintah AI membuat {files} berkas baru{size} di folder proyek “{project}”. {who} Simpan di folder proyek, atau pindahkan ke folder kerja obrolan ini?',
+    'AIのコマンドがプロジェクト「{project}」のフォルダーに新しいファイルを{files}個{size}作りました。{who}プロジェクトフォルダーに残しますか、このチャットの作業フォルダーに移しますか？',
+    'Un comando de la IA creó {files} archivos nuevos{size} en la carpeta del proyecto «{project}». {who} ¿Los deja en la carpeta del proyecto o los mueve a la carpeta de trabajo de este chat?',
+    'AI 命令在项目“{project}”的文件夹中新建了 {files} 个文件{size}。{who}要留在项目文件夹，还是移到这个对话的工作文件夹？'),
+  /** who sees the project folder, from its real rules (not "the whole team" by default) */
+  whoOnly: t('이 폴더는 나만 볼 수 있어요.', 'Only you can see that folder.', 'Hanya Anda yang bisa melihat folder itu.', 'このフォルダーはあなただけが見られます。', 'Solo usted puede ver esa carpeta.', '只有你能看到这个文件夹。'),
+  whoTeam: t('이 폴더는 팀 전체가 볼 수 있어요.', 'The whole team can see that folder.', 'Seluruh tim bisa melihat folder itu.', 'このフォルダーはチーム全員が見られます。', 'Todo el equipo puede ver esa carpeta.', '整个团队都能看到这个文件夹。'),
+  whoSome: t('이 폴더는 {n}명이 볼 수 있어요.', '{n} people can see that folder.', '{n} orang bisa melihat folder itu.', 'このフォルダーは{n}人が見られます。', '{n} personas pueden ver esa carpeta.', '有 {n} 人能看到这个文件夹。'),
+  folders: t('새 파일이 많은 폴더', 'Folders with the most new files', 'Folder dengan berkas baru terbanyak', '新しいファイルが多いフォルダー', 'Carpetas con más archivos nuevos', '新文件最多的文件夹'),
+  top: t('프로젝트 폴더 바로 아래', 'Right in the project folder', 'Langsung di folder proyek', 'プロジェクトフォルダーの直下', 'Directamente en la carpeta del proyecto', '直接在项目文件夹中'),
   keep: t('프로젝트 폴더에 두기', 'Keep in the project folder', 'Simpan di folder proyek', 'プロジェクトフォルダーに残す', 'Dejar en la carpeta del proyecto', '留在项目文件夹'),
   move: t('작업 폴더로 옮기기', 'Move to the work folder', 'Pindahkan ke folder kerja', '作業フォルダーに移す', 'Mover a la carpeta de trabajo', '移到工作文件夹'),
 }
 
-/** The card's question and its details line, in the person's language. */
-export function bulkCard(ask: BulkAsk, L: keyof T, place: (p: string) => string = (p) => p): { question: string; details: { label: string; text: string }[]; keep: string; move: string } {
-  const question = BULK_TEXT.ask[L].replace('{files}', ask.files.toLocaleString(L)).replace('{mb}', mb(ask.bytes)).replace('{project}', place(ask.project))
-  const text = ask.folders.map((f) => `${f.path} (${f.files.toLocaleString(L)})`).join('\n')
-  return { question, details: text ? [{ label: BULK_TEXT.folders[L], text }] : [], keep: BULK_TEXT.keep[L], move: BULK_TEXT.move[L] }
+/** A size as a card says it: nothing under 1 KB (a size that reads "0.0 MB" says nothing), KB under 1 MB, else MB. */
+export function sizeWords(bytes: number): string | null {
+  if (!(bytes >= 1024)) return null
+  if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`
+  return `${mb(bytes)} MB`
+}
+
+/** Who sees the project folder: only the person, the whole team, a count of people, or not known (left unsaid). */
+export type BulkWho = { kind: 'only' } | { kind: 'team' } | { kind: 'some'; n: number } | null
+
+/** The card's question and its details, in the person's language. `name`: the project's name (the folder path when
+ * there is none); `who`: who sees its folder. */
+export function bulkCard(ask: BulkAsk, L: keyof T, o: { name?: string | null; who?: BulkWho } = {}): { question: string; details: { label: string; text: string; noSize: true }[]; keep: string; move: string } {
+  const size = sizeWords(ask.bytes)
+  const wrap = size ? (L === 'ja' || L === 'zh' ? `（${size}）` : L === 'ko' ? `(${size})` : ` (${size})`) : ''
+  const name = o.name || ask.project.slice(ask.project.lastIndexOf('/') + 1)
+  const who = o.who?.kind === 'only' ? BULK_TEXT.whoOnly[L] : o.who?.kind === 'team' ? BULK_TEXT.whoTeam[L] : o.who?.kind === 'some' ? BULK_TEXT.whoSome[L].replace('{n}', o.who.n.toLocaleString(L)) : ''
+  const question = BULK_TEXT.ask[L].replace('{files}', ask.files.toLocaleString(L)).replace('{size}', wrap).replace('{project}', name)
+    .replace(who ? '{who}' : L === 'ja' || L === 'zh' ? '{who}' : '{who} ', who)
+  // the folders inside the project as names (a › b), with how many new files each holds; a list of names: no size
+  const folder = (p: string) => (p.startsWith('(') ? BULK_TEXT.top[L] : p.replace(/\/+$/, '').split('/').join(' › '))
+  const text = ask.folders.map((f) => `${folder(f.path)} (${f.files.toLocaleString(L)})`).join('\n')
+  return { question, details: text ? [{ label: BULK_TEXT.folders[L], text, noSize: true }] : [], keep: BULK_TEXT.keep[L], move: BULK_TEXT.move[L] }
 }
