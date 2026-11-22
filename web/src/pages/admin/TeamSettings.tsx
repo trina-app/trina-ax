@@ -37,7 +37,7 @@ import { LanguageSelect } from '../../components/LanguageSelect'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { PhonePickSheet, useDevicePick } from '../../components/DevicePick'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
-import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
+import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, ReauthInput, SettingRow, SettingsSection, useAction, useLoad, useReauth } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
 import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
 import { legacyWindow } from '../../lib/officeUpdate'
@@ -719,14 +719,18 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     ? t('speech.localHintMac') + (host.data.localModelMb ? ' ' + t('speech.localFirstDownload', { mb: host.data.localModelMb }) : '')
     : t('speech.localHint')
   const [secret, setSecret] = useState('')
-  const [password, setPassword] = useState('')
+  // my password again, or without one a Google check (common.tsx useReauth)
+  const r = useReauth()
   const [busy, setBusy] = useState(false)
   const secure = canSeal()
   const send = async (value: string | null) => {
+    // in the press: for an account without a password this opens the Google window
+    const p = await r.proof()
+    if (!p) return
     setBusy(true)
-    const r = await act(async () => {
+    const res = await act(async () => {
       const sealed = value === null ? null : await sealSecret(await api.call(API.sealingKey), value, 'speech.key')
-      const out = await api.call(API.setSpeechKey, { body: { sealed, password } })
+      const out = await api.call(API.setSpeechKey, { body: { sealed, ...p } })
       // with no provider chosen, the server reads OpenRouter while the team's key is there (nothing stored: removing the
       // key turns voice input off again). Write a choice only over another saved one, or for another model
       const now = await api.call(API.settings)
@@ -736,10 +740,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       return out
     }, value === null ? t('speech.keyRemoved') : t('speech.keySaved'))
     setBusy(false)
-    if (!r) return
-    key.setData(r)
+    if (!res) return
+    key.setData(res)
     setSecret('')
-    setPassword('')
+    r.setPw('')
     await api.call(API.me).then(signedIn, () => {})
   }
   const remove = async () => {
@@ -797,12 +801,14 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
                       <Field label={t('speech.key')}>
                         <input className={inputCls} type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-…" value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="team-speech-key" />
                       </Field>
-                      <Field label={t('credentials.reauth')}>
-                        <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="team-speech-password" />
-                      </Field>
+                      {r.google ? <div className="sm:col-span-2"><ReauthInput r={r} autoFocus={false} /></div> : (
+                        <Field label={t('credentials.reauth')}>
+                          <input className={inputCls} type="password" autoComplete="current-password" value={r.pw} onChange={(e) => r.setPw(e.target.value)} data-testid="team-speech-password" />
+                        </Field>
+                      )}
                       <div className="flex flex-wrap gap-2 sm:col-span-2">
-                        <Button size="sm" variant="primary" busy={busy} disabled={secret.trim().length < 16 || !password} onClick={() => send(secret.trim())} data-testid="team-speech-save-key">{t('speech.saveKey')}</Button>
-                        {k.set && <Button size="sm" busy={busy} disabled={!password} onClick={remove} data-testid="team-speech-remove-key">{t('speech.removeKey')}</Button>}
+                        <Button size="sm" variant="primary" busy={busy} disabled={secret.trim().length < 16 || !r.ready || r.waiting} onClick={() => send(secret.trim())} data-testid="team-speech-save-key">{t('speech.saveKey')}</Button>
+                        {k.set && <Button size="sm" busy={busy} disabled={!r.ready || r.waiting} onClick={remove} data-testid="team-speech-remove-key">{t('speech.removeKey')}</Button>}
                       </div>
                     </div>
                   )}

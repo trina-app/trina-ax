@@ -1,9 +1,10 @@
 // 팀장 넘기기: the one confirm (docs/DECISIONS.md "W6"), opened from Home's card, its Inbox notice and Admin › Members'
 // ··· menu. It says who gets the role (the owner's own words for the lead link, or the account's name and username),
 // what moves with it, lists the connections made with my own accounts (each kept for the team unless I tick its
-// "Disconnect when I hand over", QA TC-3095) and who can still reset passwords outside the app, then asks for my password again
-// (POST /api/admin/transfer-ownership, owner-reauth). A race (the owner changed meanwhile, 409 owner_changed, or my role
-// is gone already) closes it with "이미 팀장이 바뀌었어요". The names are text only, never markup.
+// "Disconnect when I hand over", QA TC-3095) and who can still reset passwords outside the app, then asks for my password
+// again, or without one a Google check (POST /api/admin/transfer-ownership, owner-reauth). A race (the owner changed
+// meanwhile, 409 owner_changed, or my role is gone already) closes it with "이미 팀장이 바뀌었어요". The names are text
+// only, never markup.
 import { useEffect, useState } from 'react'
 import type { HandoverConnection, HandoverRecovery } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -11,7 +12,8 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useSession } from '../../store/session'
 import { markTransferredHere, useHandover } from '../../store/handover'
 import { toast } from '../../store/ui'
-import { Button, Field, Modal, Skeleton, inputCls } from '../ui'
+import { Button, Modal, Skeleton } from '../ui'
+import { ReauthInput, useReauth } from '../../pages/admin/common'
 import { isolate } from './isolate'
 
 export interface HandoverTarget { id: string; name: string; username: string }
@@ -94,7 +96,7 @@ export function transferRefusal(e: unknown): 'owner_changed' | 'not_ready' | 'ra
   if (isApiError(e, 'conflict')) return e.body.params?.reason === 'owner_changed' ? 'owner_changed' : e.body.params?.reason === 'target_not_ready' ? 'not_ready' : 'other'
   // the route refuses a caller who is no owner any more (another tab handed it over) before it reads the password; a
   // wrong password is a 403 about that field
-  if (isApiError(e, 'forbidden') && !e.body.fields?.['body.password']) return 'owner_changed'
+  if (isApiError(e, 'forbidden') && !e.body.fields?.['body.password'] && !e.body.fields?.['body.reauthFlow']) return 'owner_changed'
   if (isApiError(e, 'rate_limited')) return 'rate_limited'
   return 'other'
 }
@@ -105,9 +107,8 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
   const state = useHandover((s) => s.state)
   const [read, setRead] = useState<'loading' | 'done' | 'failed'>('loading')
   const [ending, setEnding] = useState<ReadonlySet<string>>(new Set())
-  const [password, setPassword] = useState('')
+  const r = useReauth()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     // the connections as they are now (made or ended since the page loaded)
@@ -120,46 +121,52 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
     if (!next.delete(connKey(c))) next.add(connKey(c))
     return next
   })
-  const submit = async () => {
-    if (!password || busy || read === 'loading') return
+  const submit = () => {
+    if (!r.ready || busy || read === 'loading') return
+    // in the press: for an account without a password this opens the Google window
+    const proof = r.proof()
     setBusy(true)
-    setError(null)
     // only what I ticked is ended; nothing ticked keeps everything (the server's default too: no `end` = keep)
     const end = (connections ?? []).filter((c) => ending.has(connKey(c))).map((c) => ({ kind: c.kind, id: c.id }))
-    try {
-      const r = await api.call(API.transferOwnership, { body: { userId: target.id, password, end } })
-      markTransferredHere()
-      const failed = r.ended?.some((x) => x.result === 'failed')
-      toast({ level: 'success', text: t('handover.done', { name: target.name }), ...(failed ? { detail: t('handover.doneFailed') } : {}) })
-      onClose()
-      onDone?.()
-      // I am an admin now: the owner-only screens and controls go away, and so does the card
-      await useSession.getState().refreshMe()
-      void useHandover.getState().load(true).catch(() => {})
-    } catch (e) {
-      setBusy(false)
-      const why = transferRefusal(e)
-      if (why === 'owner_changed') {
-        toast({ level: 'info', text: t('handover.ownerChanged') })
+    void (async () => {
+      const p = await proof
+      if (!p) { setBusy(false); return }
+      try {
+        const res = await api.call(API.transferOwnership, { body: { userId: target.id, ...p, end } })
+        markTransferredHere()
+        const failed = res.ended?.some((x) => x.result === 'failed')
+        toast({ level: 'success', text: t('handover.done', { name: target.name }), ...(failed ? { detail: t('handover.doneFailed') } : {}) })
         onClose()
-        void useSession.getState().refreshMe().then(() => useHandover.getState().load(true)).catch(() => {})
-        return
+        onDone?.()
+        // I am an admin now: the owner-only screens and controls go away, and so does the card
+        await useSession.getState().refreshMe()
+        void useHandover.getState().load(true).catch(() => {})
+      } catch (e) {
+        setBusy(false)
+        const why = transferRefusal(e)
+        if (why === 'owner_changed') {
+          toast({ level: 'info', text: t('handover.ownerChanged') })
+          onClose()
+          void useSession.getState().refreshMe().then(() => useHandover.getState().load(true)).catch(() => {})
+          return
+        }
+        r.setError(why === 'not_ready' ? t('handover.notReady') : why === 'rate_limited' ? t('handover.rateLimited') : errorText(e, locale, t('error.network')))
       }
-      setError(why === 'not_ready' ? t('handover.notReady') : why === 'rate_limited' ? t('handover.rateLimited') : errorText(e, locale, t('error.network')))
-    }
+    })()
   }
+  const close = () => { r.cancel(); onClose() }
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={close}
       title={t('handover.title', { name: target.name })}
       width={520}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('common.cancel')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={!password || read === 'loading'} onClick={() => void submit()} data-testid="handover-submit">
+          <Button variant="danger" busy={busy} disabled={!r.ready || read === 'loading'} onClick={submit} data-testid="handover-submit">
             {t('handover.confirm')}
           </Button>
         </>
@@ -167,18 +174,8 @@ export function HandoverDialog({ target, leadFor, onClose, onDone }: { target: H
     >
       <div className="space-y-4" data-testid="handover-dialog">
         <HandoverView target={target} leadFor={leadFor} connections={connections} failed={read === 'failed'} recovery={state?.recovery ?? null} ending={ending} onToggle={toggle} />
-        <Field label={t('system.passwordAgain')} error={error}>
-          <input
-            data-autofocus
-            className={inputCls}
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => { setPassword(e.target.value); setError(null) }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit() }}
-            data-testid="handover-password"
-          />
-        </Field>
+        {/* my password again, or without one a Google check (pages/admin/common.tsx useReauth) */}
+        <ReauthInput r={r} testId="handover-password" onEnter={submit} />
       </div>
     </Modal>
   )

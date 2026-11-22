@@ -26,7 +26,7 @@ import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { API_PRESETS, apiSaveKey, ownerOnlyAddress, presetLabel } from './apiEngineRules'
 export { API_PRESETS }
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
-import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
+import { AdminPageHeader, Loadable, ReauthInput, useAction, useLoad, useReauth } from './common'
 import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
@@ -294,9 +294,11 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const act = useAction()
   const owner = isOwner(useMeStrict())
   const state = useLoad(() => api.call(API.getApiEngine))
-  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string; vision: 'auto' | 'on' | 'off' } | null>(null)
+  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; vision: 'auto' | 'on' | 'off' } | null>(null)
+  // my password again, or without one a Google check (common.tsx useReauth)
+  const r = useReauth()
   useEffect(() => {
-    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '', vision: state.data.vision?.choice ?? 'auto' })
+    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', vision: state.data.vision?.choice ?? 'auto' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
   const preset = API_PRESETS.find((p) => p.baseUrl === form?.baseUrl)?.id ?? 'custom'
@@ -304,8 +306,11 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const askVision = !!form && state.data?.vision?.detected === null && form.baseUrl.trim() === state.data.baseUrl && form.model.trim() === state.data.model
   const save = async (key?: string | null) => {
     if (!form) return
-    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), ...(askVision ? { vision: form.vision === 'auto' ? null : form.vision } : {}), password: form.password } }), t('common.saved'))
-    if (r) { state.setData(r); setForm({ ...form, key: '', password: '' }); onSaved() }
+    // in the press: for an account without a password this opens the Google window
+    const p = await r.proof()
+    if (!p) return
+    const out = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), ...(askVision ? { vision: form.vision === 'auto' ? null : form.vision } : {}), ...p } }), t('common.saved'))
+    if (out) { state.setData(out); setForm({ ...form, key: '' }); r.setPw(''); onSaved() }
   }
   return (
     <div className="rounded-xl border border-line p-4">
@@ -353,12 +358,16 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
               <p className="mt-1 text-xs text-muted">{t('engines.api.visionHint')}</p>
             </div>
           )}
-          <Field label={t('credentials.reauth')}>
-            <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
-          </Field>
+          {r.google ? (
+            <div className="sm:col-span-2"><ReauthInput r={r} autoFocus={false} /></div>
+          ) : (
+            <Field label={t('credentials.reauth')}>
+              <input type="password" autoComplete="current-password" className={inputCls} value={r.pw} onChange={(e) => r.setPw(e.target.value)} data-testid="api-engine-password" />
+            </Field>
+          )}
           <div className="flex items-end gap-2">
-            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(apiSaveKey({ typed: form.key, savedBaseUrl: state.data?.baseUrl ?? null, baseUrl: form.baseUrl, hasKey: !!state.data?.hasKey }))}>{t('engines.api.save')}</Button>
-            {state.data?.hasKey && <Button variant="ghost" disabled={!form.password} onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
+            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !r.ready || r.waiting} onClick={() => void save(apiSaveKey({ typed: form.key, savedBaseUrl: state.data?.baseUrl ?? null, baseUrl: form.baseUrl, hasKey: !!state.data?.hasKey }))}>{t('engines.api.save')}</Button>
+            {state.data?.hasKey && <Button variant="ghost" disabled={!r.ready || r.waiting} onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
           </div>
         </div>
       )}
