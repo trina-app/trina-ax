@@ -977,11 +977,12 @@ function ChatOfTrashedProject({ projectId }: { projectId: string }) {
   )
 }
 
-/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update (store/chats.ts deliver);
- * never while it was sent or refused before (`sent` ends the watch). */
+/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update or for the connection to
+ * come back (store/chats.ts deliver; it goes by itself then, so the box lets go of the text and a second send cannot
+ * make it twice, QA TC-r2d-06); never while it was sent or refused before (`sent` ends the watch). */
 function untilWaitingForUpdate(chatId: string, clientMessageId: string, sent: Promise<void>): Promise<'updating'> {
   return new Promise((resolve) => {
-    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && m.local.updating)
+    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && (m.local.updating || m.local.offline))
     if (waits(useChats.getState())) { resolve('updating'); return }
     const stop = useChats.subscribe((s) => { if (waits(s)) { stop(); resolve('updating') } })
     void sent.then(stop, stop)

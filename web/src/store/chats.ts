@@ -593,8 +593,11 @@ export const useChats = create<ChatsState>((set, get) => {
           goesAtEnd(job)
           keepUnsent(job.chatId)
           waitingOffline.add(localId)
+          // marked on the message: a shared chat's box lets go of the text now (pages/Chat.tsx), as while Trina updates
+          setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending', undefined, undefined, undefined, true) }))
           try { await whenConnected() } finally { waitingOffline.delete(localId) }
           if (session !== generation || !outbox.has(localId)) return
+          setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending') }))
           job.firstTry = Date.now()
           attempt = -1
           continue

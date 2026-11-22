@@ -90,6 +90,8 @@ describe('chat', () => {
     await tick(10)
     const local = useChats.getState().threads[CHAT]!.messages.find((m) => m.local)!
     expect(local.local?.state).toBe('sending')
+    // marked as waiting for the connection: a shared chat's box lets go of the text (pages/Chat.tsx)
+    expect(local.local?.offline).toBe(true)
     // one try, then it waits for the connection (no "not sent" however long)
     expect(calls).toHaveLength(1)
     expect(readUnsentChat(ME.id, CHAT)).toMatchObject([{ content: '확인할게요', after: answer.id }])
