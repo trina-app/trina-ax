@@ -2297,21 +2297,24 @@ export class TurnExec {
   }
   /** A call of the main AI ends the current text piece: it is interim narration, taken out of the answer (streamed and
    * saved: the apps get a reset) and kept as a step's detail under the thinking label; the last one is the fallback
-   * answer (endInterimFallback). Both engines' text and calls come through here. */
+   * answer (endInterimFallback). Both engines' text and calls come through here, in every answer language. A piece
+   * before an ask_user card goes too, as it has in Korean answers since 11-22: the card holds the question, and the text
+   * after the person's answer is the reply. */
   private endPiece(name: string, input: unknown) {
     // bookkeeping calls (a title, a to-do list, a memory) end no piece: "answer, then remember" keeps its answer (review)
     const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
     if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
     const at = this.pieceStart
     // (a command, a sub-agent's brief and a step's label deliver no words: a piece that repeats them is narration)
-    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), deliveredArgs(name, input, this.writtenText.slice(at)))) { this.pieceStart = null; return false }
+    if (at !== null && this.narration.copiedInto(this.writtenText.slice(at), deliveredArgs(name, input, this.writtenText.slice(at)))) { this.pieceStart = null; return false }
     this.pieceStart = null
-    // only where the answer's language is not written in Latin letters and the person did not ask for another one
-    // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
-    if (at === null || !this.narration.active) return false
+    // in every answer language (docs/decisions/20261122-interim-text-every-language.md): QA batch 3 flow 2, an English
+    // answer opened with the AI's note before its page edit, "Same requester (QA Member) changing their own red, so just
+    // do it." Until then only answers not written in Latin letters lost such pieces (narrationScript)
+    if (at === null) return false
     const piece = this.writtenText.slice(at)
     if (!piece.trim()) return false
-    const statusLine = this.narration.wouldDrop(piece)
+    const statusLine = this.narration.isStatusLine(piece)
     this.discardTextFrom(at)
     // a status line ("Let me check …") is never the fallback answer
     if (!statusLine) this.lastInterim = piece.trim()

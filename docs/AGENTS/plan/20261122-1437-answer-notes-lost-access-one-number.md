@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:37
 - Branch: `fix/answer-reasoning-access-numbers`
-- Status: draft
+- Status: in progress
 - Where: server/src/chat (turn.ts, prompt.ts, tools.ts, chat-file-tool.ts, file-notes.ts). Why: three QA findings of
   batch 3 where the AI's words are wrong or show its own reasoning (docs/REPOSITORY-RULES.md).
 - Version impact: patch. How answers are kept and what tool results say; no API, setting or schema change.
@@ -69,6 +69,23 @@ In:
 
 Out: the CJK lead rule for English answers (no structural signal there; the prompt line covers notes after the last
 call); live re-reading of a page when its source changes (TC-r2u-18's "did not change by itself" is as designed).
+
+## After the plan review (2026-11-22)
+
+- Interim in every language: the "copied into the call" check now runs in every language too (it was gated on the
+  same flag), and the fallback skips status lines in English as well (NarrationHold.isStatusLine). A piece before an
+  ask_user card goes as in Korean. The English tests that pinned the old behaviour flip; the full tests/unit runs.
+- Prompt: no example phrases in the new line (quoted, they get echoed); #373's line ends "do it, and say only what you
+  did". The new line stays, short: it is the only guard for a note after the last call in an English answer.
+- lostAccessFor: a sub-agent's call gets the line but does not use up the main AI's once a turn. Only people-shared
+  chats refuse a path-less search (a project chat's stays in the project folder): the plan's "or the project chat's"
+  was wrong. A refused search and a later "not found" there can both say it in one turn; a later turn's list of "/"
+  says it again (the person read that place in this chat).
+- Data date: the time names its zone (the person's shown zone, as other tool results), and is the newest file event's
+  time while the bytes are still that event's, else the time on disk.
+- **Own quote card: cut.** With the chat shared with its files, a main-AI read of the original is already mapped to
+  the chat's copy before any card (mapPaths). The QA run shared by the API without the files, where the card is right:
+  the creator did not share the quote.
 
 ## Steps
 

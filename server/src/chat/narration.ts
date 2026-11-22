@@ -350,6 +350,10 @@ export class NarrationHold {
   copiedInto(piece: string, input: unknown): boolean { return copied(piece, input, '') }
   /** Is this whole piece a status line this hold would drop before a call (the turn's interim fallback skips those)? */
   wouldDrop(piece: string, input?: unknown): boolean { return !!this.script && isStatusLine(piece, this.script, input, this.message) }
+  /** Is this whole piece a status line ("Let me check …"), in an answer of any language: never the fallback answer
+   * (chat/turn.ts endInterimFallback). An answer in Latin letters has no script of its own to look for, so the check
+   * runs as for a Korean answer: the English line has no Hangul either, and any other letter keeps it (mustKeep). */
+  isStatusLine(piece: string): boolean { return isStatusLine(piece, this.script ?? 'ko', undefined, this.message) }
 
   /** The end (of the answer, or of an attempt): everything held goes out as it was. */
   flush(): string {
