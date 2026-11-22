@@ -528,7 +528,7 @@ export const useChats = create<ChatsState>((set, get) => {
     return true
   }
 
-  const afterStarted = (chatId: string, started: TurnStarted, o: { replaceId?: string; cutAt?: string }, requestEpoch: string | null) => {
+  const afterStarted = (chatId: string, started: TurnStarted, o: { replaceId?: string; cutAt?: string; keepPlace?: boolean }, requestEpoch: string | null) => {
     const existing = thread(chatId).messages.find(m => m.id === started.assistantMessage.id)
     if (existing && existing.status !== 'streaming') started = { ...started, assistantMessage: existing }
     else if (existing && started.assistantMessage.status === 'streaming') {
@@ -540,7 +540,8 @@ export const useChats = create<ChatsState>((set, get) => {
       } }
     }
     changed(chatId)
-    setThread(chatId, (t) => ({ ...t, messages: mergeTurnStarted(t.messages, started, o) }))
+    // keepPlace: the server's copy is on screen already, in its place; only the bubble goes
+    setThread(chatId, (t) => ({ ...t, messages: o.keepPlace ? t.messages.filter((m) => m.id !== o.replaceId) : mergeTurnStarted(t.messages, started, o) }))
     // text or steps that raced ahead of this response mean the turn is already running: no queue position
     const early = pending.get(started.assistantMessage.id)
     if (early?.done) remember(finishedMessages, started.assistantMessage.id)
@@ -568,11 +569,8 @@ export const useChats = create<ChatsState>((set, get) => {
         endSend(localId)
         // a send put back after a reload that the server did get before (its answer was lost when the page went): the
         // server's copy is on screen already, in its place; only the bubble goes
-        if (started.userMessage && thread(job.chatId).messages.some((m) => m.id === started.userMessage!.id && !m.local)) {
-          setThread(job.chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
-          return
-        }
-        afterStarted(job.chatId, started, { replaceId: localId }, epoch)
+        const shown = !!started.userMessage && thread(job.chatId).messages.some((m) => m.id === started.userMessage!.id && !m.local)
+        afterStarted(job.chatId, started, { replaceId: localId, keepPlace: shown }, epoch)
         return
       } catch (e) {
         if (session !== generation) return

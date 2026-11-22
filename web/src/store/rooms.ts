@@ -612,7 +612,9 @@ function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
   const mine = list ?? []
   const ids = new Set(mine.map((p) => p.clientMessageId))
   const others = storedUnsent(roomId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
-  const all = [...mine.map(({ state, error: _e, restored: _r, keptFailed: _k, ...p }) => ({ ...p, ...(state === 'failed' ? { keptFailed: true as const } : {}) })), ...others].sort(byCreated)
+  // a send put back and not tried yet keeps the flag it was kept with (one still on its way then goes by itself after
+  // another reload too)
+  const all = [...mine.map(({ state, error: _e, restored, keptFailed, ...p }) => ({ ...p, ...((restored ? keptFailed : state === 'failed') ? { keptFailed: true as const } : {}) })), ...others].sort(byCreated)
   writeDraft(me, unsentStoreId(roomId), all.length ? JSON.stringify(all) : '')
 }
 
