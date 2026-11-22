@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:36
 - Branch: `feat/box-run-file-versions`
-- Status: in progress
+- Status: done
 - Where: server/src/devenv (track.ts, snapshot.ts, tool.ts), server/src/chat/turn.ts. Why: the follow-up of
   [docs/decisions/20261122-ask-less-side-chat-runs.md](../../decisions/20261122-ask-less-side-chat-runs.md) rule 2
 - Version impact: patch (a command's changes in the person's own folder become versions and trash items; one card
@@ -103,4 +103,10 @@ step-labels-shell.
 
 ## Result
 
-(filled in at the end)
+Built as planned plus the plan review's must-fixes (stat-only card check; guarded paths put back) and the code
+review's (no loop after a refused run; a file shared on its own keeps the card; a .git/.env the command makes is moved
+out; failed undo said and recorded; one change's error never costs the others their versions). Tests:
+tests/unit/box-run-versions.test.ts (12), places-copy TC-f2-c02 updated. Real check on a private QA copy (srt in a
+colima container, claude-code): after a room read, a side-chat command changed and deleted files in the own folder with
+no card; v1 restored and the deleted file restored from the trash, the owner did not see the trash item; with a 9 MB
+file in the folder the card came back and "no" changed nothing; the AI told the person both changes can be undone.

@@ -15,7 +15,7 @@ import type { Database } from 'bun:sqlite'
 import type { FileChange } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { atomicWrite, conflictCopyName, fileEvent, onFileEvent, recordConflictCopy, saveVersion, trashBytes, trashRow } from '../files/store'
-import { moveIntoTrash } from '../team-files/place'
+import { moveIntoTrash, treeSize } from '../team-files/place'
 import { instructionLike } from '../tools/rename-pattern'
 import { publishChanges } from '../team-files/changes'
 import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
@@ -104,7 +104,11 @@ function record(ctx: AppContext, s: ProjectState, changes: Change[], by: Actor, 
     }
     fileEvent(ctx.db, { turnId: by.turnId, userId: by.userId, path: c.path, action: c.action, ...(c.size !== null ? { size: c.size } : {}), ...(c.after ? { sha256: c.after } : {}), detail: { via: VIA, ...extra, ...(trashId ? { trashId } : {}) } })
     out.push({ path: c.path, action: c.action, by: userRef(ctx.db, by.userId), turnId: by.turnId })
-  } catch (e) { ctx.log.warn('dev env: a change was not recorded', { err: e, path: c.path }) }
+  } catch (e) {
+    ctx.log.warn('dev env: a change was not recorded', { err: e, path: c.path })
+    // its earlier content may be gone with it: said as a change that cannot be undone (never "kept")
+    if (c.action !== 'create' && !lost.includes(c)) lost.push(c)
+  }
   try { publishChanges(ctx, out) } catch (e) { ctx.log.warn('dev env change publish failed', { err: e }) }
   return lost
 }
@@ -331,7 +335,7 @@ function revert(ctx: AppContext, s: ProjectState, c: { path: string; action: Cha
     const st = fs.lstatSync(path.join(root, ...segs))
     if (c.action === 'folder' ? !st.isDirectory() : !st.isFile()) return false
     const storage = moveIntoTrash(root, segs)
-    trashRow(ctx.db, c.path, storage, c.action === 'folder' ? 0 : st.size, by, days, c.action === 'folder' ? 'folder' : 'file')
+    trashRow(ctx.db, c.path, storage, c.action === 'folder' ? treeSize(path.join(root, storage)).bytes : st.size, by, days, c.action === 'folder' ? 'folder' : 'file')
   }
   if (old) {
     if (!realParents(root, segs)) return false
@@ -394,8 +398,9 @@ export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Acto
     }
     let conflicts: string[] = [], lost: Change[] = []
     try {
-      conflicts = conflictCopies(ctx, s, changes, outside)
+      // the versions first: a failed conflict copy must not cost them
       lost = record(ctx, s, changes, by, { ...extra, place: 'own' })
+      try { conflicts = conflictCopies(ctx, s, changes, outside) } catch (e) { ctx.log.warn('dev env: conflict copies failed', { err: e }) }
     } finally {
       s.store.save(bare(end))
       s.lastActor = by
