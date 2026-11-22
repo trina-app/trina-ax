@@ -63,7 +63,8 @@ notifications to the other person (the answer is already seen by everyone in the
   - before (batch/20261122-i): run 1 refused the change and mentioned 이서연 only in passing; run 2 made it blue
     (v2), then red (v3) without naming 이서연 or asking. Fail.
   - after: runs 1 and 2 both answered "이서연 님은 파란색, 김민지 님은 빨간색 … 어느 쪽으로 할지 정해 주세요 (둘 다
-    버전으로 만들 수도 있어요)" and changed nothing. Pass 2/2.
+    버전으로 만들 수도 있어요)" and changed nothing. Pass 2/2. A third run after the review fixes: blue was done first
+    (v2); the red turn named both, said blue is in the file now, and offered red / keep blue / both as versions. Pass.
   - after, no-conflict edits: 이서연 blue then "조금 더 진한 남색" (same person) and 이서연 blue then 김민지 "3장 제목"
     (other part): both done at once, no question. 2/2.
 - Prompt pins unchanged (the pinned prompts are not shared chats). api-engine-stable-prompt "tools on demand > the set"
