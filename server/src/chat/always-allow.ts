@@ -185,7 +185,8 @@ export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAl
     return yes
   }
   if (v === ALWAYS_VALUE && !inChat) {
-    keepAlways(p.db, p.userId, kind, p.turnId)
+    // (checked again: a guest who joined while the card was open makes it this chat's only)
+    keepAlwaysAt(p, kind)
     return yes
   }
   return answer
