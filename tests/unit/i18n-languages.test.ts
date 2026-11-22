@@ -173,7 +173,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
-  'server/src/tools/page-data.ts': { why: 'website path words matched in a sitemap ("/회사소개", next to "/about", "/会社概要", "/empresa"), never shown' },
+  'server/src/tools/page-data.ts': { why: 'website path words matched in a sitemap ("/회사소개" next to "/about", "/会社概要", "/empresa") and a Hangul range, never shown', also: /^\s*\/\(\?:\^|가-힣/ },
   'server/src/tools/pdf-tools.ts': { why: 'the words of made PDFs\' names, "견적서 (합침).pdf" (ko next to en/id/ja/es)' },
   'server/src/tools/resize-images.ts': { why: 'the word of a photo copy\'s name, "IMG_2041-작게.jpg" (ko next to en/id/ja/es)' },
   'server/src/tools/stamp-pdf.ts': { why: 'the word of a stamped PDF\'s name, "견적서 (날인).pdf" (ko next to en/id/ja/es)' },
