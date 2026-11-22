@@ -846,11 +846,19 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   try { me = exec.livePrincipal() } catch { return null }
   const rules = exec.rt.files.rules(), fx = exec.rt.files.fx
   const real = (segs: string[]) => { const w = walk(fx.root, segs, fx.caseInsensitive); return [...w.actual, ...w.missing] }
+  // (the folder rules, the access a group or folder permission gives; folder shares live only under users/, which is
+  // left out below, and a file shared one by one that the person still opens is not lost)
   const gone = (rel: string) => { try { return !atLeast(rules.access(me, real(rel.split('/').filter(Boolean))), 'read') } catch { return false } }
-  // the earlier reads' places, as their reads named them (the first spelling wins)
+  const granted = (rel: string) => { try { return !!exec.rt.files.shared?.at(me, rel) } catch { return false } }
+  // the earlier reads' places, as their reads named them (the first spelling wins); never a personal folder (users/…:
+  // one's own is never lost, another's is reached only through a share) or a chat place (chat:files/…)
   const places = new Map<string, string>()
-  // (a chat place, chat:files/…, is no team folder)
-  for (const r of earlier) { const pl = teamPlaceOf(relOf(r)); if (pl && !pl.includes(':') && !places.has(placeKey(pl))) places.set(placeKey(pl), pl) }
+  for (const r of earlier) {
+    const rel = relOf(r), pl = teamPlaceOf(rel)
+    if (!pl || pl.includes(':') || pl.split('/')[0]!.normalize('NFC').toLowerCase() === 'users' || places.has(placeKey(pl))) continue
+    if (!gone(rel) || granted(rel)) continue
+    places.set(placeKey(pl), pl)
+  }
   if (isError) {
     const m = text ? /Access denied: not found or no access: '([^']*)'/.exec(text) : null
     if (!m) return null
