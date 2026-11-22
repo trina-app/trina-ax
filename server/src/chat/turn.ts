@@ -16,7 +16,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { webAllowAll } from '../tools/web-allow-all'
@@ -3922,6 +3922,43 @@ export class TurnExec {
   }
 
   /**
+   * A shared chat's search or listing (grep, glob, list) in a folder everyone who sees the chat can open: the places
+   * below it that some of them cannot open (devenv/srt/access.ts sharedHiddenFolders, the shallowest only) are left out
+   * of that one call instead of asking on the read card (QA TC-f1x S-005/S-012: a broad glob while looking for the
+   * folder asked about restricted sub-folders nobody named). The call runs with them hidden (policy/access.ts
+   * withMoreHiddenFolders: the read card's own check and the tool alike), and its result says how many were left out
+   * that the person could have seen, never which. A path that is itself a place some of them cannot open, a file, the
+   * person's own folder, a project chat's "/" (SKIP_OWN: that one asks on the card) or a chat place: null, the read card
+   * as before. Anyone who cannot be loaded or a check that fails: null (the card as before: fails closed).
+   */
+  sharedSearchLeftOut(tool: string, args: unknown): { scope: HiddenFolders; count: number } | null {
+    if (!this.shared || !(SEARCH_TOOLS.has(tool) || tool === 'list') || !args || typeof args !== 'object') return null
+    if (SKIP_OWN.has(args)) return null
+    const a = args as Record<string, unknown>
+    if (a.path !== undefined && typeof a.path !== 'string') return null
+    if (isReservedPlace(a.path)) return null
+    try {
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const start = typeof a.path === 'string' ? a.path : ''
+      // one place only (a path that walks to another spelling on disk is that one place: roomNames)
+      if (new Set(this.roomNames(start).map((p) => p.normalize('NFC').toLowerCase())).size !== 1) return null
+      const r = authorize(fx, rules, me, start, 'list')
+      if (!r.exists || !r.st?.isDirectory() || r.segs[0] === 'users') return null
+      const ids = this.sharedAudience()
+      const people = ids.map((id) => loadPrincipal(this.rt.db, id))
+      if (!ids.length || people.some((q) => !q)) return null
+      const all = [me, ...(people as Principal[])]
+      if (!all.every((q) => atLeast(rules.access(q, r.segs), 'read'))) return null
+      const folders = sharedHiddenFolders(rules, me, people as Principal[], r.rel)
+      if (!folders.length) return null
+      // what the person would have seen there: a listing shows one level down, a search everything below
+      const parent = (f: string) => f.split('/').slice(0, -1).join('/')
+      const count = folders.filter((f) => (tool !== 'list' || parent(f) === r.rel) && rules.canList(me, f.split('/'))).length
+      return { scope: { userId: me.id, folders }, count }
+    } catch (e) { this.rt.log.warn('shared search scope not worked out', { err: e, turn: this.id }); return null }
+  }
+
+  /**
    * Where a call of a shared chat would read from, before it runs, by what the person's own access lets it show
    * (docs/DECISIONS.md "Shared project chats", the read gate; the rule of a room's names, noteRoomTool):
    *   - every team path it names: content when the person may read it (a file, a folder, or that nothing is there),
@@ -5172,6 +5209,9 @@ export class TurnExec {
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
+    // a server card never shows a chat place as a raw path (chat:files/<id>/…, chat:work/…): its words, as a step's
+    // (cardPlaceWords; QA re-smoke: an edit_pdf card in a shared chat named "chat:files/<uuid>/…")
+    request = cardPlaceWords(request, this.spec.locale)
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
     o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
@@ -6198,4 +6238,34 @@ function rememberedText(label: string): string | null {
     if (label.startsWith(head) && label.endsWith(tail)) return label.slice(head.length, label.length - tail.length)
   }
   return null
+}
+
+/** A chat place in a card's words in place of its raw path (shared/src/step-labels.ts chatPlaceWords: "이 채팅 ›
+ * 견적서.pdf", "작업 폴더 › out › a.png", a file id never shown), also when a path was already cut at " › ". */
+export function cardPlaceText(text: string, L: Locale): string {
+  if (!/chat:(files|work)\b/i.test(text)) return text
+  const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const worded = chatPlaceWords(text, L).replace(/chat:(files|work)((?:\s*›\s*[^›\n'"`]+)*)/gi, (_all, kind: string, rest: string) =>
+    chatPlaceWords(`chat:${kind}/${rest.split('›').map((x) => x.trim()).filter((x) => x && !id.test(x)).join('/')}`, L).replace(/ › $/, ''))
+  return worded
+}
+
+/** A server card (a safety check the server raises: ask_user with origin 'server') with every chat place in words: its
+ * question, the part of it a tip names, its note, its choices and the labels of its blocks; a list of names (noSize)
+ * too. What goes out exactly as shown (a block's text otherwise, its fields) stays as written. The AI's own questions
+ * are its words and stay as they are. */
+export function cardPlaceWords(request: TurnRequest, L: Locale): TurnRequest {
+  if (request.kind !== 'ask_user' || request.origin !== 'server') return request
+  const w = (t: string) => cardPlaceText(t, L)
+  const r = request
+  const changed = [r.question, r.note ?? '', r.placeTip?.text ?? '', r.placeTip?.title ?? '', ...(r.options ?? []).map((x) => x.label), ...(r.details ?? []).flatMap((d) => [d.label, d.noSize ? d.text : ''])].some((t) => w(t) !== t)
+  if (!changed) return request
+  return {
+    ...r,
+    question: w(r.question),
+    ...(r.note !== undefined ? { note: w(r.note) } : {}),
+    ...(r.placeTip ? { placeTip: { text: w(r.placeTip.text), title: w(r.placeTip.title) } } : {}),
+    ...(r.options ? { options: r.options.map((x) => ({ ...x, label: w(x.label) })) } : {}),
+    ...(r.details ? { details: r.details.map((d) => ({ ...d, label: w(d.label), ...(d.noSize ? { text: w(d.text) } : {}) })) } : {}),
+  }
 }

@@ -4,7 +4,8 @@ import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
-import { loadPrincipal, withHiddenFolders } from '../policy/access'
+import { loadPrincipal, withHiddenFolders, withMoreHiddenFolders } from '../policy/access'
+import { SEARCH_LEFT_OUT } from '../chat/search-path'
 import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
@@ -114,7 +115,11 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
       return withNote(failed(r.refusal))
     }
-    const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
+    // a shared chat's search or listing that leaves out what some of its people cannot open (chat/turn.ts
+    // sharedSearchLeftOut, set by beforeFileTool): run with those places hidden, as its read card's check was
+    const a0 = params?.arguments
+    const leftOut = a0 && typeof a0 === 'object' ? SEARCH_LEFT_OUT.get(a0)?.scope ?? null : null
+    const out = await withMoreHiddenFolders(leftOut, () => (registry?.has(name) ? registry.call(name, params?.arguments ?? {}, callCtx) : files.call(name, params?.arguments ?? {}, callCtx)))
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
     try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller, out.images?.length ?? 0) } catch {}

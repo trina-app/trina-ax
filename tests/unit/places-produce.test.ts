@@ -25,6 +25,7 @@ import { ToolError } from '../../server/src/policy/errors'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
 import { findPdfBrowser } from '../../server/src/files/html-pdf'
 
+import { expectNoRawPlace } from '../lib/card-places'
 setDefaultTimeout(90_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 const fakeSys: SrtSystem = {
@@ -70,6 +71,7 @@ async function run(user: string, chatId: string, content: string, answer: 'share
     if (f && f.type === 'turn.request') {
       const c = f.data.request as unknown as Card
       cards.push(c)
+      expectNoRawPlace(c)
       await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer } })
       continue
     }

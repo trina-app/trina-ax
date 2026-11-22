@@ -13,6 +13,13 @@ export const wholeTeamPath = (p: unknown): boolean => typeof p === 'string' && p
  * (files/service.ts glob and grep, TurnExec.sharedSources), which is searched only by its own path, behind the read
  * card. Set before the call runs (chat/tools.ts beforeFileTool); a WeakSet, so nothing is kept after the call. */
 export const SKIP_OWN = new WeakSet<object>()
+/** The calls (their argument objects) of a shared chat's search or listing in a folder everyone in the chat can open,
+ * with the places below it that some of them cannot open (chat/turn.ts sharedSearchLeftOut): the call runs with those
+ * hidden (mcp/protocol.ts), so no read card asks about them, and its result says how many the person could have seen
+ * (SEARCH_LEFT_OUT_NOTE). Set before the call runs (chat/tools.ts beforeFileTool); a WeakMap, kept no longer than the call. */
+export const SEARCH_LEFT_OUT = new WeakMap<object, { scope: { userId: string; folders: readonly string[] }; count: number }>()
+/** What such a search's result tells the AI: a count, never a name (QA TC-f1x S-005/S-012). */
+export const searchLeftOutNote = (n: number): string => `(${n} folder${n === 1 ? ' here was' : 's here were'} left out because not everyone in this chat can open ${n === 1 ? 'it' : 'them'}; name one to look inside (that asks first).)`
 /** What a search that stayed in a shared project chat's folder tells the AI, once a turn (the AI took a project-only
  * result for the whole team folder: AI scenario FIND-01.project, 2026-11-17). Names no folder: the AI writes where
  * everyone in the chat reads. */

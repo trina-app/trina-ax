@@ -27,6 +27,7 @@ import { answerRecord, setAnswerReads } from '../../server/src/chat/shared-answe
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 
+import { expectNoRawPlace } from '../lib/card-places'
 setDefaultTimeout(120_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 // a fake system: every command runs with sh in the run's cwd (the copy-in script starts at "set -u")
@@ -85,6 +86,7 @@ async function run(user: string, chatId: string, content: string, answer: (c: Ca
     if (f && f.type === 'turn.request') {
       const c = f.data.request as unknown as Card
       cards.push(c)
+      expectNoRawPlace(c)
       await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: answer(c) } })
       continue
     }

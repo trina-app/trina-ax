@@ -24,7 +24,10 @@ import { fillPlurals } from '@mycel/shared/plural'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { teamDefaultLocale } from '../admin/settings'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { atLeast } from '../policy/access'
+import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { cardNext, cardReason, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
@@ -163,6 +166,22 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return e instanceof ToolError || e instanceof FileError ? e.message : 'internal error'
   }
 
+  /** The file `to` when the person can read it and it holds exactly what `from` holds (both files, same size, same
+   * sha256); null otherwise, also on any error (the copy goes on as before). */
+  async function sameFileThere(tc: ToolCtx, from: string, to: string): Promise<string | null> {
+    try {
+      const rules = ctx.files.rules()
+      const a = authorize(ctx.files.fx, rules, tc.user, from, 'read')
+      const b = authorize(ctx.files.fx, rules, tc.user, to, 'read')
+      if (!a.exists || !b.exists || !a.st?.isFile() || !b.st?.isFile() || a.abs === b.abs || a.st.size !== b.st.size) return null
+      const sha = (abs: string) => new Promise<string>((res, rej) => {
+        const h = createHash('sha256')
+        fs.createReadStream(abs).on('data', (c) => h.update(c)).on('end', () => res(h.digest('hex'))).on('error', rej)
+      })
+      return (await sha(a.abs)) === (await sha(b.abs)) ? b.rel : null
+    } catch { return null }
+  }
+
   async function batch(mode: Mode, a: { paths: string[]; to_folder: string }, tc: ToolCtx) {
     const tool = mode === 'move' ? 'move_files' : 'copy_files'
     const verb = mode === 'move' ? 'moved' : 'copied'
@@ -178,6 +197,21 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       try { audiences.set(p, svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e, tc) }) }
     }
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
+    // a copy whose target folder already holds the same file (its name, the same bytes: sha256) is already there: no
+    // card, nothing written, the result says so (QA S-018: "복사할까요? 15명이 더 볼 수 있게 돼요" for a file that was
+    // there, then a duplicate " (2)")
+    const there: { from: string; to: string }[] = []
+    if (mode === 'copy') {
+      for (const p of [...ok]) {
+        const to = await sameFileThere(tc, p, join(folder, nameOf(p)))
+        if (to) { there.push({ from: p, to }); ok.splice(ok.indexOf(p), 1) }
+      }
+    }
+    const thereText = there.length ? `Already there (the same file, same name and content), nothing copied:\n${there.map((d) => `- ${d.from} = ${d.to}`).join('\n')}` : ''
+    if (!ok.length && there.length) {
+      const text = [thereText, failed.length ? `Not ${verb}:\n${lines(failed)}` : ''].filter(Boolean).join('\n\n')
+      return { text, summary: `${tool} 0/${there.length + failed.length} -> ${folder} (${there.length} already there)`, structured: { copied: [], already: there, failed } }
+    }
     if (!ok.length) throw new ToolError(`nothing was ${verb}:\n${lines(failed)}`)
 
     // who can see them: one question for the whole call, on the server's card; after a room read this card stands in
@@ -272,11 +306,12 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const text = [
       made.length ? `Made the new folder ${made.at(-1)}.` : '',
       done.length ? `${mode === 'move' ? 'Moved' : 'Copied'} ${done.length} to ${folder || 'the team root'}:\n${done.map((d) => `- ${d.from} -> ${d.to}`).join('\n')}` : `Nothing was ${verb}.`,
+      thereText,
       failed.length ? `Not ${verb}:\n${lines(failed)}` : '',
       done.length ? audienceResult(added, lost, total, mode, where) : '',
       done.length ? bulkResult(bulk?.said) : '',
     ].filter(Boolean).join('\n\n')
-    const summary = `${tool} ${done.length}/${done.length + failed.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (confirmed by the user: +${added} -${lost})` : ''}`
+    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (confirmed by the user: +${added} -${lost})` : ''}`
     if (!done.length) return { text, isError: true, summary }
     return { text, summary, structured: mode === 'move' ? { moved: done, failed } : { copied: done, failed } }
   }

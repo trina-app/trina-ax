@@ -36,7 +36,7 @@ import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
 import { addSources, audiencePeople, pathAudience, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
-import { atLeast, isStaff, type Principal } from '../policy/access'
+import { atLeast, isStaff, withMoreHiddenFolders, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
@@ -47,7 +47,7 @@ import { alwaysHere, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
-import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
+import { inProjectOnly, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
@@ -633,7 +633,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && !exec.restricted && !exec.templateRun && !exec.otherAuthors && hintsHere(exec, true) && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
       // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
       const copies = exec.roomCopies(main && !guest)
-      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed, copies].filter(Boolean).join('\n') || undefined
+      // a shared chat's search or listing that left out places some of its people cannot open: how many, never which
+      const left = !isError && args && typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.count ?? 0 : 0
+      const leftNote = left > 0 ? searchLeftOutNote(left) : null
+      return [placed, skillNote, heldNote, rooms, fact, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -709,7 +712,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
           if (exec.shared.kind === 'project' && wholeTeamPath((args as { path?: unknown }).path)) SKIP_OWN.add(args)
           Object.assign(args, exec.sharedArgs(name, args))
         }
-        const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
+        // a search or listing in a folder everyone here can open: what some of them cannot open below it is left out of
+        // this call, with no card (chat/turn.ts sharedSearchLeftOut; mcp/protocol.ts runs the call with it hidden, and
+        // afterFileTool says how many)
+        const leftOut = args && typeof args === 'object' ? exec.sharedSearchLeftOut(name, args) : null
+        if (leftOut) SEARCH_LEFT_OUT.set(args as object, leftOut)
+        const sharedNo = await withMoreHiddenFolders(leftOut?.scope ?? null, () => exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files }))
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)

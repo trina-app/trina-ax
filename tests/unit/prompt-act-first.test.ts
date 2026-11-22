@@ -57,7 +57,12 @@ describe('act first', () => {
 describe('helper files', () => {
   test('a source made only to convert stays in the user\'s own folder (QA TC-f2-a03)', async () => {
     const { makeFileRule } = await import('../../server/src/chat/prompt')
-    for (const hangul of [false, true]) expect(makeFileRule(hangul)).toContain('Write a source you make only to convert (Markdown, CSV, HTML, SVG) in the user\'s own folder, never in a shared, group or project place')
+    for (const hangul of [false, true]) {
+      const r = makeFileRule(hangul, true)
+      expect(r).toContain('Give make_file Markdown or CSV as content, not as a source file')
+      expect(r).toContain('Never save notes, memos or plans of your own as files unless the user asks for a file')
+      expect(r).toContain('(HTML, SVG) goes in the user\'s own folder, never in a shared, group or project place')
+    }
   })
 })
 
