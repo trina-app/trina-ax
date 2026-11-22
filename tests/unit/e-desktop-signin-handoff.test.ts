@@ -25,6 +25,17 @@ test('the owner\'s link for the team on screen gives the code', () => {
   expect(signInCode(appLink(TEAM, CODE), TEAM)).toBe(CODE)
 })
 
+test('six teams stored (the owner\'s app): the link finishes only in the team on screen, whichever that is', () => {
+  const teams = ['http://localhost:19100', 'https://potenlab.trina.app', 'https://qa.trina.app', 'https://diontest.trina.app', 'https://dioncafe.trina.app', TEAM]
+  for (const shown of teams) {
+    for (const linked of teams.filter((t) => t.startsWith('https:'))) {
+      expect(signInCode(appLink(linked, CODE), shown)).toBe(linked === shown ? CODE : null)
+    }
+  }
+  // a plain-http link (this machine) never: a web page must not point the app at a local port
+  expect(signInCode(appLink('http://localhost:19100', CODE), 'http://localhost:19100')).toBeNull()
+})
+
 test('REPRO: a first POST that gets no answer (relay hiccup, timeout) is sent again, and the sign-in finishes', async () => {
   const r = run([new Error('net::ERR_CONNECTION_RESET'), 502, 200])
   expect(await r.done).toBe('claimed')

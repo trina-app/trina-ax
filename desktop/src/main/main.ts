@@ -152,6 +152,7 @@ let launchLink: string | null = linkFromArgv(process.argv)
 /** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */
 function onLink(url: string) {
   if (!win || win.win.isDestroyed()) {
+    linkLog('link kept until the window is up', url)
     launchLink = url
     return
   }
@@ -163,8 +164,14 @@ function onLink(url: string) {
 // macOS hands links over here, also the one that launched the app (before ready)
 if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
+  linkLog('open-url', url)
   onLink(url)
 })
+/** which way a link came in (the sign-in hand-off's first step), always on: the kind of link only, never its address
+ * or a code */
+function linkLog(step: string, url: string | null) {
+  console.info('[desktop]', step, url === null ? '(no link)' : url.includes('#code=') ? '(sign-in code link)' : '(link)')
+}
 
 /** "install the .deb" (refusesUnsandboxed above): the language last picked in this app, else English */
 async function refuseUnsandboxed() {
@@ -651,6 +658,7 @@ if (primary) {
     }
     // Windows and Linux: a link opens a second instance with the link as an argument
     const link = linkFromArgv(argv)
+    linkLog('second-instance', link)
     if (link) onLink(link)
   })
   app.on('activate', () => {
