@@ -16,16 +16,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { balancedHeadline, bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
-import { BANNERS_DIR, BANNERS_KEPT, DemoBanners, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
+import { BANNER_SOURCE_NAME, BANNERS_DIR, BANNERS_KEPT, bannerSourceText, DemoBanners, launchSource, parseBannerSource, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
 import { HIGGSFIELD_TOOLS, MAKE_BANNER_MOVED, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
 import { demoFakesOf } from '../../server/src/demo/fakes'
-import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
+import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoBannerSource, demoRule } from '../../server/src/chat/prompt'
 import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { steepling } from '../../scripts/demo/steepling/make'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { stepLabel } from '../../shared/src/step-labels'
@@ -365,8 +366,46 @@ describe('the AI knows the demo\'s services are practice copies', () => {
   test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
     expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
     expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
-    expect(DEMO_BANNER_NOTE).toContain('give scene only when the user asks for another of the prepared photos')
-    expect(ChangeBannerTextInput.shape.scene.description).toContain('words alone never change the photo')
+    expect(ChangeBannerTextInput.shape.scene.description).toContain('only when the user asks for another photo')
+  })
+
+  test('banner words live in a source file the AI reads and edits; words on the banner are a text edit, never a new scene (owner, 11-22)', () => {
+    // the demo note: read the source, edit only the named words, then draw again; a named word on the banner is no scene request
+    expect(DEMO_BANNER_NOTE).toContain("read the source file, change only the words the user named with the edit tool")
+    expect(DEMO_BANNER_NOTE).toContain('replace 흐린 아침 with 밝은 아침; every other word stays exactly as it is')
+    expect(DEMO_BANNER_NOTE).toContain('Never rewrite, add or drop words the user did not name.')
+    expect(DEMO_BANNER_NOTE).toContain('When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it.')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('read that file, edit only the words the user named')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain(BANNER_SOURCE_NAME)
+    // the note names this chat's source file (made on the first call when it is not there yet)
+    const file = 'projects/유자 진저 런칭 캠페인/banner.json'
+    expect(demoRule('Steepling', true, true, { path: file, exists: true })).toContain(`This chat's banner source is ${file}: read it before you change or talk about the banner's words.`)
+    expect(demoRule('Steepling', true, true, { path: file, exists: false })).toContain(demoBannerSource(file, false))
+    expect(demoBannerSource(file, false)).toContain('makes it from the launch banner')
+    expect(demoRule('Steepling', true, false, { path: file, exists: true })).not.toContain(file)
+  })
+
+  test('the source file: one field per line, read back the same; a broken one says what to fix, never its text', () => {
+    const src = launchSource(kits.ko)
+    const text = bannerSourceText(src)
+    expect(text.split('\n')[1]).toBe('  "headline": "흐린 아침에,\\n*작은 햇살 한 잔.*",')
+    expect(text).toContain('"badge": "20% 할인"')
+    expect(parseBannerSource(text)).toEqual(src)
+    // an edit of one word, as the edit tool makes it
+    expect(parseBannerSource(text.replace('흐린 아침', '밝은 아침')).words).toEqual({ ...kits.ko.words, headline: '밝은 아침에,\n*작은 햇살 한 잔.*' })
+    expect(() => parseBannerSource('{"headline": "secret words", ')).toThrow('not valid JSON')
+    expect(() => parseBannerSource('{"headline": 3}')).toThrow('headline')
+    try { parseBannerSource('{"headline": "secret words", ') } catch (e) { expect(String(e)).not.toContain('secret words') }
+  })
+
+  test('the seed writes the launch banner\'s source next to its pictures in the project (ko and en)', () => {
+    for (const l of ['ko', 'en'] as const) {
+      const files = steepling(l).files
+      const at = Object.keys(files).find((p) => p.endsWith(`/${BANNER_SOURCE_NAME}`))!
+      expect(at.startsWith('projects/'), l).toBe(true)
+      expect(parseBannerSource(files[at] as string), l).toEqual(launchSource(kits[l]))
+      expect(fs.readFileSync(path.join(content[l], 'files', ...at.split('/')), 'utf8'), l).toBe(files[at] as string)
+    }
   })
 
   test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {
@@ -380,7 +419,7 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
     // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
     expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
-    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown image its result gives')
+    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown images its result gives')
     expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
     // one sentence each in the result, no nagging
     for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
@@ -468,5 +507,82 @@ describe('end to end on a demo server', () => {
     expect([view2.words.headline, view2.words.badge]).toEqual(['작지 않아\n큰 햇살이야!', '30% 할인'])
     expect(view2.saved).not.toBe(view.saved)
     expect(asked).toEqual([])
+    // the source next to the pictures holds what was drawn: the next edit starts there
+    expect(view.source).toBe(`users/alice/유자 진저/${BANNER_SOURCE_NAME}`)
+    expect(parseBannerSource(fs.readFileSync(path.join(A.team, ...view.source.split('/')), 'utf8')).words).toEqual({ ...kits.ko.words, headline: '작지 않아\n큰 햇살이야!', badge: '30% 할인' })
+  })
+
+  /** a chat in a project of its own whose folder holds the seed's launch banner source; the tool and a call of it */
+  const setup = (id: string) => {
+    const chat = A.chat('alice'), turnId = A.turn('alice', chat)
+    const folder = `users/alice/${id}`
+    A.ctx.db.query('INSERT INTO projects (id, name, folder_path) VALUES (?, ?, ?)').run(id, id, folder)
+    A.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(id, chat)
+    fs.mkdirSync(path.join(A.team, ...folder.split('/')), { recursive: true })
+    const source = `${folder}/${BANNER_SOURCE_NAME}`
+    const abs = path.join(A.team, ...source.split('/'))
+    fs.writeFileSync(abs, bannerSourceText(launchSource(kits.ko)))
+    const files = { user: A.ctx.files.principal('alice'), turnId, files: new TurnFiles() } as TurnToolContext['files']
+    files.person = { locale: 'ko', async confirm() { return false }, async choose() { return null }, *turnUrls() {}, allSitesHere: () => true }
+    const tc: TurnToolContext = { turnId, chatId: chat, userId: 'alice', messageId: 'm', locale: 'ko', signal: new AbortController().signal, files }
+    const tool = (A.ctx.services.turnTools ?? []).find((t) => t.name === DEMO_BANNER_TOOL) as TurnTool
+    const render = async (args: Record<string, unknown> = {}) => {
+      const out = await tool.call(args, tc)
+      const text = out.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+      return { out, text, view: out.isError ? null : JSON.parse(text.split('\n')[0]!) }
+    }
+    return { chat, folder, source, abs, render }
+  }
+
+  drawing("the owner's demo test (11-22) in one turn: read the source, edit one phrase, draw; every other word unchanged", async () => {
+    const { chat, source, abs, render, folder } = setup('yuzu-owner')
+    // the demo note names this chat's source, and it is there (the seed's)
+    expect(bannerSourceFor(A.ctx, A.ctx.files.principal('alice'), chat)).toEqual({ path: source, exists: true })
+    // "흐린 아침 말고, 밝은 아침으로 해줘": read → edit (the edit tool's exact replace of a unique string) → render
+    const read = fs.readFileSync(abs, 'utf8')
+    expect(read.split('흐린 아침').length).toBe(2)
+    fs.writeFileSync(abs, read.replace('흐린 아침', '밝은 아침'))
+    const { out, text, view } = await render()
+    expect(out.isError, text).toBeFalsy()
+    expect(view.words.headline).toBe('밝은 아침에,\n*작은 햇살 한 잔.*')
+    expect(oneLineOf(view.words.headline)).toBe('밝은 아침에, 작은 햇살 한 잔.')
+    // every other word, the photo: the launch banner's
+    const k = kits.ko.words
+    expect(view.words).toEqual({ headline: '밝은 아침에,\n*작은 햇살 한 잔.*', subline: k.subline, eyebrow: k.eyebrow, badge: k.badge, badge_note: k.badgeNote, button: k.cta })
+    expect(view.scene).toBe(kits.ko.defaultScene)
+    // every size drawn and saved next to the source, each shown inline
+    expect(view.files.map((p: string) => p.replace(/-[\w]{6}\.png$/, ''))).toEqual(['1200x628', '1080x1080', '1080x1920'].map((s) => `${folder}/banner-${s}`))
+    for (const p of view.files as string[]) {
+      const [w, h] = p.match(/banner-(\d+)x(\d+)-/)!.slice(1).map(Number)
+      expect(pngSize(fs.readFileSync(path.join(A.team, ...p.split('/'))))).toEqual({ w: w!, h: h! })
+      expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(p)})`)
+    }
+    expect(text).toContain(`The banner's words are in ${source}: to change them, edit that file`)
+    // the AI's edit stays in the file as it made it (the render only read it)
+    expect(fs.readFileSync(abs, 'utf8')).toBe(read.replace('흐린 아침', '밝은 아침'))
+    // the next turn starts from the file: "작은 햇살" → "큰 햇살" keeps "밝은 아침에,"
+    fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').replace('작은 햇살', '큰 햇살'))
+    expect((await render({ size: '1200x628' })).view.words.headline).toBe('밝은 아침에,\n*큰 햇살 한 잔.*')
+  })
+
+  drawing('a project\'s banner is its own: another project starts from the launch words; a broken source says what to fix', async () => {
+    const a = setup('yuzu-a'), b = setup('yuzu-b')
+    fs.writeFileSync(a.abs, fs.readFileSync(a.abs, 'utf8').replace('흐린 아침', '밝은 아침'))
+    expect((await a.render({ size: '1200x628' })).view.words.headline).toBe('밝은 아침에,\n*작은 햇살 한 잔.*')
+    expect((await b.render({ size: '1200x628' })).view.words.headline).toBe(kits.ko.words.headline)
+    // a chat with no source yet: the first call makes it from the launch banner, in the chat's folder
+    fs.rmSync(b.abs)
+    const made = await b.render({ size: '1200x628' })
+    expect(made.view.source).toBe(b.source)
+    expect(parseBannerSource(fs.readFileSync(b.abs, 'utf8'))).toEqual(launchSource(kits.ko))
+    fs.writeFileSync(a.abs, '{"headline": "secret", ')
+    const bad = await a.render()
+    expect(bad.out.isError).toBe(true)
+    expect(bad.text).toContain('not valid JSON')
+    expect(bad.text).not.toContain('secret')
+    // a source must be a .json file
+    expect((await a.render({ source: `${a.folder}/notes.md` })).text).toContain('is a .json file')
   })
 })
+
+const oneLineOf = (s: string) => s.replace(/\*/g, '').replace(/\s*\n\s*/g, ' ').trim()
