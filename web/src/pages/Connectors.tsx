@@ -59,6 +59,7 @@ import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integra
 import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
 import { setupReturnState, setupReturnStep } from '../lib/welcome'
+import { showSlackCard } from '../lib/slackState'
 
 /** How many Discover cards show before "Show all" (ConnectorsView.tsx). */
 export const POPULAR_FIRST = DISCOVER_FIRST
@@ -327,7 +328,7 @@ function ConnectorsHome() {
   // offered: the team's own app is the owner's to set up). The welcome steps' "다른 도구 보기" leads here, so Slack is
   // one click away from them (it left their rows on 2026-11-22)
   const openSlack = () => navigate(SLACK_ADMIN_PATH, { state: fromStep })
-  const slackCard: Card[] = admin && slack && !(slack.tokens || slack.lastError === 'removed') && (owner || slack.official)
+  const slackCard: Card[] = showSlackCard(slack, { admin, owner })
     ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: t('slack.admin.desc'), logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
   // "각자 연결하도록 권하기" (was "팀 추천") (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
   // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)

@@ -10,6 +10,7 @@ import { DICTS } from '../../src/i18n'
 import { aboutKey, BUILT_IN_ORDER, canChange, categoryKey, driveCardState, fits, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys, signInFailedKey, showUnverifiedHint } from '../../src/lib/googleApps'
 import { GoogleAppDetail, type GoogleAppsState } from '../../src/components/integrations/GoogleAppConnector'
 import { GOOGLE_APP_IDS, MockGoogleApps, MOCK_GOOGLE_TOOLS } from '../mock/googleApps'
+import { showSlackCard } from '../../src/lib/slackState'
 
 const view = (over: Partial<GoogleAppView> = {}): GoogleAppView => ({
   id: 'gmail', available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: MOCK_GOOGLE_TOOLS.gmail, ...over,
@@ -58,6 +59,24 @@ describe('card states', () => {
     expect(isBuiltIn('notion')).toBe(false)
     expect(canChange(MOCK_GOOGLE_TOOLS.gmail)).toBe(true)
     expect(canChange([{ changes: false }])).toBe(false)
+  })
+})
+
+describe('the Slack card in Discover (Settings › Connectors, where the welcome steps\' Other tools leads; Admin)', () => {
+  const notAdded = { tokens: false, lastError: null, official: false }
+  test('the owner sees it while Slack is not added (also the team\'s own app, which is theirs to set up); not once added or removed in Slack', () => {
+    expect(showSlackCard(notAdded, { admin: true, owner: true })).toBe(true)
+    expect(showSlackCard({ ...notAdded, official: true }, { admin: true, owner: true })).toBe(true)
+    expect(showSlackCard({ ...notAdded, tokens: true }, { admin: true, owner: true })).toBe(false)
+    expect(showSlackCard({ ...notAdded, lastError: 'removed' }, { admin: true, owner: true })).toBe(false)
+  })
+  test('a member sees none: nothing read for them (null), and never even with a state', () => {
+    expect(showSlackCard(null, { admin: false, owner: false })).toBe(false)
+    expect(showSlackCard({ ...notAdded, official: true }, { admin: false, owner: false })).toBe(false)
+  })
+  test('an admin who is not the owner: only where Add to Slack is offered (the hosting service\'s app), none on a server without it', () => {
+    expect(showSlackCard(notAdded, { admin: true, owner: false })).toBe(false)
+    expect(showSlackCard({ ...notAdded, official: true }, { admin: true, owner: false })).toBe(true)
   })
 })
 
