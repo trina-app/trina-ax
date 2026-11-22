@@ -477,6 +477,8 @@ export type ShellKind = keyof typeof SHELL_KIND_WORDS
  * left to right as the shell does (a quote inside the other kind is text; a backslash escapes the next character
  * outside single quotes). Anything unbalanced: the command as written (a ">" then still counts). */
 function withoutQuoted(c: string): string {
+  // a "…" inside "$(…)" or `…` would close the outer quote early: no double-quoted text is left out then (review)
+  const nested = /\$\(|`/.test(c)
   let out = '', i = 0
   while (i < c.length) {
     const ch = c[i]!
@@ -489,7 +491,7 @@ function withoutQuoted(c: string): string {
       }
       if (j >= c.length) return c
       const inner = c.slice(i + 1, j)
-      out += ch === '"' && /[$`]/.test(inner) ? c.slice(i, j + 1) : ch + ch
+      out += ch === '"' && (nested || /[$`]/.test(inner)) ? c.slice(i, j + 1) : ch + ch
       i = j + 1
       continue
     }

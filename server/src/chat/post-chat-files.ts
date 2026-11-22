@@ -16,7 +16,8 @@ import type { TurnFiles } from '../files/service'
 import type { TurnExec } from './turn'
 
 /** a chat file's link as the app writes it (files/place-output.ts chatFileLink), any spelling its router opens */
-const CHAT_FILE_LINK = /\/c\/([A-Za-z0-9_%-]+)\/?\?file=([A-Za-z0-9_%-]+)/gi
+// (the app's own relative link only: another site's /c/…?file=… is not a chat file)
+const CHAT_FILE_LINK = /(?<![\w.:/-])\/c\/([A-Za-z0-9_%-]+)\/?\?file=([A-Za-z0-9_%-]+)/gi
 
 const decode = (s: string) => { try { return decodeURIComponent(s) } catch { return s } }
 
