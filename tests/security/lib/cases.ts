@@ -622,6 +622,9 @@ export const SPECS: Record<string, Spec> = {
   deleteUser: { skipPositive: true, build: (c) => c.del('/api/admin/users/erin'), scope: 'byLevel' },
   resetPassword: { build: (c) => c.post('/api/admin/users/bob/reset-password'), scope: 'byLevel' },
   createResetLink: { build: (c) => c.post('/api/admin/users/bob/reset-link'), scope: 'byLevel' },
+  // Sign in with Google (admin/users.ts disconnectUserGoogle): the people rules of the other actions here; bob has none
+  // connected, so an allowed caller gets the 204 of nothing to remove
+  disconnectUserGoogle: { build: (c) => c.del('/api/admin/users/bob/google'), scope: 'byLevel' },
   transferOwnership: { skipPositive: true, build: (c) => c.post('/api/admin/transfer-ownership', { userId: 'carol', password: 'wrong-pass' }), scope: 'byLevel' },
   // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕ are the owner's only (an unknown invite: 404)
   handoverState: { build: (c) => c.get('/api/admin/handover'), scope: 'byLevel' },
@@ -804,6 +807,9 @@ export const SPECS: Record<string, Spec> = {
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },
   deleteBudget: { build: (c, w) => c.del(`/api/admin/budgets/${w.ids.budget}`), scope: 'byLevel' },
   settings: { build: (c) => c.get('/api/admin/settings'), scope: 'byLevel' },
+  // whether Team settings shows "Sign in with Google" (auth/google-login-admin.ts): a yes or no, never the client
+  googleSignInAdminStatus: { build: (c) => c.get('/api/admin/google-login'), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300 && JSON.stringify(r.json) !== JSON.stringify({ client: false })) throw new Error(`${who}: unexpected Google sign-in status ${r.text}`) } },
   updateSettings: { build: (c) => c.patch('/api/admin/settings', { browserAllowAll: true }), scope: 'byLevel' },
   speechHost: { build: (c) => c.get('/api/admin/speech-host'), scope: 'byLevel' },
   speechKey: { build: (c) => c.get('/api/admin/speech-key'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the speech key status shows a key') } },

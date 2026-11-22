@@ -137,6 +137,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   // Admin
   'admin.home': { reach: 'explains' },
   'admin.members': { reach: 'explains' },
+  'admin.google-sign-in': { reach: 'explains' },
   'admin.invites': { reach: 'explains' },
   'admin.guests': { reach: 'explains' },
   'admin.groups': { reach: 'explains' },
