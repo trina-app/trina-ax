@@ -24,6 +24,11 @@
   the private time is no longer kept from people added later: the Share dialog says it in a line of its own
   (devAnswers) and the press covers it; the "not all known" mark is per answer, not on every answer at once. A later
   share says how many earlier answers stay hidden from the people added (hiddenAnswers).
+- **A chat made private, then shared (owner, 2026-11-22):** a file the chat handed over from its work folder into the
+  creator's own folder (save_work_file or copy_files of chat:work/…: a box_shell video) counts as a file the chat made
+  (chat/shared-actions.ts handedOverInChat), so "Share the files from this chat too?" offers it and a link to it asks
+  the creator ("Ask to add it"). A video or sound the viewer may not open never shows a Download that fails (web
+  FileBody MediaView asks the address once and shows the ask or a plain line).
 - **Known limit:** an app build older than this one does not show the dev environment line (it knows no `devAnswers`);
   its Share press then covers those answers without that line. Accepted for the MVP (the owner may ask to keep them
   hidden instead: per answer `x`, the fallback the plan review named).

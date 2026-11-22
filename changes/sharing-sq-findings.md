@@ -24,3 +24,7 @@
 - Helper files the AI used to make a document (a draft .md or .html) are no longer offered with the chat's files.
 - When the AI can't find a folder in a shared chat, it now says that it only looks where everyone in the chat can open,
   and asks for the folder's path or offers a chat only you see.
+- A video or file the AI made with commands in a private chat (and saved to your files) is now offered under **Share
+  the files from this chat too?** when you share the chat, like the files the AI wrote. If you shared without it, the
+  other person sees "Only <you> can add this file to the chat" with **Ask to add it**, instead of a Download button that
+  didn't work.
