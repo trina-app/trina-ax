@@ -216,7 +216,7 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
         tabIndex={0}
         role="region"
         aria-label={current?.name}
-        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft [&_td[data-formula=raw]]:text-faint [&_td[data-formula=raw]]:italic"
+        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft [&_td[data-formula=raw]]:text-faint [&_td[data-formula=raw]]:italic [&_td[data-formula=raw]]:max-w-48 [&_td[data-formula=raw]]:overflow-hidden [&_td[data-formula=raw]]:text-ellipsis"
         data-sheet={current?.name}
         onClick={(e) => {
           const td = (e.target as HTMLElement).closest<HTMLElement>('td[data-formula]')

@@ -135,9 +135,12 @@ describe('formula results in the sheet preview', () => {
     XLSX.utils.book_append_sheet(wb, ws, 'S')
     const read = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer, { type: 'array', dense: true, sheetStubs: true, cellNF: true })
     expect(preview(read).shown('S', 'C1')).toBe('0') // without the flag the stored result is shown
-    // <calcPr fullCalcOnLoad="1"/>, as openpyxl and XlsxWriter write it (SheetJS does not write calcPr)
-    const again = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer, { type: 'array', dense: true, sheetStubs: true, cellNF: true })
-    ;(again.Workbook as { CalcPr?: Record<string, string> }).CalcPr = { fullCalcOnLoad: '1' }
+    // <calcPr fullCalcOnLoad="1"/>, as openpyxl and XlsxWriter write it (SheetJS does not write calcPr: added to the zip)
+    const zip = XLSX.CFB.read(new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer), { type: 'array' })
+    const entry = XLSX.CFB.find(zip, '/xl/workbook.xml')!
+    const xml = new TextDecoder().decode(entry.content as Uint8Array).replace('</workbook>', '<calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>')
+    entry.content = new TextEncoder().encode(xml)
+    const again = XLSX.read(XLSX.CFB.write(zip, { fileType: 'zip', type: 'array' }) as ArrayBuffer, { type: 'array', dense: true, sheetStubs: true, cellNF: true })
     const { shown } = preview(again)
     expect(shown('S', 'C1')).toBe('5')
     expect(shown('S', 'D1')).toBe('=VLOOKUP(2,A1:B1,2,FALSE)') // not the stored 0
@@ -177,5 +180,40 @@ describe('formula results in the sheet preview', () => {
     expect(['E1', 'F1', 'G1', 'H1'].map((a) => shown('S', a))).toEqual(['4', '7', '1', '2.68'])
     expect(['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2', 'H2'].map((a) => shown('S', a))).toEqual(['-2', '2', '2', '2', '3', 'TRUE', 'FALSE', 'x'])
     expect(['A3', 'B3', 'C3', 'D3', 'E3', 'F3', 'G3', 'H3'].map((a) => shown('S', a))).toEqual(['15', 'TRUE', 'TRUE', 'TRUE', '#DIV/0!', 'TRUE', '-5', '1.414213562'])
+  })
+
+  test('review cases: Excel rounding at 15 digits, array formulas, names past the grid, empty cells through IF, text order', () => {
+    const { shown } = preview(
+      aiBook({
+        S: [
+          [0.1, 0.2, '=0.5-0.4-0.1', '=10.1+20.2-30.3', '=(0.5-0.4-0.1)*1', '=A1+B1=0.3', '=IF(A1+B1=0.3,"OK","Mismatch")', '=XYZ1+1'],
+          [null, true, '=IF(TRUE,A2)&"x"', '=MIN(IF(TRUE,A2),5)', '=SUM(IF(TRUE,B2))', '=IF(TRUE,A2)', '="é"<"f"', '="apple"<"Banana"'],
+          ['=IFERROR(A2,"-")', '=SUM(TRUE,1)', '=IFERROR(1/0,A2)', null, null, null, null, null],
+        ],
+      }),
+    )
+    expect(['C1', 'D1', 'E1', 'F1', 'G1', 'H1'].map((a) => shown('S', a))).toEqual(['0', '0', '=(0.5-0.4-0.1)*1', 'TRUE', 'OK', '=XYZ1+1'])
+    expect(['C2', 'D2', 'E2', 'F2', 'G2', 'H2'].map((a) => shown('S', a))).toEqual(['x', '5', '0', '0', '="é"<"f"', 'TRUE'])
+    expect(['A3', 'B3', 'C3'].map((a) => shown('S', a))).toEqual(['0', '2', '0'])
+  })
+
+  test('cells inside an array formula are not read as empty', () => {
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([[1], [2], [3]])
+    XLSX.utils.sheet_set_array_formula(ws, 'B1:B3', 'A1:A3*2')
+    ws.C1 = { t: 'z', f: 'B2+1' }
+    ws.C2 = { t: 'z', f: 'A2+1' }
+    ws['!ref'] = 'A1:C3'
+    XLSX.utils.book_append_sheet(wb, ws, 'S')
+    const read = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer, { type: 'array', dense: true, sheetStubs: true, cellNF: true })
+    const { shown } = preview(read)
+    expect(shown('S', 'C1')).toBe('=B2+1')
+    expect(shown('S', 'C2')).toBe('3')
+  })
+
+  test('the cell budget is per formula: a long running total is worked out to the end', () => {
+    const rows: Cell[][] = [['n', 'running'], ...Array.from({ length: 3000 }, (_, i) => [1, `=SUM($A$2:A${i + 2})`])]
+    const { shown } = preview(aiBook({ R: rows }))
+    expect(shown('R', 'B3001')).toBe('3000')
   })
 })

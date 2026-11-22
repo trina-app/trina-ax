@@ -19,7 +19,7 @@ type Val = Scalar | Ref
 
 /** Thrown when a formula is outside what this file can calculate with certainty. */
 class Unsupported extends Error {}
-const no = (why: string): never => {
+function no(why: string): never {
   throw new Unsupported(why)
 }
 
@@ -46,6 +46,9 @@ type Tok =
   | { k: 'fn'; v: string }
   | { k: 'op'; v: string }
 
+/** Excel's last row and column (0-based): 1048576 and XFD. */
+const MAX_ROW = 1_048_575
+const MAX_COL = 16_383
 const CELL = String.raw`\$?([A-Z]{1,3})\$?(\d{1,7})`
 const COLS = String.raw`\$?([A-Z]{1,3}):\$?([A-Z]{1,3})(?![\d(A-Z])`
 const SHEET = String.raw`(?:'((?:[^']|'')+)'|([\p{L}_][\p{L}\p{N}_.]*))!`
@@ -69,11 +72,12 @@ function tokens(src: string): Tok[] {
       const sheet = m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2]
       if (m[3] !== undefined) {
         const a = colNum(m[3]), b = colNum(m[4]!)
+        if (Math.max(a, b) > MAX_COL) no('outside the grid')
         out.push({ k: 'ref', v: { sheet, r0: 0, r1: 0, c0: Math.min(a, b), c1: Math.max(a, b), cols: true } })
       } else {
         const c0 = colNum(m[5]!), r0 = Number(m[6]) - 1
         const c1 = m[7] !== undefined ? colNum(m[7]) : c0, r1 = m[8] !== undefined ? Number(m[8]) - 1 : r0
-        if (r0 < 0 || r1 < 0) no('row 0')
+        if (r0 < 0 || r1 < 0 || Math.max(r0, r1) > MAX_ROW || Math.max(c0, c1) > MAX_COL) no('outside the grid') // e.g. XYZ1: a name
         out.push({ k: 'ref', v: { sheet, r0: Math.min(r0, r1), r1: Math.max(r0, r1), c0: Math.min(c0, c1), c1: Math.max(c0, c1) } })
       }
     } else if ((m = /^([A-Za-z][A-Za-z0-9.]*)\s*\(/.exec(rest))) {
@@ -190,9 +194,14 @@ function compare(a: Scalar, b: Scalar): number {
   if (rank(a) !== rank(b)) return rank(a) - rank(b)
   if (typeof a === 'string') {
     const x = a.toLowerCase(), y = (b as string).toLowerCase()
-    return x < y ? -1 : x > y ? 1 : 0
+    if (x === y) return 0
+    // Excel sorts text by its own collation (accents, Hangul, "-" and "'" are ordered differently): plain letters,
+    // digits and spaces only
+    if (!/^[a-z0-9 ]*$/.test(x) || !/^[a-z0-9 ]*$/.test(y)) no('text order')
+    return x < y ? -1 : 1
   }
-  const x = Number(a), y = Number(b)
+  // numbers compare on the 15 digits Excel keeps: =0.1+0.2=0.3 is TRUE
+  const x = Number(Number(a).toPrecision(15)), y = Number(Number(b).toPrecision(15))
   return x < y ? -1 : x > y ? 1 : 0
 }
 
@@ -210,7 +219,11 @@ const MAX_DEPTH = 200
 const MAX_CELLS = 500_000
 
 export class FormulaBook {
-  private sheets = new Map<string, Sheet>()
+  private sheets = new Map<string, Sheet | null>() // null: two sheets with one upper-case name
+  /** Cells of array formulas ({=…} over a range): only the first cell holds the formula, the others read empty. */
+  private arrays: Ref[] = []
+  /** The formula being worked out at the top, for Excel's zero rule of a last + or -. */
+  private root: Node | null = null
   private memo = new Map<string, Scalar | Unsupported>()
   private busy = new Set<string>()
   private depth = 0
@@ -228,7 +241,16 @@ export class FormulaBook {
       const ws = wb.Sheets[name] as { '!data'?: (CellObject | undefined)[][]; '!ref'?: string } | undefined
       const data = ws?.['!data'] ?? []
       const rows = ws?.['!ref'] ? decodeRange(ws['!ref']).e.r + 1 : 0
-      this.sheets.set(name.toUpperCase(), { data, rows, cut: cut.has(name) })
+      const key = name.toUpperCase()
+      this.sheets.set(key, this.sheets.has(key) ? null : { data, rows, cut: cut.has(name) })
+      data.forEach((row, r) =>
+        row?.forEach((cell, c) => {
+          if (!cell?.F) return
+          const m = /^\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?$/.exec(cell.F)
+          const box = m ? { r0: Number(m[2]) - 1, c0: colNum(m[1]!), r1: Number(m[4] ?? m[2]) - 1, c1: colNum(m[3] ?? m[1]!) } : { r0: r, c0: c, r1: MAX_ROW, c1: MAX_COL }
+          this.arrays.push({ sheet: key, ...box })
+        }),
+      )
     }
   }
 
@@ -248,10 +270,14 @@ export class FormulaBook {
     if (this.busy.has(key)) throw new Unsupported('circular')
     if (this.depth >= MAX_DEPTH) throw new Unsupported('depth') // not memoised: a shallower start may succeed
     this.busy.add(key)
+    if (this.depth === 0) this.reads = 0 // the cell budget is per formula
     this.depth++
+    const outer = this.root
     try {
       if (cell.F) no('array formula')
-      let v = this.value(parse(cell.f), sheet)
+      const root = parse(cell.f)
+      this.root = root
+      let v = this.value(root, sheet)
       if (isRef(v)) v = this.single(v) // "=A1" or "=Sheet2!B5"; a range would spill
       if (v === null) v = 0 // "=A1" on an empty cell shows 0, as in Excel
       this.memo.set(key, v)
@@ -262,13 +288,14 @@ export class FormulaBook {
       this.memo.set(key, e)
       return e
     } finally {
+      this.root = outer
       this.busy.delete(key)
       this.depth--
     }
   }
 
   private sheetOf(name: string): Sheet {
-    return this.sheets.get(name.toUpperCase()) ?? no('no such sheet')
+    return this.sheets.get(name.toUpperCase()) ?? no('no such sheet, or two sheets with one name')
   }
 
   /** A whole-column reference ("B:B") ends at the sheet's last row; on a sheet cut at the row limit it is not known. */
@@ -286,7 +313,10 @@ export class FormulaBook {
   /** The value of one cell: a stored value, or its formula's result. */
   private cell(sheet: string, r: number, c: number): Scalar {
     if (++this.reads > MAX_CELLS) no('too many cells')
-    const cell = this.sheetOf(sheet).data[r]?.[c]
+    const s = this.sheetOf(sheet)
+    const key = sheet.toUpperCase()
+    if (this.arrays.some((a) => a.sheet === key && r >= a.r0 && r <= a.r1 && c >= a.c0 && c <= a.c1)) no('inside an array formula')
+    const cell = s.data[r]?.[c]
     if (!cell) return null
     if (this.missing(cell)) {
       const v = this.result(sheet, r, c)
@@ -338,13 +368,14 @@ export class FormulaBook {
         return isErr(a) ? a : a / 100
       }
       case 'bin':
-        return this.binary(n.op, this.scalar(n.a, here), this.scalar(n.b, here))
+        return this.binary(n.op, this.scalar(n.a, here), this.scalar(n.b, here), n === this.root)
       case 'call':
         return this.call(n.fn, n.args, here)
     }
   }
 
-  private binary(op: string, a: Scalar, b: Scalar): Scalar {
+  /** `top`: the formula's last operation. */
+  private binary(op: string, a: Scalar, b: Scalar, top = false): Scalar {
     if (isErr(a)) return a
     if (isErr(b)) return b
     if (op === '&') {
@@ -360,9 +391,13 @@ export class FormulaBook {
     if (isErr(y)) return y
     switch (op) {
       case '+':
-        return finite(x + y)
-      case '-':
-        return finite(x - y)
+      case '-': {
+        const r = finite(op === '+' ? x + y : x - y)
+        // binary noise left by cancelling (0.5-0.4-0.1): Excel shows 0 when it is the formula's last + or -;
+        // elsewhere its result depends on rules not modelled here
+        if (r !== 0 && Math.abs(r) < Math.max(Math.abs(x), Math.abs(y)) * 2 ** -48) return top ? 0 : no('cancellation')
+        return r
+      }
       case '*':
         return finite(x * y)
       case '/':
@@ -387,7 +422,8 @@ export class FormulaBook {
           if (typeof x === 'number') out.push(x)
         }
       } else if (isErr(v)) return v
-      else if (typeof v === 'number' || typeof v === 'boolean') out.push(Number(v))
+      else if (typeof v === 'number') out.push(v)
+      else if (typeof v === 'boolean' && a.t === 'lit') out.push(Number(v)) // a typed TRUE counts; one from a cell would not
       else no('text or empty argument')
     }
     return out
@@ -442,14 +478,13 @@ export class FormulaBook {
         // only the branch taken is worked out, as in Excel
         const branch = c ? args[1]! : args[2]
         if (!branch) return false
-        const v = this.scalar(branch, here)
-        return v === null ? 0 : v
+        // an empty cell stays empty here (Excel passes the reference on); result() shows it as 0 at the top
+        return this.value(branch, here)
       }
       case 'IFERROR': {
         arity(2, 2)
-        const v = this.scalar(args[0]!, here)
-        const out = isErr(v) ? this.scalar(args[1]!, here) : v
-        return out === null ? 0 : out
+        const v = this.value(args[0]!, here)
+        return isErr(isRef(v) ? this.single(v) : v) ? this.value(args[1]!, here) : v
       }
       case 'ROUND': {
         arity(2, 2)
@@ -541,7 +576,11 @@ function displayCell(cell: CellObject, v: Scalar | Unsupported, format: Format):
   try {
     w = format(z ?? 'General', v)
   } catch {
-    w = numText(v)
+    try {
+      w = numText(v)
+    } catch {
+      return { t: 's', v: `=${f}`, w: `=${f}`, f }
+    }
   }
   return { t: 'n', v, w, f, ...(z !== undefined ? { z } : {}) }
 }
