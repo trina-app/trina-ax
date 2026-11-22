@@ -3936,6 +3936,7 @@ export const zh: Record<MessageKey, string> = {
   "skillPack.exampleTitle": "“{title}”示例",
   "skillPack.exampleAlt": "“{title}”的示例",
   "skillPack.fictional": "为虚构公司“{company}”制作。使用你团队的资料，结果就会是关于你们公司的。",
+  "skillPack.fictionalEuro": "为虚构公司“{company}”制作。使用你团队的资料，结果就会是关于你们公司的。",
   "skillPack.preparing": "示例正在制作中",
   "skillPack.exampleFailed": "无法加载示例",
   "skillPack.source.team": "由{product}团队制作",

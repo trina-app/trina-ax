@@ -21,6 +21,7 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { PackCatalogSkill, ShareCandidate, SkillShare } from '@mycel/shared/api'
 import { translate, useLocaleStore, useT, type MessageKey } from '../../src/i18n'
+import { takesEuro } from '../../src/components/skills/SkillExampleViewer'
 import { preChecked, primaryLabel, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import { SkillShareReview } from '../../src/components/onboarding/SkillShareReview'
 import { PackRows } from '../../src/components/skills/PackRows'
@@ -470,6 +471,10 @@ describe('the example viewer', () => {
     } finally { await m.unmount() }
   })
 
+  test('the invented company\'s Korean particle follows its last sound: 숲틈·Soopteum·Notion 으로, 예시커피·Example Coffee·Gmail 로', () => {
+    for (const [name, euro] of [['숲틈', true], ['Soopteum', true], ['Notion', true], ['예시커피', false], ['Example Coffee', false], ['Gmail', false], ['서울', false]] as const) expect([name, takesEuro(name)]).toEqual([name, euro])
+  })
+
   test('one example per open (FLOW-v6 §2.4): no stepping to the next row, the arrow keys do nothing; an image loads, then the invented company; Esc closes, the focus back on that row\'s 예시', async () => {
     const m = await rows()
     try {
@@ -512,7 +517,7 @@ describe('the example viewer', () => {
           expect(viewer(m).getAttribute('data-state')).toBe('shown')
           // the intro deck is made on its own invented company (숲틈 / Soopteum), the rest on 예시커피 / Example Coffee
           const company = name === 'intro-deck' ? (locale === 'ko' ? '숲틈' : 'Soopteum') : locale === 'ko' ? '예시커피' : 'Example Coffee'
-          expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company }))
+          expect(text(m, 'skill-example-fictional')).toBe(ko(takesEuro(company) ? 'skillPack.fictionalEuro' : 'skillPack.fictional', { company }))
           expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
           await key(viewer(m), 'Escape')
         }

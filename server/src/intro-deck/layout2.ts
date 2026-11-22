@@ -126,7 +126,7 @@ function footer(cv: Canvas, c: Ctx, o: { name?: boolean; left?: boolean; x?: num
 /** The first letter of the company set as a graphic (role "graphic": never read as type by the review), bleeding off
  * the bottom right corner, its left edge at `left` or further right; a quiet tint of the ground. */
 function bigGlyph(cv: Canvas, c: Ctx, left: number) {
-  const ch = Array.from(c.doc.company.trim())[0]
+  const ch = glyphOf(c.doc.company)
   if (!ch) return
   const g = ch.toLocaleUpperCase()
   const size = 1000
@@ -134,6 +134,14 @@ function bigGlyph(cv: Canvas, c: Ctx, left: number) {
   const x = Math.max(left, W - gw * 0.82)
   cv.items.push({ t: 'text', x, y: Math.round(H - size * 0.8), w: Math.round(gw + 40), size, weight: 800, tracking: -0.04, lh: size, align: 'l', role: 'graphic',
     lines: [[{ text: g, color: cv.g.dark ? mix(cv.g.bg, cv.g.text, 0.1) : mix(cv.g.bg, cv.g.mark, 0.1) }]] })
+}
+/** The company's letter for the graphic: the first letter or digit of its name after a legal form written before it
+ * ("(주)", "㈜", "주식회사", "(유)", "유한회사", "(株)", "株式会社", "有限会社", "Inc.", "Ltd."), or null (draw none). */
+export function glyphOf(company: string): string | null {
+  const LEGAL = /^(?:\(\s*주\s*\)|㈜|주식회사|\(\s*유\s*\)|유한회사|\(\s*株\s*\)|㈱|株式会社|有限会社|\(\s*有\s*\)|inc\.?|ltd\.?|llc|co\.,?\s*ltd\.?)[\s,.]*/iu
+  let name = company.normalize('NFC').trim()
+  for (let k = 0; k < 3; k++) { const m = LEGAL.exec(name); if (!m || !m[0]) break; name = name.slice(m[0].length) }
+  return /[\p{L}\p{N}]/u.exec(name)?.[0] ?? null
 }
 /** The pictures the slides may take beyond the ones the AI placed: noted brand pictures no slide uses (no lettering,
  * never the logo), given in a fixed order to the numbers (behind the figures), the about and the closing (as a half). */
@@ -154,7 +162,8 @@ function spares(doc: DeckDoc2): Map<number, string> {
   const rank = { dark: 0, mixed: 1, light: 2 } as const
   const take = (i: number, ok: (p: PicInfo) => boolean, darkFirst: boolean) => {
     const order = free.map((src, k) => ({ src, k, r: rank[doc.picNotes[src]!.tone] ?? 1 })).sort((a, b) => (darkFirst ? a.r - b.r : b.r - a.r) || a.k - b.k)
-    const hit = order.find((o) => ok(doc.pics[o.src]!))
+    // behind the numbers the type covers the whole picture: only one with a calm side
+    const hit = order.find((o) => ok(doc.pics[o.src]!) && (!darkFirst || doc.picNotes[o.src]!.calm !== 'none'))
     if (hit) { out.set(i, hit.src); free.splice(free.indexOf(hit.src), 1) }
   }
   for (const kind of ['numbers', 'about', 'contact'] as const) {

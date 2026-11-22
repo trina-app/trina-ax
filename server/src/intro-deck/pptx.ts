@@ -116,10 +116,12 @@ function picture(c: Ctx, name: string, rid: string, bx: number, by: number, bw: 
 const EA_FACE: Partial<Record<Locale, string>> = { ja: 'Yu Gothic', zh: 'Microsoft YaHei' }
 /** A run's fonts: Regular and Bold are "Pretendard" (bold by b="1"), ExtraBold its own family. */
 function rPr(lang: Locale, size: number, weight: number, tracking: number, c: string, tag = 'a:rPr'): string {
-  const face = weight >= 800 ? 'Pretendard ExtraBold' : 'Pretendard'
+  // a Japanese or Chinese run has no ExtraBold family in its East Asian face: those runs are Pretendard Bold with b="1"
+  // (a real bold in both faces), never ExtraBold made bolder still
+  const cjk = !!EA_FACE[lang]
+  const face = weight >= 800 && !cjk ? 'Pretendard ExtraBold' : 'Pretendard'
   const eaFace = EA_FACE[lang] ?? face
-  // a CJK face has no ExtraBold family of its own: bold carries the weight there
-  const b = weight >= 600 && (weight < 800 || EA_FACE[lang]) ? ' b="1"' : ' b="0"'
+  const b = weight >= 600 && (weight < 800 || cjk) ? ' b="1"' : ' b="0"'
   const spc = Math.round(tracking * size * 50)
   const ea = EA_CHARSET[lang]
   return `<${tag} lang="${LANG[lang]}" altLang="en-US" sz="${Math.round(size * 50)}"${b}${spc ? ` spc="${spc}"` : ''} dirty="0"><a:solidFill>${color(c)}</a:solidFill><a:latin typeface="${face}" pitchFamily="34" charset="0"/><a:ea typeface="${eaFace}" pitchFamily="34" charset="${ea}"/><a:cs typeface="${face}" pitchFamily="34" charset="0"/></${tag}>`

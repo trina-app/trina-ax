@@ -7,7 +7,7 @@ import { BAND_BOTTOM, BAND_TOP, Canvas, CW, H, ML, W } from '../../server/src/in
 import { drawFigure, FIGURE_BAND, parseNum, comparable, type FigEnv } from '../../server/src/intro-deck/figures'
 import { fadeAt } from '../../server/src/intro-deck/grounds'
 import type { Item, PathItem, PicInfo, SlideOut, TextItem } from '../../server/src/intro-deck/layout'
-import { layoutDeck2, layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
+import { glyphOf, layoutDeck2, layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
 import { fittingThemes2, lookFor2, themeFor2, type G2 } from '../../server/src/intro-deck/look'
 import { fitText, width, type Weight } from '../../server/src/intro-deck/text'
 
@@ -117,6 +117,24 @@ function samples(w: string[]): Record<string, [DeckFigure, DeckFigure]> {
     figures: [{ kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '15년', label: w[1]! }] }, { kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '0.02%', label: w[1]! }, { number: '99.1%', label: w[2]! }, { number: '+30%', label: w[3]! }] }],
   }
 }
+
+describe('the company letter on drawn covers (round 3)', () => {
+  test('the first letter or digit after a legal form written before the name; none when there is no letter', () => {
+    const cases: [string, string | null][] = [['(주)아크메정밀', '아'], ['㈜숲틈', '숲'], ['주식회사 숲틈', '숲'], ['( 유 ) 오름', '오'], ['유한회사 오름', '오'], ['(株)ソープ', 'ソ'], ['株式会社テスト', 'テ'], ['Inc. Acme', 'A'], ['Ltd. Acme', 'A'], ['3M', '3'], ['Soopteum', 'S'], ['***', null], ['(주)', null], ['', null]]
+    for (const [name, want] of cases) expect([name, glyphOf(name)]).toEqual([name, want])
+  })
+  test('a cover with no letter to draw draws no graphic', () => {
+    const slides: DeckSlide2[] = [{ kind: 'cover', headline: '정밀 부품을\n제때 만드는 회사' }, { kind: 'about', statement: '정밀 부품을 만듭니다' }, { kind: 'contact', line: '연락 주세요' }]
+    const graphic = (company: string) => layoutSlide2(doc(slides, { company, logo: null }), 0).items.find((it) => it.t === 'text' && it.role === 'graphic') as TextItem | undefined
+    expect(graphic('(주)아크메정밀')!.lines[0]![0]!.text).toBe('아')
+    expect(graphic('(주)')).toBeUndefined()
+  })
+  test('a long Japanese or Chinese text that cannot fit stops early (the line limit ends the fill)', () => {
+    const t0 = performance.now()
+    expect(fitText('办公室的植物'.repeat(27), { size: 72, min: 60, weight: 800, tracking: -0.03, lh: 1.2 }, 1560, 2)).toBeNull()
+    expect(performance.now() - t0).toBeLessThan(100)
+  })
+})
 
 describe('Japanese and Chinese lines (round 3)', () => {
   const role = { size: 64, min: 52, weight: 800 as Weight, tracking: -0.035, lh: 1.2 }
@@ -420,6 +438,9 @@ describe('the compositions', () => {
     expect(layoutSlide2(none, 1).variant).toBe('statement')
     expect(layoutSlide2(none, 2).variant).not.toBe('photo')
     expect(layoutSlide2(none, 3).variant).not.toBe('half')
+    // behind the numbers only a picture with a calm side (the type covers all of it)
+    const busy = doc(slides, { picNotes: { ...notes, [IMG + 'wide.jpg']: { lettering: false, calm: 'none', tone: 'dark' } } })
+    expect(layoutSlide2(busy, 2).variant).not.toBe('photo')
     // every spare slide still fits (no problems), and the numbers' type stays white over the picture
     const problems: string[] = []
     for (let i = 0; i < slides.length; i++) layoutSlide2(d, i, undefined, problems)

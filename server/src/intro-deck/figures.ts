@@ -398,8 +398,7 @@ function panelGrid(e: FigEnv, f: F<'grid'>, o: Box) {
     cv.path(roundRectD(x, ty, tile, tile, Math.round(tile * 0.26)), { fill: hot ? g.mark : g.t10, role: 'tile' })
     cv.icon(it.icon, x + tile * 0.22, ty + tile * 0.22, Math.round(tile * 0.56), hot ? g.onMark : g.accent, 1.7)
     const cl = cells[i]!
-    let yy = two ? ty + Math.max(0, Math.round((tile - linesH(cl.hd)) / 2) - (cl.bd ? 0 : 0)) : ty + tile + 32
-    if (two) yy = ty
+    let yy = two ? ty : ty + tile + 32
     const tx = x + iconX
     yy += cv.text(cl.hd, tx, yy, tw, g.text, { role: 'head' })
     if (cl.bd) yy += 14 + cv.text(cl.bd, tx, yy + 14, tw, g.dim, { role: 'body' })

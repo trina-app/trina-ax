@@ -58,15 +58,16 @@ const NO_START = new Set([...'、。，．・：；？！ー－～）」』】�
 const NO_END = new Set([...'（「『【〔〈《〘〖‘“([{'])
 const join = (ts: readonly Tok[]) => ts.map((t, i) => (i > 0 && !t.glue ? ' ' : '') + t.s).join('')
 
-/** The fewest lines of `p` that keep every line within `max` (null: one word is wider than `max`). */
-function greedy(ws: Tok[], max: number, w: (s: string) => number): Tok[][] | null {
+/** The fewest lines of `p` that keep every line within `max` (null: one word is wider than `max`, or the text needs
+ * more than `limit` lines: it stops there, so a long Japanese or Chinese text costs no more than a short one). */
+function greedy(ws: Tok[], max: number, w: (s: string) => number, limit = Infinity): Tok[][] | null {
   const out: Tok[][] = []
   let cur: Tok[] = []
   for (const word of ws) {
     if (w(word.s) > max) return null
     const next = [...cur, word]
     if (!cur.length || w(join(next)) <= max) cur = next
-    else { out.push(cur); cur = [word] }
+    else { out.push(cur); if (out.length >= limit) return null; cur = [word] }
   }
   if (cur.length) out.push(cur)
   return out
@@ -95,7 +96,7 @@ function balance(ws: Tok[], n: number, max: number, w: (s: string) => number): T
   // Japanese and Chinese: a break inside a word ("植|物", "メンテナン|ス") costs a little, so a break after a mark or a
   // particle (after hiragana, before a character that is not) wins when one is nearly as balanced
   const inWord = (j: number) => j > 0 && j < len && midWord(ws[j - 1]!, ws[j]!)
-  const lineW = (i: number, j: number) => w(join(ws.slice(i, j))) + ((j - i > 1 && (lone(ws[i]!) || lone(ws[j - 1]!))) ? unit * 2.5 : 0) 
+  const lineW = (i: number, j: number) => w(join(ws.slice(i, j))) + ((j - i > 1 && (lone(ws[i]!) || lone(ws[j - 1]!))) ? unit * 2.5 : 0)
   // best[k][i]: the smallest widest line setting words i.. in k lines
   // the score of a way to break: the widest line, plus a cost for every break inside a Japanese or Chinese word
   const PEN = unit * 3
@@ -164,7 +165,7 @@ export function fitText(raw: string, role: Role, boxW: number, maxLines: number,
     let ok = true
     for (const [pi, p] of ps.entries()) {
       const ws: Tok[] = p.map((x) => ({ s: x.s, glue: x.glue }))
-      const g = greedy(ws, max, w)
+      const g = greedy(ws, max, w, Math.max(1, maxLines - lines.length - (ps.length - pi - 1)))
       if (!g) { ok = false; break }
       const bal = o.balanced !== false ? balance(ws, g.length, max, w) : g
       // balanced lines only when every one of them still fits (else the plain fill)

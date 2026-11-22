@@ -4212,7 +4212,7 @@ export class MockServer {
           return {
             pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
             inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual,
-            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name), locale: ko ? 'ko' : 'en',
+            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale), locale: ko ? 'ko' : 'en',
             source: k.name !== 'humanizer' ? { kind: 'team' } : ko ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' },
           }
         }),
@@ -4231,7 +4231,7 @@ export class MockServer {
         const k = PACK_CATALOG.find((x) => x.name === name)!
         const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
         if (!s) return []
-        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name) ?? undefined
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale) ?? undefined
         const source = k.name !== 'humanizer' ? { kind: 'team' as const } : ko ? { kind: 'team_writing' as const } : { kind: 'adapted' as const, author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }
         return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
       })
