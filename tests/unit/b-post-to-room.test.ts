@@ -180,8 +180,9 @@ describe('the card, and the post', () => {
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send_files'], ['Always allow', '__always'], ["Don't send", 'no']])
     expect(r.card!.buttons).toBe(true)
     // the file Send attaches, by its place in words and its name (chat/share-words.ts)
-    // (the card says a linked team file by its place and name; the message keeps the link: QA TC-4059)
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', 'Plan: Groups › marketing › launch-plan.md'], ['Files sent with it', 'Groups › marketing › launch-plan.md']])
+    // (the card says a linked team file by its place and name, once: under the files Send attaches, not again in the
+    // text; the message keeps the link: QA TC-4059, TC-ask1-19)
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', 'Plan:'], ['Files sent with it', 'Groups › marketing › launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
@@ -966,8 +967,8 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question.split('\n')[0]).toBe('Tess Yoon님과의 새 1:1 대화로 보낼까요?')
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', 'no'])
-    // (linked team files by place and name on the card, QA TC-4059)
-    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요: 내 폴더 › photo-1.png 내 폴더 › photo-2.png'], ['함께 보낼 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
+    // (linked team files by place and name on the card, once: in the files list, QA TC-4059, TC-ask1-19)
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['보낼 내용', '사진 두 장 보내요:'], ['함께 보낼 파일', '내 폴더 › photo-1.png\n내 폴더 › photo-2.png']])
     // the card went to bob, never to alice, who sees the chat
     expect(cardsTo('bob', r.turnId)).toBe(1)
     expect(cardsTo('alice', r.turnId)).toBe(0)

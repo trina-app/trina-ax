@@ -36,7 +36,7 @@
 // alone: send waits and a quiet line under the box says what to add.
 import { composerRadius } from './composerBox'
 import clsx from 'clsx'
-import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
+import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type EngineId, type FileEntry, type UserRef } from '@mycel/shared/api'
 import { errorText, isApiError, isConnectionError } from '../../lib/api'
@@ -725,17 +725,13 @@ export default function Composer({
             {skillMenu.menu}
             {roomMenu.list}
             {mention.list}
+            {/* answering the AI's open question: the placeholder says so and the card is right above, so no line naming
+                the question again (QA TC-ask1-18); like under the card's own text box (tab 5 "확인 카드"), the typed
+                answer goes to the AI */}
             {answering && (
-              <div className="space-y-0.5 px-5 pt-3 text-xs">
-                <p id={answeringId} className="flex items-center gap-1.5 text-muted" data-testid="composer-answering">
-                  <MessageCircleQuestion size={13} className="shrink-0 text-accent-text" aria-hidden />
-                  <span className="min-w-0 truncate">{t('composer.answering', { question: answering.question.slice(0, 300) })}</span>
-                </p>
-                {/* like under the card's own text box (tab 5 "확인 카드"): the typed answer goes to the AI */}
-                <p id={`${answeringId}-secrets`} className="text-faint" data-testid="composer-no-secrets">
-                  {t('ask.noSecrets')}
-                </p>
-              </div>
+              <p id={`${answeringId}-secrets`} className="px-5 pt-3 text-xs text-faint" data-testid="composer-no-secrets">
+                {t('ask.noSecrets')}
+              </p>
             )}
             {/* a shared chat: someone else's question is being answered (or its card waits for them); the text stays */}
             {(hold || note) && !answering && (
@@ -765,7 +761,7 @@ export default function Composer({
                   rows={1}
                   value={text}
                   aria-label={t('composer.label')}
-                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : hold || note ? `${answeringId}-hold` : undefined}
+                  aria-describedby={answering ? `${answeringId}-secrets` : hold || note ? `${answeringId}-hold` : undefined}
                   {...roomMenu.inputProps}
                   {...(mentionPeople ? {
                     onSelect: () => { roomMenu.inputProps.onSelect(); mention.inputProps.onSelect() },

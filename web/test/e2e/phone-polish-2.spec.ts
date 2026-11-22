@@ -36,7 +36,8 @@ test('TRINA-24: the ask card leaves typing to the message box; the typed answer 
   await expect(card).toContainText('어느 분기를 볼까요?')
   await expect(card.getByTestId('ask-text')).toHaveCount(0)
   await expect(card.getByTestId('ask-in-box')).toHaveText('직접 답하려면 아래 메시지 칸에 입력하세요.')
-  await expect(page.getByTestId('composer-answering')).toContainText('어느 분기를 볼까요?')
+  // the box answers it (its placeholder says so), without a line naming the question again (QA TC-ask1-18)
+  await expect(page.getByTestId('composer-answering')).toHaveCount(0)
   // one secrets line on the page, the message box's
   await expect(page.getByText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)

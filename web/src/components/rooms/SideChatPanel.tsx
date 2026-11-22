@@ -75,7 +75,7 @@ import { useTextSize } from '../../lib/textSize'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
-import { projectRoomOf } from '../../lib/rooms'
+import { plainLine, projectRoomOf } from '../../lib/rooms'
 import { useMeStrict, useSession } from '../../store/session'
 import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
@@ -826,7 +826,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 {quoted.file ? (
                   <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="side-chat-quote-file"><Paperclip size={12} aria-hidden className="shrink-0" /><span className="truncate">{quoted.file.name}</span></p>
                 ) : (
-                  <p className="line-clamp-3 break-words whitespace-pre-wrap text-muted">{quoted.text}</p>
+                  // the room message's words as the room shows them: a link is its label, never its address (lib/rooms.ts plainLine)
+                  <p className="line-clamp-3 break-words text-muted" data-testid="side-chat-quote-text">{plainLine(quoted.text)}</p>
                 )}
               </div>
               <IconButton label={t('sideChat.quoteRemove')} onClick={() => setQuoted(null)} className="touch-hit -mt-0.5 shrink-0" data-testid="side-chat-quote-remove">

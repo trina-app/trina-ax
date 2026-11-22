@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, sendWidening, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, sendWidening, widenedBy, selectable, selectionState, shareMany, toggleAll, trashAsksFirst, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -299,5 +299,28 @@ describe('copies and restores into a shared folder', () => {
     let askedOther = false
     await expect(sendWidening(async () => { throw new Error('x') }, async () => (askedOther = true))).rejects.toThrow('x')
     expect(askedOther).toBe(false)
+  })
+})
+
+describe('trashAsksFirst (QA TC-ask1-16)', () => {
+  const me = 'u1'
+  test('my own unshared file outside any project: no question', () => {
+    expect(trashAsksFirst([entry('users/u1/notes.md'), entry('users/u1/a/b.txt')], me, [])).toBe(false)
+    // a project only I see does not count
+    expect(trashAsksFirst([entry('users/u1/p/b.txt')], me, [{ folderPath: 'users/u1/p', audience: 1 }])).toBe(false)
+  })
+  test('anything someone else could open, or the client cannot know, asks', () => {
+    expect(trashAsksFirst([entry('users/u1/a.md', { shared: 'own' })], me, [])).toBe(true)
+    expect(trashAsksFirst([entry('users/u1/a.md', { shared: 'through' })], me, [])).toBe(true)
+    expect(trashAsksFirst([entry('shared/a.md')], me, [])).toBe(true)
+    expect(trashAsksFirst([entry('users/u2/a.md')], me, [])).toBe(true)
+    // a folder may hold a file shared one by one
+    expect(trashAsksFirst([entry('users/u1/docs', { type: 'folder' })], me, [])).toBe(true)
+    // in a project with members (or of unknown audience), and before the projects are read
+    expect(trashAsksFirst([entry('users/u1/P/b.txt')], me, [{ folderPath: 'users/u1/p', audience: 3 }])).toBe(true)
+    expect(trashAsksFirst([entry('users/u1/p/b.txt')], me, [{ folderPath: 'users/u1/p' }])).toBe(true)
+    expect(trashAsksFirst([entry('users/u1/a.md')], me, null)).toBe(true)
+    // one such item among many: the batch asks
+    expect(trashAsksFirst([entry('users/u1/a.md'), entry('users/u1/b.md', { shared: 'own' })], me, [])).toBe(true)
   })
 })

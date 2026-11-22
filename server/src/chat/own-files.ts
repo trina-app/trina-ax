@@ -81,3 +81,32 @@ export function ownMade(db: Database, teamRoot: string, o: { userId: string; cha
   }
   return { own: true }
 }
+
+/**
+ * An empty folder this person's answers in this chat made (QA TC-ask2-12: the AI made a folder, moved what it put there
+ * elsewhere, and its delete of the empty folder asked "0 files … 16 people will no longer see it"): nothing but folders
+ * on disk inside it (no file, link or other entry, at any depth), and the folder itself made here: its own recorded
+ * history at its exact path starts with a create and every row there is this person's in this chat (rowOwn: never moved
+ * in, never someone's restore or conflict); with no row at its path (a folder `write` made on the way to a file), the
+ * first row of anything below it is such a create and the folder was born then (lstat birth time, the ownMade slack).
+ * Every folder inside has no row by anyone else at its path. History of files that were inside and are gone is not
+ * read: nothing of them goes to the trash. Fails closed.
+ */
+export function emptyFolderMadeHere(db: Database, teamRoot: string, o: { userId: string; chatId: string }, item: Pick<AiTrashPlan['items'][number], 'rel' | 'kind' | 'files' | 'entries'>): boolean {
+  try {
+    if (item.kind !== 'folder' || item.files !== 0 || !item.entries.length || item.entries.some((e) => e.kind !== 'dir')) return false
+    const at = (p: string) => db.query('SELECT e.path, e.action, e.user_id, e.detail, e.at, t.chat_id FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id WHERE e.path = ? ORDER BY e.id').all(p) as Row[]
+    const own = (rows: Row[]) => rows.every((r) => rowOwn(r, o.userId, o.chatId))
+    const rows = at(item.rel)
+    if (rows.length) {
+      if (rows[0]!.action !== 'create' || !own(rows)) return false
+    } else {
+      const first = db.query('SELECT e.path, e.action, e.user_id, e.detail, e.at, t.chat_id FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id WHERE e.path >= ? AND e.path < ? ORDER BY e.id LIMIT 1').get(item.rel + '/', item.rel + '0') as Row | null
+      if (!first || first.action !== 'create' || !rowOwn(first, o.userId, o.chatId)) return false
+      const st = fs.lstatSync(path.join(teamRoot, ...item.rel.split('/')))
+      if (!(st.isDirectory() && st.birthtimeMs > 0 && st.birthtimeMs >= Date.parse(first.at) - BORN_SLACK_MS)) return false
+    }
+    for (const e of item.entries) if (e.rel && !own(at(`${item.rel}/${e.rel}`))) return false
+    return true
+  } catch { return false }
+}

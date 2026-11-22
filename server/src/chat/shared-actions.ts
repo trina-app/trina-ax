@@ -320,6 +320,28 @@ export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
   } catch { return false }
 }
 
+/** The tools whose save is the whole file, made in that answer from what it may already show (QA TC-f2-a04):
+ * the AI's own text, a file it made, and its own chat or work folder file handed over. Never an edit (the older text
+ * stays around it), a stamp or a page edit of an older file, a copy, a move or a restore. */
+const WHOLE_SAVE_TOOLS = ['write', 'make_file', 'save_work_file', 'save_chat_file'] as const
+const WHOLE_SAVE_NOT = ['movedFrom', 'copiedFrom', 'movedTo', 'conflictCopyOf', 'conflictOf', 'originalPath', 'copy', 'trashId'] as const
+/**
+ * This answer itself saved the whole file at `rel`, and nothing changed it since (QA TC-f2-a04: a save card and then a
+ * copy card for the same file in one answer): the newest event at that path is this turn's create or update by one of
+ * WHOLE_SAVE_TOOLS with none of WHOLE_SAVE_NOT, and no folder above it changed since. What it holds then came from
+ * this answer, whose reads the person already answered for, so reading it back in the same answer is no new read of
+ * the place (chat/turn.ts sharedSources). From file_events only; fails closed.
+ */
+export function wholeSavedInTurn(db: Database, turnId: string, rel: string): boolean {
+  try {
+    const last = db.query(`SELECT e.id, e.turn_id, e.action, e.detail FROM file_events e WHERE e.path = ? AND e.action <> 'rejected' ORDER BY e.id DESC LIMIT 1`).get(rel) as { id: number; turn_id: string | null; action: string; detail: string | null } | null
+    if (!last || last.turn_id !== turnId || !['create', 'update'].includes(last.action) || !last.detail) return false
+    const d = JSON.parse(last.detail) as Record<string, unknown>
+    if (!(WHOLE_SAVE_TOOLS as readonly string[]).includes(String(d.tool)) || WHOLE_SAVE_NOT.some((k) => d[k] !== undefined && d[k] !== null)) return false
+    return !folderAboveChanged(db, rel, last.id)
+  } catch { return false }
+}
+
 /** A folder above `rel` moved, renamed, removed or made after the file_events row `sinceId`: what is at the path now may
  * be another file (a folder rename logs events at the folder's path only, never at the paths of the files inside). */
 function folderAboveChanged(db: Database, rel: string, sinceId: number): boolean {

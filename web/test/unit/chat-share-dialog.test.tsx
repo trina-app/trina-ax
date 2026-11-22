@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { MemoryRouter } from 'react-router-dom'
 import type { ChatAudience, PutChatAudienceResult, ShareCheck } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { ChatShareDialog } from '../../src/components/chat/ChatShareDialog'
+import { ChatShareDialog, ChatShareHost, openChatShare } from '../../src/components/chat/ChatShareDialog'
 import { whoNames } from '../../src/components/ShareWarning'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
@@ -703,5 +703,117 @@ describe('QA 11-15: kept through a group, the focus, the live line', () => {
     await m.unmount()
     expect(document.activeElement).toBe(trigger)
     document.body.removeChild(trigger)
+  })
+})
+
+// Ask less (docs/AGENTS/plan/20261122-0647-ask-less.md, QA TC-ask1-14/15): one fact once, and Stop sharing in one press
+describe('one fact once, and Stop sharing', () => {
+  const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120, private: true as const }]
+  test('a file made from what they can\'t open: its own line when there is no warning box; the box says it once when there is', async () => {
+    routesWith(audience(), undefined, () => ({ ...NOTHING, madeFiles }))
+    const a = await open()
+    try {
+      await addBob(a)
+      await a.until(() => a.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(a)
+      expect(a.find('chat-share-warning')).toBeNull()
+      expect(a.get('chat-share-files-private').textContent).toBe(en('chat.shareFiles.private', { names: 'Bob' }))
+    } finally { await a.unmount() }
+    routesWith(audience(), undefined, () => ({ ...NOTHING, fileAnswers: 1, places: [{ kind: 'mine' }], madeFiles }))
+    const b = await open()
+    try {
+      await addBob(b)
+      await b.until(() => b.find('chat-share-warning'), 'the warning', 3000)
+      await b.until(() => b.find('chat-share-files-step'), 'the files step', 3000)
+      expect(b.find('chat-share-files-private')).toBeNull()
+    } finally { await b.unmount() }
+  })
+
+  test('the words: Stop sharing and its toast in every language; share.warn.dev in plain words', () => {
+    expect(en('chat.share.stop')).toBe('Stop sharing')
+    expect(translate('ko', 'chat.share.stop')).toBe('공유 중지')
+    expect(en('chat.share.stopped')).toBe('Only you can see this chat now')
+    for (const l of ['es', 'id', 'ja', 'zh', 'ko'] as const) {
+      expect(translate(l, 'chat.share.stop')).not.toBe(en('chat.share.stop'))
+      expect(translate(l, 'chat.share.stopped')).not.toBe(en('chat.share.stopped'))
+    }
+    expect(en('share.warn.dev', { n: 2, names: 'Bob' })).toBe("2 answers may have used files only you can open. Bob will see them; people added later won't.")
+    expect(translate('ko', 'share.warn.dev', { n: 2, names: 'Bob 님' })).toBe('답 2개는 나만 열 수 있는 파일을 썼을 수 있어요. Bob 님에게는 보이고, 나중에 추가되는 사람에게는 안 보여요.')
+    for (const l of ['en', 'es', 'id', 'ja', 'zh', 'ko'] as const) {
+      const s = translate(l, 'share.warn.dev', { n: 1, names: 'XYZ' })
+      expect(s).toContain('XYZ')
+      expect(s).not.toMatch(/dev|command|comando|perintah|コマンド|開発|命令|开发|명령|개발/i)
+    }
+  })
+
+  test('Stop sharing: only for a shared chat\'s creator with nothing unsaved', async () => {
+    routesWith(audience())
+    const a = await open()
+    try { expect(a.find('chat-share-stop')).toBeNull() } finally { await a.unmount() }
+    routesWith(audience([SORA], { canEdit: false, by: { id: 'bob', name: 'Bob' } }))
+    const b = await mount(<MemoryRouter initialEntries={[`/c/${C1}`]}><ChatShareDialog chat={chat} onClose={() => {}} /><DialogHost /></MemoryRouter>)
+    try {
+      await b.until(() => b.find('chat-share-read-only'), 'read only', 2000)
+      expect(b.find('chat-share-stop')).toBeNull()
+    } finally { await b.unmount() }
+    routesWith(audience([SORA]))
+    const c = await open()
+    try {
+      await c.until(() => c.find('participant-user-sora'), 'Sora', 2000)
+      expect(c.get('chat-share-stop').textContent).toBe(en('chat.share.stop'))
+      // a change waits for Save: no Stop sharing beside it
+      await addBob(c)
+      expect(c.find('chat-share-stop')).toBeNull()
+    } finally { await c.unmount() }
+  })
+
+  test('one press: no one, closed, "only you" with Undo; Undo puts Sora back with the check\'s key', async () => {
+    const { shared: _, ...mine } = chatOut
+    routesWith(audience([SORA]), (body) => {
+      const b = body as { subjects: unknown[]; confirmKey?: string }
+      if (!b.subjects.length) return json(200, { status: 'saved', chat: mine, audience: audience() })
+      return b.confirmKey === 'pk:sora' ? json(200, { status: 'saved', chat: chatOut, audience: audience([SORA]) }) : json(200, { status: 'confirm', check: NOTHING, confirmKey: 'x' })
+    })
+    useUi.setState({ toasts: [] })
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+      await m.click('chat-share-stop')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const puts = sent.filter((x) => x.key === `PUT ${AUD}`)
+      expect(puts.map((x) => x.body)).toEqual([{ subjects: [] }])
+      const t = useUi.getState().toasts.at(-1)!
+      expect(t.text).toBe(en('chat.share.stopped'))
+      expect(t.action?.label).toBe(en('common.undo'))
+      t.action!.run()
+      await m.until(() => useUi.getState().toasts.at(-1)?.text === en('chat.share.done', { n: 1 }), 'shared again', 3000)
+      expect((sent.find((x) => x.key === PREVIEW)!.body as { subjects: unknown[] }).subjects).toEqual([{ subjectType: 'user', subjectId: 'sora' }])
+      expect(sent.filter((x) => x.key === `PUT ${AUD}`).at(-1)!.body).toEqual({ subjects: [{ subjectType: 'user', subjectId: 'sora' }], confirmKey: 'pk:sora' })
+    } finally { await m.unmount() }
+  })
+
+  test('Undo when the server asks to confirm: the Share dialog opens with Sora picked and the usual check, nothing saved', async () => {
+    const { shared: _, ...mine } = chatOut
+    let puts = 0
+    routesWith(audience([SORA]), (body) => {
+      puts++
+      return (body as { subjects: unknown[] }).subjects.length ? json(200, { status: 'confirm', check: NOTHING, confirmKey: 'x', reason: 'changed' }) : json(200, { status: 'saved', chat: mine, audience: audience() })
+    })
+    useUi.setState({ toasts: [] })
+    // the app's one dialog (ChatShareHost), as the Share items open it
+    openChatShare(chat)
+    const m = await mount(<MemoryRouter initialEntries={[`/c/${C1}`]}><ChatShareHost /><DialogHost /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+      await m.click('chat-share-stop')
+      await m.until(() => !m.find('chat-share-dialog'), 'closed', 2000)
+      // the chat is mine alone now
+      routes[`GET ${AUD}`] = () => json(200, audience())
+      useUi.getState().toasts.at(-1)!.action!.run()
+      await m.until(() => m.find('participant-user-sora')?.getAttribute('data-state') === 'new', 'Sora picked again', 3000)
+      expect(puts).toBe(2)
+      expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
+    } finally { await m.unmount() }
   })
 })

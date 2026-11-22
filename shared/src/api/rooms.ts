@@ -933,7 +933,10 @@ export const RoomSavePlan = z.object({
   folder: SaveFolder.optional(),
 })
 export type RoomSavePlan = z.infer<typeof RoomSavePlan>
-export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
+/** askWiden (the sheet that asks once, QA TC-ask2-6): when people outside the conversation can see `folder`, the save
+ * answers 409 conflict {params: {reason: 'audience_widened', viewersAdded}} (viewersAdded: those people, the plan's
+ * `outside`) unless confirm is true, like a move or a restore. A client that sends neither saves as before. */
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath, askWiden: z.boolean().optional(), confirm: z.boolean().optional() }).strict()
 /** Undo of a Save to project: the token its save gave for a copy it made (RoomSaveResult.saved[].undo) */
 export const RoomSaveUndoBody = z.object({ token: z.string().min(16).max(128) }).strict()
 export const RoomSaveUndoResult = z.object({ removed: z.literal(true) })

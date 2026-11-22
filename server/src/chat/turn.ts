@@ -1,8 +1,8 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
-import { chatFileCopyOf } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
@@ -157,7 +157,8 @@ import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
-import { madeInChat } from './shared-actions'
+import { explicitPlaceAsk } from './explicit-place'
+import { madeInChat, wholeSavedInTurn } from './shared-actions'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -440,6 +441,9 @@ export class TurnExec {
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
+  /** the wider-audience card's no (or no answer) in this answer, by the folder it asked about: the same folder is not
+   * asked again in this answer (QA TC-f2-a04: one answer never asks twice about the same target); the refusal repeats */
+  private readonly widenRefused = new Map<string, string>()
   readonly done: Promise<void>
   /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
   sessionRevoked = false
@@ -3169,7 +3173,7 @@ export class TurnExec {
       ...(more ? { names: more.names } : {}),
       next: end === 'unattended'
         ? `a scheduled run that read ${othersSource(this, 'a room')} changes nothing but new files in the user's own folder (nobody is there to answer the card): save it as a new file in users/${this.spec.userId} instead and say so, or the user can do it in a chat, where they answer the card, or start a new chat that does not read ${grantOnly(this) ? 'it' : 'rooms'}`
-        : end === 'declined' ? cardNext(end) : 'the user can ask again in this chat and answer the card',
+        : end === 'declined' || end === 'timeout' ? cardNext(end) : 'the user can ask again in this chat and answer the card',
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
@@ -3254,7 +3258,7 @@ export class TurnExec {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: tr('cardAlwaysNote', L) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
@@ -3939,6 +3943,12 @@ export class TurnExec {
       // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
       // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
       if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // a file this very answer saved whole and nothing changed since (QA TC-f2-a04: a save card, then a copy card for
+      // the same file in one answer): what it holds came from this answer, so it reads as the chat's, not its folder's
+      if (!w && this.roomNames(v).every((p) => !!p && wholeSavedInTurn(this.rt.db, this.spec.turnId, p))) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // ...and a file this chat's AI made in the person's own folder in any answer of it while shared, untouched since
+      // (QA v2g; chat-file-tool.ts chatMadeOwnFile)
+      if (!w && chatMadeOwnFile(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       const from = out.length
       for (const p of this.roomNames(w ? asWritten(k, v)[0]! : v)) note(p)
       for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
@@ -4415,6 +4425,10 @@ export class TurnExec {
     if (isReservedPlace(target)) return this.confirmChatTarget(target, extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
+    // the person's own message of this turn asked to save there and named the place (docs/decisions/
+    // 20261122-ask-less-explicit-save.md, QA TC-ask2-2, -8, -13): no card, as after any explicit ask. Only the main AI,
+    // never a publication's binding, never where other people's words are in the chat (chat/explicit-place.ts)
+    if (!binding && call && call.main !== false && explicitPlaceAsk(this, need.dir)) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
     // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
     // anything else that saves)
@@ -4426,7 +4440,12 @@ export class TurnExec {
       const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
       if (c !== undefined) return c
     }
-    return (await this.askWidening(need, { binding }))?.text ?? null
+    // a no (or no answer) for this folder earlier in this answer stands: no second card for the same place
+    const before = binding ? undefined : this.widenRefused.get(need.dir)
+    if (before) return before
+    const no = await this.askWidening(need, { binding })
+    if (no && !binding && (no.end === 'declined' || no.end === 'timeout')) this.widenRefused.set(need.dir, no.text)
+    return no?.text ?? null
   }
 
   /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */

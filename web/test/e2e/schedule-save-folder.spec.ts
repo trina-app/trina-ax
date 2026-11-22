@@ -9,10 +9,9 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 async function task(page: Page, data: Record<string, unknown> = {}) {
   expect((await page.request.post('/__test/schedule', { data })).ok()).toBeTruthy()
 }
-/** a card with three answers (a list): pick one, then 답하기 */
+/** a card with three answers (a list): a press on one answers */
 async function answer(ask: Locator, label: string) {
-  await ask.getByRole('radio', { name: label, exact: true }).check()
-  await ask.getByRole('button', { name: '답하기', exact: true }).click()
+  await ask.getByRole('button', { name: label, exact: true }).click()
 }
 
 test('the list line, the task page, and 수정 with the save folder and its places', async ({ page }) => {
@@ -44,8 +43,8 @@ test('the list line, the task page, and 수정 with the save folder and its plac
   await expect(ask).not.toContainText('#영업팀')
   await expect(ask).toContainText("보낼 수 있는 곳: 내 Notion · '일일 메모'")
   // no new buttons: with sends, the three answers of a card with connections
-  await expect(ask.getByRole('radio')).toHaveCount(3)
-  for (const name of ['바꾸기(연결 서비스에 보내기 허용)', '바꾸기(연결 서비스에는 보내지 않음)', '바꾸지 않기']) await expect(ask.getByRole('radio', { name, exact: true })).toBeVisible()
+  await expect(ask.getByTestId('ask-option')).toHaveCount(3)
+  for (const name of ['바꾸기(연결 서비스에 보내기 허용)', '바꾸기(연결 서비스에는 보내지 않음)', '바꾸지 않기']) await expect(ask.getByRole('button', { name, exact: true })).toBeVisible()
   await answer(ask, '바꾸기(연결 서비스에 보내기 허용)')
   await expect(dialog).toHaveCount(0)
   await expect(view.getByTestId('schedule-save-sources')).toHaveText('넣어도 되는 내용: 내 파일')

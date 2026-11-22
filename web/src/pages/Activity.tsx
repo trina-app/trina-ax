@@ -20,7 +20,7 @@ import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText, isPrivateChannel, isProjectRoom } from '../lib/rooms'
-import { aiName } from '../lib/tabs'
+import { aiName, TAB_ROOT } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
 import { optimisticPending } from '../lib/optimistic'
@@ -29,6 +29,7 @@ import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { peekCached, rememberCached, useListCache } from '../store/listCache'
 import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
+import { unreadRooms } from '../components/rail/railBadges'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
@@ -431,7 +432,10 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')}>
+            {/* 대화 has unread conversations (its tab's count, components/rail/railBadges.ts): "nothing here" points there */}
+            {!chats && unreadRooms(rooms) > 0 && <Link to={TAB_ROOT.chats} className="font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
+          </EmptyState>
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">

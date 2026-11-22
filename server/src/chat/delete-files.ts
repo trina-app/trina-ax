@@ -33,7 +33,7 @@ import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { alwaysHere, withAlways } from './always-allow'
-import { ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
+import { emptyFolderMadeHere, ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
 
 export const DELETE_FILES_TOOL = 'delete_files'
 
@@ -226,7 +226,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const svc = componentC(rt.ctx).files
     const user = exec.livePrincipal()
     // the history again right before the move: the plan was made a moment ago, a teammate may have saved since
-    if (!ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, plan).own) return result(`${NONE}: these files changed since; ask again with one call.`, 'changed')
+    if (!ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, plan).own && !emptyOwn(user.id, plan)) return result(`${NONE}: these files changed since; ask again with one call.`, 'changed')
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId: null, own: true }
     const target = plan.items[0]!.rel
     let done
@@ -250,6 +250,11 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} of the AI's own files to the trash (${plan.entries} entries, no card)` }
   }
 
+  /** Every item of the plan is an empty folder this person's answers in this chat made (chat/own-files.ts). */
+  function emptyOwn(userId: string, plan: AiTrashPlan): boolean {
+    return !!plan.items.length && plan.items.every((i) => emptyFolderMadeHere(rt.db, rt.files.fx.root, { userId, chatId: spec.chatId }, i))
+  }
+
   /** The plan of these paths when every item is the AI's own in this chat (chat/own-files.ts), else null. The history
    * is checked first (cheap), and only then is anything walked; the plan is kept a moment for the call right after the
    * up-front check (refuse, then call) and made again after that. */
@@ -263,6 +268,11 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
       if (paths.every((p) => ownHistory(rt.db, who, p.replace(/^\/+|\/+$/g, '')).own)) {
         const planned = componentC(rt.ctx).files.planAiTrash(user.id, paths, { maxEntries: OWN_TRASH_MAX_ENTRIES, noHistory: true })
         if (!('refused' in planned) && ownMade(rt.db, rt.files.fx.root, who, planned.plan).own) plan = planned.plan
+      }
+      // empty folders this chat made (QA TC-ask2-12): nothing in them, so nothing anyone sees goes; no card
+      if (!plan) {
+        const planned = componentC(rt.ctx).files.planAiTrash(user.id, paths, { noHistory: true })
+        if (!('refused' in planned) && emptyOwn(user.id, planned.plan)) plan = planned.plan
       }
     } catch { plan = null }
     lastOwn = { key, at: Date.now(), plan }

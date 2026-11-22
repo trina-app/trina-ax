@@ -318,6 +318,11 @@ describe('place words on cards', () => {
       .toBe('See My folder › Work › Plan.md, Mina.md and /f/aaaaaaaaaaaaaaaaaaaaa3.')
     // a link that steps up or names no team path stays as written
     expect(cardTextWords(db, '[x](/files/view?path=..%2Fetc)', 'en', 'u-bob')).toBe('[x](/files/view?path=..%2Fetc)')
+    // a link to a file the card lists under "Files sent with it" is left out of the text: each file named once (TC-ask1-19)
+    const listed = new Set(['users/u-bob/Work/B1 Price list.md', 'users/u-bob/Work/Plan.md'])
+    expect(cardTextWords(db, t, 'en', 'u-bob', undefined, listed)).toBe('Here it is: and Company-wide › Sales › Quote.pdf, see https://example.com/files/view?path=x too.')
+    expect(cardTextWords(db, 'Files:\n[Plan.md](/f/aaaaaaaaaaaaaaaaaaaaa1) [Mina.md](/f/aaaaaaaaaaaaaaaaaaaaa2)', 'en', 'u-bob', look, listed)).toBe('Files:\nMina.md')
+    expect(cardTextWords(db, '[Plan.md](/f/aaaaaaaaaaaaaaaaaaaaa1)', 'en', 'u-bob', look, listed)).toBe('')
   })
 
   test('two options never read the same: a label that words would make equal to another keeps what the AI wrote', () => {

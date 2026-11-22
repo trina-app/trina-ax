@@ -140,7 +140,7 @@ export const roomsRoutes: RouteModule = {
     // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
     kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
     kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
-    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder, { askWiden: body.askWiden, confirm: body.confirm }), 'body.folder'))
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no

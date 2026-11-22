@@ -746,7 +746,8 @@ export function AssistantMessage({
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
-  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
+  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them (the card says
+  // so; no line above it saying it again, QA TC-ask1-18)
   const waitingForYou = streaming && requests.length > 0
   // an intro deck being made (docs/DECISIONS.md "D2", round 2): one block in place of its steps, from the click (the
   // question ran the deck skill) or once the server has its build
@@ -882,11 +883,6 @@ export function AssistantMessage({
           </div>
         )}
         <AnswerImagesShown steps={m.steps}><AnswerBody m={m} chatId={chatId} streaming={streaming} /></AnswerImagesShown>
-        {waitingForYou && (
-          <p className="mb-2 text-sm text-muted" role="status" data-testid="waiting-for-you">
-            {t('chatux.waitingForYou')}
-          </p>
-        )}
         {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
             confirmation card was, so that card reads as turning into this one */}
         {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : s.folders?.length && !s.parentId ? <MyFoldersCard key={s.id} folders={s.folders} more={s.moreFolders} /> : null))}

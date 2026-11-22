@@ -43,7 +43,10 @@ describe('refusal()', () => {
     expect(cardEndShort('timeout')).toBe('no answer in time')
     expect(cardEndShort('unattended')).toBe('nobody to ask (scheduled run)')
     expect(cardNext('unattended')).toContain('in a chat, where they can answer the card')
-    expect(cardNext('timeout')).toBe('the user can ask again and answer the card')
+    expect(cardNext('timeout')).toContain('one short line that it was not done because the card got no answer')
+    expect(cardNext('timeout')).toContain('ask nothing about it')
+    expect(reasonText(cardReason('timeout'))).toContain('Do not ask again in this answer')
+    expect(cardNext('ended')).toBe('the user can ask again and answer the card')
   })
 
   test('names: "A, B and C", at most three then "and N more"', () => {

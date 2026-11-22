@@ -1,14 +1,16 @@
 // ask_user: the AI asks back mid-answer (options and/or free text), browser_site: the in-app browser wants an
 // office-network address, and dev_env_site: a dev-environment command needs a site that is not allowed. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
-// another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
+// another window, timed out, turn ended). Ordinary form controls (buttons / checkboxes) for keyboards
 // and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
 // ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
 // task's card shown again in Settings, "다시 확인") passes its own `onAnswer`. The server's yes/no cards are two buttons
 // ([허용 안 함] [이번만 허용]) with what they let happen as plain lines; a server card that says its three choices are
 // buttons (`buttons`: a room's change card) shows them in one row in the same order, the main one last
 // ([허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; stacked on a phone, the main one on top and first in the page: ChoiceRow,
-// as the address and dev-environment cards) with its one line under them (`note`); radios and [답하기] are for real
-// choices.
+// as the address and dev-environment cards) with its one line under them (`note`). Any other question that takes one
+// choice: a press on an option answers it (one click per decision, QA TC-ask1-15), the options being buttons; while
+// the card's own box holds typed text they are off (nothing typed is lost) and [답하기] sends the text. A question
+// that takes several keeps its checkboxes and [답하기].
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
@@ -138,7 +140,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
 
   // the server's yes/no (a change in a room, saving where more people see it, a team skill, an address, a send): two
   // buttons, "no" neutral and "yes" primary, like Claude Code's permission prompt. The first option is the yes. A
-  // question with more choices keeps its radios and [답하기].
+  // question with more choices is the form below (one press answers it).
   if (fromServer && !allowText && !r.multiple && options.length === 2) {
     const [yes, no] = options as [(typeof options)[number], (typeof options)[number]]
     const pick = (v: string) => {
@@ -227,11 +229,32 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{fromServer ? <QuestionText r={r} /> : r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
           {fromServer && r.details?.length ? <Details items={r.details} full={full} /> : null}
-          {options.length > 0 && (
+          {/* one choice: each option is a button that answers at once; off while the card's own box holds typed text */}
+          {options.length > 0 && !r.multiple && (
+            <div className="flex flex-col gap-1.5">
+              {options.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  disabled={busy || !!text.trim()}
+                  aria-busy={busy && picked[0] === o.value ? true : undefined}
+                  onClick={() => {
+                    setPicked([o.value])
+                    void run({ kind: 'ask_user', answer: o.value })
+                  }}
+                  className={clsx('flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm [overflow-wrap:anywhere] disabled:cursor-not-allowed disabled:opacity-50', busy && picked[0] === o.value ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}
+                  data-testid="ask-option"
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {options.length > 0 && r.multiple && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
                 <label key={o.value} className={clsx('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm', picked.includes(o.value) ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}>
-                  <input type={r.multiple ? 'checkbox' : 'radio'} name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
+                  <input type="checkbox" name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
                   {o.label}
                 </label>
               ))}
@@ -289,8 +312,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>
           {t('ask.skip')}
         </Button>
-        {/* nothing to pick and the typing is in the message box: its own button sends the answer */}
-        {(options.length > 0 || allowText) && (
+        {/* ticks to send, or text typed here; one choice is sent by its own button, and typing in the message box by
+            that box's button */}
+        {((r.multiple && options.length > 0) || allowText) && (
           <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
             {t('ask.send')}
           </Button>

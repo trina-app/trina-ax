@@ -30,7 +30,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashAsksFirst, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
 import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, sameNamedProjects, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
 import { ListRow } from '../components/list/List'
@@ -611,13 +611,14 @@ function Files() {
     }
   }
 
-  /** Trash the selection after one question; "Undo" brings all of them back. */
+  /** Trash the selection, after one question when someone else could open one of them (lib/bulkFiles.ts
+   * trashAsksFirst); "Undo" brings all of them back. */
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
     const skipped = chosen.length - items.length - fixedChosen
     const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
-    if (!(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    if (trashAsksFirst(items, me.user.id, listed ? projects : null) && !(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
     const each = leaveAtOnce(items)
     setRunning('delete')
     try {
@@ -839,8 +840,10 @@ function Files() {
       ),
     ).then(() => void onScreen.current?.load())
 
+  /** To the trash, asked first only when someone else could open it (lib/bulkFiles.ts trashAsksFirst); the toast's Undo
+   * brings it back either way. */
   const remove = async (e: FileEntry) => {
-    if (!(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
+    if (trashAsksFirst([e], me.user.id, listed ? projects : null) && !(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
     // out of the listing at once; "moved to the trash" with its Undo comes with the server's answer
     const r = await placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => api.call(API.remove, { query: { path: e.path } }) })
     void onScreen.current?.load()
