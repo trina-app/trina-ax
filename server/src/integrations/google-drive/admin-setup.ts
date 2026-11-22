@@ -33,6 +33,7 @@ import { CALLBACK_PATH, parseDriveConfig, type DriveConfig } from './config'
 import { googleDriveOf } from './oauth'
 import { DriveError } from './store'
 import { shareRows, shareWorks } from './shares'
+import { guardOwnGoogleClient } from '../../auth/google-login-admin'
 
 /** the key of the client set on this page (configKey): a client.json with another key was written by someone else */
 export const DRIVE_CLIENT_BY_APP = 'integrations.googleDriveClientByApp'
@@ -98,6 +99,8 @@ export function setDriveClient(ctx: AppContext, actor: string, body: { file?: st
   const before = driveAdminStatus(ctx)
   if (!before.canSetUp || !before.redirectUri) throw new DriveError(`setup_${before.blocked ?? 'public_host'}`, 409)
   const cfg = clientFromRequest(body, before.redirectUri)
+  // another client in place of the one people without a password sign in with: refused (auth/google-login-admin.ts)
+  guardOwnGoogleClient(ctx, cfg.clientId)
   const svc = googleDriveOf(ctx)
   svc.store.safeDirectory(true) // the private secrets subtree: owned by this account, 0700, no links
   const previous = (() => { try { return fs.readFileSync(svc.clientFile) } catch { return null } })()

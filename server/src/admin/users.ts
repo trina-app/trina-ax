@@ -13,6 +13,7 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { linkBase, revokeResetLinksFor, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
+import { requireReauth } from '../auth/reauth'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { assertSeatFree } from '../system/limits'
@@ -313,19 +314,18 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   return rel(name)
 }
 
-export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', password?: string): Promise<void> {
+export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', proof: { password?: string; reauthFlow?: string } = {}): Promise<void> {
   const auth = c.get('auth')!
   const locale = c.get('locale')
   // the owner deletes anyone but themselves; an admin deletes a plain member only (never the owner, another admin or
-  // themselves: guard), and types their password again first. The contract says so too: this is the second check
+  // themselves: guard), and types their password again first (or, without one, confirms with Google: auth/reauth.ts).
+  // The contract says so too: this is the second check
   if (auth.user.role !== 'owner' && auth.user.role !== 'admin') fail('forbidden')
   const first = liveUser(ctx, id)
   guard(c, first)
   let passwordChecked = false
   if (auth.user.role === 'admin') {
-    if (typeof password !== 'string' || !(await ctx.services.sessions.verifyPassword(auth.user.id, password, c.get('info')))) {
-      fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
-    }
+    await requireReauth(c, ctx, proof, { missing: 'forbidden' })
     passwordChecked = true
   }
   // the password check above waited: read the person again, and once more inside the transaction below, so what
@@ -568,12 +568,16 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
  * person's Google account no longer signs them in. The rules of the other actions on people (guard): never the owner or
  * yourself (your own is in Settings › Security & devices), only the owner acts on admins; checked again inside the
  * write. Their sessions stay (a reset ends them, and disconnects Google too). Audited without the Google account or its
- * address; nothing removed, nothing audited. */
+ * address; nothing removed, nothing audited. Refused (409) for a person without a password: Google is their only way
+ * in, and an admin must not leave anyone without one. The way out is a temporary password, which disconnects Google too
+ * (docs/decisions/20261122-google-reauth.md). */
 export function disconnectUserGoogle(c: Context<AppEnv>, ctx: AppContext, id: string): void {
   const auth = c.get('auth')!
   guard(c, liveUser(ctx, id))
   ctx.db.transaction(() => {
-    guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
+    const target = liveUser(ctx, id)
+    guard(c, target, { actor: actorNow(ctx, auth.user.id) })
+    if (!target.password_hash) fail('conflict', msg('googleOnlyMember', c.get('locale')), { params: { reason: 'no_password' } })
     if (forgetLoginIdentities(ctx.db, id)) audit(ctx.db, { actor: auth.user.id, action: 'user.google_disconnected', target: id })
   }).immediate()
 }

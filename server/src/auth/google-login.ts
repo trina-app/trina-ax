@@ -17,6 +17,12 @@
 //
 // Either way only `openid email profile`, no offline access, and nothing from Google is kept but the identity row.
 //
+// A re-check (intent 'reauth', auth/reauth.ts, docs/decisions/20261122-google-reauth.md): an account without a password
+// (made with Google) confirms with its connected Google account where others type their password again. Google opens in
+// a new window; its return, in this session and for that very Google account, marks the flow 'confirmed', the window
+// says so and closes, and the tab that asked sends its request with the flow's id. The team switch never stops a
+// re-check or such a person's sign-in: it stops new people connecting and joining with Google.
+//
 // A flow is bound to the browser that started it: a short HttpOnly cookie whose hash the flow keeps. Nobody finishes a
 // sign-in someone else started, or sends a person back signed in as the starter's Google account (login CSRF). A
 // connect is also bound to the session that started it. A state works once. The desktop and phone apps start flows
@@ -39,12 +45,14 @@ import { brokerClientOf, brokerFlowKey, googleSigninBrokerOf } from './google-lo
 import { verifyGoogleIdToken } from './google-id-token'
 import { viaOf } from './accounts'
 import { isGuest } from './guests'
-import { forgetLoginIdentities } from './login-identities'
+import { forgetLoginIdentities, passwordlessCount } from './login-identities'
 import { googleSignInOn } from './google-login-admin'
 import { notifyGoogleConnected } from '../notifications/service'
+import { CLOSE_SCRIPT, returnHeaders, returnPage } from '../integrations/connections/return-page'
 import { msg } from './messages'
 import { hashToken, safeEqual } from './passwords'
-import { googleStartKeys, tokenIpKeys } from './rate-limit'
+import { googleStartKeys, reauthKey, tokenIpKeys } from './rate-limit'
+import { hasNoPassword, reauthState, requireReauth, REAUTH_CONFIRMED_MS } from './reauth'
 import { authOf } from './service'
 import { getUser } from './users'
 import { googleAppReturn, googleSignInRefusal, holdGoogleCode, type GoogleAppClient } from './google-login-apps'
@@ -61,12 +69,14 @@ const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.
 /** How a Google return ended, for the page it goes back to (?google=<result>): the sign-in page or Settings › Security
  * says it in words. A sign-in that worked opens `next` instead. */
 export type GoogleResult = 'connected' | 'not_connected' | 'account_off' | 'password_first' | 'in_use' | 'cancelled' | 'expired' | 'failed'
+  // a re-check (intent 'reauth'): confirmed for the person's connected Google account, or another Google account
+  | 'confirmed' | 'wrong_account'
 
 /** binding_hash: the browser's binding cookie's hash ('web'), or the hash of the secret the app keeps ('desktop',
  * 'mobile': auth/google-login-apps.ts, migration 133) */
 interface FlowRow {
-  id: string; binding_hash: string; intent: 'signin' | 'connect'; user_id: string | null; session_id: string | null
-  config_key: string; next: string | null; secret_enc: string | null; key_version: number; status: 'pending' | 'used'; expires_at: string
+  id: string; binding_hash: string; intent: 'signin' | 'connect' | 'reauth'; user_id: string | null; session_id: string | null
+  config_key: string; next: string | null; secret_enc: string | null; key_version: number; status: 'pending' | 'used' | 'confirmed'; expires_at: string
   client: 'web' | GoogleAppClient
 }
 export interface GoogleClaims { sub: string; email: string | null; hd: string | null }
@@ -108,9 +118,10 @@ export function safeNextPath(v: string | null | undefined): string | null {
 
 /** Which Google client signs in here, whatever the page's address: 'direct' when this server has a Google client of its
  * own, 'broker' on a hosted server without one when the hosting service serves it; null when neither, when the team
- * turned it off (Admin › Team settings, google-login-admin.ts), or in a demo. */
-function googleClientMode(ctx: AppContext): 'direct' | 'broker' | null {
-  if (ctx.config.demo || isFreeRoam(ctx.config) || !googleSignInOn(ctx.db)) return null
+ * turned it off (Admin › Team settings, google-login-admin.ts), or in a demo. `anyway`: the team switch does not count
+ * (people without a password sign in and re-check with Google whatever it says). */
+function googleClientMode(ctx: AppContext, anyway = false): 'direct' | 'broker' | null {
+  if (ctx.config.demo || isFreeRoam(ctx.config) || (!anyway && !googleSignInOn(ctx.db))) return null
   const drive = googleDriveOf(ctx)
   if (drive.config) return 'direct'
   // an operator's own client file that does not load: no fallback to the hosting service (as for Drive)
@@ -122,8 +133,8 @@ function googleClientMode(ctx: AppContext): 'direct' | 'broker' | null {
 /** How this page signs in with Google, or null when it cannot: googleClientMode, and the page is at the address Google
  * (direct) or the console (broker: the team's own address) sends the browser back to. People on an office, Tailscale
  * or LAN address sign in with the password there: the binding cookie lives on one address. */
-export function googleLoginMode(ctx: AppContext, reqUrl: string): 'direct' | 'broker' | null {
-  const mode = googleClientMode(ctx)
+export function googleLoginMode(ctx: AppContext, reqUrl: string, anyway = false): 'direct' | 'broker' | null {
+  const mode = googleClientMode(ctx, anyway)
   if (!mode) return null
   try {
     const origin = new URL(reqUrl).origin
@@ -132,15 +143,25 @@ export function googleLoginMode(ctx: AppContext, reqUrl: string): 'direct' | 'br
   } catch { return null }
 }
 
-/** This page can use Sign in with Google (googleLoginMode). */
+/** This page can use Sign in with Google (googleLoginMode): connect it, and the setup, invite and join pages' Google. */
 export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
   return googleLoginMode(ctx, reqUrl) !== null
+}
+
+/** The team switch is off, but people without a password sign in with Google: their sign-in stays (the switch only
+ * stops new people joining, connecting or starting with Google). */
+const signInAnyway = (ctx: AppContext): boolean => !googleSignInOn(ctx.db) && passwordlessCount(ctx.db) > 0
+
+/** The sign-in page offers "Sign in with Google": googleLoginAvailable, or, with the team switch off, while someone
+ * here has no password. */
+export function googleSignInPageAvailable(ctx: AppContext, reqUrl: string): boolean {
+  return googleLoginMode(ctx, reqUrl, signInAnyway(ctx)) !== null
 }
 
 /** The desktop and phone apps can use it (auth/google-login-apps.ts): googleClientMode, from any address the app shows
  * (an office LAN address too): their flow is bound to a secret the app keeps, not to a cookie of one address. */
 export function googleAppLoginAvailable(ctx: AppContext): boolean {
-  return googleClientMode(ctx) !== null
+  return googleClientMode(ctx, signInAnyway(ctx)) !== null
 }
 
 /** The flow row, the binding (a cookie for a browser; for an app, the hash of its secret) and Google's address (direct:
@@ -151,7 +172,9 @@ async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['inten
   const locale = c.get('locale')
   const hold = a.limiter.hold(googleStartKeys(c.get('info').ip))
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
-  const mode = bind.client === 'web' ? googleLoginMode(ctx, c.req.url) : googleClientMode(ctx)
+  // the team switch stops new people only: a re-check, and a sign-in while someone has no password, go on
+  const anyway = intent === 'reauth' || (intent === 'signin' && signInAnyway(ctx))
+  const mode = bind.client === 'web' ? googleLoginMode(ctx, c.req.url, anyway) : googleClientMode(ctx, anyway)
   if (!mode) fail('unavailable', msg('googleSignInOff', locale))
   const drive = googleDriveOf(ctx)
   ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(a.now()).toISOString())
@@ -204,16 +227,47 @@ export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, b: { next
 /** POST /api/me/google/connect: connect my Google account, after my current password. Not for guests, not from a
  * temporary-password session (the route is not allowWhilePasswordChange), and only from a browser's cookie session:
  * the flow is bound to this browser and this session. */
-export async function startGoogleConnect(c: Context<AppEnv>, ctx: AppContext, password: string): Promise<{ url: string }> {
+export async function startGoogleConnect(c: Context<AppEnv>, ctx: AppContext, body: { password?: string; reauthFlow?: string }): Promise<{ url: string }> {
   const auth = c.get('auth')!
   const locale = c.get('locale')
   if (auth.via !== 'cookie') fail('forbidden')
   if (isGuest(ctx.db, auth.user.id)) fail('forbidden', msg('googleGuest', locale))
   if (!googleLoginAvailable(ctx, c.req.url)) fail('unavailable', msg('googleSignInOff', locale))
   // the current password, like a password change (accounts.ts changePassword): someone who only holds an open session
-  // (a borrowed laptop, a stolen cookie) must not add a way in that outlives it. Wrong tries count per person
-  if (!(await authOf(ctx).verifyPassword(auth.user.id, password, c.get('info')))) fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+  // (a borrowed laptop, a stolen cookie) must not add a way in that outlives it. Without a password, a Google check of
+  // the connected account (replacing it with another). Wrong tries count per person (auth/reauth.ts)
+  await requireReauth(c, ctx, body)
   return begin(c, ctx, 'connect', { userId: auth.user.id, sessionId: auth.session.id }, null)
+}
+
+/**
+ * POST /api/me/google/reauth: a Google check instead of the password, for an account without one (auth/reauth.ts).
+ * Only from a browser's cookie session (the window at Google comes back with this session's cookie), not for guests,
+ * with a Google account connected, while the re-check limit is not locked. People with a password type it. Google's
+ * address opens in a new window; the tab asks googleReauthStatus with the returned id.
+ */
+export async function startGoogleReauth(c: Context<AppEnv>, ctx: AppContext): Promise<{ url: string; flow: string }> {
+  const auth = c.get('auth')!
+  const locale = c.get('locale')
+  if (auth.via !== 'cookie') fail('forbidden', msg('reauthInBrowser', locale))
+  if (isGuest(ctx.db, auth.user.id)) fail('forbidden', msg('googleGuest', locale))
+  if (!hasNoPassword(ctx.db, auth.user.id)) fail('conflict', msg('reauthUsePassword', locale), { params: { reason: 'has_password' } })
+  if (!ctx.db.query("SELECT 1 FROM login_identities WHERE user_id = ? AND provider = 'google'").get(auth.user.id)) fail('conflict', msg('reauthNoGoogle', locale), { params: { reason: 'no_google' } })
+  // the locked re-check has no way around it: the Google check waits like the password
+  const wait = authOf(ctx).limiter.retryAfter([reauthKey(auth.user.id)])
+  if (wait > 0) fail('rate_limited', undefined, { retryAfter: wait })
+  const { url } = await begin(c, ctx, 'reauth', { userId: auth.user.id, sessionId: auth.session.id }, null)
+  const row = ctx.db.query("SELECT id FROM google_signin_flows WHERE user_id = ? AND session_id = ? AND intent = 'reauth' AND status = 'pending' ORDER BY created_at DESC LIMIT 1").get(auth.user.id, auth.session.id) as { id: string }
+  return { url, flow: row.id }
+}
+
+/** GET /api/me/google/reauth/:id: how the session's Google check stands (only that session; never cached). */
+export function googleReauthStatus(c: Context<AppEnv>, ctx: AppContext, id: string): { state: 'waiting' | 'confirmed' | 'failed' } {
+  const auth = c.get('auth')!
+  c.header('Cache-Control', 'no-store')
+  const state = reauthState(ctx.db, id, auth.user.id, auth.session.id, authOf(ctx).now())
+  if (!state) return fail('not_found')
+  return { state }
 }
 
 /** The Drive callback's state is one of ours (routes/drive.ts): a used one too, so a second return still lands here. */
@@ -243,6 +297,8 @@ async function finish(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   c.header('Set-Cookie', bindingCookie(c.req.url, '', 0), { append: true })
   c.header('Cache-Control', 'no-store')
   c.header('Referrer-Policy', 'no-referrer')
+  // a re-check came back in the window the tab opened for it: a page there, the tab learns it by asking
+  if (s.row?.intent === 'reauth') return reauthPage(c, 'result' in s ? s.result : 'failed')
   return c.redirect('next' in s ? s.next : backTo(s.row, 'result' in s ? s.result : 'failed'), 302)
 }
 
@@ -272,8 +328,9 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   if (!ctx.db.query("UPDATE google_signin_flows SET status = 'used' WHERE id = ? AND status = 'pending' AND expires_at > ?").run(row.id, new Date(a.now()).toISOString()).changes) return end('expired')
   // Google's cancel (direct), or the console's word for it (broker)
   if (error) return end(error === 'access_denied' || error === 'consent_denied' ? 'cancelled' : 'failed')
-  // turned off for the team meanwhile (Admin › Team settings): nothing signs in or connects any more
-  if (!googleSignInOn(ctx.db)) return end('failed')
+  // turned off for the team meanwhile (Admin › Team settings): nobody new connects or joins any more; a sign-in goes on
+  // only for an account without a password (signInWith), a re-check always (only such accounts make one)
+  if (!googleSignInOn(ctx.db) && row.intent !== 'signin' && row.intent !== 'reauth') return end('failed')
   const drive = googleDriveOf(ctx)
   const cfg = drive.config
   // a flow comes back the way it went: a direct one through the Drive callback, a broker one through its return route
@@ -301,6 +358,7 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
     }
   } catch { claims = null }
   if (!claims) return end('failed')
+  if (row.intent === 'reauth') return end(reauthWith(c, ctx, row, claims))
   return row.intent === 'connect' ? end(connect(c, ctx, row, claims)) : signInWith(c, ctx, row, claims)
 }
 
@@ -338,6 +396,11 @@ function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: Google
   if (no || !u) {
     audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ...detail, reason: no?.reason ?? 'google_not_connected' } })
     return { row, result: no?.result ?? 'not_connected' }
+  }
+  // the team switch is off: only an account without a password still signs in with Google (it has no other way)
+  if (!googleSignInOn(ctx.db) && u.password_hash) {
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u.id, detail: { ...detail, reason: 'google_off' } })
+    return { row, result: 'failed' }
   }
   if (row.client !== 'web') {
     // the e-mail as Google says it now; last used is the app's redeem
@@ -378,6 +441,47 @@ function connect(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleCla
   return done ? 'connected' : 'in_use'
 }
 
+/**
+ * A re-check Google answered (intent 'reauth'; auth/reauth.ts). The browser that comes back must still be the session
+ * that started it, the account still without a password, and Google must have answered for the very Google account
+ * connected to it. Then the flow is 'confirmed' for REAUTH_CONFIRMED_MS, for the request that needed it to spend once.
+ * Another Google account counts on the person's re-check limit like a wrong password, and is audited (never which
+ * account it was).
+ */
+function reauthWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): GoogleResult {
+  const a = authOf(ctx)
+  const auth = c.get('auth')
+  if (!auth || auth.session.id !== row.session_id || auth.user.id !== row.user_id) return 'expired'
+  const u = getUser(ctx.db, auth.user.id)
+  if (!u || u.deleted_at || u.status !== 'active' || u.role === 'guest' || u.must_change_password || u.password_hash) return 'failed'
+  const key = reauthKey(u.id)
+  const linked = ctx.db.query("SELECT subject FROM login_identities WHERE user_id = ? AND provider = 'google'").get(u.id) as { subject: string } | null
+  if (!linked || !safeEqual(linked.subject, g.sub)) {
+    a.limiter.fail([key])
+    audit(ctx.db, { actor: u.id, action: 'auth.reauth_failed', target: u.id, detail: { method: 'google', reason: 'wrong_account' } })
+    if (a.onReauthLocked && a.limiter.retryAfter([key]) > 0) try { a.onReauthLocked(u.id) } catch { /* the listener's own problem */ }
+    return 'wrong_account'
+  }
+  // locked meanwhile (wrong tries elsewhere): nothing to spend until the window ends
+  if (a.limiter.retryAfter([key]) > 0) return 'failed'
+  const now = a.now()
+  const at = new Date(now).toISOString()
+  ctx.db.query("UPDATE google_signin_flows SET status = 'confirmed', confirmed_at = ?, subject = ?, expires_at = ? WHERE id = ? AND status = 'used'")
+    .run(at, g.sub, new Date(now + REAUTH_CONFIRMED_MS).toISOString(), row.id)
+  ctx.db.query("UPDATE login_identities SET email = ?, hd = ?, last_used_at = ? WHERE user_id = ? AND provider = 'google'").run(g.email, g.hd, at, u.id)
+  return 'confirmed'
+}
+
+/** The window at Google after a re-check: says how it went in words; a confirmed one closes itself (the tab that opened
+ * it goes on by itself), a refused one stays open so the person reads why. */
+function reauthPage(c: Context<AppEnv>, result: GoogleResult): Response {
+  const L = c.get('locale')
+  returnHeaders(c)
+  const ok = result === 'confirmed'
+  const text = ok ? 'reauthDone' : result === 'wrong_account' ? 'reauthWrongAccount' : result === 'cancelled' ? 'reauthCancelled' : 'reauthNotDone'
+  return c.html(returnPage(L, { title: msg(ok ? 'reauthDoneTitle' : 'reauthNotTitle', L), text: msg(text, L), tail: ok ? CLOSE_SCRIPT : '' }), ok ? 200 : 400)
+}
+
 /** GET /api/me/google */
 export function myGoogle(c: Context<AppEnv>, ctx: AppContext, userId: string): MyGoogle {
   const r = ctx.db.query("SELECT email, linked_at, last_used_at FROM login_identities WHERE user_id = ? AND provider = 'google'").get(userId) as { email: string | null; linked_at: string; last_used_at: string | null } | null
@@ -387,7 +491,11 @@ export function myGoogle(c: Context<AppEnv>, ctx: AppContext, userId: string): M
   }
 }
 
-/** DELETE /api/me/google */
-export function disconnectGoogle(ctx: AppContext, userId: string): void {
-  if (forgetLoginIdentities(ctx.db, userId)) audit(ctx.db, { actor: userId, action: 'auth.google_disconnected', target: userId })
+/** DELETE /api/me/google. Refused (409) while the account has no password: Google is then its only way in (Set a
+ * password first, Settings › Security & devices). Read inside the write, so a password removed meanwhile cannot slip by. */
+export function disconnectGoogle(c: Context<AppEnv>, ctx: AppContext, userId: string): void {
+  ctx.db.transaction(() => {
+    if (hasNoPassword(ctx.db, userId)) fail('conflict', msg('googlePasswordFirst', c.get('locale')), { params: { reason: 'no_password' } })
+    if (forgetLoginIdentities(ctx.db, userId)) audit(ctx.db, { actor: userId, action: 'auth.google_disconnected', target: userId })
+  }).immediate()
 }

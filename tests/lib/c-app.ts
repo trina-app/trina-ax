@@ -81,6 +81,7 @@ export async function makeCApp(name: string, extra: RouteModule[] = [], o: { sta
           return { user: { id: u.id, username: u.id, name: u.name, role: u.role, locale: 'en', mustChangePassword: false }, session: { id: uuidv7(), client: 'web' }, via: 'cookie' } satisfies AuthInfo
         },
         async verifyPassword() { return false },
+        async verifyReauth() { return false },
       }
       c.services.realtime = hub
     },

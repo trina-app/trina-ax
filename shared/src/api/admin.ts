@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, GuestAiChoiceBody, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
+import { Access, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -50,7 +50,7 @@ export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), ex
 export const DeleteUserQuery = z.object({ personalFolder: z.enum(['transfer', 'delete']).default('transfer') })
 /** An admin types their own password again to delete a member (checked like the AI connections' and the speech key's,
  * rate-limited); the owner is not asked, as before. Without it an admin is refused (403). */
-export const DeleteUserBody = z.object({ password: z.string().min(1).max(256).optional() })
+export const DeleteUserBody = z.object({ ...ReauthFields })
 export const UsersResponse = z.object({
   items: z.array(User),
   /** "No AI": the active people who cannot use any AI connection now: no personal connection of theirs and no team
@@ -82,7 +82,7 @@ export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
  * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
-export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256), end: z.array(HandoverConnectionRef).max(100).default([]) })
+export const TransferOwnershipBody = z.object({ userId: UserId, ...ReauthFields, end: z.array(HandoverConnectionRef).max(100).default([]) })
 /** `ended`: what became of each connection asked to be ended (handover.ts EndedConnection). Older servers answer
  * `{ ok: true }` only. A transfer that lost a race (the owner changed meanwhile) is 409 with params.reason
  * `owner_changed`; a target not ready (temporary password, never signed in) is 409 with `target_not_ready`. */
@@ -489,8 +489,8 @@ export const ApiEngineBody = z.object({
   key: z.string().max(500).nullable().optional(),
   /** "Reads pictures" while the model's server does not say: on, off, null to clear, absent to keep */
   vision: z.enum(['on', 'off']).nullable().optional(),
-  /** the caller's own password again (admin-reauth) */
-  password: z.string().min(1).max(256),
+  /** the caller's own password again, or a Google check (admin-reauth; common.ts ReauthFields) */
+  ...ReauthFields,
 })
 
 export const EngineStatus = z.object({
@@ -629,7 +629,7 @@ export const SpeechHost = z.object({
 })
 export type SpeechHost = z.infer<typeof SpeechHost>
 /** sealed in the browser (purpose 'speech.key'); null removes the key. The password again, like AI connections. */
-export const SetSpeechKeyBody = z.object({ sealed: SealedSecret.nullable(), password: z.string().min(1).max(256) })
+export const SetSpeechKeyBody = z.object({ sealed: SealedSecret.nullable(), ...ReauthFields })
 export const UsageQuery = z.object({
   from: IsoTime.optional(),
   to: IsoTime.optional(),

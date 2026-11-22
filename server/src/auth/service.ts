@@ -39,6 +39,7 @@ import { cancelPushSession } from '../notifications/push-events'
 import { webAllowAll } from '../tools/web-allow-all'
 import { mediaKeyOf } from './media-key'
 import { voidAppSignInCodes } from './app-signin'
+import { spendReauthFlow } from './reauth'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
 /** A session made by signing in with a temporary password lives this long unless the password is changed in it (it
@@ -109,7 +110,7 @@ export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number, 
 
 export class AuthService implements SessionService {
   readonly limiter: RateLimiter
-  /** Told when a wrong password locks a person's re-check (owner-reauth, admin-reauth, the current password): the
+  /** Told when a wrong password or Google check locks a person's re-check (owner-reauth, admin-reauth, the current password): the
    * owner's Inbox note and push (admin/handover.ts noteReauthLocked). Never lets an error through. */
   onReauthLocked: ((userId: string) => void) | null = null
   /** clock (tests move it) */
@@ -151,17 +152,33 @@ export class AuthService implements SessionService {
     }
   }
 
-  /** owner-reauth and "current password" checks; rate-limited per person. */
+  /** owner-reauth and "current password" checks; rate-limited per person. An account without a password (made with
+   * Google) never matches: it re-checks with Google (verifyReauth). */
   async verifyPassword(userId: string, password: string, _info: RequestInfo): Promise<boolean> {
+    return this.recheck(userId, null, async (u) => verifyPassword(password, u?.password_hash))
+  }
+
+  /** Every re-check (auth/reauth.ts): the password, or, for an account without one, a Google check this session finished
+   * (spent once, within its 5 minutes). One limit for both: a wrong try of either kind counts and locks like a wrong
+   * password, and a locked limit refuses both. The password goes through verifyPassword (tests slow it down there). */
+  async verifyReauth(userId: string, sessionId: string, proof: { password: string } | { reauthFlow: string }, info: RequestInfo): Promise<boolean> {
+    if ('password' in proof && typeof proof.password === 'string') return this.verifyPassword(userId, proof.password, info)
+    const flow = (proof as { reauthFlow: string }).reauthFlow
+    return this.recheck(userId, 'google', async () => spendReauthFlow(this.db, flow, userId, sessionId, this.now()))
+  }
+
+  /** One re-check on the person's limit: held before the check, so parallel guesses cannot slip past it. */
+  private async recheck(userId: string, method: 'google' | null, check: (u: UserRow | null) => Promise<boolean>): Promise<boolean> {
     const key = reauthKey(userId)
     const hold = this.limiter.hold([key])
     if (hold.wait > 0) fail('rate_limited', undefined, { retryAfter: hold.wait })
     const u = getUser(this.db, userId)
     let ok = false
-    try { ok = !!u && u.status === 'active' && (await verifyPassword(password, u.password_hash)) } catch (e) { hold.release(); throw e }
+    try { ok = (await check(u)) && !!u && u.status === 'active' } catch (e) { hold.release(); throw e }
     if (ok) hold.release()
     else {
-      audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
+      // which way it was, never what was sent
+      audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId, ...(method ? { detail: { method } } : {}) })
       // this wrong try used up the window: whoever holds the session may be guessing
       if (this.onReauthLocked && this.limiter.retryAfter([key]) > 0) try { this.onReauthLocked(userId) } catch { /* the listener's own problem */ }
     }
@@ -302,6 +319,8 @@ export class AuthService implements SessionService {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
+        // an account made with Google has none: its re-checks confirm with Google (auth/reauth.ts)
+        hasPassword: !!u.password_hash,
         canChooseEngine: choose,
         ...profileOf(this.db, u.id),
         ...(status ? { statusMessage: status } : {}),

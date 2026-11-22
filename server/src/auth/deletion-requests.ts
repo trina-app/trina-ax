@@ -1,7 +1,8 @@
 // A person deletes their own account (contract: shared/src/api/account-deletion.ts; tables:
 // server/migrations/244_b_account_deletion_requests.sql, 297_b_account_deletion_due.sql; App Store review 5.1.1(v),
 // Google Play; docs/DECISIONS.md "Self-service account deletion"):
-//   - asking needs the person's password (sessions.verifyPassword: 5 wrong tries per 15 minutes, like every re-check)
+//   - asking needs the person's password (5 wrong tries per 15 minutes, like every re-check), or without one a Google
+//     check (auth/reauth.ts), or in the apps a sign-in of the last 10 minutes
 //     and sets the date ACCOUNT_DELETION_GRACE_DAYS later; one row per person (one open request at most); asking while
 //     one is open changes nothing
 //   - on that date the hourly sweep (auth/sweeper.ts) deletes the account itself (deleteDueAccounts: admin/users.ts
@@ -25,6 +26,7 @@ import { getTeamSettings } from '../admin/settings'
 import { removeAccount } from '../admin/users'
 import { deletionHandlers, notificationsOf, notifyDeletionRequest, settleDeletionRequestNotices } from '../notifications/service'
 import { msg } from './messages'
+import { hasNoPassword, RECENT_SIGN_IN_MS, requireReauth } from './reauth'
 import { authOf } from './service'
 
 /** requests a person may open in DAY_MS (a cancel and a new request count again) */
@@ -50,16 +52,22 @@ export function myDeletionRequest(c: Context<AppEnv>, ctx: AppContext): AccountD
   return stateOf(ctx, c.get('auth')!.user)
 }
 
-export async function requestAccountDeletion(c: Context<AppEnv>, ctx: AppContext, password: string): Promise<AccountDeletionRequest> {
-  const { user } = c.get('auth')!
+export async function requestAccountDeletion(c: Context<AppEnv>, ctx: AppContext, body: { password?: string; reauthFlow?: string }): Promise<AccountDeletionRequest> {
+  const { user, session } = c.get('auth')!
   const locale = c.get('locale')
   // the owner's account is deleted only after someone else became the owner (Admin › Members › ··· › 팀장 넘기기): a state to
   // change first, not a permission the caller lacks
   if (user.role === 'owner') fail('conflict', msg('deletionOwner', locale))
   if (stateOf(ctx, user).state === 'pending') return stateOf(ctx, user)
-  // the password, every time: whoever holds an open session must not delete the account (rate-limited per person)
-  if (!(await ctx.services.sessions.verifyPassword(user.id, password, c.get('info')))) {
-    fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+  // the password, every time: whoever holds an open session must not delete the account (rate-limited per person).
+  // Without a password, a Google check (auth/reauth.ts); in the desktop and phone apps, where that cannot run, a
+  // sign-in of the last 10 minutes stands for it (the store apps must let people ask in the app; the request still
+  // waits its days, can be cancelled, and the owner is told)
+  if (body.password === undefined && body.reauthFlow === undefined && hasNoPassword(ctx.db, user.id)) {
+    const s = ctx.db.query('SELECT created_at FROM sessions WHERE id = ?').get(session.id) as { created_at: string } | null
+    if (!s || Date.parse(s.created_at) <= authOf(ctx).now() - RECENT_SIGN_IN_MS) fail('forbidden', msg('deletionSignInAgain', locale), { params: { reason: 'sign_in_again' } })
+  } else {
+    await requireReauth(c, ctx, body)
   }
   const nowMs = authOf(ctx).now()
   const now = new Date(nowMs).toISOString()

@@ -11,10 +11,10 @@ import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
-import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
+import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setPassword, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
-import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
+import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleReauthStatus, googleSignInPageAvailable, myGoogle, startGoogleConnect, startGoogleReauth, startGoogleSignIn } from '../auth/google-login'
 import { redeemGoogleApp } from '../auth/google-login-apps'
 import { googleSigninBrokerOf } from '../auth/google-login-broker'
 import { GOOGLE_SIGNIN_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protocol'
@@ -63,7 +63,7 @@ export const authRoutes: RouteModule = {
       // Sign in with Google (auth/google-login.ts): only on a team that is set up, in a browser at the address Google
       // returns to; in the desktop and phone apps at any address (auth/google-login-apps.ts)
       if (s.needed || !googleAppLoginAvailable(ctx)) return s
-      return { ...s, googleAppSignIn: true as const, ...(googleLoginAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
+      return { ...s, googleAppSignIn: true as const, ...(googleSignInPageAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
     })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
@@ -88,8 +88,16 @@ export const authRoutes: RouteModule = {
     // the desktop and phone apps: Google's return gave the app a one-time code, spent here with the app's secret
     kit.handle(API.redeemGoogleSignIn, ({ c, body }) => redeemGoogleApp(c, ctx, body))
     kit.handle(API.myGoogle, ({ c, auth }) => myGoogle(c, ctx, auth.user.id))
-    kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body.password))
-    kit.handle(API.disconnectGoogle, ({ auth }) => disconnectGoogle(ctx, auth.user.id))
+    kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body))
+    kit.handle(API.disconnectGoogle, ({ c, auth }) => disconnectGoogle(c, ctx, auth.user.id))
+    // a re-check without a password (auth/reauth.ts): Google in a new window, the tab asks how it went, then sends its
+    // request with the check's id; and a first password for an account made with Google, after such a check
+    kit.handle(API.startGoogleReauth, ({ c }) => startGoogleReauth(c, ctx))
+    kit.handle(API.googleReauthState, ({ c, params }) => googleReauthStatus(c, ctx, params.id))
+    kit.handle(API.setPassword, async ({ c, body }) => {
+      await setPassword(c, ctx, body)
+      return { ok: true as const }
+    })
     // Sign in with Google through the hosting service (hosted teams without a Google client of their own,
     // auth/google-login-broker.ts): the console sends the browser back here with a one-time handoff. Asked once at
     // start whether the console serves this team, so the sign-in page knows soon

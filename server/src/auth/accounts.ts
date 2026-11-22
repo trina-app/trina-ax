@@ -9,7 +9,7 @@ import { TEMP_PASSWORD_MAX_FAILURES, TEMP_PASSWORD_TTL_DAYS } from '@mycel/share
 import { ROOM_GROUP_MAX, SETUP_TOKEN_HEADER } from '@mycel/shared/api'
 import {
   type AcceptInviteBody, type ChangePasswordBody, type CreateGuestInviteBody, type CompletePasswordResetBody, type CreateInviteBody, type GuestInviteLimit, type Invite,
-  type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetupBody,
+  type InviteInfo, type Locale, type LoginBody, type LoginResponse, type PasswordResetInfo, type Role, type SetPasswordBody, type SetupBody,
 } from '@mycel/shared/api'
 import type { z } from 'zod'
 import type { AppContext } from '../context'
@@ -25,6 +25,7 @@ import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } fro
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
 import { forgetLoginIdentities } from './login-identities'
+import { hasNoPassword, requireReauth } from './reauth'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { fromOutside, isLoopback } from '../http/tunnel'
@@ -302,6 +303,34 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
   if (auth.session.tempLogin) a.finishTempLogin(auth.session.id)
   const ended = a.endUserSessions(auth.user.id, 'password_changed', auth.session.id)
   audit(ctx.db, { actor: auth.user.id, action: 'auth.password_changed', target: auth.user.id, detail: { otherSessionsEnded: ended, ip: c.get('info').ip, ...(forced ? { fromTemporary: true } : {}) } })
+}
+
+/**
+ * POST /api/me/password: a first password for an account made with Google (docs/decisions/20261122-google-reauth.md),
+ * after a Google check this session finished (auth/reauth.ts). Its own endpoint, not changePassword, where a missing
+ * current password means the forced temporary-password path. Refused (409) once the account has a password. The rule
+ * is checked before the Google check is spent; open reset links stop; the other sessions stay (nothing that worked
+ * stopped working); audited without the password.
+ */
+export async function setPassword(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetPasswordBody>): Promise<void> {
+  const auth = c.get('auth')!
+  const locale = c.get('locale')
+  const a = authOf(ctx)
+  const has = () => fail('conflict', msg('passwordExists', locale), { params: { reason: 'has_password' } })
+  if (!hasNoPassword(ctx.db, auth.user.id)) has()
+  checkNewPassword(b.newPassword, auth.user.username, locale, 'body.newPassword')
+  await requireReauth(c, ctx, { reauthFlow: b.reauthFlow })
+  const hash = await hashPassword(b.newPassword)
+  // read inside the write: two tabs setting one at once leave the first one's (`changes` of a users UPDATE counts the
+  // safe-ops trigger's write on some Bun versions, so it is read first)
+  const set = ctx.db.transaction(() => {
+    if (!hasNoPassword(ctx.db, auth.user.id)) return false
+    ctx.db.query('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, auth.user.id)
+    revokeResetLinksFor(ctx.db, auth.user.id, a.now())
+    audit(ctx.db, { actor: auth.user.id, action: 'auth.password_set', target: auth.user.id, detail: { ip: c.get('info').ip } })
+    return true
+  }).immediate()
+  if (!set) has()
 }
 
 // ---------------- invites ----------------
