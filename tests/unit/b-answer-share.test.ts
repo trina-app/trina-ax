@@ -19,11 +19,12 @@ import { API, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, uuidv7, type AnswerShareFile, 
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { answerCutLine, prepareShare, sendShare, shareChoice } from '../../server/src/chat/answer-share'
+import { answerCutLine, dropWhoCanOpen, prepareShare, sendShare, shareChoice } from '../../server/src/chat/answer-share'
 import { HttpError } from '../../server/src/http/errors'
 import { readMigrations } from '../../server/src/db'
 import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
 import { SourceLog } from '../../server/src/files/sources'
+import { roomCopiesOf, roomCopyNote } from '../../server/src/chat/room-copies'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -1145,4 +1146,127 @@ test('migration 261 is additive (reader 1): two columns an older build ignores',
   expect(statements).toEqual(['ALTER TABLE room_messages ADD COLUMN answer_at INTEGER', 'ALTER TABLE room_messages ADD COLUMN answer_cut INTEGER NOT NULL DEFAULT 0'])
   // every other message is none
   expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_messages WHERE answer_at IS NOT NULL AND author_kind <> 'user'").get()).toEqual({ n: 0 })
+})
+
+describe('what the answer made beside the chat goes with it (QA TC-r2b-03)', () => {
+  /** an artifact version of `a`'s answer (or of another message), written as the artifact tool writes it */
+  const made = (a: { chatId: string; answerId: string }, o: { key: string; version?: number; type?: string; title?: string; content: string; messageId?: string }) => {
+    const id = uuidv7()
+    h.ctx.db.query('INSERT INTO artifacts (id, chat_id, message_id, key, version, type, title, language, content) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)')
+      .run(id, a.chatId, o.messageId ?? a.answerId, o.key, o.version ?? 1, o.type ?? 'html', o.title ?? null, o.content)
+    return id
+  }
+
+  test('the promo video (its page, no MP4 rendered here) goes as a file every member plays in the room; the toast counts it', async () => {
+    const a = answer('alice', '한빛상사 홍보 영상을 만들었어요.')
+    made(a, { key: 'promo-video', version: 1, title: '한빛상사 홍보 영상', content: '<!doctype html><p>v1</p>' })
+    made(a, { key: 'promo-video', version: 2, title: '한빛상사 홍보 영상', content: '<!doctype html><p>v2</p>' })
+    const r = await share('alice', a, { roomId: rooms.all })
+    expect(r.json.status).toBe('sent')
+    const m = r.json.message as RoomMessage
+    expect(m.files.map((f) => f.name)).toEqual(['한빛상사 홍보 영상.html'])
+    // bob, another member, opens it from the room: the answer's newest version
+    const f = await h.req('bob', `/api/rooms/${rooms.all}/files/${m.files[0]!.id}`)
+    expect(f.status).toBe(200)
+    expect(await f.text()).toBe('<!doctype html><p>v2</p>')
+    expect((await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)?.files.length).toBe(1)
+  })
+
+  test("only the answer's own artifacts: another answer's off the branch never rides along", async () => {
+    const a = answer('alice', '차트를 만들었어요.')
+    const other = answer('alice', '다른 대화')
+    made(a, { key: 'chart', type: 'svg', title: '분기별 매출', content: '<svg xmlns="http://www.w3.org/2000/svg"/>' })
+    made(a, { key: 'elsewhere', content: '<p>x</p>', messageId: other.answerId })
+    const r = await share('alice', a, { roomId: rooms.all })
+    expect((r.json.message as RoomMessage).files.map((f) => f.name)).toEqual(['분기별 매출.svg'])
+  })
+
+  test('the confirm step names it (no switch), and the yes sends it with the linked file', async () => {
+    put('users/alice/plan-made.md', '# plan\n')
+    const a = answer('alice', `기획안: ${link('users/alice/plan-made.md')}`)
+    made(a, { key: 'promo-video', title: '영상', content: '<p>v</p>' })
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json).toMatchObject({ status: 'confirm', artifacts: [{ name: '영상.html' }] })
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: ['users/alice/plan-made.md'] })
+    expect((sent.json.message as RoomMessage).files.map((f) => f.name).sort()).toEqual(['plan-made.md', '영상.html'])
+  })
+
+  test('attaching fails: nothing is posted, and the answer says the file could not be attached (never "sent")', async () => {
+    const files = roomFilesOf(h.ctx)
+    const real = files.fromMade.bind(files)
+    files.fromMade = async () => { throw new HttpError('storage_full') }
+    try {
+      const a = answer('alice', '영상을 만들었어요.')
+      made(a, { key: 'promo-video', title: '실패 영상', content: '<p>v</p>' })
+      const before = (await messagesAs('bob', rooms.all)).length
+      const r = await share('alice', a, { roomId: rooms.all })
+      expect(r.status).toBe(409)
+      expect(r.json.error.params).toMatchObject({ reason: 'artifact_attach', why: 'storage_full' })
+      expect(r.json.error.message).toContain('실패 영상.html')
+      expect((await messagesAs('bob', rooms.all)).length).toBe(before)
+    } finally { files.fromMade = real }
+  })
+
+  test('post_to_room: keys of artifacts on the branch go; own words carry none', async () => {
+    const a = answer('alice', '영상')
+    made(a, { key: 'promo-video', title: '브랜치 영상', content: '<p>b</p>' })
+    // the running answer below it (post_to_room in a later message)
+    const db = h.ctx.db
+    const ask2 = uuidv7(), next = uuidv7()
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'user', '방에 올려줘', 'done')").run(ask2, a.chatId, a.answerId)
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', '', 'streaming')").run(next, a.chatId, ask2)
+    db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(next, a.chatId)
+    const p = await prepareShare(h.ctx, 'alice', a.chatId, { messageId: next, content: '홍보 영상이에요.', artifacts: ['promo-video'] }, { roomId: rooms.all, clientMessageId: cm() }, 'ko')
+    if (p.status !== 'prepared') throw new Error('not prepared')
+    expect(p.check.artifacts.map((x) => x.name)).toEqual(['브랜치 영상.html'])
+    const own = await prepareShare(h.ctx, 'alice', a.chatId, { messageId: next, content: '홍보 영상이에요.', artifacts: ['promo-video'] }, { roomId: rooms.all, clientMessageId: cm(), plain: true }, 'ko')
+    if (own.status !== 'prepared') throw new Error('not prepared')
+    expect(own.check.artifacts).toEqual([])
+    // without the key: nothing of the earlier answer goes
+    const none = await prepareShare(h.ctx, 'alice', a.chatId, { messageId: next, content: '홍보 영상이에요.' }, { roomId: rooms.all, clientMessageId: cm() }, 'ko')
+    if (none.status !== 'prepared') throw new Error('not prepared')
+    expect(none.check.artifacts).toEqual([])
+  })
+})
+
+describe("the AI's words about who may open something stay in the chat (QA TC-r2b-06)", () => {
+  test('a sentence saying only I can open it is left out of the room copy; the rest stays', async () => {
+    expect(dropWhoCanOpen('SVG 파일로 저장했습니다. 이 파일은 지금 저만 열 수 있습니다.\n\n4분기 숫자가 있으면 말씀해 주세요.')).toBe('SVG 파일로 저장했습니다.\n\n4분기 숫자가 있으면 말씀해 주세요.')
+    expect(dropWhoCanOpen('Saved it. Only you can open it for now. Want a PNG?')).toBe('Saved it. Want a PNG?')
+    expect(dropWhoCanOpen('- 다른 사람은 이 파일을 열 수 없어요.\n- 표는 3개예요.')).toBe('- 표는 3개예요.')
+    // a code block stays as written; a sentence about something else stays
+    expect(dropWhoCanOpen('```\nonly you can open it\n```')).toBe('```\nonly you can open it\n```')
+    expect(dropWhoCanOpen('회의실은 누구나 쓸 수 있어요.')).toBe('회의실은 누구나 쓸 수 있어요.')
+    const a = answer('alice', '차트를 저장했습니다. 이 파일은 지금 저만 열 수 있습니다.')
+    const r = await share('alice', a, { roomId: rooms.all })
+    expect((r.json.message as RoomMessage).body).not.toContain('저만 열 수')
+    expect((r.json.message as RoomMessage).body).toContain('차트를 저장했습니다.')
+  })
+})
+
+describe('a room post is a copy made when it was sent (QA TC-r2u-21)', () => {
+  test('a file that went with a post: the room is found for a later change, the note says the room keeps the old version', async () => {
+    const at = 'users/alice/quote-copy.md'
+    put(at, '# 견적 30일\n')
+    const a = answer('alice', `견적: ${link(at)}`)
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [at] })
+    expect(sent.json.status).toBe('sent')
+    const copies = roomCopiesOf(h.ctx.db, 'alice', [at, 'users/alice/never-posted.md'], 'ko')
+    expect(copies.map((c) => [c.path, c.rooms.map((r) => r.id)])).toEqual([[at, [rooms.all]]])
+    // bob sees the message too (a member): the same room for him; carol is in it as well
+    expect(roomCopiesOf(h.ctx.db, 'bob', [at], 'ko')[0]?.rooms.map((r) => r.id)).toEqual([rooms.all])
+    const note = roomCopyNote(copies, false)
+    expect(note).toContain('the room still shows that old version')
+    expect(note).toContain('never say the room\'s copy updates')
+    expect(note).toContain(at)
+    // a shared chat: the room is counted, not named
+    expect(roomCopyNote(copies, true)).toContain(`${at} (1 room)`)
+    expect(roomCopyNote([], false)).toBe('')
+    // the message deleted: no copy left in the room
+    h.ctx.db.query("UPDATE room_messages SET deleted_at = '2026-11-22T00:00:00Z' WHERE id = ?").run(sent.json.message.id)
+    expect(roomCopiesOf(h.ctx.db, 'alice', [at], 'ko')).toEqual([])
+  })
 })

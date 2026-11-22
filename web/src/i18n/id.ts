@@ -5597,6 +5597,8 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.sent": "Terkirim ke {room}",
   "shareRoom.open": "Buka",
   "shareRoom.quoteHead": "Jawaban {ai}",
+  "shareRoom.madeHead": "Dibuat di jawaban ini",
+  "shareRoom.madeGoes": "Ikut dikirim bersama pesan. Semua orang di sana bisa membukanya",
   "shareRoom.filesHead": "File yang ditautkan",
   "shareRoom.fileAll": "Semua bisa membuka",
   "shareRoom.fileSome": "{n} orang tidak bisa membuka",

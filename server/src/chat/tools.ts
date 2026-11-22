@@ -540,7 +540,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
       // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
       const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
-      const note = [placed, skillNote, audience].filter(Boolean).join('\n')
+      // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
+      const copies = exec.roomCopies(files === exec.files && !guest)
+      const note = [placed, skillNote, audience, copies].filter(Boolean).join('\n')
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
@@ -580,7 +582,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const scope = main && !isError && args && typeof args === 'object' && projectOnly.has(args) ? exec.projectSearchNote() : null
       // who can open what it saved, from the real folder (chat/save-audience.ts), with who_can_open's gates
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
-      return [placed, skillNote, heldNote, rooms, fact, scope, audience].filter(Boolean).join('\n') || undefined
+      const copies = exec.roomCopies(main && !guest)
+      return [placed, skillNote, heldNote, rooms, fact, scope, audience, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

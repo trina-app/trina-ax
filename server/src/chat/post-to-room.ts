@@ -72,7 +72,7 @@ import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } f
 import { roomsOf } from '../rooms/service'
 import { groupName, isOwnerOrAdmin, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyRoom } from '../rooms/history'
-import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
+import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, SHARE_ARTIFACTS_MAX, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { scopeWithListing, sourceKey, sourceOf } from './read-scope'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
@@ -245,6 +245,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // own words are the whole message: no note of the user's apart from them
         if (a.data.own_words && a.data.note !== undefined) return no('Nothing was posted: with own_words the text is the whole message as the user\'s own words, so there is no note. Put everything in text and call post_to_room again without note.', 'refused: note with own_words')
         const plain = a.data.own_words === true
+        // own words carry nothing the chat made (answer-share.ts answerCheck): an artifact asked for with them never goes
+        if (plain && a.data.artifacts?.length) return no('Nothing was posted: own_words is the user\'s own message and carries no artifact. To send the video or page you made, call post_to_room again without own_words (your text is quoted as the AI\'s answer, with the artifact as a file).', 'refused: artifacts with own_words')
 
         // ---- where: the room (or a teammate), and the thread ----
         const side = a.data.room === undefined ? sideRoomOf(db, spec.chatId, spec.userId) : null
@@ -393,7 +395,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (!n || gone(n)) { n = ++last; ids.set(which, n) }
         const shareTo = (rid: string) => ({ roomId: rid, ...(note ? { note } : {}), ...(plain ? { plain } : {}), ...(pasted ? { pasted } : {}), ...(threadRootId !== undefined ? { threadRootId } : {}), clientMessageId: `ai-${spec.turnId}-${n}` })
         const share = shareTo(roomId)
-        const answer = { messageId: spec.assistantId, content }
+        const answer = { messageId: spec.assistantId, content, ...(a.data.artifacts?.length ? { artifacts: a.data.artifacts } : {}) }
         type Refused = { refused: { content: { type: 'text'; text: string }[]; isError?: boolean; summary: string } }
         // (`budget` false: a 1:1 chat made on the yes, whose check just before took the sending budget, so the post costs
         // what a post to a room costs, and a refusal for the budget comes before the chat is made)
@@ -423,6 +425,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
           // nearly empty); the message as the room keeps it, so a link reads as its label
           const firstWords = oneLine(plainQuote(plainRoomRefs(r.message.body)), 100)
           const sentFiles = (r.message.files ?? []).slice(0, 10).map((f) => oneLine(f.name, 255))
+          // the files that went, by name (a shared chat: how many only, everyone there reads the result)
+          const fileNames = exec.shared ? `${fileCount}` : sentFiles.map((f) => `"${neutralizeTags(f)}"`).join(', ')
           posted = { roomId, messageId: r.message.id, ...(threadRootId ? { threadRootId } : {}), ...(firstWords ? { preview: firstWords } : {}), ...(sentFiles.length ? { files: sentFiles } : {}) }
           return {
             ...text(JSON.stringify({
@@ -434,7 +438,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...(menAll ? { mentioned_everyone: true } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} linked file${fileCount === 1 ? '' : 's'} attached` : ''}.${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
+                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -442,6 +446,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const first = await prepare()
         if ('refused' in first) return first.refused
         if (first.status === 'sent') return sent(first, true)
+        // an artifact asked for that is not one of this chat's answers above (another chat's, a key never made, someone
+        // else's): nothing goes, so the AI never says it sent a video that is not there
+        const going = new Set(first.check.artifacts.map((x) => x.key))
+        const unknownKeys = (a.data.artifacts ?? []).filter((k) => !going.has(k))
+        if (unknownKeys.length) return no(`Nothing was posted: ${unknownKeys.map((k) => `"${neutralizeTags(oneLine(k, 60))}"`).join(', ')} is not an artifact you made in this chat's answers above${first.check.artifacts.length >= SHARE_ARTIFACTS_MAX ? ` (or more than ${SHARE_ARTIFACTS_MAX} artifacts were asked for)` : ''}. Call post_to_room again with the key you gave the artifact when you made it, or without artifacts.`, 'refused: unknown artifact')
 
         // ---- the card ----
         const none = await shareChoice(ctx, spec.userId, first, new Set())
@@ -631,7 +640,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
             { label: tr(plain ? 'postRoomOwnWords' : 'postRoomText', L), text: shownCard, ...(shownCard.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}), ...(marks.length ? { marks } : {}), ...(formatted ? { markdown: true as const } : {}) },
             // what Send attaches, by name and place in words, never a team path (a link far down a folded text is not
             // missed; chat/share-words.ts fileWords)
-            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...copies].map((rel) => fileWords(db, rel, L, spec.userId)).join('\n'), noSize: true }] : []),
+            // (and what the answer made beside the chat, a video or a page: it always goes with the post, as a file)
+            ...(all || first.check.artifacts.length ? [{ label: tr('postRoomFilesToSend', L), text: [...(all ? [...copies].map((rel) => fileWords(db, rel, L, spec.userId)) : []), ...first.check.artifacts.map((x) => x.name)].join('\n'), noSize: true }] : []),
             // who gets a mention notice, by the names the server has (the card goes to the asker alone)
             ...(mentionIds.length || mentionAll ? [{ label: tr('postRoomMentions', L), text: [...(mentionIds.length ? [listWords(mentionIds.map(mentionName), L)] : []), ...(mentionAll ? [tr('postRoomMentionsAll', L, { word: `@${allWord}` })] : [])].join('\n'), noSize: true }] : []),
           ],
@@ -747,6 +757,11 @@ export function postRefusal(e: unknown, title: string, roomId: string, shared: b
   if (reason === 'confidential') return no('Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here.', 'refused: confidential chat')
   // a next step that works (docs/decisions/20261118-dm-own-paste.md): the person's own words from their message here go
   if (reason === 'answer_share_hidden') return no(`Nothing was posted: this chat read rooms, and some people in ${title} have earlier room answers hidden from them, so what you wrote here never goes there, confirmed or not (the user cannot see what is at stake for them). ${OWN_PASTE_NEXT} Otherwise tell the user it was not sent and why; they can post it to a room whose people can see those answers, or ask in a new chat that reads no rooms.`, 'refused: hidden answers')
+  // what the answer made (a video, a page) could not go with it: nothing went, and the AI must not say it did
+  if (reason === 'artifact_attach') {
+    const why = e.extra.params?.why === 'storage_full' ? ' The server\'s storage is full.' : e.extra.params?.why === 'too_large' ? ' The file is larger than the user may send in a room.' : ''
+    return no(`Nothing was posted to ${title}: the file you made (the video or page beside the chat) could not be attached.${why} Tell the user plainly that nothing was sent, and why; never say it was posted.`, 'refused: artifact not attached')
+  }
   if (reason === 'thread_root') return no(`Nothing was posted: that message's thread in ${title} cannot take a reply (the message may have been deleted). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
   if (e.code === 'not_found') return no(POST_NO.notMine(shared), 'refused: not my room')
   // (a shared chat: no server words, which could name a room, reach the transcript everyone there reads)

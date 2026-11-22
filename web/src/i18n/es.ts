@@ -5553,6 +5553,8 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.sent": "Enviado a {room}",
   "shareRoom.open": "Abrir",
   "shareRoom.quoteHead": "Respuesta de {ai}",
+  "shareRoom.madeHead": "Hecho en esta respuesta",
+  "shareRoom.madeGoes": "Va con el mensaje. Todos allí pueden abrirlo",
   "shareRoom.filesHead": "Archivos enlazados",
   "shareRoom.fileAll": "Todos pueden abrirlo",
   "shareRoom.fileSome": "{n, plural, one {# persona no puede abrirlo} other {# personas no pueden abrirlo}}",

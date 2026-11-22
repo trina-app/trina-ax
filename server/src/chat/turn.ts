@@ -54,6 +54,7 @@ import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
 import { isProjectPlainName } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
+import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
@@ -531,6 +532,8 @@ export class TurnExec {
   private loosePlaced: string[] = []
   /** new files of this turn whose audience line (chat/save-audience.ts) is not said yet */
   private newSaved: string[] = []
+  /** team files a tool call of this turn changed (an update, a restore): a room copy of one is told about (roomCopies) */
+  private changedSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
   /** the open thinking step's text as the engine sent it (QA AP-033): written on the step, redacted, when it closes */
@@ -5017,6 +5020,7 @@ export class TurnExec {
         const d = r.action === 'create' ? parseJson(r.detail) : {}
         if (!d.folder && !d.conflictOf) this.newSaved.push(r.path)
       }
+      if (r.action === 'update' || r.action === 'restore') this.changedSaved.push(r.path)
       if (r.action === 'create' && looseArea(r.path) !== null) {
         // a new file, not a folder, a conflict copy beside its original or a rename in place
         const d = parseJson(r.detail)
@@ -5069,6 +5073,19 @@ export class TurnExec {
       // a shared chat: others read the answer, so no count of the asker's folders (only "only the user" or the whole team)
       return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, { room, shared: !!this.shared })
     } catch { return '' }
+  }
+
+  /**
+   * After a tool call (chat/tools.ts): the team files it changed that a room carries as a copy sent earlier (chat/
+   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI offers to post the new one; or ''.
+   * `say` false (a sub-agent's call, a guest): dropped without a line.
+   */
+  roomCopies(say = true): string {
+    if (!this.changedSaved.length) return ''
+    const paths = this.changedSaved
+    this.changedSaved = []
+    if (!say) return ''
+    try { return roomCopyNote(roomCopiesOf(this.rt.db, this.spec.userId, paths, this.spec.locale), !!this.shared) } catch (e) { this.rt.log.warn('room copies of changed files not looked up', { err: e }); return '' }
   }
 
   private fileSummary(): FileChangeSummary | null {
