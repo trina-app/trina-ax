@@ -310,7 +310,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     async call() { return { ...text('Error: internal error', true), summary: `${EDIT_FILES_TOOL} -> not run (outside the file gate)` } } })
   for (const t of exec.rt.ctx.services.turnTools ?? []) {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
-    add(wrapRegistered(exec, t))
+    add(wrapRegistered(exec, t, (name, isError, args, files) => !guest && !callerOf(files, exec.files).helper ? dataDateFor(name, isError, args) : null))
   }
   // copy_files between the team folder, this chat's files (chat:files/) and its work folder (chat:work/): a call that
   // names a chat place runs the places copy (chat/places-copy.ts); any other the team copy, unchanged
@@ -428,8 +428,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const lostNoted = new Set<string>()
   /** the same for sub-agents' calls, apart: theirs never use up the main AI's line (review of the plan and the code) */
   const subLostNoted = new Set<string>()
-  /** the data files whose last change this turn's reads already gave (dataDateNote: once a turn each) */
+  /** the data files whose last change this turn's reads already gave (dataDateNotes: once a turn each) */
   const datesNoted = new Set<string>()
+  /** a spreadsheet or CSV read (afterFileTool) or queried (query_data, a registered tool: wrapRegistered): when its data
+   * dates from, so a page or report made from it can say so (S-102), once a turn per file; the main AI's own calls
+   * only (it makes what is shown). The time of the file's newest file event while the bytes are still that event's, as
+   * the Files screen's history shows it; else the time on disk (a change outside the app records no event). */
+  const dataDateFor = (name: string, isError: boolean, args: unknown): string | null => dataDateNotes({ name, isError, args, seen: datesNoted, changed: (p) => {
+    try {
+      const r = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read')
+      if (!r.st?.isFile()) return null
+      const ev = exec.rt.db.query("SELECT at, sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { at: string; sha256: string | null } | null
+      const at = ev && sameBytesAsEvent(exec.rt.files.fx.root, r.rel, ev.sha256) ? ev.at : r.st.mtime.toISOString()
+      return `${localTime(at, exec.shownZone)} (${exec.shownZone})`
+    } catch { return null }
+  } }).map((d) => d.text).join('\n') || null
   /** a shared chat's refusal of a search without a path, with the lost-access line when the search would have covered a
    * place this person read earlier in this chat (lostAccessFor; the refusal never reaches afterFileTool) */
   /** (a sub-agent's call gets the line too, without using up the main AI's once a turn) */
@@ -644,20 +657,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the version an edit keeps, a Hangul document that cannot be changed here (chat/file-notes.ts), once a turn
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
-      // a spreadsheet or CSV read or queried: when its data dates from, so a page or report made from it can say so (S-102), once
-      // a turn per file (the main AI's own read: it makes what is shown)
-      // (the time of its newest file event when the bytes are still that event's, as the Files screen's history shows
-      // it; else the time on disk: a change outside the app records no event)
-      const dated = !main || guest ? [] : dataDateNotes({ name, isError, args, seen: datesNoted, changed: (p) => {
-        try {
-          const r = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read')
-          if (!r.st?.isFile()) return null
-          const ev = exec.rt.db.query("SELECT at, sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { at: string; sha256: string | null } | null
-          const at = ev && sameBytesAsEvent(exec.rt.files.fx.root, r.rel, ev.sha256) ? ev.at : r.st.mtime.toISOString()
-          return `${localTime(at, exec.shownZone)} (${exec.shownZone})`
-        } catch { return null }
-      } })
-      const dataDate = dated.map((d) => d.text).join('\n') || null
+      const dataDate = main && !guest ? dataDateFor(name, isError, args) : null
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
       // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
       // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
@@ -1074,7 +1074,8 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
   }
 }
 
-function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
+/** `note`: a fact for the AI after the call's result (the data date of query_data's files), or null */
+function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isError: boolean, args: unknown, files: Parameters<Tool['call']>[1]) => string | null): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
@@ -1086,7 +1087,9 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
         const shown = r.stepImages
         exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
       }
-      return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
+      let extra: string | null = null
+      try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
+      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
 }
