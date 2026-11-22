@@ -36,6 +36,7 @@ import { WorkFilesController } from './work-files'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
+import { deliverSignInCode } from '../common/sign-in-handoff'
 import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 import { findTarget } from '../common/find-bar'
@@ -108,6 +109,9 @@ const RECHECK_MS = 60_000
 const POLICY_READ_MS = 5_000
 /** after the "Allow all websites" dialog closes, another request is refused this long (no dialog right under a click) */
 const ALLOW_ALL_COOLDOWN_MS = 2_000
+
+/** the sign-in hand-off's steps, always on (`--enable-logging` shows them): addresses and answers, never the code */
+const handoffLog = (line: string) => console.info('[desktop]', line)
 
 export class AppWindow {
   readonly win: BaseWindow
@@ -439,21 +443,30 @@ export class AppWindow {
     }
   }
 
-  /** POST the Drive sign-in code to the team on screen with this app's own session (server google-drive/app-return.ts);
-   * the server finishes only a flow this session started. Nothing else is sent, nothing is kept. */
+  /** POST a sign-in's one-time code (Drive, a team Drive share, a Google app, an app connection: the server's claim
+   * address tries each) to the team on screen with this app's own session (server google-drive/app-return.ts); the
+   * server finishes only a flow this session started. The answer is read and a lost one is sent again
+   * (common/sign-in-handoff.ts); every step is logged, never the code. Nothing else is sent, nothing is kept. */
   private async claimSignIn(code: string) {
-    const app = this.app, origin = this.team?.origin
-    if (!app || app.webContents.isDestroyed() || !origin) return
-    try {
-      await app.webContents.session.fetch(origin + API.claimDriveFlow.path, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
-        body: JSON.stringify({ code }),
-        signal: AbortSignal.timeout(10_000),
-      })
-    } catch (e) {
-      console.warn('[desktop] sign-in code', (e as Error).message)
-    }
+    const app = this.app, origin = this.team?.origin, teamId = this.team?.id
+    if (!app || app.webContents.isDestroyed() || !origin) return void handoffLog('sign-in hand-off: no team page to finish it in')
+    const ses = app.webContents.session
+    await deliverSignInCode({
+      origin,
+      code,
+      log: handoffLog,
+      post: async (o, c) => {
+        // the team was closed or switched meanwhile: its session is not the one that started the sign-in any more
+        if (this.team?.id !== teamId || app.webContents.isDestroyed()) return 409
+        const res = await ses.fetch(o + API.claimDriveFlow.path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+          body: JSON.stringify({ code: c }),
+          signal: AbortSignal.timeout(10_000),
+        })
+        return res.status
+      },
+    })
   }
 
   /**
@@ -468,8 +481,13 @@ export class AppWindow {
     const p = readDesktopLink(raw)
     // a Google Drive sign-in's one-time code for the team on screen: this app's own session finishes it (the page's
     // wait then shows the account to confirm); the window comes forward (main.ts onLink)
-    const code = this.app && this.mode !== 'offline' ? signInCode(raw, this.team?.origin) : null
-    if (code) return void this.claimSignIn(code)
+    // (not only while the page answers: an offline blip is what the claim's next tries are for)
+    const code = this.app ? signInCode(raw, this.team?.origin) : null
+    if (code) {
+      handoffLog(`sign-in hand-off: link for the team on screen (${this.team?.origin}, ${this.mode})`)
+      return void this.claimSignIn(code)
+    }
+    if (raw.includes('#code=')) handoffLog(`sign-in hand-off: link not for the team on screen (${this.team?.origin ?? 'none'}, ${this.app ? this.mode : 'no team page'})`)
     // the team on screen, its start: only the window comes forward (main.ts onLink), the page stays as it is
     if (this.app && this.mode !== 'offline' && isShownTeamStart(raw, this.team?.origin)) return
     if (p?.ok) {
