@@ -4955,6 +4955,8 @@ export class MockServer {
       return undefined
     },
     settings: () => ({ ...this.settings, speechProvider: this.speechNow() }),
+    // like server/src/auth/google-login-admin.ts: whether this server has a Google client (here or elsewhere), never which
+    googleSignInAdminStatus: () => ({ client: this.googleLogin.client !== null }),
     // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
     speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,

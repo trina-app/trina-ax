@@ -24,6 +24,8 @@ test('Settings opens Connectors: Discover lists the Google ones first (QA TC-138
   await page.getByTestId('settings-menu').getByRole('link', { name: '커넥터', exact: true }).click()
   await expect(page).toHaveURL(/\/settings\/connectors$/)
   await expect(page.getByTestId('connectors-header').getByRole('heading', { name: '커넥터', exact: true })).toBeVisible()
+  // the Google apps arrive with their own read: wait for them before reading the order
+  await expect(card(page, 'gmail')).toBeVisible()
   const ids = await page.getByTestId('connector-list').getByTestId('connector-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))
   // the Google ones first, in their order, also when not set up yet; then the listed services
   expect(ids).toHaveLength(10)
