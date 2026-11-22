@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:50
 - Branch: `fix/company-profile-thin-site`
-- Status: in progress
+- Status: done
 - Where: server/src/tools (web_fetch), server/src/onboarding/draft.ts. Why: the draft reads the website only through
   web_fetch (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a fix of what the existing company profile draft finds; no new API or setting
@@ -35,7 +35,8 @@ Out:
 - Rendering pages in a headless browser. The servers have chrome-headless-shell (HTML to PDF), but it runs with
   JavaScript off and no network by design (docs/DECISIONS.md "HTML to PDF"); rendering a stranger's site needs
   JavaScript on and the page's API calls answered (potenlab.dev loads its text from another host, a Supabase function),
-  which is a separate security decision for the owner. Proposed as a follow-up.
+  which is a separate security decision for the owner. Proposed as a follow-up. (Changed while building: added at the
+  coordinator's request, see Result.)
 - Reading text out of a site's JavaScript bundles.
 
 ## Steps
@@ -49,7 +50,8 @@ Out:
 
 ## Decisions
 
-none (the browser render is left for an owner decision).
+[docs/decisions/20261122-company-profile-thin-site.md](../../decisions/20261122-company-profile-thin-site.md) (added
+with the render).
 
 ## Risks
 
@@ -64,4 +66,16 @@ none (the browser render is left for an owner decision).
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus the browser render, which the plan had left out: the coordinator asked for it, reusing HTML to
+PDF's browser (no new package) with every sub-request blocked from private and internal addresses. Decision:
+[docs/decisions/20261122-company-profile-thin-site.md](../../decisions/20261122-company-profile-thin-site.md).
+
+- `server/src/tools/page-render.ts`: the page drawn with JavaScript on in HTML to PDF's isolated browser; the server
+  answers every request (web_fetch's address guard per request, GET/HEAD/preflight only, scripts, data and stylesheets
+  only, 150 requests, 20 MB, 10 s, two at once). `files/html-pdf.ts`: the launch moved into `runBrowser` (shared;
+  prints unchanged), `browserArgs(work, { scripts })`.
+- `server/src/tools/page-data.ts` and web_fetch: the markup's data for a thin page (every web_fetch), the sitemap list
+  and the render hook (drafts only).
+- potenlab.dev, checked live once: the markup alone gives the description (products: 포텐부스터, 커스텀 프로덕트 개발,
+  디자인&컨설팅) and 10 sitemap pages; drawn, about 3,800 characters in about 4 s, with services, packages, customers
+  ("스타트업부터 엔터프라이즈까지", "초기 창업가", "기존 비즈니스에 AI 도입하려는 팀") and portfolio.
