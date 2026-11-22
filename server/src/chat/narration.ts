@@ -106,6 +106,9 @@ const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|ha
 /** "Now the PDF.", "Now the SKILL.md.": a next step, in two to five words, with no verb said to people */
 const NOW_NOTE = /^now\s+(?:the|its|this|that|both)\s+\S+(?:\s+\S+){0,2}[.:]?$/i
 const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b|[.]\s+now\s+(?:post|send|save|stamp|write|make|put|add|upload|share|attach|print|export|overwrite)\b/i
+/** … or a change it is about to make to its own work, as an order to itself ("Shrink the chart a bit so it fits on one
+ * page.", 2026-11-22 scenario QA on Claude Code: the line led a Korean answer) */
+const EDIT_ORDER = /^(?:shrink|resize|enlarge|widen|narrow|tighten|trim|fit|fix|adjust|swap|redo|rebuild|regenerate|convert|rename|move|drop|remove|replace|change|make)\s+(?:the|it|this|that|them|both|all|each)\b/i
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
 const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|the (?:line|row|note|entry|item)|a (?:line|row|note|bullet)|one line)\s+)?(?:under|below|beneath|after|before|above|into|at the (?:end|top|bottom|start) of)\b/i
@@ -128,7 +131,7 @@ const isWorkNote = (t: string) => {
   if (REPORT.test(t)) return false
   if (RETRY_NOTE.test(t) && WORK_NOUN.test(t) && t.length <= 100) return true
   if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
-  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t))) && t.length <= 100)
+  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && (NOTE_MARK.test(t) || EDIT_ORDER.test(t)))) && t.length <= 100)
 }
 
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
