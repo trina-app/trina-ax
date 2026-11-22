@@ -299,8 +299,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
       const [c] = await Promise.all([read, loadThread(chatId).catch(async (e: unknown) => { await read; throw e })])
       setLoadError(null)
       setChat(c)
-      // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
-      if (c.shared && !c.shared.mine) upsertChat(c)
+      // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list. Only a
+      // copy read now: the store's own copy (chatFromList) may be older than a chat.updated that came while the messages
+      // were read (opening it reads its unread messages: putting the copy of before back kept the Projects mark)
+      if (c.shared && !c.shared.mine && c !== chatFromList) upsertChat(c)
       // messages this browser kept waiting for an answer in this chat (a reload, the app reopened)
       useSendQueue.getState().restore(me.user.id, chatId)
     } catch (e) {
@@ -335,10 +337,11 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
   // the creator to add it (components/ChatFileAsk.tsx)
   const peopleChat = isPeopleShared(chat)
-  // a chat shared with people: who the box's "@" may mention (GET …/audience mentionable), read again when who sees it changes
+  // a chat shared with people or a project's shared chat: who the box's "@" may mention (GET …/audience mentionable),
+  // read again when who sees it changes
   const [mentionPeople, setMentionPeople] = useState<UserRef[] | undefined>(undefined)
   // (read again as the chat changes: who sees it may have changed meanwhile; a member is not told the count)
-  const audienceKey = peopleChat ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
+  const audienceKey = shared && !chat?.deletedAt ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
   useEffect(() => {
     if (!audienceKey) { setMentionPeople(undefined); return }
     let live = true
@@ -765,6 +768,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               compact={!!sharedBy && phone}
               // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
               onPin={() => void actions.togglePin(chat, setChat)}
+              onMute={() => void actions.toggleMute(chat, setChat)}
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}

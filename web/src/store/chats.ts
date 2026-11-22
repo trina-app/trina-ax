@@ -714,6 +714,16 @@ export const useChats = create<ChatsState>((set, get) => {
         const merged = reset ? (kept.length ? sortChats([...items, ...kept]) : items) : [...s.chats, ...items.filter((c) => !s.chats.some((x) => x.id === c.id))]
         return { chats: merged, chatsCursor: page.nextCursor, chatsLoaded: true }
       })
+      // the shared chats with messages I have not read that are in no list of mine (a project's shared chat I never
+      // wrote in): kept with `others`, so the Projects mark and the app icon count them after a reload too. Older
+      // servers refuse the query: nothing changes
+      if (reset) void api.call(API.listChats, { query: { unread: '1' } }).then((u) => {
+        if (session !== generation) return
+        set((s) => {
+          const add = u.items.filter((c) => !s.chats.some((x) => x.id === c.id))
+          return add.length ? { others: { ...s.others, ...Object.fromEntries(add.map((c) => [c.id, keepPending(s, c)])) } } : s
+        })
+      }, () => {})
     },
 
     upsertChat(next) {
@@ -721,8 +731,9 @@ export const useChats = create<ChatsState>((set, get) => {
         // a single chat or an action's answer has no faces: the row keeps the ones its list gave it
         const c = keepFaces(s.chats.find((x) => x.id === next.id) ?? s.others[next.id], next)
         // someone else's shared chat that I have not written in is not mine to list: it is kept only while a screen
-        // shows it (its thread is open), so its header and composer follow along
-        if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] ? { others: { ...s.others, [c.id]: c } } : s
+        // shows it (its thread is open), so its header and composer follow along, or while it has messages I have not
+        // read (a project's shared chat: the Projects mark, the app icon and the desktop notice read them here)
+        if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] || c.unreadCount ? { others: { ...s.others, [c.id]: c } } : s
         const others = c.id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([id]) => id !== c.id)) : s.others
         return { chats: sortChats([c, ...s.chats.filter((x) => x.id !== c.id)]), others }
       })

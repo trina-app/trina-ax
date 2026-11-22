@@ -157,6 +157,14 @@ export class Notifications {
     // (chat/threads.ts mentionerOf), so a deleted mention falls back to another one still there
     const mention = o.mention ? o.replyId : null
     const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(mention_id, ?) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
+    // the first mention in a notice still open (made by a plain reply, which rang nothing while "Replies in threads I'm
+    // part of" is off, its default): pushed now as a new one, as a room's mention is: its finished deliveries go and it
+    // is dated now (the queue takes notices of the last day only), its wait starting again
+    if (up.changes && mention && open && !open.mention_id) {
+      this.ctx.db.query(`DELETE FROM chat_thread_push_deliveries WHERE state IN ('sent','failed','cancelled') AND notification_id IN
+        (SELECT id FROM chat_thread_notices WHERE user_id=? AND source_id=? AND read_at IS NULL)`).run(userId, o.rootId)
+      this.ctx.db.query('UPDATE chat_thread_notices SET created_at=?, push_at=? WHERE user_id=? AND source_id=? AND read_at IS NULL').run(at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), userId, o.rootId)
+    }
     if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed,mention_id)
       VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0,?)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), mention)
     this.signal(userId)

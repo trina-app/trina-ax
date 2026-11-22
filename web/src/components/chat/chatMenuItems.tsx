@@ -10,7 +10,7 @@ import { Bell, BellOff, EyeOff, FolderInput, LogOut, Pencil, Pin, PinOff, Trash2
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { isPeopleShared, mayHideChat, mayLeaveChat, sharedRights, shareKindOf } from '../../lib/sharedChat'
+import { mayHideChat, mayLeaveChat, sharedRights, shareKindOf } from '../../lib/sharedChat'
 import { useProjects } from '../../store/projects'
 import { useMeStrict } from '../../store/session'
 import { startShare } from './ChatShareDialog'
@@ -57,8 +57,9 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
     ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => startShare(chat, share)), testId: `${testId}-share` }] : []),
-    // a chat shared with people is a conversation: its new messages tell me unless I mute it (chat/message-notices.ts)
-    ...(isPeopleShared(chat) && !chat.deletedAt ? [chat.muted
+    // a chat shared with people, or a project's shared chat, is a conversation: its new messages tell me unless I mute it
+    // (chat/message-notices.ts)
+    ...(chat.shared && !chat.deletedAt ? [chat.muted
       ? { label: t('chat.unmute'), icon: <Bell size={14} aria-hidden />, onSelect: select(() => actions.toggleMute(chat, onChanged)), testId: `${testId}-unmute` }
       : { label: t('chat.mute'), icon: <BellOff size={14} aria-hidden />, onSelect: select(() => actions.toggleMute(chat, onChanged)), testId: `${testId}-mute` }] : []),
     ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: select(() => actions.hide(chat, onRemoved)), testId: `${testId}-hide` }] : []),

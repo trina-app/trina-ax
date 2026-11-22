@@ -70,7 +70,7 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
         )}
       </div>
       <PrefRow id="np-thread-replies" title={t('notifications.roomThreadReplies')} desc={t('notifications.roomThreadRepliesDesc')}
-        control={<Switch id="np-thread-replies" external describedBy="np-thread-replies-desc" checked={prefs.roomThreadReplies !== false} onChange={(v) => onChange({ roomThreadReplies: v })} label={t('notifications.roomThreadReplies')} testId="notification-thread-replies" />} />
+        control={<Switch id="np-thread-replies" external describedBy="np-thread-replies-desc" checked={prefs.roomThreadReplies === true} onChange={(v) => onChange({ roomThreadReplies: v })} label={t('notifications.roomThreadReplies')} testId="notification-thread-replies" />} />
       {/* inside the Android app the words say its notifications do not show the first line yet (QA TC-4692) */}
       <PrefRow id="np-message-preview" title={t('notifications.messagePreview')} desc={t(messagePreviewDescKey(mobileApp()))}
         control={<Switch id="np-message-preview" external describedBy="np-message-preview-desc" checked={prefs.messagePreview !== false} onChange={(v) => onChange({ messagePreview: v })} label={t('notifications.messagePreview')} testId="notification-message-preview" />} />

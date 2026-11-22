@@ -4800,7 +4800,7 @@ export const id: Record<MessageKey, string> = {
   "notifications.roomLevel.all": "Semua pesan baru",
   "notifications.roomLevel.none": "Tidak ada",
   "notifications.roomThreadReplies": "Balasan di utas yang Anda ikuti",
-  "notifications.roomThreadRepliesDesc": "Saat utas yang Anda mulai, Anda balas, atau tempat Anda disebut mendapat balasan, di percakapan dan obrolan bersama.",
+  "notifications.roomThreadRepliesDesc": "Beri tahu juga setiap balasan di utas yang Anda mulai, Anda balas, atau tempat Anda disebut, di percakapan dan obrolan bersama. Nonaktif: hanya balasan yang menyebut Anda yang memberi tahu; sisanya tetap ada di Sebutan & utas.",
   "notifications.messagePreview": "Tampilkan pratinjau pesan",
   "notifications.askEveryone": "Tanya sebelum memberi tahu semua orang",
   "notifications.askEveryoneDesc": "Pesan dengan @semua di percakapan berisi {n} orang atau lebih akan bertanya dulu sebelum terkirim.",

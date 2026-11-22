@@ -193,7 +193,9 @@ const pendingMessage = new Map<string, { timer: ReturnType<typeof setTimeout>; m
  * on another device: nothing) and is not on screen here. The chat's title (a confidential one's never) and the generic
  * line; a click opens the chat at the message. */
 function tellMessage(chatId: string, messageId: string, mention: boolean) {
-  const c = useChats.getState().chats.find((x) => x.id === chatId)
+  // (a project's shared chat I never wrote in is kept with `others` while it has messages for me: store/chats.ts)
+  const st = useChats.getState()
+  const c = st.chats.find((x) => x.id === chatId) ?? st.others[chatId]
   // (a mention reaches me in a chat I muted too)
   if (!c?.unreadCount || (c.muted && !mention) || seenHere(chatId)) return
   const title = plainLabel(c.confidential ? t('sidebar.filter.confidential') : c.title || t('chat.untitled'), 120)
@@ -267,6 +269,7 @@ export function markReadFrom(token: string) {
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), or on screen here: nothing
+  // (the server told it only for what my settings ask; settings not read yet: as it said)
   if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? true)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
@@ -293,8 +296,9 @@ const threadOnScreen = (chatId: string, rootId: string) =>
   useSessionMarkers.getState().visible && typeof location !== 'undefined' && location.pathname === `/c/${chatId}/t/${rootId}`
 function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (threadOnScreen(chatId, rootId)) return
-  // a plain reply follows "Replies in threads I'm part of" (the server checks it too, with quiet hours, when it sets the
-  // event's notice); a mention is told as a room's mention is
+  // a plain reply follows "Replies in threads I'm part of", off by default: a thread rings only on a mention (the server
+  // decides it, with quiet hours, when it sets the event's notice: a `reply` notice comes only with the switch on; this
+  // window drops it once it knows the switch went off since); a mention is told as a room's mention is
   if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
   const c = useChats.getState().chats.find((x) => x.id === chatId)
   const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
@@ -431,11 +435,20 @@ export function stopSessionMarkers() {
   started = false
 }
 
+/** the unread messages of shared chats kept outside my list (`others`: a project's shared chat I never wrote in, store/
+ * chats.ts loadChats): they add to n as the server's push badge counts them, never to the Trina mark's part */
+const othersUnread = (chats: readonly Chat[], others: Record<string, Chat>, here: string | null): number => {
+  let n = 0
+  for (const c of Object.values(others)) if (c.unreadCount && !c.muted && !c.deletedAt && c.id !== here && !chats.some((x) => x.id === c.id)) n += c.unreadCount
+  return n
+}
+
 /** the one count n, as this window shows it */
 export const currentCount = () => {
   const s = useSessionMarkers.getState()
   const chats = useChats.getState(), rooms = useRooms.getState()
-  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) })
+  const here = s.visible ? s.onScreen : null
+  return attentionCount(chats.chats, rooms.rooms, { here, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) + othersUnread(chats.chats, chats.others, here) })
 }
 
 /** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
@@ -445,8 +458,9 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const requests = useChats((s) => s.requests)
   const rooms = useRooms((s) => s.rooms)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const others = useChats((s) => s.others)
   const mentions = useChatMentions((s) => mentionCount(s.byChat))
-  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions }), [chats, rooms, here, requests, mentions])
+  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions: mentions + othersUnread(chats, others, here) }), [chats, others, rooms, here, requests, mentions])
 }
 
 /** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's

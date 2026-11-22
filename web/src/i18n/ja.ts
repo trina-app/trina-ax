@@ -4756,7 +4756,7 @@ export const ja: Record<MessageKey, string> = {
   "notifications.roomLevel.all": "すべての新着メッセージ",
   "notifications.roomLevel.none": "通知しない",
   "notifications.roomThreadReplies": "参加しているスレッドへの返信",
-  "notifications.roomThreadRepliesDesc": "自分が始めた・返信した・メンションされたスレッドに返信が来たら通知します。トークと共有チャットの両方が対象です。",
+  "notifications.roomThreadRepliesDesc": "自分が始めた・返信した・メンションされたスレッドへの返信もすべて通知します。トークと共有チャットの両方が対象です。オフのときは自分へのメンションだけを通知し、ほかの返信は「メンション・スレッド」に表示されます。",
   "notifications.messagePreview": "メッセージのプレビューを表示",
   "notifications.askEveryone": "全員に通知する前に確認",
   "notifications.askEveryoneDesc": "{n}人以上の会話で@全員を含むメッセージは、送信前に確認します。",

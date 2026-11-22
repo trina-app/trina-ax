@@ -132,7 +132,13 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   const db = ctx.db
   const r = a.row
   const by = rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id }
-  if (a.kind === 'project') return { kind: 'project', canEdit: false, by, subjects: [] }
+  // a project's shared chat: who the message box may mention (chat/message-notices.ts), the people who see it now but me,
+  // the same list as a thread's reply box there (chat/threads.ts threadPeople)
+  if (a.kind === 'project') {
+    const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
+      .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
+    return { kind: 'project', canEdit: false, by, subjects: [], mentionable }
+  }
   if (!isPeopleRow(r)) return { kind: 'private', canEdit: a.creator && !r.project_id && !r.side_room_id, by, subjects: [] }
   const me = loadPrincipal(db, userId)
   // a group's size, and with a group in it the count, only for the creator and admins (S8)

@@ -61,10 +61,7 @@ const pushPending = new Set()
 // fetch of the notice, never from the payload)
 // chat.shared: someone shared a chat with me by name ("Chats shared with me"); the title is who shared it and a click opens
 // the chat, both from the signed-in fetch of the notice (never the chat's title, never from the payload)
-// chat.thread_reply: a reply in a thread I follow under an AI answer of a shared chat ("Replies in threads I'm part of");
-// a click opens that thread, its ids from the signed-in fetch of the notice (never the reply, the chat's title or the
-// payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'chat.thread_reply': 'roomThreadReplies', 'file.shared': 'fileShares', 'file.access_requested': 'fileShares', 'access.requested': 'fileShares' }
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'file.shared': 'fileShares', 'file.access_requested': 'fileShares', 'access.requested': 'fileShares' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -94,8 +91,13 @@ const FILE_CODES = new Set(['file.shared', 'file.access_requested', 'access.requ
 // chat.message: a person's message in a chat shared with people. No switch here: the server decided the room default,
 // quiet hours and the chat's mute, and sends it only while they still ask for it; a click opens the chat at the message
 // (its ids from the signed-in fetch of the notice, chatMessage, never from the payload)
+// chat.thread_reply: a reply in a thread I follow under an AI answer of a shared chat. No switch here either: it rings
+// for a mention of me whatever "Replies in threads I'm part of" says, and for a plain reply only with it on, which the
+// server decides per notice (chat/threads.ts chatThreadWanted); a click opens that thread, its ids from the signed-in
+// fetch of the notice (never the reply, the chat's title or the payload)
 const CHAT_MESSAGE_CODES = new Set(['chat.message'])
-const pushWanted = (preferences, code) => CHAT_MESSAGE_CODES.has(code) || ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
+const THREAD_CODES = new Set(['chat.thread_reply'])
+const pushWanted = (preferences, code) => CHAT_MESSAGE_CODES.has(code) || THREAD_CODES.has(code) || ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
 // the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
@@ -180,7 +182,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code) || FILE_CODES.has(payload.code) || CHAT_MESSAGE_CODES.has(payload.code))) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code) || FILE_CODES.has(payload.code) || CHAT_MESSAGE_CODES.has(payload.code) || THREAD_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)

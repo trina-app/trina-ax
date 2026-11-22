@@ -4801,7 +4801,7 @@ export const en: Record<MessageKey, string> = {
   "notifications.roomLevel.all": "All new messages",
   "notifications.roomLevel.none": "Nothing",
   "notifications.roomThreadReplies": "Replies in threads I'm part of",
-  "notifications.roomThreadRepliesDesc": "When a thread I started, replied in or was mentioned in gets a reply, in conversations and shared chats.",
+  "notifications.roomThreadRepliesDesc": "Also notify me of every reply in a thread I started, replied in or was mentioned in, in conversations and shared chats. Off: only a reply that mentions me notifies; the rest still show in Mentions & threads.",
   "notifications.messagePreview": "Show message preview",
   "notifications.askEveryone": "Ask before notifying everyone",
   "notifications.askEveryoneDesc": "A message with @everyone in a conversation of {n} or more people asks before it goes.",

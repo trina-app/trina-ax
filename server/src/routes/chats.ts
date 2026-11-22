@@ -363,6 +363,19 @@ export const chatsRoutes: RouteModule = {
         if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
         return otherChats(rt, me, query.cursor, limit)
       }
+      // the shared chats with messages I have not read (chat/message-notices.ts): a project's shared chat I never wrote in
+      // is in no list of mine, so the rail's Projects mark, the app icon and the desktop notice read it here after a reload
+      if (query.unread) {
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
+        // every such chat is read (one indexed read of my unread notices), then only the ones I see now are kept, then
+        // the page: a chat I lost (its notices stay until read) never pushes one I see out of it
+        const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND deleted_at IS NULL AND ${notInternalChat(ctx.db)}
+          AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0) ORDER BY updated_at DESC, id DESC`).all(me) as ChatRow[]
+        const aud = new Audiences(ctx.db, ctx.files)
+        const seen = rows.filter((r) => isSharedRow(r) && aud.seesChat(me, r)).slice(0, limit)
+        const people = chatPeople(ctx.db, seen.map((r) => r.id), me)
+        return { items: seen.map((r) => chatOut(rt, me, r, { aud, people })), nextCursor: null }
+      }
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
@@ -573,8 +586,9 @@ export const chatsRoutes: RouteModule = {
         const back = chatOut(rt, auth.user.id, chat)
         rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: back } })
       }
-      // a chat shared with people: my unread messages there are read (chat/message-notices.ts); my windows hear it
-      if (a.kind === 'people' && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: chatOut(rt, auth.user.id, chat) } })
+      // a chat shared with people or a project's shared chat: my unread messages there are read (chat/message-notices.ts);
+      // my windows hear it
+      if (a.shared && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: chatOut(rt, auth.user.id, chat) } })
       if (a.shared && !a.creator) return chatOut(rt, auth.user.id, chat)
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
@@ -792,9 +806,10 @@ export const chatsRoutes: RouteModule = {
       leaveChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), c.get('locale'))
       return { ok: true as const }
     })
-    // "Mute this chat" / "Unmute" (chat/message-notices.ts): a chat shared with people I see; mine only. Anything else: 400
+    // "Mute this chat" / "Unmute" (chat/message-notices.ts): a chat shared with people or a project's shared chat I see;
+    // mine only. A chat of one person: 400
     const muted = (auth: AuthInfo, a: ChatAccess, mute: boolean): Chat => {
-      if (a.kind !== 'people') fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
+      if (!a.shared) fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
       setMuted(ctx, auth.user.id, a.row.id, mute)
       const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
       rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: out } })

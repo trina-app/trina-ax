@@ -8,19 +8,31 @@
 // else is a notice too, for the unread number only: never pushed or rung (the asker has the finished notice,
 // notifications/chat-answers.ts). "Mute this chat" (chat_mutes): no notices for that person there. Reading the chat
 // (POST /api/chats/:id/seen) or writing in it reads them. Ids only: never a message's text or the chat's title in a row.
+//
+// A team project's shared chat is a conversation as well (owner 2026-11-22, docs/decisions/
+// 20261122-project-chat-notices-threads-mention-only.md): the same notices for the people who see it now
+// (Audiences.ofChat: the project's readers, no guest but the chat's own creator, nobody while its folder is in the
+// trash). A chat started "Only me" in a project is not shared and tells nobody. Projects can be large: the fan-out reads
+// who is active, who muted the chat and everyone's preferences in one query each, writes in one transaction, and asks
+// nothing per person but the insert.
 import type { Database } from 'bun:sqlite'
 import { inQuietHours } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
-import { getPreferences, pushEventEnabled, type Preferences } from '../notifications/preferences'
+import { getPreferences, getPreferencesOf, pushEventEnabled, type Preferences } from '../notifications/preferences'
 import { chatOpenFor } from '../notifications/chat-answers'
-import { isPeopleRow } from './chat-audience'
+import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
 import { AnswerSight } from './shared-answers'
 import type { ChatRow } from './store'
 
 type Kind = 'message' | 'answer'
+/** A chat whose people's messages tell the others: one shared with people (#339) or a team project's shared chat (both
+ * are isSharedRow; a project chat started "Only me" is neither). */
+export const isConversationRow = (r: Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'>): boolean => isSharedRow(r)
+/** My unread notices, mention and mute in one chat (chatView, the push badge). */
+export type Unread = { n: number; mention: boolean; muted: boolean }
 /** a notice that may ring now, per person: the message, and whether it mentions them (the chat.updated `notice`) */
 export type Ring = { messageId: string; mention?: true }
 type ChatIds = Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at' | 'deleted_at' | 'room_id'>
@@ -50,10 +62,20 @@ export function forgetChatNotices(db: Database, userId: string, chatId: string) 
 
 /** My unread notices in this chat (the row's number), whether one of them mentions me (the row's "@") and my mute, in
  * one read (chat/shared.ts chatView runs it for each chat shared with people in a list). */
-export function unreadOf(db: Database, userId: string, chatId: string): { n: number; mention: boolean; muted: boolean } {
+export function unreadOf(db: Database, userId: string, chatId: string): Unread {
   const r = db.query(`SELECT COUNT(*) n, MAX(mention) m, EXISTS(SELECT 1 FROM chat_mutes WHERE chat_id = ?2 AND user_id = ?1) muted
     FROM chat_message_notices WHERE user_id = ?1 AND chat_id = ?2 AND read_at IS NULL AND suppressed = 0`).get(userId, chatId) as { n: number; m: number | null; muted: number }
   return { n: r.n, mention: r.m === 1, muted: r.muted === 1 }
+}
+
+/** Everyone's unread numbers, mentions and mutes in one chat, in two grouped reads (runtime.ts publishChat tells every
+ * viewer of a busy project chat at once: no read per person). Someone without a row: nothing unread, not muted. */
+export function unreadByUser(db: Database, chatId: string): Map<string, Unread> {
+  const out = new Map<string, Unread>()
+  const rows = db.query(`SELECT user_id, COUNT(*) n, MAX(mention) m FROM chat_message_notices WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { user_id: string; n: number; m: number | null }[]
+  for (const r of rows) out.set(r.user_id, { n: r.n, mention: r.m === 1, muted: false })
+  for (const r of db.query('SELECT user_id FROM chat_mutes WHERE chat_id = ?').all(chatId) as { user_id: string }[]) out.set(r.user_id, { ...(out.get(r.user_id) ?? { n: 0, mention: false }), muted: true })
+  return out
 }
 
 /** I had the chat on screen, or wrote in it: its notices are read and their pushes that still wait go. True when
@@ -73,28 +95,38 @@ export function readChatNotices(ctx: AppContext, userId: string, chatId: string)
  * with "@", kept only among those who see the chat). Never throws: the message is saved whether or not it is told. */
 function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kind: Kind, mentions: readonly string[] = []): Map<string, Ring> {
   const rings = new Map<string, Ring>()
-  if (!isPeopleRow(chat) || chat.deleted_at || chat.room_id) return rings
+  if (!isConversationRow(chat) || chat.deleted_at || chat.room_id) return rings
   try {
     const db = ctx.db
     const ids = new Audiences(db, ctx.files).ofChat(chat).filter((id) => id !== by)
     if (!ids.length) return rings
+    // one read each for everyone (a project may have hundreds of people): who is active, who muted it, their settings
+    const list = JSON.stringify(ids)
+    const active = new Set((db.query("SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?)) AND status = 'active' AND deleted_at IS NULL").all(list) as { id: string }[]).map((r) => r.id))
+    const muted = new Set((db.query('SELECT user_id FROM chat_mutes WHERE chat_id = ?').all(chat.id) as { user_id: string }[]).map((r) => r.user_id))
+    const prefs = kind === 'message' ? getPreferencesOf(db, ids.filter((id) => active.has(id))) : null
+    // an answer: who it is hidden from, worked out before the write transaction (it reads the chat and each person's
+    // access; never held inside the write)
     const sight = kind === 'answer' ? new AnswerSight(db, ctx.files) : null
+    const hiddenFrom = new Set(sight ? ids.filter((uid) => active.has(uid) && (!muted.has(uid)) && sight.withheld(chat.id, uid).has(messageId)) : [])
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING`)
+    const told: string[] = []
     db.transaction(() => {
       for (const uid of ids) {
-        if (!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(uid)) continue
+        if (!active.has(uid)) continue
         const mention = kind === 'message' && mentions.includes(uid)
-        if (!mention && isMuted(db, uid, chat.id)) continue
-        if (sight?.withheld(chat.id, uid).has(messageId)) continue
-        const ring = kind === 'message' && mayRing(getPreferences(db, uid), tz, now)
+        if (!mention && muted.has(uid)) continue
+        if (hiddenFrom.has(uid)) continue
+        const ring = kind === 'message' && mayRing(prefs!.get(uid)!, tz, now)
         const r = insert.run(newId(), uid, messageId, chat.id, kind === 'message' ? by : null, kind, at, ring ? 0 : 1, mention ? 1 : 0)
-        // a person's message brings a chat I hid from my list back (as a room's message brings a hidden room back), so
-        // its number is never out of sight; an answer of Trina's does not
-        if (r.changes && kind === 'message') db.query('DELETE FROM chat_list_hidden WHERE user_id = ? AND chat_id = ?').run(uid, chat.id)
+        if (r.changes && kind === 'message') told.push(uid)
         if (r.changes && ring) rings.set(uid, { messageId, ...(mention ? { mention: true as const } : {}) })
       }
+      // a person's message brings a chat I hid from my list back (as a room's message brings a hidden room back), so
+      // its number is never out of sight; an answer of Trina's does not (one statement for everyone told)
+      if (told.length) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id IN (SELECT value FROM json_each(?))').run(chat.id, JSON.stringify(told))
     })()
     // their Inbox count does not change (these rows are never listed): the chat.updated that follows carries the number
     return rings
@@ -104,10 +136,10 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
   }
 }
 
-/** A person's message in a chat shared with people (runtime.ts createTurn, before its chat.updated). The sender has
- * read the chat now. */
+/** A person's message in a chat shared with people or a project's shared chat (runtime.ts createTurn, before its
+ * chat.updated). The sender has read the chat now. */
 export function noteSharedMessage(ctx: AppContext, chat: ChatIds, messageId: string, by: string, mentions: readonly string[] = []): Map<string, Ring> {
-  if (!isPeopleRow(chat)) return new Map()
+  if (!isConversationRow(chat)) return new Map()
   try { readChatNotices(ctx, by, chat.id) } catch { /* the number goes with the next read */ }
   return note(ctx, chat, messageId, by, 'message', mentions)
 }
