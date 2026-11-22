@@ -205,7 +205,7 @@ for (const width of [1440, 390] as const) {
       await block(page).getByTestId('team-prepared-add-skills').click()
       await expect(page).toHaveURL(/\/skills\?catalog=open$/)
       await expect(page.getByTestId('skill-catalog-toggle')).toHaveAttribute('aria-expanded', 'true')
-      await expect(page.getByTestId('skill-pack-row')).toHaveCount(4)
+      await expect(page.getByTestId('skill-pack-row')).toHaveCount(8)
       // with the skills in
       await reset(page)
       await prepare(page, { skills: true, files: true })

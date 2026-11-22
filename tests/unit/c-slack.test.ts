@@ -361,8 +361,10 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const dm = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0NOMAIL'))
     expect(dm!.args.text).toContain('Carol Park (@carol)')
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_links').all())).not.toContain('xoxp-')
-    // the same state again: used
-    expect(await back('carol', { state: p.state!, code: 'code-again-0001' })).toBe('signin_expired')
+    // the same state again: used; it says how it ended (linked), and nothing is exchanged again
+    const exchanged = fake.of('openid.connect.token').length
+    expect(await back('carol', { state: p.state!, code: 'code-again-0001' })).toBe('linked')
+    expect(fake.of('openid.connect.token').length).toBe(exchanged)
     // signed in again with the same Slack account: linked, nothing new recorded or said
     const audits = (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { n: number }).n
     const dms = fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0NOMAIL').length
@@ -396,8 +398,8 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(links()).toBe(0)
   })
 
-  test('back in a browser with no session (the desktop or phone app): sign in there, then it goes on and links', async () => {
-    const p = params((await h.req('erin', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', client: 'desktop' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
+  test('back in a browser with no session (the phone app): sign in there, then it goes on and links', async () => {
+    const p = params((await h.req('erin', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', client: 'mobile' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
     const code = 'code-erin-0001'
     fake.codes[code] = { user: 'U0ERIN', nonce: p.nonce! }
     // no session: to the sign-in page, whose next page is the fixed return page with only the state and the code;
@@ -409,9 +411,101 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const done = await backTo('erin', { state: p.state!, code })
     expect(done).toBe('/slack/done?slack=linked')
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
-    // used: the same address again (another tab, after signing in again) changes nothing
-    expect(await back('erin', { state: p.state!, code })).toBe('signin_expired')
+    // used: the same address again (another tab, after signing in again) changes nothing; it says how it ended
+    expect(await back('erin', { state: p.state!, code })).toBe('linked')
     expect((await call('erin', 'DELETE', '/api/slack/me')).json.link).toBeNull()
+  })
+
+  test('started in the desktop app, back in a browser with no session: the code goes to the app, which finishes it (docs/decisions/20261122-slack-desktop-handoff.md)', async () => {
+    const startDesk = async () => params((await h.req('erin', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', client: 'desktop' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
+    const bare = (q: Record<string, string>) => h.req(null, `/api/integrations/slack/oauth/callback?${new URLSearchParams(q)}`, { redirect: 'manual' })
+    const codeOf = (html: string) => /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)?.[1] ?? null
+    const claim = (client: 'desktop' | 'web', code: string, who = 'erin') => h.req(who, '/api/integrations/google-drive/claim', { ...json('POST', { code }), client })
+    const p = await startDesk()
+    fake.codes['code-erin-desk'] = { user: 'U0ERIN', nonce: p.nonce! }
+    const tokenCalls = fake.of('openid.connect.token').length
+    // no session: no sign-in page; the held page with the one-time code only in the app link's fragment
+    const r = await bare({ state: p.state!, code: 'code-erin-desk' })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('location')).toBeNull()
+    expect(r.headers.get('cache-control')).toBe('no-store')
+    expect(r.headers.get('content-security-policy')).toContain("default-src 'none'")
+    const html = await r.text()
+    expect(html).not.toContain('/login')
+    expect(html).toContain('Slack')
+    expect(html).toContain('@erin')
+    const code = codeOf(html)!
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(html).not.toContain('code-erin-desk')
+    // Slack's code is not exchanged before the app claims it, and is stored sealed only
+    expect(fake.of('openid.connect.token').length).toBe(tokenCalls)
+    expect(JSON.stringify(h.ctx.db.query("SELECT * FROM slack_signin_flows WHERE user_id = 'erin'").all())).not.toContain('code-erin-desk')
+    // a reload, or the starter's own browser with the state: no new code, nothing finished
+    const again = await bare({ state: p.state!, code: 'code-erin-desk' })
+    expect(again.status).toBe(400)
+    expect(codeOf(await again.text())).toBeNull()
+    const own = await h.req('erin', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-erin-desk' })}`, { redirect: 'manual' })
+    expect(own.status).toBe(400)
+    expect(codeOf(await own.text())).toBeNull()
+    // only this session: the same person's web session, another person: refused, the code still good
+    expect((await claim('web', code)).status).toBe(400)
+    expect((await claim('desktop', code, 'carol')).status).toBe(400)
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
+    const ok = await claim('desktop', code)
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toMatchObject({ state: 'completed', reason: null, account: null })
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
+    expect(fake.of('openid.connect.token').length).toBe(tokenCalls + 1)
+    // claimed: Slack's code and the claim's hash are no longer kept (an own-app sign-in had no verifier: nothing is)
+    const sealedOf = () => (h.ctx.db.query("SELECT verifier_enc FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { verifier_enc: string | null }).verifier_enc
+    expect(sealedOf()).toBeNull()
+    // replay: refused, nothing more
+    expect((await claim('desktop', code)).status).toBe(400)
+    // opened again after it finished: says it is linked (the real state), no code
+    const after = await h.req(null, `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-erin-desk' })}`, { redirect: 'manual' })
+    expect(after.status).toBe(303)
+    expect(after.headers.get('location')).toBe('/slack/done?slack=linked')
+    expect((await call('erin', 'DELETE', '/api/slack/me')).json.link).toBeNull()
+    // a late code: refused, the flow ends, nothing linked
+    const p2 = await startDesk()
+    fake.codes['code-erin-late'] = { user: 'U0ERIN', nonce: p2.nonce! }
+    const late = codeOf(await (await bare({ state: p2.state!, code: 'code-erin-late' })).text())!
+    skew = 5 * 60_000 + 1000
+    try {
+      const lr = await claim('desktop', late)
+      expect([200, 400]).toContain(lr.status)
+      expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
+      expect((await claim('desktop', late)).status).toBe(400)
+      expect(sealedOf()).toBeNull()
+    } finally { skew = 0 }
+    // run out with no claim at all: ended and dropped by the next sweep or return
+    const pX = await startDesk()
+    fake.codes['code-erin-runout'] = { user: 'U0ERIN', nonce: pX.nonce! }
+    expect(codeOf(await (await bare({ state: pX.state!, code: 'code-erin-runout' })).text())).toBeTruthy()
+    expect(sealedOf()).not.toBeNull()
+    skew = 5 * 60_000 + 1000
+    try {
+      expect((await claim('desktop', 'z'.repeat(43))).status).toBe(400)
+      expect(sealedOf()).toBeNull()
+      expect((h.ctx.db.query("SELECT state, reason FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get())).toEqual({ state: 'failed', reason: 'signin_expired' })
+    } finally { skew = 0 }
+    // Cancel in the app ends a held sign-in too: its code is refused afterwards
+    const p3 = await startDesk()
+    fake.codes['code-erin-cancel'] = { user: 'U0ERIN', nonce: p3.nonce! }
+    const cancelled = codeOf(await (await bare({ state: p3.state!, code: 'code-erin-cancel' })).text())!
+    expect(sealedOf()).not.toBeNull()
+    expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
+    expect(sealedOf()).toBeNull()
+    expect((await claim('desktop', cancelled)).status).toBe(400)
+    // replaced by a new try: dropped too
+    const p4 = await startDesk()
+    fake.codes['code-erin-replaced'] = { user: 'U0ERIN', nonce: p4.nonce! }
+    expect(codeOf(await (await bare({ state: p4.state!, code: 'code-erin-replaced' })).text())).toBeTruthy()
+    const heldId = (h.ctx.db.query("SELECT id FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { id: string }).id
+    await startDesk()
+    expect(h.ctx.db.query('SELECT state, reason, verifier_enc FROM slack_signin_flows WHERE id = ?').get(heldId)).toEqual({ state: 'failed', reason: 'superseded', verifier_enc: null })
+    expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
+    expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
   })
 
   test('signed in as somebody else, or too late after signing in: refused; a code that is not one goes nowhere', async () => {

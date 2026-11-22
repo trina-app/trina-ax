@@ -274,17 +274,21 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
   .landing main > p { font-size:17px; }
   /* keep-all only for Korean: Japanese and Chinese have no spaces and would break only at punctuation */
   html[lang="ko"] h1, html[lang="ko"] main > p, html[lang="ko"] .practice p { word-break:keep-all; }
-  .facts { position:relative; list-style:none; margin:0 0 32px; padding:16px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 22px;
+  .facts { list-style:none; margin:0 0 32px; padding:16px 0; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 22px;
     border-block:1px solid var(--line); font-size:14px; font-weight:500; }
   .fact { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; }
-  .practice summary { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  /* the opened note flows in the facts row and pushes Turnstile and Start down (at 390 px an overlay covered the
+     Turnstile box until it was closed): its fact takes a line of its own */
+  .fact:has(.practice[open]) { flex-basis:100%; justify-content:center; }
+  .practice { display:block; max-width:100%; }
+  .practice summary { display:flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; }
   .ic { flex:none; color:var(--orange); }
   .practice summary { list-style:none; cursor:pointer; border-radius:6px; text-decoration:underline dotted color-mix(in srgb, var(--text) 40%, transparent);
     text-underline-offset:4px; }
   .practice summary::-webkit-details-marker { display:none; }
   .practice .info-ic { color:var(--dim); }
   .practice[open] .info-ic, .practice summary:hover .info-ic { color:var(--text); }
-  .practice p { position:absolute; z-index:2; left:0; right:0; top:calc(100% + 8px); margin:0; padding:12px 14px; text-align:left; white-space:normal;
+  .practice p { margin:10px 0 0; padding:12px 14px; text-align:left; white-space:normal;
     background:var(--raised); color:var(--text); border-radius:12px; box-shadow:var(--shadow); font-weight:400; line-height:1.5; }
   form { display:flex; flex-direction:column; gap:16px; align-items:center; }
   form .primary { width:100%; }

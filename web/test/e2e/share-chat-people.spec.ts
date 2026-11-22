@@ -95,7 +95,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(dialog.getByTestId('participant-remove-user-olga')).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
-      await expect(dialog.getByTestId('chat-share-note')).toContainText('추가되기 전에 나눈 대화와 스레드까지')
+      await expect(dialog.getByTestId('chat-share-note')).toHaveText('추가한 사람은 처음부터 채팅 전체를 보고 AI에게 물어볼 수 있어요.')
       await audit(page, 'share dialog, empty')
       await pick(page, 'Bob', 'bob')
       // a group adds the line that whoever joins it later sees the chat too
@@ -164,7 +164,11 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       expect((await saveAudience(page, w.chatId, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'user', subjectId: 'sora' }])).ok()).toBeTruthy()
       const dialog = await openShare(page, w.chatId)
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
-      // ✕ on a saved row: struck out with Undo; Undo puts it back
+      // ✕ on a saved row: its tooltip says what was seen stays seen (a computer); struck out with Undo; Undo puts it back
+      if (!isPhone(page)) {
+        await dialog.getByTestId('participant-remove-user-bob').hover()
+        await expect(page.getByRole('tooltip')).toHaveText('Bob 빼기 · 이미 본 내용은 되돌릴 수 없어요.')
+      }
       await dialog.getByTestId('participant-remove-user-bob').click()
       await expect(dialog.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'removed')
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
@@ -220,9 +224,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await pick(page, 'Bob', 'bob')
       // in place, before any press: specific, the button as it always is
       const warning = dialog.getByTestId('chat-share-warning')
-      await expect(warning).toContainText('답 2개가 내 개인 메모리를 참고했을 수 있어요.')
-      await expect(warning).toContainText('답 1개가 Bob 님이 열 수 없는 파일을 참고했어요.')
-      await expect(warning).toContainText('내 파일')
+      await expect(warning.getByTestId('chat-share-warning-lines')).toHaveText('Bob 님이 못 여는 곳을 참고한 답이 있어요 · 개인 메모리, 파일, 내 파일')
       // a first share: the files I attached from my computer go with it (S6, TC-1413), one grey line
       await expect(dialog.getByTestId('chat-share-files')).toHaveText('내가 첨부한 파일 2개도 이 사람들이 볼 수 있게 돼요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
@@ -280,8 +282,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await pick(page, 'Bob', 'bob')
       await expect(dialog.getByTestId('chat-share-grey')).toHaveText('아직 이 채팅을 확인하지 못했어요. 공유하기 전에 무엇이 공개되는지 보여 드릴게요.')
       await dialog.getByTestId('chat-share-save').click()
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이전 답 1개가 내 개인 계정을 참고했을 수 있어요.')
-      await expect(dialog.getByTestId('chat-share-warning')).toContainText('이 채팅은 Bob 님이 없을 수도 있는 채널을 읽었어요.')
+      await expect(dialog.getByTestId('chat-share-warning-lines')).toHaveText('Bob 님이 못 여는 곳을 참고한 답이 있어요 · 개인 계정, 채널')
       await expect(dialog.getByTestId('chat-share-changed')).toHaveText('내용을 확인하고 공유를 한 번 더 눌러 주세요.')
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)

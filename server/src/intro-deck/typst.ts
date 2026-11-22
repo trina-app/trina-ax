@@ -27,7 +27,7 @@ const FONTS: Record<Locale, string> = {
   id: '("Pretendard", "Noto Sans CJK KR")',
   es: '("Pretendard", "Noto Sans CJK KR")',
   ja: '("Pretendard", "Noto Sans CJK JP", "Hiragino Sans")',
-  zh: '("Pretendard", "Noto Sans CJK SC", "PingFang SC")',
+  zh: '("Pretendard", "Noto Sans CJK SC", "Hiragino Sans GB", "PingFang SC")',
 }
 
 function stops(list: { at: number; color: string }[]): string {
@@ -125,7 +125,7 @@ export function buildTypst(deck: DeckOut, o: TypstOptions): TypstDoc {
   const pages = deck.slides.map((s, k) => `#page(fill: ${col(s.ground)})[\n${body(s.items, k + 1).join('\n')}\n]`).join('\n')
   const source = `#set document(title: ${lit(o.title)}, author: (), date: none)
 #set page(width: ${pt(SLIDE_W)}, height: ${pt(SLIDE_H)}, margin: 0pt)
-#set text(font: ${FONTS[o.lang]}, lang: ${lit(o.lang)}, top-edge: "baseline", bottom-edge: "baseline", hyphenate: false)
+#set text(font: ${FONTS[o.lang]}, lang: ${lit(o.lang)}, top-edge: "baseline", bottom-edge: "baseline", hyphenate: false, cjk-latin-spacing: none)
 #set par(spacing: 0pt, leading: 0pt)
 ${pages}
 `

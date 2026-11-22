@@ -89,7 +89,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         const text = versioned
           ? `${places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, false, true) : r.text}\nThis was saved as a new version of that chat file, not as a new file: ${kind === 'people' ? 'everyone in this chat opens it' : 'it opens'} from the same file in the chat, and the earlier versions stay (read it with versions: true)${kind === 'people' ? '; anyone here can restore one from the file\'s Versions list' : ''}.`
           : places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
-        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary, ...(r.stepImages?.length ? { stepImages: r.stepImages } : {}) }
       },
     })
   }

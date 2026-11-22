@@ -26,8 +26,9 @@ export const VIDEO_REFUSED = 'Video isn\'t available in the demo'
  * it say so): one short sentence, the photo's origin. */
 export const PREPARED_PHOTO = "This photo is one of the demo's prepared photos: no new photo was made."
 /** what the AI does with a picture next (QA TC-6791: the banner showed nowhere and was saved only when asked again):
- * saved into the team folder and named as a Markdown image, which is how a picture appears in the chat */
-export const SAVE_NEXT = 'Save it now with save_connector_file (the mcp-file handle below) into the project\'s folder, then show it in the answer as a Markdown image.'
+ * saved into the team folder, where the chat shows it under save_connector_file's step by itself (never retyped as a
+ * Markdown image: a retyped banner path showed one size twice, replay 11-22) */
+export const SAVE_NEXT = 'Save it now with save_connector_file (the mcp-file handle below) into the project\'s folder; the chat then shows it. Never repeat it as a Markdown image.'
 /** a canned picture larger than this is not sent inline (it still downloads) */
 const INLINE_MAX = 4 * 1024 * 1024
 const PICTURE_MAX = 20 * 1024 * 1024
@@ -209,7 +210,7 @@ export function builtInPicture(): Buffer {
 /** The fake's tool list (what tools/list answers). Also what the snapshot's Higgsfield connection keeps as its saved
  * tools (routes/demo-builder.ts, integrations.tools_json): with none saved the AI had no image tool (QA TC-5559). */
 export const HIGGSFIELD_TOOLS = [
-  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. In the demo it gives the one of the demo\'s prepared photos that shows the scene the prompt names (no new photo is made), or none when none of them shows it. Returns the finished job with the picture: save it with save_connector_file right away and show it in the answer. The picture has no words in it. Use it for a new background, photo or scene; to change a banner\'s words use the built-in change_banner_text instead (it runs on this server, nothing is sent to Higgsfield).',
+  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. In the demo it gives the one of the demo\'s prepared photos that shows the scene the prompt names (no new photo is made), or none when none of them shows it. Returns the finished job with the picture: save it with save_connector_file right away (the chat then shows it; no Markdown image). The picture has no words in it. Use it for a new background, photo or scene; to change a banner\'s words use the built-in change_banner_text instead (it runs on this server, nothing is sent to Higgsfield).',
     inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] } },
   { name: 'generate_video', title: 'Generate video', readOnly: false, description: 'Generate a video from a text prompt.',
     inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, duration: { type: 'integer' } }, required: ['prompt'] } },

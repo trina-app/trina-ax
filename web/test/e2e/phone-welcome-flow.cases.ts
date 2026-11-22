@@ -239,7 +239,7 @@ export function welcomeFlowCases() {
     await newOwner(page)
     await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
     await stepIs(page, 'skills')
-    // one kept skill in (the end screen sums it up)
+    // the kept skills that come checked go in (the end screen sums them up)
     await page.getByTestId('skill-packs').locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
     await page.getByTestId('skills-primary').click()
     await stepIs(page, 'files')

@@ -6,7 +6,8 @@ are invented; no real business by these names turned up in web searches. There a
 wordmark, so the three visual skills make their text-only version.
 
 The kept skills' examples (`server/src/onboarding/skill-examples.ts`, EXAMPLES-PLAN) were made from these files by
-the skills themselves: one per skill in Korean and in English.
+the skills themselves: one per skill in Korean and in English. Since 2026-11-22 the 회사 소개서 / Company profile example is made on
+another invented company with services, numbers and a process: 숲틈 / Soopteum (`../soopteum/`).
 
 | File (`ko/`, `en/`) | Used for |
 |---|---|
@@ -38,3 +39,15 @@ the skills themselves: one per skill in Korean and in English.
 Make its example again in the same PR, the same way, and record the new `skillHash` (the first 12 hex digits of
 `shasum -a 256 SKILL.md`): in `skill-examples.ts` for a picture, in the EXAMPLE.md front matter for a text.
 `tests/unit/b-skill-catalog.test.ts` fails until the hash matches.
+
+## The everyday office skills (2026-11-22)
+
+`resources/skill-packs/work/<ko|en|ja|zh|es|id>/{meeting-notes,team-report,customer-reply,contract-review}/EXAMPLE.md`
+were made the same day the skills were written: the ai-scenarios local server (`AISCEN_HOME=<short folder> bun run
+ai:scenarios up --no-relay`, real Claude Code engine, no web search), the work pack installed in each language in turn
+(team language switched, the other language's copies removed first), and each skill run once in a new chat with its
+form's first choice and a short invented input (a meeting memo, the week's notes, a late-delivery complaint, a
+six-clause bean supply agreement draft) about a fictional roaster per language: 예시커피, Example Coffee, 見本コーヒー,
+示例咖啡, Café Ejemplo, Kopi Contoh, with invented local names. The input is quoted in part, then the start of the answer,
+cut at whole blocks within 900 characters (ko, ja, zh) or 1,200 (en, es, id). Those companies, people and amounts are
+invented like 예시커피's.

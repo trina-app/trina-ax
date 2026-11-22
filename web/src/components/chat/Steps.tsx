@@ -34,6 +34,7 @@ import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
 import { TeamImage } from '../LazyMarkdown'
+import { stepImages } from '../../lib/stepImages'
 import { Tooltip } from '../Tooltip'
 
 type TFunction = ReturnType<typeof useT>
@@ -296,10 +297,28 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
               ))}
             </ul>
           )}
-          {step.images?.map((im) => <TeamImage key={im.path} path={im.path} alt={im.alt} className="max-h-56 rounded border border-line" />)}
+          {step.images?.length ? <StepPictures images={step.images} /> : null}
         </div>
       )}
     </li>
+  )
+}
+
+/** A step's pictures (shared browser screenshots, a tool's saved pictures such as change_banner_text's sizes), each
+ * once, with its label under it ("1080x1920") when it has one. The chat draws them itself, so the AI never retypes their
+ * paths (a mistyped one showed the 1080x1080 banner twice, replay 11-22). */
+export function StepPictures({ images }: { images: NonNullable<Step['images']> }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-end gap-2" data-testid="step-pictures">
+      {images.map((im) => im.label ? (
+        <figure key={im.path} className="m-0 flex flex-col items-start" data-testid="step-picture">
+          <TeamImage path={im.path} alt={im.alt ?? im.label} className="max-h-56 rounded border border-line" />
+          <figcaption className="-mt-1 text-xs text-faint tabular-nums" data-testid="step-picture-label">{im.label}</figcaption>
+        </figure>
+      ) : (
+        <TeamImage key={im.path} path={im.path} alt={im.alt} className="max-h-56 rounded border border-line" />
+      ))}
+    </div>
   )
 }
 
@@ -344,8 +363,9 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-label text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   const marks = { answerFailed: failed, gotPast: stepsGotPast(steps) }
-  // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
-  const shown = steps.flatMap((s) => (s.kind === 'browser' ? s.images ?? [] : []))
+  // pictures the steps show (shared browser screenshots, a tool's saved pictures: change_banner_text's sizes) stay
+  // visible even when the list is folded, each once
+  const shown = stepImages(steps)
   if (streaming) {
     const tail = top.slice(-4)
     return (
@@ -374,13 +394,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
       )}
       {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}
       {!open && steps.filter((s) => s.devEnvRun?.kind === 'job' && s.devEnvRun.state === 'waiting').map((s) => <QueueLine key={s.id} step={s} />)}
-      {!open && shown.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-2">
-          {shown.map((im) => (
-            <TeamImage key={im.path} path={im.path} alt={im.alt} className="max-h-56 rounded border border-line" />
-          ))}
-        </div>
-      )}
+      {!open && shown.length > 0 && <StepPictures images={shown} />}
     </div>
   )
 }

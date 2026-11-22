@@ -26,8 +26,10 @@ export const FOOTER_Y = 975
 /** The type scale of round 2 at 1920 × 1080 (one notch down each when a text is long; nothing under 22 px). */
 export const R2 = {
   display: { size: 120, min: 104, weight: 800, tracking: -0.035, lh: 1.1 },
+  /** the drawn cover's headline (no picture, no accent): as large as two lines of about 10 Korean characters allow */
+  cover: { size: 152, min: 128, weight: 800, tracking: -0.042, lh: 1.08 },
   section: { size: 96, min: 84, weight: 800, tracking: -0.032, lh: 1.14 },
-  title: { size: 60, min: 52, weight: 700, tracking: -0.025, lh: 1.27 },
+  title: { size: 72, min: 60, weight: 800, tracking: -0.03, lh: 1.2 },
   statement: { size: 56, min: 48, weight: 700, tracking: -0.025, lh: 1.36 },
   quote: { size: 64, min: 54, weight: 700, tracking: -0.028, lh: 1.42 },
   headL: { size: 44, min: 40, weight: 800, tracking: -0.025, lh: 1.25 },

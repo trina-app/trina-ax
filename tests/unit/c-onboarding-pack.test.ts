@@ -9,6 +9,7 @@ import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { checkSkill, listSkills, skillIssues } from '../../server/src/chat/skills'
 import { setSetting } from '../../server/src/admin/settings'
+import type { Locale } from '@mycel/shared/api'
 import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { PROFILE_PATH } from '../../server/src/onboarding/profile'
 
@@ -55,12 +56,17 @@ test('an admin installs the pack: Korean skills that load with their forms, no t
   expect(JSON.parse(row.detail)).toEqual({ pack: 'general', locale: 'ko', created: 3, present: 0, kept: 0, blocked: 0 })
 })
 
-test('the work pack: natural writing, with its form', async () => {
+test('the work pack: natural writing and the everyday office skills, with their forms; only SKILL.md goes in', async () => {
   const { owner, root } = await setup()
   const r = await install(owner, 'work')
   expect(r.status).toBe(200)
-  expect(r.body.skills).toEqual([{ name: 'humanizer', path: 'skills/work/humanizer/SKILL.md', status: 'created' }])
-  expect(fs.readFileSync(path.join(root, 'skills/work/humanizer/SKILL.md'), 'utf8')).toBe(SKILL_PACKS.work.skills.ko!.humanizer!)
+  const names = ['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review']
+  expect(r.body.skills).toEqual(names.map((name) => ({ name, path: `skills/work/${name}/SKILL.md`, status: 'created' })))
+  for (const name of names) {
+    expect(fs.readFileSync(path.join(root, `skills/work/${name}/SKILL.md`), 'utf8')).toBe(SKILL_PACKS.work.skills.ko![name]!)
+    // the LICENSE, NOTICE and EXAMPLE.md next to it in the repository stay there (the SKILL.md carries its credits)
+    expect(fs.readdirSync(path.join(root, `skills/work/${name}`))).toEqual(['SKILL.md'])
+  }
 })
 
 test('installing again changes nothing, keeps an edited skill and brings back a deleted one', async () => {
@@ -164,11 +170,15 @@ test('a team skill that already has a pack skill\'s name blocks it: "/<name>" wo
 })
 
 test('the Korean and English titles', () => {
-  const titles = (id: 'general' | 'work', locale: 'ko' | 'en') => Object.fromEntries(Object.entries(SKILL_PACKS[id].skills[locale]!).map(([name, text]) => [name, (checkSkill(text, `skills/${id}/${name}/SKILL.md`) as { title?: string }).title]))
+  const titles = (id: 'general' | 'work', locale: Locale) => Object.fromEntries(Object.entries(SKILL_PACKS[id].skills[locale]!).map(([name, text]) => [name, (checkSkill(text, `skills/${id}/${name}/SKILL.md`) as { title?: string }).title]))
   expect(titles('general', 'ko')).toEqual({ 'card-news': '카드뉴스', 'promo-video': '홍보 영상', 'intro-deck': '회사 소개서' })
   expect(titles('general', 'en')).toEqual({ 'card-news': 'Promo cards', 'promo-video': 'Promo video', 'intro-deck': 'Company slide deck' })
-  expect(titles('work', 'ko')).toEqual({ humanizer: '자연스러운 글' })
-  expect(titles('work', 'en')).toEqual({ humanizer: 'Natural writing' })
+  expect(titles('work', 'ko')).toEqual({ humanizer: '자연스러운 글', 'meeting-notes': '회의록 정리', 'team-report': '주간 보고·공지', 'customer-reply': '고객 답장', 'contract-review': '계약서 검토' })
+  expect(titles('work', 'en')).toEqual({ humanizer: 'Natural writing', 'meeting-notes': 'Meeting notes', 'team-report': 'Reports & announcements', 'customer-reply': 'Customer replies', 'contract-review': 'Contract review' })
+  expect(titles('work', 'ja')).toEqual({ 'meeting-notes': '議事録まとめ', 'team-report': '週報・お知らせ', 'customer-reply': 'お客様への返信', 'contract-review': '契約書チェック' })
+  expect(titles('work', 'zh')).toEqual({ 'meeting-notes': '会议纪要', 'team-report': '周报与通知', 'customer-reply': '客户回复', 'contract-review': '合同审阅' })
+  expect(titles('work', 'es')).toEqual({ 'meeting-notes': 'Actas de reunión', 'team-report': 'Informes y avisos', 'customer-reply': 'Respuestas a clientes', 'contract-review': 'Revisión de contratos' })
+  expect(titles('work', 'id')).toEqual({ 'meeting-notes': 'Notulen rapat', 'team-report': 'Laporan & pengumuman', 'customer-reply': 'Balasan pelanggan', 'contract-review': 'Tinjauan kontrak' })
 })
 
 test('every pack text, in every language, loads as a skill with a valid form', () => {

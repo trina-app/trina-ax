@@ -279,6 +279,22 @@ describe('pages', () => {
     }
     for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
   })
+  test('the opened practice note pushes Turnstile and Start down, never covers them (390 px: an overlay hid the Turnstile box)', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    for (const l of ['en', 'ko'] as const) {
+      const html = renderPage('landing', l, { siteKey: 'k', links })
+      const rule = (sel: string) => html.match(new RegExp(`(^|\\n)\\s*${sel.replace(/[.[\]()]/g, '\\$&')} \\{([^}]*)\\}`))?.[2] ?? ''
+      // the note is in the flow: no absolute (or fixed) box over what follows, no stacking above it
+      expect(rule('.practice p'), l).not.toMatch(/position\s*:\s*(absolute|fixed)/)
+      expect(rule('.practice p'), l).not.toContain('z-index')
+      expect(rule('.facts'), l).not.toContain('position')
+      // its fact takes a line of its own when open, so the sentence wraps inside the row
+      expect(rule('.fact:has(.practice[open])'), l).toContain('flex-basis:100%')
+      // the note comes before Turnstile and Start in the page, so being in the flow puts them below it
+      expect(html.indexOf('<p>' + WORDS[l].practice), l).toBeLessThan(html.indexOf('class="cf-turnstile"'))
+      expect(html.indexOf('class="cf-turnstile"'), l).toBeLessThan(html.indexOf('<button type="submit"'))
+    }
+  })
   test('the wordmark is the branding file, both colours, each with its own mask id', () => {
     const logo = (f: string) => fs.readFileSync(path.join(import.meta.dir, '../../editions/trina/branding/logo', f), 'utf8').trim()
     expect(WORDMARK_LIGHT).toBe(logo('wordmark-light.svg'))

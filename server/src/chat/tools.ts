@@ -923,6 +923,12 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
     ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
     async call(args, files) {
       const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
+      // pictures the call saved (change_banner_text's sizes): shown under its step by the chat, never retyped by the AI.
+      // The main AI's call only: patchToolStep is first in, first out per tool, and a sub-agent's step is not it
+      if (r.stepImages?.length && !callerOf(files, exec.files).helper) {
+        const shown = r.stepImages
+        exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
+      }
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }

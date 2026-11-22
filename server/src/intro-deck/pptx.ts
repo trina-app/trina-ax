@@ -111,13 +111,20 @@ function picture(c: Ctx, name: string, rid: string, bx: number, by: number, bw: 
   return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${name} ${id}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(bx, by, bw, bh)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
 }
 
+/** The East Asian face of a Japanese or Chinese deck: Pretendard has Hangul and Latin but no kana or hanzi, so those
+ * runs name a face PowerPoint has (it falls back to the system's own when it lacks it). */
+const EA_FACE: Partial<Record<Locale, string>> = { ja: 'Yu Gothic', zh: 'Microsoft YaHei' }
 /** A run's fonts: Regular and Bold are "Pretendard" (bold by b="1"), ExtraBold its own family. */
 function rPr(lang: Locale, size: number, weight: number, tracking: number, c: string, tag = 'a:rPr'): string {
-  const face = weight >= 800 ? 'Pretendard ExtraBold' : 'Pretendard'
-  const b = weight >= 600 && weight < 800 ? ' b="1"' : ' b="0"'
+  // a Japanese or Chinese run has no ExtraBold family in its East Asian face: those runs are Pretendard Bold with b="1"
+  // (a real bold in both faces), never ExtraBold made bolder still
+  const cjk = !!EA_FACE[lang]
+  const face = weight >= 800 && !cjk ? 'Pretendard ExtraBold' : 'Pretendard'
+  const eaFace = EA_FACE[lang] ?? face
+  const b = weight >= 600 && (weight < 800 || cjk) ? ' b="1"' : ' b="0"'
   const spc = Math.round(tracking * size * 50)
   const ea = EA_CHARSET[lang]
-  return `<${tag} lang="${LANG[lang]}" altLang="en-US" sz="${Math.round(size * 50)}"${b}${spc ? ` spc="${spc}"` : ''} dirty="0"><a:solidFill>${color(c)}</a:solidFill><a:latin typeface="${face}" pitchFamily="34" charset="0"/><a:ea typeface="${face}" pitchFamily="34" charset="${ea}"/><a:cs typeface="${face}" pitchFamily="34" charset="0"/></${tag}>`
+  return `<${tag} lang="${LANG[lang]}" altLang="en-US" sz="${Math.round(size * 50)}"${b}${spc ? ` spc="${spc}"` : ''} dirty="0"><a:solidFill>${color(c)}</a:solidFill><a:latin typeface="${face}" pitchFamily="34" charset="0"/><a:ea typeface="${eaFace}" pitchFamily="34" charset="${ea}"/><a:cs typeface="${face}" pitchFamily="34" charset="0"/></${tag}>`
 }
 
 /** text roles that are one line by design */

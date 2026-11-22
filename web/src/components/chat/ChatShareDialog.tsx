@@ -19,14 +19,16 @@
 // and Share still works: the server answers with the check instead of saving (never a silent share), it shows in place
 // with "Check this, then press Share again", as it does when something changed since the preview. Taking everyone out
 // says the chat and its files become mine alone again, and then nothing else: no fixed note, no Copy link (QA TC-6951).
-// The fixed note under it all says what sharing means.
+// One short line under the people list says what sharing means (added people see the whole chat and ask its AI); the ✕
+// on each row already says they can be taken out.
 //
-// "Share the files from this chat too?" (docs/decisions/20261121-share-chat-files.md): when the chat made files in my
-// own folder that the people in it can't open (the check's madeFiles while adding people; the audience's madeFiles on a
-// chat already shared: "2 files from this chat are only in your files"), the step lists them in place and the buttons
-// are [Share without files] [Share with files]. With files, the server reads them again at the press and copies them
-// into the chat (the originals stay in My files); anything changed since: the list again, "Check the list, then press
-// again". No checkboxes: the made-here files go together.
+// "Share the files too" (docs/decisions/20261121-share-chat-files.md; lean look docs/AGENTS/plan/
+// 20261122-0300-share-dialog-lean.md): when the chat made files in my own folder that the people in it can't open (the
+// check's madeFiles while adding people; the audience's madeFiles on a chat already shared), one checkbox row lists them
+// in place, unticked: a file leaves My files only when its owner ticks it and presses Share (Save on a chat already
+// shared, which then saves the files alone). Ticked, the server reads them again at the press and copies them into the
+// chat (the originals stay in My files; the copies go with the chat: the hint's tooltip); anything changed since: the
+// list again, "Check the list, then press again". One box for all of them: the made-here files go together.
 //
 // Someone else's shared chat: who it is shared with, read only, "Only {name} can change who sees this chat." A chat of
 // mine in a personal project: why it can't be shared and Move; once moved out, this dialog opens again on it.
@@ -54,7 +56,7 @@ import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
-import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines, whoNames } from '../ShareWarning'
+import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningSummary, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
 import { useCopyChatLink } from './copyChatLink'
 import { useChatActions } from './chatActions'
@@ -114,6 +116,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const reopened = useRef(false)
   // the already-shared step asked again (the files changed since): its list and key
   const [filesAgain, setFilesAgain] = useState<{ files: ChatMadeFile[]; key: string } | null>(null)
+  // "Share the files too": unticked until its owner ticks it (a file leaves My files only by a press that names files)
+  const [withFiles, setWithFiles] = useState(false)
   // Copy link (components/ShareCopyLink.tsx): the chat as this window knows it now (shared or not, how many), its toast says who opens it
   const copyLink = useCopyChatLink()
   const known = useChats((s) => s.chats.find((c) => c.id === chat.id))
@@ -194,6 +198,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     return () => { clearTimeout(shown); clearTimeout(asked) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picksKey, editable, audience, adding.length, chat.id])
+  // a new list of people: the files box unticked again (the tick was for the people it was ticked for)
+  useEffect(() => { setWithFiles(false) }, [picksKey])
   const current = preview?.for === picksKey ? preview : null
   // Share waits for the check of exactly these picks (from the first change, the 400 ms wait included)
   const checking = adding.length > 0 && (!current || current.state === 'loading')
@@ -287,21 +293,26 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // the check was asked for, QA TC-7042: not a person already in the chat through a group); an older server: everyone
   // being added
   const warnNames = check?.warnPicks?.length && current?.state === 'ready' ? warnNamesOf(t, current.list, check.warnPicks, nameOf) || addedNames : addedNames
-  const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
+  // the box's one line, and the answers nobody could check as its second line (read out as shown)
+  const warningText = check && stake ? [shareWarningSummary(t, check, warnNames), check.unchecked ? t('share.grey.unchecked', { n: check.unchecked }) : ''].filter(Boolean).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
+  // (answers nobody could check: in the box when there is one)
+  const futureGroup = groupAdded ? t('chat.share.futureGroup') : null
   const grey = checking ? (slow ? t('share.grey.checking') : null)
     : current?.state === 'failed' ? t('share.grey.failed')
-      : shareGreyLine(t, check, groupAdded ? t('chat.share.futureGroup') : null)
+      : stake ? futureGroup : shareGreyLine(t, check, futureGroup)
   // my earlier files from the computer a first share copies: a line of its own whenever there are any
   const filesLine = shareFilesLine(t, check)
   const label = saved.length ? t('common.save') : t('chat.share.share')
   // the files step: while adding people, the check's list; on a chat already shared, the audience's (or the list asked
   // again). Only its creator ever gets one
   const stepFiles: ChatMadeFile[] = !editable ? [] : adding.length ? (check?.madeFiles ?? []) : (filesAgain?.files ?? audience?.madeFiles ?? [])
-  const filesStep = stepFiles.length > 0 && !removesAll
-  const riskyFiles = stepFiles.some((f) => f.private)
+  // nobody in it (a chat never shared, nobody picked, or everyone taken out): no files box, nothing to share them with
+  const filesStep = stepFiles.length > 0 && picks.length > 0 && !removesAll
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
-  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
+  // the files go only when ticked (and there are files to go)
+  const sendFiles = filesStep && withFiles
+  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} testId="chat-share-copy-link" />
   return (
     <Modal
       key={sheet}
@@ -328,25 +339,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
           {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
-          {/* no link for a chat that becomes mine alone (QA TC-6951); a phone's files step keeps its footer to its two
-              buttons (QA TC-6945): the saved toast has Copy link */}
-          {!removesAll && !(phone && filesStep) && copyButton}
-          {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
-          {/* a phone: Cancel as wide as its word, the main button the rest */}
-          {filesStep ? (
-            <>
-              {/* without files: a save of the picks as they are; nothing changed (a chat already shared): just close. A
-                  phone: one full-width button a row, the main one first (QA TC-6945) */}
-              {/* a file made from something a person being added can't open (QA TC-7370): "without" is the main button */}
-              <Button variant={riskyFiles ? 'primary' : undefined} busy={riskyFiles ? busy : undefined} disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className={riskyFiles ? 'max-sm:order-1 max-sm:w-full' : 'max-sm:order-2 max-sm:w-full'} data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
-              <Button variant={riskyFiles ? undefined : 'primary'} busy={riskyFiles ? undefined : busy} disabled={riskyFiles ? busy || checking : checking} onClick={() => void save(true)} className={riskyFiles ? 'max-sm:order-2 max-sm:w-full' : 'max-sm:order-1 max-sm:w-full'} data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
-            </>
-          ) : (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
-              <Button variant="primary" busy={busy} disabled={!dirty || checking} onClick={() => void save()} className="max-sm:min-w-0 max-sm:flex-1" data-testid="chat-share-save">{label}</Button>
-            </>
-          )}
+          {/* no link for a chat that becomes mine alone (QA TC-6951) */}
+          {!removesAll && copyButton}
+          {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does); a phone: Cancel as wide as its
+              word, the main button the rest. The files checkbox decides whether the files go with the save */}
+          <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} disabled={!(dirty || sendFiles) || checking} onClick={() => void save(sendFiles)} className="max-sm:min-w-0 max-sm:flex-1" data-testid="chat-share-save">{label}</Button>
         </>
       )}
     >
@@ -370,12 +368,14 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
             <MembersField label={t('chat.share.withAccess')}>
               {editable ? (
                 <ParticipantPicker options={options} value={picks} onChange={(v) => { setPicks(v); setError(null) }} fixed={fixed} current={saved}
-                  placeholder={t('chat.share.add')} exclude={exclude} unavailable={guests} phoneTags={phoneTags} testId="chat-share-picker" />
+                  placeholder={t('chat.share.add')} exclude={exclude} unavailable={guests} phoneTags={phoneTags} removeTip={t('chat.share.removeTip')} testId="chat-share-picker" />
               ) : (
                 <ParticipantPicker options={options} value={saved} onChange={() => {}} fixed={fixed} readOnly testId="chat-share-picker" />
               )}
             </MembersField>
           )}
+          {/* what sharing means, in one line (none for a chat that becomes mine alone, whose line says it all: QA TC-6951) */}
+          {audience && editable && !removesAll && <p className="text-xs leading-5 break-keep text-muted" data-testid="chat-share-note">{t('chat.share.note')}</p>}
           {audience && !editable && creator && <p className="text-sm break-keep text-muted" data-testid="chat-share-read-only">{t('chat.share.readOnly', { name: creator.name })}</p>}
           {editable && (
             <>
@@ -385,9 +385,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
                   {current.again === 'changed' ? t('chat.shareChat.changed') : t('share.again')}
                 </p>
               )}
-              {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} testId="chat-share-warning" />}
+              {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} compact testId="chat-share-warning" />}
               {filesLine && <GreyLine text={filesLine} testId="chat-share-files" />}
-              {filesStep && <FilesStep files={stepFiles} who={adding.length ? addedNames : null} changed={!!filesChanged} />}
+              {filesStep && <FilesStep files={stepFiles} already={!adding.length} who={adding.length ? addedNames : null} changed={!!filesChanged} checked={withFiles} onChange={setWithFiles} />}
               {grey && <GreyLine text={grey} testId="chat-share-grey" />}
               {keepsThrough.map((k) => (
                 <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">
@@ -396,9 +396,6 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
                 </p>
               ))}
               {removesAll && <p className="text-sm leading-6 break-keep text-warn" data-testid="chat-share-only-you">{t('chat.share.onlyYou')}</p>}
-              {/* the fixed note; shorter while a warning says the rest; none for a chat that becomes mine alone, whose line
-                  says it all (QA TC-6951) */}
-              {!removesAll && <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(stake ? 'chat.share.noteShort' : 'chat.share.note')}</p>}
             </>
           )}
         </div>
@@ -407,24 +404,26 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   )
 }
 
-/** "Share the files from this chat too?": the files the chat made in my own folder, in place (no checkboxes: they go
- * together). `who`: the people being added (their names); null on a chat already shared ("n files … only in your
- * files"). */
-function FilesStep({ files, who, changed }: { files: readonly ChatMadeFile[]; who: string | null; changed: boolean }) {
+/** "Share the files too (n)": one checkbox for the files the chat made in my own folder (they go together), each file
+ * with its place under it, and one small hint (the copies going with the chat in its tooltip). `already`: a chat
+ * already shared (no one being added). `who`: the people being added, for a file made from files they can't open. */
+function FilesStep({ files, already, who, changed, checked, onChange }: { files: readonly ChatMadeFile[]; already: boolean; who: string | null; changed: boolean; checked: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return (
-    <section className="space-y-2 rounded-lg border border-line bg-surface p-3" aria-labelledby="chat-share-files-title" data-testid="chat-share-files-step" data-already={who === null ? '' : undefined}>
-      <h3 id="chat-share-files-title" className="text-sm font-semibold break-keep text-ink">{t('chat.shareFiles.title')}</h3>
-      <p className="text-sm leading-6 break-keep text-muted" data-testid="chat-share-files-why">{who ? t('chat.shareFiles.bodyNew', { names: who }) : t('chat.shareFiles.onlyMine', { n: files.length })}</p>
+    <section className="space-y-2 rounded-lg border border-line px-3 py-2.5" aria-labelledby="chat-share-files-title" data-testid="chat-share-files-step" data-already={already ? '' : undefined}>
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium break-keep text-ink">
+        <input type="checkbox" className="size-4 shrink-0 accent-[var(--c-accent)]" checked={checked} onChange={(e) => onChange(e.target.checked)} aria-describedby="chat-share-files-hint" data-testid="chat-share-files-check" />
+        <span id="chat-share-files-title">{t('chat.shareFiles.include', { n: files.length })}</span>
+      </label>
       {changed && (
         <p role="status" className="flex items-start gap-2 text-sm leading-6 break-keep text-warn" data-testid="chat-share-files-changed">
           <AlertCircle size={16} className="mt-1 shrink-0" aria-hidden />{t('chat.shareFiles.changed')}
         </p>
       )}
-      <ul className="space-y-1" aria-label={t('chat.shareFiles.list')}>
+      <ul className="space-y-1 pl-[26px]" aria-label={t('chat.shareFiles.list')}>
         {files.map((f, i) => (
-          <li key={`${f.place}/${f.name}/${i}`} className="flex min-w-0 items-start gap-2 text-sm leading-6" data-testid="chat-share-files-item">
-            <FileText size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
+          <li key={`${f.place}/${f.name}/${i}`} className="flex min-w-0 items-start gap-2 text-sm leading-5" data-testid="chat-share-files-item">
+            <FileText size={14} className="mt-0.5 shrink-0 text-faint" aria-hidden />
             <span className="min-w-0">
               <span className="block break-all text-ink">{f.name}</span>
               <span className="block truncate text-xs text-muted" title={f.place}>{f.place}</span>
@@ -433,7 +432,7 @@ function FilesStep({ files, who, changed }: { files: readonly ChatMadeFile[]; wh
           </li>
         ))}
       </ul>
-      <p className="text-xs leading-5 break-keep text-faint" data-testid="chat-share-files-keep">{t('chat.shareFiles.keep')}</p>
+      <p id="chat-share-files-hint" className="pl-[26px] text-xs leading-5 break-keep text-muted" title={t('chat.shareFiles.keep')} data-testid="chat-share-files-hint">{t('chat.shareFiles.hint')}</p>
     </section>
   )
 }

@@ -62,6 +62,11 @@ function envelope(user: string, o: { team?: string; appId?: string; eventId?: st
 }
 const ephemeralsTo = (user: string) => fake.of('chat.postEphemeral').filter((c) => c.args.user === user)
 const links = () => (h.ctx.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n
+/** the desktop app's way (docs/decisions/20261122-slack-desktop-handoff.md): its own session, the system browser with none */
+const deskCall = (user: string, method: string, path: string, body?: unknown) => h.req(user, path, { ...json(method, body), client: 'desktop' })
+const bare = (path: string) => h.req(null, path, { redirect: 'manual' })
+const codeOf = (html: string) => /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)?.[1] ?? null
+const claim = (user: string, client: 'desktop' | 'web', code: string) => h.req(user, '/api/integrations/google-drive/claim', { ...json('POST', { code }), client })
 
 beforeAll(async () => {
   fake = startFakeSlack()
@@ -135,8 +140,10 @@ describe('Add to Slack (the owner)', () => {
     expect(resume.searchParams.get('to')).toBe('install')
     const callback = `/api/integrations/slack/official/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`
     expect(await open('dana', callback)).toBe('/admin/connectors/slack?slack=installed')
-    // the same return again: used
-    expect(outcome(await open('dana', callback))).toBe('install_expired')
+    // the same return again: used; it says how it ended (added), and nothing is redeemed again
+    const redeemed = broker.of('redeem').length
+    expect(outcome(await open('dana', callback))).toBe('installed')
+    expect(broker.of('redeem').length).toBe(redeemed)
     // Slack itself was asked whose token it is
     expect(fake.of('auth.test').at(-1)!.token).toBe(fake.botToken)
     const c = cfg()!
@@ -156,6 +163,51 @@ describe('Add to Slack (the owner)', () => {
     expect(r.status).toBe(409)
     expect(r.json.error.params.reason).toBe('official_saved')
     expect(cfg()!.mode).toBe('official')
+  })
+})
+
+describe('Add to Slack from the desktop app', () => {
+  test('back in a browser with no session: the code goes to the app, which adds it; reload, other session, replay refused', async () => {
+    expect((await deskCall('dana', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    const redeems = broker.of('redeem').length
+    const back = broker.slackReturn('install')
+    const r = await bare(back)
+    expect(r.status).toBe(200)
+    const html = await r.text()
+    expect(html).not.toContain('/login')
+    const code = codeOf(html)!
+    expect(code).toBeTruthy()
+    // the handoff is not redeemed before the app claims it
+    expect(broker.of('redeem').length).toBe(redeems)
+    const again = await bare(back)
+    expect(again.status).toBe(400)
+    expect(codeOf(await again.text())).toBeNull()
+    expect((await claim('dana', 'web', code)).status).toBe(400)
+    expect((await claim('carol', 'desktop', code)).status).toBe(400)
+    const ok = await claim('dana', 'desktop', code)
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toMatchObject({ state: 'completed', reason: null })
+    expect(broker.of('redeem').length).toBe(redeems + 1)
+    expect(cfg()).toMatchObject({ mode: 'official', install_id: broker.install!.installId })
+    // claimed: the sealed value keeps only the verifier (the handoff and the claim's hash are gone)
+    const row = h.ctx.db.query("SELECT id, verifier_enc, key_version FROM slack_install_flows WHERE user_id = 'dana' ORDER BY created_at DESC").get() as { id: string; verifier_enc: string; key_version: number }
+    expect(Object.keys(slackOf(h.ctx).box.open<Record<string, unknown>>(`slack:install-flow:${row.id}`, row.verifier_enc, row.key_version))).toEqual(['verifier'])
+    expect((await claim('dana', 'desktop', code)).status).toBe(400)
+    // opened again after it finished: says it is added
+    expect(await open(null, back)).toBe('/slack/done?slack=installed')
+  })
+
+  test('an admin who is no longer one when the app claims it: refused, nothing added (the role is checked again at the claim)', async () => {
+    expect((await deskCall('carol', 'POST', '/api/admin/slack/official/install', { origin: h.url })).status).toBe(200)
+    const code = codeOf(await (await bare(broker.slackReturn('install'))).text())!
+    const redeems = broker.of('redeem').length
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+    try {
+      const r = await claim('carol', 'desktop', code)
+      expect(r.status).toBe(200)
+      expect(await r.json()).toMatchObject({ state: 'failed', reason: 'install_failed' })
+      expect(broker.of('redeem').length).toBe(redeems)
+    } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
   })
 })
 
@@ -213,6 +265,28 @@ describe('Sign in with Slack through the hosting service', () => {
     broker.signinAs = { slackUserId: 'U0BOB', slackTeamId: 'T0ACME' }
     expect(await open('bob', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: resume.searchParams.get('state')!, handoff: resume.searchParams.get('handoff')! })}`)).toBe('/settings/connectors?slack=linked')
     expect(links()).toBe(2)
+  })
+})
+
+describe('Sign in with Slack through the hosting service, from the desktop app', () => {
+  test('back in a browser with no session: the code goes to the app, which links; a late or replayed code is refused', async () => {
+    h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'erin'").run()
+    expect((await deskCall('erin', 'POST', '/api/slack/signin', {})).status).toBe(200)
+    broker.signinAs = { slackUserId: 'U0ERIN', slackTeamId: 'T0ACME' }
+    const back = broker.slackReturn('signin')
+    const r = await bare(back)
+    expect(r.status).toBe(200)
+    const code = codeOf(await r.text())!
+    expect(code).toBeTruthy()
+    expect(codeOf(await (await bare(back)).text())).toBeNull()
+    expect((await claim('erin', 'web', code)).status).toBe(400)
+    const ok = await claim('erin', 'desktop', code)
+    expect(await ok.json()).toMatchObject({ state: 'completed' })
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
+    const row = h.ctx.db.query("SELECT id, verifier_enc, verifier_key_version FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { id: string; verifier_enc: string; verifier_key_version: number }
+    expect(Object.keys(slackOf(h.ctx).box.open<Record<string, unknown>>(`slack:signin-flow:${row.id}`, row.verifier_enc, row.verifier_key_version))).toEqual(['verifier'])
+    expect((await claim('erin', 'desktop', code)).status).toBe(400)
+    h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'erin'").run()
   })
 })
 

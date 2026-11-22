@@ -40,6 +40,7 @@ import { withDrive } from './drive'
 import { getRow, mayUse } from '../integrations/connections/store'
 import { answerSources } from '../integrations/connections/tools'
 import { addSources } from '../chat/read-scope'
+import type { StepImage } from './registry'
 
 type Input = z.output<typeof SaveConnectorFileInput>
 
@@ -76,7 +77,13 @@ export function nameFor(given: string, bytes: Uint8Array): string | null {
   return name
 }
 
-export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): Promise<{ text: string; summary: string; structured: Record<string, unknown> }> {
+/** a saved picture the chat draws under the step by itself (web isDisplayableImagePath: PNG, JPEG, GIF, WebP) */
+const SHOWN_PICTURE = /\.(png|jpe?g|gif|webp)$/i
+/** What the result says about a saved picture: shown in the chat already, so the AI does not retype its path as a
+ * Markdown image (the demo's Higgsfield picture; a retyped banner path showed one size twice, 11-22). */
+export const PICTURE_SHOWN = 'The chat already shows this picture under this step: do not write it as a Markdown image or link in your answer (that would show it twice).'
+
+export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): Promise<{ text: string; summary: string; structured: Record<string, unknown>; stepImages?: StepImage[] }> {
   if (!t.turnId) throw new ToolError('save_connector_file only works inside a chat turn')
   const turn = ctx.db.query('SELECT chat_id, user_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string; user_id: string } | null
   if (!turn) throw new ToolError('unknown turn')
@@ -162,8 +169,10 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
     fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' })
     const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_connector_file', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type } })
     const note = made.conflictCopyOf ? `\n${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
+    const picture = SHOWN_PICTURE.test(made.path) && type.startsWith('image/')
     return {
-      text: `Saved the original file "${name}" as ${made.path} (${humanBytes(made.size)}).${note}`,
+      text: `Saved the original file "${name}" as ${made.path} (${humanBytes(made.size)}).${note}${picture ? `\n${PICTURE_SHOWN}` : ''}`,
+      ...(picture ? { stepImages: [{ path: made.path, alt: name }] } : {}),
       summary: `save_connector_file -> ${made.path} (${made.size} B, ${type.slice(0, 100)}, sha256 ${made.sha256}) from ${from.slice(0, 300)}`,
       structured: { path: made.path, size: made.size, sha256: made.sha256, type, ...(made.conflictCopyOf ? { conflictCopyOf: made.conflictCopyOf } : {}) },
     }
