@@ -326,8 +326,6 @@ export const Chat = z.object({
   unreadCount: z.number().int().positive().optional(),
   /** a chat shared with people that I muted ("Mute this chat"): nothing there tells me. Absent = not muted. */
   muted: z.literal(true).optional(),
-  /** a chat shared with people: one of my unread messages there mentions me (the row shows "@"). Absent = no. */
-  mentioned: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
    * failed, a server stop included) or 'paused' (it stopped at the per-answer limit of tool rounds or working time,
    * Message.stopReason). Absent = it finished normally (or the person stopped it), or no answer finished yet. With

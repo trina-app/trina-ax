@@ -7193,8 +7193,6 @@ export const es: Record<MessageKey, string> = {
   "notifications.event.chat.thread_replyGone": "Ya no puede ver esto.",
   "notifications.event.chat.thread_mention": "Alguien le mencionó en un hilo.",
   "notifications.event.chat.thread_mentionNamed": "{name} le mencionó en un hilo de “{title}”.",
-  "notifications.event.chat.message_mention": "Alguien le mencionó en un chat.",
-  "notifications.event.chat.message_mentionNamed": "{name} le mencionó en “{title}”.",
   "audit.act.chat.thread_reply_deleted": "Respuesta eliminada de un hilo de chat",
   "fileShare.holdsFiles": "{n, plural, one {# archivo} other {# archivos}}",
   "fileShare.holdsFolders": "{n, plural, one {# carpeta} other {# carpetas}}",

@@ -38,7 +38,7 @@ import { composerRadius } from './composerBox'
 import clsx from 'clsx'
 import { ArrowUp, Camera, CirclePause, Clock, FolderOpen, Hourglass, Loader2, Monitor, Plus, Smartphone, Square, ChevronDown, WifiOff } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
-import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type EngineId, type FileEntry, type UserRef } from '@mycel/shared/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { errorText, isApiError, isConnectionError } from '../../lib/api'
 import { textOverLimit } from '../../lib/longPaste'
 import { waitForUpdate, waitsForUpdate } from '../../lib/serverUpdating'
@@ -67,8 +67,6 @@ import { EngineSheet } from './EngineSheet'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
 import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
-import { useMentionMenu } from '../rooms/useMentionMenu'
-import { findEdit } from '../../lib/textTokens'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
@@ -80,9 +78,6 @@ import { useDemoOut } from '../../store/demo'
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
 
-
-/** no one to mention (a chat not shared with people): the same empty list every render */
-const NO_PEOPLE: UserRef[] = []
 
 export default function Composer({
   ref,
@@ -113,7 +108,6 @@ export default function Composer({
   blocked,
   card,
   tools,
-  mentionPeople,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -121,11 +115,9 @@ export default function Composer({
   /** the chat to upload attachments into (creates it on the first attachment of a new chat) */
   ensureChat: () => Promise<string>
   running: boolean
-  /** `mentions`: the people picked with "@" (a chat shared with people: mentionPeople) */
-  onSend: (text: string, attachments: Attachment[], mentions?: string[]) => Promise<void>
-  /** a chat shared with people: who "@" may mention (everyone who sees it but me; the rooms' mention box,
-   * rooms/useMentionMenu.tsx), so the message tells them even in a chat they muted. Absent: no "@" list */
-  mentionPeople?: UserRef[]
+  /** the box of an AI chat has no "@" people, also when it is shared or a project's: a person is mentioned in a
+   * thread under an AI answer (docs/decisions/20261122-ai-session-no-main-mention.md) */
+  onSend: (text: string, attachments: Attachment[]) => Promise<void>
   /** the AI waits for the answer to its question in this chat: sending answers it with the text */
   answering?: { question: string; onAnswer: (text: string) => Promise<void> }
   /** a card in this chat waits for a choice only its own buttons make (a server safety check, a browser site,
@@ -201,11 +193,8 @@ export default function Composer({
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)
   const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
-  // "@" of a person who sees a chat shared with people (no "@everyone": the message tells them all anyway)
-  const mention = useMentionMenu({ text, setText, input: taRef, members: mentionPeople ?? NO_PEOPLE, meId: me?.user.id ?? null, everyone: null })
   const wired = roomMenu.wire(text)
-  const tokenRanges = mention.inputProps.tokens.length ? [...roomMenu.ranges, ...mention.inputProps.tokens].sort((a, b) => a.start - b.start) : roomMenu.ranges
-  const tokens = tokenRanges.length > 0
+  const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // the error that is the AI limit used up: a known state, shown as a calm notice, never in red (owner rule; QA TC-2491)
@@ -260,7 +249,7 @@ export default function Composer({
     chatId: voiceChatId,
     blocked: voiceBlockedHere(me, confidential),
     enabled: mic === 'on' && !sending,
-    menuOpen: skillMenu.open || roomMenu.open || mention.open,
+    menuOpen: skillMenu.open || roomMenu.open,
     onError: setError,
     afterFocus: roomMenu.track,
   })
@@ -415,11 +404,9 @@ export default function Composer({
     }
     const atts = attachments()
     try {
-      const mentions = mentionPeople ? mention.mentions() : []
-      await onSend(body, atts, mentions.length ? mentions : undefined)
+      await onSend(body, atts)
       setText('')
       roomMenu.reset()
-      mention.reset()
       setChosen(null)
       writeDraft(userId, draftId, '')
       clearSent()
@@ -724,7 +711,6 @@ export default function Composer({
           <>
             {skillMenu.menu}
             {roomMenu.list}
-            {mention.list}
             {/* answering the AI's open question: the placeholder says so and the card is right above, so no line naming
                 the question again (QA TC-ask1-18); like under the card's own text box (tab 5 "확인 카드"), the typed
                 answer goes to the AI */}
@@ -755,7 +741,7 @@ export default function Composer({
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
-                {tokens && <TokenLayer text={text} ranges={tokenRanges} scrollTop={scrollTop} className={clsx('text-reading leading-reading', fieldPad)} />}
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('text-reading leading-reading', fieldPad)} />}
                 <textarea
                   ref={taRef}
                   rows={1}
@@ -763,15 +749,8 @@ export default function Composer({
                   aria-label={t('composer.label')}
                   aria-describedby={answering ? `${answeringId}-secrets` : hold || note ? `${answeringId}-hold` : undefined}
                   {...roomMenu.inputProps}
-                  {...(mentionPeople ? {
-                    onSelect: () => { roomMenu.inputProps.onSelect(); mention.inputProps.onSelect() },
-                    onClick: () => { roomMenu.inputProps.onClick(); mention.inputProps.onClick() },
-                    onKeyUp: () => { roomMenu.inputProps.onKeyUp(); mention.inputProps.onKeyUp() },
-                  } : {})}
                   onChange={(e) => {
-                    // the "@" mentions move with the edit around them (an edit inside one makes it plain text)
-                    if (mentionPeople) mention.inputProps.onTextChange(e.target.value, findEdit(text, e.target.value, null))
-                    else setText(e.target.value)
+                    setText(e.target.value)
                     roomMenu.track()
                   }}
                   onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
@@ -779,7 +758,6 @@ export default function Composer({
                   onKeyDown={(e) => {
                     if (skillMenu.onKeyDown(e)) return
                     if (roomMenu.onKeyDown(e)) return
-                    if (mention.onKeyDown(e)) return
                     if (voice.onKeyDown(e)) return
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                       // phones: Enter makes a new line (send with the button)

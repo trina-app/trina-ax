@@ -9,9 +9,9 @@ export type MarkerKind = 'ask' | 'running' | 'new'
 /** why: the first line of the hover peek and the row's label */
 export type MarkerReason = 'card' | 'error' | 'paused' | 'running' | 'queued' | 'new' | 'message'
 /** `count`: a chat shared with people, its unread messages (the row shows the number, as a group chat's) */
-export interface Marker { kind: MarkerKind; reason: MarkerReason; count?: number; mention?: boolean }
+export interface Marker { kind: MarkerKind; reason: MarkerReason; count?: number }
 
-export type MarkedChat = Pick<Chat, 'runState' | 'waiting' | 'unseen' | 'lastOutcome'> & Partial<Pick<Chat, 'unreadCount' | 'mentioned'>>
+export type MarkedChat = Pick<Chat, 'runState' | 'waiting' | 'unseen' | 'lastOutcome'> & Partial<Pick<Chat, 'unreadCount'>>
 /** How this window sees a chat: `here`, it is on screen and the window is visible; `card`, a card of it is open in this
  * window (a card one desktop window shows alone is in no list). */
 export interface MarkerView { here?: boolean; card?: boolean }
@@ -21,7 +21,7 @@ export function markerOf(c: MarkedChat, v: MarkerView = {}): Marker | null {
   if (c.waiting || v.card) return { kind: 'ask', reason: 'card' }
   // a chat shared with people: messages of others I have not read (docs/decisions/20261122-shared-chat-new-message-notices.md),
   // their number before the ring of an answer running (someone's message there starts one: the number is the news)
-  if (c.unreadCount && c.unseen && !v.here) return { kind: 'new', reason: 'message', count: c.unreadCount, ...(c.mentioned ? { mention: true } : {}) }
+  if (c.unreadCount && c.unseen && !v.here) return { kind: 'new', reason: 'message', count: c.unreadCount }
   if (c.runState === 'running') return { kind: 'running', reason: 'running' }
   if (c.runState === 'queued') return { kind: 'running', reason: 'queued' }
   if (!c.unseen || v.here) return null

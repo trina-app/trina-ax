@@ -188,18 +188,17 @@ function tell(chatId: string, notify: 'card' | 'answer') {
 
 // ---------------- a new message in a chat shared with people ----------------
 /** a person's message waiting to be told, per chat: a newer one replaces it (one notification per chat, as a room's) */
-const pendingMessage = new Map<string, { timer: ReturnType<typeof setTimeout>; messageId: string; mention: boolean }>()
+const pendingMessage = new Map<string, { timer: ReturnType<typeof setTimeout>; messageId: string }>()
 /** After the wait: tell it in the desktop app while the chat still has unread messages for me (read meanwhile, here or
  * on another device: nothing) and is not on screen here. The chat's title (a confidential one's never) and the generic
  * line; a click opens the chat at the message. */
-function tellMessage(chatId: string, messageId: string, mention: boolean) {
+function tellMessage(chatId: string, messageId: string) {
   // (a project's shared chat I never wrote in is kept with `others` while it has messages for me: store/chats.ts)
   const st = useChats.getState()
   const c = st.chats.find((x) => x.id === chatId) ?? st.others[chatId]
-  // (a mention reaches me in a chat I muted too)
-  if (!c?.unreadCount || (c.muted && !mention) || seenHere(chatId)) return
+  if (!c?.unreadCount || c.muted || seenHere(chatId)) return
   const title = plainLabel(c.confidential ? t('sidebar.filter.confidential') : c.title || t('chat.untitled'), 120)
-  desktop()?.notify({ title, body: t(mention ? 'rooms.mentionedYou' : 'rooms.newMessage'), tag: `chat-${chatId}`, open: `/c/${chatId}/m/${messageId}` })
+  desktop()?.notify({ title, body: t('rooms.newMessage'), tag: `chat-${chatId}`, open: `/c/${chatId}/m/${messageId}` })
 }
 
 /** A chat.updated, before the chat store applies it (store/live.ts): a live change worth telling is told after the
@@ -219,9 +218,7 @@ export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, 
   if (notice && !meta.replay && desktop() && !seenHere(chatId)) {
     const was = pendingMessage.get(chatId)
     clearTimeout(was?.timer)
-    // a mention stays a mention when a plain message follows before it is told
-    const mention = !!notice.mention || !!was?.mention
-    pendingMessage.set(chatId, { messageId: notice.messageId, mention, timer: setTimeout(() => { pendingMessage.delete(chatId); tellMessage(chatId, notice.messageId, mention) }, tellTiming.delayMs) })
+    pendingMessage.set(chatId, { messageId: notice.messageId, timer: setTimeout(() => { pendingMessage.delete(chatId); tellMessage(chatId, notice.messageId) }, tellTiming.delayMs) })
   }
   if (!notify || meta.replay || seenHere(chatId)) return
   // an answer that ended after a card: the answer's news; a card after an answer: the card's (it waits on me)

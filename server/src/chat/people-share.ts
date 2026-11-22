@@ -132,8 +132,8 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   const db = ctx.db
   const r = a.row
   const by = rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id }
-  // a project's shared chat: who the message box may mention (chat/message-notices.ts), the people who see it now but me,
-  // the same list as a thread's reply box there (chat/threads.ts threadPeople)
+  // a project's shared chat: the people who see it now but me (`mentionable`; the Files screen's restore confirm names
+  // them), the same list as a thread's reply box there (chat/threads.ts threadPeople)
   if (a.kind === 'project') {
     const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
       .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
@@ -177,7 +177,7 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
   const made = a.creator ? madeFilesOf(ctx, r) : []
   const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
-  // who the message box may mention (chat/message-notices.ts): the people who see it now but me. A group's people only
+  // the people who see it now but me (`mentionable`; the Files screen's restore confirm names them). A group's people only
   // for the creator and admins (S8, as above) and in the groups I am in myself: anyone else sees the creator, the people
   // named and their own groups' people, so the list never says who or how many are in someone else's group
   const named = new Set([r.user_id, ...subjects.filter((s) => s.type === 'user').map((s) => s.id)])
@@ -275,8 +275,6 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
   stopTurnsIn(ctx, userId, [r.id])
   const at = new Date().toISOString()
   const everyone = rest.length === 0
-  // whose unread Mentions rows of this chat went (their Inbox reads again, after the transaction)
-  const mentionsGone: string[] = []
   db.transaction(() => {
     // the name entry is the only one that held them (checked above, again here: nothing waited in between)
     if (!db.query("SELECT 1 FROM chat_audience WHERE chat_id = ? AND subject_type = 'user' AND subject_id = ?").get(r.id, userId)) fail('not_found')
@@ -288,12 +286,11 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
     closeFileAsks(db, r.id, everyone ? null : [userId])
     rememberAudience(db, r.id, [userId], at)
     // and their notices of its messages and their mute (chat/message-notices.ts), as a save that removes them
-    if (forgetChatNotices(db, userId, r.id)) mentionsGone.push(userId)
+    forgetChatNotices(db, userId, r.id)
     addAudienceEvent(db, r.id, userId, 'left', [], at)
     // counts only
     audit(db, { actor: userId, action: 'chat.leave', target: r.id, detail: { ...(everyone ? { private: true } : {}) } })
   })()
-  for (const id of mentionsGone) notificationsOf(ctx).changed(id)
   // its creator is told once (Activity, never pushed); the person who left reads nothing about their own leave: their
   // "shared a chat with you" rows of it go (QA TC-v1a-02, TC-v2g-04)
   try {
@@ -607,8 +604,6 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     const at = new Date().toISOString()
     const first = !before.shared && after.length > 0
     const everyone = after.length === 0
-    // whose unread Mentions rows of this chat went (their Inbox reads again, after the transaction)
-    const mentionsGone: string[] = []
     let auditId = 0
     try { db.transaction(() => {
       // nothing changed since the check (synchronously: no turn can start in between)
@@ -652,7 +647,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       if (added.length) addAudienceEvent(db, r.id, userId, 'added', added, at)
       if (removed.length) addAudienceEvent(db, r.id, userId, 'removed', removed, at)
       // and their notices of its messages and their mute (chat/message-notices.ts): added again later, they start afresh
-      for (const id of lost) if (forgetChatNotices(db, id, r.id)) mentionsGone.push(id)
+      for (const id of lost) forgetChatNotices(db, id, r.id)
       // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
       closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)
@@ -664,8 +659,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         newPeople: newPeople.length, lost: lost.length, ...(everyone ? { private: true } : {}), confirmed: body.confirmKey !== undefined,
       } })
     })() } catch (e) { discardVerified(verified); throw e }
-    for (const id of mentionsGone) notificationsOf(ctx).changed(id)
-    // a command running in this chat now is checked against its new people at once, not at the next poll
+      // a command running in this chat now is checked against its new people at once, not at the next poll
     // (devenv/srt/runner.ts: any change of a shared chat's people stops its running command)
     if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
