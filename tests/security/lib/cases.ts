@@ -492,6 +492,13 @@ export const SPECS: Record<string, Spec> = {
   // who can see a folder: another person's folder answers 404 to everyone else, the owner and admins too, and never a count
   folderAudience: { build: (c) => c.get('/api/files/audience?path=users%2Falice'), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && /"people"/.test(r.text)) throw new Error(`${who} got a count for users/alice`) } },
+  // where a file went (files/moved.ts): every signed-in person may ask, and someone who cannot open the old folder
+  // (users/alice here) is told nothing about it, exactly as for a path that never was
+  moved: { build: (c) => c.get('/api/files/moved?path=users%2Falice%2Ftodo.md'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.status !== 'no') throw new Error(`${who} learned where a file of users/alice went`) } },
+  // which names an upload would take: only someone who may write the folder, so nobody else learns names in users/alice
+  namesTaken: { build: (c) => c.post('/api/files/names-taken', { folder: 'users/alice', names: ['todo.md'] }), scope: 'users-alice',
+    check: (r, _w, who) => { if (who !== 'memberIn' && r.text.includes('todo.md')) throw new Error(`${who} learned a name in users/alice`) } },
   saveContent: { build: (c) => c.put('/api/files/content', { path: 'users/alice/todo.md', content: 'overwritten', baseSha256: null }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} wrote into users/alice`) } },
   download: { build: (c) => c.get('/api/files/download?path=users%2Falice%2Ftodo.md'), scope: 'users-alice' },

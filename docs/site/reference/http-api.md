@@ -173,6 +173,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
+| `POST` | `/api/files/names-taken` | Signed in | Which of these names a folder the caller may write already holds (before an upload asks Replace or keep both), with the name on disk and whether it is a file or a folder. |
+| `GET` | `/api/files/moved` | Signed in | Where a team file that is not at this path any more went: moved (and where, when the caller may read it there) or put in the trash, by whom and when. "no" when nothing is known or the old folder is not one the caller may open. |
 | `GET` | `/api/files/tree` | Signed in | List a folder (only what the caller may see; ancestors of visible folders shown for navigation). |
 | `GET` | `/api/files/audience` | Signed in | Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone; for the owner and admins also that count apart (by its rules, by role only). Counted, never named. |
 | `GET` | `/api/files/content` | Signed in | Text content for preview / editing. |
