@@ -6,7 +6,8 @@ are invented; no real business by these names turned up in web searches. There a
 wordmark, so the three visual skills make their text-only version.
 
 The kept skills' examples (`server/src/onboarding/skill-examples.ts`, EXAMPLES-PLAN) were made from these files by
-the skills themselves: one per skill in Korean and in English.
+the skills themselves: one per skill in Korean and in English. Since 2026-11-22 the 회사 소개서 / Company profile example is made on
+another invented company with services, numbers and a process: 숲틈 / Soopteum (`../soopteum/`).
 
 | File (`ko/`, `en/`) | Used for |
 |---|---|

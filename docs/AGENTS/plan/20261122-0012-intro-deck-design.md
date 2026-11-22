@@ -26,7 +26,7 @@ example hash stays), pictures and logos (the example company has none, as 예시
 2. Flat grounds: no brand mesh, no glows. Content slides get an eyebrow ("02  회사 소개") and a plain footer.
 3. Cover without a picture: the headline set at 152 px anchored low, the company and "회사 소개서" on top, the deck's
    contents beside the headline. Closing with no details mirrors it.
-4. Figures: pains as big numerals, what-we-do as tinted panels, process as numbered steps on one rule (no chevrons),
+4. Figures: pains as large statements (no numbers: they have no order), what-we-do as tinted panels, process as numbered steps on one rule (no chevrons),
    bigger stat numbers, quote set in the middle.
 5. Example: examples/data/soopteum (숲틈 / Soopteum), scripts/intro-deck-example.ts builds the artifact HTML, then
    web/scripts/skill-examples.ts takes the picture.

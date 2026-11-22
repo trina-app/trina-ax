@@ -1,0 +1,167 @@
+{
+  "title": "숲틈 회사 소개서",
+  "company": "숲틈",
+  "website": "https://soopteum.example",
+  "brand": "#1f5c45",
+  "theme": "brand",
+  "pattern": "none",
+  "sections": [
+    "표지",
+    "회사 소개",
+    "고민",
+    "하는 일",
+    "숫자",
+    "순서",
+    "고객의 말",
+    "연락처"
+  ],
+  "slides": [
+    {
+      "kind": "cover",
+      "headline": "사무실에\n*초록*을 들이는 일",
+      "sub": "식물 설치부터 격주 관리까지, 사무실 식물 구독"
+    },
+    {
+      "kind": "about",
+      "statement": "숲틈은 사무실 식물을 고르고 들이고 살려 두는 구독 서비스예요",
+      "facts": [
+        {
+          "label": "설립",
+          "value": "2019년"
+        },
+        {
+          "label": "위치",
+          "value": "서울 성수동"
+        },
+        {
+          "label": "팀",
+          "value": "18명"
+        },
+        {
+          "label": "관리 지역",
+          "value": "서울·경기"
+        }
+      ]
+    },
+    {
+      "kind": "needs",
+      "title": "사무실 식물은 들이는 것보다 살리는 게 어려워요",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "droplet",
+            "head": "물 줄 사람이 없어요",
+            "body": "담당자가 바뀌면 화분도 잊혀요"
+          },
+          {
+            "icon": "sprout",
+            "head": "시든 화분이 쌓여요",
+            "body": "치우는 일까지 총무팀 몫이에요"
+          },
+          {
+            "icon": "search",
+            "head": "맞는 식물을 몰라요",
+            "body": "빛과 공조에 맞는 종이 따로 있어요"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "offer",
+      "title": "고르는 일부터 살려 두는 일까지 맡아요",
+      "sub": "한 번 계약하면 식물 걱정은 숲틈이 해요",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "compass",
+            "head": "공간 진단",
+            "body": "빛, 온도, 동선을 재고 자리를 정해요"
+          },
+          {
+            "icon": "leaf",
+            "head": "식물 설치",
+            "body": "화분과 받침까지 한 번에 들여요"
+          },
+          {
+            "icon": "calendar-sync",
+            "head": "격주 관리",
+            "body": "물, 가지치기, 잎 청소를 해요"
+          },
+          {
+            "icon": "refresh-cw",
+            "head": "교체 보장",
+            "body": "시든 식물은 무료로 바꿔요"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "numbers",
+      "title": "사무실 340곳이 숲틈과 일해요",
+      "note": "2026년 10월 기준",
+      "figure": {
+        "kind": "figures",
+        "items": [
+          {
+            "number": "340곳",
+            "label": "고객 사무실"
+          },
+          {
+            "number": "12,000개",
+            "label": "관리 중인 화분"
+          },
+          {
+            "number": "96%",
+            "label": "재계약률"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "title": "첫 연락부터 첫 관리까지 2주면 돼요",
+      "figure": {
+        "kind": "flow",
+        "steps": [
+          {
+            "icon": "clipboard-check",
+            "head": "방문 진단",
+            "body": "공간을 재고 사진을 찍어요"
+          },
+          {
+            "icon": "palette",
+            "head": "식물 제안",
+            "body": "시안과 견적을 보내요"
+          },
+          {
+            "icon": "truck",
+            "head": "설치",
+            "body": "하루 안에 들여요"
+          },
+          {
+            "icon": "calendar-check",
+            "head": "격주 관리",
+            "body": "정해진 요일에 찾아가요"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "proof",
+      "quote": {
+        "text": "식물 담당이 따로 없는데도 1년 내내 사무실이 초록이에요",
+        "who": "이도윤 · 총무팀 매니저"
+      }
+    },
+    {
+      "kind": "contact",
+      "line": "우리 사무실에 맞는\n식물부터 제안할게요",
+      "offer": "무료 방문 진단 신청",
+      "email": "hello@soopteum.example",
+      "phone": "02-6000-0142",
+      "website": "soopteum.example"
+    }
+  ]
+}

@@ -12,7 +12,7 @@
 // A picture whose note says it carries lettering is never under type (it becomes a panel or a card, or is not used).
 import type { DeckFigure, DeckPattern, DeckPictureNote, DeckSlide2, DeckTheme, Locale } from '@mycel/shared/api'
 import { BAND_BOTTOM, BAND_TOP, Canvas, CW, fit, FOOTER_Y, H, linesH, ML, MR, R2, roundRectD, span, TITLE_Y, W, widest, alphaHex, type Fit, type FitCtx } from './draw'
-import { drawFigure, hub, layers, type Box, type ChartInk, type FigEnv } from './figures'
+import { drawFigure, hub, layers, type Box, type ChartInk, type FigEnv, type GridStyle } from './figures'
 import { PIC_RULES, type DeckLogo, type DeckOut, type Focus, type Item, type PicInfo, type SlideOut } from './layout'
 import { lookFor2, type G2, type Look2 } from './look'
 import { width, type Role } from './text'
@@ -73,14 +73,11 @@ function mesh(cv: Canvas, look: Look2, flip: boolean) {
     : [{ x: 1620, y: 160, r: 1100, color: a, a: 0.75 }, { x: 260, y: 980, r: 1000, color: b, a: 0.8 }, { x: 1500, y: 900, r: 760, color: c, a: 0.55 }]
   for (const bl of blobs) cv.glow(bl.x, bl.y, bl.r, bl.color, bl.a)
 }
-/** The feature ground's light: the mesh (brand) or one or two glows (ink, warm black). */
-function featureLight(cv: Canvas, c: Ctx, at: { x: number; y: number }, flip = false) {
-  if (c.look.featureKind === 'mesh' && c.look.mesh) return mesh(cv, c.look, flip)
-  if (c.look.glow) {
-    cv.glow(at.x, at.y, 900, c.look.glow, c.look.theme === 'ink' ? 0.5 : 0.2)
-    if (c.look.theme === 'ink') cv.glow(flip ? 1600 : 300, 1100, 700, c.look.glow, 0.18)
-  }
-}
+/** The feature ground's light. Since the 2026-11-22 design pass every ground is flat: one solid colour, no mesh and
+ * no glows (the owner: "too tacky"); the arguments stay so the compositions read as before. */
+function featureLight(_cv: Canvas, _c: Ctx, _at: { x: number; y: number }, _flip = false) {}
+/** The brand mesh, kept for a deck that asks for it again (unused: flat grounds). */
+export const meshFor = mesh
 /** The deck's drawn pattern over a box, fading to zero toward the type. */
 function pattern(cv: Canvas, c: Ctx, box: { x: number; y: number; w: number; h: number }, fade: Parameters<Canvas['pattern']>[0]['fade'], strength = 1) {
   const p = c.doc.pattern
@@ -115,46 +112,48 @@ function footer(cv: Canvas, c: Ctx, o: { name?: boolean; left?: boolean } = {}) 
   const runs = [{ text: page, color: g.dim }, { text: ` / ${total}`, color: g.mute }]
   cv.runs(o.left ? ML : W - MR - 240, FOOTER_Y, 240, 22, 700, 0.02, runs, { role: 'footer', align: o.left ? 'l' : 'r', lh: 1.3 })
   if (o.name === false) return
-  const sec = c.doc.sections[c.i] ?? ''
   const name = fit(fc(c), 'company', c.doc.company, R2.footer, 700, 1, { quiet: true })
   const nm = name ? name.lines[0]!.map((r) => r.text).join('') : c.doc.company.slice(0, 30)
-  const room = 1200 - width(nm, 22, 700, 0.02)
-  const sf = sec ? fit(fc(c), 'section', sec, R2.footer, Math.max(100, room - 60), 1, { quiet: true }) : null
+  cv.runs(ML, FOOTER_Y, 1300, 22, 700, 0.02, [{ text: nm, color: g.mute }], { role: 'footer', lh: 1.3 })
+}
+/** The eyebrow over a content slide's title: the slide's number in the accent and its section name, in the top margin
+ * (the title keeps its place at 150). */
+function eyebrow(cv: Canvas, c: Ctx, x = ML) {
+  const sec = c.doc.sections[c.i] ?? ''
+  const num = String(c.i + 1).padStart(2, '0')
+  const sf = sec ? fit(fc(c), 'section', sec, R2.label, 900, 1, { quiet: true }) : null
   const secText = sf ? sf.lines[0]!.map((r) => r.text).join('') : ''
-  cv.runs(ML, FOOTER_Y, 1300, 22, 700, 0.02, [{ text: nm, color: g.dim }, ...(secText ? [{ text: `  ·  ${secText}`, color: g.mute }] : [])], { role: 'footer', lh: 1.3 })
+  cv.runs(x, 92, 1000, 22, 700, 0.08, [{ text: num, color: cv.g.accent }, ...(secText ? [{ text: `   ${secText}`, color: cv.g.dim }] : [])], { role: 'eyebrow', lh: 1.3 })
 }
 /** The title (and an optional lead under it); returns where the figure band may start. */
 function header(cv: Canvas, c: Ctx, title: string | undefined, lead: string | undefined, w = 1400): number {
+  eyebrow(cv, c)
   const t = fit(fc(c), 'title', title?.replace(/\*/g, ''), R2.title, w, 2)
   let y = TITLE_Y + cv.text(t, ML, TITLE_Y, w, cv.g.text, { role: 'title' })
   const l = fit(fc(c), 'sub', lead, R2.lead, Math.min(w, 1400), 2)
   if (l) y += 20 + cv.text(l, ML, y + 20, Math.min(w, 1400), cv.g.dim, { role: 'sub' })
   return Math.max(BAND_TOP, y + 56)
 }
-/** The soft light of a content slide: a corner glow (brand), a glow behind the figure (ink), nothing on paper. */
-function contentLight(cv: Canvas, c: Ctx, behind?: { x: number; y: number; r?: number }) {
-  if (!c.look.glow) return
-  if (c.look.theme === 'brand') cv.glow(behind ? behind.x : 1760, behind ? behind.y : 60, behind?.r ?? 820, c.look.glow, 0.09)
-  else if (c.look.theme === 'ink') cv.glow(behind?.x ?? 1700, behind?.y ?? 80, behind?.r ?? 700, c.look.glow, behind ? 0.4 : 0.26)
-}
+/** The light of a content slide: none (flat grounds since the 2026-11-22 design pass). */
+function contentLight(_cv: Canvas, _c: Ctx, _behind?: { x: number; y: number; r?: number }) {}
 const band = (top: number): Box => ({ x: ML, y: top, w: CW, h: BAND_BOTTOM - top })
 
 /** The cover's or closing's type block: a hairline, "회사 소개서" and the website at the bottom. */
-function coverFoot(cv: Canvas, c: Ctx, x2: number, lineColor: string) {
+function coverFoot(cv: Canvas, c: Ctx, x2: number, lineColor: string, label = true) {
   cv.line(ML, 936, x2, 936, lineColor, 2)
-  const lab = fit(fc(c), 'label', LABEL_DECK[c.doc.lang], R2.footer, 500, 1, { quiet: true })
-  cv.text(lab, ML, 962, 500, cv.g.dim, { role: 'footer' })
+  const lab = label ? fit(fc(c), 'label', LABEL_DECK[c.doc.lang], R2.footer, 500, 1, { quiet: true }) : null
+  if (lab) cv.text(lab, ML, 962, 500, cv.g.dim, { role: 'footer' })
   if (c.doc.website) {
     const wf = fit(fc(c), 'website', siteText(c.doc.website), R2.footer, 600, 1, { quiet: true })
     cv.text(wf, x2 - 600, 962, 600, cv.g.dim, { role: 'website', align: 'r' })
   }
 }
 /** Headline (display) and sub (lead) from `top`; returns [bottom, widest line]. */
-function coverType(cv: Canvas, c: Ctx, d: { headline: string; sub?: string }, x: number, top: number, w: number, role: Role = R2.display): [number, number] {
+function coverType(cv: Canvas, c: Ctx, d: { headline: string; sub?: string }, x: number, top: number, w: number, role: Role = R2.display, gap = 26): [number, number] {
   const hd = fit(fc(c), 'headline', d.headline, role, w, 2)
   const sb = fit(fc(c), 'sub', d.sub, R2.lead, Math.min(w, 900), 2)
   let y = top + cv.text(hd, x, top, w, cv.g.text, { accent: cv.g.accent, role: 'headline' })
-  if (sb) y += 26 + cv.text(sb, x, y + 26, Math.min(w, 900), cv.g.dim, { role: 'sub' })
+  if (sb) y += gap + cv.text(sb, x, y + gap, Math.min(w, 900), cv.g.dim, { role: 'sub' })
   return [y, Math.max(widest(hd), widest(sb))]
 }
 const ACCENT_BOX = (cx: number, cy: number, s: number) => ({ x: cx - s / 2, y: cy - s / 2, w: s, h: s })
@@ -198,15 +197,38 @@ function cover(c: Ctx, d: K<'cover'>): { cv: Canvas; variant: string } {
     coverFoot(cv, c, px - 100, cv.g.line)
     return { cv, variant }
   }
-  featureLight(cv, c, { x: 1560, y: 520 })
-  // the pattern fades to zero 48 px before the headline's longest line
-  const hdC = fit({ problems: [], where: '' }, 'h', d.headline, R2.display, 1000, 2, { quiet: true })
-  pattern(cv, c, { x: 960, y: 0, w: W - 960, h: H }, { radial: { cx: 1460, cy: 520, r: Math.max(240, Math.min(640, 1460 - (ML + widest(hdC)) - 48)), inner: 1, outer: 0 } })
+  // the drawn cover (2026-11-22 design pass): a flat ground, the company and "회사 소개서" on one row at the top, the
+  // headline set as large as it fits and anchored low, a hairline and the website at the foot; an AI accent (or the
+  // deck's pattern) only in the top right, clear of the type
   const acc = c.doc.accents[c.i]
-  if (acc) cv.svg(acc, ...Object.values(ACCENT_BOX(1440, 540, 760)) as [number, number, number, number])
+  const role = acc ? R2.display : R2.cover
+  const tw = acc ? 1100 : 1560
+  const probe = fit({ problems: [], where: '' }, 'h', d.headline, role, tw, 2, { quiet: true })
+  const sbProbe = fit({ problems: [], where: '' }, 's', d.sub, R2.lead, 900, 2, { quiet: true })
+  const blockH = linesH(probe) + (sbProbe ? 32 + linesH(sbProbe) : 0)
+  const top = Math.max(300, 872 - blockH)
+  // the deck's contents in the top right (the middle slides' section names), when there are three or more
+  const middle = c.doc.slides.map((s, j) => ({ s, j, name: c.doc.sections[j] ?? '' })).filter((x) => x.j > 0 && x.s.kind !== 'contact' && x.name.trim())
+  if (acc) cv.svg(acc, ...Object.values(ACCENT_BOX(1520, 360, 520)) as [number, number, number, number])
+  else {
+    // the deck's pattern in the top right corner, fading out well above the type
+    pattern(cv, c, { x: 1100, y: 0, w: W - 1100, h: Math.min(top - 40, 420) }, { radial: { cx: W, cy: 0, r: 760, inner: 0.9, outer: 0 } }, 0.8)
+  }
+  if (!acc && middle.length >= 3 && ML + widest(probe) + 96 <= W - MR - 400) {
+    // beside the headline, its last row on the sub's line, when the headline leaves room
+    const x = W - MR - 400, rows = Math.min(8, middle.length)
+    const y0 = top + blockH - rows * 46 + 14
+    middle.slice(0, rows).forEach((m, k) => {
+      const nf = fit({ problems: [], where: '' }, 's', m.name, { ...R2.label, size: 24, min: 24, tracking: 0 }, 320, 1, { quiet: true })
+      const name = nf ? nf.lines[0]!.map((r) => r.text).join('') : ''
+      cv.runs(x, y0 + k * 46, 400, 24, 700, 0.02, [{ text: String(m.j + 1).padStart(2, '0'), color: cv.g.mute }, { text: `    ${name}`, color: cv.g.dim }], { role: 'contents', lh: 1.3 })
+    })
+  }
   logo(cv, c)
-  coverType(cv, c, d, ML, 404, 1000)
-  coverFoot(cv, c, W - MR, cv.g.line)
+  const lab = fit(fc(c), 'label', LABEL_DECK[c.doc.lang], R2.label, 500, 1, { quiet: true })
+  cv.text(lab, W - MR - 500, 96, 500, cv.g.dim, { role: 'footer', align: 'r' })
+  coverType(cv, c, d, ML, top, tw, role, 32)
+  coverFoot(cv, c, W - MR, cv.g.line, false)
   return { cv, variant }
 }
 const mixDark = (b: string) => { const n = Number.parseInt(b.slice(1), 16); const k = 0.45; return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * k).toString(16).padStart(2, '0')).join('') }
@@ -281,17 +303,22 @@ function about(c: Ctx, d: K<'about'>): { cv: Canvas; variant: string } {
     footer(cv, c)
     return { cv, variant: f.kind }
   }
-  // the statement alone, set large, with the facts under it
+  // the statement alone, set large, with the facts under it as a ledger; without facts it sits in the middle
   contentLight(cv, c)
-  const st = fit(fc(c), 'statement', d.statement, { size: 80, min: 68, weight: 700, tracking: -0.032, lh: 1.26 }, span(10), 4)
-  cv.text(st, ML, 168, span(10), cv.g.text, { accent: cv.g.accent, role: 'statement' })
+  eyebrow(cv, c)
+  // without facts the statement is the slide: set larger, across the whole width
+  const st = facts.length
+    ? fit(fc(c), 'statement', d.statement, { size: 84, min: 72, weight: 800, tracking: -0.035, lh: 1.24 }, span(10), 4)
+    : fit(fc(c), 'statement', d.statement, { size: 100, min: 84, weight: 800, tracking: -0.04, lh: 1.2 }, CW, 4)
+  const sy = facts.length ? 200 : Math.max(200, Math.round((H - linesH(st)) / 2) - 40)
+  cv.text(st, ML, sy, facts.length ? span(10) : CW, cv.g.text, { accent: cv.g.accent, role: 'statement' })
   if (facts.length) {
-    const k = facts.length, cw = (CW - (k - 1) * 40) / k, y0 = 760
+    const k = facts.length, cw = (CW - (k - 1) * 40) / k, y0 = 724
     facts.forEach((ft, j) => {
       const x = ML + j * (cw + 40)
-      cv.line(x, y0, x + cw, y0, cv.g.line, 2)
-      cv.text(fit(fc(c), `facts[${j}].label`, ft.label, R2.label, cw, 1), x, y0 + 30, cw, cv.g.mute, { role: 'label' })
-      cv.text(fit(fc(c), `facts[${j}].value`, ft.value, R2.head, cw, 2), x, y0 + 30 + 29 + 12, cw, cv.g.text, { role: 'value' })
+      cv.line(x, y0, x + cw, y0, cv.g.lineStrong, 2)
+      cv.text(fit(fc(c), `facts[${j}].label`, ft.label, R2.label, cw, 1), x, y0 + 32, cw, cv.g.mute, { role: 'label' })
+      cv.text(fit(fc(c), `facts[${j}].value`, ft.value, R2.headL, cw, 2), x, y0 + 32 + 29 + 16, cw, cv.g.text, { role: 'value' })
     })
   }
   footer(cv, c)
@@ -299,7 +326,7 @@ function about(c: Ctx, d: K<'about'>): { cv: Canvas; variant: string } {
 }
 
 /** A content slide: the title (and a lead), one figure in the band. */
-function content(c: Ctx, title: string | undefined, lead: string | undefined, f: DeckFigure | undefined, o: { ground?: 'feature' } = {}): { cv: Canvas; variant: string } {
+function content(c: Ctx, title: string | undefined, lead: string | undefined, f: DeckFigure | undefined, o: { ground?: 'feature'; grid?: GridStyle } = {}): { cv: Canvas; variant: string } {
   const feature = o.ground === 'feature'
   const g: G2 = feature ? c.look.feature : c.look.content
   const cv = new Canvas(g)
@@ -334,7 +361,7 @@ function content(c: Ctx, title: string | undefined, lead: string | undefined, f:
   } else {
     const top = header(cv, c, title, lead)
     const ink: ChartInk | undefined = feature && cv.g.mark === cv.g.text ? { track: alphaHex(cv.g.text, 0.18), arc: cv.g.text, num: cv.g.text, label: cv.g.text } : undefined
-    drawFigure(e, f, band(top), ink)
+    drawFigure(e, f, band(top), ink, o.grid)
   }
   footer(cv, c)
   return { cv, variant: f.kind }
@@ -347,17 +374,19 @@ function proof(c: Ctx, d: K<'proof'>): { cv: Canvas; variant: string } {
   const cv = new Canvas(c.look.content)
   base(cv)
   if (d.quote) {
-    if (c.look.glow) cv.glow(200, 1000, 900, c.look.glow, c.look.theme === 'ink' ? 0.3 : 0.1)
-    // a drawn quote mark in the mark colour
-    const qx = ML, qy = 170, m = cv.g.mark
-    cv.path('M0 70C0 30 30 0 70 0L70 22C46 25 30 44 28 70L70 70L70 140L0 140Z'.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, a, b) => `${+a + qx} ${+b + qy}`), { fill: m })
-    cv.path('M100 70C100 30 130 0 170 0L170 22C146 25 130 44 128 70L170 70L170 140L100 140Z'.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, a, b) => `${+a + qx} ${+b + qy}`), { fill: m })
-    const q = fit(fc(c), 'quote.text', d.quote.text, R2.quote, 1500, 4)
-    const qy2 = 380
-    const qb = qy2 + cv.text(q, ML, qy2, 1500, cv.g.text, { role: 'quote' })
-    cv.line(ML, qb + 44, ML + 80, qb + 44, cv.g.mark, 4)
+    eyebrow(cv, c)
+    // the words set large in the middle of the slide, a drawn quote mark in the mark colour hanging over them
+    const q = fit(fc(c), 'quote.text', d.quote.text, { ...R2.quote, size: 76 }, 1500, 4)
     const who = fit(fc(c), 'quote.who', d.quote.who, R2.headS, 1200, 1)
-    cv.text(who, ML, qb + 76, 1200, cv.g.text, { role: 'who' })
+    const blockH = linesH(q) + 48 + linesH(who)
+    const qy2 = Math.max(330, Math.round((H - blockH) / 2) + 30)
+    const qx = ML, qy = qy2 - 168, m = cv.g.mark, k = 1.3
+    const at = (d: string) => d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, a, b) => `${Math.round(+a * k + qx)} ${Math.round(+b * k + qy)}`)
+    cv.path(at('M0 50C0 21 21 0 50 0L50 16C33 18 21 31 20 50L50 50L50 100L0 100Z'), { fill: m })
+    cv.path(at('M72 50C72 21 93 0 122 0L122 16C105 18 93 31 92 50L122 50L122 100L72 100Z'), { fill: m })
+    const qb = qy2 + cv.text(q, ML, qy2, 1500, cv.g.text, { role: 'quote' })
+    cv.line(ML, qb + 48, ML + 48, qb + 48, cv.g.lineStrong, 3)
+    cv.text(who, ML + 72, qb + 48 - linesH(who) / 2, 1200, cv.g.dim, { role: 'who' })
     footer(cv, c)
     return { cv, variant: 'quote' }
   }
@@ -388,7 +417,10 @@ function contact(c: Ctx, d: K<'contact'>): { cv: Canvas; variant: string } {
   if (acc) cv.svg(acc, ...Object.values(ACCENT_BOX(1520, 560, 800)) as [number, number, number, number])
   logo(cv, c)
   const ln = fit(fc(c), 'line', d.line, R2.section, 1000, 2)
-  let y = 330 + cv.text(ln, ML, 330, 1000, cv.g.text, { accent: cv.g.accent, role: 'line' })
+  // with nothing under it the line sits low, as the cover's headline does
+  const bare = !d.offer && !d.person && !d.phone && !d.email && !d.address && !(d.website || c.doc.website)
+  const ly = bare ? Math.max(330, 872 - linesH(ln)) : 330
+  let y = ly + cv.text(ln, ML, ly, 1000, cv.g.text, { accent: cv.g.accent, role: 'line' })
   if (d.offer) {
     const of = fit(fc(c), 'offer', d.offer, { ...R2.head, weight: 800, size: 32, min: 28 }, 700, 1)
     if (of) {
@@ -423,7 +455,9 @@ function contact(c: Ctx, d: K<'contact'>): { cv: Canvas; variant: string } {
       x += w + 48
     })
   }
-  footer(cv, c, { name: false })
+  // no contact details: the cover's foot closes the deck (a hairline, "회사 소개서", the website)
+  if (!cols.length) coverFoot(cv, c, W - MR, cv.g.line)
+  else footer(cv, c, { name: false })
   return { cv, variant: acc ? 'accent' : 'drawn' }
 }
 
@@ -451,10 +485,10 @@ export function layoutSlide2(doc: DeckDoc2, i: number, look: Look2 = lookFor2(do
     case 'cover': out = cover(c, d); break
     case 'about': out = about(c, d); break
     case 'opening': out = opening(c, d); break
-    case 'needs': out = content(c, d.title, undefined, d.figure); break
-    case 'offer': out = content(c, d.title, d.sub, d.figure); break
+    case 'needs': out = content(c, d.title, undefined, d.figure, { grid: 'statements' }); break
+    case 'offer': out = content(c, d.title, d.sub, d.figure, { grid: 'panels' }); break
     case 'numbers': out = content(c, d.title, d.note, d.figure, { ground: numbersGround(c) }); break
-    case 'products': out = content(c, d.title, undefined, d.figure); break
+    case 'products': out = content(c, d.title, undefined, d.figure, { grid: 'panels' }); break
     case 'process': out = content(c, d.title, undefined, d.figure); break
     case 'proof': out = proof(c, d); break
     case 'history': out = content(c, d.title, undefined, d.figure); break

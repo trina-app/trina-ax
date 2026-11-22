@@ -510,7 +510,9 @@ describe('the example viewer', () => {
           expect(img.getAttribute('src')).toBe(`/skill-examples/${locale}/${name}.webp`)
           await act(async () => { img.dispatchEvent(new FakeEvent('load')) })
           expect(viewer(m).getAttribute('data-state')).toBe('shown')
-          expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company: locale === 'ko' ? '예시커피' : 'Example Coffee' }))
+          // the intro deck is made on its own invented company (숲틈 / Soopteum), the rest on 예시커피 / Example Coffee
+          const company = name === 'intro-deck' ? (locale === 'ko' ? '숲틈' : 'Soopteum') : locale === 'ko' ? '예시커피' : 'Example Coffee'
+          expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company }))
           expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
           await key(viewer(m), 'Escape')
         }

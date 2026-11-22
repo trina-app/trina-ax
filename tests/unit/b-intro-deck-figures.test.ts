@@ -391,7 +391,7 @@ describe('the compositions', () => {
     expect(fadeUnder(out, 'line')).toBe(0)
   })
 
-  test('content slides: the running footer ("company · section", "NN / TT"), one figure, no accent', () => {
+  test('content slides: the eyebrow ("NN   section"), the running footer (company, "NN / TT"), one figure, no accent', () => {
     const slides: DeckSlide2[] = [cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' },
       { kind: 'needs', title: '부품 때문에 일정이 밀린다면', figure: { kind: 'merge', inputs: ['전화', '이메일', '방문'], target: { icon: 'inbox', head: '한곳으로' } } },
       { kind: 'offer', title: '설계부터 납품까지', sub: '도면 한 장으로 시작해요', figure: { kind: 'layers', items: [{ head: '납품' }, { head: '가공' }, { head: '설계' }] } },
@@ -406,7 +406,8 @@ describe('the compositions', () => {
       for (let i = 2; i <= 7; i++) {
         const s = out.slides[i]!
         const t = allText(s.items)
-        expect(t, `${theme} ${i}`).toContain(`아크메정밀  ·  섹션${i}`)
+        expect(t, `${theme} ${i}`).toContain(`${String(i + 1).padStart(2, '0')}   섹션${i}`)
+        expect(t, `${theme} ${i}`).toContain('아크메정밀')
         expect(t).toContain(`${String(i + 1).padStart(2, '0')} / 09`)
         expect(s.items.some((it) => it.t === 'svg'), `${theme} ${i}: no accent on a content slide`).toBe(false)
         sane(s.items)

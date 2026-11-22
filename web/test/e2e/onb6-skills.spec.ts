@@ -334,7 +334,7 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   await expect(viewer).toHaveAttribute('data-state', 'shown')
   await expect(viewer.getByTestId('skill-example-image')).toBeVisible()
   await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/ko/intro-deck.webp')
-  await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
+  await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '숲틈'으로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
   await page.keyboard.press('Escape')
   await packRow(fold, 'card-news').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'card-news')

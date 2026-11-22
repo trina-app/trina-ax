@@ -1,0 +1,167 @@
+{
+  "title": "Soopteum company profile",
+  "company": "Soopteum",
+  "website": "https://soopteum.example",
+  "brand": "#1f5c45",
+  "theme": "brand",
+  "pattern": "none",
+  "sections": [
+    "Cover",
+    "About",
+    "Needs",
+    "What we do",
+    "Numbers",
+    "Process",
+    "Proof",
+    "Contact"
+  ],
+  "slides": [
+    {
+      "kind": "cover",
+      "headline": "Offices that\nstay *green*",
+      "sub": "Office plant subscriptions, from setup to care"
+    },
+    {
+      "kind": "about",
+      "statement": "Soopteum picks, installs and keeps office plants alive on one subscription",
+      "facts": [
+        {
+          "label": "Founded",
+          "value": "2019"
+        },
+        {
+          "label": "Based in",
+          "value": "Seongsu, Seoul"
+        },
+        {
+          "label": "Team",
+          "value": "18 people"
+        },
+        {
+          "label": "Area",
+          "value": "Seoul & Gyeonggi"
+        }
+      ]
+    },
+    {
+      "kind": "needs",
+      "title": "Bringing plants in is easy. Keeping them alive is not",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "droplet",
+            "head": "Nobody waters them",
+            "body": "When the office manager changes, plants are forgotten"
+          },
+          {
+            "icon": "sprout",
+            "head": "Dead pots pile up",
+            "body": "Clearing them falls to the admin team"
+          },
+          {
+            "icon": "search",
+            "head": "The wrong species",
+            "body": "Light and air conditioning decide what lives"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "offer",
+      "title": "From choosing to keeping them alive",
+      "sub": "One contract, and the plants are our job",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "compass",
+            "head": "Space check",
+            "body": "We measure light, heat and foot traffic"
+          },
+          {
+            "icon": "leaf",
+            "head": "Installation",
+            "body": "Plants, pots and stands in one visit"
+          },
+          {
+            "icon": "calendar-sync",
+            "head": "Fortnightly care",
+            "body": "Water, pruning and leaf cleaning"
+          },
+          {
+            "icon": "refresh-cw",
+            "head": "Replacement",
+            "body": "A plant that fails is replaced free"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "numbers",
+      "title": "340 offices work with Soopteum",
+      "note": "As of October 2026",
+      "figure": {
+        "kind": "figures",
+        "items": [
+          {
+            "number": "340",
+            "label": "Client offices"
+          },
+          {
+            "number": "12,000",
+            "label": "Plants in our care"
+          },
+          {
+            "number": "96%",
+            "label": "Renewal rate"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "title": "Two weeks from first call to first visit",
+      "figure": {
+        "kind": "flow",
+        "steps": [
+          {
+            "icon": "clipboard-check",
+            "head": "Site visit",
+            "body": "We measure and photograph the space"
+          },
+          {
+            "icon": "palette",
+            "head": "Proposal",
+            "body": "A plan and a quote"
+          },
+          {
+            "icon": "truck",
+            "head": "Install",
+            "body": "Done in a day"
+          },
+          {
+            "icon": "calendar-check",
+            "head": "Care",
+            "body": "Same weekday, every other week"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "proof",
+      "quote": {
+        "text": "Nobody here is in charge of plants, yet the office has been green all year",
+        "who": "Doyun Lee · Office Manager"
+      }
+    },
+    {
+      "kind": "contact",
+      "line": "Let us suggest plants\nfor your office",
+      "offer": "Book a free site visit",
+      "email": "hello@soopteum.example",
+      "phone": "+82 2-6000-0142",
+      "website": "soopteum.example"
+    }
+  ]
+}
