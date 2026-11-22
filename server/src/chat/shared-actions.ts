@@ -358,7 +358,7 @@ export function sameBytesAsEvent(teamRoot: string, rel: string, sha256: string |
     const st = fs.lstatSync(abs)
     if (!st.isFile() || st.nlink !== 1 || st.size > HASH_MAX) return false
     // in 4 MiB pieces from one descriptor (never the whole file in memory), up to the size checked above
-    return sha256Regular(abs) === sha256
+    return sha256Regular(abs, st) === sha256
   } catch { return false }
 }
 

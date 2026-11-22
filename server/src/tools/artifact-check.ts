@@ -179,6 +179,7 @@ async function openPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: P
   let pageServed = false
   let requests = 0
   let assetBytes = 0
+  let assetChain: Promise<void> = Promise.resolve()
   const webPictures = new Set<string>()
   const life = new Map<string, Set<string>>()
   cdp.on('Page.lifecycleEvent', (e: { name: string; loaderId: string }, sid) => { if (sid !== sessionId) return; const s = life.get(e.loaderId) ?? new Set(); s.add(e.name); life.set(e.loaderId, s) })
@@ -245,14 +246,23 @@ async function openPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: P
           : `${team} does not load in the preview (only team pictures and script files)`)
         return refuse()
       }
-      let bytes: Buffer | null = null
-      try { bytes = await req.asset(team, ASSET_BYTES, kind!) } catch { bytes = null }
-      if (!bytes || assetBytes + bytes.length > ASSETS_BYTES) {
+      // one read at a time (the reads are async: up to MAX_REQUESTS could otherwise each hold ASSET_BYTES at once), and
+      // never more than what is left of the page's ASSETS_BYTES
+      let bytes = null as Buffer | null
+      const turn = assetChain.then(async () => {
+        const left = Math.min(ASSET_BYTES, ASSETS_BYTES - assetBytes)
+        if (left <= 0) return
+        try { bytes = await req.asset(team, left, kind!) } catch { bytes = null }
+        if (bytes && assetBytes + bytes.length <= ASSETS_BYTES) assetBytes += bytes.length
+        else bytes = null
+      })
+      assetChain = turn.catch(() => {})
+      await turn
+      if (!bytes) {
         if (kind === 'image') return fulfill('image/svg+xml', PLACEHOLDER_B64)
         add(`${team} does not load: it is not in the team folder, or this person cannot open it`)
         return refuse()
       }
-      assetBytes += bytes.length
       return fulfill(m![0], await base64(bytes))
     }
     answer().catch(() => { void refuse() })

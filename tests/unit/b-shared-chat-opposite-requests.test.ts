@@ -50,12 +50,14 @@ describe('opposite requests in a shared chat', () => {
   })
 
   test('the question of an answer kept from some (a k or x group in its record): only who asked, never its words', async () => {
-    for (const flag of ['k', 'x'] as const) {
+    for (const flag of ['k', 'x', 'old'] as const) {
       const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
       const asked = await send('alice', chat.id, 'make the cover blue\n' + askCard(`Which part of the payroll deck ${flag}?`))
       expect(openRows(chat.id)).toEqual(['alice'])
-      // her answer read a connection (k) or something not all known (x): people who cannot see it must not get its words
-      setAnswerReads(h.ctx.db, chat.id, asked.id, [{ c: ['alice'], s: [{ type: 'integration', id: 'gmail' }], [flag]: 1 } as ReadGroup])
+      // her answer read a connection (k) or something not all known (x): people who cannot see it must not get its words;
+      // an answer from before the cutover (old) follows the old rule (hidden by its sources), so it counts as kept too
+      if (flag === 'old') h.ctx.db.query("UPDATE messages SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(asked.id)
+      else setAnswerReads(h.ctx.db, chat.id, asked.id, [{ c: ['alice'], s: [{ type: 'integration', id: 'gmail' }], [flag]: 1 } as ReadGroup])
       const red = await send('bob', chat.id, 'make the cover red\n' + fake({ echo: 'message' }))
       expect(red.content).toContain('<closed_question>')
       expect(red.content).toContain('"person":"Alice Kim"')

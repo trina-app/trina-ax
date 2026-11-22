@@ -72,7 +72,7 @@ export async function readRegularAsync(abs: string, maxBytes = 200 * 1024 * 1024
   const { fd, st } = openToRead(abs, seen)
   try {
     if (st.size > maxBytes) throw new ToolError('file is too large')
-    const bytes = Buffer.alloc(st.size)
+    const bytes = Buffer.allocUnsafe(st.size)
     let off = 0
     while (off < st.size) {
       const at = off

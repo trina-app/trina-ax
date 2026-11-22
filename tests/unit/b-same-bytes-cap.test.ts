@@ -8,7 +8,7 @@ import path from 'node:path'
 import { HASH_MAX, sameBytesAsEvent } from '../../server/src/chat/shared-actions'
 import { sha256 } from '../../server/src/files/store'
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'same-bytes-'))
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'same-bytes-')))
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
 
 describe('sameBytesAsEvent', () => {
