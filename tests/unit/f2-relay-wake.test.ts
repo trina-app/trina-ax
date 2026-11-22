@@ -9,7 +9,7 @@ import { WAKE_API_PATH, parseWakeAuthorizationHeader, wakeSigningString } from '
 import { GLOBAL_PER_MIN, TEAM_GAP_MS, WakeClient, type WakeFetch } from '../../relay/src/wake.ts'
 import { loadRelayConfig } from '../../relay/src/config.ts'
 import { isNavigation, mayWake } from '../../relay/src/relay.ts'
-import { htmlPage, noRoomRetrySec, PAGE_DETAIL, PAGE_RETRY_AFTER, PAGE_STATUS, RELAY_ERROR_OF, wakingRefreshSec } from '../../relay/src/pages.ts'
+import { htmlPage, noRoomRetrySec, PAGE_DETAIL, PAGE_RETRY_AFTER, PAGE_STATUS, RELAY_ERROR_OF, WAKE_LATE_SEC, wakingRefreshSec } from '../../relay/src/pages.ts'
 import { OpsWakeResponseSchema } from '@mycel/shared/cloud-protocol'
 import { WORK } from '../lib/env'
 
@@ -160,30 +160,96 @@ describe('the waking page shows that it is working', () => {
       expect(h).not.toContain('<script')
     }
   })
-  test('the inline script runs: counts from the first load and starts over after 10 minutes', () => {
-    const h = htmlPage('team_waking', 'en', null, undefined, 20)
+  /** runs the page's inline script against a tiny fake page; returns the elements and a clock */
+  function runPage(lang: 'en' | 'ko' = 'en', store: Record<string, string> = {}) {
+    const h = htmlPage('team_waking', lang, null, undefined, 20)
     const code = /<script>([\s\S]*?)<\/script>/.exec(h)![1]!
-    const el = { hidden: true, textContent: '' }
-    const store: Record<string, string> = {}
+    const els: Record<string, { hidden: boolean; textContent: string; onclick?: () => void }> = {
+      w: { hidden: true, textContent: '' }, wf: { hidden: true, textContent: '' }, sp: { hidden: false, textContent: '' }, wr: { hidden: false, textContent: '' },
+    }
+    let tick: (() => void) | null = null
+    let reloads = 0
+    new Function('document', 'sessionStorage', 'setInterval', 'location', code)(
+      { getElementById: (id: string) => els[id] ?? null },
+      { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: unknown) => { store[k] = String(v) }, removeItem: (k: string) => { delete store[k] } },
+      (f: () => void) => { tick = f },
+      { reload: () => { reloads++ } },
+    )
+    return { h, els, store, tick: () => tick!(), reloads: () => reloads }
+  }
+  test('the inline script runs: counts from the first load, keeps counting over reloads, starts over after 10 minutes or a gap', () => {
     let now = 1_000_000
     const realNow = Date.now
     Date.now = () => now
-    let tick: (() => void) | null = null
     try {
-      new Function('document', 'sessionStorage', 'setInterval', code)(
-        { getElementById: () => el },
-        { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: unknown) => { store[k] = String(v) } },
-        (f: () => void) => { tick = f },
-      )
-      expect(el.hidden).toBe(false)
-      expect(el.textContent).toBe('Waiting: 0 s')
+      const a = runPage()
+      expect(a.els.w!.hidden).toBe(false)
+      expect(a.els.w!.textContent).toBe('Waiting: 0 s')
       now += 42_000
-      tick!()
-      expect(el.textContent).toBe('Waiting: 42 s')
+      a.tick()
+      expect(a.els.w!.textContent).toBe('Waiting: 42 s')
       // a reload of the page keeps counting
-      new Function('document', 'sessionStorage', 'setInterval', code)({ getElementById: () => el }, { getItem: (k: string) => store[k] ?? null, setItem: () => {} }, () => {})
-      expect(el.textContent).toBe('Waiting: 42 s')
+      now += 3_000
+      const b = runPage('en', a.store)
+      expect(b.els.w!.textContent).toBe('Waiting: 45 s')
+      // a page of the team in between (no count for over a minute): a new wait starts at 0, not at the old count
+      now += 90_000
+      expect(runPage('en', b.store).els.w!.textContent).toBe('Waiting: 0 s')
+      // an old count (the stored number of an older page) starts over too
+      expect(runPage('en', { mycelWakeSince: String(now - 5_000) }).els.w!.textContent).toBe('Waiting: 0 s')
     } finally { Date.now = realNow }
+  })
+  test(`after ${WAKE_LATE_SEC} s the spinner gives way to a real answer and Try again, in every language`, () => {
+    for (const lang of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      const h = htmlPage('team_waking', lang, null, undefined, 20)
+      expect(h).toContain('id="wf" role="alert" hidden')
+      expect(h).toContain('<button id="wr" type="button">')
+    }
+    expect(htmlPage('team_waking', 'en')).toContain('taking longer than usual')
+    expect(htmlPage('team_waking', 'ko')).toContain('다시 시도')
+    let now = 2_000_000
+    const realNow = Date.now
+    Date.now = () => now
+    try {
+      const p = runPage()
+      now += (WAKE_LATE_SEC - 1) * 1000
+      p.tick()
+      expect(p.els.wf!.hidden).toBe(true)
+      expect(p.els.sp!.hidden).toBe(false)
+      now += 1000
+      p.tick()
+      expect(p.els.wf!.hidden).toBe(false)
+      expect(p.els.sp!.hidden).toBe(true)
+      // a reload while late shows the answer at once (the count goes on)
+      now += 10_000
+      expect(runPage('en', p.store).els.wf!.hidden).toBe(false)
+      // Try again: the count starts over and the page reloads
+      p.els.wr!.onclick!()
+      expect(p.reloads()).toBe(1)
+      expect(p.store.mycelWakeSince).toBeUndefined()
+    } finally { Date.now = realNow }
+  })
+})
+
+describe('a page with a #fragment reloads too (the setup link /setup#token=…)', () => {
+  // a browser does not reload for <meta http-equiv="refresh"> when the address has a fragment (it jumps inside the
+  // page): the waking page on the owner's setup link counted on for ever (owner 2026-11-22). Checked in Chrome.
+  const scripts = (h: string) => [...h.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!)
+  const run = (code: string, hash: string) => {
+    const timers: number[] = []
+    let reloads = 0
+    new Function('location', 'setTimeout', code)({ hash, reload: () => { reloads++ } }, (f: () => void, ms: number) => { timers.push(ms); f() })
+    return { timers, reloads }
+  }
+  test('the waking and the no-room page reload a fragment address after their own refresh time; without one the meta tag does it', () => {
+    for (const [h, sec] of [[htmlPage('team_waking', 'en', null, undefined, 20), 20], [htmlPage('team_no_room', 'ko', null, undefined, 120), 120]] as const) {
+      const code = scripts(h).find((c) => c.includes('location.hash'))!
+      expect(code).toBeDefined()
+      expect(run(code, '#token=abc')).toEqual({ timers: [sec * 1000], reloads: 1 })
+      expect(run(code, '')).toEqual({ timers: [], reloads: 0 })
+      expect(h).toContain(`<meta http-equiv="refresh" content="${sec}">`)
+    }
+    for (const k of ['team_offline_cloud', 'team_busy', 'team_maintenance'] as const) expect(htmlPage(k, 'en')).not.toContain('location.hash')
   })
 })
 
@@ -222,7 +288,10 @@ describe('wake answer: the optional no_room hint (contract)', () => {
     for (const lang of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       const h = htmlPage('team_no_room', lang, null, undefined, 300)
       expect(h).toContain(`lang="${lang}"`)
-      expect(h).not.toContain('<script')
+      // one script only: the reload of a #fragment address (no spinner, no counter)
+      expect(h.match(/<script>/g)).toHaveLength(1)
+      expect(h).toContain('if(location.hash)')
+      expect(h).not.toContain('class="sp"')
       expect(h).not.toContain('Please try again shortly')
       titles.add(/<h1>(.*?)<\/h1>/.exec(h)![1]!)
     }

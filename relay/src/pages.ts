@@ -158,21 +158,40 @@ export function pageBody(kind: PageKind, lang: Lang, links: PageLinks = DEFAULT_
 const WAITED: Record<Lang, string> = {
   en: 'Waiting: %N% s', ko: '기다린 시간: %N%초', id: 'Menunggu: %N% dtk', ja: 'お待ちの時間：%N%秒', es: 'Esperando: %N% s', zh: '已等待：%N% 秒',
 }
-// a spinner that needs no script, the seconds that need a tiny one (the page has no CSP; sessionStorage keeps the count
-// across the page's own reloads, and a pause older than 10 minutes starts it over)
-const WAKING_CSS = '.sp{width:28px;height:28px;border:3px solid #cfd6d1;border-top-color:#2f7d4f;border-radius:50%;animation:sp 1s linear infinite;margin:0 0 16px}@keyframes sp{to{transform:rotate(360deg)}}.w{margin-top:12px;font-size:14px;color:#6b766f;font-variant-numeric:tabular-nums}@media (prefers-color-scheme:dark){.sp{border-color:#3a443e;border-top-color:#5fd08a}.w{color:#8f9a94}}@media (prefers-reduced-motion:reduce){.sp{animation-duration:3s}}'
-const wakingScript = (label: string) => `<script>(function(){var e=document.getElementById('w');if(!e)return;var L=${JSON.stringify(label)},k='mycelWakeSince',n=Date.now(),t=n;try{var v=+sessionStorage.getItem(k);if(v&&n-v<6e5)t=v;else sessionStorage.setItem(k,n)}catch(x){}function u(){e.textContent=L.replace('%N%',Math.max(0,Math.round((Date.now()-t)/1e3)))}e.hidden=false;u();setInterval(u,1e3)})()</script>`
+/** team_waking: after WAKE_LATE_SEC of waiting the spinner gives way to a real answer and a Try again button (owner
+ *  2026-11-22: a team that never came back showed "Waiting: 266 s" and counting, with nothing to do). The page still
+ *  reloads by itself, so a team that comes up later still opens. */
+export const WAKE_LATE_SEC = 180
+const LATE: Record<Lang, { text: string; button: string }> = {
+  en: { text: "Your team is taking longer than usual to start. Try again; if it still does not open, contact support.", button: 'Try again' },
+  ko: { text: '팀이 켜지는 데 평소보다 오래 걸리고 있어요. 다시 시도해 보고, 그래도 열리지 않으면 고객 지원에 문의해 주세요.', button: '다시 시도' },
+  id: { text: 'Tim Anda butuh waktu lebih lama dari biasanya untuk mulai. Coba lagi; jika masih belum terbuka, hubungi dukungan.', button: 'Coba lagi' },
+  ja: { text: 'チームの起動にいつもより時間がかかっています。再試行しても開かない場合は、サポートにお問い合わせください。', button: '再試行' },
+  es: { text: 'Su equipo está tardando más de lo habitual en iniciarse. Vuelva a intentarlo; si sigue sin abrirse, contacte con soporte.', button: 'Volver a intentar' },
+  zh: { text: '团队启动的时间比平时长。请重试；如果仍然打不开，请联系支持。', button: '重试' },
+}
+// a spinner that needs no script, the seconds that need a tiny one (the page has no CSP). sessionStorage keeps the count
+// across the page's own reloads ({s: since, l: last seen}); it starts over when the last count is older than a minute
+// (a page of the team came in between, or the tab was closed) or the wait older than 10 minutes. Try again starts over.
+const WAKING_CSS = '.sp{width:28px;height:28px;border:3px solid #cfd6d1;border-top-color:#2f7d4f;border-radius:50%;animation:sp 1s linear infinite;margin:0 0 16px}@keyframes sp{to{transform:rotate(360deg)}}.w{margin-top:12px;font-size:14px;color:#6b766f;font-variant-numeric:tabular-nums}#wf p{margin-top:16px;color:#1d2420}#wf button{margin-top:12px;font:inherit;font-size:15px;padding:8px 16px;border-radius:8px;border:1px solid #2f7d4f;background:#2f7d4f;color:#fff;cursor:pointer}@media (prefers-color-scheme:dark){.sp{border-color:#3a443e;border-top-color:#5fd08a}.w{color:#8f9a94}#wf p{color:#e8ece9}#wf button{background:#5fd08a;border-color:#5fd08a;color:#0c1a11}}@media (prefers-reduced-motion:reduce){.sp{animation-duration:3s}}'
+const wakingScript = (label: string) => `<script>(function(){var e=document.getElementById('w');if(!e)return;var L=${JSON.stringify(label)},G=${WAKE_LATE_SEC},k='mycelWakeSince',n=Date.now(),t=n;try{var v=JSON.parse(sessionStorage.getItem(k)||'null');if(v&&n-v.s<6e5&&n-v.l<6e4)t=v.s}catch(x){}function u(){var s=Math.max(0,Math.round((Date.now()-t)/1e3));e.textContent=L.replace('%N%',s);try{sessionStorage.setItem(k,JSON.stringify({s:t,l:Date.now()}))}catch(x){}var f=document.getElementById('wf');if(s>=G&&f&&f.hidden){f.hidden=false;var p=document.getElementById('sp');if(p)p.hidden=true}}e.hidden=false;u();setInterval(u,1e3);var b=document.getElementById('wr');if(b)b.onclick=function(){try{sessionStorage.removeItem(k)}catch(x){}location.reload()}})()</script>`
+/** A page whose address has a #fragment (the setup link /setup#token=…, an invite link) is never reloaded by
+ *  <meta http-equiv="refresh">: a browser treats a navigation to the same URL with a fragment as a jump inside the page
+ *  (HTML "navigate to a fragment"), so the waking page counted on and never asked again (owner 2026-11-22, "Waiting:
+ *  266 s" on the setup link of a team that was up after 20 s). The script reloads such a page itself. */
+const hashReload = (sec: number) => `<script>(function(){if(location.hash)setTimeout(function(){location.reload()},${sec * 1000})})()</script>`
+const lateBlock = (lang: Lang) => `<div id="wf" role="alert" hidden><p>${esc(LATE[lang].text)}</p><button id="wr" type="button">${esc(LATE[lang].button)}</button></div>`
 
 export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null = null, links: PageLinks = DEFAULT_PAGE_LINKS, refreshSec: number | null = null): string {
   const t = { title: TEXT[kind][lang].title, body: pageBody(kind, lang, links) }
   const title = pageMessage(kind, lang, offlineForMs)
   // team_waking: reload the same address (path and query, e.g. an OAuth callback's code) without echoing it in the page
   const waking = kind === 'team_waking'
-  const reload = kind === 'team_waking' ? `<meta http-equiv="refresh" content="${wakingRefreshSec(refreshSec)}">`
-    : kind === 'team_no_room' ? `<meta http-equiv="refresh" content="${noRoomRetrySec(refreshSec)}">` : ''
+  const reloadSec = kind === 'team_waking' ? wakingRefreshSec(refreshSec) : kind === 'team_no_room' ? noRoomRetrySec(refreshSec) : null
+  const reload = reloadSec === null ? '' : `<meta http-equiv="refresh" content="${reloadSec}">`
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${reload}<title>${esc(t.title)}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}${waking ? WAKING_CSS : ''}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
-<body><main>${waking ? '<div class="sp" role="progressbar" aria-label="' + esc(title) + '"></div>' : ''}<h1>${esc(title)}</h1><p>${esc(t.body)}</p>${waking ? '<p class="w" id="w" role="timer" hidden></p>' + wakingScript(WAITED[lang]) : ''}</main></body></html>`
+<body><main>${waking ? '<div class="sp" id="sp" role="progressbar" aria-label="' + esc(title) + '"></div>' : ''}<h1>${esc(title)}</h1><p>${esc(t.body)}</p>${waking ? '<p class="w" id="w" role="timer" hidden></p>' + lateBlock(lang) + wakingScript(WAITED[lang]) : ''}${reloadSec === null ? '' : hashReload(reloadSec)}</main></body></html>`
 }
 
 /** team_waking: the page reloads after the control plane's retryAfterSec, kept to 3-20 s (a stopped hosted server takes
