@@ -133,6 +133,14 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const toolUseId = toolUseIdOf(params)
     const owner = await ctx.files.forCall(toolUseId, { signal: ctx.signal })
     const row = (summary: string, ok: number) => insert.run(ctx.turnId, ctx.user.id, EDIT_FILES_TOOL, summary.slice(0, 1000), ok, toolUseId, owner.agent)
+    // a path to a file copied into this shared chat is the chat's copy (chat/copy-paths.ts): mapped once here, so the
+    // batch's card, its one-entry-per-file and each file's edit all see the same path
+    if (extra?.mapPaths) {
+      try { params = { ...params, arguments: extra.mapPaths(EDIT_FILES_TOOL, params?.arguments ?? {}, { files: owner.files }) } } catch {
+        row(`${EDIT_FILES_TOOL} -> not run (the chat's copies could not be looked up)`, 0)
+        return failed('The files of this chat could not be looked up, so nothing was done. Try again.').result
+      }
+    }
     const a = EditFilesInput.safeParse(params?.arguments ?? {})
     if (!a.success) {
       row(`${EDIT_FILES_TOOL} -> invalid input`, 0)

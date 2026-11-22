@@ -310,11 +310,11 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // nobody in it (a chat never shared, nobody picked, or everyone taken out): no files box, nothing to share them with
   const filesStep = stepFiles.length > 0 && picks.length > 0 && !removesAll
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
-  // ticked by default when every listed file is safe for the people (the sharer's own outputs: no file marked made from
-  // files they can't open, no pick the check warns about: QA TC-v1d-02); otherwise unticked until its owner ticks it
-  // (#320: a file that carries what they can't open leaves My files only by a press that names files). The default
-  // waits for the check of these picks
-  const filesSafe = !stepFiles.some((f) => f.private) && !check?.warnPicks?.length && (!adding.length || current?.state === 'ready')
+  // while adding people: ticked by default when the check of these picks says every listed file is safe for them (the
+  // sharer's own outputs: no file marked made from files they can't open, nothing the check warns about: QA TC-v1d-02);
+  // otherwise unticked until its owner ticks it (#320: a file that carries what they can't open leaves My files only by
+  // a press that names files). A chat already shared lists its files without that check: unticked, as before
+  const filesSafe = adding.length > 0 && current?.state === 'ready' && !stake && !stepFiles.some((f) => f.private) && !check?.warnPicks?.length
   const withFiles = filesPick ?? filesSafe
   // the files go only when ticked (and there are files to go)
   const sendFiles = filesStep && withFiles

@@ -130,14 +130,19 @@ describe('the mapping itself', () => {
     expect(mapCopyPaths('copy_files', { paths: ['users/junho/견적서.pdf'], to_folder: 'users/junho' }, copies).args).toEqual({ paths: [to], to_folder: 'users/junho' })
     // make_file's output is a new file's place: kept (a team path, refused or saved by the team rules)
     expect(mapCopyPaths('make_file', { output: 'users/junho/견적서.pdf' }, copies).mapped).toBe(0)
+    expect(mapCopyPaths('edit_files', { file_paths: ['users/junho/견적서.pdf', 'shared/a.md'], old_string: 'users/junho/견적서.pdf', new_string: 'x' }, copies).args)
+      .toEqual({ file_paths: [to, 'shared/a.md'], old_string: 'users/junho/견적서.pdf', new_string: 'x' })
     for (const t of ['delete_files', 'move_files', 'rename_file', 'who_can_open', 'share_with_person', 'stop_sharing']) expect(mapCopyPaths(t, { paths: ['users/junho/견적서.pdf'], path: 'users/junho/견적서.pdf' }, copies).mapped).toBe(0)
     // another file of the folder, a longer name: kept
     expect(mapCopyPaths('read', { file_path: 'users/junho/견적서.pdf.bak' }, copies).mapped).toBe(0)
     const same = { file_path: 'users/junho/other.pdf' }
     expect(mapCopyPaths('read', same, copies).args).toBe(same)
   })
-  test('the text: as written, after a "/", URL-encoded, before a Korean particle; never inside a longer path', () => {
-    const t = mapCopyText(`[견적서](users/junho/견적서.pdf) · /users/junho/견적서.pdf에 저장 · (${encodeURI('users/junho/견적서.pdf')}) · users/junho/견적서.pdf.bak · xusers/junho/견적서.pdf`, copies)
-    expect(t).toBe(`[견적서](${to}) · ${to}에 저장 · (${to}) · users/junho/견적서.pdf.bak · xusers/junho/견적서.pdf`)
+  test('the text: as written, after a "/", URL-encoded (encoded again), before a Korean particle or a sentence\'s "."; never inside a longer path', () => {
+    const t = mapCopyText(`[견적서](users/junho/견적서.pdf) · /users/junho/견적서.pdf에 저장 · (${encodeURI('users/junho/견적서.pdf')}) · users/junho/견적서.pdf.bak · xusers/junho/견적서.pdf · saved to users/junho/견적서.pdf.`, copies)
+    expect(t).toBe(`[견적서](${to}) · ${to}에 저장 · (${encodeURI(to)}) · users/junho/견적서.pdf.bak · xusers/junho/견적서.pdf · saved to ${to}.`)
+    // a name with "$&" is put in as written (never read as a replacement pattern)
+    const odd = new Map([['users/junho/a$&b.pdf', { id: '0190f3c2-7d1a-7c3e-9b2a-1f2e3d4c5b6a', name: 'a$&b.pdf' }]])
+    expect(mapCopyText('see users/junho/a$&b.pdf', odd)).toBe(`see ${chatFilePath('0190f3c2-7d1a-7c3e-9b2a-1f2e3d4c5b6a', 'a$&b.pdf')}`)
   })
 })

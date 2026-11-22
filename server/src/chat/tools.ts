@@ -632,8 +632,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_files names a chat file once however it is spelled (chat:files/<id>/…, an older version's id, its name):
     // an edit run twice would apply a replacement whose new text holds the old one again
     batchKey: (p) => {
-      // a copied original and the copy's own path are one file (mapPaths maps each call the same way)
-      const place = placeArg('edit', mapCopyPaths('edit', { file_path: p }, copiesHere()).args)
+      const place = placeArg('edit', { file_path: p })
       if (!chatVersionPlace(place)) return null
       try { return chatPlaces(exec, exec.files).head(place.id, place.name ?? '').path } catch { return null }
     },

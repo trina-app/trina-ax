@@ -79,16 +79,19 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /**
  * An answer's text with every copied original path in it as the copy's chat place path: as the text writes it (with
  * or without a "/" in front) and URL-encoded (a Markdown link's target). Only whole paths: one followed by more of a
- * path or name (a letter, digit, ".", "-", "_" or "/") stays; a Korean particle right after it does not stop it.
+ * path or name (a letter, digit, "-", "_", "/", or "." and more of a name) stays; a Korean particle or a sentence's
+ * "." right after it does not stop it.
  */
 export function mapCopyText(text: string, copies: Copies): string {
   if (!copies.size || !text) return text
   let out = text
   for (const [from, c] of copies) {
     const to = chatFilePath(c.id, c.name)
-    for (const form of new Set([from, encodeURI(from)])) {
+    // the URL-encoded form (a Markdown link's target) gets the copy's path encoded too, so the link stays one link
+    for (const [form, put] of new Map([[from, to], [encodeURI(from), encodeURI(to)]])) {
       if (!out.includes(form)) continue
-      out = out.replace(new RegExp(`(?<![\\w.\\-/])(?:\\.?/)?${escapeRe(form)}(?![\\w.\\-/])`, 'g'), to)
+      // a "." right after it ends a sentence; one followed by more of a name ("a.pdf.bak") is another file
+      out = out.replace(new RegExp(`(?<![\\w.\\-/])(?:\\.?/)?${escapeRe(form)}(?![\\w\\-/]|\\.[\\w\\-/])`, 'g'), () => put)
     }
   }
   return out

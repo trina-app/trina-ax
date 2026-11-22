@@ -150,14 +150,11 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(step).toBeVisible()
       await expect(step).toHaveAttribute('data-already', '')
       await expect(step).toContainText('파일도 같이 공유 (2개)')
-      // safe files: ticked by default, so Save adds the files alone; unticked, Save is off
-      const box = dialog.getByTestId('chat-share-files-check')
-      await expect(box).toBeChecked()
-      await box.uncheck()
+      // nothing changed and nothing ticked: Save off; ticked, Save adds the files alone
       await expect(dialog.getByTestId('chat-share-save')).toBeDisabled()
       await audit(page, 'already-shared step')
       await shots(page, 'already-shared-step')
-      await box.check()
+      await dialog.getByTestId('chat-share-files-check').check()
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       await dialog.getByTestId('chat-share-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '파일 2개를 대화에 추가했어요' })).toBeVisible()

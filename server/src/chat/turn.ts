@@ -85,6 +85,7 @@ import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/stora
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { sharedCopyMap } from './chat-files-share'
+import { chatKindOf } from './place-ctx'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { projectRoomOfChat } from './room-tools'
@@ -1028,7 +1029,7 @@ export class TurnExec {
     const several = !!this.shared || othersWrote
     // a chat shared with people with files copied in: its answers' paths to those originals as the copies'
     // (chat/copy-paths.ts mapCopyText), the same files the tool calls open (chat/tools.ts mapPaths)
-    const copiesNow = () => (this.shared?.kind === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined)
+    const copiesNow = () => (chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined)
     const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies: copiesNow() } : null)
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)

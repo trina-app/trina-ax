@@ -287,17 +287,25 @@ describe('the save model and every exit', () => {
     } finally { await m.unmount() }
   })
 
-  test('safe files on a chat already shared: ticked by default, Save on; unticking turns it off', async () => {
+  test('a chat already shared lists its files without a check of anyone: unticked by default, Save off', async () => {
     routesWith(audience([SORA], { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120 }], madeFilesKey: 'mk' }))
     const m = await open()
     try {
       await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
-      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(true)
-      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(false)
-      const box = m.get('chat-share-files-check')
-      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!.set!.call(box, false)
-      await m.click(box)
-      await m.until(() => m.get('chat-share-save').hasAttribute('disabled'), 'Save off once unticked', 2000)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+  })
+
+  test('safe files but a check that warns (an older server without warnPicks): unticked by default', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience(), undefined, () => ({ ...NOTHING, memoryAnswers: 1, madeFiles }))
+    const m = await open()
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
     } finally { await m.unmount() }
   })
 
