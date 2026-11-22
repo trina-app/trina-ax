@@ -15,7 +15,7 @@
   and the API engine start fresh every turn. A fresh session got earlier answers as their text only: `messages.steps`
   never reached it, and tool arguments and results were stored nowhere.
 - **Rule:** each of the main AI's tool steps keeps a short note on the server, `messages.step_notes` (`{stepId: {i, o}}`,
-  migration 441): its key arguments (paths, addresses, names, queries, commands, the start of code; body text as its
+  migration 443): its key arguments (paths, addresses, names, queries, commands, the start of code; body text as its
   length; at most 240 characters) and the start of its result (200 characters, pictures and base64 out), with the
   person's stored connection secrets hidden before anything is cut. The column is not in `MESSAGE_COLS`: no route,
   event or export carries it. A fresh session's history (`historyBlock`, the same for Claude Code, Codex and the API

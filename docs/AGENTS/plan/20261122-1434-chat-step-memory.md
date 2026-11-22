@@ -81,7 +81,7 @@ tool results; sub-agent inner steps (their sub-task line is kept).
   column, not in `MESSAGE_COLS`).
 - Prompt injection through a stored result: values neutralized, block framed as data.
 - Tokens: capped as above; counted in the history window.
-- Migration 441 (440 is the highest on dev).
+- Migration 443 (440 is the highest on dev; #403 and #404 take 441 and 442).
 
 ## Tests
 
