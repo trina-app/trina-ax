@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 08:40
 - Branch: `fix/project-room-pictures`
-- Status: in progress
+- Status: done
 - Where: server/src/rooms (file-refs.ts, files.ts), server/src/routes/rooms.ts, web/src/components/rooms. Why: the
   room file endpoint and its view of a team-folder file live there.
 - Version impact: patch. A bug fix: pictures sent in a group channel or a project room show as pictures again; no API
@@ -62,4 +62,11 @@ through a descriptor bound to the checked inode (no swap between check and read)
 `bun run typecheck`, `bun run check:prepush`, tests/unit for rooms, web e2e for rooms pictures.
 
 ## Result
+
+Built as planned. Every path that makes a room file a team-file reference goes through rooms/file-refs.ts view() and
+rooms/files.ts open/openThumb, so one change covers project rooms (computer upload, team pick, the files moved by Make
+it a project) and department group channels. New module rooms/team-thumbs.ts (cache, converter check, at most two
+thumbnails made at once). The route now streams a team file only while it is the inode the read check saw (seen).
+The Trina chat's team-file references (uploads/team-refs.ts) are a separate path and were left as they are. PR: see
+the branch's pull request.
 

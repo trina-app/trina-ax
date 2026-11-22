@@ -69,6 +69,7 @@ import { roomFileRefsOf, type RoomRefRow } from './file-refs'
 import { projectRoomLink } from './project-room'
 import { roomHasTeamPlace, teamPlaceFor, type TeamPlace } from './team-place'
 import { safeName } from './file-moves'
+import { smallWebImage, teamThumbPossible, thumbKey, TeamThumbs } from './team-thumbs'
 import { instructionFile } from '../team-files/ai-trash'
 import { otherRefTo } from '../uploads/ref-follow'
 import { ATTACH_RATE_MAX, hashChecked } from '../uploads/team-refs'
@@ -109,6 +110,10 @@ const parseStamp = (s: string): number | null => {
   return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) : null
 }
 const services = new WeakMap<AppContext, RoomFiles>()
+const teamThumbsByCtx = new WeakMap<AppContext, TeamThumbs>()
+
+/** A room file opened for a read (`seen`: a team file's stat as the read check saw it, for the stream to hold to). */
+export interface OpenedRoomFile { abs: string; name: string; quarantined: boolean; sha256: string; teamFile?: true; seen?: fs.Stats }
 
 export class RoomFiles {
   constructor(readonly ctx: AppContext) {}
@@ -370,6 +375,7 @@ export class RoomFiles {
     for (const f of rows) {
       if (refs.has(f.id)) {
         this.refs().forget(f.id)
+        this.teamThumbs().remove(f.id)
         const t = trash.get(f.id)
         if (t) try {
           // still the very file uploadToTrash checked (nothing took its place meanwhile)
@@ -529,23 +535,17 @@ export class RoomFiles {
    * its bytes are on the team's download-only list (the route then sends it only as a download). A file kept in the team
    * folder (`teamFile`: a project room's): the team file as it is now, while I read its path now; its bytes may change.
    */
-  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string; teamFile?: true } {
-    const me = this.member(userId, roomId)
-    const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
-    if (!f) return fail('not_found')
-    if (f.message_id) {
-      const m = messageRow(this.ctx.db, roomId, f.message_id)
-      if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
-    } else if (f.user_id !== userId) fail('not_found')
-    const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
-    // a project room's file kept in the team folder: where it is now, while I read it there (rooms/file-refs.ts)
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): OpenedRoomFile {
+    const { f, quarantined } = this.readable(userId, roomId, fileId)
+    // a file kept in the team folder (a project room's, a group channel's): where it is now, while I read it there
+    // (rooms/file-refs.ts). Its thumbnail is openThumb's (made from the team file); here only the picture itself when
+    // it is a small web image, for a caller that does not wait for one to be made
     if (this.refs().isRef(f.id)) {
       const s = this.refs().locate(userId, f)
       if (s.state !== 'ok') return fail('not_found')
       const name = s.rel.slice(s.rel.lastIndexOf('/') + 1)
-      // no thumbnail of its own: the picture itself when it is a small web image (as a chat's team file reference)
-      if (thumb && (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(name)) || s.st.size > 2 * 1024 * 1024)) fail('not_found')
-      return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true }
+      if (thumb && !(this.teamPicture(f, name) && smallWebImage(name, s.st.size))) fail('not_found')
+      return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: s.st }
     }
     // a file on its way to a project's Chat attachments (rooms/file-moves.ts): read from where it is staged, with the same
     // checks, until its reference is there
@@ -562,6 +562,56 @@ export class RoomFiles {
     }
     try { checkRegular(abs) } catch { fail('not_found') }
     return { abs, name: f.name, quarantined, sha256: f.sha256 }
+  }
+
+  /** In the room now, and the file sent in a message I may see (not deleted) or my own upload not sent yet; else 404. */
+  private readable(userId: string, roomId: string, fileId: string): { f: FileRow; quarantined: boolean } {
+    const me = this.member(userId, roomId)
+    const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
+    if (!f) return fail('not_found')
+    if (f.message_id) {
+      const m = messageRow(this.ctx.db, roomId, f.message_id)
+      if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
+    } else if (f.user_id !== userId) fail('not_found')
+    return { f, quarantined: this.ctx.files.quarantine.hasHash(f.sha256) }
+  }
+
+  /** a room file kept in the team folder that is shown as a picture: one when sent, still named like one (file-refs view) */
+  private teamPicture(f: Pick<FileRow, 'kind'>, name: string): boolean { return f.kind === 'image' && attachmentKind(name) === 'image' }
+
+  /**
+   * GET ?thumb=1: open(), and for a picture kept in the team folder (no thumbnail of its own) a thumbnail made from the
+   * team file as it is now (rooms/team-thumbs.ts: kept per version of the file, made from the very inode the read check
+   * saw), after the same checks as every read (in the room, the message visible, I read the team file's path now: a
+   * quarantined or hidden file is not found). None could be made: the picture itself only when it is a small web image;
+   * anything else 404. A file on the download-only list gets none (the route refuses it first).
+   */
+  async openThumb(userId: string, roomId: string, fileId: string): Promise<OpenedRoomFile> {
+    const { f, quarantined } = this.readable(userId, roomId, fileId)
+    if (!this.refs().isRef(f.id)) return this.open(userId, roomId, fileId, true)
+    const s = this.refs().locate(userId, f)
+    if (s.state !== 'ok') return fail('not_found')
+    const name = s.rel.slice(s.rel.lastIndexOf('/') + 1)
+    if (!this.teamPicture(f, name) || !teamThumbPossible(name, s.st.size)) return fail('not_found')
+    // a file on the download-only list: no preview is made of it (the route answers 503 for it before reading anything)
+    if (quarantined) return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: s.st }
+    const thumbs = this.teamThumbs()
+    const made = thumbs.cached(f.id, thumbKey(s.st)) ?? await thumbs.make(f.id, s.abs, s.st)
+    if (made) {
+      // checked again after the wait: still mine to read, the same file
+      const now = this.refs().locate(userId, f)
+      if (now.state !== 'ok' || thumbKey(now.st) !== thumbKey(s.st)) return fail('not_found')
+      try { checkRegular(made.abs) } catch { return fail('not_found') }
+      return { abs: made.abs, name: `${name}.${made.ext}`, quarantined, sha256: f.sha256, teamFile: true }
+    }
+    if (!smallWebImage(name, s.st.size)) return fail('not_found')
+    return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true, seen: s.st }
+  }
+
+  private teamThumbs(): TeamThumbs {
+    let t = teamThumbsByCtx.get(this.ctx)
+    if (!t) { t = new TeamThumbs(this.ctx.config.dataDir, this.ctx.log); teamThumbsByCtx.set(this.ctx, t) }
+    return t
   }
 
   /** Where a room file on its way to a project's folder is staged now (rooms/file-moves.ts 'placing', or a way back
