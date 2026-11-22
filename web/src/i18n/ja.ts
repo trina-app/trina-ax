@@ -981,6 +981,7 @@ export const ja: Record<MessageKey, string> = {
   'preview.sheetRowsCut': "このシートの先頭{rows}行のみ表示しています。すべての行を見るにはファイルをダウンロードしてください。",
   'preview.sheetHidden': "非表示",
   'preview.sheetHiddenTitle': "このシートはファイル内で非表示になっています。",
+  'preview.formulaNotCalculated': 'プレビューではこの数式を計算できません。結果は Excel または Google スプレッドシートでファイルを開くと表示されます。',
   'preview.cantOpen': "{what}を開けません：{error}",
   'preview.openLink': "このアドレスを新しいウィンドウで開きますか？\n\n{url}",
   'preview.kind.docx': "Word文書",
