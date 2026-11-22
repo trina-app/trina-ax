@@ -1007,7 +1007,7 @@ export class ChatRuntime {
     timeZone?: string
     /** `parentId` a function: read inside the admission transaction from the chat `chat()` returned (a scheduled run that
      * continues an existing chat under its newest answer) */
-    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string; mentions?: readonly string[] }
+    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
     /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
@@ -1091,7 +1091,7 @@ export class ChatRuntime {
     // a person's message in a chat shared with people or a project's shared chat tells the others (chat/message-notices.ts), before the chat.updated
     // below carries their unread number. Only what the person wrote: never a scheduled run's, the answer to the AI's
     // question or card (`answered`: their pick, written for the AI), or a question asked from Slack
-    const told = o.user && !o.scheduled && !o.answered?.length && o.clientKind !== 'slack' ? noteSharedMessage(this.ctx, chat, userMessageId, o.userId, o.user.mentions) : undefined
+    const told = o.user && !o.scheduled && !o.answered?.length && o.clientKind !== 'slack' ? noteSharedMessage(this.ctx, chat, userMessageId, o.userId) : undefined
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {

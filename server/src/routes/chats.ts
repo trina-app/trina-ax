@@ -882,7 +882,7 @@ export const chatsRoutes: RouteModule = {
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
-          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId, ...(body.mentions?.length ? { mentions: body.mentions } : {}) } })
+          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
         // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
         return started

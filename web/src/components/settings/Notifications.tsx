@@ -173,8 +173,6 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
   if (item.code === 'chat.thread_reply' && item.chatThread?.mention && !item.chatThread.gone) return item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_mentionNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_mention')
-  // a message that mentions me in a shared chat's main box (QA TC-f3-02): "mentioned you", by who did, in which chat
-  if (item.code === 'chat.message' && item.chatMessage?.mention) return item.chatMessage.gone ? t('notifications.event.chat.thread_replyGone') : item.chatMessage.name && item.chatMessage.title ? isolate(locale, 'notifications.event.chat.message_mentionNamed', { name: item.chatMessage.name, title: item.chatMessage.title }, ['name', 'title']) : t('notifications.event.chat.message_mention')
   if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'access.requested' || item.code === 'access.answered') return accessRequestText(item, t)

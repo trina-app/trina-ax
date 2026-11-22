@@ -129,12 +129,9 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread', 'admin_storage', 'sent_files']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
-  /** 'chat.message' only (chat_message_notices): the message a tap opens the chat at, while I still see the chat (link
-   * 'chat', chatId; a push's signed-in fetch). Only one that mentions me is listed (`mention`: a Mentions row, QA
-   * TC-f3-02): `name`, who mentioned me by display name while their account is there (`byId`: their id then); `title`,
-   * the chat's title. `gone`: I no longer see it (no message, name, title or link). Never the message's text. Older
-   * servers send `messageId` alone */
-  chatMessage: z.object({ messageId: z.string().nullable(), name: z.string().nullable().optional(), byId: z.string().optional(), title: z.string().nullable().optional(), mention: z.literal(true).optional(), gone: z.literal(true).optional() }).optional(),
+  /** 'chat.message' only (a push's signed-in fetch: these are never listed): the message a tap opens the chat at, while I
+   * still see the chat (link 'chat', chatId). */
+  chatMessage: z.object({ messageId: z.string() }).optional(),
   /** 'storage.filling' only: how full the team's disk was (the plan's view, whole percent) and the files in conversations
    * as last measured then (null: not measured yet). One number for the team, never a name. Link 'admin_storage' (Admin ›
    * System › Storage) while the reader is still the owner or an admin. */
@@ -422,11 +419,9 @@ export type ActivityTab = z.infer<typeof ActivityTab>
  * chat's answer (chat.thread_reply) is a thread reply as well: under Threads, and under Mentions while one of its
  * replies mentions me. A notice of the app's own is under All only. The page filters with it and the server marks a
  * tab read with it (POST /api/notifications/read), so both follow one rule. */
-export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread' | 'chatMessage'>, tab: ActivityTab): boolean {
+export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread'>, tab: ActivityTab): boolean {
   if (tab === 'all') return true
   if (item.code === 'chat.thread_reply') return tab === 'threads' || (tab === 'mentions' && !!item.chatThread?.mention)
-  // a message that mentions me in a chat's main box (the only chat.message rows listed): under Mentions
-  if (item.code === 'chat.message') return tab === 'mentions' && !!item.chatMessage?.mention
   const room = item.room
   if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
   if (tab === 'dms') return room.kind === 'dm' || room.kind === 'group'

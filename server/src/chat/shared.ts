@@ -468,7 +468,7 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   // once for a chat.updated to all its viewers)
   const unread = o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
   const muted = !!unread?.muted
-  return { ...c, title: hide(c.title), shared, ...(unread?.n ? { unseen: true as const, unreadCount: unread.n, ...(unread.mention ? { mentioned: true as const } : {}) } : {}), ...(muted ? { muted: true as const } : {}) }
+  return { ...c, title: hide(c.title), shared, ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer
