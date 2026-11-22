@@ -17,15 +17,29 @@
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
 import { ALWAYS_VALUE } from './always-allow'
+import type { CardAlwaysKind } from '@mycel/shared/api'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
-import { tr } from './i18n'
+import { TEXT, tr } from './i18n'
 import type { Locale } from '@mycel/shared/api'
 import { answerRecord } from './shared-answers'
 
 type AskRequest = Extract<TurnRequest, { kind: 'ask_user' }>
-interface Row { request_id: string; chat_id: string; message_id: string; turn_id: string; user_id: string; request: string; answer: string | null; created_at: string; call_tool: string | null; call_args: string | null; window_id: string | null }
+interface Row { request_id: string; chat_id: string; message_id: string; turn_id: string; user_id: string; request: string; answer: string | null; created_at: string; call_tool: string | null; call_args: string | null; window_id: string | null; call_meta?: string | null }
+/** The turn that asked for a waiting call (docs/decisions/20261122-late-card-answer-resumes.md): its id, its user
+ * message (the person's own words the call's checks read) and its answer (what the call's content came from). A card
+ * re-raised while the call runs again keeps the first asking turn. */
+export interface AskedIn { turnId: string; userMessageId: string; assistantId: string }
+/** one earlier card of the same call and the answer it took (a call with two cards never asks the first again) */
+export interface PriorAnswer { card: TurnRequest; answer: unknown }
+/** what a waiting call keeps besides its tool and arguments (open_questions.call_meta, migration 444) */
+export interface CallMeta {
+  asked?: AskedIn
+  /** the kind of the card's "Always allow" (chat/always-allow.ts): kept when the person picked it */
+  always?: CardAlwaysKind
+  prior?: PriorAnswer[]
+}
 /** a tool call that raised a safety card and runs again with its answer (chat/turn.ts replayCalls) */
-export interface WaitingCall { tool: string; args: unknown; card: TurnRequest; window: string | null }
+export interface WaitingCall extends CallMeta { tool: string; args: unknown; card: TurnRequest; window: string | null }
 /** one answered question (or safety card, with its call), as the next turn's engine message names it */
 export interface AnsweredQuestion {
   question: string; answer: unknown; call?: WaitingCall
@@ -41,7 +55,11 @@ export interface AnsweredQuestion {
 
 /** Tools whose safety cards (delete, share, a website, a browser site) wait after the answer ends: the call raises
  * its card before it changes anything, so it can end and run again with the answer (chat/turn.ts cardLater) */
-export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 'share_with_person', 'share_folder', 'stop_sharing', 'web_fetch', 'save_url', ...BROWSER_TOOL_NAMES])
+export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 'share_with_person', 'share_folder', 'stop_sharing', 'web_fetch', 'save_url', ...BROWSER_TOOL_NAMES,
+  // since docs/decisions/20261122-late-card-answer-resumes.md: each asks before it changes anything (a room post, members,
+  // folder access, a skill's files or place, a scheduled task, a memory). A connected service's tools join by their
+  // provider (chat/tools.ts: every tool of the integrations provider but connection_result and find_tools)
+  'post_to_room', 'change_project_members', 'change_folder_access', 'skill_files', 'move_skill', 'schedule_create', 'remember'])
 
 /** Turns of these apps keep the card inside the tool call (see the header): null is a turn the server started itself. */
 export const questionsWaitInCall = (clientKind: string | null): boolean => clientKind === null || clientKind === 'schedule' || clientKind === 'slack'
@@ -51,17 +69,32 @@ const parse = (s: string): TurnRequest | null => {
 }
 /** what a card asks, in words (a browser site card: its reason) */
 const cardWords = (r: TurnRequest): string => (r.kind === 'ask_user' ? r.question : r.kind === 'browser_site' ? r.reason ?? r.host : r.kind === 'dev_env_site' ? r.host : r.name)
+const metaOf = (s: string | null | undefined): CallMeta => {
+  if (!s) return {}
+  try {
+    const m = JSON.parse(s) as CallMeta
+    if (!m || typeof m !== 'object') return {}
+    const a = m.asked
+    return {
+      ...(a && typeof a.turnId === 'string' && typeof a.userMessageId === 'string' && typeof a.assistantId === 'string' ? { asked: { turnId: a.turnId, userMessageId: a.userMessageId, assistantId: a.assistantId } } : {}),
+      ...(typeof m.always === 'string' ? { always: m.always } : {}),
+      ...(Array.isArray(m.prior) ? { prior: m.prior.filter((x) => x && typeof x === 'object' && x.card && typeof x.card.kind === 'string') } : {}),
+    }
+  } catch { return {} }
+}
 const callOf = (r: Row, card: TurnRequest): WaitingCall | undefined => {
   if (!r.call_tool) return undefined
   let args: unknown = {}
   try { args = JSON.parse(r.call_args ?? '{}') } catch {}
-  return { tool: r.call_tool, args, card, window: r.window_id }
+  // a row saved before call_meta: the asking turn is the row's own (its user message read from the turn)
+  return { tool: r.call_tool, args, card, window: r.window_id, ...metaOf(r.call_meta) }
 }
 
-export function saveQuestion(db: Database, o: { request: TurnRequest; chatId: string; messageId: string; turnId: string; userId: string; call?: { tool: string; args: unknown; window: string | null } }): void {
-  db.query('INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, answer, created_at, call_tool, call_args, window_id) VALUES (?,?,?,?,?,?,NULL,?,?,?,?)')
+export function saveQuestion(db: Database, o: { request: TurnRequest; chatId: string; messageId: string; turnId: string; userId: string; call?: { tool: string; args: unknown; window: string | null } & CallMeta }): void {
+  const meta: CallMeta | null = o.call ? { ...(o.call.asked ? { asked: o.call.asked } : {}), ...(o.call.always ? { always: o.call.always } : {}), ...(o.call.prior?.length ? { prior: o.call.prior } : {}) } : null
+  db.query('INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, answer, created_at, call_tool, call_args, window_id, call_meta) VALUES (?,?,?,?,?,?,NULL,?,?,?,?,?)')
     .run(o.request.requestId, o.chatId, o.messageId, o.turnId, o.userId, JSON.stringify(o.request), new Date().toISOString(),
-      o.call?.tool ?? null, o.call ? JSON.stringify(o.call.args ?? {}) : null, o.call?.window ?? null)
+      o.call?.tool ?? null, o.call ? JSON.stringify(o.call.args ?? {}) : null, o.call?.window ?? null, meta && Object.keys(meta).length ? JSON.stringify(meta) : null)
 }
 
 /** The person's open cards in this chat, oldest first, as GET /api/chats/:id/requests lists cards: a card for one
@@ -101,7 +134,16 @@ export function readyAnswers(db: Database, messageId: string, userId: string): {
   const all = db.query('SELECT * FROM open_questions WHERE message_id = ? AND user_id = ? ORDER BY created_at, request_id').all(messageId, userId) as Row[]
   if (!all.length || all.some((x) => x.answer === null)) return null
   const requests = all.map((x) => parse(x.request) ?? { kind: 'ask_user' as const, requestId: x.request_id, question: '' })
-  const answers = all.map((x, i) => { const call = callOf(x, requests[i]!); return { question: cardWords(requests[i]!), answer: JSON.parse(x.answer!) as unknown, ...(call ? { call } : {}) } })
+  // a waiting call saved before call_meta (migration 444): its asking turn is the row's own turn, the same person's
+  const askedOf = (x: Row): AskedIn | undefined => {
+    const t = db.query('SELECT id, user_message_id, message_id FROM turns WHERE id = ? AND user_id = ?').get(x.turn_id, x.user_id) as { id: string; user_message_id: string | null; message_id: string | null } | null
+    return t?.user_message_id && t.message_id ? { turnId: t.id, userMessageId: t.user_message_id, assistantId: t.message_id } : undefined
+  }
+  const answers = all.map((x, i) => {
+    const call = callOf(x, requests[i]!)
+    if (call && !call.asked) { const asked = askedOf(x); if (asked) call.asked = asked }
+    return { question: cardWords(requests[i]!), answer: JSON.parse(x.answer!) as unknown, ...(call ? { call } : {}) }
+  })
   return { requests, answers, window: all.find((x) => x.window_id)?.window_id ?? null }
 }
 
@@ -128,18 +170,56 @@ export function recordAnswer(db: Database, requestId: string, value: unknown): {
   })()
 }
 
-/** A new turn starts in the chat: every question still there goes (answered ones with their turn, the rest because the
- * conversation went on without them). What the apps are told to close; `question`: the AI's own ask_user question, for
- * closedQuestionNote (null for the server's safety cards: delete, share, a site, which name files, people and links
- * only their asker sees). */
-export function closeChatQuestions(db: Database, chatId: string): { requestId: string; turnId: string; userId: string; answered: boolean; question: string | null }[] {
-  const rows = db.query('SELECT request_id, turn_id, user_id, answer, request, call_tool FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool'>[]
+/** A new turn starts in the chat: the AI's own questions still there go (answered ones with their turn, the rest because
+ * the conversation went on without them). A waiting call's card stays, unanswered, with any answered card of the same
+ * answer (docs/decisions/20261122-late-card-answer-resumes.md: the person typed instead of pressing; the card still
+ * runs that call when pressed, and the new turn's AI is told it waits, waitingCardsNote). What the apps are told to
+ * close; `question`: the AI's own ask_user question, for closedQuestionNote (null for the server's safety cards: delete,
+ * share, a site, which name files, people and links only their asker sees). */
+export function closeChatQuestions(db: Database, chatId: string, under: string | null = null): { requestId: string; turnId: string; userId: string; answered: boolean; question: string | null }[] {
+  const rows = db.query('SELECT request_id, message_id, turn_id, user_id, answer, request, call_tool FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'message_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool'>[]
   if (!rows.length) return []
-  db.query('DELETE FROM open_questions WHERE chat_id = ?').run(chatId)
-  return rows.map((r) => {
+  // a message whose waiting call's card is still open keeps its call cards (answered or not), while the new turn goes
+  // on under its asking answer (`under`: the new turn's user message): an edit, a regenerate or another branch went on
+  // without it, so its card goes there as an AI question does
+  // (a turn with no message of its own, a scheduled run: the chat did not go on from a branch, the cards stay)
+  const onBranch = (id: string) => !under || descends(db, under, id)
+  const waiting = new Set(rows.filter((r) => r.call_tool && r.answer === null && onBranch(r.message_id)).map((r) => `${r.message_id}\u0000${r.user_id}`))
+  const keep = (r: (typeof rows)[number]) => !!r.call_tool && waiting.has(`${r.message_id}\u0000${r.user_id}`)
+  const gone = rows.filter((r) => !keep(r))
+  if (!gone.length) return []
+  const del = db.query('DELETE FROM open_questions WHERE request_id = ?')
+  for (const r of gone) del.run(r.request_id)
+  return gone.map((r) => {
     const card = parse(r.request)
     return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' && card.origin !== 'server' && !r.call_tool ? card.question : null }
   })
+}
+
+/** `id` is `ancestor` or comes after it in the chat's message tree (parent_id links; fails closed after many steps). */
+export function descends(db: Database, id: string, ancestor: string): boolean {
+  const up = db.query('SELECT parent_id FROM messages WHERE id = ?')
+  let at: string | null = id
+  for (let i = 0; at && i < 5000; i++) {
+    if (at === ancestor) return true
+    at = (up.get(at) as { parent_id: string | null } | null)?.parent_id ?? null
+  }
+  return false
+}
+
+/** Where the turn a late press starts goes on (routes/chats.ts answerLater, ChatRuntime.startAnsweredTurns): the chat's
+ * newest answer when it comes after the asking answer (the card stayed while the chat went on), else the asking answer
+ * (the person switched to another branch since: the press goes on where the card was asked). */
+export const pressParent = (db: Database, leaf: string | null, asking: string): string => (leaf && descends(db, leaf, asking) ? leaf : asking)
+
+/** The engine message's block when a waiting call's card of this person is still open in the chat (or ''): the
+ * person wrote instead of pressing it. Their message never answers it (a safety card is decided by its buttons). */
+export function waitingCardsNote(db: Database, chatId: string, userId: string, turnId: string): string {
+  // (a card this turn raised itself, running a call again, is not an earlier one)
+  const rows = db.query('SELECT call_tool FROM open_questions WHERE chat_id = ? AND user_id = ? AND turn_id != ? AND answer IS NULL AND call_tool IS NOT NULL ORDER BY created_at').all(chatId, userId, turnId) as { call_tool: string }[]
+  if (!rows.length) return ''
+  const tools = [...new Set(rows.map((r) => r.call_tool))].slice(0, 10)
+  return `<waiting_card>\nA card of your earlier ${tools.length > 1 ? 'calls' : 'call'} (${tools.join(', ')}) still waits above for the user's press; nothing of ${tools.length > 1 ? 'them' : 'it'} was done. This message does not answer it: only the card's own buttons do. If the message is about it (a yes, "go ahead", "allow"), say in one short line that they can press the button on the card above and it will run right then; never call that tool again for the same thing (that makes a second card). Otherwise answer the message as usual.\n</waiting_card>`
 }
 
 /** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next
@@ -313,19 +393,51 @@ function callsIn(questions: string): (WaitingCall & { answer: unknown })[] {
   } catch { return [] }
 }
 
-/** The card a call raises again is the card the person answered: the same kind, words, rows and choices (a card that
- * reads differently now, because something changed, is asked again). The Always allow choice and the time limit are
- * not compared: they depend on the moment, not on what is asked. */
-export function sameCard(a: TurnRequest, b: TurnRequest): boolean {
-  if (a.kind !== b.kind) return false
+/** The card a call raises again (`now`) is the card the person answered (`answered`): the same kind, rows and choices,
+ * and its words the same, or the answered card's with a reason paragraph fewer (a reason that no longer holds; a new
+ * reason is a different card). A card that reads differently now, because something changed, is asked again. The Always
+ * allow choice, the time limit and the changed line (CHANGED_MARK) are not compared: they depend on the moment. */
+export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
+  if (answered.kind !== now.kind) return false
   const strip = (r: TurnRequest) => {
     const { requestId: _i, expiresAt: _e, ...rest } = r as TurnRequest & { expiresAt?: string }
-    const x = rest as Record<string, unknown>
+    const x = { ...rest } as Record<string, unknown>
     if (Array.isArray(x.options)) x.options = (x.options as { value: string }[]).map((o) => o.value).filter((v) => v !== ALWAYS_VALUE).sort()
     delete x.note
-    return stable(x)
+    if (x.share && typeof x.share === 'object') { const { why: _w, ...share } = x.share as Record<string, unknown>; x.share = share }
+    const question = typeof x.question === 'string' ? x.question : null
+    delete x.question
+    return { rest: stable(x), paras: question === null ? null : paragraphs(question) }
   }
-  return strip(a) === strip(b)
+  const a = strip(answered), b = strip(now)
+  if (a.rest !== b.rest) return false
+  if (a.paras === null || b.paras === null) return a.paras === b.paras
+  // the card now is the card answered with some of its reason lines (REASON_LINES) left out, nothing else
+  let i = 0
+  for (const p of a.paras) {
+    if (p === b.paras[i]) i++
+    else if (!REASON_LINES.has(p)) return false
+  }
+  return i === b.paras.length
+}
+/** The first paragraph of a card re-raised because it reads differently since the person's press (chat/turn.ts) */
+export const CHANGED_MARK = '\u2063'
+const paragraphs = (q: string) => q.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p && !p.startsWith(CHANGED_MARK))
+/** The lines a server card leads with to say why it asks first (rooms read here, a file someone shared, a target taken
+ * from the screen), in every language: the only paragraphs a card may have lost since the press and still be the same
+ * card (that reason no longer holds now; the card asked more carefully when it was pressed). Any other paragraph, and
+ * any new one, makes another card. */
+const REASON_LINES: ReadonlySet<string> = new Set((['roomsSeenWhy', 'sharedFileSeenWhy', 'lookedWhy'] as const).flatMap((k) => Object.values(TEXT[k]).map((x) => String(x).trim())))
+
+/** The answer is the card's no: Skip (null), its last option (the no comes last on every server card: withAlways), a
+ * site's deny. Such an answer never runs the call again (docs/decisions/20261122-late-card-answer-resumes.md). */
+export function declined(card: TurnRequest, answer: unknown): boolean {
+  if (answer === null || answer === undefined) return true
+  const one = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
+  if (card.kind === 'browser_site' || card.kind === 'dev_env_site') return one === 'deny'
+  if (card.kind !== 'ask_user') return false
+  const last = card.options?.at(-1)?.value
+  return card.origin === 'server' && typeof one === 'string' && last !== undefined && one === last && (card.options?.length ?? 0) > 1
 }
 const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(',')}]`
   : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`

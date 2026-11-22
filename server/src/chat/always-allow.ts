@@ -36,6 +36,9 @@ export interface AlwaysPlace {
   restricted?: boolean
   /** a guest is among the people of this shared chat (TurnExec.guestAmong): the one limit Rule A keeps, below */
   sharedGuest?: () => boolean
+  /** told the kind while a card that offers "Always allow" is being raised (null right after): a card that waits after
+   * the answer ends keeps it with its call (chat/turn.ts cardLater; docs/decisions/20261122-late-card-answer-resumes.md) */
+  offering?: (kind: CardAlwaysKind | null) => void
 }
 
 const guestThere = (p: AlwaysPlace): boolean => { try { return !!p.sharedGuest?.() } catch { return true } }
@@ -130,7 +133,11 @@ export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAl
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
   const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
-  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: alwaysNote(kind, p.locale) })
+  // (the kind is told while the card is raised: ask raises it before its first await)
+  p.offering?.(kind)
+  let pending: Promise<unknown>
+  try { pending = ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: alwaysNote(kind, p.locale) }) } finally { p.offering?.(null) }
+  const answer = await pending
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
   if (v === ALWAYS_VALUE) {
     keepAlways(p.db, p.userId, kind, p.turnId)

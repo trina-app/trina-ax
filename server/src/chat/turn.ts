@@ -84,7 +84,8 @@ import { notificationsOf, notifyEngineStartFailed } from '../notifications/servi
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { noteSharedAnswer } from './message-notices'
-import { takeAnsweredCalls, answeredNote, closedQuestionNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
+import { takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -385,6 +386,9 @@ export function engineErrorOf(err: { code: Parameters<typeof engineError>[0]; re
 /** The tools whose chat-file target is a new version of an existing chat file (P4: chat/chat-file-write.ts, edit_office
  * without output), not a new file attached to the answer */
 export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office'])
+
+/** the tracked call of the async context a card is raised in (TurnExec.callNow) */
+const CALL_NOW = new AsyncLocalStorage<{ name: string; args: unknown; deferred: string | null }>()
 
 export class TurnExec {
   content = ''
@@ -1288,7 +1292,10 @@ export class TurnExec {
     if (this.stopReason) return
     // another person's question this message closed unanswered (QA S-125): their request is named, not dropped
     const closedQ = this.shared ? closedQuestionNote(spec.closedOthers ?? []) : ''
-    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '')
+    // a waiting call's card of this person still open here (the person wrote instead of pressing it): the AI points to it
+    let waitingQ = ''
+    if (!this.restricted) { try { waitingQ = waitingCardsNote(rt.db, spec.chatId, spec.userId, this.id) } catch (e) { rt.log.warn('reading the waiting cards failed', { err: e, turn: this.id }) } }
+    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '') + (closedQ ? `${closedQ}\n\n` : '') + (waitingQ ? `${waitingQ}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
     // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
     const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
@@ -3394,13 +3401,17 @@ export class TurnExec {
       ? `${tr(seenWhy(this, 'roomsSeenWhy'), L)} ` + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: this.place(target.segs.slice(0, -1).join('/')), file: target.segs.at(-1)! })
       : reads ? tr(seenWhy(this, 'roomsSeenConfirmRead'), L, { what, ai: aiCalled(L) })
       : tr(seenWhy(this, 'roomsSeenConfirm'), L, { what, ai: aiCalled(L) })
-    const { value: answer, missing } = await this.askPerson({
+    // (its Always is offered by hand: a card that waits after the answer keeps the kind with its call, as withAlways does)
+    if (always) this.alwaysOffer = 'room_change'
+    const asked = this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
       ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    this.alwaysOffer = null
+    const { value: answer, missing } = await asked
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
@@ -5293,7 +5304,7 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => !!this.shared && this.guestAmong() }
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => !!this.shared && this.guestAmong(), offering: (k) => { this.alwaysOffer = k } }
   }
 
   /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
@@ -5353,10 +5364,22 @@ export class TurnExec {
   }
 
   /** the main AI's call of a tool whose safety card may wait after the answer ends (chat/tools.ts CARD_LATER_TOOLS):
-   * set while it runs; `deferred` names the card it left open */
-  callNow: { name: string; args: unknown; deferred: string | null } | null = null
-  /** the call the person's answer runs again (replayCalls): its card takes their answer at once, once */
-  private replaying: { card: TurnRequest; answer: unknown; used: boolean } | null = null
+   * set while it runs, for that call alone (its own async context: read-only calls run side by side, and a card of
+   * another call must never be kept with this one); `deferred` names the card it left open */
+  get callNow(): { name: string; args: unknown; deferred: string | null } | null { return CALL_NOW.getStore() ?? null }
+  /** run `fn` as `call` (callNow inside it); null: as no tracked call */
+  runAsCall<T>(call: { name: string; args: unknown; deferred: string | null } | null, fn: () => Promise<T>): Promise<T> { return call ? CALL_NOW.run(call, fn) : CALL_NOW.exit(fn) }
+  /** the call the person's answer runs again (replayCalls): its cards take their answers at once, each once, in order
+   * (`answers`: the earlier cards of the call and the card they pressed last) */
+  private replaying: { answers: (PriorAnswer & { used: boolean })[]; changedSaid: boolean } | null = null
+  /**
+   * While a waiting call runs again (replayCalls): the turn that asked for it (docs/decisions/20261122-late-card-answer-
+   * resumes.md). The call's checks of "the asker's own message", "made in this answer" and the answer its content came
+   * from read these (chat/asked-in.ts), not this turn's message, which is only the button's words.
+   */
+  askedIn: AskedIn | null = null
+  /** the kind of "Always allow" the card being raised now offers (AlwaysPlace.offering): kept with a waiting call */
+  private alwaysOffer: CardAlwaysKind | null = null
 
   /**
    * A safety card raised inside a CARD_LATER_TOOLS call of the main AI, in a chat a person watches: kept with the call
@@ -5366,7 +5389,8 @@ export class TurnExec {
    */
   private cardLater(request: TurnRequest, o: { window?: string | null }): boolean {
     const call = this.callNow
-    if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !CARD_LATER_TOOLS.has(call.name) || !this.rt.safetyCardsWait) return false
+    // (callNow is set only for a call of a tool whose cards may wait: chat/tools.ts cardLaterTool)
+    if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !this.rt.safetyCardsWait) return false
     if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
     // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
     // inside the call as before (with its time limit)
@@ -5374,7 +5398,12 @@ export class TurnExec {
     if (!nothingToHide(r)) { const raw = JSON.stringify(call.args ?? {}); if (r.hide(raw) !== raw) return false }
     const { expiresAt: _no, ...card } = request as TurnRequest & { expiresAt?: string }
     const window = o.window ?? null
-    saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window } })
+    // what the replay needs (open-questions.ts CallMeta): the first asking turn (a card re-raised while the call runs
+    // again keeps it), the Always kind this card offers, the answers its earlier cards already took
+    const asked: AskedIn = this.askedIn ?? { turnId: this.id, userMessageId: this.spec.userMessageId, assistantId: this.spec.assistantId }
+    const prior = this.replaying ? this.replaying.answers.filter((x) => x.used).map(({ card: c, answer }) => ({ card: c, answer })) : []
+    const always = this.alwaysOffer
+    saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window, asked, ...(always ? { always } : {}), ...(prior.length ? { prior } : {}) } })
     call.deferred = request.requestId
     this.questionsLeft++
     const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request: card as TurnRequest } }
@@ -5404,22 +5433,43 @@ export class TurnExec {
     for (const c of calls) {
       if (this.stopReason) break
       const id = `card-${crypto.randomUUID()}`
-      this.replaying = { card: c.card, answer: c.answer, used: false }
-      this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
-      let said = '', ok = false
+      const argsAi = neutralizeTags(JSON.stringify(c.args ?? {})).slice(0, 2000)
+      // the card's no (or Skip) runs nothing: the call is not run again, so no check of this moment can act on a no
+      // (docs/decisions/20261122-late-card-answer-resumes.md)
+      if (declined(c.card, c.answer)) {
+        // (the step says so, as the call's own "no" did)
+        this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
+        this.onEvent({ type: 'tool_end', id, ok: true, output: 'Not done: the user said no on the card.' }, errors)
+        out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}, which is the card's no. It did not run and nothing was done. Do not do it another way unless the user asks again.`)
+        continue
+      }
+      let said = '', ok = false, tookLast = false
       try {
+        // the asking turn (a row saved before call_meta: its own turn, open-questions.ts readyAnswers)
+        this.askedIn = c.asked ?? null
+        this.replaying = { answers: [...(c.prior ?? []), { card: c.card, answer: c.answer }].map((x) => ({ ...x, used: false })), changedSaid: false }
+        this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
         const res = await handler({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: c.tool, arguments: c.args, _meta: { 'claudecode/toolUseId': id } } })
         const r = (res?.result ?? {}) as { content?: { type?: string; text?: string }[]; isError?: boolean }
         said = (r.content ?? []).flatMap((x) => (x?.type === 'text' ? [String(x.text ?? '')] : [])).join('\n')
         ok = !r.isError
       } catch (e) { said = 'Error: internal error'; this.rt.log.warn('running a card\'s call again failed', { err: e, turn: this.id }) }
-      finally { this.replaying = null }
+      finally { tookLast = !!this.replaying?.answers.at(-1)?.used || !!this.replaying?.changedSaid; this.replaying = null; this.askedIn = null }
+      // "Always allow" on the card the person pressed holds even when this run ended before that card (refused now, or
+      // no card needed): their choice for that kind, where it may be offered now (team switch, confidential, guest).
+      // Not when the card reads differently now (asked again: their choice waits for that card)
+      const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
+      // (offered here now, and never while a guest is among the people of this shared chat: there each card's own rule
+      // decides whether its Always counts, which a run that never reached the card could not check)
+      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !(this.shared && this.guestAmong())) {
+        try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
+      }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
-      out.push(`- ${c.tool} ${neutralizeTags(JSON.stringify(c.args ?? {})).slice(0, 2000)}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
+      out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
     }
     this.attemptHadOutput = false
     if (!out.length) return ''
-    return `<answered_cards>\nThis message is the user's answer to the card${out.length > 1 ? 's' : ''} your call${out.length > 1 ? 's' : ''} raised in your previous answer (the card waited until they answered). Each call ran again with their answer:\n${out.join('\n')}\nGo on from there.\n</answered_cards>`
+    return `<answered_cards>\nThis message is the user's answer to the card${out.length > 1 ? 's' : ''} your call${out.length > 1 ? 's' : ''} raised in an earlier answer (the card waited until they answered). Each call, with their answer:\n${out.join('\n')}\nGo on from there.\n</answered_cards>`
   }
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
@@ -5432,9 +5482,19 @@ export class TurnExec {
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
-    // a call running again with the person's answer (replayCalls): the same card takes it at once
+    // a call running again with the person's answers (replayCalls): the same card takes its answer at once, once. The
+    // first card that reads differently now (something changed since the press) says so in its first line, and waits
+    // the same way (one press)
     const rp = this.replaying
-    if (rp && !rp.used && sameCard(rp.card, request)) { rp.used = true; return Promise.resolve(rp.answer) }
+    if (rp) {
+      const hit = rp.answers.find((x) => !x.used && sameCard(x.card, request))
+      if (hit) { hit.used = true; return Promise.resolve(hit.answer) }
+      // (only while the card they pressed is still to come: a second card of the call after it is simply its next card)
+      if (!rp.changedSaid && !rp.answers.at(-1)!.used && request.kind === 'ask_user') {
+        rp.changedSaid = true
+        request = { ...request, question: `${CHANGED_MARK}${tr('cardChangedSince', this.spec.locale)}\n\n${request.question}` }
+      }
+    }
     // a safety card that waits after the answer ends (the call ends having done nothing)
     if (this.cardLater(request, o)) return Promise.resolve(null)
     const held = this.exclusiveCard

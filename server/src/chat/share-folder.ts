@@ -23,6 +23,7 @@
 //   folder and, for an add, every person or group.
 // - The record (`Step.shared`, the share card) comes from the server's records only: the folder's name, its place in
 //   words, what it holds. Only the person whose turn it was ever gets it (M7: ChatStore.viewSteps).
+import { askerMessageId } from './asked-in'
 import { ShareFolderInput, uuidv7 } from '@mycel/shared'
 import { plainLabel, type FileShareRow, type FileShares as FileSharesView, type FolderShareBlock, type ShareCardFile, type Step, type StepShared, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -159,8 +160,8 @@ export function shareFolderTool(exec: TurnExec): Tool {
         }
 
         // ---- other people's words in this turn: only what the asker's own message names ----
-        const said = ownWords(askerText(db, spec.userMessageId))
-        const attached = attachedPaths(db, spec.userMessageId)
+        const said = ownWords(askerText(db, askerMessageId(exec)))
+        const attached = attachedPaths(db, askerMessageId(exec))
         // the folder is named only by its path, its place in words, a quoted name or the app's own mention (M9); what
         // looking_at reported is never the asker's word, so a folder known only from there is not named
         const folderNamed = namesFolder(said, rel, { place: folderPlace, attached })
@@ -248,7 +249,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         // ---- the card. An add: every time unless the person chose "Always allow" for folder shares (kind share_folder,
         // offered on its first showing, final once on in every chat; never the explicit-ask skip). A removal or a stop:
         // none when the asker's own message names the folder and, for a removal, every person, with no "don't" ----
-        const alwaysOk = !strict || asksToSend(db, spec.userMessageId)
+        const alwaysOk = !strict || asksToSend(db, askerMessageId(exec))
         const narrowOk = !adding && folderNamed && !saysDont(said) && (stop || who.every((w) => namedInFull(said, recipientWords(db, w))))
         if (!narrowOk) {
           const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
