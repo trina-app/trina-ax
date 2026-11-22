@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:43
 - Branch: `fix/ai-scratch-files-qa`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/devenv, server/src/rooms, web/src/components/chat. Why: follow-ups of #284 found by
   the QA walk on qa.trina.app.
 - Version impact: patch (fixes to #284's own-file delete, its card wording and the files-saved card; nothing new)
@@ -54,4 +54,8 @@ b-shared-chats, refusal-texts, web/test/unit/file-summary.test.tsx, dev-env test
 
 ## Result
 
-(filled in at the end)
+Built as planned. TC-7332: the cause was delete_files missing from SHARED_TOOLS; the unit tests called the tool
+directly, so nothing caught it. The new turn-level test (tests/unit/ai-scratch-files-shared.test.ts) fails without the
+fix. The independent review found nothing blocking. From it: confidential is now checked before scheduled too, stale
+comments are fixed, and a test covers a teammate's change. TC-7338 is by design: the confirm says the files stay, and a
+test shows the Files screen lists them. PR: see the branch's PR to dev.
