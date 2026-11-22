@@ -76,3 +76,47 @@ test('the app window posts through it, with its own session, and logs the link\'
   expect(offer).toContain('const code = this.app ? signInCode(raw, this.team?.origin) : null')
   expect(offer).toContain("handoffLog(`sign-in hand-off: link for the team on screen")
 })
+
+// macOS: LaunchServices may start another registered copy for a link (owner's Mac: 23 stale copies of the bundle id).
+// That copy loses the single-instance lock and quits; before, the link went with it.
+import { forwardLink, linkSocketPath, listenForLinks } from '../../desktop/src/main/link-forward'
+import { mkdtempSync, rmSync, statSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+
+test('REPRO (second start): the link a second copy got reaches the running app through the socket', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lf-'))
+  try {
+    const path = linkSocketPath(dir)!
+    const got: string[] = []
+    const server = listenForLinks(path, (l) => got.push(l))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+    const link = appLink(TEAM, CODE)
+    expect(await forwardLink(path, link)).toBe(true)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(got).toEqual([link])
+    // never more than a link can be (4096): the running app checks it again (linkFromArgv) before offerLink
+    expect(await forwardLink(path, 'trina-ax://' + 'a'.repeat(5000))).toBe(true)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(got.length).toBe(2); expect(got[1]!.length).toBe(4096)
+    server.close()
+    // nobody listening (an older running app): false at once, the second copy just quits
+    rmSync(path, { force: true })
+    expect(await forwardLink(path, link, 300)).toBe(false)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+  // a user data folder whose socket path would pass the Unix limit: no socket
+  expect(linkSocketPath('/x/' + 'y'.repeat(120))).toBeNull()
+})
+
+test('main.ts: a second start on macOS forwards its open-url; the running app reads it like any link; logs go to a file', () => {
+  const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+  expect(main).toMatch(/if \(!primary && !unsandboxed && linkSocket\) \{[\s\S]{0,200}app\.on\('open-url'[\s\S]{0,200}forwardLink\(linkSocket, url\)[\s\S]{0,200}app\.exit\(0\)/)
+  expect(main).toContain("} else if (!primary && !unsandboxed) app.exit(0)")
+  // the running app: the line goes through the same check as a command line's link, then onLink (offerLink)
+  expect(main).toMatch(/listenForLinks\(linkSocket, \(line\) => \{\n\s*const link = linkFromArgv\(\[line\]\)\n\s*linkLog\('link from a second start', link\)\n\s*if \(link\) onLink\(link\)/)
+  expect(main).toContain("setHandoffLogDir(app.getPath('userData'))")
+  expect(main).toMatch(/execFile\(LSREGISTER, \['-f', bundle\]/)
+  const log = readFileSync(join(import.meta.dir, '../../desktop/src/main/handoff-log.ts'), 'utf8')
+  expect(log).toContain("join(userData, 'logs', 'handoff.log')")
+  expect(existsSync(join(import.meta.dir, '../../desktop/src/main/handoff-log.ts'))).toBe(true)
+})

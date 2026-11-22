@@ -370,7 +370,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(main).toMatch(/app\.on\('open-url', \(e, url\) => \{\n\s*e\.preventDefault\(\)\n\s*linkLog\('open-url', url\)\n\s*onLink\(url\)/)
     expect(main).toMatch(/const link = linkFromArgv\(argv\)\n\s*linkLog\('second-instance', link\)\n\s*if \(link\) onLink\(link\)/)
     // onLink and the launch link reach the window only through offerLink
-    const onLink = main.slice(main.indexOf('function onLink('), main.indexOf("app.on('open-url'"))
+    const onLink = main.slice(main.indexOf('function onLink('), main.indexOf("if (primary) app.on('open-url'"))
     expect(onLink).toContain('win.offerLink(url)')
     expect(onLink).not.toMatch(/addTeam|openTeam|loadURL/)
     // offerLink fetches nothing; answerLink connects only with the gate's offer

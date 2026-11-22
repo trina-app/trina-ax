@@ -37,6 +37,7 @@ import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
 import { deliverSignInCode } from '../common/sign-in-handoff'
+import { handoffLog } from './handoff-log'
 import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
 import { findTarget } from '../common/find-bar'
@@ -110,8 +111,6 @@ const POLICY_READ_MS = 5_000
 /** after the "Allow all websites" dialog closes, another request is refused this long (no dialog right under a click) */
 const ALLOW_ALL_COOLDOWN_MS = 2_000
 
-/** the sign-in hand-off's steps, always on (`--enable-logging` shows them): addresses and answers, never the code */
-const handoffLog = (line: string) => console.info('[desktop]', line)
 
 export class AppWindow {
   readonly win: BaseWindow

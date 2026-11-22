@@ -49,6 +49,11 @@ import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
 import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
+import { forwardLink, linkSocketPath, listenForLinks } from './link-forward'
+import { handoffLog, setHandoffLogDir } from './handoff-log'
+import { execFile } from 'node:child_process'
+/** macOS's own tool that (re)registers an app bundle with LaunchServices */
+const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 import { LocalAppsHost } from './local-apps'
 import { DictationHost } from './dictation'
 
@@ -77,6 +82,7 @@ if (aumid) app.setAppUserModelId(aumid)
 // otherwise take the new name and every desk would forget its teams, window and language. A development run keeps its
 // own folder next to it (common/teams.ts dataDirName): its dev teams never reach the installed app.
 app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), dataDirName(PRODUCT.desktopDataDir, app.isPackaged)))
+setHandoffLogDir(app.getPath('userData'))
 
 // Sandboxed srcdoc frames (artifacts, previews) stay in the team page's renderer process, so the page-level
 // document-start script that removes RTCPeerConnection reaches them before their own scripts run. Electron's
@@ -128,7 +134,17 @@ const linuxStart = { platform: process.platform, packaged: app.isPackaged, env: 
 const unsandboxed = refusesUnsandboxed({ ...linuxStart, noSandbox: app.commandLine.hasSwitch('no-sandbox') })
 if (unsandboxed) app.whenReady().then(refuseUnsandboxed)
 let primary = !unsandboxed && app.requestSingleInstanceLock()
-if (!primary && !unsandboxed) app.exit(0)
+// macOS: a second start may have been given a link (LaunchServices started this copy for it): wait a moment for its
+// open-url and hand the link to the running app before quitting (./link-forward.ts). Nothing else is set up here.
+const linkSocket = process.platform === 'darwin' ? linkSocketPath(app.getPath('userData')) : null
+if (!primary && !unsandboxed && linkSocket) {
+  const quit = setTimeout(() => app.exit(0), 3000)
+  app.on('open-url', (e, url) => {
+    e.preventDefault()
+    clearTimeout(quit)
+    void forwardLink(linkSocket, url).then((ok) => { handoffLog(`second start: link handed to the running app: ${ok ? 'yes' : 'no'}`); app.exit(0) })
+  })
+} else if (!primary && !unsandboxed) app.exit(0)
 // an update an earlier run left ready (./update-launch.ts): while ShipIt is still installing this app, this start steps
 // aside at once (ShipIt drops the update when the app is open again; a waiter opens the new version when it is done)
 let updateFailed: string | null = null
@@ -146,6 +162,14 @@ if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !sto
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
 // On Linux only the .deb registers it (its menu entry, extraMetadata.desktopName); an AppImage has no entry to name.
 if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)
+// macOS: LaunchServices hands a link to ONE registered copy of the app with this bundle id, and old builds, mounted
+// installers or copies elsewhere on the disk may stay registered (owner's Mac 2026-11-22: 23 of them). It then starts
+// that copy instead of passing the link to this one. Register this copy again at every start, so its path is the
+// newest registration (best effort; ./link-forward.ts covers a newer copy that is started anyway).
+if (primary && app.isPackaged && process.platform === 'darwin' && !process.mas) {
+  const bundle = resolve(process.execPath, '../../..')
+  if (bundle.endsWith('.app')) execFile(LSREGISTER, ['-f', bundle], { timeout: 15_000 }, (e) => handoffLog(`registered this copy for ${LINK_SCHEME}: links: ${e ? 'failed' : 'ok'}`))
+}
 else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
@@ -162,6 +186,12 @@ function onLink(url: string) {
   win.win.focus()
 }
 // macOS hands links over here, also the one that launched the app (before ready)
+// the running app: links a second start was given (above)
+if (primary && linkSocket) listenForLinks(linkSocket, (line) => {
+  const link = linkFromArgv([line])
+  linkLog('link from a second start', link)
+  if (link) onLink(link)
+})
 if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
   linkLog('open-url', url)
@@ -170,7 +200,7 @@ if (primary) app.on('open-url', (e, url) => {
 /** which way a link came in (the sign-in hand-off's first step), always on: the kind of link only, never its address
  * or a code */
 function linkLog(step: string, url: string | null) {
-  console.info('[desktop]', step, url === null ? '(no link)' : url.includes('#code=') ? '(sign-in code link)' : '(link)')
+  handoffLog(`${step} ${url === null ? '(no link)' : url.includes('#code=') ? '(sign-in code link)' : '(link)'}`)
 }
 
 /** "install the .deb" (refusesUnsandboxed above): the language last picked in this app, else English */

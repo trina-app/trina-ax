@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 00:10
 - Branch: `fix/drive-share-desktop-finish`
-- Status: in progress
+- Status: done
 - Where: desktop/src (main process). Why: the app's half of the Google sign-in hand-off (trina-ax #98, #205).
 - Version impact: patch. It fixes a bug and changes no API or data.
 
@@ -33,6 +33,14 @@ app's main process logged nothing.
 2. `claimSignIn` uses it with the team page's own session. It stops when the team on screen changed.
 3. `offerLink` logs whether the code link is for the team on screen. It claims in the offline state too.
 4. Tests: tests/unit/e-desktop-signin-handoff.test.ts, plus the share case in c-drive-app-return.test.ts.
+5. macOS second start (added after the owner's Mac showed 23 stale registrations of the bundle id). LaunchServices
+   may start another registered copy for a link. That copy loses the single-instance lock and quits, so the link was
+   lost and the running app only came to the front. Now:
+   - a second start waits up to 3 s for its open-url and hands the link to the running app over
+     `<userData>/link.sock` (mode 600), main/link-forward.ts;
+   - the running app checks the link as any other (linkFromArgv, offerLink);
+   - a packaged Mac app registers its own bundle again at every start (`lsregister -f`).
+6. The hand-off log also goes to `<userData>/logs/handoff.log` (256 KB, one rotation). It holds no code.
 
 ## Decisions
 
@@ -42,4 +50,11 @@ app's main process logged nothing.
 
 ## Result
 
-(filled at the end)
+Real-app loop on this Mac: the built desktop app in its own bundle (com.example.trinarepro), 6 teams stored, the team on
+screen a local https team server with fake Google, delivery through LaunchServices (`open -b`), app in front, Finder
+in front or app hidden:
+- origin/dev with logs only: 30/30 without hiccups, 20/30 with a 2.5 s claim hiccup on every 3rd run (all 10 lost,
+  logged `try 1: 502`).
+- this branch: 30/30 without hiccups, 30/30 with the same hiccups (`try 1: 502`, `try 2: 502`, `try 3: 200`).
+- A stale second copy of the bundle id registered (old code): 0/6. The running app logged no open-url at all; the
+  link went to the other copy. This is the owner's case; unregistering stale copies fixes it there.
