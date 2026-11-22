@@ -65,11 +65,25 @@ const skeleton = (s: string) => s.replace(/[\u0370-\u03ff\u0400-\u052f]/g, (c) =
  * ("<b>al</b>ways", "al**ways" read "always") */
 export function cleanOutside(s: string): string {
   // tag characters spell hidden ASCII that a model may read: decoded, so a copy of them is caught
-  return stripInvisible(s.replace(/[\u{E0020}-\u{E007E}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0xE0000))).replace(/<[^<>]{0,200}>/g, '').replace(/(\*\*|__|~~|\*|_|`)/g, '')
+  return stripInvisible(decodeEntities(s.replace(/[\u{E0020}-\u{E007E}]/gu, (c) => String.fromCharCode(c.codePointAt(0)! - 0xE0000))))
+    .replace(/<[^<>]{0,200}>/g, '').replace(/(\*\*|__|~~|\*|_|`)/g, '')
 }
-/** case, width, look-alike letters, punctuation and spaces folded: what a copy check compares */
-export function fold(s: string): string {
-  return skeleton(stripInvisible(s).normalize('NFKC').toLowerCase()).replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim()
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', shy: '\u00ad', zwj: '\u200d', zwnj: '\u200c' }
+/** HTML entities ("&#114;emember", "&amp;", "&shy;") as the characters they show (review follow-up 1) */
+function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z]{2,8});?/gi, (m, e: string) => {
+    const cp = e[0] === '#' ? (e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : NaN
+    if (!Number.isNaN(cp)) return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : ''
+    return ENTITIES[e.toLowerCase()] ?? m
+  })
+}
+/** spaces other than the plain one (no-break, thin, ideographic …) */
+const ODD_SPACE = /[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g
+/** case, width, accents (NFKD, marks dropped), look-alike letters, punctuation and spaces folded: what a copy check
+ * compares. `oddSpaces`: 'space' reads a no-break or thin space as a space, 'none' as nothing (a word split by one) */
+export function fold(s: string, oddSpaces: 'space' | 'none' = 'space'): string {
+  const t = stripInvisible(s).replace(ODD_SPACE, oddSpaces === 'none' ? '' : ' ').normalize('NFKD').replace(/\p{M}+/gu, '').normalize('NFKC').toLowerCase()
+  return skeleton(t).replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim()
 }
 const words = (s: string) => fold(s).split(' ').filter(Boolean)
 const squeeze = (s: string) => fold(s).replace(/\s+/g, '')
@@ -81,9 +95,14 @@ const squeeze = (s: string) => fold(s).replace(/\s+/g, '')
  */
 export function copiedFromOutside(memory: string, outside: string, own: string): boolean {
   if (!outside) return false
-  outside = cleanOutside(outside)
+  // a no-break or thin space inside a word hides it as two: the check reads the output both ways
+  if (/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/.test(outside) && copiedFrom(memory, fold(cleanOutside(outside), 'none'), own)) return true
+  return copiedFrom(memory, fold(cleanOutside(outside)), own)
+}
+function copiedFrom(memory: string, foldedOutside: string, own: string): boolean {
+  const outside = foldedOutside
   memory = cleanOutside(memory)
-  const out = ` ${fold(outside)} `, mine = ` ${fold(own)} `
+  const out = ` ${outside} `, mine = ` ${fold(own)} `
   const w = words(memory)
   if (w.length) {
     if (w.length < COPY_RUN_WORDS) {
@@ -150,11 +169,15 @@ export function undisguise(s: string): string {
     .replace(/\s*[[({<]\s*(?:at|@)\s*[\])}>]\s*/g, '@').replace(/\s+at\s+(?=[a-z0-9-]+\s*(?:[[({<]\s*dot\s*[\])}>]|\.|\s+dot\s+))/g, '@')
     .replace(/\s*[[({<]\s*(?:dot|\.)\s*[\])}>]\s*/g, '.').replace(/\s+dot\s+/g, '.')
     .replace(/\bhxxp(s?)/g, 'http$1').replace(/\bh\*\*p(s?)/g, 'http$1')
+    // Korean spellings: "billing 골뱅이 evil 닷 com" (only between letters or digits, so "닷새" stays a word)
+    .replace(/(?<=[a-z0-9])\s*골뱅이\s*(?=[a-z0-9])/g, '@').replace(/(?<=[a-z0-9])\s*닷\s*(?=[a-z0-9])/g, '.')
 }
 const CONTACT_PATTERNS: RegExp[] = [
   /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, // e-mail
   /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"')]+/gi, // any address with a scheme
-  /\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|app|ai|co|kr|jp|cn|dev|me|xyz|info|biz|example|us|uk|de|fr|ru|tk|top|site|online|link|so|to|ly|gg|cc|tv|in)\b(?:\/[^\s<>"')]*)?/gi, // a domain
+  // any dotted name that ends in letters (pay.evil.shop, evil.store/pay): every top-level domain, known or not (review
+  // follow-up 2; a file name such as "report.docx" counts too, and is kept only when the person wrote it)
+  /(?<![\p{L}\p{N}@._-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![\p{L}\p{N}])(?:\/[^\s<>"')]*)?/giu, // a domain
   /\+?\d[\d\s().-]{7,}\d/g, // a phone or long number
   /(?:^|[^\p{L}\p{N}._%+-])(@[\p{L}\p{N}_.]{2,})/gu, // an @handle
 ]
@@ -186,6 +209,12 @@ const SECRET_PATTERNS: RegExp[] = [
   new RegExp(String.raw`${SECRET_WORD}\s*(?:is|was|은|는|이|가|が|は|是|es|adalah)\s*(?=[^\s]*[\d!@#$%^&*_+=~?])${VALUE}`, 'iu'),
   // a keyword and right after it a token with a digit or a symbol, no separator ("pw hunter22", "PIN 4821", "비밀번호 abc123")
   new RegExp(String.raw`${SECRET_WORD}\s+(?=[^\s]*[\d!@#$%^&*_+=~?])${VALUE}`, 'iu'),
+  // "password for the NAS = x7k2!", "pw of wifi is 4821abc": a keyword, a word or two it is for, then the value
+  new RegExp(String.raw`${SECRET_WORD}\s+(?:for|of|to|on)\s+\S+(?:\s+\S+)?\s*(?:[:：=]|is)\s*(?=[^\s]*[\d!@#$%^&*_+=~?])${VALUE}`, 'iu'),
+  // "wifi pass is x7k2!", "와이파이 비번 4821abcd"
+  new RegExp(String.raw`(?<![\p{L}\p{N}])(?:wi-?fi|와이파이)\s*(?:pass(?:word)?|pw|key|비번|비밀번호|암호)?\s*(?:is|[:：=]|은|는)?\s*(?=[^\s]*[\d!@#$%^&*_+=~?])${VALUE}`, 'iu'),
+  // "login: sora / x7k2!", "로그인 sora / Abc123!"
+  new RegExp(String.raw`(?<![\p{L}\p{N}])(?:login|log-in|sign-?in|로그인|계정)\s*[:：=]?\s*\S+\s*\/\s*(?=[^\s]*[\d!@#$%^&*_+=~?])${VALUE}`, 'iu'),
   /\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}/, // OpenAI / Anthropic style keys
   /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}/, // Stripe
   /\bxapp-[A-Za-z0-9-]{10,}/, // Slack app tokens
