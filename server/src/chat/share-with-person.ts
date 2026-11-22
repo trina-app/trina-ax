@@ -53,12 +53,14 @@ const foldName = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g
 /** a group's name as written, also with a group word after it ("영업팀", "Sales team") */
 const GROUP_WORDS = ['\uD300', '\uBD80\uC11C', '\uADF8\uB8F9', ' team', ' group']
 
+const SCHEDULED_SHARE_NO = 'Nothing was shared: a scheduled run has nobody to answer the card a share needs. Tell the user to ask in one of their own chats, or to use Share on the file.'
+
 /** Why share_with_person is not offered in this turn (and refused when reached anyway), or null: it is. A scheduled
  * run only when its person chose "Always allow" for shares (nobody answers a card there). */
 export function shareWithPersonOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
   // a scheduled run only under the person's own "Always allow" for shares (nobody answers a card there)
   const off = actionOff(exec, 'share_files')
-  if (off === 'schedule') return { text: 'Nothing was shared: a scheduled run has nobody to answer the card a share needs. Tell the user to ask in one of their own chats, or to use Share on the file.', summary: 'share_with_person -> refused: scheduled run' }
+  if (off === 'schedule') return { text: SCHEDULED_SHARE_NO, summary: 'share_with_person -> refused: scheduled run' }
   if (off === 'confidential') return { text: 'Nothing was shared: this is a confidential conversation (safe operations), and nothing of it goes to other people. Tell the user they can use Share on the file in Files.', summary: 'share_with_person -> refused: confidential chat' }
   if (off === 'slack') return { text: 'Nothing was shared: this question came from Slack. Tell the user to ask in the app, or to use Share on the file.', summary: 'share_with_person -> refused: Slack' }
   if (off === 'restricted') return { text: 'Nothing was shared: this run is limited to one task. Tell the user to ask in one of their own chats.', summary: 'share_with_person -> refused: not here' }
@@ -295,6 +297,12 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
         const whyLine = whyFirst(L, { fromLook, seenLine })
         const byAlways = !explicit && alwaysHere(place, 'share_files') === 'on'
+        // a scheduled run where the Always does not count for this share (a guest in this shared chat and the task's
+        // message does not name the recipient): nobody can answer the card, so say so now (code review)
+        if (spec.clientKind === 'schedule' && !explicit && !byAlways) {
+          detail = tr('fileShareNotShared', L)
+          return no(SCHEDULED_SHARE_NO, 'refused: scheduled run (card needed)')
+        }
         const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
           // each file by its name and place in words, never a team path: two files of one name read differently

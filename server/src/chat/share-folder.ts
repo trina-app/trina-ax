@@ -267,6 +267,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
             share: { op, files: [row()], ...cardPeople(db, who as CardSubject[]), ...(seenLine ? { why: seenLine } : {}) },
             expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
           } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          // a scheduled run (here only under the person's Always) where it does not count for this add (a guest in this
+          // shared chat and the task's message did not ask): nobody can answer the card, so say so now (code review)
+          if (spec.clientKind === 'schedule' && !(alwaysOk && alwaysOn)) return no(SCHEDULED_NO, 'refused: scheduled run (card needed)')
           const reply = adding
             ? await withAlways(alwaysOk ? exec.alwaysPlace?.() : null, 'share_folder', [{ label: tr('fileShareYes', L), value: 'yes' }, { label: tr('fileShareNo', L), value: 'no' }], 'yes', ask)
             : await ask([{ label: tr('fileStopYes', L), value: 'yes' }, { label: tr('fileStopNo', L), value: 'no' }], {})

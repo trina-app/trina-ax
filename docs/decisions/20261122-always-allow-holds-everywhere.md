@@ -18,8 +18,10 @@
   - **B3** `tools/url-gate.ts`: "이 대화에서 이 사이트 허용" kept a site for one chat of its owner only (`siteScope`
     required the chat to be theirs). Now "이 사이트 항상 허용 ({site})" keeps it for the person for good (migration 442
     `user_allowed_sites`) and counts in every chat they ask in (a shared chat, a side chat too) and in their scheduled
-    runs; the person's own scheduled run also gets their "Allow all websites" (①d; `TurnPerson.scheduledRun`). The
-    address limits stay (below).
+    runs; the person's own scheduled run also gets their "Allow all websites" (①d; `TurnPerson.scheduledRun`), also
+    while the server's exit address is not known yet, as in a watched turn. Anyone who asks in a chat (a member of a
+    shared chat, not only its owner) may now keep a site for that chat or for good, each for themselves. The address
+    limits stay (below).
   - **B4** `chat/share-with-person.ts`, `chat/post-to-room.ts`, `chat/share-folder.ts`: in a shared chat the Always
     counted only when the asker's own message asked and named every recipient (`alwaysOk`, QA TC-3091, added because
     another member's message is in the AI's context), and the "file / folder / recipient must be named by the asker"
@@ -27,7 +29,9 @@
     first card is the only ask. The prompt line telling the AI a card may come back under Always after content by others
     (`OTHERS_WORDS_RULE`, `othersWordsCard`, `othersWordsWhy`) goes with it. share_folder adds now run in the person's
     scheduled run under their Always (`actionOff(exec, 'share_folder')`); a stop or a removal there is refused (it has no
-    Always). A post with files is offered in a scheduled run under the `post_files` Always as well.
+    Always). A post with files is offered in a scheduled run under the `post_files` Always as well. A scheduled run
+    whose call would still need a card (the other post kind only, or the guest limit below) is refused at once with
+    "nobody to answer the card", never left to time out (code review).
   - **B5** `chat/post-to-room.ts`: a post that mentions everyone always showed its card and offered no Always
     (`!mentionAll`). Now the person's Always covers it. "@everyone" still goes only when the person's own message wrote
     it, and in the room for everyone only for an owner or admin (not cards: they decide what may be asked at all).

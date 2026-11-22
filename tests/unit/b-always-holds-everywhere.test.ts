@@ -290,6 +290,44 @@ describe('B6: the maker\'s Always in a scheduled run in a shared chat a teammate
   })
 })
 
+// ---------------- the one limit kept: a guest among the people of a shared chat (real turns) ----------------
+describe('a guest in the shared chat: the old per-chat scope and own-ask guards', () => {
+  test('the share asks although Always allow is on (the asker named nobody), and a site card offers this chat only', async () => {
+    // a shared chat a guest sees: the one they made (a guest sees no other project chat); bob stands for the guest
+    const chat = await newShared('bob')
+    await turn('bob', chat, plainFake({ say: 'hello' }))
+    // (a guest invited to the project: their guests row names it, and a person rule on its folder)
+    db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, ?)").run(projectId, projectId, now())
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('holds-guest', 'f_projects_falcon', 'user', 'bob', 'read')").run()
+    keepAlways(db(), 'alice', 'share_files', null)
+    try {
+      const r = await turn('alice', chat, `please share ledger-6.txt\n${shareCall(6)}`)
+      expect(r.cards).toHaveLength(1)
+      // (no Always offered where it would not count)
+      expect(r.cards[0]!.options!.map((o) => o.value)).toEqual(['share', 'no'])
+      expect(shared('users/alice/ledger-6.txt')).toBe(false)
+      // the address card: "this conversation", kept for this chat only
+      const w = await turn('alice', chat, `look it up\n${fake({ tool: 'web_fetch', args: { url: 'https://guestsite.example/a' }, sayResult: true })}`)
+      expect(w.cards).toHaveLength(1)
+      expect(w.cards[0]!.options!.map((o) => o.label)).toContain('Allow this site in this conversation (guestsite.example)')
+    } finally {
+      db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run()
+      db().query("DELETE FROM folder_rules WHERE id = 'holds-guest'").run()
+      db().query("DELETE FROM guests WHERE user_id = 'bob'").run()
+      await removeInSettings('card:share_files')
+    }
+    // without the guest, the same chat: Always allow holds, and the site card says "always"
+    keepAlways(db(), 'alice', 'share_files', null)
+    try {
+      expect((await turn('alice', chat, `please\n${shareCall(6)}`)).cards).toHaveLength(0)
+      expect(shared('users/alice/ledger-6.txt')).toBe(true)
+      const w = await turn('alice', chat, `look it up\n${fake({ tool: 'web_fetch', args: { url: 'https://guestsite2.example/a' }, sayResult: true })}`)
+      expect(w.cards[0]!.options!.map((o) => o.label)).toContain('Always allow this site (guestsite2.example)')
+    } finally { await removeInSettings('card:share_files') }
+  })
+})
+
 // ---------------- M2: a dev environment command that can use a login, after teammates changed files ----------------
 describe('M2: the login card offers "항상 허용", for good and removable', () => {
   const change = [{ path: 'projects/falcon/app.ts', action: 'update', by: { id: 'bob', name: 'Bob Lee' }, at: now(), background: false }]

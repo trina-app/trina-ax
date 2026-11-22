@@ -656,6 +656,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a post of this chat the person deleted from that room since: they took one back, so the card comes back)
         const tookBack = () => !!db.query("SELECT 1 FROM room_messages m JOIN turns t ON t.chat_id = ? AND m.client_id LIKE 'ai-' || t.id || '-%' WHERE m.room_id = ? AND m.author_id = ? AND m.deleted_at IS NOT NULL LIMIT 1").get(spec.chatId, roomId, spec.userId)
         const byChat = !explicit && !byAlways && plainPost && !!exec.mayUseApprovals?.() && approved(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget }) && !tookBack()
+        // a scheduled run where this post's own kind of Always is not on here (only the other one is, or a guest is in
+        // this shared chat): nobody can answer the card, so say so now, never "no answer in time" (code review)
+        if (spec.clientKind === 'schedule' && !explicit && !byChat && !byAlways) {
+          return no('Nothing was posted: a scheduled run has nobody to answer the card this post needs (the user\'s "Always allow" does not cover this kind of post here). Tell the user to ask for it in one of their own chats.', 'refused: scheduled run (card needed)')
+        }
         // (why it asks, and what "Always allow" covers: the small line under the buttons, so the question stays one line)
         const reply = explicit || byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question,
