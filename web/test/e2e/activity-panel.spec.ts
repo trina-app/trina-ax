@@ -5,7 +5,7 @@
 // (one line on top goes there, and an old ?tab=mentions link lands there).
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { navRail, reset, signIn } from './helpers'
+import { navRail, openRail, reset, signIn } from './helpers'
 import { DICTS } from '../../src/i18n'
 
 const t = DICTS.ko
@@ -122,6 +122,34 @@ test('a notice opens on the right while 활동 stays lit; it is read; Back and t
   await rows(page).nth(2).click()
   await expect(page).toHaveURL(/\/activity\?n=/)
   await expect(page.getByTestId('activity-opened').getByTestId('notification-text')).toContainText('아침 요약')
+})
+
+test('a job\'s notice opens the chat 트리나 showed last: every rail place still answers, 트리나 first (owner, 11-22)', async ({ page }) => {
+  const chatId = await start(page)
+  // "'…'에서 부탁한 작업을 트리나가 마쳤어요": a job the AI ran in the chat on screen, so 트리나's last chat is the notice's
+  const job = notice(9, 'dev_env.job', 1, { chatId, link: 'chat', devEnv: { projectId: '', projectName: '', job: { name: 'ffmpeg', exitCode: 0, chatTitle: '주간 보고 결과' } } })
+  await routeNotices(page, [job, ...week(chatId).slice(1)])
+  // 트리나 shows the chat first, so it is what 트리나 reopens: the same address as the notice's
+  await page.goto(`/c/${chatId}`)
+  await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('rail-activity').click()
+  await expect(rows(page).first()).toContainText('부탁한 작업을 트리나가 마쳤어요')
+  await rows(page).first().click()
+  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+  await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
+  // 트리나: its list and its light, on the same chat
+  await page.getByTestId('rail-ai').click()
+  await expect(page.getByTestId('rail-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('rail-activity')).not.toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('activity-panel')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+  // each other place, from that notice's chat again
+  for (const item of ['chats', 'projects', 'files', 'ai', 'activity'] as const) {
+    await page.getByTestId('rail-activity').click()
+    await expect(page.getByTestId('rail-activity')).toHaveAttribute('aria-current', 'page')
+    await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
+    await openRail(page, item)
+  }
 })
 
 test('member: 전체 · 트리나 only (요청 is for the owner and admins)', async ({ page }) => {
