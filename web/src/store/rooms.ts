@@ -12,8 +12,9 @@
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type MakeProjectResult, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
-import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { api, API, ApiError, errorText, isApiError, isNetworkError } from '../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
+import { connectionDown, whenConnected } from '../lib/connectionWait'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
@@ -855,6 +856,14 @@ export const useRooms = create<RoomsState>((set, get) => {
         mark(false)
         return post(roomId, { ...still, state: 'sending', updating: undefined })
       }
+      // offline (QA TC-r2d-06): it stays on its way, however long, and goes once the connection is back, with the same
+      // client id; it is kept on this device meanwhile (keepUnsent), so a reload does not lose it either
+      if (isNetworkError(e) && connectionDown()) {
+        await whenConnected()
+        const still = get().pending[roomId]?.find((x) => x.clientMessageId === p.clientMessageId)
+        if (!still || still.state !== 'sending') return
+        return post(roomId, still)
+      }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -929,6 +938,9 @@ export const useRooms = create<RoomsState>((set, get) => {
         setPending(roomId, (list) => list)
         // the ones that settled at once are gone from the device too
         keepUnsent(roomId, get().pending[roomId])
+        // the rest go again by themselves (QA TC-r2d-06: a message written offline is sent once the connection is
+        // back, also after a reload), with the same client id: one the server did get comes back as that message
+        for (const p of get().pending[roomId] ?? []) if (p.restored) get().retry(roomId, p.clientMessageId)
       })
       void get().loadMembers(roomId)
     },

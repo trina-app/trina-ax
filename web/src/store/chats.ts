@@ -7,6 +7,9 @@ import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, 
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { optimisticEdits, optimisticPending } from '../lib/optimistic'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
+import { connectionDown, whenConnected } from '../lib/connectionWait'
+import { readUnsentChat, writeUnsentChat, type KeptChatSend } from '../lib/unsentChats'
+import { useSession } from './session'
 import { keepFaces } from '../lib/sharedChat'
 import { browserTimeZone } from '../lib/time-zones'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, runningMessage, type Delta, type Thread } from './thread'
@@ -110,8 +113,48 @@ export interface SendInput {
   private?: boolean
 }
 
-/** Sends waiting for the network to come back: localId -> body. */
-const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void }>()
+/** Sends waiting for the network to come back: localId -> body. Kept on this device per chat as they change (keepUnsent,
+ * lib/unsentChats.ts): a reload does not lose them. */
+type OutboxJob = { chatId: string; clientMessageId: string; content: string; attachments: Attachment[]; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void; author: { id: string; name: string }; createdAt: string; failed?: { error?: string } }
+const outbox = new Map<string, OutboxJob>()
+/** clientMessageIds of sends this page saw end (sent, let go): never put back from the device, whatever another tab of
+ * mine still keeps */
+const goneHere = new Set<string>()
+/** chats whose kept sends this page has put back already (once per chat and session) */
+const restoredUnsent = new Set<string>()
+const myId = () => {
+  const st = useSession.getState().status
+  return st.kind === 'signed-in' ? st.me.user.id : null
+}
+/** This chat's sends on their way or not sent onto this device: this page's, and the ones another tab of mine kept that
+ * this page has not seen end. */
+function keepUnsent(chatId: string) {
+  const me = myId()
+  if (!me) return
+  const mine: KeptChatSend[] = [...outbox.entries()].filter(([, j]) => j.chatId === chatId && j.author.id === me).map(([localId, j]) => ({
+    localId, clientMessageId: j.clientMessageId, content: j.content, attachments: j.attachments.filter((a) => j.attachmentIds.includes(a.id)),
+    ...(j.parentId ? { parentId: j.parentId } : {}), ...(j.after ? { after: j.after } : {}), ...(j.engine ? { engine: j.engine } : {}), ...(j.model !== undefined ? { model: j.model } : {}),
+    author: j.author, createdAt: j.createdAt, ...(j.failed ? { failed: true as const, ...(j.failed.error ? { error: j.failed.error } : {}) } : {}),
+  }))
+  const ids = new Set(mine.map((p) => p.clientMessageId))
+  const others = readUnsentChat(me, chatId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
+  writeUnsentChat(me, chatId, [...mine, ...others])
+}
+/** a send of this page ended (sent, let go, taken back to wait): gone from the device too */
+function endSend(localId: string) {
+  const job = outbox.get(localId)
+  if (!job) return
+  outbox.delete(localId)
+  goneHere.add(job.clientMessageId)
+  keepUnsent(job.chatId)
+}
+/** A send that waited (offline, or put back after a reload): the conversation may have gone on meanwhile, so it goes
+ * under the newest end of the branch through the message it answered, not under that message (a new version). */
+function goesAtEnd(job: OutboxJob) {
+  if (!job.parentId) return
+  job.after = job.parentId
+  job.parentId = undefined
+}
 /**
  * Events for messages we don't know yet (they raced the POST answer). Bounded: a message that never shows up (another
  * branch, a lost response) must not keep its events forever; the oldest entries go first, and past the per-message
@@ -353,6 +396,8 @@ export const useChats = create<ChatsState>((set, get) => {
           } finally {
             replayingFailed = false
           }
+          // the sends this device kept for the chat come back, after the server's copy is in (or could not be read)
+          restoreUnsent(chatId, failed)
           if (failed && retry && get().threads[chatId]) {
             setThread(chatId, (t) => ({ ...t, stale: true }))
             if (!loadRetries.has(chatId)) loadRetries.set(chatId, setTimeout(() => {
@@ -492,7 +537,7 @@ export const useChats = create<ChatsState>((set, get) => {
           body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, ...(job.after ? { after: job.after } : {}), engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
         })
         if (session !== generation) return
-        outbox.delete(localId)
+        endSend(localId)
         afterStarted(job.chatId, started, { replaceId: localId }, epoch)
         return
       } catch (e) {
@@ -508,6 +553,17 @@ export const useChats = create<ChatsState>((set, get) => {
           attempt = -1
           continue
         }
+        // offline (QA TC-r2d-06): it stays "sending", however long, and goes once the connection is back; only a
+        // connection that is back and still fails for SEND_RETRY_MS turns it into "not sent"
+        if (isNetworkError(e) && connectionDown()) {
+          goesAtEnd(job)
+          keepUnsent(job.chatId)
+          await whenConnected()
+          if (session !== generation || !outbox.has(localId)) return
+          job.firstTry = Date.now()
+          attempt = -1
+          continue
+        }
         if (isNetworkError(e) && Date.now() - job.firstTry < SEND_RETRY_MS) {
           await sleep(Math.min(8000, 1000 * 2 ** attempt))
           continue
@@ -515,7 +571,7 @@ export const useChats = create<ChatsState>((set, get) => {
         // waiting messages sent the moment an answer ended, while another one already runs (another window or device
         // started it): they go back to waiting, nothing is lost and nothing shows as failed
         if (job.onConflict && e instanceof ApiError && e.code === 'conflict') {
-          outbox.delete(localId)
+          endSend(localId)
           setThread(job.chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
           job.onConflict(e)
           return
@@ -533,6 +589,8 @@ export const useChats = create<ChatsState>((set, get) => {
         // the server's reason is already in the person's words (budget used up, attachment gone, …); a network
         // failure has only the browser's English text, so the screen says "not sent" without it
         setThread(job.chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'failed', e instanceof ApiError ? e.message : undefined, undefined, e instanceof ApiError && e.code === 'budget_exceeded') }))
+        job.failed = e instanceof ApiError ? { error: e.message } : {}
+        keepUnsent(job.chatId)
         throw e
       }
     }
@@ -550,6 +608,33 @@ export const useChats = create<ChatsState>((set, get) => {
     return sent
   }
 
+  /** The chat's sends this device kept (a reload, the app closed while offline) back on screen, once per chat: the ones
+   * on their way go again (the same clientMessageId), the ones that did not go show "not sent [send again]". One whose
+   * message the server's copy already has (its answer was lost when the page went) is not put back. */
+  const restoreUnsent = (chatId: string, unread: boolean) => {
+    const me = myId()
+    if (!me || restoredUnsent.has(chatId) || !get().threads[chatId]) return
+    restoredUnsent.add(chatId)
+    const kept = readUnsentChat(me, chatId)
+    if (!kept.length) return
+    const have = new Set([...outbox.values()].map((j) => j.clientMessageId))
+    const shown = thread(chatId).messages
+    const delivered = (p: KeptChatSend) => !unread && shown.some((m) => !m.local && m.role === 'user' && m.author?.id === me && m.content === p.content && Date.parse(m.createdAt) >= Date.parse(p.createdAt) - 60_000)
+    const back: string[] = []
+    for (const p of kept) {
+      if (have.has(p.clientMessageId) || goneHere.has(p.clientMessageId) || shown.some((m) => m.id === p.localId)) continue
+      if (delivered(p)) { goneHere.add(p.clientMessageId); continue }
+      const job: OutboxJob = { chatId, clientMessageId: p.clientMessageId, content: p.content, attachments: p.attachments, attachmentIds: p.attachments.map((a) => a.id), parentId: p.parentId, after: p.after, engine: p.engine, model: p.model, firstTry: Date.now(), author: p.author, createdAt: p.createdAt, ...(p.failed ? { failed: { error: p.error } } : {}) }
+      goesAtEnd(job)
+      outbox.set(p.localId, job)
+      const msg = optimisticUserMessage({ id: p.localId, chatId, parentId: null, content: p.content, author: p.author, attachments: p.attachments, clientMessageId: p.clientMessageId, now: p.createdAt })
+      setThread(chatId, (t) => ({ ...t, messages: markLocal([...t.messages, msg], p.localId, p.failed ? 'failed' : 'sending', p.error) }))
+      if (!p.failed) back.push(p.localId)
+    }
+    keepUnsent(chatId)
+    for (const localId of back) deliverTracked(localId).catch(() => {})
+  }
+
   return {
     ...initial(),
 
@@ -561,6 +646,8 @@ export const useChats = create<ChatsState>((set, get) => {
       finishedMessages.clear()
       outputMessages.clear()
       outbox.clear()
+      goneHere.clear()
+      restoredUnsent.clear()
       pending.clear()
       delivering.clear()
       loads.clear()
@@ -644,7 +731,8 @@ export const useChats = create<ChatsState>((set, get) => {
       const clientMessageId = o.clientMessageId ?? uuidv7()
       const msg = optimisticUserMessage({ id: localId, chatId, parentId: last?.id ?? null, content: o.content, author: o.author, attachments: o.attachments, clientMessageId, now: new Date().toISOString() })
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
-      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
+      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachments: o.attachments, attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict, author: o.author, createdAt: msg.createdAt })
+      keepUnsent(chatId)
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
       const sent = deliverTracked(localId)
       sent.catch(() => {})
@@ -655,12 +743,14 @@ export const useChats = create<ChatsState>((set, get) => {
       const job = outbox.get(localId)
       if (!job) return
       job.firstTry = Date.now()
+      job.failed = undefined
+      keepUnsent(chatId)
       setThread(chatId, (t) => ({ ...t, messages: markLocal(t.messages, localId, 'sending') }))
       await deliverTracked(localId).catch(() => {})
     },
 
     discardLocal(chatId, localId) {
-      outbox.delete(localId)
+      endSend(localId)
       setThread(chatId, (t) => ({ ...t, messages: t.messages.filter((m) => m.id !== localId) }))
     },
 
