@@ -536,8 +536,8 @@ export function unaskedSideShare(exec: Pick<TurnExec, 'rt' | 'spec'> & Partial<P
     const asker = exec.askedIn?.userMessageId ?? exec.spec.userMessageId
     if (talksOfSharing(askerText(db, asker))) return null
     // ...or the person's message before it in this chat ("share it" → the AI's question "which file?" → a button's words)
-    const before = db.query(`SELECT u.content FROM messages m JOIN messages a ON a.id = m.parent_id JOIN messages u ON u.id = a.parent_id
-      WHERE m.id = ? AND u.role = 'user' AND u.chat_id = m.chat_id`).get(asker) as { content: string | null } | null
+    const before = db.query(`SELECT q.content FROM messages m JOIN messages a ON a.id = m.parent_id JOIN messages q ON q.id = a.parent_id
+      WHERE m.id = ? AND q.role = 'user' AND q.chat_id = m.chat_id`).get(asker) as { content: string | null } | null
     if (before?.content && talksOfSharing(before.content)) return null
     return `Nothing was ${what}: the user did not ask to share, send or post anything in their message, and in this side chat nothing goes to the room or its people unless they ask. Do not share, send or post it, and do not offer to: answer what they asked (say where a file you made is). They can ask you to share it, or send your answer with the button under it.`
   } catch { return null }
