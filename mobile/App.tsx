@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar'
 import { NavigationBar } from 'expo-navigation-bar'
 import { requireOptionalNativeModule } from 'expo'
+import * as Application from 'expo-application'
 import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
@@ -36,6 +37,8 @@ const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
 /** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
 const service = mobileService(Constants.expoConfig?.extra?.teamAxService, Constants.expoConfig?.extra?.teamAxService)
 const VERSION = Constants.expoConfig?.version ?? '1.0.0'
+/** the installed build (CFBundleVersion / versionCode): Settings › About shows it next to VERSION (QA TC-8071) */
+const BUILD = Application.nativeBuildVersion
 const language = getLocales()[0]?.languageCode
 const t = stringsFor(language)
 /** ③'s "install it yourself" page: the repository's guide, which links no paid plan (App Review 3.1.1, Google Play
@@ -502,7 +505,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, ...(BUILD ? { appBuild: BUILD } : {}), platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
     // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
     const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
