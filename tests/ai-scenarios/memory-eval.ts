@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { API, ApiClient, type Memory, type Message } from '@mycel/shared/api'
+import { uuidv7 } from '@mycel/shared'
 import { PASSWORD, type FixtureState } from './fixture/seed'
 
 const HOME = path.resolve(process.env.AISCEN_HOME ?? path.join(os.homedir(), '.trina-aiscen'))
@@ -191,7 +192,7 @@ async function runOnce(c: Case) {
   await api.call(API.updateMe, { body: { prefs: { autoMemory: null } } })
   const db = new Database(path.join(DATA, 'app.db'))
   const uid = fixture.people[as]!.id
-  for (const s of c.seed ?? []) db.query('INSERT INTO memories (id, user_id, text, source, created_at) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), uid, s.text, s.source, new Date(Date.now() - 3600_000).toISOString())
+  for (const s of c.seed ?? []) db.query('INSERT INTO memories (id, user_id, text, source, created_at) VALUES (?, ?, ?, ?, ?)').run(uuidv7(), uid, s.text, s.source, new Date(Date.now() - 3600_000).toISOString())
   db.close()
   for (const [rel, text] of Object.entries(c.files ?? {})) { const p = path.join(TEAM, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text) }
   const before = (await memories(api)).length
@@ -218,7 +219,7 @@ for (const c of CASES) {
   for (let i = 0; i < (ENGINE === 'codex' ? 1 : c.repeat ?? 1); i++) {
     try { runs.push(await runOnce(c)) } catch (e) { runs.push({ ok: false, why: `error: ${String(e).slice(0, 200)}`, saved: [], count: 0, before: 0, cards: 0, prompts: 0, steps: [], answer: '' }) }
     const r = runs.at(-1)!
-    console.log(`${c.id}#${i + 1} ${r.ok ? 'ok' : 'FAIL'} saved=${JSON.stringify(r.saved)} cards=${r.cards} steps=${JSON.stringify(r.steps)}`)
+    console.log(`${c.id}#${i + 1} ${r.ok ? "ok" : "FAIL"} (${r.why}) saved=${JSON.stringify(r.saved)} cards=${r.cards} steps=${JSON.stringify(r.steps)}`)
   }
   out.push({ id: c.id, kind: c.kind, title: c.title, runs })
 }

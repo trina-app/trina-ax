@@ -389,7 +389,7 @@ export const RememberInput = z.strictObject({
   /** the id of an existing memory (from the memory block) this one updates in place, instead of adding a new one */
   replaces: z.string().max(64).optional(),
   /** true when the user asked in their own words to keep this; false or absent: the AI keeps it on its own judgement */
-  asked: z.boolean().optional(),
+  asked: z.union([z.boolean(), z.enum(['true', 'false'])]).optional(),
 })
 export const RememberOutput = z.object({ id: z.string().optional(), kept: z.boolean().optional(), note: z.string().optional() })
 export const ForgetInput = z.strictObject({ id: z.string() })

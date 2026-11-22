@@ -248,7 +248,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   // a look at a deck's slides ("View slides 3–5 · …") a slide icon
-  const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  const Icon = step.memory ? Brain : subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
@@ -431,6 +431,13 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
           {top.map((s) => (
             <StepRow key={s.id} step={s} live={false} marks={marks} kids={kids.get(s.id)} />
           ))}
+        </ul>
+      )}
+      {/* what the AI kept, changed or forgot about the person stays in view, with its 되돌리기, while the list is folded
+          (docs/decisions/20261122-auto-memory.md) */}
+      {!open && top.some((s) => s.memory) && (
+        <ul className="mt-0.5 space-y-0.5" data-testid="steps-memory">
+          {top.filter((s) => s.memory).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
         </ul>
       )}
       {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}

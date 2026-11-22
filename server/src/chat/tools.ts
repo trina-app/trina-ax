@@ -1248,7 +1248,9 @@ function bTools(exec: TurnExec): Tool[] {
           settle({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${target.id}` })
           return { ...text(JSON.stringify({ id: target.id, kept: true, note: 'Already kept; nothing changed.' })), summary: `remember -> already kept ${target.id}` }
         }
-        let source: 'auto' | 'ai' | 'user' = auto && !a.data.asked ? 'auto' : 'ai'
+        // (a model may send asked as the text "true")
+        const asked = a.data.asked === true || a.data.asked === 'true'
+        let source: 'auto' | 'ai' | 'user' = auto && !asked ? 'auto' : 'ai'
         if (auto) {
           // only what the person said or what the AI learned: never words, addresses, paths or names that came in
           // through tool output (mail, pages, files, rooms, connections). Nothing recorded (a restart): nothing to check
@@ -1308,8 +1310,9 @@ function bTools(exec: TurnExec): Tool[] {
         auditLog(rt.db, { actor: spec.userId, action: target ? 'memory.auto_update' : 'memory.auto_create', target: id, detail: { chars: value.length, source, turnId: spec.turnId } })
         const row = rt.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE id = ?').get(id) as { id: string; text: string; source_chat_id: string | null; created_at: string }
         rt.hub.publish(spec.userId, { type: 'memory.changed', data: { change: target ? 'updated' : 'created', memory: rt.store.toMemory(row) } })
-        // the first memory the AI keeps on its own: its step shows the one-time line (Settings › Memory, the switch)
-        const first = source === 'auto' && firstAutoMemory(rt.db, spec.userId)
+        // the first memory kept without a card (auto memory on): its step shows the one-time line (Settings › Memory,
+        // the switch)
+        const first = auto && firstAutoMemory(rt.db, spec.userId)
         settle({
           label: tr(target ? 'rememberUpdated' : 'remembered', L, { text: value }).slice(0, 500), detail: `memory:${id}`,
           memory: { id, change: target ? 'updated' : 'created', text: value, ...(target ? { before: target.text.slice(0, 1000) } : {}), ...(first ? { first: true as const } : {}) },
