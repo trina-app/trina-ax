@@ -35,6 +35,8 @@ setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 type Ask = Extract<TurnRequest, { kind: 'ask_user' }>
+/** what a card says: its question and its rows (#337: a file change's question says the verb, its rows say the file) */
+const said = (c: Ask) => [c.question, ...(c.details ?? []).flatMap((d) => (d.fields ?? []).map((f) => f.value))].join(' ')
 
 let h: Harness
 const ws: Record<string, TestSocket> = {}
@@ -193,8 +195,8 @@ describe('my own folder after a room read', () => {
     // the team folder's card is the room card's (every member may write there): it offers the room's grant
     expect(r.cards[0]!.question).toContain(`${W(dir)}: planted-${tag}.md`)
     expect(values(r.cards[0]!)).toEqual(['allow', '__always', 'skip'])
-    expect(r.cards[1]!.question).toContain(mine)
-    targets.forEach((t, i) => expect(r.cards[i + 2]!.question).toContain(t))
+    expect(said(r.cards[1]!)).toContain(W(mine))
+    targets.forEach((t, i) => expect(said(r.cards[i + 2]!)).toContain(W(t)))
     expect(read(mine)).toBe('mine\n')
     for (const t of [...targets, `${dir}/planted-${tag}.md`]) expect(exists(t)).toBe(false)
     expect(labels(r.done, 'write').some((l) => l.endsWith(OWN))).toBe(false)
@@ -225,7 +227,7 @@ describe('my own folder: where it still asks', () => {
     const chat = await sideChat('alice', roomId)
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${proj}/conftest.py`, 'import os\n'), write(`users/alice/notes-${tag}.md`), { say: 'done' }))
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain(`${proj}/conftest.py`)
+    expect(said(r.cards[0]!)).toContain(W(`${proj}/conftest.py`))
     expect(exists(`${proj}/conftest.py`)).toBe(false)
     expect(exists(`users/alice/notes-${tag}.md`)).toBe(true)
     fs.rmSync(at(proj), { recursive: true, force: true })
@@ -317,7 +319,7 @@ describe('one yes per team folder in my own chat', () => {
     expect(r.cards[0]!.question).toStartWith(WHY)
     expect(r.cards[0]!.question).toMatch(new RegExp(`(Trina|The AI) wants to save a new file in ${W(one)}: quote-1\\.md\\.`))
     expect(r.cards[1]!.question).toContain(`${W(two)}: a.md`)
-    expect(r.cards[2]!.question).toContain(`${one}/old.md`)
+    expect(said(r.cards[2]!)).toContain(W(`${one}/old.md`))
     for (const f of files) expect(read(f)).toBe('made by the AI\n')
     expect(read(`${one}/old.md`)).toBe('changed\n')
     const lines = labels(r.done, 'write')
@@ -418,7 +420,7 @@ describe('the tools that refuse after a room read', () => {
     const chat = await sideChat('alice', roomId)
     let n = 0
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/old.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
-    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : c.question.includes('to the trash') ? 'delete' : 'other')).toEqual(['team', 'skill', 'trashed', 'delete'])
+    expect(r.cards.map((c) => said(c).includes(`${W(dir)}: a.md`) ? 'team' : said(c).includes(W(`groups/marketing/skills/planted-${tag}`)) ? 'skill' : said(c).includes(W(gone)) ? 'trashed' : c.question.includes('to the trash') ? 'delete' : 'other')).toEqual(['team', 'skill', 'trashed', 'delete'])
     expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
     expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
     expect(exists(gone)).toBe(false)
