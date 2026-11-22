@@ -213,6 +213,22 @@ export interface RecordView {
   mapText?: (text: string) => string
   budget?: number
 }
+/** The chat was never shared with anyone and nobody else wrote in it: not shared now (a project's shared chat, people),
+ * no share in the audit log, no message of another person (fails closed: false). `memo`: one answer per chat. */
+function neverShared(db: Database, chatId: string, asker: string, memo: Map<string, boolean>): boolean {
+  const known = memo.get(chatId)
+  if (known !== undefined) return known
+  let ok = false
+  try {
+    ok = !db.query(`SELECT 1 FROM chats c WHERE c.id = ?1 AND (c.shared_at IS NOT NULL OR c.people_shared_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'chat.share' AND a.target = ?1)
+        OR EXISTS (SELECT 1 FROM messages x WHERE x.chat_id = ?1 AND x.role = 'user' AND x.author_id IS NOT NULL AND x.author_id <> ?2))
+      UNION ALL SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM chats WHERE id = ?1) LIMIT 1`).get(chatId, asker)
+  } catch { ok = false }
+  memo.set(chatId, ok)
+  return ok
+}
+
 /** a history window of fewer estimated tokens than this (a small model) gets no records: the text comes first */
 export const STEP_RECORD_MIN_BUDGET = 12_000
 /** characters for all records of one history together (newest answers first) */
@@ -232,16 +248,19 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
   let left = STEP_RECORD_ANSWERS
   let room = o.budget ?? STEP_RECORD_TOTAL
   const out = items.slice()
+  const never = new Map<string, boolean>()
   for (let i = out.length - 1; i >= 0 && left > 0 && room > 200; i--) {
     const h = out[i]!
     if (h.role !== 'assistant' || !h.id || o.withheld?.has(h.id)) continue
-    const row = db.query(`SELECT m.steps, m.step_notes, p.author_id AS asked_by, t.user_id AS ran_by
+    const row = db.query(`SELECT m.steps, m.step_notes, m.chat_id, p.author_id AS asked_by, t.user_id AS ran_by
       FROM messages m LEFT JOIN messages p ON p.id = m.parent_id LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?`).get(h.id) as
-      { steps: string | null; step_notes: string | null; asked_by: string | null; ran_by: string | null } | null
+      { steps: string | null; step_notes: string | null; chat_id: string; asked_by: string | null; ran_by: string | null } | null
     if (!row) continue
     // another person's turn (B regenerated an answer on A's message), also in a chat that is no longer shared: their
-    // steps are theirs
+    // steps are theirs. A row with no turn (an older build's) is nobody's known turn: only in a chat of one person that
+    // was never shared (neverShared)
     if (row.ran_by !== null && row.ran_by !== o.asker) continue
+    if (row.ran_by === null && (o.several || !neverShared(db, row.chat_id, o.asker, never))) continue
     if (o.several && row.asked_by !== o.asker) continue
     let steps: StoredStep[] = []
     try { const v = JSON.parse(row.steps ?? '[]'); if (Array.isArray(v)) steps = v.filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.label === 'string') } catch {}

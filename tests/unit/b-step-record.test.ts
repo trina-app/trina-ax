@@ -231,4 +231,18 @@ describe('a fresh session gets its own earlier steps', () => {
       expect(withStepRecords(h.ctx.db, items, { ...view, several: true })[1]!.steps).toBeUndefined()
     } finally { h.ctx.db.query("UPDATE turns SET user_id = 'alice' WHERE id = ?").run(turn) }
   })
+
+  // an older build's answer with no turn (ran_by unknown): kept only in a chat of one person that was never shared
+  test('an answer with no turn: kept in a chat never shared, left out once the chat was shared', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'NOTURNPATTERN*', path: 'users/alice' } }, { say: 'Looked.' }))
+    const items: RecordItem[] = [{ id: a.started.userMessage!.id, role: 'user', content: 'look around' }, { id: a.done.id, role: 'assistant', content: 'Looked.' }]
+    const view = { asker: 'alice', several: false, canList: () => true }
+    h.ctx.db.query('UPDATE messages SET turn_id = NULL WHERE id = ?').run(a.done.id)
+    expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toContain('NOTURNPATTERN')
+    expect(withStepRecords(h.ctx.db, items, { ...view, several: true })[1]!.steps).toBeUndefined()
+    // shared once (made private again since): unknown, so left out
+    h.ctx.db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'chat.share', ?, '{}', ?)").run(chat.id, new Date().toISOString())
+    expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toBeUndefined()
+  })
 })

@@ -2,7 +2,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, chatScoped, keepAlways, keepAlwaysAt, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
@@ -3394,6 +3394,8 @@ export class TurnExec {
     // "Always allow" here is the person's own for every change after a room read (chat/always-allow.ts), on the first
     // card, in their own chats and side chats alike; it replaces the room's folder grant ("이 방에서는 항상 허용")
     const always = roomAlways === 'offer'
+    // a guest among the people: "Always in this chat", its own value (chat/always-allow.ts ALWAYS_CHAT_VALUE)
+    const inChat = always && chatScoped(this.alwaysPlace())
     // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
@@ -3405,16 +3407,17 @@ export class TurnExec {
     if (always) this.alwaysOffer = 'room_change'
     const asked = this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
-      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
+      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [inChat ? { label: tr('cardAlwaysChat', L), value: ALWAYS_CHAT_VALUE } : { label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L, this.alwaysPlace()) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     this.alwaysOffer = null
     const { value: answer, missing } = await asked
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
-    if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
+    const pressedAlways = always && (inChat ? v === ALWAYS_CHAT_VALUE : v === ALWAYS_VALUE)
+    if (pressedAlways) keepAlwaysAt(this.alwaysPlace(), 'room_change', { inChat })
+    if (v === 'allow' || pressedAlways) {
       this.roomAllowed.add(key)
       // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
       if (tool === 'box_shell') { const shape = commandShape(input); if (shape) this.shellAllowed.add(shape) }
@@ -4538,14 +4541,14 @@ export class TurnExec {
       let pending = this.sharedConnPending.get(c.key)
       if (!pending) {
         const asked = [...new Set(audience)].sort()
-        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        const made = { asked, forGood: this.sharedConnMayKeep(c, asked), p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
         pending = made
         this.sharedConnPending.set(c.key, made)
         const decision = await made.p
         if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
         this.sharedConnAllowed.set(c.key, new Set(asked))
         if (decision === 'always') {
-          if (this.sharedConnMayKeep(c, asked)) keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
+          if (this.sharedConnMayKeep(c, asked) && made.forGood) keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
           else noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
         }
         continue
@@ -4587,13 +4590,14 @@ export class TurnExec {
         : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
       // one press (QA TC-ask1-15): three buttons, the main one first. Always is for good where it may be kept (no
       // guest here: sharedConnMayKeep), with one line saying what it covers; with a guest it stays for this chat
-      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr(forGood ? 'sharedConnectionAlwaysAll' : 'sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr(forGood ? 'sharedConnectionAlwaysAll' : 'sharedConnectionAlways', L), value: forGood ? 'always' : 'always_chat' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
       buttons: true, ...(forGood ? { note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(value) && value.length === 1 ? value[0] : value
-    const decision: SharedDecision | 'always' = v === 'always' ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
+    // ("Always in this chat" has its own value: a press that waited is never taken for the Always for good, open-questions.ts sameCard)
+    const decision: SharedDecision | 'always' = (forGood ? v === 'always' : v === 'always_chat') ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
     try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
     catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
     return decision
@@ -4896,7 +4900,7 @@ export class TurnExec {
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
     const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
       if (!o.room) return this.askAlways('save_wider', req, 'save')
-      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
+      return this.askAlways('room_change', req, 'save', { onAlways: (inChat) => keepAlwaysAt(this.alwaysPlace(), 'save_wider', { inChat }) })
     }
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
@@ -5298,7 +5302,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: (inChat: boolean) => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
@@ -5307,7 +5311,8 @@ export class TurnExec {
       const r = await this.askPerson({ ...request, options, ...more, ...(note ? { note } : {}) } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
       missing = r.missing
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
-      if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
+      const pressed = Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value
+      if (pressed === ALWAYS_VALUE || pressed === ALWAYS_CHAT_VALUE) o.onAlways?.(pressed === ALWAYS_CHAT_VALUE)
       return r.value
     }, o.label)
     return { value, missing }
@@ -5315,7 +5320,18 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => !!this.shared && this.guestAmong(), offering: (k) => { this.alwaysOffer = k } }
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => this.guestAmong(), audience: () => this.turnPeople(), offering: (k) => { this.alwaysOffer = k } }
+  }
+
+  /** The people of this turn (TurnExec.guestAmong's): the person, who sees this shared chat, the members of this side
+   * chat's room. Throws when they cannot be read (an "Always in this chat" then holds for nobody) */
+  turnPeople(): string[] {
+    const db = this.rt.db
+    const out = new Set<string>([this.spec.userId])
+    if (this.shared) for (const id of this.sharedAudience()) out.add(id)
+    const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
+    if (side) for (const m of db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(side) as { user_id: string }[]) out.add(m.user_id)
+    return [...out].sort()
   }
 
   /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
@@ -5472,7 +5488,7 @@ export class TurnExec {
       const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
       // (offered here now, and never while a guest is among the people of this shared chat: there each card's own rule
       // decides whether its Always counts, which a run that never reached the card could not check)
-      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !(this.shared && this.guestAmong())) {
+      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !this.guestAmong()) {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
       }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)

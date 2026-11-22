@@ -128,6 +128,25 @@ describe('Always allow pressed on a waiting card', () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
   })
 
+  // review of #412: a ✦ side chat is not a shared chat, but a guest in its room is among the people (TurnExec.guestAmong)
+  test('not kept in a side chat whose room has a guest', async () => {
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
+    put('users/alice/QA-late/side-guest.txt', 'x')
+    const chatId = await ownChat()
+    db().query('UPDATE chats SET side_room_id = ? WHERE id = ?').run(teamRoom, chatId)
+    db().query("INSERT OR IGNORE INTO room_members (room_id, user_id, joined_at) VALUES (?, 'bob', ?)").run(teamRoom, new Date().toISOString())
+    // (no share word: the card asks in a chat of one person too)
+    const w = await askAndWait(chatId, `please\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/QA-late/side-guest.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
+    expect(w.card.options!.map((o) => o.value)).toContain(ALWAYS_VALUE)
+    fs.rmSync(path.join(h.ctx.files.fx.root, 'users/alice/QA-late/side-guest.txt'))
+    db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    try {
+      expect((await post(w.turnId, w.card.requestId, ALWAYS_VALUE)).status).toBe(204)
+      await nextTurn(chatId, w.answerId)
+      expect(always()).toBe(0)
+    } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
+  })
+
   test('not kept when the team turned Always allow off meanwhile', async () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
     const { chatId, w } = await waitingShare('switch-off.txt')
