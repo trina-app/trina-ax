@@ -159,8 +159,9 @@ describe('the suggestions', () => {
   const t = (k: Parameters<typeof translate>[1]) => translate('en', k)
   test('the demo\'s own by language, else the person\'s questions, else the built-in ones', () => {
     const s = (label: string, prompt = label) => ({ label, prompt })
-    const own = { freeRoam: { suggestions: [s('Posts', 'Make next week\'s posts with our skill'), s('Reply', 'Check Chris\'s reply'), s('Assets', 'List Brand assets'), s('Fourth')] } }
-    expect(freeRoamSuggestions({ ...INFO, ...own }, t)).toEqual([s('Posts', 'Make next week\'s posts with our skill'), s('Reply', 'Check Chris\'s reply'), s('Assets', 'List Brand assets')])
+    const own = { freeRoam: { suggestions: [s('Posts', 'Make next week\'s posts with our skill'), s('Reply', 'Check Chris\'s reply'), s('Assets', 'List Brand assets'), s('Fourth'), s('Fifth')] } }
+    // at most four (lib/freeRoam.ts SUGGESTIONS_MAX: Steepling's fourth asks for a folder Mina cannot open)
+    expect(freeRoamSuggestions({ ...INFO, ...own }, t)).toEqual([s('Posts', 'Make next week\'s posts with our skill'), s('Reply', 'Check Chris\'s reply'), s('Assets', 'List Brand assets'), s('Fourth')])
     // a broken entry is skipped, an empty list falls back
     expect(freeRoamSuggestions({ ...INFO, freeRoam: { suggestions: [{ label: '', prompt: 'x' }, s('Ok')] } } as DemoInfo, t)).toEqual([s('Ok')])
     expect(freeRoamSuggestions({ ...INFO, personas: [{ ...INFO.personas[0]!, questions: ['Q1', 'Q2'] }] }, t)).toEqual([s('Q1'), s('Q2')])
