@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:01
 - Branch: `fix/connector-always-allow`
-- Status: in progress
+- Status: done
 - Where: server `integrations/connections/` (read-mark.ts, tools.ts, text.ts), `chat/always-allow.ts`, the
   allowances API (`shared/src/api/ai-allowances.ts`, `routes/rooms.ts`), web Settings › Allowed for Trina. Why: the
   connector card is decided there (docs/REPOSITORY-RULES.md).
@@ -91,4 +91,8 @@ the "can't tell" card's Always is for good).
 
 ## Result
 
-(filled in at the end)
+Built as planned, widened the same day to one rule set for every connector card (see the decision file). Plan review:
+export/download/check keep a card, recipients in a schema keep asking, access loss prunes the grant, alwaysHere's places
+mirrored. Code review (2 rounds): no Always for HTTP requests or non-ASCII names, recipients in a call (nested too) keep
+asking, Always bound to address and account, the AI's title said as the AI's. Real check on a private QA copy with
+claude-code: all five scenarios passed (Always in chat A → no card in chat B; Settings removes it).
