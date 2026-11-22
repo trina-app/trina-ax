@@ -593,7 +593,7 @@ function teamSource(exec: TurnExec, p: string): { source: WorkSource; sources: R
 }
 
 /** Why a copy will not be placed at the team path `target` whatever the person says, or null. */
-function teamTargetRefusal(exec: TurnExec, target: string): string | null {
+export function teamTargetRefusal(exec: TurnExec, target: string): string | null {
   const rt = exec.rt
   if (inSkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
   if (instructionLike(target)) return `'${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md); pick another name.`

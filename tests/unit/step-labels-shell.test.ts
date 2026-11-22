@@ -238,6 +238,11 @@ describe('QA b4s S4-E: one curl in a side chat', () => {
     // a real redirect still counts, quoted target or not, and one inside "$(…)" too
     expect(shellKind("curl -sL https://example.com > 'page.html'")).toBe('change')
     expect(shellKind('echo "$(cat a > b)"')).toBe('change')
+    // quotes read as the shell reads them: a quote inside the other kind, or escaped, hides no redirect (review)
+    expect(shellKind(`echo "It's done" > status.txt; echo 'ok'`)).toBe('change')
+    expect(shellKind("echo \\' > out.txt \\'")).toBe('change')
+    expect(shellKind(`printf "%s" "don't" >> log.txt && echo "won't"`)).toBe('change')
+    expect(shellKind(`echo 'unclosed > x.txt`)).toBe('change')
   })
   test('a plain run that uses the internet reads as one thing', () => {
     expect(shellCardWords(curl, 'ko')).toBe('인터넷을 쓰는 명령 실행')

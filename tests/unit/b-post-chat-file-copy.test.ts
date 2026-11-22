@@ -115,12 +115,39 @@ describe('a chat file sent to a teammate with post_to_room', () => {
     expect(r.content).toContain('Nothing was posted')
     expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_messages').get() as { n: number }).n).toBe(before)
   })
+
+  test('a name already taken in downloads: the copy goes next to it, and the same call again reuses that copy', async () => {
+    fs.mkdirSync(path.join(h.team, 'users/alice/downloads'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users/alice/downloads/taken.docx'), 'someone else')
+    const f = await chatWithFile('taken.docx', 'taken')
+    const call = { tool: 'post_to_room', args: { room: 'Bob Lee', text: `Taken: [taken.docx](${f.link})` }, sayResult: true }
+    const r1 = await run('alice', f.chat, `Send this to Bob\n${fake(call)}`, 'no')
+    // a post that did not go says the copy stays in the downloads
+    expect(r1.content).toContain('was kept in the user\'s own downloads folder')
+    await run('alice', f.chat, `Send this to Bob\n${fake(call)}`, 'no')
+    const names = fs.readdirSync(path.join(h.team, 'users/alice/downloads')).filter((n) => n.startsWith('taken'))
+    expect(names).toHaveLength(2)
+    expect(fs.readFileSync(path.join(h.team, 'users/alice/downloads/taken.docx'), 'utf8')).toBe('someone else')
+  })
+
+  test('a link to another chat\'s file, or a chat file in own words: refused before anything is copied', async () => {
+    const f = await chatWithFile('other.docx', 'other')
+    const g = await chatWithFile('mine.docx', 'mine')
+    const before = fs.readdirSync(path.join(h.team, 'users/alice/downloads')).length
+    const r1 = await run('alice', g.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `Other: [other.docx](${f.link})` }, sayResult: true })}`, 'send_files')
+    expect(r1.cards).toHaveLength(0)
+    expect(r1.content).toContain('a file of another chat')
+    const r2 = await run('alice', g.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `Mine: [mine.docx](${g.link})`, own_words: true }, sayResult: true })}`, 'send_files')
+    expect(r2.cards).toHaveLength(0)
+    expect(r2.content).toContain('own words or the note carry no file')
+    expect(fs.readdirSync(path.join(h.team, 'users/alice/downloads')).length).toBe(before)
+  })
 })
 
 describe('the words', () => {
   test('only links to this chat\'s files are taken, any spelling the router opens', () => {
     const id = '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208'
-    expect(chatFileLinksIn(`[a](/c/chat-1?file=${id}) [b](/C/chat-1/?file=${id}) [c](/c/chat-2?file=${id})`, 'chat-1').map((x) => x.id)).toEqual([id, id])
+    expect(chatFileLinksIn(`[a](/c/chat-1?file=${id}) [b](/C/chat-1/?file=${id}) [c](/c/chat-2?file=${id})`, 'chat-1').map((x) => x.here)).toEqual([true, true, false])
   })
 
   test('the card shows a chat file\'s link as the file\'s name for someone who sees that chat', async () => {

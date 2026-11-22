@@ -19,14 +19,16 @@ one some people cannot open. Batch 3 sent such files because the AI saved them i
 1. post_to_room: every link to a file of this chat is first kept as a copy in the person's own downloads (copy_files'
    own route, places-copy.ts chatFileToTeam) and the post links the copy. The usual check then offers it as a file that
    goes with the post ("함께 보낼 파일"); Send without the files reports `cannot_open`. The same call again reuses the
-   copy (same path, same bytes). A copy that cannot be kept: nothing is posted, with why.
+   copy it made (also when the name was taken and it went next to it). copy_files' target checks hold (never an
+   instruction file's name or a skills folder). A copy that cannot be kept, a link to another chat's file, or a chat
+   file in own words or the note: nothing is posted, with why. A post that does not go says the copy stays.
 2. A post card shows a chat file's link as the file's name (share-words.ts cardTextWords), never the raw Markdown.
 3. One curl in a ✦ side chat: a `>` inside quotes is no redirect (the card said "파일 바꾸기"); a plain run that uses the
    internet reads "인터넷을 쓰는 명령 실행"; the same command again with `request_sites` goes under the room card's yes
    and asks only the site card.
 4. The save note's "only you" (save-audience.ts) is no longer quoted in English, so a Korean answer does not echo it.
 
-Out: share_with_person of a chat file (refused as not found, no false claim); links to another chat's files.
+Out: share_with_person of a chat file (refused as not found, no false claim).
 
 ## Tests
 
