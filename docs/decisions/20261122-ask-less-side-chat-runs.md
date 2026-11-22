@@ -1,4 +1,4 @@
-# A side chat's commands and copies into my own folder go without the room card
+# A side chat's copies into my own folder go without the room card; its commands keep it until runs keep versions
 
 - Date: 2026-11-22
 - Status: accepted
@@ -15,22 +15,17 @@
   instruction file, not a hidden, plugin or project folder, not a path an AI turn put in the trash, not a file that is
   there already, not a confidential chat. The step ends "내 폴더라 묻지 않고 저장". A team folder, an overwrite and a
   team source keep their cards.
-- **Rule 2, commands.** After a room read, `box_shell` needs no room card in the person's own live chat (a ✦ side chat
-  too) when it is not shared, not a guest's, not restricted or scheduled, not confidential, and its commands run in the
-  chat's own work folder (no project: `TurnExec.ownBoxRun`). Such a run reads only what the person may open, shows its
-  output to them alone, and writes only the chat's work folder and their own folder (a folder they share is read-only in
-  a run). A site not allowed yet still asks on its own card (`request_sites`). A project chat (its folder is the team's),
-  a shared chat and a chat shared later keep the room card.
+- **Rule 2, commands (owner 11-22: the room card stays).** After a room read, `box_shell` keeps the room card in every
+  chat, the person's own chat and a ✦ side chat included. A room message (other people's words) could steer a command
+  that changes or removes files already in the person's own folder, and a run's change there gets no file version (the
+  dev environment's change record, devenv/track.ts, covers project folders only), so it could not be undone. That is
+  injection from other people, not covered by Always allow, which is the person's own choice. A first version of this
+  branch skipped the card in the person's own chat; it was reverted before merge.
 - **Rule 3, the card's words where it stays.** The question and its "하는 일" row are read from the command, never the
   AI's description (`shellCardWords`): the files it makes by kind and name ("그림 파일을 만드는 명령 실행: chart.png"),
   a command that removes, moves or overwrites files keeps "파일 바꾸기", a plain run says "명령 실행" (not "작업 실행").
   The command stays behind 자세히, without a character count.
-- **Risk left (accepted):** a room message could steer a command that changes or removes files already in my own
-  folder. Nobody else sees that folder and the steps show every command, but a command's change there gets no file
-  version: the dev environment's change record (devenv/track.ts) covers project folders only, so such a change is not
-  undone from the file's history. A person's own chat with no room read already runs commands there with no card.
-  Making the own folder read-only in runs after a room read was considered and left out: it changes the dev box's view
-  and its hash, which stops running jobs. Follow-up if the owner wants it: record own-folder changes of a run as
-  versions.
+- **Follow-up:** record a run's changes in the person's own folder as file versions (as project folders are). Once runs
+  keep those versions, the room card for commands in the person's own chat can go; until then it stays.
 - **Tests:** tests/unit/places-copy.test.ts (TC-f2-c02), tests/unit/step-labels-shell.test.ts.
 - **Version impact:** patch (fewer cards and plainer words; no API or schema change).

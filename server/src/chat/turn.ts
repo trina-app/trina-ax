@@ -19,7 +19,6 @@ import crypto from 'node:crypto'
 import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
-import { webAllowAll } from '../tools/web-allow-all'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -3160,9 +3159,9 @@ export class TurnExec {
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
-    // a dev-environment command in the person's own chat with no project, a ✦ side chat too
-    // (docs/decisions/20261122-ask-less-side-chat-runs.md, QA TC-f2-c02): no room card
-    if (tool === 'box_shell' && this.ownBoxRun(input)) return null
+    // a dev-environment command keeps this card after a room read, also in the person's own chat and a ✦ side chat: a room
+    // message could steer a command that changes the person's own files, and runs keep no versions of those yet
+    // (docs/decisions/20261122-ask-less-side-chat-runs.md, owner decision 11-22)
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -3508,27 +3507,6 @@ export class TurnExec {
    * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
    * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
    */
-  /**
-   * After a room read, a dev-environment command needs no room card when what it shows and changes reaches nobody but
-   * the person (docs/decisions/20261122-ask-less-side-chat-runs.md): the person's own live chat (a ✦ side chat too), not
-   * shared with anyone, not a restricted or scheduled run, not a confidential chat, and the commands run in the chat's own
-   * work folder (no project: a project folder is the team's, and its dev environment's changes reach its members). Such a
-   * run reads only what the person may open, its output is shown to them alone, and it writes only the chat's work folder
-   * and the person's own folder (a folder they share is read-only in a run, srt/access.ts); a site not allowed yet asks on
-   * its own card (request_sites). The card stays when "Allow all websites" is on for the person (no site card would
-   * stop a command reaching out then) or the command itself uses the network (shellUsesNetwork: curl, wget, ssh…), so a
-   * room message cannot send the person's files out without a card. Fails closed.
-   */
-  private ownBoxRun(input: unknown): boolean {
-    try {
-      const d = this.devEnv
-      if (!d || d.project || d.shared || this.shared || this.restricted || isGuestUser(this.rt.db, this.spec.userId)) return false
-      const command = input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
-      if (typeof command !== 'string' || shellUsesNetwork(command) || webAllowAll(this.rt.db, this.spec.userId)) return false
-      if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
-      return !confidentialChat(this.rt.db, this.spec.chatId)
-    } catch { return false }
-  }
 
   /**
    * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA

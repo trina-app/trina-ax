@@ -50,7 +50,7 @@ test('TC-7277/TC-7262: the warning names the files and where they are, says what
   const base = { added: 1, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
   const lines = shareWarningLines(en, { ...base, fileAnswers: 1, fileNames: ['cost.xlsx · Sales › Pricing'] }, 'Seoyeon')
   expect(lines).toEqual(["1 answer used files Seoyeon can't open (cost.xlsx · Sales › Pricing). Seoyeon will see what those answers say."])
-  expect(shareWarningLines(en, { ...base, devAnswers: 2 }, 'Doyoon')[0]).toContain("Doyoon will see those answers; people added later won't.")
+  expect(shareWarningLines(en, { ...base, devAnswers: 2 }, 'Doyoon')[0]).toContain("may have used files only you can open. Doyoon will see them; people added later won't.")
   expect(shareWarningLines(en, { ...base, hiddenAnswers: 3 }, 'Doyoon')[0]).toBe('3 earlier answers stay hidden from Doyoon: those answers used something only the people here then could see.')
   expect(shareAtStake({ ...base, devAnswers: 1 })).toBe(true)
   expect(shareAtStake({ ...base, hiddenAnswers: 1 })).toBe(true)
