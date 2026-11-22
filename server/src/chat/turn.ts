@@ -6088,6 +6088,8 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 
+/** a script in a command that removes, moves, renames or copies files (python, node), past what SHELL_DESTRUCTIVE reads */
+const SCRIPT_REMOVES = /\b(?:os\.(?:remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(?:rmtree|move|copy\w*)|unlinkSync|rmSync|rmdirSync|renameSync|copyFileSync|\.unlink\(|\.rmdir\(|\.rename\()/
 /** The files a dev-environment command makes when that is all its words show (TurnExec sameAnswerTarget): its output
  * names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE, cp, ln, chmod, chown,
  * touch, tee, a script's os.remove …), installs or downloads programs, reaches the network or names an instruction or
