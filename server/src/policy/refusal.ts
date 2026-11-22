@@ -319,7 +319,7 @@ export function lostAccessNote(db: Database, places: readonly string[], L: Local
   const named = nameList(places.map((p) => `'${oneLine(p)}'`))
   const g = writeGranters(db, places[0] ?? '', L, () => false)
   return `Earlier in this chat this user opened ${named}; they can no longer open ${places.length > 1 ? 'them' : 'it'} (their groups or the folder's access changed, or it was moved). ` +
-    'Tell them so plainly in their language (e.g. "이 폴더는 더 이상 열 수 없어요 (권한이 바뀌었거나 옮겨졌어요)"); do not say it is not among their folders or was never there. ' +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uB354 \uC774\uC0C1 \uC5F4 \uC218 \uC5C6\uC5B4\uC694 (\uAD8C\uD55C\uC774 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC62E\uACA8\uC84C\uC5B4\uC694)"); do not say it is not among their folders or was never there. ' +
     `${g.who[0]!.toUpperCase()}${g.who.slice(1)} can give access again (${g.how}). ${KEEP_READ_LINE}`
 }
 
