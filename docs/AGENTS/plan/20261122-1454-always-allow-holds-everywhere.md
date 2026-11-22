@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:54
 - Branch: `fix/always-allow-holds-everywhere` (on top of `fix/connector-always-allow`, which handles B1, B2 and M1)
-- Status: in progress
+- Status: done
 - Where: server (chat cards, url gate, dev environment), shared API, web Settings. Why: the owner, 2026-11-22: "이렇게
   또 권한을 매번 대화마다 다 해줘야하는 미친 상황 더 없겠지?" Rule A (docs/decisions/20261116-always-allow-final-rule-a.md)
   already decides it: Always allow is final everywhere.
@@ -78,4 +78,12 @@ asserted the old guard, web AiAllowances test.
 
 ## Result
 
-(at the end)
+Built as planned, plus what the plan review and the code review asked for: the guest limit covers shares, posts,
+folder shares and shared-chat runs too (old guards there, `TurnExec.guestAmong`: the person, the shared chat's people,
+a side chat's room members); site rows for good follow the team switch, the active account and only turns from the
+person's app or their own scheduled run; "Allow all websites" holds in the person's own scheduled run; a scheduled run
+whose call would still need a card is refused at once; the Settings list is sorted newest first across kinds; the dev
+login result says no card was shown. Migration 442 is in B's range (442_b). Checks on the Mac mini (Bun 1.3.12):
+typecheck, check:i18n, check:docs, check:migrations, the area tests (257 files) and web unit tests; the failures left
+(srt dev environment, a full disk's "storage is full", macOS folder access) fail the same on the base branch. Real check
+on a private QA copy with claude-code: B3 and Settings pass; B4 with Always on passes.
