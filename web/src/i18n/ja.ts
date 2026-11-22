@@ -1206,6 +1206,7 @@ export const ja: Record<MessageKey, string> = {
   'files.restoredVersion': "以前のバージョンを復元しました",
   'files.restoreTitle': "v{version}を復元しますか？",
   'files.restoreBody': "現在の内容も新しいバージョンとして保存されるため、いつでも戻せます。",
+  'files.restoreBodyNames': "{names}さんの変更は最新バージョンに含まれなくなります。履歴にはそのまま残ります。",
   'files.restored': "v{version}を復元しました。",
   'files.sameAsNow': "現在と同じ",
   'files.versionsFolderInTrash': "このファイルのフォルダーはゴミ箱にあるため、バージョンを復元できません。先にフォルダーをゴミ箱から復元してください。",

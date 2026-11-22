@@ -1230,6 +1230,7 @@ export const en: Record<MessageKey, string> = {
   'files.restoredVersion': 'Restored an earlier version',
   'files.restoreTitle': 'Restore v{version}?',
   'files.restoreBody': 'The current content is kept as a new version, so you can always come back to it.',
+  'files.restoreBodyNames': "{names}'s changes will no longer be in the latest version. They stay in the history.",
   'files.restored': 'Restored v{version}.',
   'files.sameAsNow': 'Same as now',
   'files.versionsFolderInTrash': "This file's folder is in the trash, so its versions can't be restored. Restore the folder from the trash first.",

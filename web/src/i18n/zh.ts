@@ -1205,6 +1205,7 @@ export const zh: Record<MessageKey, string> = {
   "files.restoredVersion": "已恢复较早的版本",
   "files.restoreTitle": "恢复 v{version}？",
   "files.restoreBody": "当前内容会保存为一个新版本，你随时可以回到它。",
+  "files.restoreBodyNames": "{names} 的修改将不再出现在最新版本中，但仍保留在历史记录里。",
   "files.restored": "已恢复 v{version}。",
   "files.sameAsNow": "与当前相同",
   "files.versionsFolderInTrash": "此文件所在的文件夹在回收站中，所以无法恢复它的版本。请先从回收站恢复该文件夹。",

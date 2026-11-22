@@ -1206,6 +1206,7 @@ export const es: Record<MessageKey, string> = {
   'files.restoredVersion': "Se restauró una versión anterior",
   'files.restoreTitle': "¿Restaurar v{version}?",
   'files.restoreBody': "El contenido actual se conserva como una nueva versión, por lo que siempre podrá recuperarlo.",
+  'files.restoreBodyNames': "Los cambios de {names} ya no estarán en la versión más reciente. Se conservan en el historial.",
   'files.restored': "Se restauró v{version}.",
   'files.sameAsNow': "Igual que ahora",
   'files.versionsFolderInTrash': "La carpeta de este archivo está en la papelera, así que sus versiones no se pueden restaurar. Restaure primero la carpeta desde la papelera.",

@@ -1230,6 +1230,7 @@ export const id: Record<MessageKey, string> = {
   'files.restoredVersion': 'Dipulihkan dari versi lama',
   'files.restoreTitle': 'Pulihkan v{version}?',
   'files.restoreBody': 'Isi sekarang disimpan sebagai versi baru, jadi Anda selalu bisa kembali.',
+  'files.restoreBodyNames': 'Perubahan dari {names} tidak akan ada lagi di versi terbaru. Perubahan itu tetap ada di riwayat.',
   'files.restored': 'v{version} dipulihkan.',
   'files.sameAsNow': 'Sama dengan isi sekarang',
   'files.versionsFolderInTrash': 'Folder file ini ada di tempat sampah, jadi versinya tidak bisa dipulihkan. Pulihkan foldernya dari tempat sampah dulu.',
