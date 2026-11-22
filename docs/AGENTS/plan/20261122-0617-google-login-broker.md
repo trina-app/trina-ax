@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 06:17
 - Branch: `feat/google-login-broker`
-- Status: in progress
+- Status: done (code and tests; the control plane side is trina-cloud `feat/google-signin-broker`)
 - Umbrella plan: [20261122-0454-google-login.md](20261122-0454-google-login.md), part B
 - Where: trina-ax (`shared/src/cloud-protocol/google-signin.ts`, `server/src/auth/google-login*.ts`, one raw route)
   and trina-cloud (`src/google-signin/`, its own plan). Why: a hosted team server has no Google client of its own,
@@ -62,4 +62,11 @@ the team server checks Google's raw id_token itself in broker mode. No new decis
 
 ## Result
 
-Filled in at the end.
+- Contract `shared/src/cloud-protocol/google-signin.ts` with a `status` call beside `start` and `redeem` (the button
+  shows only after the console says it serves this team, as Drive does).
+- `server/src/auth/google-login-broker.ts` (signed calls, the start answer checked with `googleSigninAuthorizeUrl`),
+  `server/src/auth/google-id-token.ts` (RS256 against Google's JWKS through the allow-listed Google transport; one more
+  allowed address in `google-drive/client.ts`), broker mode in `google-login.ts` (`googleLoginMode`, async `begin`,
+  `settle` with a mode: a flow comes back only the way it went), raw route `GET /api/auth/google/return`.
+- No migration: the broker's client id is kept in `config_key` (`gsi-broker:<client id>`).
+- Tests: `tests/unit/a-google-login-broker.test.ts`.
