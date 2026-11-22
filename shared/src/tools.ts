@@ -384,8 +384,14 @@ export const ArtifactInput = z.strictObject({
 })
 export const ArtifactOutput = z.object({ key: z.string(), version: z.number().int() })
 
-export const RememberInput = z.strictObject({ text: z.string().min(1).max(2000) })
-export const RememberOutput = z.object({ id: z.string() })
+export const RememberInput = z.strictObject({
+  text: z.string().min(1).max(2000),
+  /** the id of an existing memory (from the memory block) this one updates in place, instead of adding a new one */
+  replaces: z.string().max(64).optional(),
+  /** true when the user asked in their own words to keep this; false or absent: the AI keeps it on its own judgement */
+  asked: z.boolean().optional(),
+})
+export const RememberOutput = z.object({ id: z.string().optional(), kept: z.boolean().optional(), note: z.string().optional() })
 export const ForgetInput = z.strictObject({ id: z.string() })
 export const ForgetOutput = z.object({ ok: z.literal(true) })
 

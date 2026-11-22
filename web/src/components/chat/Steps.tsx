@@ -27,7 +27,7 @@ import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
 import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, slidesStep, stepPlace, unansweredStep } from '@mycel/shared'
-import type { Message, Step } from '@mycel/shared/api'
+import type { Memory, Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
 import { openExternal, safeHref } from '../../lib/safeLinks'
@@ -183,6 +183,56 @@ function PreviewLine({ step }: { step: Step }) {
   )
 }
 
+/** The person's memories as they are now (their own list, newest first; a few pages at most): for 되돌리기. */
+async function currentMemories(): Promise<Memory[]> {
+  const out: Memory[] = []
+  let cursor: string | undefined
+  for (let i = 0; i < 5; i++) {
+    const r = await api.call(API.listMemories, { query: { limit: 100, ...(cursor ? { cursor } : {}) } })
+    out.push(...r.items)
+    if (!r.nextCursor) break
+    cursor = r.nextCursor
+  }
+  return out
+}
+
+/** 되돌리기 on a memory step (remember, a change, forget), through the memory routes the person has in Settings (no
+ * route of its own): a new memory is deleted, a change put back, a forgotten one kept again. One that is gone, or that
+ * changed since the step, is left as it is, with a line saying so. */
+function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
+  const t = useT()
+  const locale = useLocale()
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  if (state === 'done') return <span className="shrink-0 text-xs text-faint" data-testid="step-memory-undone">{t('steps.memoryUndone')}</span>
+  const undo = async () => {
+    setState('busy')
+    try {
+      const now = await currentMemories()
+      const it = now.find((m) => m.id === memory.id)
+      if (memory.change === 'forgotten') {
+        if (it || now.some((m) => m.text === memory.text)) { toast({ level: 'info', text: t('memory.undoBack') }); setState('done'); return }
+        await api.call(API.createMemory, { body: { text: memory.text } })
+      } else {
+        if (!it) { toast({ level: 'info', text: t('memory.undoGone') }); setState('done'); return }
+        if (it.text !== memory.text) { toast({ level: 'info', text: t('memory.undoChanged') }); setState('idle'); return }
+        if (memory.change === 'created') await api.call(API.deleteMemory, { params: { id: memory.id } })
+        else if (memory.before !== undefined) await api.call(API.updateMemory, { params: { id: memory.id }, body: { text: memory.before } })
+      }
+      setState('done')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) { toast({ level: 'info', text: t('memory.undoGone') }); setState('done'); return }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      setState('idle')
+    }
+  }
+  return (
+    <button type="button" disabled={state === 'busy'} onClick={() => void undo()}
+      className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-50" data-testid="step-memory-undo">
+      {t('steps.memoryUndo')}
+    </button>
+  )
+}
+
 function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
@@ -203,7 +253,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
   const unanswered = mark === 'unanswered'
-  const detail = unanswered ? undefined : words.detail
+  // a memory step's detail is the memory's id (the server's record), never words to show
+  const detail = unanswered || step.memory || words.detail?.startsWith('memory:') ? undefined : words.detail
   const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
@@ -240,7 +291,11 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
         </Tooltip>
       ) : mark === 'failed' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} data-testid="step-failed" /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
       <Icon size={13} className="shrink-0 text-faint" aria-hidden />
-      <span className="min-w-0 flex-1 truncate" title={place.path}>{place.label}</span>
+      {step.memory && !expandable ? (
+        // a memory step: its words open Settings › Memory (docs/decisions/20261122-auto-memory.md)
+        <button type="button" onClick={() => navigateTo('/settings/memory')} title={t('steps.memoryOpen')}
+          className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="step-memory-open">{place.label}</button>
+      ) : <span className="min-w-0 flex-1 truncate" title={place.path}>{place.label}</span>}
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
       {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
@@ -250,6 +305,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
           {t('steps.postView')}
         </button>
       ) : null}
+      {step.memory && !expandable && !running ? <MemoryUndo memory={step.memory} /> : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )
@@ -264,6 +320,12 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
         <div className={rowClass}>{head}</div>
       )}
       {step.devEnvRun && (step.devEnvRun.kind === 'server' ? <PreviewLine step={step} /> : <QueueLine step={step} />)}
+      {step.memory?.first && (
+        <p className="ml-6 px-1 text-xs text-muted" data-testid="memory-first-line">
+          {t('memory.firstLine', { ai: aiName(t) })}{' '}
+          <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="memory-first-open">{t('memory.firstOpen')}</button>
+        </p>
+      )}
       {latest && (
         <ul className="ml-6 border-l border-line pl-3" data-testid="subtask-latest">
           <StepRow key={latest.id} step={latest} live={live} marks={marks} />

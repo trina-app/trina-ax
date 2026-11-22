@@ -162,6 +162,8 @@ export const TEXT = {
   notRemembered: STEP_TEXT.notRemembered,
   rememberAsking: STEP_TEXT.rememberAsking,
   forgot: STEP_TEXT.forgot,
+  rememberUpdated: STEP_TEXT.rememberUpdated,
+  forgotText: STEP_TEXT.forgotText,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,
   connectConnected: STEP_TEXT.connectConnected,

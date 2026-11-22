@@ -481,6 +481,10 @@ describe('tools', () => {
 })
 
 describe('memories', () => {
+  // these are the switch-off paths (today's behaviour before auto memory: docs/decisions/20261122-auto-memory.md); auto
+  // memory has its own tests (auto-memory.test.ts)
+  beforeAll(() => { h.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice'").run() })
+  afterAll(() => { h.ctx.db.query("UPDATE users SET prefs = json_remove(COALESCE(prefs, '{}'), '$.autoMemory') WHERE id = 'alice'").run() })
   test('remember in a clean chat: saved as "ai", chip step, memory.changed; next turn sees it in the instructions; forget removes it', async () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'Prefers short answers' }, sayResult: true }))

@@ -90,7 +90,11 @@ function memoryAnswersOf(db: Database, userId: string, answers: readonly { id: s
   const lastForget = (db.query(`SELECT MAX(m.created_at) AS at FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND m.role = 'assistant'
     AND m.steps LIKE '%"tool":"forget"%'`).get(userId) as { at: string | null }).at
   const lastGone = [lastDelete, lastForget].filter((x): x is string => !!x).sort().pop() ?? null
-  return own.filter((a) => (firstMemory !== null && a.at >= firstMemory) || (lastGone !== null && a.at <= lastGone)).map((a) => a.id)
+  // an answer that kept or changed a memory itself (its remember step names the memory's words; the memory may be its
+  // own first one, made after the answer started): docs/decisions/20261122-auto-memory.md
+  const remembered = new Set((db.query(`SELECT id FROM messages WHERE id IN (SELECT value FROM json_each(?)) AND steps LIKE '%"tool":"remember"%'`)
+    .all(JSON.stringify(own.map((a) => a.id))) as { id: string }[]).map((r) => r.id))
+  return own.filter((a) => remembered.has(a.id) || (firstMemory !== null && a.at >= firstMemory) || (lastGone !== null && a.at <= lastGone)).map((a) => a.id)
 }
 
 /** Was a personal connection or the in-app browser on for `userId` while these answers ran (`span`: the first and last
