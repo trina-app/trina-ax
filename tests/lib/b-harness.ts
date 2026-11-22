@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { websocket } from 'hono/bun'
-import { API, ApiClient, CSRF_HEADER, WINDOW_HEADER, WS_PROTOCOL, uuidv7, type ClientKind, type ServerFrame } from '@mycel/shared/api'
+import { API, ApiClient, CSRF_HEADER, WINDOW_HEADER, WS_PROTOCOL, uuidv7, type ClientKind, type Locale, type ServerFrame } from '@mycel/shared/api'
 import { buildApp } from '../../server/src/app'
 import type { AppConfig } from '../../server/src/app-config'
 import { createContext, type AppContext } from '../../server/src/context'
@@ -47,7 +47,7 @@ export function fakeEngines(bin: string, dataDir: string, codexBin: string = bin
   }
 }
 
-const people: Record<string, { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: 'ko' | 'en' | 'id' }> = {
+const people: Record<string, { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: Locale }> = {
   alice: { id: 'alice', name: 'Alice Kim', role: 'member', locale: 'en' },
   bob: { id: 'bob', name: 'Bob Lee', role: 'member', locale: 'ko' },
   carol: { id: 'carol', name: 'Carol Park', role: 'admin', locale: 'ko' },
@@ -56,7 +56,7 @@ const people: Record<string, { id: string; name: string; role: 'owner' | 'admin'
 }
 /** Someone who got an account during a test (a team link's join, say): from now on the test sessions sign them in by
  * `key` (x-test-user) as the account with this id. */
-export function addTestPerson(key: string, p: { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: 'ko' | 'en' | 'id' }) {
+export function addTestPerson(key: string, p: { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: Locale }) {
   people[key] = p
 }
 const sessionIds = new Map<string, string>()
