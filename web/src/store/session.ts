@@ -72,18 +72,25 @@ function rememberRemoved(team: string | null, how: 'left' | 'removed' = 'removed
     else { localStorage.removeItem(REMOVED_KEY); localStorage.removeItem(REMOVED_HOW_KEY) }
   } catch { /* storage blocked: said only this time */ }
 }
-/** A guest's own screen (their account ended) in their language: their browser's (one of ours) unless they picked one
+/** A guest's own screen (their account ended), or a removed member's sign-in page, in their language: their browser's (one of ours) unless they picked one
  * here, as their invite page was (guest walkthrough S10), not the team's (QA TC-3225/3226: a Korean guest of an English
  * team read English). */
-function guestLanguage() {
+function ownLanguage() {
   const mine = storedLocale() ? null : browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
   if (mine && mine !== useLocaleStore.getState().locale) useLocaleStore.getState().setLocale(mine)
+}
+/** The signed-out status for a member whose account was taken out of the team (not a guest): the sign-in page in their
+ * browser's language too (QA rerun E: a removed member in a Korean browser read an English page of an English team),
+ * unless they picked one here. */
+function memberRemoved(): Extract<AuthStatus, { kind: 'signed-out' }> {
+  ownLanguage()
+  return { kind: 'signed-out', reason: 'removed' }
 }
 /** The signed-out status for a guest whose account ended (the 401 said so): their own screen, before any password. */
 function guestSignedOut(g: { how: 'left' | 'removed'; team: string | null }, team?: string): Extract<AuthStatus, { kind: 'signed-out' }> {
   const name = g.team ?? team ?? null
   if (name) rememberRemoved(name, g.how)
-  guestLanguage()
+  ownLanguage()
   return { kind: 'signed-out', reason: g.how, ...(name ? { team: name } : {}) }
 }
 
@@ -237,7 +244,9 @@ export const useSession = create<SessionState>((set, get) => ({
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
     // a guest's (only a guest's 'removed' carries the team)
-    if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); guestLanguage() }
+    if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); ownLanguage() }
+    // a member taken out of the team (the live link said so): their browser's language too (memberRemoved)
+    else if (reason === 'removed') ownLanguage()
     set({ status: withRecovery({ kind: 'signed-out', reason, ...(team ? { team } : {}) }) })
     // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
     // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974); a guest
@@ -248,7 +257,7 @@ export const useSession = create<SessionState>((set, get) => ({
         if (st.kind !== 'signed-out' || st.reason !== reason) return
         const g = guestRemoval(e)
         if (g) set({ status: withRecovery(guestSignedOut(g, st.team)) })
-        else if (accountRemoved(e) && reason !== 'removed') set({ status: withRecovery({ kind: 'signed-out', reason: 'removed' }) })
+        else if (accountRemoved(e) && reason !== 'removed') set({ status: withRecovery(memberRemoved()) })
       })
     }
   },
@@ -427,7 +436,7 @@ async function readMe(get: Get, set: Set): Promise<void> {
         useLocaleStore.getState().setLocale(locale)
         // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
         const g = guestRemoval(e)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : accountRemoved(e) ? memberRemoved() : { kind: 'signed-out' }) })
       } catch {
         // a free-roam demo's gate denies GET /api/setup (demo-gate DENY_PATHS): the instance's language comes from
         // GET /api/demo, which the gate lets through (QA TC-6790: a ja instance's sign-in page was English only)
@@ -439,7 +448,7 @@ async function readMe(get: Get, set: Set): Promise<void> {
           useLocaleStore.getState().setLocale(locale)
         }
         const g = guestRemoval(e)
-        set({ status: g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        set({ status: g ? guestSignedOut(g) : accountRemoved(e) ? memberRemoved() : { kind: 'signed-out' } })
       }
       return
     }

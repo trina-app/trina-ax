@@ -293,7 +293,7 @@ describe.skipIf(skip)('gate: the six languages', () => {
     }
     const ja = await (await get(g, visitor(), '/', { headers: { 'accept-language': 'ja-JP,ja;q=0.9' } })).text()
     expect(ja).toContain('<html lang="ja">')
-    expect(ja).toContain('トリナには8回ほど質問できます')
+    expect(ja).toContain('質問は8回ほど')
     expect(ja).toContain('name="lang" value="ja"')
     const id = await (await get(g, visitor(), '/?lang=xx', { headers: { 'accept-language': 'id-ID' } })).text()
     expect(id).toContain('<html lang="id">')

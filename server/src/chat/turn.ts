@@ -146,6 +146,7 @@ import { fileRankOf, fileRankSystemPrompt, type FileRankScope } from '../onboard
 import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../skills/share-merge'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { demoFakesOf } from '../demo/fakes'
+import { bannerSourceFor } from '../tools/demo-banner'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
@@ -1068,6 +1069,14 @@ export class TurnExec {
       if (!ai) return null
       return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain, budget: historyBudget })
     }
+    // a free-roam demo: its company, its fakes and, with a banner kit, the banner's source file in this chat (the
+    // project's banner.json, else the person's own): the AI reads it before changing words (tools/demo-banner.ts)
+    const demoPrompt = (): NonNullable<PromptInput['demo']> => {
+      const banner = !!demoFakesOf(rt.ctx)?.banners.ready
+      let bannerSource: { path: string; exists: boolean } | null = null
+      if (banner) { try { bannerSource = bannerSourceFor(rt.ctx, this.principal!, spec.chatId) } catch { /* the note without the file */ } }
+      return { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner, bannerSource }
+    }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
@@ -1088,7 +1097,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
-      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.banners.ready } : null,
+      demo: freeRoam ? demoPrompt() : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

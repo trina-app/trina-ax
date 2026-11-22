@@ -119,7 +119,13 @@ export function ChatFaces({ shared, focusFrom, page = false, on = 'canvas', sele
     name: byId[p.id]?.name ?? p.name,
     avatarVersion: byId[p.id]?.avatarVersion ?? (p.id === me?.user.id ? me.user.avatarVersion : undefined),
   }))
-  const names = reactionWho({ count, users: people }, { sep: t('rooms.nameSep'), more: (list, n) => t('rooms.groupNamesMore', { names: list, n }) }) + (where ? ` · ${where}` : '')
+  const writers = reactionWho({ count, users: people }, { sep: t('rooms.nameSep'), more: (list, n) => t('rooms.groupNamesMore', { names: list, n }) })
+  // who started it first, then who wrote (QA TC-r2a-10: the names alone read as its owner, and they follow the last
+  // writer); the writers left out when the only one is the one who started it
+  const by = shared.by
+  const started = !by ? null : by.id === me?.user.id ? t('chat.share.startedByMe') : t('chat.share.startedBy', { name: byId[by.id]?.name ?? by.name })
+  const onlyStarter = !!by && count === 1 && people[0]!.id === by.id
+  const names = (started ? (onlyStarter ? started : `${started} · ${t('chat.share.wroteHere', { names: writers })}`) : writers) + (where ? ` · ${where}` : '')
   const label = <span className="sr-only" data-testid={`${testId}-people-label`}>{t('chat.share.facesLabel', { names })}</span>
   if (page && count === 1) {
     const one = people[0]!

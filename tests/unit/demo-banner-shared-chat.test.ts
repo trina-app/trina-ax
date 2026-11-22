@@ -48,8 +48,10 @@ const projectChat = async () => (await h.api('alice').call(API.createChat, { bod
 describe('change_banner_text in a shared project chat', () => {
   test('it is on the shared list, with its save target and save card', async () => {
     expect(SHARED_TOOLS.has(DEMO_BANNER_TOOL)).toBe(true)
-    expect(WRITE_TARGET_ARGS[DEMO_BANNER_TOOL]).toEqual(['save_as'])
-    expect(SAVE_CARD_TOOLS[DEMO_BANNER_TOOL]).toBe('one')
+    // save_as: the pictures' folder; source: the banner's words file it reads and may update (as edit's file_path)
+    expect(WRITE_TARGET_ARGS[DEMO_BANNER_TOOL]).toEqual(['save_as', 'source'])
+    // every size is saved
+    expect(SAVE_CARD_TOOLS[DEMO_BANNER_TOOL]).toBe('many')
     expect(toolRegistry(h.ctx.files).available(DEMO_BANNER_TOOL)).toBe(true)
   })
 
@@ -72,7 +74,9 @@ describe('change_banner_text in a shared project chat', () => {
     expect(view.saved.startsWith('projects/falcon/banner-1200x628-')).toBe(true)
     expect(view.words.headline).toBe('작지 않아 큰 햇살이야!')
     const added = fs.readdirSync(path.join(h.ctx.files.fx.root, 'projects/falcon')).filter((n) => !before.has(n))
-    expect(added).toEqual([view.saved.split('/').pop()])
+    // every size, and the banner's source made from the launch banner (this project had none)
+    expect(added.sort()).toEqual([...view.files.map((p: string) => p.split('/').pop()), 'banner.json'].sort())
+    expect(view.source).toBe('projects/falcon/banner.json')
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, view.saved)).subarray(1, 4).toString()).toBe('PNG')
     expect(r.content).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
   })

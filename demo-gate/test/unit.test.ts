@@ -10,6 +10,7 @@ import {
   BUSY_TEXT, NEUTRAL_HEADERS, NEUTRAL_STATUS, OAUTH_BETA, SseRewriter, allowedResponseHeaders, betaFor, budgetError,
   isPromptTooLong, modelAllowed, neutralError, pinModel, visitorWeighted, weighted,
 } from '../src/model.ts'
+import { WORDMARK_DARK, WORDMARK_LIGHT } from '../src/brand.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
@@ -214,17 +215,80 @@ describe('pages', () => {
     expect(localeOf(null, 'ko-KR', ['en', 'ko'], 'ja')).toBe('ko')
     expect(localeOf(null, undefined, LOCALES, 'JA')).toBe('en')
   })
-  test('the landing says what Trina AX is, in one line above the heading, in every language', () => {
+  test('the landing is short: wordmark, heading, one line, three facts, Start; the old long text is gone', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
-    expect(WORDS.en.lead).toBe('Trina AX is an AI workspace for your team: one place for files, chats and an AI that does the work.')
-    expect(WORDS.ko.lead).toBe('트리나 AX는 팀을 위한 AI 업무 공간이에요. 파일, 대화, 일을 대신해 주는 AI가 한곳에 있어요.')
+    expect(WORDS.en.landingH).toBe('Try Trina AX')
+    expect(WORDS.ko.landingH).toBe('트리나 AX 써 보기')
+    expect(WORDS.en.sub).toBe("You're Mina at a made-up company. Ask, open, look around.")
+    const gone = [
+      'Trina AX is an AI workspace for your team',
+      'Now try it yourself',
+      'You get your own copy of the demo team',
+      'Nothing you do here reaches real people',
+      'bigger tasks count a little more',
+      '트리나 AX는 팀을 위한 AI 업무 공간이에요',
+      '데모 팀을 나만의 사본으로 드려요',
+    ]
     for (const l of LOCALES) {
       const html = renderPage('landing', l, { siteKey: 'k', links })
-      expect(html, l).toContain(`<p class="lead">${WORDS[l].lead}</p>`)
-      expect(html.indexOf('class="lead"'), l).toBeLessThan(html.indexOf('<h1>'))
-      expect(WORDS[l].lead, l).toMatch(/AX/)
-      for (const k of ['busy', 'ended', 'limit', 'check', 'error'] as const) expect(renderPage(k, l, { siteKey: 'k', links }), `${l} ${k}`).not.toContain('class="lead"')
+      const w = WORDS[l]
+      for (const old of gone) expect(html, l).not.toContain(old)
+      expect(html, l).not.toContain('class="lead"')
+      expect(html, l).not.toContain('class="note')
+      // the one line under the heading stays one short line: at most 12 words (or 40 characters without spaces)
+      if (['en', 'es', 'id'].includes(l)) expect(w.sub.split(/\s+/).length, l).toBeLessThanOrEqual(12)
+      else expect(w.sub.length, l).toBeLessThanOrEqual(40)
+      // the facts row: three facts of a few words, in this order, before the browser check and Start
+      const facts = html.indexOf('<ul class="facts">')
+      expect(facts, l).toBeGreaterThan(html.indexOf('<h1>'))
+      expect(facts, l).toBeLessThan(html.indexOf('class="cf-turnstile"'))
+      expect(html.indexOf('class="cf-turnstile"'), l).toBeLessThan(html.indexOf('type="submit"'))
+      expect(html.match(/<li class="fact">/g)?.length, l).toBe(3)
+      const order = [w.factQ, w.factHours, w.factPractice].map((t) => html.indexOf(`<span>${t}</span>`))
+      expect(order.every((n) => n > facts), l).toBe(true)
+      expect([...order].sort((a, b) => a - b), l).toEqual(order)
+      for (const k of ['factQ', 'factHours', 'factPractice'] as const) {
+        expect(w[k].length, `${l} ${k}`).toBeLessThanOrEqual(26)
+        if (l !== 'en' && k !== 'factHours') expect(w[k], `${l} ${k}`).not.toBe(WORDS.en[k])
+      }
+      // drawn icons, never emoji
+      expect(html.match(/<svg class="ic"/g)?.length, l).toBe(3)
+      // the wordmark heads every page; the facts only the landing
+      for (const k of ['landing', 'busy', 'ended', 'limit', 'check', 'error'] as const) {
+        const page = renderPage(k, l, { siteKey: 'k', links })
+        expect(page, `${l} ${k}`).toContain('<div class="brand" role="img" aria-label="Trina AX">')
+        if (k !== 'landing') expect(page, `${l} ${k}`).not.toContain('class="facts"')
+      }
     }
+  })
+  test('the full practice sentence is behind the third fact (details/summary, no script), not a visible paragraph', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    expect(WORDS.en.practice).toBe('Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.')
+    expect(WORDS.ko.practice).toBe('여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.')
+    for (const l of LOCALES) {
+      const html = renderPage('landing', l, { siteKey: 'k', links })
+      const w = WORDS[l]
+      for (const name of ['Gmail', 'Higgsfield']) expect(w.practice, l).toContain(name)
+      expect(w.factPractice, l).toContain('Gmail')
+      // closed by default; the summary's title says it on hover too
+      expect(html, l).toContain(`<details class="practice"><summary title="${w.practice}">`)
+      const summary = html.slice(html.indexOf('<summary'), html.indexOf('</summary><p>'))
+      expect(summary, l).toContain(`<span>${w.factPractice}</span>`)
+      expect(html, l).toContain(`<p>${w.practice}</p></details>`)
+      expect(html, l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
+    }
+    for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
+  })
+  test('the wordmark is the branding file, both colours, each with its own mask id', () => {
+    const logo = (f: string) => fs.readFileSync(path.join(import.meta.dir, '../../editions/trina/branding/logo', f), 'utf8').trim()
+    expect(WORDMARK_LIGHT).toBe(logo('wordmark-light.svg'))
+    expect(WORDMARK_DARK).toBe(logo('wordmark-dark.svg'))
+    const html = renderPage('landing', 'en', { siteKey: 'k', links: { scriptedDemo: 'https://x', pricing: 'https://y' } })
+    expect(html).toContain('id="wm-l"')
+    expect(html).toContain('url(#wm-l)')
+    expect(html).toContain('id="wm-d"')
+    expect(html).toContain('url(#wm-d)')
+    expect(html).not.toContain('id="m"')
   })
   test('busy and error pages have a Try again link to /; the limit page does not', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
@@ -263,8 +327,8 @@ describe('pages', () => {
   test('word-break: keep-all only for Korean (Japanese and Chinese wrap normally)', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
     const html = renderPage('landing', 'ja', { siteKey: 'k', links })
-    expect(html).toContain('html[lang="ko"] .note')
-    expect(html).not.toMatch(/\.note \{[^}]*keep-all/)
+    expect(html).toContain('html[lang="ko"] h1, html[lang="ko"] main > p')
+    expect(html).not.toMatch(/(^|\n)\s*(h1|main > p|\.practice p) \{[^}]*keep-all/)
   })
   test('every page renders in all six languages; links are the configured ones', () => {
     expect(LOCALES).toEqual(['en', 'ko', 'ja', 'zh', 'es', 'id'])
@@ -272,7 +336,7 @@ describe('pages', () => {
     for (const l of LOCALES) {
       expect(Object.keys(WORDS[l]).sort(), l).toEqual(keys)
       for (const [k, v] of Object.entries(WORDS[l])) expect(v.trim(), `${l} ${k}`).not.toBe('')
-      if (l !== 'en') for (const k of ['landingP', 'note', 'busyP', 'endedP', 'limitP'] as const) expect(WORDS[l][k], `${l} ${k}`).not.toBe(WORDS.en[k])
+      if (l !== 'en') for (const k of ['landingH', 'sub', 'factQ', 'busyP', 'endedP', 'limitP'] as const) expect(WORDS[l][k], `${l} ${k}`).not.toBe(WORDS.en[k])
     }
     for (const l of LOCALES) for (const k of ['landing', 'busy', 'ended', 'limit', 'check', 'error'] as const) {
       const html = renderPage(k, l, { siteKey: 'k"<', links: { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' } })
@@ -282,30 +346,15 @@ describe('pages', () => {
       if (k === 'landing' || k === 'ended') expect(html).toContain('action="/__demo/start"')
     }
   })
-  test('the landing says up front how much they can ask, in questions, on one line under Start', () => {
+  test('the landing says up front how much they can ask, in questions, and for how long, in the facts row', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
-    const en = renderPage('landing', 'en', { siteKey: 'k', links })
-    const ko = renderPage('landing', 'ko', { siteKey: 'k', links })
-    expect(en).toContain('<p class="note">You can ask Trina about 8 questions (bigger tasks count a little more). Your copy stays for 24 hours.</p>')
-    expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요(큰 작업은 질문 여러 번으로 칠 수 있어요). 사본은 24시간 동안 남아 있어요.</p>')
-    // under it, that Gmail, Drive and Higgsfield are practice copies (the owner: say it up front), in every language
-    expect(en).toContain('<p class="note practice">Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.</p>')
-    expect(ko).toContain('<p class="note practice">여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.</p>')
+    expect(WORDS.en.factQ).toBe('About 8 questions')
+    expect(WORDS.ko.factQ).toBe('질문 8번쯤')
+    expect(WORDS.en.factHours).toBe('24 hours')
     for (const l of LOCALES) {
-      const html = renderPage('landing', l, { siteKey: 'k', links })
-      expect(html.indexOf('class="note practice"'), l).toBeGreaterThan(html.indexOf('class="note"'))
-      for (const name of ['Gmail', 'Higgsfield']) expect(WORDS[l].practice, l).toContain(name)
-    }
-    for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
-    // every language says about 8 questions and 24 hours, never tokens
-    for (const l of LOCALES) {
-      expect(WORDS[l].note, l).toContain('8')
-      expect(WORDS[l].note, l).toContain('24')
-    }
-    const others = (['ja', 'zh', 'es', 'id'] as const).map((l) => renderPage('landing', l, { siteKey: 'k', links }))
-    for (const html of [en, ko, ...others]) {
-      expect(html.indexOf('class="note"')).toBeGreaterThan(html.indexOf('type="submit"'))
-      expect(html).not.toMatch(/token|토큰|トークン|令牌/i)
+      expect(WORDS[l].factQ, l).toContain('8')
+      expect(WORDS[l].factHours, l).toContain('24')
+      expect(renderPage('landing', l, { siteKey: 'k', links }), l).not.toMatch(/token|토큰|トークン|令牌/i)
     }
   })
 })

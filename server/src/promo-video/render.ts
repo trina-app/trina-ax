@@ -20,6 +20,8 @@ import type { PromoMp4State, PromoVideoInfo } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { HttpError } from '../http/errors'
+import { chatFor } from '../chat/shared'
+import { getChatRuntime } from '../chat/runtime'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { AUDIO_DIR, audioCues, soundDuration } from './audio'
@@ -50,11 +52,23 @@ export function mp4Available(ctx: Pick<AppContext, 'config'>): boolean {
 const videoDir = (ctx: AppContext) => path.join(ctx.engineConfig.dataDir, 'promo-videos')
 const videoFile = (ctx: AppContext, id: string) => path.join(videoDir(ctx), `${id}.mp4`)
 
-/** The caller's own promo video (by its artifact id), or 404. */
-function ownRow(ctx: AppContext, userId: string, id: string): Row {
+/** A promo video (by its artifact id) for someone who may open its chat (chat/shared.ts chatFor 'view': the owner, or a
+ * person a shared chat is shared with; QA TC-r2a-06: they play it, so they may download it too), or 404. Anyone but
+ * the chat's owner also needs to open every picture it shows themselves: the MP4 is made with the owner's permissions
+ * (renderNow), and their own player shows only the pictures they may open. */
+function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, c.user_id AS owner_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.created_at
-    FROM promo_videos p JOIN chats c ON c.id = p.chat_id WHERE p.artifact_id = ? AND c.user_id = ? AND c.deleted_at IS NULL`).get(id, userId) as Row | null
+    FROM promo_videos p JOIN chats c ON c.id = p.chat_id WHERE p.artifact_id = ? AND c.deleted_at IS NULL`).get(id) as Row | null
   if (!r) throw new HttpError('not_found')
+  if (r.owner_id === userId) return r
+  try { chatFor(getChatRuntime(ctx), userId, r.chat_id, 'view') } catch { throw new HttpError('not_found') }
+  const user = ctx.files.principal(userId)
+  const d = (JSON.parse(r.spec) as StoredSpec).doc
+  for (const p of [d.logo, d.promise.picture, d.work.picture, d.proof.picture]) {
+    if (!p) continue
+    // (mustExist false: a picture gone since is left out of the owner's render too, never a reason to refuse)
+    try { authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(p.src), 'read', { mustExist: false }) } catch { throw new HttpError('not_found') }
+  }
   return r
 }
 
@@ -68,7 +82,7 @@ function info(ctx: AppContext, r: Row): PromoVideoInfo {
   }
 }
 
-export const promoVideoInfo = (ctx: AppContext, userId: string, id: string) => info(ctx, ownRow(ctx, userId, id))
+export const promoVideoInfo = (ctx: AppContext, userId: string, id: string) => info(ctx, rowFor(ctx, userId, id))
 
 const running = new Set<string>()
 let queue: Promise<void> = Promise.resolve()
@@ -80,7 +94,7 @@ const stopping = new WeakSet<object>()
 
 /** Start the MP4 (one render at a time on the server); a finished one is kept. */
 export function renderPromoVideo(ctx: AppContext, userId: string, id: string): PromoVideoInfo {
-  const r = ownRow(ctx, userId, id)
+  const r = rowFor(ctx, userId, id)
   if (!mp4Available(ctx)) throw new HttpError('not_found')
   const now = info(ctx, r)
   if (now.mp4.state === 'done' || now.mp4.state === 'rendering') return now
@@ -210,9 +224,9 @@ export function forgetPromoVideos(ctx: AppContext): void {
   }
 }
 
-/** The finished MP4 of the caller's promo video. */
+/** The finished MP4 of a promo video the caller may open (rowFor). */
 export function promoVideoFile(ctx: AppContext, userId: string, id: string): { abs: string; name: string } {
-  const r = ownRow(ctx, userId, id)
+  const r = rowFor(ctx, userId, id)
   const abs = videoFile(ctx, id)
   if (r.mp4_state !== 'done' || !fs.existsSync(abs)) throw new HttpError('not_found')
   const title = (JSON.parse(r.spec) as StoredSpec).title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'promo'

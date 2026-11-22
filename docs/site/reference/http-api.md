@@ -664,7 +664,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/promo-videos/:id` | Signed in | A promo video of one of the caller's chats, by its artifact id: its style and length, and whether an MP4 can be made here and how far it is. |
+| `GET` | `/api/promo-videos/:id` | Signed in | A promo video of a chat the caller may open (their own, or one shared with them, when they may open every picture it shows; else 404), by its artifact id: its style and length, and whether an MP4 can be made here and how far it is. |
 | `POST` | `/api/promo-videos/:id/mp4` | Signed in | Make the MP4 of a promo video (one at a time on this server; an MP4 made before is kept). 404 where this server cannot make one. |
 | `GET` | `/api/promo-videos/:id/mp4` | Signed in | Download the MP4 of a promo video once it is made. |
 
@@ -672,7 +672,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/intro-decks/:id` | Signed in | An intro deck of one of the caller's chats, by its artifact id: its title, theme, slide count and which files this server can make (PowerPoint always, PDF where typst is). |
+| `GET` | `/api/intro-decks/:id` | Signed in | An intro deck of a chat the caller may open (their own, or one shared with them, when they may open every picture it shows; else 404), by its artifact id: its title, theme, slide count and which files this server can make (PowerPoint always, PDF where typst is). |
 | `GET` | `/api/intro-decks/:id/pptx` | Signed in | Download an intro deck as a PowerPoint file (built from the checked slides, with the pictures the chat's owner can read now). |
 | `GET` | `/api/intro-decks/builds` | Signed in | The intro decks being built or built in round 2 in one of the caller's chats (newest first, at most 10): the planned slides, which are done, the step times and the finished artifact. |
 | `GET` | `/api/intro-decks/builds/:id/slides/:n` | Signed in | A picture (PNG, 960 × 540) of one finished slide of a deck being built (n: its position in the build's `slides`), for the progress block and the panel (404 until it is drawn, or where this server has no typst). |

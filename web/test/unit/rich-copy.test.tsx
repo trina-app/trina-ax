@@ -19,6 +19,11 @@ describe('answer HTML', () => {
     expect(out).toContain('</tbody></table>')
   })
 
+  test('a copied answer keeps a Korean range as typed: one tilde is not strike (QA TC-r2a-02)', () => {
+    const out = html('3~12초: 핵심 팁 1~2개 ~~취소~~')
+    expect(out).toContain('3~12초: 핵심 팁 1~2개 <del>취소</del>')
+  })
+
   test('headings, bold, italics, strikethrough, lists, task lists, quotes and rules', () => {
     const out = html('## 요약\n\n각 일정을 **마일스톤(◆)**으로 *표시*하고 ~~취소~~\n\n- one\n- two\n\n1. first\n2. second\n\n- [x] done\n- [ ] todo\n\n> quoted\n\n---')
     expect(out).toContain('<h2>요약</h2>')

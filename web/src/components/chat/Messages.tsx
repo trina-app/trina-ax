@@ -80,6 +80,17 @@ import { useFileMenu } from '../FileMenu'
 import { ThreadLine } from '../ThreadLine'
 import { capBlankLines } from '../../lib/blankLines'
 
+/** One tile per file in an answer (QA rerun E: the same file showed as three identical tiles when the AI attached it
+ * again, once per change): the same attachment id, or a tile that would look the same (name, size and kind), once, the
+ * last one kept (the newest). A chat file has no path, so two versions of the same name and size are one tile too. */
+export function uniqueTiles<A extends { id: string; name: string; size: number; kind: string }>(list: readonly A[]): A[] {
+  const key = (a: A) => `${a.name}\u0000${a.size}\u0000${a.kind}`
+  const lastId = new Map<string, number>()
+  const lastLook = new Map<string, number>()
+  list.forEach((a, i) => { lastId.set(a.id, i); lastLook.set(key(a), i) })
+  return list.filter((a, i) => lastId.get(a.id) === i && lastLook.get(key(a)) === i)
+}
+
 export { ENGINE_LABEL }
 
 /** a message's actions on a screen with a mouse: shown while the pointer or focus is on the message */
@@ -723,7 +734,7 @@ export function AssistantMessage({
   const locale = useLocale()
   const streaming = m.status === 'streaming'
   // a chat file the AI attached (never a blank tile for one this person may not open: the server leaves it out)
-  const answerAttachments = (m.attachments ?? []).filter((a) => a.source === 'chat' && !a.unavailable)
+  const answerAttachments = uniqueTiles((m.attachments ?? []).filter((a) => a.source === 'chat' && !a.unavailable))
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))

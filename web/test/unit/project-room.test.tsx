@@ -281,9 +281,10 @@ describe('the delete confirm and the lists', () => {
     expect(html).toContain(`href="/files?path=${encodeURIComponent('projects/Launch site/Chat attachments')}"`)
     const two = renderToStaticMarkup(<FileStaysLines project={{ name: 'Launch site', folderPath: 'projects/Launch site' }} at="projects/Launch site/채팅 첨부/a.pdf" n={2} others />)
     expect(two).toContain('The files stay in ')
-    // the folder it is really in (the upload reuses one under another language's name), and the plain words for the
-    // room's own files that go with it
-    expect(two).toContain('Launch site › 채팅 첨부')
+    // the folder it is really in (the link: the upload reuses one under another language's name), named in my language
+    // (chatFilesWord, QA rerun E), and the plain words for the room's own files that go with it
+    expect(two).toContain('Launch site › Chat attachments')
+    expect(two).toContain(`href="/files?path=${encodeURIComponent('projects/Launch site/채팅 첨부')}"`)
     expect(two).toContain(en('rooms.deleteBody').replace(/'/g, '&#x27;'))
   })
 

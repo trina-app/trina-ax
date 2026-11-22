@@ -25,6 +25,15 @@ export const OWN_FOLDER_LABEL = { ko: '내 폴더', en: 'My folder', id: 'Folder
  * "폴더" is left to the list folders of 트리나 and 대화. */
 export const OWN_FILES_LABEL = { ko: '내 파일', en: 'My files', id: 'File saya', ja: '自分のファイル', es: 'Mis archivos', zh: '我的文件' } as const satisfies T
 
+/** Another person's own folder (users/<their id>/) by their name, where others read it (a shared chat's answer): never
+ * an English possessive inside another language ("김민지's folder", QA TC-r2a-05). One word, "folder", in every language:
+ * it names a place, whatever the person calls their own ("내 파일"). `{name}`: the person's name. */
+export const PERSON_FOLDER_LABEL = { en: "{name}'s folder", ko: '{name} 님 폴더', id: 'folder {name}', ja: '{name}さんのフォルダー', es: 'la carpeta de {name}', zh: '{name}的文件夹' } as const satisfies T
+/** That folder in words, in this language: "김민지 님 폴더" */
+export function personFolderLabel(name: string, locale: Locale): string {
+  return (PERSON_FOLDER_LABEL[locale] ?? PERSON_FOLDER_LABEL.en).replace('{name}', () => name)
+}
+
 /** Which of the two names the person's own folder has: the server and the web app both set "files" at start
  * (server/src/main.ts, web/src/main.tsx), so the screen and the AI say the same word; "folder" stays the default of this
  * module for the tests that read the older name. */
@@ -50,6 +59,10 @@ export const ARCHIVE_FOLDER = { ko: '보관', en: 'Archive', id: 'Arsip', ja: '�
 /** Files from the computer attached in a shared project chat: <project folder>/<this>/, made when the first one comes, in
  * the team's language (one under any of these names is used again; server/src/uploads/shared-chat.ts). */
 export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', id: 'Lampiran obrolan', ja: 'チャット添付', es: 'Adjuntos del chat', zh: '对话附件' } as const satisfies T
+const CHAT_FILES_NAMES = new Set<string>(Object.values(CHAT_FILES_FOLDER))
+/** One folder name as the screen shows it: a chat attachments folder (named in the team's language when it was made) in
+ * this person's language ("Chat attachments" in a Korean screen is "채팅 첨부", QA rerun E); any other name as it is. */
+export const chatFilesWord = (name: string, locale: Locale): string => (CHAT_FILES_NAMES.has(name) ? CHAT_FILES_FOLDER[locale] ?? CHAT_FILES_FOLDER.en : name)
 
 /** Find work files on this computer (docs/DECISIONS.md): users/<id>/<this>/, its name on disk in every language, shown in
  * the person's words. One name on disk, so a second run in another language adds to the same folder. */

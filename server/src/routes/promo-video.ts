@@ -1,5 +1,6 @@
 // Route module "promo-video" (docs/DECISIONS.md "V — The first result is the company's promo video"). Implements
-// PROMO_VIDEO (shared/src/api/promo-video.ts): a promo video's state and its MP4, for the owner of the chat it is in.
+// PROMO_VIDEO (shared/src/api/promo-video.ts): a promo video's state and its MP4, for whoever may open the chat it is in
+// (promo-video/render.ts rowFor: its owner, or a person it is shared with who may open its pictures).
 import { API } from '@mycel/shared/api'
 import { promoVideoFile, promoVideoInfo, renderPromoVideo } from '../promo-video/render'
 import { streamFile } from '../team-files/download'
