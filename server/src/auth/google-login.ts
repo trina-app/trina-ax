@@ -2,13 +2,20 @@
 // in Settings › Security with their current password, then signs in with it. An account is found by Google's `sub`
 // only, never by e-mail (docs/decisions/20261122-google-login-identity.md).
 //
-// The Google client is this server's own (googleDriveOf(ctx).config: a company's own Google app, the in-app setup or
-// MYCEL_GOOGLE_DRIVE_CLIENT_FILE), and Google returns to the address that client already registered, the Drive
-// callback (routes/drive.ts asks ownsGoogleState first), so nothing new is registered at Google
-// (docs/decisions/20261122-google-login-client.md). Only `openid email profile`, no offline access, and nothing from
-// Google is kept but the identity row. The id_token comes from Google's token answer over TLS, asked with the client
-// secret, so its signature is not checked (Google's OpenID Connect guide allows it on that channel); iss, aud, azp,
-// exp, nonce and email_verified are.
+// Direct mode: the Google client is this server's own (googleDriveOf(ctx).config: a company's own Google app, the
+// in-app setup or MYCEL_GOOGLE_DRIVE_CLIENT_FILE), and Google returns to the address that client already registered,
+// the Drive callback (routes/drive.ts asks ownsGoogleState first), so nothing new is registered at Google
+// (docs/decisions/20261122-google-login-client.md). The id_token comes from Google's token answer over TLS, asked with
+// the client secret, so its signature is not checked (Google's OpenID Connect guide allows it on that channel); iss,
+// aud, azp, exp, nonce and email_verified are.
+//
+// Broker mode (part B): a hosted server without a client of its own borrows the hosting service's
+// (google-login-broker.ts). The flow keeps the broker's client id (config_key `gsi-broker:<client id>`), the console
+// sends the browser back to GOOGLE_SIGNIN_TEAM_RETURN_PATH with a one-time handoff, and the raw id_token it redeems is
+// checked here in full, Google's RS256 signature included (google-id-token.ts): the console relays a sign-in, it cannot
+// make one up.
+//
+// Either way only `openid email profile`, no offline access, and nothing from Google is kept but the identity row.
 //
 // A flow is bound to the browser that started it: a short HttpOnly cookie whose hash the flow keeps. Nobody finishes a
 // sign-in someone else started, or sends a person back signed in as the starter's Google account (login CSRF). A
@@ -25,6 +32,9 @@ import { fail } from '../http/errors'
 import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { configKey, type DriveConfig } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { publicHostOf } from '../system/deployment'
+import { brokerClientOf, brokerFlowKey, googleSigninBrokerOf } from './google-login-broker'
+import { verifyGoogleIdToken } from './google-id-token'
 import { tokenGuard, viaOf } from './accounts'
 import { isGuest } from './guests'
 import { forgetLoginIdentities } from './login-identities'
@@ -51,7 +61,7 @@ interface FlowRow {
   id: string; binding_hash: string; intent: 'signin' | 'connect'; user_id: string | null; session_id: string | null
   config_key: string; next: string | null; secret_enc: string | null; key_version: number; status: 'pending' | 'used'; expires_at: string
 }
-interface GoogleClaims { sub: string; email: string | null; hd: string | null }
+export interface GoogleClaims { sub: string; email: string | null; hd: string | null }
 
 const random = () => crypto.randomBytes(32).toString('base64url')
 const clean = (v: unknown, max: number): string | null => typeof v === 'string' && v ? v.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
@@ -84,46 +94,76 @@ export function safeNextPath(v: string | null | undefined): string | null {
   return v
 }
 
-/** This page can use Sign in with Google: this server has a Google client of its own, Google returns to the address
- * this page was opened at (people on an office, Tailscale or LAN address sign in with the password there: the binding
- * cookie lives on one address), and it is not a demo. */
-export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
-  if (ctx.config.demo || isFreeRoam(ctx.config)) return false
-  const cfg = googleDriveOf(ctx).config
-  if (!cfg) return false
-  try { return new URL(cfg.redirectUri).origin === new URL(reqUrl).origin } catch { return false }
+/** How this page signs in with Google, or null when it cannot: 'direct' when this server has a Google client of its
+ * own and Google returns to the address this page was opened at; 'broker' on a hosted server without one, when the
+ * hosting service serves it and the page is the team's own address (the one the console sends the browser back to).
+ * People on an office, Tailscale or LAN address sign in with the password there (the binding cookie lives on one
+ * address), and never in a demo. */
+export function googleLoginMode(ctx: AppContext, reqUrl: string): 'direct' | 'broker' | null {
+  if (ctx.config.demo || isFreeRoam(ctx.config)) return null
+  let origin: string
+  try { origin = new URL(reqUrl).origin } catch { return null }
+  const drive = googleDriveOf(ctx)
+  const cfg = drive.config
+  if (cfg) { try { return new URL(cfg.redirectUri).origin === origin ? 'direct' : null } catch { return null } }
+  // an operator's own client file that does not load: no fallback to the hosting service (as for Drive)
+  if (drive.clientFromEnv) return null
+  const broker = googleSigninBrokerOf(ctx)
+  const host = publicHostOf(ctx.config)
+  if (!broker || !host) return null
+  try { if (new URL(`https://${host}`).origin !== origin) return null } catch { return null }
+  return broker.serves() ? 'broker' : null
 }
 
-/** The flow row, the binding cookie and Google's address. Each start counts against the caller's address, connect too. */
-function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null): { url: string } {
+/** This page can use Sign in with Google (googleLoginMode). */
+export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
+  return googleLoginMode(ctx, reqUrl) !== null
+}
+
+/** The flow row, the binding cookie and Google's address (direct: built here; broker: the console's start answer, its
+ * client id kept in the flow). Each start counts against the caller's address, connect too. */
+async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null): Promise<{ url: string }> {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const hold = a.limiter.hold(googleStartKeys(c.get('info').ip))
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
-  if (!googleLoginAvailable(ctx, c.req.url)) fail('unavailable', msg('googleSignInOff', locale))
+  const mode = googleLoginMode(ctx, c.req.url)
+  if (!mode) fail('unavailable', msg('googleSignInOff', locale))
   const drive = googleDriveOf(ctx)
-  const cfg = drive.config as DriveConfig
-  const now = a.now()
-  ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(now).toISOString())
+  ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(a.now()).toISOString())
   if ((ctx.db.query('SELECT COUNT(*) AS n FROM google_signin_flows').get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
   const id = newId(), state = random(), binding = random(), nonce = random(), verifier = crypto.randomBytes(48).toString('base64url')
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
+  let googleUrl: string, key: string
+  if (mode === 'direct') {
+    const cfg = drive.config as DriveConfig
+    key = configKey(cfg)
+    const url = new URL(GOOGLE_AUTH)
+    for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: SCOPES, state, nonce, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account' })) url.searchParams.set(k, v)
+    googleUrl = url.href
+  } else {
+    // the hosting service's client: our state comes back on GOOGLE_SIGNIN_TEAM_RETURN_PATH, our nonce is in Google's
+    // address, our challenge binds the handoff to this flow's verifier
+    let r: { url: string; clientId: string }
+    try { r = await googleSigninBrokerOf(ctx)!.start(state, challenge, nonce) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
+    key = brokerFlowKey(r.clientId)
+    googleUrl = r.url
+  }
+  const now = a.now()
   let sealed: { enc: string; keyVersion: number }
   try { sealed = drive.store.seal(SEAL_CONTEXT, id, { verifier, nonce }) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
   ctx.db.transaction(() => {
     // a person's earlier connect still open goes: the binding cookie below replaces its cookie anyway
     if (who) ctx.db.query("DELETE FROM google_signin_flows WHERE user_id = ? AND status = 'pending'").run(who.userId)
     ctx.db.query('INSERT INTO google_signin_flows (id, state_hash, binding_hash, intent, user_id, session_id, config_key, next, secret_enc, key_version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, hashToken(state), hashToken(binding), intent, who?.userId ?? null, who?.sessionId ?? null, configKey(cfg), next, sealed.enc, sealed.keyVersion, new Date(now).toISOString(), new Date(now + GOOGLE_FLOW_TTL_MS).toISOString())
+      .run(id, hashToken(state), hashToken(binding), intent, who?.userId ?? null, who?.sessionId ?? null, key, next, sealed.enc, sealed.keyVersion, new Date(now).toISOString(), new Date(now + GOOGLE_FLOW_TTL_MS).toISOString())
   })()
   c.header('Set-Cookie', bindingCookie(c.req.url, binding, GOOGLE_FLOW_TTL_MS / 1000), { append: true })
-  const url = new URL(GOOGLE_AUTH)
-  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
-  for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: SCOPES, state, nonce, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account' })) url.searchParams.set(k, v)
-  return { url: url.href }
+  return { url: googleUrl }
 }
 
 /** POST /api/auth/google/start: sign in with a connected Google account. */
-export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, next: string | undefined): { url: string } {
+export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, next: string | undefined): Promise<{ url: string }> {
   return begin(c, ctx, 'signin', null, safeNextPath(next))
 }
 
@@ -149,8 +189,19 @@ export function ownsGoogleState(ctx: AppContext, state: string | undefined): boo
 
 /** Google's return (the Drive callback address): sign in or connect, then a redirect to the page that says how it went.
  * The binding cookie is spent either way. */
-export async function finishGoogle(c: Context<AppEnv>, ctx: AppContext): Promise<Response> {
-  const to = await settle(c, ctx, c.req.query('state'), c.req.query('code'), c.req.query('error'))
+export function finishGoogle(c: Context<AppEnv>, ctx: AppContext): Promise<Response> {
+  return finish(c, ctx, 'direct', c.req.query('code'))
+}
+
+/** GET GOOGLE_SIGNIN_TEAM_RETURN_PATH: the hosting service sends the browser back with a one-time handoff (or an error
+ * of its own: consent_denied, provider_error). The same checks as a direct return, then the redeem and the full
+ * id_token check. Google never sees this address. */
+export function finishGoogleBroker(c: Context<AppEnv>, ctx: AppContext): Promise<Response> {
+  return finish(c, ctx, 'broker', c.req.query('handoff'))
+}
+
+async function finish(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'broker', proof: string | undefined): Promise<Response> {
+  const to = await settle(c, ctx, mode, c.req.query('state'), proof, c.req.query('error'))
   c.header('Set-Cookie', bindingCookie(c.req.url, '', 0), { append: true })
   c.header('Cache-Control', 'no-store')
   c.header('Referrer-Policy', 'no-referrer')
@@ -162,7 +213,8 @@ function backTo(row: FlowRow | null, result: GoogleResult): string {
   return `/login?google=${result}${row?.next ? `&next=${encodeURIComponent(row.next)}` : ''}`
 }
 
-async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undefined, code: string | undefined, error: string | undefined): Promise<string> {
+/** `proof`: Google's code (direct) or the console's handoff (broker). */
+async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'broker', state: string | undefined, proof: string | undefined, error: string | undefined): Promise<string> {
   const a = authOf(ctx)
   const guard = tokenGuard(ctx, c.get('info').ip)
   const row = state && TOKEN_RE.test(state) ? ctx.db.query('SELECT * FROM google_signin_flows WHERE state_hash = ?').get(hashToken(state)) as FlowRow | null : null
@@ -173,21 +225,33 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undef
   if (!binding || !safeEqual(hashToken(binding), row.binding_hash)) { guard.fail(); return backTo(row, 'expired') }
   // once: the first return takes it, a reload or a second request finds it used
   if (!ctx.db.query("UPDATE google_signin_flows SET status = 'used' WHERE id = ? AND status = 'pending' AND expires_at > ?").run(row.id, new Date(a.now()).toISOString()).changes) return backTo(row, 'expired')
-  if (error) return backTo(row, error === 'access_denied' ? 'cancelled' : 'failed')
+  // Google's cancel (direct), or the console's word for it (broker)
+  if (error) return backTo(row, error === 'access_denied' || error === 'consent_denied' ? 'cancelled' : 'failed')
   const drive = googleDriveOf(ctx)
   const cfg = drive.config
-  // the client changed since the start (an admin replaced it): its code is for the other one
-  if (!cfg || configKey(cfg) !== row.config_key || !code || code.length > 4096) return backTo(row, 'failed')
+  // a flow comes back the way it went: a direct one through the Drive callback, a broker one through its return route
+  const brokerClient = brokerClientOf(row.config_key)
+  const broker = brokerClient ? googleSigninBrokerOf(ctx) : null
+  if (!proof || (mode === 'broker' ? !broker || !TOKEN_RE.test(proof)
+    // the client changed since the start (an admin replaced it): its code is for the other one
+    : !cfg || brokerClient || configKey(cfg) !== row.config_key || proof.length > 4096)) return backTo(row, 'failed')
   let secret: { verifier: string; nonce: string }
   try { secret = drive.store.open({ id: row.id, user_id: SEAL_CONTEXT, secret_enc: row.secret_enc, key_version: row.key_version }) } catch { return backTo(row, 'failed') }
   ctx.db.query('UPDATE google_signin_flows SET secret_enc = NULL WHERE id = ?').run(row.id)
   let claims: GoogleClaims | null = null
   try {
-    const json = await drive.transport.json(GOOGLE_TOKEN, {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: cfg.redirectUri, code_verifier: secret.verifier, client_id: cfg.clientId, client_secret: cfg.clientSecret }),
-    }, 32_768)
-    claims = googleClaims(json.id_token, cfg.clientId, secret.nonce, a.now())
+    if (broker && brokerClient) {
+      // the console exchanges Google's code only now and hands back Google's raw id_token: checked here in full,
+      // Google's signature included, for the client id the start answered and this flow's nonce
+      const idToken = await broker.redeem(proof, secret.verifier)
+      claims = await verifyGoogleIdToken(broker.keys, idToken, { clientId: brokerClient, nonce: secret.nonce, now: a.now() })
+    } else if (cfg) {
+      const json = await drive.transport.json(GOOGLE_TOKEN, {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'authorization_code', code: proof, redirect_uri: cfg.redirectUri, code_verifier: secret.verifier, client_id: cfg.clientId, client_secret: cfg.clientSecret }),
+      }, 32_768)
+      claims = googleClaims(json.id_token, cfg.clientId, secret.nonce, a.now())
+    }
   } catch { claims = null }
   if (!claims) return backTo(row, 'failed')
   return row.intent === 'connect' ? backTo(row, connect(c, ctx, row, claims)) : signInWith(c, ctx, row, claims)
