@@ -48,7 +48,7 @@ describe('finalAnswerLead', () => {
       '| Name | Price |', '## Summary', '**Summary**', 'report-q3.docx', '`report-q3.docx`', 'Hi Tom,',
     ]) expect(left(`${lead}\n\n${KO_ANSWER}`), lead).toBe(`${lead}\n\n${KO_ANSWER}`)
     // a long paragraph is content too
-    const long = 'This paragraph is long enough to be real content rather than a note the model wrote to itself while it worked through the steps of the job.'
+    const long = 'This paragraph is long enough to be real content rather than a short note that the model wrote to itself while it worked through all of the many steps of the whole job.'
     expect(long.length).toBeGreaterThanOrEqual(160)
     expect(left(`${long}\n\n${KO_ANSWER}`)).toBe(`${long}\n\n${KO_ANSWER}`)
   })
@@ -83,7 +83,7 @@ describe('finalAnswerLead', () => {
 const GATE = path.join(import.meta.dir, '../../native/bin', `${process.platform}-${process.arch}`, 'mycel-gate')
 const native = fs.existsSync(GATE)
 /** the fake engine's directives, their Latin letters written as \\u escapes (narration-hold.test.ts) */
-const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d).replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/[A-Za-z]/g, (c) => '\\u00' + c.charCodeAt(0).toString(16)))).join('\n')
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d).replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/(?<!\\)[A-Za-z]/g, (c) => '\\u00' + c.charCodeAt(0).toString(16)))).join('\n')
 
 describe('a turn whose final answer opens with an English working note', () => {
   let h: Harness

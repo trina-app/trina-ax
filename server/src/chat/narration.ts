@@ -443,8 +443,9 @@ const FILE_ALONE = /^\s*`?[^\s`]+\.[A-Za-z0-9]{1,5}`?\s*$/
 export function finalAnswerLead(answer: string, script: AnswerScript | null, said = ''): { notes: string; rest: string } | null {
   if (!script) return null
   const saidNorm = norm(said)
-  const re = /\n[ \t]*\n\s*/g
-  let start = /^\s*/.exec(answer)![0].length
+  // (only blank lines part paragraphs: a paragraph keeps its indent, so indented code is seen as code)
+  const re = /\n[ \t]*\n(?:[ \t]*\n)*/g
+  let start = /^(?:[ \t]*\n)*/.exec(answer)![0].length
   let cut = -1
   const notes: string[] = []
   while (start < answer.length) {

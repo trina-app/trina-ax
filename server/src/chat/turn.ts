@@ -2290,7 +2290,7 @@ export class TurnExec {
     this.interimDropped++
     this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: cut.notes })
     // the piece's own separator stays (the answer above it, if any); at the very top nothing leads
-    this.emitText(this.answerText.push(this.fileLinks.push((at > 0 ? sep : '') + cut.rest.replace(/^\s+/, ''))))
+    this.emitText(this.answerText.push(this.fileLinks.push((at > 0 ? sep : '') + cut.rest)))
     this.flushText()
   }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
