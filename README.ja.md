@@ -47,8 +47,8 @@ https://github.com/user-attachments/assets/ec5f648a-7417-4e31-94df-e860b353b709
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="チーム全員に適用される管理 › 連携サービス：Google Drive、Gmail、Calendar、Docs、Sheets（一度設定すれば、各自はGoogleにサインインするだけ）、Slack、Notion、Linear、Atlassian、Canva、アドレスで追加"><br><sub>管理 › 連携サービス：一度設定すれば、チーム全員が使えます</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームスキルの一覧とBring my skills"><br><sub>チームスキル（自分のスキルも持ち込めます）</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="チームスキルの一覧とBring my skills"><br><sub>チームスキル（自分のスキルも持ち込めます）</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ https://github.com/user-attachments/assets/ec5f648a-7417-4e31-94df-e860b353b709
 
 <table>
 <tr>
-<td width="50%"><b>予約タスク</b>：一度頼めば、指定したスケジュールどおりにトリナが繰り返します。時刻はチームのタイムゾーンに合わせます。<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="予約タスクが作ってファイルに保存した週次サマリー：見つけたこと、決定事項、未完了の作業"></td>
+<td width="50%"><b>予約タスク</b>：一度頼めば、指定したスケジュールどおりにトリナが繰り返します。時刻はチームのタイムゾーンに合わせます。<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="予約タスクの画面：6つのタスクと、それぞれの内容・繰り返す時刻・前回の実行結果"></td>
 <td width="50%"><b>ゲスト</b>：社外の人をグループトークやプロジェクトに招待できます。AIを使えるかどうかも選べます。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="代理店のゲストMorgan ReyesがいるLaunch emailグループトーク：件名の案、メンション、トリナの回答"></td>
 </tr>
 <tr>
-<td width="50%"><b>使用量と上限</b>：メンバーごとの回答数・トークン・推定コストがわかります。トークンの上限は、人・グループ・チームごとに設定できます。<br><br><img src="docs/images/readme/v4/usage.webp" alt="管理者の使用量画面：メンバーごとのトークン、回答数、推定コスト"></td>
+<td width="50%"><b>使用量と上限</b>：メンバーごとの回答数・トークン・推定コストがわかります。トークンの上限は、人・グループ・チームごとに設定できます。<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="管理者の使用量画面：メンバーごとのトークン、回答数、推定コスト"></td>
 <td width="50%"><b>まとめて検索</b>：⌘Kで、チャット・履歴・プロジェクト・ファイル・スキル・予約タスクから探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを横断して探す⌘K検索"></td>
 </tr>
 <tr>

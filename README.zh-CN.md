@@ -47,8 +47,8 @@ https://github.com/user-attachments/assets/073b18ae-403c-4139-9518-1eed8e21a931
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="管理 › 已连接的应用（对整个团队生效）：Google Drive、Gmail、Calendar、Docs、Sheets（设置一次，之后每个成员只需登录 Google）、Slack、Notion、Linear、Atlassian、Canva，以及按地址添加"><br><sub>管理 › 已连接的应用：设置一次，全员可用</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能导入你自己的</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能导入你自己的</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ https://github.com/user-attachments/assets/073b18ae-403c-4139-9518-1eed8e21a931
 
 <table>
 <tr>
-<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间（团队所在时区）重复执行。<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="定时任务写出的每周总结：发现的内容、决定和未完成的工作，并保存为文件"></td>
+<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间（团队所在时区）重复执行。<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="定时任务页面：6 个任务，每个都显示要做的事、重复时间和上次运行结果"></td>
 <td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="有代理公司访客 Morgan Reyes 的 Launch email 群聊：标题方案、@提及和 Trina 的回答"></td>
 </tr>
 <tr>
-<td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；token 上限可按人、小组或团队设置。<br><br><img src="docs/images/readme/v4/usage.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
+<td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；token 上限可按人、小组或团队设置。<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="⌘K 搜索：聊天、历史、项目、文件、技能和定时任务"></td>
 </tr>
 <tr>
