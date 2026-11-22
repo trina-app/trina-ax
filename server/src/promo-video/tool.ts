@@ -74,7 +74,11 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
   tries.set(key, n)
   if (tries.size > 2000) for (const k of [...tries.keys()].slice(0, 1000)) tries.delete(k)
   const lang = teamDefaultLocale(ctx.db)
-  const checked = await checkPromoInput(ctx, t, a, lang)
+  // exactly the slots of an earlier version of this chat's video ("go back to Junho's version"; QA TC-r2u-10): that
+  // version as it was checked then, again as the newest one. Its sources may be in the asker's own folder, which the
+  // person asking now cannot read; everyone here saw that video already
+  const same = sameAsEarlier(ctx, turn.chatId, a)
+  const checked = same ? { ok: true as const, spec: same } : await checkPromoInput(ctx, t, a, lang)
   if (!checked.ok) {
     const list = checked.problems.map((p) => `- ${p}`).join('\n')
     if (n >= MAX_TRIES) throw new ToolError(`The video could not be made:\n${list}\nDo not call promo_video again in this answer. Tell the person in one plain sentence that the video could not be made this time and why, in their language.`)
@@ -103,6 +107,19 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
     summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
   }
+}
+
+/** The checked spec of an earlier version of this chat's video whose slots were exactly `a`, or null */
+function sameAsEarlier(ctx: AppContext, chatId: string, a: PromoVideoInput): { doc: Parameters<typeof artifactDocument>[0]; sources: string[]; pictures: string[] } | null {
+  const want = JSON.stringify(a)
+  const rows = ctx.db.query('SELECT spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC').all(chatId) as { spec: string }[]
+  for (const r of rows) {
+    try {
+      const s = JSON.parse(r.spec) as { input?: unknown; doc?: Parameters<typeof artifactDocument>[0]; sources?: string[] }
+      if (s.input && s.doc && JSON.stringify(PromoVideoInput.parse(s.input)) === want) return { doc: s.doc, sources: s.sources ?? [], pictures: [] }
+    } catch { /* an older row */ }
+  }
+  return null
 }
 
 export const PROMO_VERSIONS_TOOL = 'promo_video_versions'
