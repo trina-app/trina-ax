@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { Markdown } from '../../src/components/Markdown'
+import { footnotesTooHeavy } from '../../src/lib/messageMarkdown'
 
 const render = (text: string, streaming?: boolean) => renderToStaticMarkup(<MemoryRouter><Markdown text={text} streaming={streaming} /></MemoryRouter>)
 /** an assistant answer in the chat (components/chat/Messages.tsx): its top-level quotes copy on their own */
@@ -80,6 +81,26 @@ describe('Markdown rendering', () => {
     expect(html).toContain('&lt;script&gt;')
     expect(html).toContain('&lt;img src=x onerror=')
     expect(html).not.toMatch(/<(script|img|div title)[\s>]/)
+  })
+
+  test('a single tilde is a range, not strike: Korean ranges stay as typed; only ~~double~~ strikes (QA TC-r2a-02)', () => {
+    const line = '- 3~12초: 핵심 팁 1~2개'
+    for (const html of [render(line), answer(line), render(line, true)]) {
+      expect(html).not.toContain('<del>')
+      expect(html).toContain('3~12초: 핵심 팁 1~2개')
+    }
+    for (const text of ['10~20%가 늘고 2~3일 걸려요', '오후 2~4시, 5~6명', '1~2週間 / 3~5天', '~10명 정도 ~ 많으면 20명']) {
+      const html = render(text)
+      expect(html).not.toContain('<del>')
+      expect(html).toContain(text)
+    }
+    // footnotes too heavy to read (the other set of steps): the same rule
+    const heavy = '3~12초 1~2개' + '\n\n[^a]: x'.repeat(400)
+    expect(footnotesTooHeavy(heavy)).toBe(true)
+    expect(render(heavy)).not.toContain('<del>')
+    // a real strike still works, in Korean too, and next to a range
+    expect(render('~~취소~~ 3~5분')).toContain('<del>취소</del> 3~5분')
+    expect(render('가격 ~~10,000원~~ 8,000원')).toContain('<del>10,000원</del>')
   })
 
   test('keeps GFM and math rendering around comments', () => {

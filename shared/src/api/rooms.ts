@@ -1041,6 +1041,11 @@ export const AnswerShareConfirm = z.object({
   files: z.array(AnswerShareFile).max(ANSWER_SHARE_FILES_MAX),
   provenance: AnswerShareProvenance.nullable(),
   confirmKey: z.string(),
+  /** what the answer made beside the chat (a video, a page, a picture: its artifacts) that goes with the message as files,
+   * always (it is the answer's own content), by the names the files get */
+  artifacts: z.array(z.object({ name: z.string() })).max(10).optional(),
+  /** the answer's part of the message exactly as it would go (a preview's first press: ShareAnswerToRoomBody.preview) */
+  text: z.string().max(ROOM_MESSAGE_MAX).optional(),
   /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
    * but the files I chose to attach change the provenance line (shown for that choice) */
   reason: z.enum(['changed', 'choice']).optional(),

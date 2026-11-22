@@ -35,8 +35,8 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Play, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { CHAT_FILES_FOLDER, chatFilesWord } from '@mycel/shared'
+import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef, type Locale } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
@@ -335,11 +335,11 @@ function useGroupFolderBase(roomId: string): { name: string; folderPath: string 
 
 /** A file's place under a folder of its room (`base`: a project's or a group's): "{name} › Chat attachments", or null
  * when the file is not under it. */
-export function placeUnder(path: string, base: { name: string; folderPath: string } | null): string | null {
+export function placeUnder(path: string, base: { name: string; folderPath: string } | null, locale: Locale = 'en'): string | null {
   if (!base) return null
   const folder = path.slice(0, Math.max(0, path.lastIndexOf('/')))
   if (folder !== base.folderPath && !folder.startsWith(base.folderPath + '/')) return null
-  return [base.name, ...folder.slice(base.folderPath.length + 1).split('/').filter(Boolean)].join(' › ')
+  return [base.name, ...folder.slice(base.folderPath.length + 1).split('/').filter(Boolean).map((s) => chatFilesWord(s, locale))].join(' › ')
 }
 
 /** A message's files that stay when it is deleted: kept in the team folder where I can open them (RoomFile.teamPath).
@@ -352,9 +352,10 @@ export const keptFiles = (m: Pick<RoomMessage, 'files'>): RoomFile[] => m.files.
  * message also has files kept in the room, which go with it. */
 export function FileStaysLines({ project, at, n, others = false }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'> | null; at: string; n: number; others?: boolean }) {
   const t = useT()
+  const locale = useLocale()
   const folder = at.slice(0, Math.max(0, at.lastIndexOf('/')))
   // the place as people read it: the project's (or the department's) name for its folder, then the folders under it
-  const label = placeUnder(at, project) ?? folder.split('/').join(' › ')
+  const label = placeUnder(at, project, locale) ?? folder.split('/').map((s) => chatFilesWord(s, locale)).join(' › ')
   const href = `/files?path=${encodeURIComponent(folder)}`
   const parts = t('rooms.deleteFileStays', { n, place: '\u0000' }).split('\u0000')
   const place = (
@@ -375,9 +376,9 @@ function EventLine({ m }: { m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
-  const team = useMe()?.team.defaultLocale
   if (!m.event) return null
-  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
+  // the chat attachments folder in my language (shown so everywhere: chatFilesWord), not the team's
+  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[locale] ?? CHAT_FILES_FOLDER.en })
   // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf); in the
   // trash, deleted or out of my reach it is plain text
   const e = m.event
@@ -861,7 +862,7 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
-      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} place={f.teamFile ? placeUnder(team.saved, groupBase) : null} />}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} place={f.teamFile ? placeUnder(team.saved, groupBase, locale) : null} />}
       {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
           place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
           screen it is not there at all (the long-press menu has it) */}

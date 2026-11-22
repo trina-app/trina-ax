@@ -188,7 +188,7 @@ export function RoomOptionLabel({ room, end }: { room: Room; end?: ReactNode }) 
 
 /** The tokens as the box shows them: a layer behind the text box with the same text, the tokens marked (the box's own
  * text is then transparent; its caret and a see-through selection stay). Same padding, size and wrapping as the box. */
-export function TokenLayer({ text, ranges, className, scrollTop }: { text: string; ranges: TokenRange[]; className: string; scrollTop: number }) {
+export function TokenLayer({ text, ranges, className, scrollTop }: { text: string; ranges: readonly Pick<TokenRange, 'start' | 'end'>[]; className: string; scrollTop: number }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (ref.current) ref.current.scrollTop = scrollTop }, [scrollTop, text])
   const parts: { s: string; token: boolean }[] = []

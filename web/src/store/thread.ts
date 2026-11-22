@@ -16,6 +16,8 @@ export type ViewMessage = Message & {
     limit?: true
     /** still on its way, waiting while Trina is updating (lib/serverUpdating.ts): it goes once the server is back */
     updating?: boolean
+    /** still on its way, waiting for the connection to come back (QA TC-r2d-06): it goes by itself then */
+    offline?: true
   }
 }
 
@@ -131,8 +133,8 @@ export function optimisticUserMessage(o: { id: string; chatId: string; parentId:
   }
 }
 
-export function markLocal(messages: ViewMessage[], localId: string, state: 'sending' | 'failed', error?: string, updating?: boolean, limit?: boolean): ViewMessage[] {
-  return messages.map((m) => (m.id === localId && m.local ? { ...m, local: { clientMessageId: m.local.clientMessageId, state, ...(error ? { error } : {}), ...(limit ? { limit: true as const } : {}), ...(updating ? { updating } : {}) } } : m))
+export function markLocal(messages: ViewMessage[], localId: string, state: 'sending' | 'failed', error?: string, updating?: boolean, limit?: boolean, offline?: boolean): ViewMessage[] {
+  return messages.map((m) => (m.id === localId && m.local ? { ...m, local: { clientMessageId: m.local.clientMessageId, state, ...(error ? { error } : {}), ...(limit ? { limit: true as const } : {}), ...(updating ? { updating } : {}), ...(offline ? { offline: true as const } : {}) } } : m))
 }
 
 /**

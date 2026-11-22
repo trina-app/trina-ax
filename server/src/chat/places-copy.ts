@@ -52,6 +52,8 @@ import { placeWords } from './place-words'
 import { neutralizeTags } from './prompt'
 import type { Tool } from './tools'
 import { instructionLike, type TurnExec, type WidenOf } from './turn'
+import { chatPlaces } from './place-ctx'
+import { attachProduced, versionText } from '../files/place-output'
 
 export const COPY_FILES_TOOL = 'copy_files'
 
@@ -182,7 +184,7 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
     })
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
-    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, detail: { from: 'work folder' } })
+    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, movedCheck: true, detail: { from: 'work folder' } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this answer, so this was saved next to it; the original is unchanged.` : ''
     return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
   } catch (e) {
@@ -228,6 +230,52 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
   } finally { release(); fs.rmSync(work, { recursive: true, force: true }) }
 }
 
+/** The chat files this answer copied into its work folder to remake, by their chain path, with the head's hash then: only
+ * workToChatVersion takes such a copy as the read (code review: other edit tools still read first). */
+const remakes = new WeakMap<TurnFiles, Map<string, string>>()
+const remakesOf = (files: TurnFiles) => { let m = remakes.get(files); if (!m) { m = new Map(); remakes.set(files, m) }; return m }
+
+/** A work-folder file saved as the newest version of an existing file of this chat (`to`: chat:files/<id>/<name>; QA
+ * TC-r2u-10: three people's edits of one video each made a new file, so "go back to Junho's version" could not be done).
+ * The rules of a produce tool's new version (files/place-output.ts versionProduced): who may change it here, the same
+ * name and format, read (or copied into the work folder) in this answer first, every check again at the insert; the
+ * version records the person who asked (ChatFiles.putVersion, origin 'ai'); the chain keeps its version cap. */
+export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { rel: string; to: string; tool: string; shown: string }): Promise<Routed> {
+  const { rt, spec } = exec
+  const { rel, tool, shown } = o
+  const wf = files.workFolder?.() ?? null
+  if (!wf) return { ok: false, text: 'Not saved: the work folder of this chat is not available now.', summary: `${tool} -> no work folder` }
+  if (!noteWorkRead(exec)) return { ok: false, text: `Not saved: ${workUnavailable(files)}`, summary: `${tool} -> refused: not recorded` }
+  const release = exec.beginAttach()
+  if (exec.hiddenFromLater) { release(); return { ok: false, text: 'Not saved: this answer now holds a connected service\'s answer that people added later may not see.', summary: `${tool} -> refused: answer hidden from later people` } }
+  const work = tempDir(exec, 'work-version-')
+  try {
+    const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, spec.userId)
+    const left = Math.min(CHAT_FILE_AI_MAX, Math.max(0, max.bytes - files.bytesWritten))
+    const tmp = path.join(work, 'file')
+    const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
+    if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
+    const places = chatPlaces(exec, files)
+    const dest = parsePlace(o.to)
+    const head = places.head(dest?.kind === 'chatFiles' ? dest.id ?? null : null, '')
+    // the same format: a .mov is never saved as a version of a .mp4
+    const ext = (n: string) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : '' }
+    if (ext(got.name) !== ext(head.name)) return { ok: false, text: `Not saved: ${shown} is a .${ext(got.name) || '(no extension)'} file and '${head.name}' is a .${ext(head.name) || '(no extension)'} file; a new version keeps the file's format. Make it in the same format, or attach it as a separate file (to_folder "chat:files/").`, summary: `${tool} -> refused: other format` }
+    // copied into the work folder in this answer to be remade: that copy stands for the read, for this route only
+    const copied = remakesOf(files).get(head.path)
+    if (copied && copied === head.sha256 && !files.readHashes.has(head.path)) files.readHashes.set(head.path, copied)
+    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, places }
+    const made = await attachProduced(rt.ctx, c, o.to.split('/'), tmp)
+    const v = 'chatVersion' in made ? (made as { chatVersion: import('../files/place-output').ChatVersionMade }).chatVersion : null
+    if (!v) return { ok: false, text: 'Not saved: name an existing file of this chat (chat:files/<file_id>/<name>).', summary: `${tool} -> refused: not a chat file` }
+    return { ok: true, to: v.path, text: `${versionText(v, 'Saved')} (from ${shown}, ${mb(v.size)} MB)`, summary: `${tool} -> version ${v.version} of ${v.path} (${v.size} B)` }
+  } catch (e) {
+    exec.abort.signal.throwIfAborted()
+    if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not saved: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
+    throw e
+  } finally { release(); fs.rmSync(work, { recursive: true, force: true }) }
+}
+
 /** The staged copy `tmp` attached to this answer as a chat file (the k check again right before). */
 async function attach(exec: TurnExec, files: TurnFiles, o: { tmp: string; name: string; sha256: string; tool: string; shown: string }): Promise<Routed> {
   const { rt, spec } = exec
@@ -257,7 +305,10 @@ function targetRefusal(exec: TurnExec, files: TurnFiles, to: string): string | n
   if (place.kind === 'reserved') return `${place.why}.`
   if (rc.chatKind === 'project') return PLACE_WORDS.projectSave
   if (place.kind === 'chatFiles') {
-    if (place.id || place.name) return 'to_folder is a folder: give "chat:files/" (the copy keeps its name), not a file in it.'
+    // an existing chat file by its own path: a work file saved as its newest version (QA TC-r2u-10: a remade video
+    // became a new file each time); who may and the file itself are checked by ChatPlaces.head in the route
+    if (place.id && place.name) return null
+    if (place.id || place.name) return 'to_folder is a folder: give "chat:files/" (the copy keeps its name), not a file in it; to save a work file as a new version of a file of this chat, give that file\'s own path, chat:files/<file_id>/<name>.'
     const ok = mayAttachChatFile(rc)
     return ok === true ? null : ok
   }
@@ -401,6 +452,9 @@ async function copyOne(exec: TurnExec, files: TurnFiles, from: string, toFolder:
       const op = chatFilesOf(rt.ctx).open(spec.userId, spec.chatId, f.id, false)
       if (op.quarantined || op.sha256 !== f.sha256) return fail('the team\'s safety check holds this file, so it is not copied.')
       source = { kind: 'file', abs: op.abs, name: f.name }
+      // copied in to be remade (a video cut again with box_shell): it counts as read, so the remade file can be saved as
+      // its newest version (workToChatVersion; the head's hash, as edit_office's read-first rule)
+      try { const head = chatPlaces(exec, files).head(f.id, ''); if (head.sha256 === f.sha256) remakesOf(files).set(head.path, head.sha256) } catch { /* not one this person may change here */ }
       sources = [{ type: 'chat', id: spec.chatId }]
     } else {
       const team = teamSource(exec, from)
@@ -428,6 +482,10 @@ async function copyOne(exec: TurnExec, files: TurnFiles, from: string, toFolder:
   // ---- into this chat's files (attached to the answer) ----
   if (dest?.kind === 'chatFiles') {
     if (src?.kind === 'chatFiles') return fail('it is a file of this chat already.')
+    if (dest.id) {
+      if (src?.kind !== 'work') return fail('only a file your box_shell commands made in the work folder (chat:work/…) is saved as a new version this way; change a document with edit_office, edit_pdf, write or edit.')
+      return routed(await workToChatVersion(exec, files, { rel: src.rel, to: toFolder.trim(), tool: COPY_FILES_TOOL, shown: workPlacePath(src.rel) }))
+    }
     if (src?.kind === 'work') return routed(await workToChat(exec, files, { rel: src.rel, where: () => files.workFolder?.() ?? null, tool: COPY_FILES_TOOL, shown: workPlacePath(src.rel) }))
     return routed(await teamToChat(exec, files, from))
   }

@@ -1191,12 +1191,30 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       expect(h.ctx.db.query('SELECT count(*) AS n FROM intro_decks WHERE chat_id = ?').get(chat)).toEqual({ n: 2 })
     })
 
-    test('the info and the downloads only for the chat\'s owner; the PDF hidden where typst is missing', async () => {
+    test('the info and the downloads for whoever may open the chat and its pictures; the PDF hidden where typst is missing', async () => {
       const { chat, id } = await make()
       const info = await h.api('dana').call(API.getIntroDeck, { params: { id } })
       expect(info).toEqual({ artifactId: id, chatId: chat, title: '아크메정밀 회사 소개서', theme: 'ink', slides: 6, pptx: true, pdf: pdfAvailable() })
       for (const p of ['', '/pptx', '/pdf']) expect((await h.req('alice', `/api/intro-decks/${id}${p}`)).status, p).toBe(404)
       expect((await h.req('dana', '/api/intro-decks/nope')).status).toBe(404)
+      // shared with alice: she sees it in the chat, so she may download it too (QA TC-r2a-06); not with a picture only
+      // dana may open (her own folder), nor once it is shared no more
+      h.ctx.db.query("UPDATE chats SET people_shared_at = datetime('now') WHERE id = ?").run(chat)
+      h.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'alice', 'dana', datetime('now'))").run(chat)
+      expect(await h.api('alice').call(API.getIntroDeck, { params: { id } })).toEqual(info)
+      expect((await h.req('alice', `/api/intro-decks/${id}/pptx`)).status).toBe(200)
+      expect((await h.req('erin', `/api/intro-decks/${id}`)).status).toBe(404)
+      const spec0 = (h.ctx.db.query('SELECT spec FROM intro_decks WHERE artifact_id = ?').get(id) as { spec: string }).spec
+      const own = JSON.parse(spec0)
+      own.doc.pics['users/dana/secret.png'] = { width: 10, height: 10 }
+      fs.mkdirSync(path.join(h.team, 'users/dana'), { recursive: true })
+      fs.writeFileSync(path.join(h.team, 'users/dana/secret.png'), 'x')
+      h.ctx.db.query('UPDATE intro_decks SET spec = ? WHERE artifact_id = ?').run(JSON.stringify(own), id)
+      expect((await h.req('alice', `/api/intro-decks/${id}`)).status).toBe(404)
+      expect((await h.req('dana', `/api/intro-decks/${id}`)).status).toBe(200)
+      h.ctx.db.query('UPDATE intro_decks SET spec = ? WHERE artifact_id = ?').run(spec0, id)
+      h.ctx.db.query('DELETE FROM chat_audience WHERE chat_id = ?').run(chat)
+      expect((await h.req('alice', `/api/intro-decks/${id}`)).status).toBe(404)
       const prev = process.env.MYCEL_TYPST_BIN
       process.env.MYCEL_TYPST_BIN = ''
       try {

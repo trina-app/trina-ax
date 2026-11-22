@@ -58,7 +58,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 export interface EventWords {
   t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | ProjectEventKey | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
-  /** the Chat attachments folder's name in the team's language (CHAT_FILES_FOLDER), for the files' move line */
+  /** the Chat attachments folder's name in the reader's language (CHAT_FILES_FOLDER; shared/src/folder-labels.ts chatFilesWord), for the files' move line */
   folder?: string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the

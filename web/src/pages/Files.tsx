@@ -67,6 +67,7 @@ import FolderPicker from '../components/FolderPicker'
 import { FolderAccessChip, FolderAccessPanel, offersFolderAccess } from '../components/FolderAccess'
 import { openFileShare, useCopyTeamFileLink } from '../components/FileShareDialog'
 import { isOwnPath, offersFolderShare, useOwnFolderShare } from '../lib/folder-share'
+import { uploadPlans, type UploadClash, type UploadPlan } from '../lib/uploadPlans'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { useFindWorkFilesEntry } from '../components/onboarding/FindWorkFiles'
@@ -77,7 +78,7 @@ import { isSkillsPath } from '../lib/skillIssues'
 import { nameList, restoreDropouts } from '../lib/restoreDropouts'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, buttonClass, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, buttonClass, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, choiceDialog, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { PhonePickButton, useDevicePick } from '../components/DevicePick'
 import { AiMark } from '../components/rooms/AiFace'
@@ -558,7 +559,7 @@ function Files() {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
         // into a folder of my own: only a folder share there adds people (its own sentence); else out of my personal folder
-        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(folder, me.user.id) ? 'files.bulk.widenSharedBody' : 'files.bulk.widenBody', { count, n }), confirm: t('files.moveAnyway') }),
+        confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(folder, me.user.id) ? 'files.bulk.widenSharedBody' : ok.every((e) => isOwnPath(e.path, me.user.id)) ? 'files.bulk.widenBody' : 'files.bulk.widenBodyAny', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
       })
       each.settle(r)
@@ -644,12 +645,31 @@ function Files() {
     // "read-only folder" for a folder the person can write and dropped the file (e2e mobile upload on a slow server).
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = into ?? path
-    for (const file of list) sendFile(file, folder, addFileUpload(file.name, folder))
+    void (async () => {
+      // a name the folder holds already: asked first, Replace (the old one becomes a version) or Keep both (QA TC-7241)
+      const plans = await uploadPlans(list, {
+        taken: (names) => api.call(API.namesTaken, { body: { folder, names } }),
+        ask: askUploadClash,
+      })
+      for (const pl of plans) sendFile(pl.file, folder, addFileUpload(pl.name, folder), pl)
+    })()
   }
+  /** "A file named X is already here.": Replace (keeps the old one as a version) or Keep both; a folder of that name
+   * cannot be replaced, so only Keep both is offered and the message says why. */
+  const askUploadClash = (c: UploadClash) =>
+    choiceDialog({
+      title: t(c.type === 'folder' ? 'files.uploadClash.folderTitle' : 'files.uploadClash.title', { name: c.existing }),
+      body: t(c.type === 'folder' ? 'files.uploadClash.folderBody' : 'files.uploadClash.body'),
+      choices: [
+        { value: 'keep', label: t('files.uploadClash.keepBoth'), testId: 'upload-clash-keep' },
+        ...(c.type === 'file' ? [{ value: 'replace', label: t('files.uploadClash.replace'), testId: 'upload-clash-replace' }] : []),
+      ],
+    }) as Promise<'keep' | 'replace' | null>
   /** One file of startUploads, and its 다시 시도 after a failure: the same file to the same name (a large one goes on
    * from the chunks the server has; a small one that did arrive is kept by the server, no "(2)"; QA TC-223). */
-  const sendFile = (file: File, folder: string, item: { id: number; abort: AbortController }) => {
-    const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
+  const sendFile = (file: File, folder: string, item: { id: number; abort: AbortController }, plan: Pick<UploadPlan, 'name' | 'onExists'> = { name: file.name, onExists: 'rename' }) => {
+    // (a Replace sends the name on disk, so the very file it showed is the one replaced)
+    const target = { kind: 'path', path: joinPath(folder, plan.name), onExists: plan.onExists } as const
     // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
     const release = markBusy('upload')
     uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
@@ -668,7 +688,7 @@ function Files() {
         const retry = () => {
           const again = { id: item.id, abort: new AbortController() }
           patchFileUpload(item.id, { status: 'uploading', error: undefined, plans: undefined, progress: null, abort: again.abort, retry: undefined })
-          sendFile(file, folder, again)
+          sendFile(file, folder, again, plan)
         }
         patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e), retry })
       },
@@ -733,7 +753,9 @@ function Files() {
       const added = widenedBy(err)
       if (added !== null) {
         // into a folder of my own (a move or a rename): only a folder share there adds people
-        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(body.to, me.user.id) ? 'files.widenSharedBody' : 'files.widenBody', { n: added }), confirm: t('files.moveAnyway') }))) return null
+        // out of my personal folder, or (QA TC-r2b-02) out of a project or group folder into a wider one
+        const widen = isOwnPath(body.to, me.user.id) ? 'files.widenSharedBody' : isOwnPath(body.from, me.user.id) ? 'files.widenBody' : 'files.widenBodyAny'
+        if (!(await confirmDialog({ title: t('files.widenTitle'), body: t(widen, { n: added }), confirm: t('files.moveAnyway') }))) return null
         return await api.call(API.move, { body: { ...body, confirm: true } })
       }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err

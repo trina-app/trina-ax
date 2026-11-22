@@ -29,11 +29,16 @@ import { useFolderWords, type FolderWords } from '../../lib/folderLabels'
 import { toast } from '../../store/ui'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { Button, inputCls, Modal, Spinner, Switch, useMediaQuery } from '../ui'
+import { Markdown } from '../LazyMarkdown'
 import { ROOM_OPTION_CLS, RoomOptionLabel } from './RoomRefMenu'
 
 /** the server's "confirm"; `seq`: one more each time it asks (each is a step of its own); `again`: it asked again after
  * my yes because something changed meanwhile (not when only my choice of files changed its line) */
-export interface ConfirmAsk { files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean }
+export interface ConfirmAsk { files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean
+  /** what the answer made beside the chat (a video, a page) that goes with the message as files, always */
+  artifacts?: { name: string }[]
+  /** the answer as it goes (the server's own copy: lines that stay in the chat left out) */
+  text?: string }
 interface Ask extends ConfirmAsk { room: Room }
 type Confirm = Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
 
@@ -54,7 +59,7 @@ export function useConfirmStep<T extends ConfirmAsk = ConfirmAsk>() {
     setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
     // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
     // shown as it now reads
-    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice' }) as T)
+    setAsk((a) => ({ ...extra, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: yes && r.reason !== 'choice', ...(r.artifacts?.length ? { artifacts: r.artifacts } : {}), ...((r.text ?? a?.text) ? { text: r.text ?? a?.text } : {}) }) as T)
   }
   return { ask, attach, setAttach, asked, close: () => setAsk(null) }
 }
@@ -109,7 +114,8 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
     if (sendId.current?.key !== key) sendId.current = { key, id: uuidv7() }
     setBusy(true)
     try {
-      const r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? {}), clientMessageId: sendId.current.id })
+      // the first press only asks: one confirm with what goes and who sees it, whatever is attached (QA TC-f2-c04)
+      const r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? { preview: true }), clientMessageId: sendId.current.id })
       if (r.status === 'confirm') {
         confirm.asked(r, !!yes, { room: to })
         setBusy(false)
@@ -118,6 +124,8 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
       onClose()
       const files = r.message.files.length
       toast({ level: 'success', text: files ? t('shareRoom.sentFiles', { room: label(to), n: files }) : t('shareRoom.sent', { room: label(to) }), action: { label: t('shareRoom.open'), run: () => navigateTo(`/rooms/${to.id}`) } })
+      // the video's MP4 was not ready: it went as its page (review of #363)
+      if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       setBusy(false)
@@ -133,6 +141,8 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
         target={<div className="flex items-center gap-2.5"><RoomOptionLabel room={ask.room} /></div>}
         note={n}
         ask={ask}
+        preview={answer}
+        audience={ask.room.memberCount}
         others={Math.max(0, ask.room.memberCount - 1)}
         later={ask.room.kind === 'team' || ask.room.kind === 'all'}
         attach={attach}
@@ -252,8 +262,10 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
  * 취소, ✕ and Esc are `onCancel`. `others`: the people of the room but me (a row's "nobody else can open it"). `returnTo`:
  * where the focus goes when it closes (default: where it was). `sources`: the rows are the files a room AI preview used
  * (components/rooms/RoomMessages.tsx PreviewLine), which leave the posted copy's list, not links of the answer. */
-export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo, sources = false, extra, later = false }: {
+export function ShareConfirm({ title, target, note, ask, others, attach, onAttach, busy, onSend, onCancel, returnTo, sources = false, extra, later = false, preview, audience }: {
   title: string; target: ReactNode; note?: string; ask: ConfirmAsk; others: number; attach: ReadonlySet<string>
+  /** the answer as it goes (shown short, scrolls), and how many people are in the room: "N명이 보게 돼요" */
+  preview?: string; audience?: number
   onAttach: (f: (cur: Set<string>) => Set<string>) => void; busy: boolean; onSend: (yes: { confirmKey: string; attach: string[] }) => void; onCancel: () => void; returnTo?: HTMLElement | null
   sources?: boolean
   /** lines of the caller's own under the provenance line (a room AI preview: the web, an earlier hidden answer) */
@@ -296,6 +308,14 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
             </p>
           )}
         </div>
+        {preview && (
+          <div className="max-h-40 overflow-y-auto rounded-md border-l-2 border-line-strong bg-subtle px-3 py-2 text-sm break-words text-ink" data-testid="share-room-preview">
+            <Markdown text={ask.text ?? preview} />
+          </div>
+        )}
+        {audience !== undefined && audience > 0 && (
+          <p className="text-sm leading-6 break-keep text-muted" data-testid="share-room-audience">{t('shareRoom.audience', { n: audience })}</p>
+        )}
         {ask.again && (
           <p role="status" className="flex items-start gap-2 text-sm leading-6 break-keep text-warn" data-testid="share-room-again">
             <AlertCircle size={16} className="mt-1 shrink-0" aria-hidden />
@@ -323,6 +343,23 @@ export function ShareConfirm({ title, target, note, ask, others, attach, onAttac
                   {t('shareRoom.hidden', { n: hidden })}
                 </li>
               )}
+            </ul>
+          </section>
+        )}
+        {/* what the answer made beside the chat (a video, a page): it goes with the message as a file, no switch */}
+        {!!ask.artifacts?.length && (
+          <section aria-labelledby={`${id}-made`}>
+            <h3 id={`${id}-made`} className="mb-1 text-xs font-medium text-muted">{t('shareRoom.madeHead')}</h3>
+            <ul className="divide-y divide-line" data-testid="share-room-made">
+              {ask.artifacts.map((a, i) => (
+                <li key={`${i}-${a.name}`} className="flex items-center gap-3 py-2.5" data-testid="share-room-made-file">
+                  <FileText size={16} className="mt-0.5 shrink-0 self-start text-faint" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink" title={a.name}>{a.name}</p>
+                    <p className="text-xs leading-5 break-keep text-muted">{t('shareRoom.madeGoes')}</p>
+                  </div>
+                </li>
+              ))}
             </ul>
           </section>
         )}

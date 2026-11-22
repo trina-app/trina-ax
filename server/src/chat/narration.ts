@@ -264,6 +264,13 @@ function copied(piece: string, input: unknown, message: string): boolean {
   return words.filter((w) => have.has(w)).length >= 0.8 * words.length
 }
 
+/** The piece, word for word, inside `text` (no 80%-of-words allowance): a command's heredoc that writes the piece's
+ * text to a file (turn.ts deliveredArgs). */
+export function includesPiece(piece: string, text: string): boolean {
+  const p = norm(piece)
+  return p.length >= 8 && norm(text.length > 1_000_000 ? text.slice(0, 1_000_000) : text).includes(p)
+}
+
 /** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */
 const isStatusLine = (piece: string, script: AnswerScript, input: unknown, message: string) =>
   /[A-Za-z]/.test(piece) && !mustKeep(piece, script, false, input !== undefined, norm(message)) && !copied(piece, input, message)
@@ -381,7 +388,20 @@ function writtenIn(m: string): 'latin' | 'cjk' | null {
  */
 export function languageSwitchNote(message: string, previous: string | null | undefined): string | null {
   if (!previous) return null
-  const now = writtenIn(message), before = writtenIn(previous)
+  const now = writtenIn(ownWords(message)), before = writtenIn(ownWords(previous))
   if (!now || !before || now === before) return null
   return '<turn_context>\nThis message is written in another language than the messages before it: answer in the language of this message.\n</turn_context>'
+}
+
+/** The person's own words: the message without its quote lines ("> …"). A ✦ side chat puts the room message asked about
+ * in front of the question as a quote, with the app's own English labels ("(thread_id … in this room)", "(file_id … in
+ * this room)", web/src/components/rooms/SideChatPanel.tsx quoteLead), and its text is someone else's: neither is the
+ * language the person writes in (QA TC-f1c-01: a Korean question under such a quote got an English answer). */
+export const ownWords = (m: string): string => m.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
+
+/** A message that quotes something ("> " lines) and has words of the person's own in a clear script: the answer follows
+ * those words, never the quote (said next to the message, in its own block, like languageSwitchNote). */
+export function quoteLanguageNote(message: string): string | null {
+  if (!/^\s*>/m.test(message) || !writtenIn(ownWords(message))) return null
+  return '<turn_context>\nThe lines that start with ">" quote a message (other people\'s words and the app\'s own labels such as "thread_id … in this room"): answer in the language of the user\'s own words, the lines without ">".\n</turn_context>'
 }

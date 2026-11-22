@@ -425,7 +425,10 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number; resolve: (v: string | null) => void }
+  | { kind: 'choice'; title: string; body?: ReactNode; choices: DialogChoice[]; resolve: (v: string | null) => void }
 )
+/** One button of choiceDialog: the last one is the main (primary) button. */
+export interface DialogChoice { value: string; label: string; testId?: string }
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
 
@@ -445,6 +448,12 @@ export function cancelDialog() {
   set(null)
   if (req.kind === 'confirm') req.resolve(false)
   else req.resolve(null)
+}
+/** A question with a few answers (QA TC-7241: "Replace" or "Keep both"): the value of the button pressed, or null for
+ * Cancel or a close. The last choice is the main button. */
+export function choiceDialog(o: { title: string; body?: ReactNode; choices: DialogChoice[] }): Promise<string | null> {
+  const returnTo = menuOpener()
+  return new Promise((resolve) => useDialogs.getState().set({ kind: 'choice', ...o, returnTo, resolve }))
 }
 export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean }): Promise<boolean> {
   const returnTo = menuOpener()
@@ -480,7 +489,12 @@ export function DialogHost() {
   const close = (ok: boolean) => {
     setReq(null)
     if (req.kind === 'confirm') req.resolve(ok)
+    else if (req.kind === 'choice') req.resolve(null)
     else req.resolve(ok ? value.trim() : null)
+  }
+  const choose = (v: string) => {
+    setReq(null)
+    if (req.kind === 'choice') req.resolve(v)
   }
   const problem = req.kind === 'prompt' ? req.validate?.(value) ?? null : null
   return (
@@ -489,7 +503,16 @@ export function DialogHost() {
       onClose={() => close(false)}
       title={req.title}
       returnTo={req.returnTo}
-      footer={
+      footer={req.kind === 'choice' ? (
+        <>
+          <Button variant="ghost" onClick={() => close(false)} data-testid="dialog-cancel">{t('common.cancel')}</Button>
+          {req.choices.map((c, i) => (
+            <Button key={c.value} variant={i === req.choices.length - 1 ? 'primary' : 'secondary'} onClick={() => choose(c.value)} data-testid={c.testId ?? `dialog-choice-${c.value}`}>
+              {c.label}
+            </Button>
+          ))}
+        </>
+      ) :
         <>
           <Button variant="ghost" onClick={() => close(false)} data-testid="dialog-cancel">
             {(req.kind === 'confirm' && req.cancel) || t('common.cancel')}

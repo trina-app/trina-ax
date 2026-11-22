@@ -54,7 +54,7 @@ export class Artifacts {
    * is hidden the rest of the key stays hidden (fails closed); their own version took nothing from one hidden from them
    * (apply).
    */
-  private hiddenVersions(userId: string, chatId: string): ReadonlySet<string> {
+  hiddenVersions(userId: string, chatId: string): ReadonlySet<string> {
     // (also a chat others wrote in before it stopped being shared: chat/shared.ts severalAuthors)
     if (!isSharedChat(this.ctx.db, chatId) && !severalAuthors(this.ctx.db, chatId)) return new Set()
     const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId)

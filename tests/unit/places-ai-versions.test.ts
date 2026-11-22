@@ -380,7 +380,7 @@ describe('limits', () => {
 })
 
 describe('edit_office on a chat file', () => {
-  test('without output: a new version of the workbook (the cell changed, the rest as it was); no read, or a team file in a shared chat: refused', async () => {
+  test('without output: a new version of the workbook (the cell changed, the rest as it was); no read: refused (a team file: b-shared-chat-edit-office.test.ts)', async () => {
     const wb = new ExcelJS.Workbook()
     const sheet = wb.addWorksheet('Quote')
     sheet.addRow(['Date', '2026-11-21'])
@@ -406,8 +406,6 @@ describe('edit_office on a chat file', () => {
     const no = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: p, changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
     expect(no.content).toMatch(/read .* first|changed after you read it/)
     expect(versionsOf(chat, up.id)).toBe(2)
-    const team = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: 'shared/budget.xlsx', changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
-    expect(team.content).toContain('changes only this chat\'s own files')
   })
 })
 
@@ -605,7 +603,7 @@ describe('independent review (PR #252)', () => {
     expect(versionsOf(chat, file)).toBe(2)
   })
 
-  test('edit_office is offered in a chat shared with people, not in a project chat (nothing it could change there)', async () => {
+  test('edit_office is offered in a chat shared with people and in a project chat (its team files: S-028)', async () => {
     const chat = await sharedChat()
     const people = await run('bob', chat, fake({ echo: 'tools' }))
     expect(people.content.split(',')).toContain('edit_office')
@@ -613,7 +611,7 @@ describe('independent review (PR #252)', () => {
     const pc = await h.api('alice').call(API.createChat, { body: { projectId: pr.id } })
     const proj = await run('alice', pc.id, fake({ echo: 'tools' }))
     expect(proj.content.split(',')).toContain('make_file')
-    expect(proj.content.split(',')).not.toContain('edit_office')
+    expect(proj.content.split(',')).toContain('edit_office')
   })
 
   test('the shared chat prompt does not send edit_office output to chat:files/ (refused there: it changes only a chat file in place)', () => {
@@ -670,5 +668,22 @@ describe('one version per answer (owner, 2026-11-21)', () => {
     expect(d.version).toBe(5)
     // a turn's write limits still count every save
     expect(files.bytesWritten).toBe('AI one'.length + 'AI two'.length + 'AI three'.length)
+  })
+})
+
+describe('restore_chat_file (QA TC-r2u-10: "go back to Junho\'s version")', () => {
+  test('bob\'s AI brings back version 1 as the newest version, by "Trina for bob"; nothing is lost; a project chat or a hidden file refuses', async () => {
+    const { chat, file, path: p } = await sent('promo.txt', 'LOOK A\n')
+    await run('erin', chat, readThenEdit(p, 'LOOK A', 'LOOK B'))
+    expect(await fileText('alice', chat, file)).toBe('LOOK B\n')
+    const r = await run('bob', chat, fake({ tool: 'restore_chat_file', args: { file: p, version: 1 }, sayResult: true }))
+    expect(r.content).toContain('saved as version 3')
+    expect(await fileText('alice', chat, file)).toBe('LOOK A\n')
+    const vs = store().versions('alice', chat, file)
+    expect(vs.map((v) => [v.version, v.by, !!v.ai])).toEqual([[1, 'alice', false], [2, 'erin', true], [3, 'bob', true]])
+    // a version that is not there: nothing changes
+    const no = await run('bob', chat, fake({ tool: 'restore_chat_file', args: { file: p, version: 9 }, sayResult: true }))
+    expect(no.content).toContain('Nothing was restored')
+    expect(versionsOf(chat, file)).toBe(3)
   })
 })

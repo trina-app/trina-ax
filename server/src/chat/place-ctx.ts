@@ -94,6 +94,15 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       onChatFileVersion(chatId, h.id)
       return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: made.beside, link: chatFileLink(chatId, h.id), everyone: chatKindOf(exec) === 'people' }
     },
+    async restore(id, n, files): Promise<ChatVersionMade> {
+      const h = headOf(id, '')
+      let made: Awaited<ReturnType<typeof store.restore>>
+      try { made = await store.restore(me, chatId, h.id, n, { origin: 'ai', turn: files, recheck: gate }) } catch (e) { throw versionError(e, h.name) }
+      files.readHashes.set(h.path, made.row.sha256)
+      addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
+      onChatFileVersion(chatId, h.id)
+      return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: false, link: chatFileLink(chatId, h.id), everyone: chatKindOf(exec) === 'people' }
+    },
   }
 
   /** the chain a new version would go on, with every rule of the turn (ChatPlaces.head) */

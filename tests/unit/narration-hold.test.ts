@@ -7,6 +7,8 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { NarrationHold, narrationScript } from '../../server/src/chat/narration'
+import { deliveredArgs } from '../../server/src/chat/turn'
+import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 
 setDefaultTimeout(60_000)
 
@@ -502,9 +504,38 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.stored).toBe('보고서를 만들었어요.')
   })
 
+  test.skipIf(!native)('Korean: a line that says what the next command\'s step label says is narration, not content copied into the call (QA TC-f3-05)', async () => {
+    const t = await turn('ko', '할 일 표에 마감일 칸 추가해줘\n' + fake(
+      { say: 'Install python-docx in a venv.' },
+      // (the command and its step label both say what the line says: still no content the call delivers)
+      { tool: 'box_shell', args: { command: 'python3 -m venv .venv && .venv/bin/pip -q install python-docx', description: 'Install python-docx in a venv' } },
+      { say: '할 일 표에 "마감일" 칸을 추가했습니다.' },
+    ))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.done).toBe(t.stored)
+    expect(t.stored).toBe('할 일 표에 "마감일" 칸을 추가했습니다.')
+  })
+
   test.skipIf(!native)('a bookkeeping call after the answer (a title) ends no piece: the answer stays', async () => {
     const t = await turn('ko', '단가 알려줘\n' + fake({ say: 'A형은 1,200,000원이에요.' }, { tool: 'set_title', args: { title: '단가 확인' } }, { say: ' 더 필요하면 말씀해 주세요.' }))
     expect(t.streamed).toBe(t.stored)
     expect(t.stored.replace(/\s+/g, ' ')).toBe('A형은 1,200,000원이에요. 더 필요하면 말씀해 주세요.')
+  })
+})
+
+describe('deliveredArgs (QA TC-f3-05)', () => {
+  test('a command, a sub-agent\'s brief and a step\'s label deliver no words; every other call\'s arguments do', () => {
+    const cmd = { command: 'python3 -m venv .venv && .venv/bin/pip -q install python-docx', description: 'Install python-docx in a venv' }
+    const line = 'Install python-docx in a venv.'
+    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'box_shell', cmd, line)).toEqual({})
+    expect(deliveredArgs('Bash', cmd, line)).toEqual({})
+    expect(deliveredArgs('Agent', { prompt: 'p', description: 'd' }, line)).toEqual({})
+    // a command that writes the piece word for word (a heredoc to a file): content, kept
+    const report = '매출 보고서: 이번 주 매출은 1,200만 원입니다.'
+    const heredoc = { command: `cat > report.md <<'EOF'\n${report}\nEOF`, description: 'Save the report' }
+    expect(deliveredArgs('Bash', heredoc, report)).toEqual({ command: heredoc.command })
+    // a call that delivers words (a post, an event's description) keeps them: a piece copied there stays as content
+    const event = { title: 'Launch', description: 'Bring the samples.' }
+    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'calendar_create', event, 'Bring the samples.')).toBe(event)
   })
 })

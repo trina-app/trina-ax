@@ -202,6 +202,21 @@ describe('who starts to read a project is recorded and its members are told', ()
     expect(told.map((x) => x.user_id)).not.toContain(made.user.id)
     expect(atLeast(h.ctx.files.rules().access(h.ctx.files.principal(made.user.id), segs('projects/Team plan')), 'read')).toBe(true)
   })
+
+  test('someone added to a project by another person is told who added them (QA TC-r2u-03); a self-add is not', async () => {
+    const pr = (await h.api('alice').call(API.createProject, { body: { name: 'Launch kit', participants: [], instructions: '' } })).id
+    const acc = await h.api('alice').call(API.getProjectAccess, { params: { id: pr } })
+    const parts = acc.participants.filter((x) => !x.creator).map((x) => ({ subjectType: x.subjectType, subjectId: x.subjectId }))
+    await h.api('alice').call(API.putProjectParticipants, { params: { id: pr }, body: { participants: [...parts, { subjectType: 'user', subjectId: 'bob' }], expectedHash: acc.rulesHash } })
+    const list = await h.api('bob').call(API.listNotifications, { query: {} })
+    const mine = list.items.filter((x) => x.code === 'project.joined' && x.projectJoined?.project?.id === pr)
+    expect(mine.length).toBe(1)
+    expect(mine[0]!.projectJoined).toMatchObject({ you: true, by: 'Alice Kim', project: { id: pr, name: 'Launch kit' } })
+    expect(mine[0]!.link).toBe('project')
+    // alice made the change: no notice of her own for it
+    const hers = (await h.api('alice').call(API.listNotifications, { query: {} })).items.filter((x) => x.code === 'project.joined' && x.projectJoined?.project?.id === pr)
+    expect(hers).toEqual([])
+  })
 })
 
 describe('Admin › Folder permissions answers a project folder as the permission function does', () => {

@@ -218,7 +218,9 @@ export function fileEvent(db: Database, e: FileEventInput) {
 }
 
 /** Words of the conflict copy name per language (the web's file list recognises all five: web/src/lib/paths.ts). */
-export const CONFLICT_COPY: Record<Locale, string> = { ko: '충돌 사본', en: 'conflict copy', id: 'salinan konflik', ja: "競合コピー", es: "copia en conflicto", zh: '冲突副本' }
+// plain words (QA TC-r2u-30: "conflict copy" is a developer's word); copies made before keep their names, and the web
+// app still knows the old words (web/src/lib/paths.ts CONFLICT_RE)
+export const CONFLICT_COPY: Record<Locale, string> = { ko: '동시에 고친 사본', en: 'edited at the same time', id: 'diubah bersamaan', ja: "同時に編集したコピー", es: "editado a la vez", zh: '同时修改的副本' }
 
 /** "name (conflict copy - person date time).ext" next to the original (design tab 2 "동시 수정"), in the team's
  * default language (the file is shared, so not in one person's language). */

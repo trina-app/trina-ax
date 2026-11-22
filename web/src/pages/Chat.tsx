@@ -30,7 +30,7 @@ import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -49,7 +49,7 @@ import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
 import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
-import { readChatMentions } from '../store/chatMentions'
+import { readChatMentions, useChatMentions } from '../store/chatMentions'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { useRooms } from '../store/rooms'
@@ -93,20 +93,23 @@ import { useFolderWords } from '../lib/folderLabels'
 const SLOT = '\u0000'
 
 export default function ChatPage() {
-  const { chatId, messageId } = useParams()
+  const { chatId, messageId, target } = useParams()
   // ?answer= read again when it changes on the same chat (an answer of the widening list opened from this chat's own
   // Share dialog on a phone)
   const [params] = useSearchParams()
   // /c/:chatId/t/:messageId: the thread under that answer, beside the chat (the same view: the chat stays as it was)
-  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} threadRoot={messageId ?? null} />
+  // /c/:chatId/m/:target: a notification's tap on a message of a chat shared with people (push paths carry no query):
+  // the same as ?answer=
+  const focus = target ?? params.get('answer')
+  return <ChatView key={`${chatId}:${focus ?? ''}`} chatId={chatId!} threadRoot={messageId ?? null} focus={focus} />
 }
 
-function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string | null }) {
-  // ?answer=: this view shows that answer's branch; what is in memory for the chat may be another branch, so it is read
-  // again (before the first read below)
+function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: string | null; focus: string | null }) {
+  // ?answer= (or /m/<id>): this view shows that message's branch; what is in memory for the chat may be another branch,
+  // so it is read again (before the first read below)
   const [params] = useSearchParams()
   const [focusAnswer] = useState(() => {
-    const id = params.get('answer')
+    const id = focus
     if (id) {
       showThrough(chatId, id)
       useChats.setState((s) => { const { [chatId]: _, ...threads } = s.threads; return { threads } })
@@ -138,8 +141,11 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     }
   }, [chatId])
   // my unread mentions in this chat's threads (the counts on its row in the 프로젝트 panel and on its project's page) count
-  // as read once it is open, in both places (store/chatMentions.ts)
-  useEffect(() => void readChatMentions(chatId), [chatId])
+  // as read once it is open, in both places and on the rail's and the phone tab's 프로젝트 mark (store/chatMentions.ts);
+  // also when they arrive after it opened (a reload straight into the chat reads them after the page is up, a new one
+  // while it is on screen)
+  const mentionedHere = useChatMentions((s) => s.byChat.has(chatId))
+  useEffect(() => { if (mentionedHere) void readChatMentions(chatId) }, [chatId, mentionedHere])
   const announce = useAnnounce()
   const navigate = useNavigate()
   const backLink = useBackLink()
@@ -293,8 +299,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
       const [c] = await Promise.all([read, loadThread(chatId).catch(async (e: unknown) => { await read; throw e })])
       setLoadError(null)
       setChat(c)
-      // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
-      if (c.shared && !c.shared.mine) upsertChat(c)
+      // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list. Only a
+      // copy read now: the store's own copy (chatFromList) may be older than a chat.updated that came while the messages
+      // were read (opening it reads its unread messages: putting the copy of before back kept the Projects mark)
+      if (c.shared && !c.shared.mine && c !== chatFromList) upsertChat(c)
       // messages this browser kept waiting for an answer in this chat (a reload, the app reopened)
       useSendQueue.getState().restore(me.user.id, chatId)
     } catch (e) {
@@ -329,6 +337,17 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
   // the creator to add it (components/ChatFileAsk.tsx)
   const peopleChat = isPeopleShared(chat)
+  // a chat shared with people or a project's shared chat: who the box's "@" may mention (GET …/audience mentionable),
+  // read again when who sees it changes
+  const [mentionPeople, setMentionPeople] = useState<UserRef[] | undefined>(undefined)
+  // (read again as the chat changes: who sees it may have changed meanwhile; a member is not told the count)
+  const audienceKey = shared && !chat?.deletedAt ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
+  useEffect(() => {
+    if (!audienceKey) { setMentionPeople(undefined); return }
+    let live = true
+    api.call(API.getChatAudience, { params: { id: chatId } }).then((a) => { if (live) setMentionPeople(a.mentionable ?? []) }, () => {})
+    return () => { live = false }
+  }, [audienceKey, chatId])
   const chatLinks = useMemo(() => {
     const copies = new Map<string, PreviewFile>()
     for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
@@ -472,18 +491,20 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   }
   const onSelectBranch = (id: string) => void selectBranch(chatId, id).catch(fail)
 
-  const onSend = async (text: string, attachments: Attachment[]) => {
+  const onSend = async (text: string, attachments: Attachment[], mentions: string[] = []) => {
     stick.current = true
     const author = { id: me.user.id, name: me.user.name }
+    // a chat shared with people: the people picked with "@" in the box go with the message (chat/message-notices.ts)
+    const picked = mentions.length ? { mentions } : {}
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
     // an answer is running (or messages already wait): this one waits too and goes when the answer is done. A shared
     // chat: also while someone else's question is answered, or someone else's messages wait (theirs go first)
     if (busy || waiting?.items.length || (shared && (othersTurn || shared.waiting))) {
       // nothing runs, but earlier messages were paused (stopped / failed answer): sending now takes them along, in order
-      if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author })
+      if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author, ...picked })
       try {
-        queue.enqueue(me.user.id, chatId, { content: text, attachments, author })
+        queue.enqueue(me.user.id, chatId, { content: text, attachments, author, ...picked })
       } catch (e) {
         if (e instanceof QueueFull) throw new Error(t('outbox.full'))
         throw e
@@ -491,7 +512,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
       announce(t('outbox.waitingOne'))
       return
     }
-    if (shared) return sendShared(text, attachments, author)
+    if (shared) return sendShared(text, attachments, author, mentions)
     await send({ chatId, content: text, attachments, author })
   }
 
@@ -499,9 +520,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
    * (409 shared_chat_busy / shared_chat_next): the message waits under the conversation like any sent during an answer.
    * Another refusal (safe operations, a computer file) takes the message back and keeps the text in the box with the
    * reason; the chat is read again, so the box says whose turn it is. */
-  const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
+  const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }, mentions: string[] = []) => {
     const clientMessageId = uuidv7()
-    const r = await send({ chatId, content: text, attachments, author, clientMessageId })
+    const r = await send({ chatId, content: text, attachments, author, clientMessageId, ...(mentions.length ? { mentions } : {}) })
     const refused = (e: unknown): Error | null => {
       if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
@@ -509,7 +530,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
       const reason = isApiError(e, 'conflict') ? e.body.params?.reason : null
       if (reason === 'shared_chat_busy' || reason === 'shared_chat_next') {
         try {
-          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
+          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author, ...(mentions.length ? { mentions } : {}) })
           announce(t('outbox.waitingOne'))
           void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
           return null
@@ -747,6 +768,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               compact={!!sharedBy && phone}
               // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
               onPin={() => void actions.togglePin(chat, setChat)}
+              onMute={() => void actions.toggleMute(chat, setChat)}
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}
               onMove={rights.canMove ? () => setMovingProject(true) : undefined}
               onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
@@ -866,6 +888,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
+            mentionPeople={mentionPeople}
             autoFocus
           />
           </>
@@ -995,11 +1018,12 @@ function ChatOfTrashedProject({ projectId }: { projectId: string }) {
   )
 }
 
-/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update (store/chats.ts deliver);
- * never while it was sent or refused before (`sent` ends the watch). */
+/** Settles 'updating' once the message sent with `clientMessageId` waits for Trina's update or for the connection to
+ * come back (store/chats.ts deliver; it goes by itself then, so the box lets go of the text and a second send cannot
+ * make it twice, QA TC-r2d-06); never while it was sent or refused before (`sent` ends the watch). */
 function untilWaitingForUpdate(chatId: string, clientMessageId: string, sent: Promise<void>): Promise<'updating'> {
   return new Promise((resolve) => {
-    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && m.local.updating)
+    const waits = (s: ReturnType<typeof useChats.getState>) => !!s.threads[chatId]?.messages.some((m) => m.local?.clientMessageId === clientMessageId && (m.local.updating || m.local.offline))
     if (waits(useChats.getState())) { resolve('updating'); return }
     const stop = useChats.subscribe((s) => { if (waits(s)) { stop(); resolve('updating') } })
     void sent.then(stop, stop)

@@ -241,6 +241,20 @@ export function useChatActions() {
     return true
   }
 
+  /** "Mute this chat" / "Unmute this chat" (a chat shared with people; docs/decisions/20261122-shared-chat-new-message-notices.md):
+   * its new messages stop telling me, or tell me again. Mine only; my other windows hear it (chat.updated). */
+  const toggleMute = async (chat: Chat, onShown?: (c: Chat) => void): Promise<boolean> => {
+    try {
+      const c = keepFaces(currentChat(chat), await api.call(chat.muted ? API.unmuteChat : API.muteChat, { params: { id: chat.id } }))
+      useChats.getState().upsertChat(c)
+      onShown?.(c)
+      return true
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return false
+    }
+  }
+
   /** "Leave this chat" (a chat someone shared with me by name; docs/decisions/20261122-shared-chat-leave-and-lost-notices.md):
    * asks first in plain words, then it leaves my lists and the screen (Home first when it is on screen). Refused (in it
    * through a group, gone): the server's words, and it stays. `onShown`: a list's own copy, told it left. */
@@ -262,7 +276,7 @@ export function useChatActions() {
     return true
   }
 
-  return { rename, remove, togglePin, hide, leave }
+  return { rename, remove, togglePin, hide, leave, toggleMute }
 }
 
 /** How many names the delete confirm lists before "and N others". */

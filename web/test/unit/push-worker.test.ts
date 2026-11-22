@@ -108,7 +108,7 @@ test.each(Locale.options)('worker displays server-selected %s title and body for
     w.configure({ messages })
     // a request to open a file shows only while the signed-in notice says I may still answer it
     // (and a request to open my chat or project, the same)
-    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'access.requested' ? { link: null, accessRequest: { kind: 'chat', by: null, name: null, targetId: null, state: 'pending', canAnswer: true } } : {}) })
+    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'access.requested' ? { link: null, accessRequest: { kind: 'chat', by: null, name: null, targetId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'chat.message' ? { link: 'chat', chatId: 'chat-1', chatMessage: { messageId: 'message-1' } } : {}) })
     await w.push({ ...payload, code, title: 'PRIVATE PROMPT', body: 'PRIVATE FILE', locale: 'en' })
     expect(w.shown).toHaveLength(1)
     expect(w.shown[0]!.title).toBe(messages.title)
@@ -281,10 +281,11 @@ test('a reply in a chat thread: the generic line, a click opens the thread from 
   expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
   const off = worker()
   off.configure({ messages: pushMessages('en') })
+  // the switch is the server's to read per notice (a mention rings with it off): a push it sent is shown
   off.preferences({ roomThreadReplies: false })
   off.item({ id: 'event-1', code: 'chat.thread_reply', readAt: null, link: 'chat_thread', chatId, chatThread: { chatId, rootId, name: null, title: null } })
   await off.push({ ...payload, code: 'chat.thread_reply' })
-  expect(off.shown).toHaveLength(0)
+  expect(off.shown).toHaveLength(1)
 })
 
 test('a file shared with me (docs/decisions/20261116-file-share-everyone.md): the generic line only; a click opens the file or the press\'s list, the id from the signed-in notice, never from the payload', async () => {

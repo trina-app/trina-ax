@@ -29,7 +29,7 @@ export interface VideoDoc {
   website: string | null
   brand: string | null
   logo: LogoPic | null
-  music: 'bright' | 'calm' | 'pulse'
+  music: 'bright' | 'calm' | 'pulse' | 'none'
   hook: { label: string; before: string; after: string; line: string; mode: 'strike' | 'swap' }
   promise: { headline: string[]; sub: string; picture: Pic | null }
   work: { kicker: string; headline: string[]; points: string[]; picture: Pic | null }

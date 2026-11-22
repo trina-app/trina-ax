@@ -83,7 +83,7 @@ import { onWindowFocus } from '../lib/attention'
 import { ProjectForm } from '../components/ProjectForm'
 import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
-import { MentionPill, NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
+import { MentionPill, NewProjectRow, ProjectsList, UnreadMessages, useLiveChat } from '../components/panels/ProjectsPanel'
 import { useMentions, type ChatMention } from '../store/chatMentions'
 import { ProjectMembersDialog, chosenOf, confirmAddMe } from '../components/ProjectMembersDialog'
 import { hasPeopleList, PeopleStack, useProjectPeople } from '../components/ProjectPeople'
@@ -370,8 +370,11 @@ function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
  * MentionPill) before the time and the title bold, as on that panel's chat row; opening the chat reads them (pages/Chat.tsx).
  * Its "···" holds the history row's items by the same rules
  * (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on a phone. */
-export function ProjectChatRow({ chat: c, project, mention, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; mention?: ChatMention; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
+export function ProjectChatRow({ chat: listed, project, mention, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; mention?: ChatMention; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
+  // the live copy: a project's shared chat counts my unread messages (chat/message-notices.ts), as the Trina list does
+  const c = useLiveChat(listed)
+  const news = !!c.unreadCount && !c.muted
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
   const more = useRef<HTMLButtonElement>(null)
@@ -385,7 +388,7 @@ export function ProjectChatRow({ chat: c, project, mention, onMove, onChanged, o
       to={`/c/${c.id}`}
       state={{ [RAIL_STATE_KEY]: 'projects', chat: c }}
       rowRef={row}
-      unread={!!mention}
+      unread={!!mention || news}
       name={projectRowName(
         name,
         <>
@@ -397,7 +400,7 @@ export function ProjectChatRow({ chat: c, project, mention, onMove, onChanged, o
       )}
       end={
         <ProjectRowEnd at={c.updatedAt}>
-          {mention && <MentionPill mention={mention} testId="project-chat-mentions" />}
+          {mention ? <MentionPill mention={mention} testId="project-chat-mentions" /> : news && <UnreadMessages chat={c} />}
           {faces && (
             <>
               <ChatFaces shared={c.shared!} focusFrom={row} page />

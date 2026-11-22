@@ -34,6 +34,7 @@ import { datedSql } from '../auth/deletion-requests'
 import { REQUEST_SOURCE, parseRequestSource } from '../devenv/request-outcome'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 import { fileSharesOf } from '../files/shares'
+import { chatMessageNoticeOut, tellChatsRead } from '../chat/message-notices'
 import { accessRequestsOf } from '../chat/access-requests'
 import { CHAT_THREAD_PUSH_DELAY_MS, chatThreadNoticeOut, threadSummaries } from '../chat/threads'
 
@@ -98,7 +99,12 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
-const INBOX = union(NOTICE_TABLES)
+/** A person's message in a chat shared with people (chat_message_notices, migration 436; chat/message-notices.ts): read
+ * by id (what a push opens) like every notice; the chat row's number shows it and reading the chat reads it. Only a
+ * message that mentions me (main-box "@", QA TC-f3-02) is listed too: a conversation row on 대화's 멘션·스레드 under
+ * Mentions (MENTION_ROWS), as a thread reply that mentions me is. */
+const PUSH_ONLY_TABLES = ['chat_message_notices'] as const
+const INBOX = union([...NOTICE_TABLES, ...PUSH_ONLY_TABLES])
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
  * make rows of their own (rooms/inbox.ts roomRows: mentions and replies in threads I follow, one row per place; from
  * 2026-11-05 to then none were listed, docs/DECISIONS.md "알림함의 대화 알림"), merged into the same order by `sort_at`. */
@@ -107,8 +113,11 @@ const INBOX = union(NOTICE_TABLES)
 /** A row of LISTED that is a reply in a thread under a shared chat's answer (chat_thread_notices): a conversation row,
  * listed and counted with the rooms' rows on 대화's 멘션·스레드, not with the app's own notices on 활동 (rooms do the same
  * with their mentions and thread replies). */
-const CHAT_THREAD_ROW = "event_type='chat.thread_reply'"
-const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices' && t !== 'chat_answer_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
+const CHAT_THREAD_ROW = "event_type IN ('chat.thread_reply','chat.message')"
+/** the chat_message_notices that are listed: a person's message that mentions me */
+const MENTION_ROWS = "kind='message' AND mention=1"
+const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices' && t !== 'chat_answer_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')}
+  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM chat_message_notices WHERE ${MENTION_ROWS})`
 /** A notice (alias `n`) whose phone push was cancelled (notifications/away.ts: the person was at Trina; or it was read
  * or no longer wanted) does not hold the next one of its run back: the next message makes a new notice, decided afresh,
  * so one cancelled push never silences the phone for the rest of an unread run (docs/DECISIONS.md "Phone notifications
@@ -152,6 +161,14 @@ export class Notifications {
     // (chat/threads.ts mentionerOf), so a deleted mention falls back to another one still there
     const mention = o.mention ? o.replyId : null
     const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(mention_id, ?) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
+    // the first mention in a notice still open (made by a plain reply, which rang nothing while "Replies in threads I'm
+    // part of" is off, its default): pushed now as a new one, as a room's mention is: its finished deliveries go and it
+    // is dated now (the queue takes notices of the last day only), its wait starting again
+    if (up.changes && mention && open && !open.mention_id) {
+      this.ctx.db.query(`DELETE FROM chat_thread_push_deliveries WHERE state IN ('sent','failed','cancelled') AND notification_id IN
+        (SELECT id FROM chat_thread_notices WHERE user_id=? AND source_id=? AND read_at IS NULL)`).run(userId, o.rootId)
+      this.ctx.db.query('UPDATE chat_thread_notices SET created_at=?, push_at=? WHERE user_id=? AND source_id=? AND read_at IS NULL').run(at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), userId, o.rootId)
+    }
     if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed,mention_id)
       VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0,?)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), mention)
     this.signal(userId)
@@ -617,6 +634,7 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
+    for (const table of PUSH_ONLY_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
     // a Share press of several files (migration 356) goes with its last notice
     db.query("DELETE FROM file_share_batches WHERE created_at < ? AND NOT EXISTS(SELECT 1 FROM file_share_notices n WHERE n.event_type = 'file.shared' AND n.source_id = 'b:' || file_share_batches.id)").run(this.cutoff())
     this.settleIntegrationRequests(userId)
@@ -748,6 +766,9 @@ export class Notifications {
       const open = !!n && chatOpenFor(this.ctx, row.user_id, n.chat_id)
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: open ? n!.chat_id : null, link: open ? 'chat' : null, outcome: null }
     }
+    // a person's message in a chat shared with people (what a push opens): the chat and the message while I still see it
+    // (a mention: who mentioned me and the chat's title too, the Mentions row)
+    if (row.event_type === 'chat.message') return chatMessageNoticeOut(this.ctx, row)
     // the handover's: what each row offers is read now (admin/handover-notices.ts)
     if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)
     // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in
@@ -809,15 +830,18 @@ export class Notifications {
     if (row.event_type === 'chat.thread_reply') return chatThreadNoticeOut(this.ctx, row)
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {
-      const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
+      const a = this.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { actor_id: string | null; detail: string | null } | null
       let d: { projectId?: string; userId?: string } = {}
       try { d = JSON.parse(a?.detail ?? '{}') } catch {}
       const u = d.userId ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(d.userId) as { name: string } | null : null
       const pr = d.projectId ? this.ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(d.projectId) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null : null
       let sees = false
       if (pr && pr.trashed_with === null) { try { sees = atLeast(this.ctx.files.rules().access(this.ctx.files.principal(row.user_id), pr.folder_path.split('/')), 'read') } catch { sees = false } }
+      // the notice of the person who was let in (chat/project-joins.ts, QA TC-r2u-03): who let them in, while that account is there
+      const you = !!d.userId && d.userId === row.user_id
+      const by = you && a?.actor_id ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(a.actor_id) as { name: string } | null : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: sees ? 'project' : null, outcome: null,
-        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null } }
+        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null, ...(you ? { you: true as const, by: by?.name ?? null } : {}) } }
     }
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
@@ -1035,7 +1059,8 @@ export class Notifications {
     // Not a room I muted: the 대화 tab does not count it (lib/rooms.ts totalUnread), so its row counts on 나 instead
     const counted = rooms.filter((r) => r.counted)
     // the unread chat-thread rows are conversation rows too: 대화's part, never 활동's
-    const { t } = db.query(`SELECT COUNT(*) t FROM chat_thread_notices WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { t: number }
+    const { t } = db.query(`SELECT (SELECT COUNT(*) FROM chat_thread_notices WHERE user_id=?1 AND suppressed=0 AND read_at IS NULL AND created_at>=?2)
+      + (SELECT COUNT(*) FROM chat_message_notices WHERE user_id=?1 AND ${MENTION_ROWS} AND suppressed=0 AND read_at IS NULL AND created_at>=?2) t`).get(userId, cutoff) as { t: number }
     const roomUnreadCount = counted.filter((r) => !r.muted).length + t
     // a "shared with you" notice whose file no longer opens drops out once it is read (docs/decisions/20261120-file-share-gone-notice.md):
     // an unread one stays to say so once; the cursor is the rows', so the next page starts after it either way
@@ -1058,9 +1083,17 @@ export class Notifications {
     const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
     let r: Row | null = null
     for (const table of NOTICE_TABLES) if ((r = update(table))) break
+    // a message that mentions me (a Mentions row, or what its push opened): read, and its push that still waits goes
+    let mentionChat: string | null = null
+    if (!r && (r = db.query(`UPDATE chat_message_notices SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? AND ${MENTION_ROWS} RETURNING *`).get(...args) as Row | null)) {
+      db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id=?`).run(id)
+      mentionChat = (r as Row & { chat_id: string }).chat_id
+    }
     if (!r) throw new HttpError('not_found')
     if (row && !row.read_at && row.group.ids.length > 1) db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${row.group.ids.map(() => '?').join(',')})`).run(args[0] as string, userId, ...row.group.ids)
     this.signal(userId)
+    // the chat's row: its unread number and "@" drop in my windows now (chat.updated)
+    if (mentionChat) tellChatsRead(this.ctx, userId, [mentionChat])
     return this.out(r)
   }
   /** Activity's "Mark all as read" for a tab (activityTabHas, the page's own rule): All reads every unread notice of
@@ -1075,6 +1108,7 @@ export class Notifications {
     if (!this.active(userId)) return { read: 0 }
     const db = this.ctx.db, cutoff = this.cutoff(), now = new Date().toISOString()
     const threads: { chatId: string; rootId: string }[] = []
+    const mentionChats = new Set<string>()
     // one transaction, and the rooms' own per-row "notifications changed" signals held back: one signal at the end
     const read = rooms.hold(userId, () => db.transaction(() => {
       let n = 0
@@ -1098,6 +1132,14 @@ export class Notifications {
           n++
         }
       }
+      // a message that mentions me in a chat (a Mentions row, MENTION_ROWS): All and Mentions read it, its waiting push goes
+      if (o.only !== 'notices' && (o.tab === 'all' || o.tab === 'mentions')) {
+        const got = db.query(`UPDATE chat_message_notices SET read_at=? WHERE user_id=? AND ${MENTION_ROWS} AND read_at IS NULL AND suppressed=0 AND created_at>=? RETURNING id, chat_id`).all(now, userId, cutoff) as { id: string; chat_id: string }[]
+        const ids = got.map((r) => r.id)
+        for (const g of got) mentionChats.add(g.chat_id)
+        if (ids.length) db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN (SELECT value FROM json_each(?))`).run(JSON.stringify(ids))
+        n += ids.length
+      }
       // `only: 'notices'` (활동 beside the rail): the conversation rows stay as they are (they are read in 대화)
       for (const row of o.only === 'notices' ? [] : roomRows(db, userId, cutoff)) {
         // All holds every row: no need to build what the row says
@@ -1111,6 +1153,8 @@ export class Notifications {
       return n
     })())
     if (read) this.signal(userId)
+    // the chats whose mentions were read: their rows' numbers drop in my windows now (chat.updated)
+    if (mentionChats.size) tellChatsRead(this.ctx, userId, mentionChats)
     // my other windows hear each thread read, as the thread's own read tells them (chat/threads.ts markRead)
     for (const th of threads) {
       try { this.ctx.services.realtime.publish(userId, { type: 'chat.thread', data: { chatId: th.chatId, rootId: th.rootId, change: 'read', thread: threadSummaries(db, [th.rootId], userId).get(th.rootId) ?? null } }) }

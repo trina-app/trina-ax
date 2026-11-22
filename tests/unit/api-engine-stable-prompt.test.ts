@@ -60,7 +60,8 @@ describe('tools on demand', () => {
     expect(apiOfferedTools(all, loaded).tools.map((t) => t.function.name)).not.toContain(LOAD_TOOLS)
   })
   test('the set: decks, video, PDF and Office editing, zip, schedules, access changes, skill files', () => {
-    expect(API_DEFERRED_TOOLS.size).toBe(21)
+    // (22: #365 added promo_video_versions to the video tools a turn loads when it needs them)
+    expect(API_DEFERRED_TOOLS.size).toBe(22)
     for (const keep of ['list', 'glob', 'grep', 'read', 'write', 'edit', 'share_file', 'make_file', 'ask_user', 'rooms', 'room_read', 'post_to_room', 'skill']) expect(API_DEFERRED_TOOLS.has(keep)).toBe(false)
   })
 

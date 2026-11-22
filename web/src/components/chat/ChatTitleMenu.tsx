@@ -14,7 +14,7 @@
 // only you see" opens Home's box there (no project) with my last question.
 // "Open in the app" (QA TC-2266; lib/team-link.ts chatOpenInAppHref) opens this chat in the desktop app, in a computer's
 // web browser on macOS or Windows only (not at phone width, not inside the apps).
-import { EyeOff, FolderInput, Link2, Lock, LogOut, Monitor, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+import { Bell, BellOff, EyeOff, FolderInput, Link2, Lock, LogOut, Monitor, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -28,9 +28,9 @@ import { TitleMenu, type TitleMenuItem } from '../TitleMenu'
 import { useCopyChatLink } from './copyChatLink'
 import { moveLabel } from './ChatProject'
 
-type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule'>>
+type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule' | 'muted'>>
 
-export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, onDelete, onPrivately, onHide, onLeave }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void; onLeave?: () => void }) {
+export function ChatTitleMenu({ chat, title, compact, onPin, onMute, onRename, onMove, onDelete, onPrivately, onHide, onLeave }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onMute?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void; onLeave?: () => void }) {
   const t = useT()
   const me = useMe()
   const safeOps = !!me?.server.allChatsConfidential
@@ -42,6 +42,13 @@ export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, o
       ? [chat.pinnedAt
         ? { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: onPin, testId: 'chat-unpin' }
         : { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: onPin, testId: 'chat-pin' }]
+      : []),
+    // a shared chat is a conversation: "Mute this chat" / "Unmute this chat", as the row's "···" (chat/message-notices.ts;
+    // a project chat I never wrote in has no row of mine but its project's)
+    ...(chat.id && chat.shared && !chat.deletedAt && onMute
+      ? [chat.muted
+        ? { label: t('chat.unmute'), icon: <Bell size={14} aria-hidden />, onSelect: onMute, testId: 'chat-unmute' }
+        : { label: t('chat.mute'), icon: <BellOff size={14} aria-hidden />, onSelect: onMute, testId: 'chat-mute' }]
       : []),
     ...(chat.id ? [{ label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink({ id: chat.id!, shared: chat.shared, projectId: chat.projectId, confidential: chat.confidential, deletedAt: chat.deletedAt, sideRoomId: chat.sideRoomId }), testId: 'chat-copy-link' }] : []),
     ...(appHref ? [{ label: t('auth.openInApp'), icon: <Monitor size={14} aria-hidden />, onSelect: () => { location.href = appHref }, testId: 'chat-open-in-app' }] : []),

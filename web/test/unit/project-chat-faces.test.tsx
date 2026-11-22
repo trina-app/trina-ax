@@ -3,7 +3,8 @@
 // chat list", amending "The faces on the project page"): the faces of the OTHER people who wrote in it (the server
 // leaves me out), the most recent first, overlapping, at most 3 and then "+N" (2 on a phone); on a project page one
 // other person with the name. Nobody else yet: the people icon, no face. The pictures say nothing to a screen reader:
-// the row reads "공유 채팅 · Bob, Alex"; on a computer the shared tooltip lists the names on the faces, and while the
+// the row reads "공유 채팅 · 내가 시작함 · 참여: Bob, Alex" (who started it first: the writers alone read as its owner,
+// QA TC-r2a-10; "Bob님이 시작함" alone when he is the only other writer); on a computer the shared tooltip lists the names on the faces, and while the
 // row has keyboard focus. A private chat has no face and no icon. In the Trina list's rows no name shows, and the faces
 // take the project tag's place (the project is said after the names).
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
@@ -98,7 +99,7 @@ test('one other person: their face and their name on a computer, no people icon;
     // a phone keeps the face only (the name cut to "B.." said nothing; QA TC-1081); a screen reader reads the label
     expect(page.get('project-chat-by').className).toContain('max-md:hidden')
     expect(page.get('project-chat-by').getAttribute('aria-hidden')).toBe('true')
-    expect(label(link)).toBe('공유 채팅 · Bob')
+    expect(label(link)).toBe('공유 채팅 · Bob님이 시작함')
     // the letter on its tile, decorative
     expect(link.querySelectorAll('[aria-hidden="true"]').map((e) => e.textContent)).toContain('B')
     expect(page.find('project-chat-more')).toBeNull()
@@ -132,7 +133,7 @@ test('two people: two faces, the most recent first, no name and no "+N"; the row
     expect(page.get('project-chat-people').getAttribute('aria-hidden')).toBe('true')
     expect(page.find('project-chat-by')).toBeNull()
     expect(page.find('shared-icon')).toBeNull()
-    expect(label(link)).toBe('공유 채팅 · Bob, Alex')
+    expect(label(link)).toBe('공유 채팅 · 내가 시작함 · 참여: Bob, Alex')
     expect(link.textContent.match(/Bob/g)).toHaveLength(1)
   } finally { await page.unmount() }
 })
@@ -148,7 +149,7 @@ test('three people: three faces on a computer, two and "+1" on a phone', async (
     expect(faces[3]!.cls).toContain('sm:hidden')
     expect(faces[3]!.cls).not.toContain('max-sm:hidden')
     expect(page.find('project-chat-more')).toBeNull()
-    expect(label(page.get('project-chat'))).toBe('공유 채팅 · Cho, Bob, Alex')
+    expect(label(page.get('project-chat'))).toBe('공유 채팅 · 내가 시작함 · 참여: Cho, Bob, Alex')
   } finally { await page.unmount() }
 })
 
@@ -160,12 +161,12 @@ test('five people: three faces and "+2" on a computer, two and "+3" on a phone; 
     expect(faces.map((f) => f.text)).toEqual(['E', 'D', 'C', '+2', '+3'])
     expect(page.get('project-chat-more').getAttribute('class')).toContain('max-sm:hidden')
     expect(page.get('project-chat-more-phone').getAttribute('class')).toContain('sm:hidden')
-    expect(label(page.get('project-chat'))).toBe('공유 채팅 · Eve, Dev, Cho 외 2명')
+    expect(label(page.get('project-chat'))).toBe('공유 채팅 · 내가 시작함 · 참여: Eve, Dev, Cho 외 2명')
   } finally { await page.unmount() }
   // in English
   useLocaleStore.setState({ locale: 'en' })
   const en = await row(chat('Launch', { people: [EVE, DEV, CHO], peopleCount: 5 }))
-  try { expect(label(en.get('project-chat'))).toBe('Shared chat · Eve, Dev, Cho and 2 more') } finally { await en.unmount() }
+  try { expect(label(en.get('project-chat'))).toBe('Shared chat · Started by you · Wrote here: Eve, Dev, Cho and 2 more') } finally { await en.unmount() }
 })
 
 test('the tooltip lists the names: a mouse on the faces, or keyboard focus on the row; a click or blur takes it away', async () => {
@@ -176,7 +177,7 @@ test('the tooltip lists the names: a mouse on the faces, or keyboard focus on th
     const faces = page.get('project-chat-people')
     fire(faces, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
     await page.settle(TOOLTIP_DELAY_MS + 50)
-    expect(tip()?.textContent).toBe('Eve, Dev, Cho 외 2명')
+    expect(tip()?.textContent).toBe('내가 시작함 · 참여: Eve, Dev, Cho 외 2명')
     fire(faces, 'pointerout', { pointerType: 'mouse', relatedTarget: null })
     await page.settle(10)
     expect(tip()).toBeNull()
@@ -184,7 +185,7 @@ test('the tooltip lists the names: a mouse on the faces, or keyboard focus on th
     const link = page.get('project-chat')
     fire(link, 'focusin')
     await page.settle(10)
-    expect(tip()?.textContent).toBe('Eve, Dev, Cho 외 2명')
+    expect(tip()?.textContent).toBe('내가 시작함 · 참여: Eve, Dev, Cho 외 2명')
     fire(link, 'focusout')
     await page.settle(10)
     expect(tip()).toBeNull()
@@ -210,7 +211,7 @@ test('the names and photos are the directory\'s now; my photo from /api/me; a pr
   useSession.setState({ status: { kind: 'signed-in', me: { ...me, user: { ...me.user, avatarVersion: 9 } } } } as never)
   let page = await mount(<MemoryRouter><ProjectChatRow chat={chat('출시 일정', { people: [BOB, ALEX] })} /></MemoryRouter>)
   try {
-    await page.until(() => label(page.get('project-chat')) === '공유 채팅 · Robert, Alex', 'the directory\'s name')
+    await page.until(() => label(page.get('project-chat')) === '공유 채팅 · 내가 시작함 · 참여: Robert, Alex', 'the directory\'s name')
     // Bob has no photo: his letter, now R; mine from /api/me
     expect(stack(page.get('project-chat'))!.map((f) => (f.img ? 'photo' : f.text))).toEqual(['R', 'photo'])
     expect(page.get('project-chat').querySelector('img')!.getAttribute('src')).toContain('/api/people/alex/avatar')
@@ -253,7 +254,7 @@ test('a Trina list row: the others\' faces in place of the people icon, no name;
     expect(faces.every((f) => f.cls.includes('ring-subtle'))).toBe(true)
     expect(li.querySelector('[data-testid="shared-icon"]')).toBeNull()
     expect(li.querySelector('[data-testid="chat-row-by"]')).toBeNull()
-    expect(label(li, 'chat-row')).toBe('공유 채팅 · Eve, Dev, Cho 외 1명')
+    expect(label(li, 'chat-row')).toBe('공유 채팅 · Bob님이 시작함 · 참여: Eve, Dev, Cho 외 1명')
     // the pictures say nothing; each name is read once (in the label)
     expect(li.querySelector('[data-testid="chat-row-people"]')!.getAttribute('aria-hidden')).toBe('true')
     expect(li.textContent.match(/Eve/g)).toHaveLength(1)
@@ -267,7 +268,7 @@ test('a Trina list row: one other writer is a face only; nobody else: the people
     const li = page.container.querySelector('[data-chat-id]')!
     expect(stack2(li, 'chat-row')!.map((f) => f.text)).toEqual(['B'])
     expect(li.querySelector('[data-testid="chat-row-by"]')).toBeNull()
-    expect(label(li, 'chat-row')).toBe('공유 채팅 · Bob')
+    expect(label(li, 'chat-row')).toBe('공유 채팅 · 내가 시작함 · 참여: Bob')
     expect(li.querySelector('[data-testid="shared-icon"]')).toBeNull()
   } finally { await page.unmount() }
   // a shared chat only I wrote in: the icon as before, no face
@@ -295,7 +296,7 @@ test('a Trina list row with its project tag: the faces take its place, the proje
       const li = page.container.querySelector('[data-chat-id]')!
       expect(li.querySelector('[data-testid="chat-row-project"]')).toBeNull()
       expect(stack2(li, 'chat-row')!.map((f) => f.text)).toEqual(['C', 'B'])
-      expect(label(li, 'chat-row')).toBe('공유 채팅 · Cho, Bob · Board')
+      expect(label(li, 'chat-row')).toBe('공유 채팅 · 내가 시작함 · 참여: Cho, Bob · Board')
       expect(li.textContent.match(/Board/g)).toHaveLength(1)
     } finally { await page.unmount() }
     // no faces (private, or nobody else wrote): the tag as before

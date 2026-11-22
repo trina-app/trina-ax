@@ -4,7 +4,7 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { AudienceSplit, Chat, type Step, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -54,6 +54,9 @@ export const ShareAnswerToRoomBody = z.object({
   /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (a member swapped
    * for another, someone lost access, a file moved): "confirm" again with a new key */
   confirmKey: z.string().min(1).max(200).optional(),
+  /** the first press of an app that shows one confirm before anything goes (QA TC-v2f-A3, TC-f2-c04): answer "confirm"
+   * (the files, who cannot open or see what, the key) even when nothing is at stake, and post nothing yet */
+  preview: z.boolean().optional(),
   /** linked files to send with the message as copies (room files): only paths of the last "confirm"'s `files` whose
    * `attach` is 'yes'; my read access is checked again when they are copied */
   attach: z.array(RelPath).max(ROOM_FILES_MAX).optional(),
@@ -65,7 +68,8 @@ export const ShareAnswerToRoomBody = z.object({
   clientMessageId: z.string().min(8).max(64),
 }).strict()
 export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean() }),
+  /** `videoAsPage`: a promo video went as its page, its MP4 was not ready (the apps say so) */
+  z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean(), videoAsPage: z.literal(true).optional() }),
   AnswerShareConfirm,
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
@@ -190,6 +194,10 @@ export const ListChatsQuery = PageQuery.extend({
   /** only the Trina list's "Other chats" (GET /api/chats/groups `other`, its next pages): my list's chats in no project
    * I can see and in none of my list folders, pinned ones left out. Not with q, projectId, folderId, sideRoomId or trash. */
   other: QueryBool.optional(),
+  /** only the shared chats with messages I have not read (Chat.unreadCount: a chat shared with people, or a team
+   * project's shared chat I may never have written in), newest first, one page: what marks the rail and the app icon
+   * after a reload. Not with q, projectId, folderId, sideRoomId, trash or other. */
+  unread: QueryBool.optional(),
 })
 
 // ---------------- the Trina list's groups (GET /api/chats/groups) ----------------
@@ -203,7 +211,7 @@ export const CHAT_GROUPS_FOLD_DAYS = 7
 export const CHAT_GROUPS_TOP = 3
 /** A chat of a group that shows a session marker now (docs/DECISIONS.md "Session markers"): what the marker is made of,
  * so a folded header or a group's "N more" shows the strongest mark of rows that are not in `top`. */
-export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true })
+export const ChatMark = Chat.pick({ id: true, runState: true, waiting: true, unseen: true, lastOutcome: true, unreadCount: true, mentioned: true })
 export type ChatMark = z.infer<typeof ChatMark>
 const GroupHead = {
   /** every chat of the group I can open now (never one I cannot), pinned ones left out (they are under `pinned`) */
@@ -319,6 +327,9 @@ export const SendMessageBody = z.object({
   model: z.string().max(100).nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
+  /** a chat shared with people or a project's shared chat: the people picked with "@" in the box (ids). The server keeps only those who see the chat
+   * now, never the sender; each gets a mention notice (it reaches them in a chat they muted too). Elsewhere ignored */
+  mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).optional(),
   timeZone: TurnTimeZone,
 }).refine((b) => b.content.trim().length > 0 || b.attachmentIds.length > 0, { message: 'empty message', path: ['content'] })
 
@@ -462,6 +473,10 @@ export const ChatAudience = z.object({
    * docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): "{actor} added {names}", "{actor} removed {names}",
    * "{actor} left". Names read now; people whose account is off only for its creator and admins. Absent: none. */
   events: z.array(z.object({ at: IsoTime, kind: z.enum(['added', 'removed', 'left']), actor: z.string(), names: z.array(z.string()) })).optional(),
+  /** a chat shared with people or a project's shared chat: who the message box may mention ("@"): everyone who sees it
+   * now but me (its creator, its people and its groups' people; a project's: its people, as a thread's reply box lists
+   * them), sorted by name */
+  mentionable: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 })
 export type ChatAudience = z.infer<typeof ChatAudience>
 export const PutChatAudienceBody = z.object({
@@ -726,6 +741,8 @@ export const CHATS = {
   userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups someone else sees now. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
   leaveChat: endpoint({ method: 'POST', path: '/api/chats/:id/leave', auth: 'user', owner: 'B', response: z.object({ ok: z.literal(true) }), summary: '"Leave this chat": someone a chat outside projects was shared with by name takes themselves out of it (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md); their turns there stop and nothing of it stays theirs. Its creator gets 400 chat_leave_creator, a chat not shared with people 400 chat_leave_not_shared, someone who would still see it through a listed group 409 chat_leave_group; anyone who cannot see it the 404 of a missing chat.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
+  muteChat: endpoint({ method: 'POST', path: '/api/chats/:id/mute', auth: 'user', owner: 'B', response: Chat, summary: '"Mute this chat": a chat shared with people, or a team project\'s shared chat, that I see stops telling me about new messages (no unread number, push or desktop notification) but the ones that mention me; what was unread there is read. Mine only. 400 chat_mute_people_only for any other chat (a chat of one person); anyone who cannot see it gets the 404 of a missing chat.' }),
+  unmuteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/mute', auth: 'user', owner: 'B', response: Chat, summary: 'Unmute a chat shared with people or a project\'s shared chat that I muted: its new messages tell me again.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment, version=n an earlier version (the newest without it; one pruned or not of this chain: 404). Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
   chatFileVersions: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId/versions', auth: 'user', owner: 'B', response: ChatFileVersions, summary: 'The versions of a file kept with a chat shared with people (any id of its chain), oldest first: who saved each (or the AI for whom), when, its size; the newest marked head. canEdit: I may save a new version (a text file) now; canRestore: I may restore a version (any file) now. Anyone who may not open the file (the chat not theirs to see, an upload not sent yet, a file carried only by answers hidden from them) gets the 404 of a missing one: never a version, its name or how many.' }),
@@ -763,3 +780,13 @@ export const CHATS = {
   leaveProject: endpoint({ method: 'POST', path: '/api/projects/:id/leave', auth: 'user', owner: 'B', response: LeaveProjectResult, summary: 'Leave a team project in projects/<name> (a member who reads it): their own rule becomes a "no access" rule of their own, recorded as a leave, so a group that holds them keeps it for the others and they stay out until added back by name. Their private chats in it move to their own chats; audited. 409 project_last_member (nobody else reads it), project_personal, project_not_leavable (not in place or in the trash). Anyone else 404.' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const
+
+/** Does this answer only report a failure: its last tool step failed (not one the time limit or Stop cut off)? Such an
+ * answer is a note to the person who asked, never something to post to a room (QA TC-v2f-A3): the apps hide "send to a
+ * room" under it, and the server refuses it unless the answer made a file (server/src/chat/answer-share.ts). */
+export function answerEndsInFailure(steps: readonly Pick<Step, 'kind' | 'status' | 'paused' | 'stopped' | 'tool'>[]): boolean {
+  const last = [...steps].reverse().find((s) => s.kind === 'tool')
+  // (a failed look-up the answer went on without, a read, a search, a listing, is not the answer's point)
+  return !!last && last.status === 'error' && !last.paused && !last.stopped && !LOOK_UP.test(last.tool ?? '')
+}
+const LOOK_UP = /(^|__)(read|grep|glob|list|search|find|room_read|rooms|web_fetch|webfetch|web_search|websearch|who_can_open|toolsearch)([_a-z]*)$/i
