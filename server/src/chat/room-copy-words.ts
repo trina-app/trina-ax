@@ -21,6 +21,8 @@ export function dropWhoCanOpen(text: string): string {
 }
 const WHO_CAN_OPEN: RegExp[] = [
   /(저|제가|나|내가|본인|당신|회원님|사용자님|고객님)만\s*(이\s*)?(열|볼|보실|여실|열어\s*볼|확인할|확인하실|접근할|접근하실)\s*수\s*있/,
+  // only a person named by name may open it (QA TC-f2-c03)
+  /[가-힣A-Za-z]{1,20}\s*(님|씨)만\s*(이\s*)?(열|볼|보실|여실|열어\s*볼|접근할|접근하실)\s*수\s*있/,
   /(다른\s*(사람|분|팀원)[은들이]*|아무도)[^.!?。]{0,30}(파일|문서|채팅|대화|링크|폴더)[^.!?。]{0,20}(열|볼|접근할)\s*수\s*(없|있지\s*않)/,
   /(파일|문서|채팅|대화|링크|폴더)[^.!?。]{0,30}(다른\s*(사람|분|팀원)[은들이]*|아무도)[^.!?。]{0,20}(열|볼|접근할)\s*수\s*(없|있지\s*않)/,
   /\bonly (you|i|me|the user)\b[^.!?]{0,40}\b(can|could|are able to)\s+(open|see|view|access)\b/i,

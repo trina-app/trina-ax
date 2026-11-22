@@ -64,7 +64,8 @@ import {
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail, HttpError } from '../http/errors'
-import { promoVideoFile } from '../promo-video/render'
+import { answerEndsInFailure, type Step } from '@mycel/shared/api'
+import { mp4Available, promoVideoFile, promoVideoInfo, renderPromoVideo } from '../promo-video/render'
 import { dropWhoCanOpen } from './room-copy-words'
 export { dropWhoCanOpen }
 import { atLeast, loadPrincipal } from '../policy/access'
@@ -476,7 +477,10 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
  * name its file gets. */
 export interface ShareArtifact { id: string; key: string; type: ArtifactType; name: string
   /** a promo video's rendered MP4 (the server's own file): it goes instead of the page, under its own name */
-  video?: string }
+  video?: string
+  /** a promo video whose MP4 this server can render and has not yet: it is rendered when the message goes (QA TC-v2f-A4:
+   * the room got "한빛 홍보 영상.html 50 KB", not a video); its page goes only if that render fails. `page`: the page's name */
+  render?: { page: string } }
 /** At most this many artifacts go with one message (each is one of the message's files). */
 export const SHARE_ARTIFACTS_MAX = 3
 
@@ -512,7 +516,38 @@ export function answerArtifacts(db: Database, userId: string, chatId: string, me
  * as its page. */
 function withVideoFile(ctx: AppContext, userId: string, a: ShareArtifact): ShareArtifact {
   if (a.key !== PROMO_ARTIFACT_KEY) return a
-  try { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } } catch { return a }
+  try { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } } catch { /* not rendered */ }
+  if (!mp4Available(ctx)) return a
+  try {
+    const i = promoVideoInfo(ctx, userId, a.id)
+    if (i.mp4.state === 'done') return a
+    const title = i.title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'promo'
+    return { ...a, name: `${title}.mp4`, render: { page: a.name } }
+  } catch { return a }
+}
+
+/** the wait for a render started when the message goes (the render's own limit is 4 minutes) */
+const RENDER_WAIT_MS = 5 * 60_000
+let renderPollMs = 1000
+/** Tests poll faster (null: back to one second). */
+export function setShareRenderPollForTests(ms: number | null) { renderPollMs = ms ?? 1000 }
+
+/** Render a promo video's MP4 now and wait for it; the artifact as it then goes (the MP4, or its page when the render
+ * failed or took too long). */
+async function renderedNow(ctx: AppContext, userId: string, a: ShareArtifact): Promise<ShareArtifact> {
+  if (!a.render) return a
+  const page = { ...a, name: a.render.page, render: undefined }
+  try {
+    let info = renderPromoVideo(ctx, userId, a.id)
+    const until = Date.now() + RENDER_WAIT_MS
+    while (info.mp4.state === 'rendering' && Date.now() < until) {
+      await Bun.sleep(renderPollMs)
+      info = promoVideoInfo(ctx, userId, a.id)
+    }
+    if (info.mp4.state !== 'done') return page
+    const f = promoVideoFile(ctx, userId, a.id)
+    return { ...a, name: f.name, video: f.abs, render: undefined }
+  } catch (e) { ctx.log.warn('answer share: the promo video was not rendered', { err: e }); return page }
 }
 
 /** What goes into the room for an artifact: the MP4 found by the check (withVideoFile), else the artifact's page or text
@@ -565,6 +600,8 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
 export interface ShareAnswerText { messageId: string; content: string; artifacts?: readonly string[] }
 
 export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean
+  /** the app's first press: always "confirm", nothing posted yet (ShareAnswerToRoomBody.preview) */
+  preview?: boolean
   /** post_to_room only (never from a request): the person's own paste in the text (chat/own-paste.ts) and the "@Name"s
    * of the people mentioned that the server put before it */
   pasted?: { head: string; text: string } }
@@ -577,13 +614,28 @@ export const withoutStepNote = (content: string): string => content.replace(STEP
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
+/** an answer's steps as stored (messages.steps), [] when unreadable */
+const parseSteps = (raw: string | null | undefined): Step[] => { try { const v = JSON.parse(raw ?? '[]'); return Array.isArray(v) ? v as Step[] : [] } catch { return [] } }
+/** did this answer's turn save a file, or make an artifact (what it made goes with it, so it is not only a failure note) */
+const madeFiles = (db: Database, messageId: string): boolean => {
+  const turns = turnsOf(db, [messageId])
+  return !!db.query('SELECT 1 FROM artifacts WHERE message_id = ? LIMIT 1').get(messageId)
+    || (turns.length > 0 && !!db.query(`SELECT 1 FROM file_events WHERE turn_id IN (${turns.map(() => '?').join(',')}) AND action IN ('create','update','upload') LIMIT 1`).get(...turns))
+}
+
 export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: ChatRow, message: MessageRow, b: ShareAnswerInput, locale: Locale): Promise<ShareAnswerToRoomResult> {
   if (message.role !== 'assistant') fail('validation', tr('answerShareNotReady', locale), { fields: { 'params.messageId': 'not an answer' } })
   const content = withoutStepNote(redactorFor(ctx, userId).hide(message.content ?? ''))
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
+  // an answer that only reports that something failed (its last step failed, and it made no file) is a note to the person
+  // who asked, never a post (QA TC-v2f-A3: "아직 아무것도 공유되지 않았습니다 … " went to a room of 4 under their name)
+  if (answerEndsInFailure(parseSteps(message.steps)) && !madeFiles(ctx.db, message.id)) fail('conflict', tr('answerShareFailed', locale), { params: { reason: 'answer_failed' } })
   // (the share button never carries a paste: that is post_to_room's alone)
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)
   if (p.status === 'sent') return p
+  // the app's first press shows one confirm with what goes and who sees it, whatever is at stake (QA TC-v2f-A3, TC-f2-c04:
+  // one click posted to a whole room, and a chart asked while an Excel file went without a word)
+  if (b.preview && b.confirmKey === undefined && b.confirm === undefined) return { ...(await confirmOf(p.check, p.shown, p.key)), text: p.body.slice(p.at) } as ShareAnswerToRoomResult
   // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
   // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
   // 20261116-room-link-save-one-prompt.md, QA TC-3832: notes saved from the room's own link looked like "my files")
@@ -793,7 +845,8 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     // what the answer made beside the chat (a video, a page): its files go with the message, or nothing goes (QA
     // TC-r2b-03: "sent" with the text alone, the video nowhere). A failure says which file could not be attached
     if (fileIds.length + c.artifacts.length > ROOM_FILES_MAX) fail('conflict', tr('answerShareArtifactFailed', locale, { name: c.artifacts[0]!.name }), { params: { reason: 'artifact_attach' } })
-    for (const a of c.artifacts) {
+    for (const listed of c.artifacts) {
+      const a = await renderedNow(ctx, userId, listed)
       try {
         const made = artifactSource(ctx, userId, a)
         fileIds.push((await files.fromMade(userId, room.id, made.name, made.src)).id)

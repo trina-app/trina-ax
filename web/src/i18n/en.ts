@@ -5630,6 +5630,7 @@ export const en: Record<MessageKey, string> = {
   "shareRoom.quoteHead": "{ai}'s answer",
   "shareRoom.madeHead": "Made in this answer",
   "shareRoom.madeGoes": "Goes with the message. Everyone there can open it",
+  "shareRoom.audience": "{n, plural, one {The # person} other {All # people}} in this conversation will see it.",
   "shareRoom.filesHead": "Linked files",
   "shareRoom.fileAll": "Everyone can open",
   "shareRoom.fileSome": "{n, plural, one {# can't open} other {# can't open}}",
