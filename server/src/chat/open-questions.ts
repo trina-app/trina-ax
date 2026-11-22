@@ -422,7 +422,29 @@ export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
 }
 /** The first paragraph of a card re-raised because it reads differently since the person's press (chat/turn.ts) */
 export const CHANGED_MARK = '\u2063'
-const paragraphs = (q: string) => q.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p && !p.startsWith(CHANGED_MARK))
+const paragraphs = (q: string) => q.split(/\n{2,}/).map((p) => placeCountsOff(p.trim())).filter((p) => p && !p.startsWith(CHANGED_MARK))
+/** A place of a post card's sources line with how many files were read there ("내 파일의 파일 1개", "1 file in My
+ * folder": chat/post-to-room.ts placeName), in every language: the count shows only when the answer's saved list holds
+ * every file read there, so the run after a press (which reads that saved list) counts a source the live run named
+ * without one. The same place for the same people is the same card (QA of #414: a post re-asked "Something changed"
+ * for that alone). The people count and the places are still compared. */
+const PLACE_COUNTS: readonly RegExp[] = (() => {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const out = new Map<string, RegExp>()
+  for (const L of Object.keys(TEXT.postRoomPlaceFiles) as Locale[]) {
+    for (const n of ['1', '2']) {
+      const s = tr('postRoomPlaceFiles', L, { place: '\uE000', n })
+      const src = `^${esc(s).replace('\uE000', '(.+)').replace(n, '\\d+')}$`
+      out.set(src, new RegExp(src, 'u'))
+    }
+  }
+  return [...out.values()]
+})()
+/** `p` with each place inside the sources line's brackets "(…)" / "（…）" named without its file count */
+function placeCountsOff(p: string): string {
+  return p.replace(/([(（])([^()（）]*)([)）])/g, (_m, open: string, inside: string, close: string) =>
+    open + inside.split(', ').map((x) => { for (const re of PLACE_COUNTS) { const m = re.exec(x); if (m) return m[1]! } return x }).join(', ') + close)
+}
 /** The lines a server card leads with to say why it asks first (rooms read here, a file someone shared, a target taken
  * from the screen), in every language: the only paragraphs a card may have lost since the press and still be the same
  * card (that reason no longer holds now; the card asked more carefully when it was pressed). Any other paragraph, and
