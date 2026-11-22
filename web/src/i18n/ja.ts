@@ -1010,6 +1010,7 @@ export const ja: Record<MessageKey, string> = {
   "chatFile.viewing": "バージョン {n} · {by} · {when}",
   "chatFile.backToNewest": "最新に戻る",
   "chatFile.restored": "バージョン {n} を最新に戻しました。削除されたものはありません。",
+  "chatFile.restoreTitle": "バージョン {n} に戻しますか？",
   "chatFile.restoreSeen": "{names}さんもこのチャットで変更を見ることになります。",
   "chatFile.restoredPruned": "バージョン {n} を最新に戻しました。{kept} 件までに保つため、バージョン {old} を削除しました。",
   "chatFile.restoredMoved": "バージョン {n} を最新に戻しました。{kept} 件までに保つため、一覧にあった元の項目は削除しました。",

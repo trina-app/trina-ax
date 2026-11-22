@@ -275,7 +275,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     const seeing = await api.call(API.getChatAudience, { params: { id: file.chatId } }).then((a) => a.mentionable ?? [], () => [])
     const body = [dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody'),
       seeing.length ? t('chatFile.restoreSeen', { names: nameList(locale, seeing) }) : ''].filter(Boolean).join(' ')
-    const yes = await confirmDialog({ title: t('files.restoreTitle', { version: n }), body, confirm: t('common.restore') }).finally(() => { asking.current = false })
+    const yes = await confirmDialog({ title: t('chatFile.restoreTitle', { n }), body, confirm: t('common.restore') }).finally(() => { asking.current = false })
     if (!yes) return
     setRestoring(n)
     try {

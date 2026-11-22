@@ -1051,6 +1051,7 @@ export const ko = {
   "chatFile.viewing": "버전 {n} · {by} · {when}",
   "chatFile.backToNewest": "최신 버전 보기",
   "chatFile.restored": "버전 {n}을 최신 버전으로 되돌렸어요. 지운 건 없어요.",
+  "chatFile.restoreTitle": "버전 {n}(으)로 되돌릴까요?",
   "chatFile.restoreSeen": "{names} 님도 이 채팅에서 바뀐 내용을 보게 돼요.",
   "chatFile.restoredPruned": "버전 {n}을 최신 버전으로 되돌렸어요. 버전을 {kept}개까지만 두려고 버전 {old}은 지웠어요.",
   "chatFile.restoredMoved": "버전 {n}을 최신 버전으로 되돌렸어요. 버전을 {kept}개까지만 두려고 목록에 있던 예전 항목은 지웠어요.",

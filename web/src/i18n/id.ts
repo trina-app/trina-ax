@@ -1052,6 +1052,7 @@ export const id: Record<MessageKey, string> = {
   "chatFile.viewing": "Versi {n} · {by} · {when}",
   "chatFile.backToNewest": "Kembali ke yang terbaru",
   "chatFile.restored": "Versi {n} kembali menjadi yang terbaru. Tidak ada yang dihapus.",
+  "chatFile.restoreTitle": "Pulihkan versi {n}?",
   "chatFile.restoreSeen": "{names} akan melihat perubahan ini di obrolan ini.",
   "chatFile.restoredPruned": "Versi {n} kembali menjadi yang terbaru. Versi {old} dihapus agar tetap {kept} versi.",
   "chatFile.restoredMoved": "Versi {n} kembali menjadi yang terbaru. Entri lamanya di daftar dihapus agar tetap {kept} versi.",

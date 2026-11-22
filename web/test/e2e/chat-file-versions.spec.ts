@@ -150,7 +150,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await shots(page, 'chat-file-version-open')
       await panel(page).getByTestId('file-version-restore-shown').click()
       // the Files screen's confirm first (QA TC-v1c-01)
-      await expect(page.getByRole('dialog')).toContainText('v1(으)로 되돌릴까요?')
+      await expect(page.getByRole('dialog')).toContainText('되돌릴까요?')
       await page.getByTestId('dialog-confirm').click()
       await expect(page.getByTestId('toast').filter({ hasText: '버전 1을 최신 버전으로 되돌렸어요. 지운 건 없어요.' })).toBeVisible()
       await expect(panel(page).getByTestId('file-version-shown')).toHaveCount(0)

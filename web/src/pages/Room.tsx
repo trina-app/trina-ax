@@ -750,7 +750,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t(roomEmptyKey(room))}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
-            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={litInRoom} highlightKey={location.key} />
+            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={guestNoAi ? undefined : askTrina} highlight={litInRoom} highlightKey={location.key} />
           </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>
@@ -797,7 +797,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     {threadId && (
       <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet || columns === 'pair' || columns === 'three' ? undefined : 'thread'} shared={columns === 'three'}
         className={pair ? PAIR_THREAD : sheet ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair ? '' : undefined} inert={over}>
-        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={askTrina} focusBox={focusThread} highlight={target} covered={over} />
+        <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={guestNoAi ? undefined : askTrina} focusBox={focusThread} highlight={target} covered={over} />
       </RoomSideColumn>
     )}
     {filesOpen && (

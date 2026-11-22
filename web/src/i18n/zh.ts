@@ -1029,6 +1029,7 @@ export const zh: Record<MessageKey, string> = {
   "chatFile.viewing": "版本 {n} · {by} · {when}",
   "chatFile.backToNewest": "回到最新版本",
   "chatFile.restored": "已将版本 {n} 恢复为最新版本。没有删除任何内容。",
+  "chatFile.restoreTitle": "恢复到版本 {n}？",
   "chatFile.restoreSeen": "{names} 也会在这个对话里看到这次更改。",
   "chatFile.restoredPruned": "已将版本 {n} 恢复为最新版本。为了只保留 {kept} 个版本，已删除版本 {old}。",
   "chatFile.restoredMoved": "已将版本 {n} 恢复为最新版本。为了只保留 {kept} 个版本，已删除列表中它原来的条目。",

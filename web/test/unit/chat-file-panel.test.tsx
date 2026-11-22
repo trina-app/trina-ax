@@ -214,7 +214,7 @@ test('a restore asks first, naming whose later versions drop out and who in the 
     const row = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '1'), 'version 1')
     await m.click(row.querySelector('[data-testid="file-version-restore"]')!)
     const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
-    expect(dialog.textContent).toContain(en('files.restoreTitle', { version: 1 }))
+    expect(dialog.textContent).toContain(en('chatFile.restoreTitle', { n: 1 }))
     expect(dialog.textContent).toContain(en('files.restoreBodyNames', { names: 'Junho and Jiwoo' }))
     expect(dialog.textContent).toContain(en('chatFile.restoreSeen', { names: 'Junho and Jiwoo' }))
     // no: nothing restored
