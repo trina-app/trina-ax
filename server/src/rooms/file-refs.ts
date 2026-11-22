@@ -16,6 +16,7 @@ import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { RefFollower, type FollowCols } from '../uploads/ref-follow'
 import { isRoomMember, setRoomRefView, type FileRow } from './store'
+import { teamThumbPossible } from './team-thumbs'
 
 export interface RoomRefRow extends FollowCols { room_file_id: string; path_at_attach: string; sha256: string | null }
 const COLS = 'room_file_id, path, path_at_attach, ino, dev, sha256, event_id, trash_id, trash_suffix, lost'
@@ -96,9 +97,12 @@ export class RoomFileRefs {
     const name = s.rel.slice(s.rel.lastIndexOf('/') + 1)
     // a picture stays one only when it was shown as one when sent (rooms/files.ts create) and is still named like one
     const k = attachmentKind(name)
+    const kind = k === 'image' ? (f.kind === 'image' ? 'image' : 'other') : k
+    // shown as a picture when the room's ?thumb=1 can give a preview of it now (rooms/team-thumbs.ts)
+    const thumb = kind === 'image' && teamThumbPossible(name, s.st.size)
     return {
-      id: f.id, name, size: s.st.size, mime: mimeOf(name) ?? 'application/octet-stream', kind: k === 'image' ? (f.kind === 'image' ? 'image' : 'other') : k,
-      ...(f.width ? { width: f.width } : {}), ...(f.height ? { height: f.height } : {}), thumb: false, teamFile: true, teamPath: s.rel,
+      id: f.id, name, size: s.st.size, mime: mimeOf(name) ?? 'application/octet-stream', kind,
+      ...(f.width ? { width: f.width } : {}), ...(f.height ? { height: f.height } : {}), thumb, teamFile: true, teamPath: s.rel,
     }
   }
 }

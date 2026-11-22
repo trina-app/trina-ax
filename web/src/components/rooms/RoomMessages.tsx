@@ -728,7 +728,13 @@ function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFi
   const viewer = useViewerItem(make)
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
-  const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  // a picture kept in the team folder (a project room's, a group channel's): its place in its name and tooltip
+  // ("leads › Chat attachments"), as a file chip shows it; "Show in Files" is in its menu
+  const words = useFolderWords()
+  const groupBase = useGroupFolderBase(roomId)
+  const locale = useLocale()
+  const place = f.teamFile && f.teamPath ? placeUnder(f.teamPath, groupBase, locale) ?? folderOfPath(f.teamPath, words).full : null
+  const label = [t('rooms.openImage', { name: f.name }), f.roomOnly ? t('rooms.file.roomOnly') : place].filter(Boolean).join(' · ')
   const tile = ratio !== undefined
   const src = roomFileUrl(roomId, f.id, { thumb: '1' })
   const picture = (
@@ -744,6 +750,7 @@ function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFi
         data-testid="room-image"
         data-file-name={f.name}
         data-room-only={f.roomOnly ? '' : undefined}
+        data-team-file={f.teamFile ? '' : undefined}
       >
         {tile ? <TileThumb src={src} /> : <RoomThumb f={f} src={src} />}
       </button>
