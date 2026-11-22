@@ -146,5 +146,6 @@ export const id: FreeRoamStrings = {
     { label: 'Buat draf postingan minggu depan', prompt: 'Tuliskan draf untuk dua slot kosong di kalender media sosial minggu depan' },
     { label: 'Rangkum ulasan pelanggan', prompt: 'Rangkum ulasan pelanggan terbaru' },
     { label: 'Chris sudah balas?', prompt: 'Apakah Chris sudah membalas emailku? Cek Gmail-ku' },
+    { label: 'Tunjukkan folder manajemen', prompt: 'Tunjukkan folder manajemen' },
   ],
 }

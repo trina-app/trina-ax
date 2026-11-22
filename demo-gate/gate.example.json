@@ -34,6 +34,8 @@
     "startsPerHour": 3,
     "startsPerDay": 6,
     "livePerIp": 2,
+    "exemptIpHashes": [],
+    "exemptLivePerIp": 6,
     "maxStreams": 4,
     "streamsPerInstance": 2,
     "instanceCapMargin": 1.2,

@@ -478,6 +478,9 @@ export type StepFix = z.infer<typeof StepFix>
 export const RunStepFixResult = z.object({ state: z.enum(['open', 'done', 'gone']), doneCount: z.number().int().min(0).optional(), left: z.number().int().min(0).optional() })
 export type RunStepFixResult = z.infer<typeof RunStepFixResult>
 
+/** Folders a my_folders step keeps for its card (Step.folders); the rest is a count (Step.moreFolders). */
+export const MY_FOLDERS_MAX = 30
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -513,6 +516,12 @@ export const Step = z.object({
   /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
    * turn it was; absent for every other viewer of a shared chat */
   shared: StepShared.optional(),
+  /** a my_folders step (server/src/chat/my-folders.ts; docs/decisions/20261122-demo-permission-scene.md): the folders
+   * the person's AI could see when it ran, each with its access, for the card "Folders your AI can see". Only folders
+   * they can open, never one hidden from them; only the person whose turn it was gets it (ChatStore.viewSteps) */
+  folders: z.array(z.object({ path: z.string().max(4096), access: z.enum(['edit', 'view']) })).max(MY_FOLDERS_MAX).optional(),
+  /** how many more folders the person can open than `folders` lists */
+  moreFolders: z.number().int().min(1).optional(),
   /** next steps the server offers under this step (server/src/files/share-fixes.ts; docs/decisions/
    * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
    * from its own records, never from the AI's text; only the person whose turn it was gets them */

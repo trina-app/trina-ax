@@ -70,6 +70,12 @@ export interface GateConfig {
     startsPerHour: number
     startsPerDay: number
     livePerIp: number
+    /** addresses that skip startsPerHour and startsPerDay (the office, shared by the owner and QA): each the keyed hash
+     * the gate stores in state.json `starts` (HMAC-SHA256(stateDir/ip-key, address), 32 hex), or a prefix of at least 8
+     * hex characters. Never a raw address. Lower case. Empty = nobody is exempt */
+    exemptIpHashes: string[]
+    /** livePerIp for a listed address */
+    exemptLivePerIp: number
     maxStreams: number
     /** how long a model request waits for a free stream before the neutral busy answer */
     streamWaitMs: number
@@ -168,6 +174,8 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
   if (!(models as string[]).includes(defaultModel)) throw new ConfigError('config: ai.defaultModel must be one of ai.models')
   const env = isObj(p.env) ? p.env : {}
   for (const [key, v] of Object.entries(env)) if (typeof v !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(key)) throw new ConfigError('config: pool.env must map NAMES to strings')
+  const exempt = l.exemptIpHashes ?? []
+  if (!Array.isArray(exempt) || exempt.some((x) => typeof x !== 'string' || !/^[0-9a-fA-F]{8,32}$/.test(x))) throw new ConfigError('config: limits.exemptIpHashes must be a list of keyed address hashes (8 to 32 hex characters, from state.json starts)')
   const origins = Array.isArray(k.statusOrigins) ? k.statusOrigins.filter((x): x is string => typeof x === 'string') : ['https://ax.trina.app']
   return {
     publicOrigin,
@@ -204,6 +212,8 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
       startsPerHour: num(l.startsPerHour, 'limits.startsPerHour', 3),
       startsPerDay: num(l.startsPerDay, 'limits.startsPerDay', 6),
       livePerIp: num(l.livePerIp, 'limits.livePerIp', 2),
+      exemptIpHashes: (exempt as string[]).map((x) => x.toLowerCase()),
+      exemptLivePerIp: num(l.exemptLivePerIp, 'limits.exemptLivePerIp', 6),
       maxStreams: num(l.maxStreams, 'limits.maxStreams', 4),
       streamWaitMs: num(l.streamWaitMs, 'limits.streamWaitMs', 30_000),
       dailyWeightedTokens: num(l.dailyWeightedTokens, 'limits.dailyWeightedTokens', 30_000_000),

@@ -150,9 +150,16 @@ describe('the team as each person sees it', () => {
     expect(own).toEqual({ path: 'skills/mine/promo-video/SKILL.md', name: 'promo-video', title: 'promo-video', summary: '우리 회사 홍보 영상 — 우리 방식대로 만들어요' })
     expect(bob.skills.find((s) => s.name === 'report')!.summary).toBe('주간 보고 — 한 주의 일을 정리해요')
     expect(bob.skills.some((s) => s.path.startsWith('users/'))).toBe(false)
-    // the one lines in the caller's language (alice reads English); the title is the team's text
+    // the names and one lines in the caller's language (alice reads English; QA TC-7963), the example the team's text
     const alice = await get('alice')
-    expect(alice.skills[0]).toMatchObject({ name: 'humanizer', title: '자연스러운 글', summary: 'Rewrites text that reads as AI-written so a person seems to have written it' })
+    expect(alice.skills[0]).toMatchObject({ name: 'humanizer', title: 'Natural writing', summary: 'Rewrites text that reads as AI-written so a person seems to have written it', locale: 'ko' })
+    expect(alice.skills[1]).toMatchObject({ name: 'card-news', title: 'Promo cards' })
+    // a title the team wrote itself stays as written, for everyone
+    const humanizerFile = path.join(h.team, 'skills/work/humanizer/SKILL.md')
+    const shipped = fs.readFileSync(humanizerFile, 'utf8')
+    put('skills/work/humanizer/SKILL.md', shipped.replace('title: 자연스러운 글', 'title: 우리 말투 다듬기'))
+    expect((await get('alice')).skills[0]).toMatchObject({ name: 'humanizer', title: '우리 말투 다듬기' })
+    put('skills/work/humanizer/SKILL.md', shipped)
     // alice is outside the team group: its skills are not hers
     expect(alice.skills.some((s) => s.path.startsWith(`${folder}/`))).toBe(false)
     expect(MEMBER_ORDER).toEqual(['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'card-news', 'promo-video', 'intro-deck'])

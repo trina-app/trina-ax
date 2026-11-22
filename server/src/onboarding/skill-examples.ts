@@ -122,3 +122,26 @@ export function packExample(locale: Locale, name: string, team?: Locale): PackEx
   const company = EXAMPLE_COMPANY_OF[name]?.[pic]
   return { kind: 'image', url: `/skill-examples/${pic}/${name}.webp`, ...(company ? { company } : {}) }
 }
+
+/** The example `viewer` sees (an app language that is not the team's: a Korean account on an English team): the one in
+ * the viewer's own language when the skill has one (an EXAMPLE.md, a picture made in it), marked with its `locale` when
+ * that is not the skill text's (`textLocale`), so the line under it names that example's company; else the team's
+ * (packExample, as before). The installed skill text never changes. */
+export function viewerExample(viewer: Locale, name: string, textLocale: Locale, team?: Locale): PackExample | null {
+  const own = PACK_EXAMPLES[viewer]?.[name] || EXAMPLE_LOCALES[name]?.includes(viewer)
+  if (!own) return packExample(textLocale, name, team)
+  const e = packExample(viewer, name, viewer)
+  return e && viewer !== textLocale ? { ...e, locale: viewer } : e
+}
+
+/** Rows that carry a kept skill's example and its text language (the catalog's, Home's "팀에 준비된 것"): each example
+ * picked for `viewer` (viewerExample); a row without an example or a language stays as it is. */
+export function inViewerLanguage<T extends { name: string; example?: PackExample | null; locale?: Locale }>(rows: readonly T[], viewer: Locale, team: Locale): T[] {
+  return rows.map((r) => {
+    if (!r.example || !r.locale) return r
+    try {
+      const e = viewerExample(viewer, r.name, r.locale, team)
+      return e ? { ...r, example: e } : r
+    } catch { return r }
+  })
+}

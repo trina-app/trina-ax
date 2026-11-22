@@ -372,7 +372,8 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
 
 test('Team skills, an English team: the English examples (Example Coffee); 자연스러운 글 names the open-source original it was adapted from, in a new tab', async ({ page }) => {
   const errors = watchConsole(page)
-  await reset(page, { teamLocale: 'en' })
+  // the owner reads the app in English too: the names follow the viewer's language (QA TC-7963)
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   await page.goto('/skills')
   await page.getByTestId('skill-catalog-toggle').click()

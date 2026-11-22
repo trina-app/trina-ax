@@ -66,7 +66,7 @@ test('on the web, its check failed for being away from that computer: one note s
     expect(m.get('local-app-where').textContent).toContain('desktop app on the computer where it was added')
     expect(m.find('integration-error')).toBeNull()
     expect(m.html()).not.toContain(translate('en', 'gapps.signIn'))
-    // not a fault: a neutral "Works in the desktop app", never a red "Error"
+    // not a fault: a neutral "Works only in the desktop app", never a red "Error"
     expect(m.get('connection-status').getAttribute('data-state')).toBe('elsewhere')
     expect(m.get('connection-status').textContent).toBe(translate('en', 'localApps.status.desktopOnly'))
     expect(m.get('connection-status').getAttribute('class')).not.toContain('text-danger')
@@ -110,7 +110,7 @@ test('the list row: away from its computer is neutral, a failure needs attention
   expect(connectionRowStatus({ ...base, kind: 'mcp', lastErrorReason: 'local_offline' })).toBe('attention')
 })
 
-test('on the web, an app that works on its computer ("Connected" there): "Works in the desktop app" on its page and its row', async () => {
+test('on the web, an app that works on its computer ("Connected" there): "Works only in the desktop app" on its page and its row', async () => {
   const working: Integration = { ...aside, status: 'connected', lastError: null, lastErrorReason: null }
   expect(connectionRowStatus(working)).toBe('elsewhere')
   expect(connectionRowStatus({ ...working, kind: 'mcp' })).toBe('connected')

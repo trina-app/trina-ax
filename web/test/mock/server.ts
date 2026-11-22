@@ -128,7 +128,7 @@ import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
 import { catalogAt as catalogAtUrl } from '@mycel/shared'
-import { packExample } from '../../../server/src/onboarding/skill-examples'
+import { packExample, viewerExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
 import { HttpError } from '../../../server/src/http/errors'
@@ -2242,6 +2242,20 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/management folder/i.test(prompt)) {
+      // like server/src/chat/my-folders.ts (docs/decisions/20261122-demo-permission-scene.md): the folder is not found
+      // among the person's ("not found or no access", the same for a missing and a hidden one), then my_folders and its
+      // card (Step.folders: only folders they can open). "… before": the answer as it was before, with no card.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const before = /before/i.test(prompt)
+      put(step({ id: 'S1', kind: 'tool', tool: 'list', label: 'List · shared/management', status: 'error', endedAt: now() }))
+      if (!before) put(step({ id: 'S2', kind: 'tool', tool: 'my_folders', label: 'Check the folders open to you', status: 'ok', endedAt: now(), folders: [
+        { path: 'shared', access: 'edit' }, { path: 'groups/Marketing', access: 'edit' }, { path: 'skills', access: 'view' }, { path: `users/${user.id}`, access: 'edit' }] }))
+      finish(before
+        ? 'I couldn\'t find a "management" folder in the files you can open. If it should be there, check the name, or ask whoever manages that folder or an admin whether you should have access.'
+        : 'I can\'t find a "management" folder among the folders open to you. If it exists, ask its owner or an admin to share it with you.')
+      return
+    }
     if (/folderaccess/i.test(prompt)) {
       // like server/src/chat/folder-access-tool.ts (docs/decisions/20261116-sharing-all-integration.md): an admin's
       // change_folder_access card, with "Always allow" (kind folder_access) and its own risk words; "folderaccess": the
@@ -4306,19 +4320,21 @@ export class MockServer {
       return { told: true as const, already }
     },
     getCompanyProfile: () => ({ profile: this.companyProfile }),
-    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
-    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
-    // example (the server's own, packExample, unless a test set one)
+    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, the
+    // text and example in the team's language (Korean, else English), the name and one line in the viewer's (Korean, else
+    // English), whether the team has it (its path, or a team skill of its name), its example (the server's own,
+    // packExample, unless a test set one)
     listSkillPacks: (c) => {
       if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
       const ko = this.settings.defaultLocale === 'ko'
+      const viewerKo = (c.user.localeChoice ?? this.settings.defaultLocale) === 'ko'
       const team = this.skillsFor(c.user).filter((x) => x.path.startsWith('skills/'))
       return {
         profile: !!this.companyProfile,
         skills: PACK_CATALOG.map((k) => {
           const path = `skills/${k.pack}/${k.name}/SKILL.md`
           return {
-            pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
+            pack: k.pack, name: k.name, path, title: viewerKo ? k.ko : k.en, description: viewerKo ? k.lineKo : k.lineEn,
             inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual, onboarding: k.onboarding,
             example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale), locale: ko ? 'ko' : 'en',
             source: packSource(k, ko),
@@ -4339,7 +4355,8 @@ export class MockServer {
         const k = PACK_CATALOG.find((x) => x.name === name)!
         const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
         if (!s) return []
-        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale) ?? undefined
+        // the example in the viewer's own language when there is one (routes/memories.ts inViewerLanguage)
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : viewerExample(c.user.localeChoice ?? this.settings.defaultLocale, k.name, ko ? 'ko' : 'en', this.settings.defaultLocale) ?? undefined
         const source = packSource(k, ko)
         return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
       })

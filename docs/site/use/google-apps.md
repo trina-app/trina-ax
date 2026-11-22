@@ -84,6 +84,11 @@ the dialog before that removes it again. The row then shows the account, who use
 Google Drive has **Shared with the team** in the same place: **Share a Google Drive with the team** connects one
 Google account and lets you choose its folders; the people you pick use them in their chats.
 
+From a chat it works the same way: when an owner or admin asks the AI to connect Google Drive or Gmail (or
+Calendar, Docs or Sheets), its card also has **Connect for the team**, which opens this same dialog. Members see only
+their own connection. Someone who already uses a shared account, or a Drive shared with them, is told it is connected,
+with nothing to connect.
+
 ## Set up the Google apps (admins of a server you run yourself)
 
 On a team hosted by Trina, Google sign-in is ready: nothing to set up. On a server your company runs itself, an admin
