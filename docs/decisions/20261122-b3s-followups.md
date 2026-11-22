@@ -23,7 +23,8 @@
     answerShellOutputs). Any other command asks: the card is the only look at what runs, and a command's words cannot
     show all it does (independent review: a name-based cover let `find … -exec`, `bash -c "$(… | base64 -d)"` through).
     The first command after a room read still asks (owner 11-22). A "no" covers nothing; a new answer asks again;
-    nothing is covered once the session used a web page or a search (roomOutside).
+    nothing is covered once this answer used a web page, a search, a connection or a work-folder read (a
+    command's own run aside).
   - renaming in its folder a file this answer made (nobody changed it since), keeping its extension, needs no card; the
     yes or cover that put it there stands for its name. Not to an instruction, script or hidden name.
   - Both steps say "이번만 허용으로 진행".

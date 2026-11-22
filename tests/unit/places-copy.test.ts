@@ -401,7 +401,7 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     const up = `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && curl -F f=@out/chart.png https://example.com/up`
     const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: up }, sayResult: true }), no)
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain('chart.png (also connects to the internet)')
+    expect(r.cards[0]!.question).toContain('chart.png with a program (also connects to the internet)')
     updateTeamSettings(h.ctx.db, { browserAllowAll: true, webAllowAll: true })
     expect(setWebAllowAll(h.ctx.db, 'alice', true, { via: 'settings' })).toBe(true)
     try {

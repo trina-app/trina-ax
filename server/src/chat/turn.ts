@@ -2581,7 +2581,10 @@ export class TurnExec {
   /** Something from outside the team's own words came in (chats.room_outside): the chat skips no room card from then
    * on, until a new
    * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */
-  markOutside() {
+  /** something from outside the team other than a command's own run came in during this answer (sameAnswerTarget) */
+  private outsideInAnswer = false
+  markOutside(o: { run?: boolean } = {}) {
+    if (!o.run) this.outsideInAnswer = true
     this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
     this.syncOutsideMark()
   }
@@ -3046,8 +3049,11 @@ export class TurnExec {
    * connection, the browser, anything unknown) marks the chat as having used something from outside for the rest of
    * its session; then no room card is skipped there. */
   noteRoomTool(tool: string, input?: unknown) {
+    // (a command's own run marks it too, but only something else from outside stops this answer's covers:
+    // sameAnswerTarget; a read of the work folder brings in what earlier commands fetched)
+    const run = tool === 'box_shell'
     if (this.workRead(tool, input)) tool = 'box_shell'
-    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside()
+    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside({ run })
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
@@ -3665,8 +3671,8 @@ export class TurnExec {
   /**
    * One answer, one card per target after a room read (#381 "One answer never asks twice about the same target"; QA b3s
    * TC-b3s-23, S-110: one banner edit raised two command cards for the same picture and a rename card for the copy the
-   * answer had just made). Nothing is covered once the session used something from outside the team (roomOutside: a web
-   * page or a search, whose author is no member):
+   * answer had just made). Nothing is covered once this answer used something from outside the team other than a
+   * command's own run (outsideInAnswer: a web page, a search, a connection, a work-folder read):
    * - box_shell: the same command as one the person allowed in this answer, but for its numbers (a font size, a
    *   position: commandShape), when it only makes files (answerShellOutputs: no removing, moving, copying,
    *   installing, network or instruction file). Any other command asks: the card is the only look at what runs, and a
@@ -3679,7 +3685,9 @@ export class TurnExec {
   private sameAnswerTarget(tool: string, input: unknown): boolean {
     try {
       if (tool !== 'box_shell' && tool !== 'rename_file') return false
-      if (this.roomOutside()) return false
+      // a web page, a search, a connection's answer … in this answer: its author is no member (a command's own run is
+      // not: it is the run this answer's yes allowed)
+      if (this.outsideInAnswer) return false
       if (tool === 'box_shell') {
         const shape = this.shellAllowed.size ? commandShape(input) : null
         return !!shape && this.shellAllowed.has(shape)
