@@ -471,6 +471,28 @@ describe('edit_pdf on a chat file (QA TC-7044)', () => {
   })
 })
 
+describe('make_file over a file of this chat (QA TC-7267)', () => {
+  test('"make it again": output = the chat file\'s own path saves a new version (read first, the same format); a new name is a new file', async () => {
+    const chat = await sharedChat()
+    const first = await run('bob', chat, fake({ tool: 'make_file', args: { content: '# Quote\n\nTotal: 100', format: 'docx', output: 'chat:files/quote.docx' }, sayResult: true }))
+    expect(first.content).toContain('attached to your answer')
+    const v1 = store().visibleTo('erin', chat).find((v) => v.root.name === 'quote.docx')!
+    const p = chatFilePath(v1.id, 'quote.docx')
+    const again = (extra: object[] = []) => run('bob', chat, fake(...extra, { tool: 'make_file', args: { content: '# Quote\n\nTotal: 90', format: 'docx', output: p }, sayResult: true }))
+    const unread = await again()
+    expect(unread.content).toMatch(/read .* first/)
+    expect(versionsOf(chat, v1.id)).toBe(1)
+    const r = await again([{ tool: 'read', args: { file_path: p } }])
+    expect(r.content).toContain('saved as a new version of that chat file, not as a new file')
+    expect(r.content).not.toContain('attached to your answer')
+    expect(versionsOf(chat, v1.id)).toBe(2)
+    expect(store().visibleTo('erin', chat).filter((v) => v.root.name.startsWith('quote'))).toHaveLength(1)
+    const pdf = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'make_file', args: { content: '# Quote', format: 'pptx', output: p.replace(/\.docx$/, '.pptx') }, sayResult: true }))
+    expect(pdf.content).toContain('keeps its name and format')
+    expect(versionsOf(chat, v1.id)).toBe(2)
+  })
+})
+
 describe('the real state after a refused in-place change (QA TC-7039)', () => {
   test('a test edit saved version 2, a later call fails: the result says version 2 is the AI\'s own save of this answer; a read says which version it is', async () => {
     const { chat, file, path: p } = await sent('deck.md', 'Title\nSlide two\n')

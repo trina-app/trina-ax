@@ -79,7 +79,7 @@ export interface ChatMade { chatId: string; id: string; name: string; link: stri
 export const chatFileLink = (chatId: string, id: string) => `/c/${encodeURIComponent(chatId)}?file=${encodeURIComponent(id)}`
 
 /** What `output: chat:…` may become now: the chat file's name, or a ToolError in plain words. null: a team path. */
-export function chatOutput(c: ToolCtx, raw: string): { name: string } | null {
+export function chatOutput(c: ToolCtx, raw: string): { name: string; id?: string } | null {
   if (!isReservedPlace(raw)) return null
   const place = parsePlace(raw)!
   if (place.kind === 'reserved') throw new ToolError(`${place.why}.`, 'bad_place')
@@ -91,8 +91,13 @@ export function chatOutput(c: ToolCtx, raw: string): { name: string } | null {
     const r = resolvePlace(raw, p.ctx, 'write')
     throw new ToolError(r.refused ?? (r.writable === true ? PLACE_WORDS.workWrite : r.writable), 'work_write')
   }
-  // a new version of a chat file: P4 (ChatFiles.putVersion); a name alone is a new file here
-  if (place.id) throw new ToolError(PLACE_WORDS.inPlace, 'in_place')
+  // an existing chat file by its own path (chat:files/<id>/<name>): the result is a new version of it (QA TC-7044,
+  // TC-7267: "다시 만들어줘" made a "(2)" copy); who may and the file itself are ChatPlaces.head's, in attachProduced.
+  // A name alone is a new file here
+  if (place.id) {
+    if (!place.name) throw new ToolError('name the file: chat:files/<file_id>/<name>, with the name it has now', 'bad_place')
+    return { name: place.name, id: place.id }
+  }
   if (!place.name) throw new ToolError('name the new file: chat:files/<name>, for example chat:files/proposal.pptx', 'bad_place')
   const may = mayAttachChatFile(p.ctx)
   if (may !== true) throw new ToolError(may, 'not_here')
@@ -114,6 +119,8 @@ export function authorizeOutput(fx: FsCtx, rules: RuleSet, c: ToolCtx, rel: stri
   if (o.mustExist && isReservedPlace(rel)) throw new ToolError(PLACE_WORDS.inPlace, 'in_place')
   const chat = chatOutput(c, rel)
   if (!chat) return authorize(fx, rules, c.user, rel, 'write', o)
+  // a new version of an existing chat file: its path; the version is checked and saved when placed (attachProduced)
+  if (chat.id) return { rel: chatFilePath(chat.id, chat.name), segs: ['chat:files', chat.id, chat.name], abs: '', exists: false, existing: 0 }
   const p = `chat:files/${chat.name}`
   return { rel: p, segs: ['chat:files', chat.name], abs: '', exists: false, existing: 0 }
 }
@@ -141,6 +148,7 @@ function freeChatName(taken: Set<string>, name: string): string {
 export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[], produced: string, o: { turnBytes?: boolean; turnFiles?: boolean } = {}): Promise<{ path: string; size: number; sha256: string; chatFile: ChatMade }> {
   const out = chatOutput(c, segs.join('/'))
   if (!out) throw new ToolError(PLACE_WORDS.noChat, 'no_chat')
+  if (out.id) return versionProduced(ctx, c, out as { name: string; id: string }, produced)
   const p = c.places!
   const size = checkRegular(produced).size
   const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
@@ -165,6 +173,35 @@ export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[]
   // the file as this answer made it: P4's edit/write of it reads it from here (read-before-write by the head's hash)
   c.files.readHashes.set(at, att.sha256)
   return { path: at, size: att.size, sha256: att.sha256, chatFile: { chatId: p.ctx.chatId!, id: att.id, name: att.name, link: chatFileLink(p.ctx.chatId!, att.id) } }
+}
+
+/**
+ * attachProduced's new version: a produce tool's output named an existing chat file by its own path (chat:files/<id>/
+ * <name>), so the made file becomes its newest version (QA TC-7044, TC-7267), with edit_office's rules: ChatPlaces.head
+ * (who may change it here: a chat shared with people or personal, not a project chat, not an answer with a k group, the
+ * person continuing the chat; never a file a hidden answer carries), the same format, read in this chat first (the
+ * head's hash), and ChatPlaces.version checking every rule again at the insert. The earlier versions stay.
+ */
+async function versionProduced(ctx: AppContext, c: ToolCtx, out: { name: string; id: string }, produced: string): Promise<{ path: string; size: number; sha256: string; chatFile: ChatMade; chatVersion: ChatVersionMade }> {
+  const p = c.places!
+  const head = p.head(out.id, '')
+  const extOf = (n: string) => (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1).toLowerCase() : '')
+  if (extOf(head.name) !== extOf(out.name)) throw new ToolError(`'${head.name}' keeps its name and format in a new version; give output "${head.path}", or a new name (chat:files/<new name>) for a separate file`, 'bad_name')
+  if (head.quarantined) throw new ToolError(`'${head.name}' is held by the team's safety check, so it is not changed`, 'held')
+  const seen = c.files.readHashes.get(head.path)
+  if (!seen) throw new ToolError(`read '${head.path}' first (with read) before saving a new version of it`, 'not_read')
+  if (seen !== head.sha256) throw new ToolError(`'${head.path}' was changed after you read it; read it again first`, 'conflict')
+  const st = checkRegular(produced)
+  if (st.size > CHAT_FILE_AI_MAX) throw new ToolError(`the file is ${(st.size / 1024 ** 2).toFixed(0)} MB; a chat file may be at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB`, 'too_large')
+  const sha = await hashFile(produced)
+  c.signal?.throwIfAborted()
+  if (ctx.files.quarantine.hasHash(sha)) throw new ToolError('the team\'s safety check holds this file, so it was not saved', 'held')
+  c.user = ctx.files.principal(c.user.id)
+  c.beforePlace?.()
+  const fd = fs.openSync(produced, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
+  let v: ChatVersionMade
+  try { v = await p.version(head.id, { fd, st: { size: fs.fstatSync(fd).size } }, seen, c.files) } finally { fs.closeSync(fd) }
+  return { path: v.path, size: v.size, sha256: v.sha256, chatFile: { chatId: p.ctx.chatId!, id: v.id, name: v.name, link: v.link }, chatVersion: v }
 }
 
 /** The link a tool gives for a file it made: a chat file's /c/<chat>?file=<id>, else the team file's preview link */
@@ -232,9 +269,11 @@ const CHAT_FILE_LINK = /(?:\/files\/view|\/api\/files\/download)\?path=chat%3Afi
  * the file is (`everyone`: the chat is seen by other people now; else that line names no one). Text without such a link
  * is returned unchanged.
  */
-export function chatLinksInText(text: string, chatId: string, everyone: boolean): string {
+export function chatLinksInText(text: string, chatId: string, everyone: boolean, version = false): string {
   let n = 0
   const out = text.replace(CHAT_FILE_LINK, (_all, id: string) => { n++; return chatFileLink(chatId, id) })
   if (!n) return text
+  // a new version of an existing chat file (QA TC-7267): it was not attached anew
+  if (version || /saved as version \d+/.test(text)) return out
   return `${out}\nThe file is attached to your answer as a file of this chat (not a team folder): ${everyone ? 'everyone in this chat opens it' : 'it opens'} under your answer. Say that it is attached; link it only with the link above.`
 }
