@@ -110,6 +110,14 @@ export function stopRoomSound() {
   sound = null
 }
 
+/** A person's message in a chat shared with people that gave me a notice (the chat.updated event's `notice`: the server
+ * decided my settings, quiet hours and mute): the room sound, unless this window shows that chat while I look at it. */
+export function chatMessageSound(chatId: string, notice: { messageId: string } | undefined, replay: boolean) {
+  if (!sound || !notice) return
+  const onScreen = () => lookingAt() && typeof location !== 'undefined' && (location.pathname === `/c/${chatId}` || location.pathname.startsWith(`/c/${chatId}/`))
+  void sound.notice(notice.messageId, onScreen, replay).catch(() => {})
+}
+
 /** A room.message reached this window (store/live.ts dispatch, after the rooms store took it). */
 export function roomMessageSound(roomId: string, message: RoomMessage, replay: boolean) {
   if (!sound) return

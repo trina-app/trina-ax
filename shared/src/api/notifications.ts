@@ -81,7 +81,12 @@ export function plainLabel(s: string, max = 80): string {
  * migration 411; docs/decisions/20261116-chat-project-ask-access.md). Listed in Activity always; pushed while the request
  * still waits and the person may still answer it, outside quiet hours, with "File sharing" (fileShares) on, at most
  * FILE_REQUEST_PUSHES_PER_DAY a day together with the file requests. Never the title, the asker or the note. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested', 'access.requested'])
+/** chat.message: a person's message in a chat shared with people that I see (chat_message_notices with their own
+ * deliveries, chat_message_push_deliveries, migration 436; docs/decisions/20261122-shared-chat-new-message-notices.md).
+ * Every message its own notice and push, as a group chat's in a room; pushed while the room default is not "nothing",
+ * outside quiet hours, the chat not muted and still mine to see. Never listed in Activity: the chat row's number shows
+ * it. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested', 'access.requested', 'chat.message'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -125,6 +130,12 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread', 'admin_storage', 'sent_files']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'chat.message' only (chat_message_notices): the message a tap opens the chat at, while I still see the chat (link
+   * 'chat', chatId; a push's signed-in fetch). Only one that mentions me is listed (`mention`: a Mentions row, QA
+   * TC-f3-02): `name`, who mentioned me by display name while their account is there (`byId`: their id then); `title`,
+   * the chat's title. `gone`: I no longer see it (no message, name, title or link). Never the message's text. Older
+   * servers send `messageId` alone */
+  chatMessage: z.object({ messageId: z.string().nullable(), name: z.string().nullable().optional(), byId: z.string().optional(), title: z.string().nullable().optional(), mention: z.literal(true).optional(), gone: z.literal(true).optional() }).optional(),
   /** 'storage.filling' only: how full the team's disk was (the plan's view, whole percent) and the files in conversations
    * as last measured then (null: not measured yet). One number for the team, never a name. Link 'admin_storage' (Admin ›
    * System › Storage) while the reader is still the owner or an admin. */
@@ -144,7 +155,9 @@ export const InboxNotification = z.object({
   requester: z.object({ name: z.string() }).optional(),
   /** 'project.joined' only (docs/DECISIONS.md "Project contents only for members"): who started to see the project (a
    * name while the account is there) and the project while the reader of the notice still sees it (link 'project') */
-  projectJoined: z.object({ name: z.string().nullable(), project: z.object({ id: z.string(), name: z.string() }).nullable() }).optional(),
+  projectJoined: z.object({ name: z.string().nullable(), project: z.object({ id: z.string(), name: z.string() }).nullable(),
+    /** the reader is the person who was let in, by `by` (a name while that account is there); older servers omit both */
+    you: z.literal(true).optional(), by: z.string().nullable().optional() }).optional(),
   /** 'onboarding.ai_request' only: true when the member tried to use Trina but it is not set up yet (the AI could not
    * start, POST /api/me/ai-not-ready/tell), not a wait for an AI connection; older servers omit it */
   notReady: z.literal(true).optional(),
@@ -411,9 +424,11 @@ export type ActivityTab = z.infer<typeof ActivityTab>
  * chat's answer (chat.thread_reply) is a thread reply as well: under Threads, and under Mentions while one of its
  * replies mentions me. A notice of the app's own is under All only. The page filters with it and the server marks a
  * tab read with it (POST /api/notifications/read), so both follow one rule. */
-export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread'>, tab: ActivityTab): boolean {
+export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread' | 'chatMessage'>, tab: ActivityTab): boolean {
   if (tab === 'all') return true
   if (item.code === 'chat.thread_reply') return tab === 'threads' || (tab === 'mentions' && !!item.chatThread?.mention)
+  // a message that mentions me in a chat's main box (the only chat.message rows listed): under Mentions
+  if (item.code === 'chat.message') return tab === 'mentions' && !!item.chatMessage?.mention
   const room = item.room
   if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
   if (tab === 'dms') return room.kind === 'dm' || room.kind === 'group'

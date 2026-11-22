@@ -7,10 +7,16 @@
 // asks the person once for the whole call on its own card (never the AI's ask_user, so an instruction hidden in a
 // document cannot answer it). With nobody to ask (a scheduled run, no chat turn) such a call is refused, and the AI is
 // told that nobody was asked (not "the user did not allow this"; policy/refusal.ts).
+// Many changes in a place other people use (QA TC-r2u-25: 15 files of a folder 18 people see renamed and moved with no
+// card): past BULK_CHANGE_FREE items in one answer, moved or renamed where someone else can read them, the server asks
+// once on its own card that lists them; the yes covers the rest of that answer's moves and renames. The person's own
+// "Always allow" for moves (kind move_files, Rule A) goes without it; a run with nobody to ask (a scheduled task the
+// person set up, a call outside a chat) is not asked.
 // A target folder that is not there yet is made after the card (docs/DECISIONS.md "move_files and copy_files make the
 // target folder"); the card says it is new.
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
+import { readThisAnswer } from '../files/service'
 import { placeWords } from '../chat/place-words'
 import { CopyFilesInput, MoveFilesInput, RENAME_FILES_MAX, RenameFileInput, RenameFilesInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -43,6 +49,13 @@ export const TEXT = {
   askMove: t('옮길까요?', '{count, plural, one {Move it?} other {Move them?}}', 'Pindahkan?', "{count, plural, one {移動しますか？} other {移動しますか？}}", "{count, plural, one {¿Moverlo?} other {¿Moverlos?}}", "{count, plural, one {要移动吗？} other {要移动吗？}}"),
   askCopy: t('복사할까요?', '{count, plural, one {Copy it?} other {Copy them?}}', 'Salin?', "{count, plural, one {コピーしますか？} other {コピーしますか？}}", "{count, plural, one {¿Copiarlo?} other {¿Copiarlos?}}", "{count, plural, one {要复制吗？} other {要复制吗？}}"),
   more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya', "ほか{n}個", "y {n} más", "等另外{n}个"),
+  // many moves or renames where other people look (QA TC-r2u-25): one card for the rest of the answer
+  bulkMove: t('AI가 {people}명이 함께 보는 곳에서 항목 {n}개를 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} that {people, plural, one {# other person sees} other {# other people see}} to {to}.', 'AI ingin memindahkan {n} item yang juga dilihat {people} orang lain ke {to}.', "AIが、ほかの{people}人も見ている項目{n}個を{to}に移動しようとしています。", "La IA quiere mover a {to} {n, plural, one {# elemento} other {# elementos}} que {people, plural, one {ve otra persona} other {ven otras # personas}}.", "AI 想把另外{people}人也能看到的{n}个项目移到{to}。"),
+  bulkRename: t('AI가 {people}명이 함께 보는 곳에서 항목 {n}개의 이름을 바꾸려고 해요.', 'The AI wants to rename {n, plural, one {# item} other {# items}} that {people, plural, one {# other person sees} other {# other people see}}.', 'AI ingin mengganti nama {n} item yang juga dilihat {people} orang lain.', "AIが、ほかの{people}人も見ている項目{n}個の名前を変えようとしています。", "La IA quiere cambiar el nombre de {n, plural, one {# elemento} other {# elementos}} que {people, plural, one {ve otra persona} other {ven otras # personas}}.", "AI 想重命名另外{people}人也能看到的{n}个项目。"),
+  bulkEarlier: t('이 답변에서 이미 {n}개를 옮기거나 이름을 바꿨어요.', 'It already moved or renamed {n, plural, one {# item} other {# items}} in this answer.', 'Di jawaban ini sudah {n} item dipindahkan atau diganti namanya.', "この回答ですでに{n}個を移動または名前変更しました。", "En esta respuesta ya movió o cambió el nombre de {n, plural, one {# elemento} other {# elementos}}.", "这次回答中已经移动或重命名了{n}个项目。"),
+  bulkRest: t('허용하면 이 답변에서는 이 질문을 다시 하지 않아요. 진행할까요?', 'If you allow it, this answer won\'t ask this again. Go ahead?', 'Jika diizinkan, jawaban ini tidak akan menanyakan ini lagi. Lanjutkan?', "許可すると、この回答ではこの確認をもう一度しません。進めますか？", "Si lo permite, esta respuesta no volverá a preguntarlo. ¿Continuar?", "允许后，这次回答不会再问这个问题。要继续吗？"),
+  bulkList: t('바뀌는 항목', 'What changes', 'Yang berubah', "変わる項目", "Lo que cambia", "将更改的项目"),
+  bulkYes: t('진행하기', 'Go ahead', 'Lanjutkan', "進める", "Continuar", "继续"),
   yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover", "移动"),
   yesCopy: t('복사하기', 'Copy', 'Salin', "コピー", "Copiar", "复制"),
   no: t('하지 않기', 'Don’t', 'Jangan', "実行しない", "No hacerlo", "不要"),
@@ -63,8 +76,57 @@ type Mode = 'move' | 'copy'
 const HOLDS_SCAN_MAX = 2000
 const INSTRUCTION_REFUSAL = 'rename_files does not make or move an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md or a skill), by its new name or inside a renamed folder; nothing was changed for this item. Use rename_file for it, one at a time'
 
+/** Moves and renames in places other people see that one answer makes without a card; past it, one card (QA TC-r2u-25) */
+export const BULK_CHANGE_FREE = 3
+/** item lines on that card (the rest: "and N more") */
+const BULK_LINES_MAX = 50
+/** answers whose count is kept (the oldest is forgotten past it: a long-gone turn) */
+const BULK_TURNS_MAX = 1000
+
 export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   const svc = componentC(ctx).files
+  /** per answer: moves and renames so far in places other people see, and whether the person said yes to more */
+  const bulkTurns = new Map<string, { done: number; approved: boolean }>()
+  const bulkOf = (turnId: string) => {
+    let b = bulkTurns.get(turnId)
+    if (!b) {
+      bulkTurns.set(turnId, (b = { done: 0, approved: false }))
+      if (bulkTurns.size > BULK_TURNS_MAX) bulkTurns.delete(bulkTurns.keys().next().value!)
+    }
+    return b
+  }
+  /** This call's items that someone else can read (at the item, or at the target folder of a move) and how many people
+   * that is; `ask`: past BULK_CHANGE_FREE in this answer, not yet allowed. Nothing for a call nobody can be asked about
+   * (no chat turn, a scheduled run: the person set it up). */
+  function bulkPlan(tc: ToolCtx, paths: readonly string[], folder?: string) {
+    // the room card asked for this very call already (a chat that read rooms): not a second card
+    if (!tc.person || tc.person.unattended || tc.person.roomCardEach || !tc.turnId) return null
+    const b = bulkOf(tc.turnId)
+    // allowed for this answer: nothing left to count or ask
+    if (b.approved) return null
+    const target = folder !== undefined && svc.othersReading(tc.user.id, [folder], { any: true }) > 0
+    const shared = target ? [...paths] : svc.readByOthers(tc.user.id, paths)
+    if (!shared.length) return null
+    const extra = folder !== undefined ? [folder] : []
+    return { b, shared, ask: b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]) }
+  }
+  /** The card for many moves or renames; null on a yes (the rest of the answer goes on without it), else the refusal. */
+  async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string } }): Promise<string | null> {
+    const L = tc.person!.locale ?? teamDefaultLocale(ctx.db)
+    const n = lines.length
+    const lead = o.move ? fill(TEXT.bulkMove[L], { n, people: plan.people(), to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people: plan.people() }, L)
+    const question = [lead, plan.b.done ? fill(TEXT.bulkEarlier[L], { n: plan.b.done }, L) : '', TEXT.bulkRest[L]].filter(Boolean).join(' ')
+    const text = lines.slice(0, BULK_LINES_MAX).join('\n') + (n > BULK_LINES_MAX ? `\n${fill(TEXT.more[L], { n: n - BULK_LINES_MAX }, L)}` : '')
+    const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
+    if (end === 'yes') { plan.b.approved = true; return null }
+    const verb = o.move ? 'moved' : 'renamed'
+    return refusal({
+      done: end === 'declined' ? `The user did not allow this, so nothing was ${verb}.` : `Nothing was ${verb}.`,
+      why: cardReason(end),
+      also: `More than ${BULK_CHANGE_FREE} moves and renames in one answer in places other people see need the user's yes on one card first`,
+      next: end === 'declined' ? 'ask the user what they want; do not move or rename these items another way' : cardNext(end),
+    })
+  }
   /** Who can give write access, the project's creator only when the person may read that project (policy/refusal.ts). */
   const readOnly = (msg: string, L: Locale, tc: ToolCtx) => {
     const rules = ctx.files.rules()
@@ -105,7 +167,15 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const where = `${folder || 'the team root'}${isNew ? ' (a new folder)' : ''}`
     const change = `this would change who can see ${ok.length === 1 ? 'it' : 'these files'} in ${where}: ${added} more, ${lost} fewer people`
     let confirmed = false
-    if (added > 0 || lost > 0 || tc.person?.roomsSeen) {
+    // many moves where other people look (QA TC-r2u-25; not copies: the originals stay): one card for the rest of the
+    // answer; when the card below asks anyway, its yes (which lists them too) stands for it
+    const bulk = mode === 'move' ? bulkPlan(tc, ok, folder) : null
+    const audienceCard = added > 0 || lost > 0 || !!tc.person?.roomsSeen
+    if (bulk?.ask && !audienceCard) {
+      const no = await bulkAsk(tc, bulk, ok.map(nameOf), { move: { to: placeWords(ctx.db, folder, L, tc.user.id) } })
+      if (no) throw new ToolError(no)
+    }
+    if (audienceCard) {
       // a scheduled run has a person who is never asked (unattended): the same answer as no chat at all
       if (!tc.person || tc.person.unattended) {
         throw new ToolError(refusal({
@@ -118,8 +188,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       const count = ok.length
       const lead = TEXT[isNew ? (mode === 'move' ? 'moveNew' : 'copyNew') : mode][L]
       // the folder in words (전사 공유 › 영업, 팀 폴더 맨 위), not its path (chat/place-words.ts)
+      // (when this card stands for the "many items" card too, it says so: its yes covers the rest of the answer)
       const question = [fill(lead, { n: count, to: placeWords(ctx.db, folder, L, tc.user.id) }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
-        fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
+        bulk?.ask && bulk.b.done ? fill(TEXT.bulkEarlier[L], { n: bulk.b.done }, L) : '',
+        bulk?.ask ? TEXT.bulkRest[L] : fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
       const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files' })
       if (end !== 'yes') {
         throw new ToolError(refusal({
@@ -129,7 +201,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
         }))
       }
       confirmed = true
+      if (bulk?.ask) bulk.b.approved = true
     }
+    // (counted before they run: an item that then fails still counts, so the card comes sooner, never later)
+    if (bulk) bulk.b.done += bulk.shared.length
     // a new target folder: made now (after the yes), then filled; recorded once something went in, else taken away
     // again (a folder, a group folder for a member, a folder into itself: refused per item below)
     let made: string[] = []
@@ -151,8 +226,13 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && (lost > 0 || added > 0), turnId: tc.turnId, tool })
           done.push({ from: p, to: r.entry.path })
         } else {
-          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
-          if ('path' in r) done.push({ from: p, to: r.path })
+          // onto a file of that name the AI read in this answer: a new version of it (its old content kept), never a
+          // "(2)" next to it (QA TC-7234 real run: the remade poster could not reach the moved one). A change since the
+          // read keeps both (copy's baseSha256: a conflict copy), as for any save
+          const at = join(folder, nameOf(p))
+          const seen = readThisAnswer(tc.files, at)
+          const r = await svc.copy(tc.user.id, p, at, seen ? { onExists: 'replace', baseSha256: seen, turnId: tc.turnId, tool, confirm: confirmed && added > 0 } : { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
+          if ('path' in r) done.push({ from: p, to: !seen ? r.path : r.path === at ? `${r.path} (a new version of it; its earlier content is kept)` : `${r.path} (${at} changed after you read it, so it was kept unchanged and this copy was saved next to it; tell the person)` })
         }
       } catch (e) {
         failed.push({ path: p, error: e instanceof ToolError && e.code === 'is_folder' ? 'this is a folder: copy_files copies files only (move_files moves folders)' : why(e, tc) })
@@ -185,7 +265,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   reg.register({
     name: 'copy_files',
     description: 'Copy files of any type (PDF, images, Office files) into another folder of the team drive; the originals stay. ' +
-      'Names are kept; " (2)" is added when a name is taken. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
+      'Names are kept; " (2)" is added when a name is taken, except over a file you read in this answer: then your copy replaces it as a new version (its earlier content is kept as a version), which is how you change a picture or any file you remade elsewhere in place. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
       'When more people can see the target folder than the originals, the user is asked first. ' +
       'In a Trina chat it also copies between the team folder, this chat\'s files (chat:files/…) and this chat\'s work folder (chat:work/…, $TRINA_WORK in box_shell): ' +
       'to_folder "chat:work/in/" brings team files, whole team folders (an HTML file with its images folder) or chat files into the work folder for your commands; ' +
@@ -223,9 +303,22 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return false
   }
 
+  /** Many renames where other people look (QA TC-r2u-25): null to go on, else the refusal. Counts this call's items. */
+  async function renameBulk(items: { path: string; new_name: string }[], tc: ToolCtx): Promise<string | null> {
+    const plan = bulkPlan(tc, items.map((it) => it.path))
+    if (!plan) return null
+    if (plan.ask) {
+      const shared = new Set(plan.shared)
+      const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), {})
+      if (no) return no
+    }
+    plan.b.done += plan.shared.length
+    return null
+  }
+
   /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
    * (one that fails is reported, the rest go on), at most RENAME_FILES_MAX per call. */
-  function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; at?: 'anywhere' | 'start' | 'end' }, tc: ToolCtx) {
+  async function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; at?: 'anywhere' | 'start' | 'end' }, tc: ToolCtx) {
     let items: { path: string; new_name: string }[]
     let left = 0
     let where = ''
@@ -247,6 +340,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       items = all.slice(0, RENAME_FILES_MAX)
       left = all.length - items.length
     }
+    const no = await renameBulk(items, tc)
+    if (no) return { text: no, isError: true, summary: `rename_files 0/${items.length} (not allowed)` }
     const done: { from: string; to: string }[] = []
     const failed: { path: string; error: string }[] = []
     for (const it of items) {
@@ -273,8 +368,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     description: 'Rename a file or folder in place (it stays in the same folder). Give the new name only; to move it elsewhere use move_files.',
     input: RenameFileInput,
     describe: (a) => `rename_file ${a.path} -> ${a.new_name}`,
-    run(a, tc) {
+    async run(a, tc) {
       const p = clean(a.path)
+      // one at a time counts too: the fourth rename in this answer where other people look asks (QA TC-r2u-25)
+      const no = await renameBulk([{ path: p, new_name: a.new_name }], tc)
+      if (no) throw new ToolError(no)
       try {
         const to = renameOne(p, a.new_name, tc, 'rename_file')
         return { text: `Renamed ${p} to ${to}.`, summary: `rename_file ${p} -> ${to}`, structured: { path: to } }

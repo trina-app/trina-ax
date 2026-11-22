@@ -11,6 +11,7 @@ import { useLocaleStore } from '../../src/i18n'
 import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
 import { attentionCount, iconBadge, markedChats, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
 import { useChats } from '../../src/store/chats'
+import { useChatMentions } from '../../src/store/chatMentions'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -105,6 +106,8 @@ describe('the one count n', () => {
     // "?", not the AI chats' part
     expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true })])).toEqual({ n: 9, ask: false, chats: 0, chatAsk: false, unread: false })
     expect(attentionCount([], [])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: false })
+    // my unread thread mentions add to n (the 프로젝트 list's counts), never to the AI chats' part (트리나's mark)
+    expect(attentionCount([chat({ unseen: true })], [], { mentions: 2 })).toEqual({ n: 3, ask: false, chats: 1, chatAsk: false, unread: false })
   })
 
   test('unread rooms n does not count: a plain team-room message is n 0 with the dot; a room turned off or hidden never lights it', () => {
@@ -493,6 +496,11 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(currentCount()).toMatchObject({ n: 4, ask: true })
     expect(badges.at(-1)).toBe(4)
     useSessionMarkers.getState().setOnScreen(c.id)
+    expect(badges.at(-1)).toBe(3)
+    // a thread mention of me (store/chatMentions.ts) is on the dock too, and goes when it is read
+    useChatMentions.setState({ byChat: new Map([['c-m', { chatId: 'c-m', count: 1, names: ['Ben'], ids: ['n1'] }]]) })
+    expect(badges.at(-1)).toBe(4)
+    useChatMentions.setState({ byChat: new Map() })
     expect(badges.at(-1)).toBe(3)
     stopSessionMarkers()
     expect(badges.at(-1)).toBe(0)

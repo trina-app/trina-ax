@@ -29,6 +29,13 @@ export function roomColumns(row: number | null): RoomColumns {
   return row >= PAIR_MIN ? 'pair' : 'one'
 }
 
+/** One panel (a thread, the side chat or the Files list) alone beside the room: does the row leave the room less than
+ * ROOM_MIN beside a PANEL_MIN panel (a file preview beside the page takes the rest)? Then the panel is a sheet over the
+ * room (pages/Room.tsx), never a room one character wide. `row`: as roomColumns (not measured: no). */
+export function roomSqueezed(row: number | null): boolean {
+  return !!row && row < ROOM_MIN + PANEL_MIN
+}
+
 /** The element's width, read before the first paint and again whenever it changes (null until measured, and where
  * nothing lays the page out). A caller that lays itself out by it draws again on every change. */
 export function useElementWidth(ref: RefObject<HTMLElement | null>): number | null {

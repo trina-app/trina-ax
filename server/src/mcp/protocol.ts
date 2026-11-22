@@ -62,6 +62,20 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // AI is told after the call
     // what the AI is told after the call when something was hidden (null: nothing was)
     let hidden: string | null = null
+    // the call named a file copied into this shared chat: the AI is told it was the chat's copy (a result or a refusal)
+    let copyLine: string | null = null
+    // a chat shared with people "with files": a path to a file copied into it means the chat's copy, for everyone
+    // (chat/copy-paths.ts); fails closed: a lookup that throws runs nothing
+    if (extra?.mapPaths) {
+      try {
+        const before = params?.arguments ?? {}
+        const mapped = extra.mapPaths(name, before, caller)
+        if (mapped !== before) { params = { ...params, arguments: mapped }; copyLine = extra.mappedNote?.() ?? null }
+      } catch {
+        audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the chat's copies could not be looked up)`, 0)
+        return failed('The files of this chat could not be looked up, so nothing was done. Try again.')
+      }
+    }
     if (extra?.hideKeys) {
       try {
         const h = extra.hideKeys(name, params?.arguments ?? {})
@@ -77,7 +91,10 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         return failed('What you gave this tool could not be checked for stored keys, so nothing was saved or sent. Try again.')
       }
     }
-    const withNote = (r: CallResult): CallResult => (hidden && !r.result.isError ? { ...r, result: { ...r.result, content: [...r.result.content, { type: 'text', text: hidden }] } } : r)
+    const withNote = (r: CallResult): CallResult => {
+      const add = [hidden && !r.result.isError ? hidden : null, copyLine].filter((x): x is string => !!x)
+      return add.length ? { ...r, result: { ...r.result, content: [...r.result.content, ...add.map((text) => ({ type: 'text' as const, text }))] } } : r
+    }
     if (extra?.has(name)) {
       const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
@@ -95,12 +112,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       // a wider-audience refusal: the audit line says how its card ended (a scheduled run asked nobody)
       const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> ${((e) => (e === 'failed' ? 'the check failed' : cardEndShort(e)))(endOfText(refusal))} (wider audience)` } : refusal
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
-      return failed(r.refusal)
+      return withNote(failed(r.refusal))
     }
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
-    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller) } catch {}
+    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller, out.images?.length ?? 0) } catch {}
     try { out.beforeDelivery?.() } catch {
       return failed(safeText(db,ctx.user.id,'changed'))
     }
@@ -122,6 +139,19 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const toolUseId = toolUseIdOf(params)
     const owner = await ctx.files.forCall(toolUseId, { signal: ctx.signal })
     const row = (summary: string, ok: number) => insert.run(ctx.turnId, ctx.user.id, EDIT_FILES_TOOL, summary.slice(0, 1000), ok, toolUseId, owner.agent)
+    let copyLine: string | null = null
+    // a path to a file copied into this shared chat is the chat's copy (chat/copy-paths.ts): mapped once here, so the
+    // batch's card, its one-entry-per-file and each file's edit all see the same path
+    if (extra?.mapPaths) {
+      try {
+        const before = params?.arguments ?? {}
+        const mapped = extra.mapPaths(EDIT_FILES_TOOL, before, { files: owner.files })
+        if (mapped !== before) { params = { ...params, arguments: mapped }; copyLine = extra.mappedNote?.() ?? null }
+      } catch {
+        row(`${EDIT_FILES_TOOL} -> not run (the chat's copies could not be looked up)`, 0)
+        return failed('The files of this chat could not be looked up, so nothing was done. Try again.').result
+      }
+    }
     const a = EditFilesInput.safeParse(params?.arguments ?? {})
     if (!a.success) {
       row(`${EDIT_FILES_TOOL} -> invalid input`, 0)
@@ -166,7 +196,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const none = edited === 0
     row(`${EDIT_FILES_TOOL} ${paths.length} files -> ${edited} edited, ${paths.length - edited} not`, none ? 0 : 1)
     const head = `${edited} of ${paths.length} file${paths.length === 1 ? '' : 's'} edited. Each file was checked and saved on its own:`
-    return { content: [{ type: 'text', text: [head, ...lines, ...same].join('\n') }], ...(none ? { isError: true as const } : {}) }
+    return { content: [{ type: 'text', text: [head, ...lines, ...same, ...(copyLine ? [copyLine] : [])].join('\n') }], ...(none ? { isError: true as const } : {}) }
   }
 
   return async function handle(msg: any): Promise<any | null> {

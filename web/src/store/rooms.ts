@@ -12,8 +12,9 @@
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
 import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type MakeProjectResult, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
-import { api, API, ApiError, errorText, isApiError } from '../lib/api'
+import { api, API, ApiError, errorText, isApiError, isNetworkError } from '../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
+import { connectionDown, whenConnected } from '../lib/connectionWait'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
@@ -87,6 +88,9 @@ export interface PendingSend {
   /** kept on this device from an earlier page (the app was closed, the page loaded again) and not confirmed since: it
    * may have reached the server. Try again is safe (the same client id). */
   restored?: true
+  /** kept on this device as not sent (it had failed before the page went): put back, it waits for Try again; one still
+   * on its way when the page went goes again by itself (QA TC-r2d-06) */
+  keptFailed?: true
 }
 
 /** Where the reader was in a room they left: the first message in sight and how far below the list's top its top was.
@@ -480,7 +484,7 @@ interface RoomsState extends RoomsData {
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
-  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
+  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; preview?: boolean }) => Promise<ShareAnswerToRoomResult>
   /** the live connection could not resume (events in between are lost): the kept rooms go, and the open one is not kept
    * when left until its newest page is read again */
   forgetKept: () => void
@@ -520,6 +524,8 @@ const tooOld = (at: number) => !(at > Date.now() - ROOM_DEVICE_DAYS * 86_400_000
 /** the rooms whose kept sends are in this page's store already (restoreUnsent: the first change to the room's sends, or
  * opening it): until then a change to them adds to what the device kept, never writes over it */
 const restoredUnsent = new Set<string>()
+/** rooms whose kept sends this page sent again by itself already (open: once per room and page) */
+const retriedUnsent = new Set<string>()
 /** the sends this page saw end (sent, settled, let go, back in the box): never written back from another tab's copy */
 const goneHere = new Set<string>()
 /** sends this page is still making that another tab of mine saw end (let go, sent): failing here, they go, not back */
@@ -606,7 +612,9 @@ function keepUnsent(roomId: string, list: PendingSend[] | undefined) {
   const mine = list ?? []
   const ids = new Set(mine.map((p) => p.clientMessageId))
   const others = storedUnsent(roomId).filter((p) => !ids.has(p.clientMessageId) && !goneHere.has(p.clientMessageId))
-  const all = [...mine.map(({ state: _s, error: _e, restored: _r, ...p }) => p), ...others].sort(byCreated)
+  // a send put back and not tried yet keeps the flag it was kept with (one still on its way then goes by itself after
+  // another reload too)
+  const all = [...mine.map(({ state, error: _e, restored, keptFailed, ...p }) => ({ ...p, ...((restored ? keptFailed : state === 'failed') ? { keptFailed: true as const } : {}) })), ...others].sort(byCreated)
   writeDraft(me, unsentStoreId(roomId), all.length ? JSON.stringify(all) : '')
 }
 
@@ -855,6 +863,14 @@ export const useRooms = create<RoomsState>((set, get) => {
         mark(false)
         return post(roomId, { ...still, state: 'sending', updating: undefined })
       }
+      // offline (QA TC-r2d-06): it stays on its way, however long, and goes once the connection is back, with the same
+      // client id; it is kept on this device meanwhile (keepUnsent), so a reload does not lose it either
+      if (isNetworkError(e) && connectionDown()) {
+        await whenConnected()
+        const still = get().pending[roomId]?.find((x) => x.clientMessageId === p.clientMessageId)
+        if (!still || still.state !== 'sending') return
+        return post(roomId, still)
+      }
       const error = errorText(e, currentLocale(), t('error.network'))
       // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
       // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
@@ -925,10 +941,19 @@ export const useRooms = create<RoomsState>((set, get) => {
       // (its answer lost when the app closed) is on that page and settles at once (settledPending), not shown failed
       // (a send before that page came adds them at once: setPending)
       void (kept ? get().loadAfter(roomId) : get().loadNewest(roomId)).finally(() => {
-        if (restoredUnsent.has(roomId) || get().openRoomId !== roomId) return
-        setPending(roomId, (list) => list)
-        // the ones that settled at once are gone from the device too
-        keepUnsent(roomId, get().pending[roomId])
+        if (get().openRoomId !== roomId) return
+        if (!restoredUnsent.has(roomId)) {
+          setPending(roomId, (list) => list)
+          // the ones that settled at once are gone from the device too
+          keepUnsent(roomId, get().pending[roomId])
+        }
+        // the ones still on their way when the page went go again by themselves, once per room and page (QA TC-r2d-06:
+        // a message written offline is sent once the connection is back, also after a reload; also when a send in the
+        // room put them back before this page came), with the same client id: one the server did get comes back as that
+        // message. The ones that had failed wait for Try again.
+        if (retriedUnsent.has(roomId)) return
+        retriedUnsent.add(roomId)
+        for (const p of get().pending[roomId] ?? []) if (p.restored && !p.keptFailed) get().retry(roomId, p.clientMessageId)
       })
       void get().loadMembers(roomId)
     },
@@ -1193,7 +1218,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     retry(roomId, clientMessageId) {
       const p = get().pending[roomId]?.find((x) => x.clientMessageId === clientMessageId)
       if (!p || p.state === 'sending') return
-      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined } : x)))
+      setPending(roomId, (list) => list.map((x) => (x.clientMessageId === clientMessageId ? { ...x, state: 'sending', error: undefined, restored: undefined, keptFailed: undefined } : x)))
       // the same client id: a send the server did get before the failure comes back as that message, not a second one
       void post(roomId, { ...p, state: 'sending' })
     },
@@ -1556,6 +1581,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       roomDrafts.clear()
       roomDraftMentions.clear()
       restoredUnsent.clear()
+      retriedUnsent.clear()
       goneHere.clear()
       goneElsewhere.clear()
       useSideChats.getState().reset()

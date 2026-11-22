@@ -32,6 +32,9 @@ async function setup() {
   const otto = await addMember(h, owner, { username: 'otto' })
   const pia = await addMember(h, owner, { username: 'pia' })
   const group = await owner.call('POST', '/api/admin/groups', { name: 'design', memberIds: [mia.id, nora.id, otto.id, pia.id] })
+  // these tests read followed replies as notices of their own: "Replies in threads I'm part of" on (off by default since
+  // 2026-11-22: then a followed reply is one quiet notice per unread run, b-rooms-notify.test.ts)
+  for (const u of [mia, nora, otto, pia]) savePreferences(h.ctx.db, u.id, { roomThreadReplies: true })
   // these tests send many messages: the sending budget's clock moves 2 s a send
   let clock = Date.now()
   roomsOf(h.ctx).clock = () => (clock += 2000)

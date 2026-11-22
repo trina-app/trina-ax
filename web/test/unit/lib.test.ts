@@ -32,6 +32,8 @@ describe('paths', () => {
   })
   test('conflict copies are recognized', () => {
     expect(isConflictCopy('plan (충돌 사본 - Bob 2026-10-21 10.00).md')).toBe(true)
+    expect(isConflictCopy('plan (동시에 고친 사본 - Bob 2026-11-22 10.00).md')).toBe(true)
+    expect(isConflictCopy('plan (edited at the same time - Bob 2026-11-22 10.00).md')).toBe(true)
     expect(isConflictCopy('plan.md')).toBe(false)
   })
 })

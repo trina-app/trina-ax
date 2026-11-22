@@ -14,6 +14,8 @@ import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { bundledFontDir, which } from '../config'
 import { HttpError } from '../http/errors'
+import { chatFor } from '../chat/shared'
+import { getChatRuntime } from '../chat/runtime'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { makeWorkDir, readOutput, runIsolated } from '../tools/isolate'
@@ -44,16 +46,27 @@ export const pdfAvailable = () => !!typstBin() && !!pretendardDir()
 const deckDir = (ctx: AppContext) => path.join(ctx.engineConfig.dataDir, 'intro-decks')
 const deckFile = (ctx: AppContext, id: string, ext: 'pptx' | 'pdf') => path.join(deckDir(ctx), `${id}.${ext}`)
 
-/** The caller's own intro deck (by its artifact id), or 404. */
-function ownRow(ctx: AppContext, userId: string, id: string): Row {
+/** An intro deck (by its artifact id) for someone who may open its chat (chat/shared.ts chatFor 'view': the owner, or a
+ * person a shared chat is shared with; QA TC-r2a-06: they see it, so they may download it too), or 404. Anyone but the
+ * chat's owner also needs to open every picture it shows themselves: the files are built with the owner's permissions
+ * (relayout). */
+function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const r = ctx.db.query(`SELECT d.artifact_id, d.chat_id, d.user_id, c.user_id AS owner_id, d.spec, d.pptx_sha256, d.pdf_sha256, d.created_at
-    FROM intro_decks d JOIN chats c ON c.id = d.chat_id WHERE d.artifact_id = ? AND c.user_id = ? AND c.deleted_at IS NULL`).get(id, userId) as Row | null
+    FROM intro_decks d JOIN chats c ON c.id = d.chat_id WHERE d.artifact_id = ? AND c.deleted_at IS NULL`).get(id) as Row | null
   if (!r) throw new HttpError('not_found')
+  if (r.owner_id === userId) return r
+  try { chatFor(getChatRuntime(ctx), userId, r.chat_id, 'view') } catch { throw new HttpError('not_found') }
+  const user = ctx.files.principal(userId)
+  const doc = (JSON.parse(r.spec) as StoredDeck).doc
+  for (const src of new Set([...Object.keys(doc.pics), ...(doc.logo ? [doc.logo.src] : [])])) {
+    // (mustExist false: a picture gone since turns its slide type-only for the owner too, never a reason to refuse)
+    try { authorize(ctx.files.fx, ctx.files.rules(), user, src, 'read', { mustExist: false }) } catch { throw new HttpError('not_found') }
+  }
   return r
 }
 
 export function introDeckInfo(ctx: AppContext, userId: string, id: string): IntroDeckInfo {
-  const r = ownRow(ctx, userId, id)
+  const r = rowFor(ctx, userId, id)
   const spec = JSON.parse(r.spec) as StoredDeck
   return { artifactId: r.artifact_id, chatId: r.chat_id, title: spec.title, theme: spec.doc.theme, slides: spec.doc.slides.length, pptx: true, pdf: pdfAvailable() }
 }
@@ -97,7 +110,7 @@ const safeName = (title: string, ext: string) => `${title.replace(/[\\/:*?"<>|\u
 /** The PowerPoint file of the caller's intro deck (built once, then kept). The AI's accents go in as pictures drawn by
  * typst (render.ts); without typst they are left out (the slide keeps its drawn pattern). */
 export async function introDeckPptx(ctx: AppContext, userId: string, id: string): Promise<{ abs: string; name: string }> {
-  const r = ownRow(ctx, userId, id)
+  const r = rowFor(ctx, userId, id)
   const file = deckFile(ctx, id, 'pptx')
   const spec = JSON.parse(r.spec) as StoredDeck
   if (!fs.existsSync(file)) {
@@ -117,7 +130,7 @@ export async function introDeckPptx(ctx: AppContext, userId: string, id: string)
 
 /** The PDF of the caller's intro deck: typst in its isolation, the pictures copied into its work folder. */
 export async function introDeckPdf(ctx: AppContext, userId: string, id: string): Promise<{ abs: string; name: string }> {
-  const r = ownRow(ctx, userId, id)
+  const r = rowFor(ctx, userId, id)
   const typst = typstBin(), fonts = pretendardDir()
   if (!typst || !fonts) throw new HttpError('not_found')
   const file = deckFile(ctx, id, 'pdf')

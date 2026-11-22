@@ -24,7 +24,7 @@ export function preferencesOf(row: Row | null): Preferences {
   const quietHours: QuietHours = row ? { on: !!row.quiet_on, start: hhmm(row.quiet_start), end: hhmm(row.quiet_end), weekends: !!row.quiet_weekends } : { ...QUIET_HOURS_DEFAULT }
   return {
     scheduleSuccess: row ? !!row.schedule_success : true, scheduleFailure: row ? !!row.schedule_failure : true, connectionReconnect: row ? !!row.connection_reconnect : true, skillSuggestions: row ? !!row.skill_suggestions : true,
-    roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : true, messagePreview: row ? !!row.message_preview : true, quietHours,
+    roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : false, messagePreview: row ? !!row.message_preview : true, quietHours,
     chatAnswers: row ? !!row.chat_answers : true, phoneWhen: row?.phone_when === 'always' ? 'always' : 'away', chatShares: row ? !!row.chat_shares : true,
     fileShares: row ? !!row.file_shares : true,
   }
@@ -127,15 +127,22 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // a reply in a thread I follow under an AI answer of a shared chat (shown always; its push follows "Replies in threads
     // I'm part of": pushEventEnabled)
     case 'chat.thread_reply': return true
+    // a person's message in a chat shared with people (listed only when it mentions me; chat/message-notices.ts): its push follows the room
+    // default (pushEventEnabled)
+    case 'chat.message': return true
   }
 }
 /** May this event go to OS push? eventEnabled, except where the Inbox row is shown always but its push has a switch of
- * its own: a chat shared with me by name ("Chats shared with me"; older apps never send it: on), a reply in a chat thread I
- * follow ("Replies in threads I'm part of"), a file shared with me by name or a request to open my file ("File sharing"). */
+ * its own: a chat shared with me by name ("Chats shared with me"; older apps never send it: on), a file shared with me
+ * by name or a request to open my file ("File sharing"). A chat thread's reply is decided per notice (chatThreadWanted). */
 export function pushEventEnabled(p: NotificationPreferences, event: NotificationEventType) {
   if (event === 'chat.shared') return p.chatShares ?? true
-  // a reply in a thread under an AI answer of a shared chat: the one thread setting, as rooms' threads (older apps: on)
-  if (event === 'chat.thread_reply') return p.roomThreadReplies ?? true
+  // a reply in a thread under an AI answer of a shared chat: a mention always may (docs/decisions/
+  // 20261122-project-chat-notices-threads-mention-only.md), a plain reply only with "Replies in threads I'm part of"
+  // on, which chat/threads.ts chatThreadWanted decides per notice
+  if (event === 'chat.thread_reply') return true
+  // a person's message in a chat shared with people: as a group chat's message, the room default ("nothing" is off)
+  if (event === 'chat.message') return (p.roomLevel ?? (p.roomMessages === false ? 'none' : 'direct')) !== 'none'
   // a file shared with me by name, or someone asking to open a file I answer for: "File sharing" (migration 358; older
   // apps never send it: on)
   if (event === 'file.shared' || event === 'file.access_requested' || event === 'access.requested') return p.fileShares ?? true

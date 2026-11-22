@@ -1,6 +1,0 @@
-- Trina no longer makes up what people said, prices, rates or sample numbers: it quotes only what it read, leaves a marked blank for a value nobody gave, labels sample numbers, and calls an unsent message a draft.
-- Numbers from files: Trina takes the team's current file over an old or personal copy, names the file, adds totals up again and says when one does not add up.
-- Before reporting a file it made, Trina compares it with the request (left-out items, slide and page counts, charts, language). A PDF or Word file made from text now tells it its page and picture count, so a "chart" drawn with ■ characters is no longer reported as a chart.
-- Trina answers in the language of your latest message, even in a chat that started in another language, and a message you address to a colleague in a shared chat is no longer taken as a task for Trina.
-- Trina says where it saved a file and who can open it ("only you") every time, says a file is in the trash instead of "not found", and does not claim several people can edit an Office file together in the app.
-- An answer sent to a room no longer carries the "One step didn't work" line, and a short English work note such as "Now the SKILL.md." no longer appears at the top of a Korean answer.

@@ -9,7 +9,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { activityTabHas, API, type ApiError, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { chatThreadPath, chatThreadWanted, followersOf } from '../../server/src/chat/threads'
+import { chatThreadPath, chatThreadWanted, followersOf, unreadThreadMentions } from '../../server/src/chat/threads'
+import { pushBadge } from '../../server/src/notifications/push-badge'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 import { roomsOf } from '../../server/src/rooms/service'
@@ -112,16 +113,35 @@ describe('a project chat', () => {
     expect(row.chatThread?.mention).toBeUndefined()
   })
 
-  test('the push follows "Replies in threads I\'m part of", as every thread notice', async () => {
+  test('a mention is pushed whatever "Replies in threads I\'m part of" says (off by default: a thread rings only on a mention)', async () => {
     await reply('alice', chatId, root, '@Bob Lee push?', ['bob'])
     const n = notice('bob', root)!
     const row = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((i) => i.id === n.id)!
     expect(row.chatThread?.mention).toBe(true)
     const due = Date.now() + 60_000
     expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true)
-    savePreferences(db(), 'bob', { roomThreadReplies: false })
-    try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(false) }
-    finally { savePreferences(db(), 'bob', { roomThreadReplies: true }) }
+    savePreferences(db(), 'bob', { roomThreadReplies: true })
+    try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true) }
+    finally { savePreferences(db(), 'bob', { roomThreadReplies: false }) }
+  })
+
+  // the owner 11-22: the 프로젝트 list showed "1" and nothing else did; the app icon's number counts it too (push-badge.ts)
+  test('an unread mention counts on the app icon\'s number (a push\'s badge) until the thread is read; a plain reply does not', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
+    const r0 = await answered(c, 'alice', 'badge root')
+    const base = pushBadge(h.ctx, 'bob')!
+    const mentions = unreadThreadMentions(h.ctx, 'bob')
+    // alice follows her own answer: a plain reply by bob gives her a notice that is no mention
+    await reply('bob', c, r0, 'plain one')
+    expect(unreadThreadMentions(h.ctx, 'alice')).toBe(0)
+    const r = await reply('alice', c, r0, '@Bob Lee badge?', ['bob'])
+    expect(unreadThreadMentions(h.ctx, 'bob')).toBe(mentions + 1)
+    expect(pushBadge(h.ctx, 'bob')).toBe(base + 1)
+    await h.api('bob').call(API.markChatThreadRead, { params: { id: c, messageId: r0 }, body: { upTo: r.id } })
+    expect(unreadThreadMentions(h.ctx, 'bob')).toBe(mentions)
+    expect(pushBadge(h.ctx, 'bob')).toBe(base)
+    // someone outside the project never counts one
+    expect(unreadThreadMentions(h.ctx, 'erin')).toBe(0)
   })
 
   test('someone the answer is hidden from is not offered and not kept', async () => {
@@ -197,14 +217,14 @@ describe('a chat shared with people', () => {
     expect((db().query('SELECT last_read_id FROM chat_thread_follows WHERE root_id = ? AND user_id = ?').get(root, 'bob') as { last_read_id: string }).last_read_id).toBe(r.id)
   })
 
-  test('a plain reply is a Threads row, not a Mentions one; followers get the live notice as a reply', async () => {
+  test('a plain reply is a Threads row, not a Mentions one; it rings nothing by default (a thread rings only on a mention)', async () => {
     // the same two-person chat, another answer (a share less: the sharing budget)
     const c = twoPeople
     const root = await answered(c, 'alice', 'plain reply answer')
     await reply('bob', c, root, 'first from bob')
     const r = await reply('alice', c, root, 'thanks')
     const ev = await ws.bob!.next('chat.thread', (f) => f.data.rootId === root && f.data.reply?.id === r.id)
-    expect(ev.data.notice).toBe('reply')
+    expect(ev.data.notice).toBeUndefined()
     const n = notice('bob', root)!
     const row = (await h.api('bob').call(API.listNotifications, { query: { only: 'rooms' } })).items.find((i) => i.id === n.id)!
     expect(row.chatThread?.mention).toBeUndefined()

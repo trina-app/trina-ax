@@ -21,7 +21,8 @@ export interface TurnToolSet {
   call(name: string, args: unknown, caller?: ToolCaller): Promise<{ content: McpContent[]; isError?: boolean; summary: string; beforeDelivery?: () => void }>
   /** after a file tool call (the runtime publishes files.changed); a text returned is a note from the server that
    * goes after the tool's result (chat/file-placement.ts) */
-  afterFileTool?(name: string, isError: boolean, args: unknown, text?: string, caller?: ToolCaller): string | void
+  /** `images`: how many pictures the result carries (auto memory counts them as content it cannot check) */
+  afterFileTool?(name: string, isError: boolean, args: unknown, text?: string, caller?: ToolCaller, images?: number): string | void
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>
@@ -32,6 +33,12 @@ export interface TurnToolSet {
    * connected service (integrations/connections/hide-args.ts); `hidden`: something was replaced, `note`: what the AI
    * is told then. Runs before every other check; throws KeyRefusal for a call that is not sent at all */
   hideKeys?(name: string, args: unknown): { args: unknown; hidden: boolean; note?: string }
+  /** a tool call's arguments with every path that names a file copied into this shared chat as that copy's chat place
+   * path (chat/copy-paths.ts mapCopyPaths): runs first, before hideKeys and every check. `caller` says which agent */
+  mapPaths?(name: string, args: unknown, caller?: ToolCaller): unknown
+  /** the line the AI gets after a call whose paths mapPaths changed (in the person's language): the path was the chat's
+   * copy, the original file is unchanged (so it tells the person, the chat's creator too) */
+  mappedNote?(): string
   /** the folders that do not exist for the person during each tool call (a shared project chat's sub-folders not
    * everyone in it may open: chat/turn.ts sharedHiddenScope); mcp/protocol.ts runs every call inside them */
   hiddenFolders?(): import('./policy/access').HiddenFolders | null

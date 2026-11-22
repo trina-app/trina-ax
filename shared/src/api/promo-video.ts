@@ -16,8 +16,9 @@ export const PROMO_STYLES = ['ink', 'deep', 'mono'] as const
 export const PromoStyle = z.enum(PROMO_STYLES)
 export type PromoStyle = z.infer<typeof PromoStyle>
 
-/** The music beds (all on the same 120 BPM grid): bright and driving · calm and premium · a dark cinematic pulse. */
-export const PROMO_MUSIC = ['bright', 'calm', 'pulse'] as const
+/** The music beds (all on the same 120 BPM grid): bright and driving · calm and premium · a dark cinematic pulse; none: no
+ * background music (QA TC-r2u-10: "음악은 빼주세요" could not be done). */
+export const PROMO_MUSIC = ['bright', 'calm', 'pulse', 'none'] as const
 export const PromoMusic = z.enum(PROMO_MUSIC)
 export type PromoMusic = z.infer<typeof PromoMusic>
 
@@ -39,7 +40,7 @@ export const PromoVideoInput = z.object({
   brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().describe('The brand colour "#rrggbb": the first of the company profile\'s brand colours, else one the material uses for the brand. Leave out when none is known.'),
   logo: z.string().trim().min(1).max(1000).optional().describe('The team path of the company logo in the brand images folder (PNG, JPG or WebP), shown on the end card.'),
   style: PromoStyle.optional().describe('ink: near-black with the brand colour as bright light (bold, energetic, consumer and tech). deep: a dark ground of the brand\'s own colour, calm and editorial (B2B, services, craft). mono: black and white, premium. Leave out to let the server choose from the brand colour; a style that does not fit the colour is replaced by one that does.'),
-  music: PromoMusic.optional().describe('bright: upbeat and driving. calm: light and premium. pulse: dark and cinematic. Leave out to match the style.'),
+  music: PromoMusic.optional().describe('bright: upbeat and driving. calm: light and premium. pulse: dark and cinematic. none: no background music (when the person asks for the music to go). Leave out to match the style.'),
   sources: z.array(z.string().trim().min(1).max(1000)).min(1).max(5)
     .describe('The team files the words came from (the attached company intro, deck or 회사 소개.md). Every number on screen must be written in them.'),
   hook: z.object({
@@ -102,7 +103,7 @@ export type PromoVideoInfo = z.infer<typeof PromoVideoInfo>
 
 export const PROMO_VIDEO = {
   getPromoVideo: endpoint({ method: 'GET', path: '/api/promo-videos/:id', auth: 'user', owner: 'B', response: PromoVideoInfo,
-    summary: 'A promo video of one of the caller\'s chats, by its artifact id: its style and length, and whether an MP4 can be made here and how far it is.' }),
+    summary: 'A promo video of a chat the caller may open (their own, or one shared with them, when they may open every picture it shows; else 404), by its artifact id: its style and length, and whether an MP4 can be made here and how far it is.' }),
   renderPromoVideo: endpoint({ method: 'POST', path: '/api/promo-videos/:id/mp4', auth: 'user', owner: 'B', response: PromoVideoInfo, status: 202,
     summary: 'Make the MP4 of a promo video (one at a time on this server; an MP4 made before is kept). 404 where this server cannot make one.' }),
   downloadPromoVideo: endpoint({ method: 'GET', path: '/api/promo-videos/:id/mp4', auth: 'user', owner: 'B', response: stream(false),

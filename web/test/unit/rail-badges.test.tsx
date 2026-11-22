@@ -7,7 +7,8 @@ import type { Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import { Rail } from '../../src/components/rail/Rail'
-import { activityMark, aiMark, chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
+import { activityMark, aiMark, chatsMark, projectsMark, unreadRooms } from '../../src/components/rail/railBadges'
+import { readChatMentions, resetChatMentions } from '../../src/store/chatMentions'
 import { PANEL_ALWAYS_BOTH_PX, panelState } from '../../src/components/rail/railPanel'
 import { THREE_MIN } from '../../src/lib/roomColumns'
 import { useInbox } from '../../src/store/inbox'
@@ -37,6 +38,14 @@ describe('marks', () => {
     // a mention row unread in Activity, its room read meanwhile: still a mark on 대화
     expect(chatsMark([room()], 1)).toEqual({ kind: 'dot' })
     expect(chatsMark([room()], 0)).toBeNull()
+  })
+
+  test('프로젝트: projects with an unread mention of me or unread messages I did not mute (projects, not messages)', () => {
+    const c = (id: string, projectId: string | null, o: object = {}) => ({ id, projectId, ...o })
+    expect(projectsMark([], [c('a', 'p1')])).toBeNull()
+    // a mention in p1 (the list's count), unread messages in p1 and p2, a muted chat in p3, a chat outside projects
+    expect(projectsMark(['p1'], [c('a', 'p1', { unreadCount: 4 }), c('b', 'p2', { unreadCount: 1 }), c('m', 'p3', { unreadCount: 9, muted: true }), c('x', null, { unreadCount: 2 })])).toEqual({ kind: 'count', n: 2 })
+    expect(projectsMark(['p1', 'p2'], [])).toEqual({ kind: 'count', n: 2 })
   })
 
   test('활동: the notices that are not conversation rows', () => {
@@ -160,6 +169,42 @@ describe('Rail', () => {
     } finally {
       await tabs.unmount()
       await rail.unmount()
+    }
+  })
+
+  // the owner 11-22: a team project's row showed "1" and the rail's 프로젝트 nothing ("모바일도 잘 생각해줘")
+  test('프로젝트 on the rail and the phone tab: the projects with an unread thread mention of me; opening the chat clears both', async () => {
+    const chatsBefore = useChats.getState()
+    const mention = { id: 'n1', eventType: 'chat.thread_reply', sourceId: 'root1', code: 'chat.thread_reply', createdAt: '2026-11-22T00:00:00.000Z', readAt: null, outcome: null, chatId: 'c1', link: 'chat_thread', chatThread: { chatId: 'c1', rootId: 'root1', name: 'Bora', title: 'Launch plan', mention: true } }
+    let read = false
+    const fetchBefore = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input)
+      if (u.includes('/api/notifications/n1/read') && init?.method === 'POST') { read = true; return json({ ok: true }) }
+      if (u.includes('/api/notifications')) return json({ items: read ? [] : [mention], nextCursor: null, unreadCount: read ? 0 : 1, roomUnreadCount: 0 })
+      return json({ error: { code: 'not_found', message: u } }, 404)
+    }) as unknown as typeof fetch
+    resetChatMentions()
+    useChats.setState({ chats: [{ id: 'c1', title: 'Launch plan', projectId: 'p1', runState: 'idle', updatedAt: '2026-11-22T00:00:00.000Z' }], chatsLoaded: true } as never)
+    const rail = await draw('member', '/files')
+    const tabs = await mount(<MemoryRouter initialEntries={['/files']}><BottomTabs /></MemoryRouter>)
+    try {
+      await rail.until(() => rail.find('rail-projects-mark'), 'the 프로젝트 mark')
+      expect(rail.get('rail-projects-mark').getAttribute('data-n')).toBe('1')
+      expect(rail.get('rail-projects-mark-words').textContent).toBe(`, ${ko('rail.unreadProjects', { n: 1 })}`)
+      await tabs.until(() => tabs.find('tab-projects-unread'), 'the 프로젝트 tab counted')
+      expect(tabs.get('tab-projects-unread').textContent).toBe(`1${ko('rail.unreadProjects', { n: 1 })}`)
+      // the chat opened (pages/Chat.tsx): both marks go, without a reload
+      await readChatMentions('c1')
+      expect(read).toBe(true)
+      await rail.until(() => !rail.find('rail-projects-mark'), 'the 프로젝트 mark cleared')
+      await tabs.until(() => !tabs.find('tab-projects-unread'), 'the 프로젝트 tab cleared')
+    } finally {
+      await tabs.unmount()
+      await rail.unmount()
+      globalThis.fetch = fetchBefore
+      resetChatMentions()
+      useChats.setState(chatsBefore, true)
     }
   })
 

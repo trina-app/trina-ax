@@ -61,6 +61,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   comment_docx: t('워드 메모 달기', 'Add Word comments', 'Tambah komentar Word', "Wordにコメントを追加", "Añadir comentarios en Word", "添加 Word 批注"),
   edit_office: t('오피스 파일 고치기', 'Edit Office file', 'Ubah berkas Office', "Officeファイルを編集", "Editar archivo de Office", "编辑 Office 文件"),
   promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
+  promo_video_versions: t('홍보 영상 버전 보기', 'View promo video versions', 'Lihat versi video promosi', 'プロモーション動画のバージョンを見る', 'Ver versiones del vídeo promocional', '查看宣传视频版本'),
   save_promo_video: t('홍보 영상 파일로 저장', 'Save promo video as a file', 'Simpan video promosi sebagai berkas', "プロモーション動画をファイルに保存", "Guardar el vídeo promocional como archivo", "将宣传视频保存为文件"),
   intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
   box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo", "开发环境命令"),
@@ -86,6 +87,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_file: t('대화 파일 읽기', 'Read conversation file', 'Baca berkas percakapan', "トークのファイルを読む", "Leer archivo de conversación", "读取聊天文件"),
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
   save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
+  restore_chat_file: t('채팅 파일 되돌리기', 'Restore chat file', 'Pulihkan berkas obrolan', 'チャットのファイルを戻す', 'Restaurar archivo del chat', '恢复对话文件'),
   save_chat_file: t('채팅 파일 저장', 'Save chat file', 'Simpan berkas obrolan', 'チャットのファイルを保存', 'Guardar archivo del chat', '保存对话文件'),
   // a finished file from the chat's work folder into the team folder (server/src/chat/work-file-tool.ts)
   save_work_file: t('작업 결과 저장', 'Save work file', 'Simpan berkas kerja', '作業ファイルを保存', 'Guardar archivo de trabajo', '保存工作文件'),
@@ -175,6 +177,12 @@ export const STEP_TEXT = {
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
   /** remember while its card waits for the person's yes (a chat that read other people's content) */
   rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}", "正在询问是否记住：{text}"),
+  /** remember of a password, key, token or code: never kept, and its value never shown */
+  notRememberedSecret: t('기억하지 않음: 비밀번호나 키 같은 비밀 정보', 'Not remembered: a password, key or other secret', 'Tidak diingat: kata sandi, kunci, atau rahasia lain', "記憶しませんでした：パスワードやキーなどの秘密情報", "No se recordó: una contraseña, clave u otro secreto", "未记住：密码、密钥等机密信息"),
+  /** remember with `replaces`: an existing memory changed in place */
+  rememberUpdated: t('기억 고침: {text}', 'Memory updated: {text}', 'Ingatan diperbarui: {text}', "記憶を更新しました：{text}", "Memoria actualizada: {text}", "已更新记忆：{text}"),
+  /** forget, with the text of the memory it removed */
+  forgotText: t('잊음: {text}', 'Forgot: {text}', 'Dilupakan: {text}', "忘れました：{text}", "Olvidado: {text}", "已忘记：{text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
@@ -243,6 +251,17 @@ export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverS
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
+
+/**
+ * A tool id that is one of ours with something stuck on its end ("post_to_room_placeholder", a name an engine made up
+ * for a tool it had not loaded yet: QA TC-v2f-A2 showed "Post to room placeholder") reads as that tool's own words.
+ */
+function knownPrefixVerb(tool: string, locale: Locale): string | null {
+  const last = tool.slice(0, 200).split('__').filter(Boolean).at(-1) ?? ''
+  // only a made-up tail on one of our names: an outside tool that merely starts like ours ("list_issues") keeps its own words
+  const m = /^(.+)_(placeholder|stub|dummy|tool|deferred)$/i.exec(last)
+  return m && FILE_STEP_VERB[m[1]!] ? FILE_STEP_VERB[m[1]!]![locale] ?? null : null
+}
 
 /**
  * A tool's id as words, for a tool without words of its own (docs/DECISIONS.md "Plain words in errors, cards and
@@ -385,7 +404,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
     // the file by its own name (never a server path), and where it goes
     case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
-    case 'box_shell': return `${verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
+    // "<the AI's plain description, else the verb> · <command>": the web app shows the words alone and the command when
+    // the step is opened (localizeStep); an app that does not shows the whole line
+    case 'box_shell': return `${shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -402,8 +423,93 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const name = a.target === 'google_drive' ? 'Google Drive' : shown ? clip(maskSecrets(shown.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
     }
-    default: return verb ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
+    default: return verb ?? knownPrefixVerb(tool, locale) ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
   }
+}
+
+
+/** Plain words for a dev-environment command without a description of its own, by what the command does (the steps
+ * of answers from before box_shell had `description` too). People are not developers: never the command itself. */
+export const SHELL_KIND_WORDS = {
+  install: t('프로그램 설치', 'Install tools', 'Pasang program', "ツールをインストール", "Instalar herramientas", "安装工具"),
+  make: t('결과물 만들기', 'Make the result', 'Buat hasilnya', "成果物を作成", "Crear el resultado", "生成结果"),
+  download: t('내려받기', 'Download', 'Unduh', "ダウンロード", "Descargar", "下载"),
+  change: t('파일 바꾸기', 'Change files', 'Ubah berkas', "ファイルを変更", "Cambiar archivos", "修改文件"),
+  check: t('파일 확인', 'Check files', 'Periksa berkas', "ファイルを確認", "Revisar archivos", "检查文件"),
+  wait: t('기다리기', 'Wait', 'Menunggu', "待機", "Esperar", "等待"),
+  run: t('작업 실행', 'Run a task', 'Jalankan tugas', "作業を実行", "Ejecutar una tarea", "执行任务"),
+} satisfies Record<string, T>
+export type ShellKind = keyof typeof SHELL_KIND_WORDS
+
+/** What a shell command does, roughly, from its parts (split at && || ; | and new lines). Anything that changes or
+ * removes files (rm, mv, a "> file" redirect, sed -i, find -delete…) is said as such first, whatever else the command
+ * does; then an install, making something (a render, a build), a download, a pause, a look at files (only programs that
+ * read, with no redirect or command substitution); else "run". The words are the server's own: a room card asks with
+ * them, never with the AI's description (docs/AGENTS/plan/20261122-0156-step-labels-plain.md). */
+export function shellKind(command: string): ShellKind {
+  const c = command.slice(0, 4000)
+  // a redirect into a file (not 2>&1 or > /dev/null), sed -i, find -delete / -exec, tee: it writes
+  const quiet = c.replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
+  if (/>/.test(quiet.replace(/<<-?\s*['"]?\w+['"]?/g, '')) || /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(c) || /\bsort\b[^|;&\n]*\s-o\b/.test(c) || /\bsed\s+(?:-\w*\s+)*-i/.test(c)) return 'change'
+  const parts = c.split(/&&|\|\||[;|\n]/).map((p) => p.trim()
+    // leading VAR=value assignments, export / env / sudo / time / exec in front of the program
+    .replace(/^(?:(?:export|env|sudo|time|exec|nohup|command)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)*/, '')
+    .replace(/^(?:sudo|time|exec|nohup|command)\s+/, '')).filter(Boolean)
+  const progs = parts.map((p) => { const ws = p.split(/\s+/); return { p, w: ws[0]!.replace(/^.*\//, '').toLowerCase(), args: ws.slice(1).map((x) => x.toLowerCase()) } })
+  const change = new Set(['rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'ln', 'truncate', 'dd', 'tee', 'touch', 'unlink', 'shred', 'rsync', 'kill', 'pkill', 'killall'])
+  // (a program run by another: xargs rm, timeout 60 rm …)
+  if (progs.some(({ w, args }) => change.has(w) || (['xargs', 'timeout', 'nice', 'watch', 'parallel', 'flock'].includes(w) && args.some((x) => change.has(x.replace(/^.*\//, '')))) || (w === 'git' && ['push', 'commit', 'reset', 'rm', 'mv', 'checkout', 'clean', 'restore', 'rebase', 'merge'].includes(args[0] ?? '')))) return 'change'
+  const has = (re: RegExp) => progs.some(({ p }) => re.test(p))
+  if (has(/^(?:npm|pnpm|yarn|bun|deno)\s+(?:i|install|add|ci)\b|^(?:pip3?|uv|pipx|poetry)\s+(?:install|add|sync)\b|^(?:python3?\s+-m\s+pip|uv\s+pip)\s+install\b|^(?:apt(?:-get)?|brew|apk|dnf|yum|cargo|gem|go)\s+(?:install|add|get)\b|^npx\s+\S+\s+install\b/i)) return 'install'
+  // making something: the program itself, or a runner's script / tool named so (npx hyperframes render, npm run build)
+  const makers = new Set(['ffmpeg', 'make', 'tsc', 'vite', 'webpack', 'pandoc', 'libreoffice', 'soffice', 'magick', 'convert', 'remotion', 'hyperframes'])
+  const makeWord = /^(?:render|build|export|compile|bundle|remotion|hyperframes)$/
+  if (progs.some(({ w, args }) => makers.has(w) || (['npx', 'bunx', 'pnpm', 'yarn', 'npm', 'bun', 'deno'].includes(w) && args.slice(0, 3).some((x) => makeWord.test(x))))) return 'make'
+  if (has(/^(?:wget|git\s+(?:clone|pull|fetch)|curl\b.*(?:\s-[A-Za-z]*[oO]\b|--output|--remote-name))/i)) return 'download'
+  const busy = progs.filter(({ w }) => !['cd', 'mkdir', 'set', 'source', '.', 'true', 'export'].includes(w))
+  if (busy.length && busy.every(({ w }) => w === 'sleep')) return 'wait'
+  const look = new Set(['ls', 'find', 'wc', 'du', 'df', 'cat', 'head', 'tail', 'stat', 'file', 'tree', 'grep', 'rg', 'test', '[', 'which', 'pwd', 'md5sum', 'sha256sum', 'shasum', 'ffprobe', 'identify', 'sort', 'uniq', 'jq', 'echo', 'printf', 'cut', 'tr'])
+  const real = busy.filter(({ w }) => w !== 'sleep')
+  if (real.length && !/\$\(|`/.test(c) && real.every(({ w }) => look.has(w))) return 'check'
+  return 'run'
+}
+
+/** Does this text read as a shell command rather than words for a person? */
+const commandLike = (s: string) => /[|;&`$<>{}\\]|(?:^|\s)--?[A-Za-z]|^\s*(?:cd|ls|npm|npx|pnpm|yarn|bun|node|python3?|pip3?|sh|bash|curl|wget|git|find|sleep|export|rm|mkdir|cp|mv|cat|echo|ffmpeg|sudo)\s/i.test(s) || /\b[A-Za-z_][A-Za-z0-9_]*=\S/.test(s)
+
+/** The AI's plain description of a command (box_shell `description`) as it may show in a step line: one line, at most
+ * 60 characters, without "$TRINA_WORK"-like paths or "NAME=value" settings, and without " · " (the line's divider);
+ * '' when nothing is left or it reads like a command itself. */
+export function shellDescription(v: unknown): string {
+  if (typeof v !== 'string') return ''
+  const s = maskSecrets(v.slice(0, 300))
+    .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+    .replace(/\$\{?TRINA_[A-Z_]+\}?(?:\/[^\s"'`]*)?/g, '')
+    .replace(/\s*·\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!s || commandLike(s)) return ''
+  return clip(s, 60)
+}
+
+/** The plain words for a dev-environment command (a step line, a card's question): the AI's description of it, else the
+ * words for the command's kind. Never the command. */
+export function shellWords(description: unknown, command: string, locale: Locale): string {
+  const kind = SHELL_KIND_WORDS[shellKind(command)]
+  return shellDescription(description) || (kind[locale] ?? kind.en)
+}
+
+/** The words a dev-environment command's step line shows (localizeStep): the description it was saved with, else the
+ * plain words for the command's kind; and the command for the step's opened part. Old lines ("<verb> · <command>"),
+ * bare commands and lines without a command all come here. */
+function shellStepLine(line: string, locale: Locale): { words: string; command: string } {
+  const verbs = new Set(Object.values(FILE_STEP_VERB.box_shell!))
+  const at = line.indexOf(' · ')
+  const head = at < 0 ? line : line.slice(0, at)
+  const command = at < 0 ? '' : line.slice(at + 3)
+  const kindWords = (c: string) => shellWords('', c, locale)
+  if (verbs.has(head)) return { words: kindWords(command), command }
+  if (at < 0 && commandLike(head)) return { words: kindWords(head), command: head }
+  const said = shellDescription(head)
+  return said ? { words: said, command } : { words: kindWords(command || head), command: command || head }
 }
 
 const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es', 'zh']
@@ -518,6 +624,26 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  * Any other line comes back as it is, without `path`.
  */
 export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+  const r = toolPlace(step, label, locale)
+  // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
+  // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
+  // words of a question, a memory or a sub-task, which are someone's own
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(r.label, locale) }
+}
+
+/** chat:files/<id>/, chat:work/ and $TRINA_WORK inside a step line, in words. ($TRINA_TEAM is not: a file tool takes it as
+ * a folder of that name, so a line shows it as written.) */
+function plainPlaces(label: string, locale: Locale): string {
+  if (!/chat:|\$\{?TRINA_WORK/i.test(label)) return label
+  const files = STEP_PLACE.chatFiles[locale] ?? STEP_PLACE.chatFiles.en
+  const work = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
+  return shellWorkWords(label
+    .replace(/\bchat:files\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?)?/gi, `${files} › `)
+    .replace(/\bchat:work\/?/gi, `${work} › `), locale)
+    .replace(/ › (?=\s|$)/g, '')
+}
+
+function toolPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
   // a command saved before its line said the work folder in words
   if (step.tool === 'box_shell') {
     const at = label.indexOf(' · ')
@@ -607,14 +733,15 @@ function reverb(verbs: T, label: string, locale: Locale, older: readonly string[
   return null
 }
 
-/** box_shell's ending in `locale`: " (job)", " (background)" or either in any language. */
-function resuffix(label: string, locale: Locale): string {
+/** box_shell's " (job)" / " (background)" ending in any language (English in every language before): the line
+ * without it, and which one it was. */
+function shellEnding(label: string): { line: string; key: 'jobSuffix' | 'backgroundSuffix' | null } {
   for (const [key, old] of [['jobSuffix', 'job'], ['backgroundSuffix', 'background']] as const) {
     for (const w of [old, ...LOCALES.map((l) => STEP_TEXT[key][l])]) {
-      if (label.endsWith(` (${w})`)) return `${label.slice(0, -w.length - 3)} (${STEP_TEXT[key][locale]})`
+      if (label.endsWith(` (${w})`)) return { line: label.slice(0, -w.length - 3), key }
     }
   }
-  return label
+  return { line: label, key: null }
 }
 
 /** A step whose card ran out without an answer (a question, or remember's "may I keep this?"): its detail says so, in
@@ -640,15 +767,25 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
-  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
-  else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
+  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking', 'rememberUpdated', 'notRememberedSecret'], step.label, locale)
+  else if (tool === 'forget') label = retemplate(['forgotText', 'forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
-  else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
-  // a dev-environment command's " (job)" / " (background)" (English in every language before) in the language on screen
-  if (tool === 'box_shell' && label) label = resuffix(label, locale)
+  else if (tool !== 'box_shell' && FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
-  const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
+  let detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
+  // a dev-environment command: plain words on the line (the AI's description, else what kind of command it is), and the
+  // command itself only in the opened part (people are not developers); its " (job)" / " (background)" ending (English
+  // in every language before) in the language on screen, and why it went on without a card after it
+  if (tool === 'box_shell' && step.kind === 'tool') {
+    const why = coverWhy(step.label)
+    const { line, key } = shellEnding(why ? step.label.slice(0, -why.end.length) : step.label)
+    const tail = key ? ` (${STEP_TEXT[key][locale] ?? STEP_TEXT[key].en})` : ''
+    const shown = shellStepLine(line, locale)
+    label = `${shown.words}${tail}${why ? ` · ${STEP_TEXT[why.key][locale] ?? STEP_TEXT[why.key].en}` : ''}`
+    if (shown.command) detail = detail ? `${shown.command}\n\n${detail}` : shown.command
+    return { label, ...(detail !== undefined ? { detail } : {}) }
+  }
   // why a call went on without a card, at the end of a tool's line: in the screen's language too (not in the words of
   // a question, a memory or a sub-task, which are the AI's or the person's)
   let out = label ?? step.label

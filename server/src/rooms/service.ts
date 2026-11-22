@@ -1261,13 +1261,18 @@ export class Rooms {
     const n = notificationsOf(this.ctx)
     for (const m of ms) {
       const p = prefs.get(m.user_id)!
+      const level = roomLevel(room.kind, ownLevel(m), p.roomLevel, projectRoom)
       const alert = roomAlert({
-        level: roomLevel(room.kind, ownLevel(m), p.roomLevel, projectRoom), mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
+        level, mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
         alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
       })
-      if (!alert) continue
+      // a reply in a thread I follow that does not mention me, with "Replies in threads I'm part of" off (its default
+      // since 2026-11-22: a thread rings only on a mention, docs/decisions/20261122-project-chat-notices-threads-mention-only.md):
+      // still a row in Mentions & threads, as a quiet notice (one per unread run, never pushed, rung or told)
+      const silentReply = !alert && !!row.thread_root_id && !!followers?.has(m.user_id) && level !== 'off'
+      if (!alert && !silentReply) continue
       const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
-      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id)) out.set(m.user_id, event) }
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, silentReply || inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id)) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out

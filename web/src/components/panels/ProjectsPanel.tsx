@@ -31,6 +31,8 @@ import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
 import { useChats } from '../../store/chats'
+import { SessionMarker, useChatMarker } from '../chat/ChatState'
+import { unreadProjects } from '../rail/railBadges'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { isAdmin, useMe } from '../../store/session'
 import { readManagedList, readProjectList, useProjects } from '../../store/projects'
@@ -121,6 +123,11 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   // the projects whose chats are open under their row (folded at first), and my unread mentions by project and chat
   const { folds, set: setFold } = useFolds()
   const { byChat, byProject } = useMentions()
+  // the projects with something for me, as the rail's Projects mark counts them (rail/railBadges.ts unreadProjects): a
+  // thread mention, or a chat of it with messages I have not read and did not mute. Their rows are bold
+  const chats = useChats((s) => s.chats)
+  const otherChats = useChats((s) => s.others)
+  const unreadIn = useMemo(() => unreadProjects(byProject.keys(), [...chats, ...Object.values(otherChats)]), [byProject, chats, otherChats])
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   const others = projects.filter((p) => p.member === false)
@@ -148,6 +155,7 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
             onGone={() => on && navigate('/projects')}
             fold={foldable ? { open, toggle: () => setFold(`project:${p.id}`, open ? 'folded' : 'open') } : undefined}
             mention={foldable ? byProject.get(p.id) : undefined}
+            unread={foldable && unreadIn.has(p.id)}
             chats={open ? <ProjectChats project={p} byChat={byChat} mentioned={byProject.get(p.id)?.chatIds} /> : null}
           />
         )
@@ -184,7 +192,7 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
  * touch screen): the Projects page cards' menu (projectActions.tsx useProjectMenuItems: 이름 바꾸기, 멤버, 링크 복사,
  * 나가기, 삭제 by the same rules), so a project is renamed where people look for it. `onGone`: it left the list (deleted,
  * or I left it) */
-function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, mention, chats }: { project: Project; selected: boolean; meta?: string; onMembers: () => void; onGone: () => void; fold?: { open: boolean; toggle: () => void }; mention?: ChatMention; chats?: ReactNode }) {
+function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, mention, unread: news, chats }: { project: Project; selected: boolean; meta?: string; onMembers: () => void; onGone: () => void; fold?: { open: boolean; toggle: () => void }; mention?: ChatMention; unread?: boolean; chats?: ReactNode }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "···" after an item (a dialog it opens gives it back there)
@@ -200,6 +208,7 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
     <ListRow
       to={`/projects/${p.id}`}
       selected={selected}
+      unread={news}
       icon={<SquareKanban />}
       name={p.name}
       nameTitle={p.name}
@@ -337,30 +346,45 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
         {!list && !failed && <li className={clsx(sub, 'py-1 text-meta text-faint')}>{t('projectsPanel.fold.loading')}</li>}
         {failed && !list && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-failed">{t('projectsPanel.fold.failed')}</li>}
         {list && !items.length && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-empty">{t('projectsPanel.fold.none')}</li>}
-        {items.map((c) => {
-          const m = byChat.get(c.id)
-          return (
-            <ListRow
-              key={c.id}
-              to={`/c/${c.id}`}
-              selected={pathname.startsWith(`/c/${c.id}`)}
-              icon={<MessageSquare />}
-              name={c.title || t('chat.untitled')}
-              nameTitle={c.title}
-              unread={!!m}
-              tag={m ? undefined : formatRelative(c.updatedAt, locale)}
-              end={m ? <MentionPill mention={m} testId="projects-panel-chat-mentions" /> : undefined}
-              rowClass={sub}
-              testId="projects-panel-chat"
-              link={{ 'data-chat-id': c.id }}
-            />
-          )
-        })}
+        {items.map((c) => <ProjectChatItem key={c.id} chat={c} mention={byChat.get(c.id)} selected={pathname.startsWith(`/c/${c.id}`)} rowClass={sub} tag={formatRelative(c.updatedAt, locale)} />)}
         {list?.more && (
           <ListRow to={`/projects/${p.id}`} name={<span className="text-meta text-muted">{t('projectsPanel.fold.more')}</span>} rowClass={sub} testId="projects-panel-chats-more" />
         )}
       </ul>
     </li>
+  )
+}
+
+/** The live copy of a project chat (the chats store's, else the list's): its unread messages follow chat.updated */
+export function useLiveChat(c: Chat): Chat {
+  return useChats((s) => s.chats.find((x) => x.id === c.id) ?? s.others[c.id]) ?? c
+}
+/** A project chat's unread messages (a project's shared chat is a conversation: chat/message-notices.ts): the Trina
+ * list's number (ChatState.tsx SessionMarker), or nothing */
+export function UnreadMessages({ chat }: { chat: Chat }) {
+  const { marker, reason } = useChatMarker(chat)
+  return marker?.reason === 'message' && !chat.muted ? <SessionMarker marker={marker} label={reason} className="self-center" /> : null
+}
+
+/** One chat under an open project's row: bold with my unread mentions (their count) or messages (their number) */
+function ProjectChatItem({ chat, mention: m, selected, rowClass, tag }: { chat: Chat; mention?: ChatMention; selected: boolean; rowClass: string; tag: string }) {
+  const t = useT()
+  const c = useLiveChat(chat)
+  const news = !!c.unreadCount && !c.muted
+  return (
+    <ListRow
+      to={`/c/${c.id}`}
+      selected={selected}
+      icon={<MessageSquare />}
+      name={c.title || t('chat.untitled')}
+      nameTitle={c.title}
+      unread={!!m || news}
+      tag={m || news ? undefined : tag}
+      end={m ? <MentionPill mention={m} testId="projects-panel-chat-mentions" /> : news ? <UnreadMessages chat={c} /> : undefined}
+      rowClass={rowClass}
+      testId="projects-panel-chat"
+      link={{ 'data-chat-id': c.id }}
+    />
   )
 }
 

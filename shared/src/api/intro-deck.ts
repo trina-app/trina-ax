@@ -484,7 +484,7 @@ export type IntroDeckInfo = z.infer<typeof IntroDeckInfo>
 
 export const INTRO_DECK = {
   getIntroDeck: endpoint({ method: 'GET', path: '/api/intro-decks/:id', auth: 'user', owner: 'B', response: IntroDeckInfo,
-    summary: 'An intro deck of one of the caller\'s chats, by its artifact id: its title, theme, slide count and which files this server can make (PowerPoint always, PDF where typst is).' }),
+    summary: 'An intro deck of a chat the caller may open (their own, or one shared with them, when they may open every picture it shows; else 404), by its artifact id: its title, theme, slide count and which files this server can make (PowerPoint always, PDF where typst is).' }),
   downloadIntroDeckPptx: endpoint({ method: 'GET', path: '/api/intro-decks/:id/pptx', auth: 'user', owner: 'B', response: stream(false),
     summary: 'Download an intro deck as a PowerPoint file (built from the checked slides, with the pictures the chat\'s owner can read now).' }),
   listDeckBuilds: endpoint({ method: 'GET', path: '/api/intro-decks/builds', auth: 'user', owner: 'B', query: z.object({ chatId: z.string().min(1).max(64) }), response: DeckBuildList,

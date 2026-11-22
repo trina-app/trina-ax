@@ -35,7 +35,7 @@ export class QueueFull extends Error {
   }
 }
 
-export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string }; lead?: string }
+export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string }; lead?: string; mentions?: string[] }
 
 interface SendQueueState {
   userId: string | null
@@ -130,7 +130,9 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       put(chatId, { items: q.items.slice(take.length), paused: null, after: null })
       // send() puts the message on screen as "sending" before it returns: from then on the chat is busy and the runner
       // waits (a failure shows "not sent [send again]" on that message, so nothing disappears)
-      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), atEnd: shared, onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending', e.body.params?.reason === 'shared_chat_next') })
+      // the people the waiting messages mention, each once (store/chats.ts: sent with the message)
+      const mentions = [...new Set(take.flatMap((i) => i.mentions ?? []))]
+      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), atEnd: shared, ...(mentions.length ? { mentions } : {}), onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending', e.body.params?.reason === 'shared_chat_next') })
         .then((r) => r.sent)
         .catch(() => {})
         .finally(() => { if (inFlight.delete(chatId)) schedule() })
@@ -164,7 +166,7 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       const q = current(chatId)
       if (q.items.length >= QUEUE_ITEMS_MAX) throw new QueueFull()
       const thread = useChats.getState().threads[chatId]
-      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString(), ...(m.lead ? { lead: m.lead } : {}) }
+      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString(), ...(m.lead ? { lead: m.lead } : {}), ...(m.mentions?.length ? { mentions: m.mentions } : {}) }
       // a message added while an answer runs means "send when it is done" for everything waiting (a pause ends)
       put(chatId, { items: [...q.items, item], paused: null, after: (thread ? awaitedAnswer(thread.messages) : null) ?? q.after })
     },

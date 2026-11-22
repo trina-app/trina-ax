@@ -97,9 +97,10 @@ export function useActivityUnread(): number {
 /** Read the count again now (the 활동 list read or marked something). */
 export const reloadInboxCount = () => load()
 
-/** a conversation row (a DM, a mention or a thread reply, in a room or under a shared AI chat's answer): counted on
+/** a conversation row (a DM, a mention or a thread reply, in a room or under a shared AI chat's answer; a mention in a
+ * shared chat's main box): counted on
  * 대화, not in 활동's own number */
-const roomRow = (item: InboxNotification) => item.code === 'room.dm' || item.code === 'room.mention' || item.code === 'chat.thread_reply'
+const roomRow = (item: InboxNotification) => item.code === 'room.dm' || item.code === 'room.mention' || item.code === 'chat.thread_reply' || item.code === 'chat.message'
 
 /** The counts with one notice read (-1) or unread again (+1), before the server says so. */
 function count(item: InboxNotification, by: 1 | -1) {

@@ -216,3 +216,16 @@ describe('engine steps saved with the Korean wording before 0.2.16 (합니다체
       .toBe(localizeStep({ kind: 'tool', tool: 'engine', label: 'AI 연결이 거절되어 다른 연결로 이어서 답해요' }, 'ja').label)
   })
 })
+
+describe('a made-up name of one of our tools (QA TC-v2f-A2)', () => {
+  test('"post_to_room_placeholder" reads as post_to_room, never "Post to room placeholder"', () => {
+    for (const l of ['ko', 'en'] as Locale[]) {
+      expect(stepLabel('post_to_room_placeholder', {}, l, new Set())).toBe(FILE_STEP_VERB.post_to_room![l])
+      expect(stepLabel('mcp__mycel__post_to_room_placeholder', {}, l, new Set())).toBe(FILE_STEP_VERB.post_to_room![l])
+    }
+    expect(stepLabel('create_task', {}, 'en', new Set())).toBe('Create task')
+    // an outside tool that only starts like ours keeps its own words (review)
+    expect(stepLabel('mcp__github__list_issues', {}, 'en', new Set())).toBe('List issues')
+    expect(stepLabel('write_todos', {}, 'en', new Set())).toBe('Write todos')
+  })
+})

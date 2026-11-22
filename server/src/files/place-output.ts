@@ -48,6 +48,9 @@ export interface ChatPlaces {
    * the storage check), every rule of head() checked again first; `read`: the sha256 the AI read it with (another head
    * since then makes the result `beside`: nothing is lost) */
   version(id: string, src: VersionSource, read: string, files: Pick<TurnFiles, 'bytesWritten' | 'filesWritten' | 'readHashes' | 'chatVersionsMade'>): Promise<ChatVersionMade>
+  /** version `n` of the chain `id` brought back as its newest version (ChatFiles.restore, origin 'ai'), with head()'s
+   * rules checked again at the insert; nothing is overwritten (QA TC-r2u-10) */
+  restore(id: string, n: number, files: Pick<TurnFiles, 'bytesWritten' | 'filesWritten' | 'readHashes' | 'chatVersionsMade'>): Promise<ChatVersionMade>
 }
 
 /** A chat file's newest version as a writer of a new one sees it */

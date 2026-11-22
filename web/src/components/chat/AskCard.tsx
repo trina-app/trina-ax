@@ -482,6 +482,7 @@ function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boole
               </div>
             ) : null}
             {d.text && (
+              <Folded d={d} plain>
               <Exact d={d} plain>
                 <div>
                   <p className="flex items-baseline gap-2 text-xs text-faint">
@@ -493,6 +494,7 @@ function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boole
                   </div>
                 </div>
               </Exact>
+              </Folded>
             )}
           </div>
         ))}
@@ -531,7 +533,7 @@ function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boole
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact>}
+          {d.text && <Folded d={d}><Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact></Folded>}
         </div>
       ))}
     </div>
@@ -545,6 +547,30 @@ function CodeValue({ text, label, marks }: { text: string; label: string; marks?
     <pre className="scroll-thin max-h-64 overflow-auto rounded bg-subtle px-2 py-1 font-mono text-code-sm leading-5 whitespace-pre [tab-size:4]" tabIndex={0} aria-label={label} data-testid="ask-detail-code">
       <Marked text={text} marks={marks} />
     </pre>
+  )
+}
+
+/** A detail's text that is code or a file's content (`folded`: a dev-environment command, what a file will hold) behind
+ * "자세히", with its size on the button while closed; the label, the fields and the question above say what happens in
+ * words. A text with highlighted parts (marks, alerts) or one formatted for reading (markdown) stays open. */
+function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (!d.folded || d.markdown || d.marks?.length || d.alerts?.length) return <>{children}</>
+  return (
+    <div className={plain ? undefined : 'border-t border-line'}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'touch-hit rounded py-1 underline-offset-2 hover:underline' : 'w-full px-3 py-1.5 hover:bg-hover')}
+        data-testid="ask-detail-folded"
+      >
+        <span>{open ? t('ask.foldedHide') : t('ask.foldedShow')}</span>
+        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
+      </button>
+      {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
+    </div>
   )
 }
 

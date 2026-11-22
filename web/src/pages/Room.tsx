@@ -37,7 +37,7 @@ import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
 import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath, withoutTarget } from '../lib/rooms'
-import { roomColumns, useElementWidth } from '../lib/roomColumns'
+import { roomColumns, roomSqueezed, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
 import { PANEL_ID } from '../components/panels/PanelFrame'
@@ -172,10 +172,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "Thread rule"): the thread or the side chat is a sheet over the
   // room, as on a phone, and the room under it waits as it was
   const roomy = useMediaQuery('(min-width: 812px)')
-  const sheet = wide && !roomy
   // the thread and the side chat together (lib/roomColumns.ts), by the width of the page's own row: three columns, the
   // two over the room, or one at a time (a phone; a row squeezed by a file preview beside the page)
   const page = useRef<HTMLDivElement>(null)
+  // one panel alone in a row too narrow for the room's 420 px beside it (a file preview beside the page at 1440 px: QA
+  // TC-r2b-06, the room was one character wide): it is a sheet over the room too (lib/roomColumns.ts roomSqueezed)
+  const rowNow = useElementWidth(page)
+  const sheet = wide && (!roomy || (!(threadId && rightOpen) && !!(threadId || rightOpen) && roomSqueezed(rowNow)))
   /** The row's width once the conversation list has folded for the two panels (components/rail/railPanel.ts): the
    * page as it is laid out now, plus the list while it still shows in a window where it folds for them. Read from the
    * page itself (the render in which the second panel opens comes before the list is gone, and before any resize is
@@ -186,8 +189,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const list = window.innerWidth < PANEL_ALWAYS_BOTH_PX ? document.getElementById(PANEL_ID)?.offsetWidth ?? 0 : 0
     return now + list
   }, [])
-  // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page)
-  useElementWidth(page)
+  // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page:
+  // rowNow above)
   const both = !!threadId && rightOpen
   const columns = both ? roomColumns(rowForBoth()) : null
   const pair = columns === 'pair'

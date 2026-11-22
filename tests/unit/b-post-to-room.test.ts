@@ -189,6 +189,24 @@ describe('the card, and the post', () => {
     // the copy went, so nobody was given the team file itself
     expect(h.ctx.db.query("SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = 'groups/marketing/launch-plan.md'").get()).toBeNull()
   })
+
+  test('a Send with copies shares no source file: the share notice can never name a file that was not posted (QA TC-r2u-29)', async () => {
+    // alice's chat read her own photo (as the AI did with a business card before writing a quote), then posts the quote:
+    // the quote goes as a copy; the photo was never named on the card, so nobody gets it or a "shared a file" notice of it
+    const photo = 'users/alice/card-2929.md', quote = 'users/alice/quote-2929.md'
+    put(photo, '# Card\nLee, buyer'); put(quote, '# Quote\nA x2'); wroteIt('alice', photo); wroteIt('alice', quote)
+    const noticesBefore = (h.ctx.db.query("SELECT COUNT(*) n FROM file_share_notices WHERE event_type = 'file.shared'").get() as { n: number }).n
+    // (the read in an earlier answer of the chat, as in the QA run: the quote was made first, then posted)
+    const first = await turn('alice', fake({ tool: 'read', args: { file_path: photo } }))
+    const r = await turn('alice', post({ room: rooms.all, text: `Quote: [quote-2929.md](/files/view?path=${quote})` }), { chat: first.chatId, answer: 'send_files' })
+    expect(r.card!.options!.map((x) => x.value)[0]).toBe('send_files')
+    const m = (await messagesAs('alice', rooms.all)).at(-1)!
+    expect(m.files.map((f) => f.name)).toEqual(['quote-2929.md'])
+    const granted = (rel: string) => h.ctx.db.query('SELECT 1 FROM file_share_grants g JOIN file_shares s ON s.id = g.share_id WHERE s.path = ?').get(rel)
+    expect(granted(photo)).toBeNull()
+    expect(granted(quote)).toBeNull()
+    expect((h.ctx.db.query("SELECT COUNT(*) n FROM file_share_notices WHERE event_type = 'file.shared'").get() as { n: number }).n).toBe(noticesBefore)
+  })
 })
 
 describe('the card\'s words (QA TC-4791)', () => {

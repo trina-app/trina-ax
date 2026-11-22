@@ -6,7 +6,7 @@ import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type Al
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
-import { languageSwitchNote, NarrationHold, narrationScript } from './narration'
+import { includesPiece, languageSwitchNote, NarrationHold, narrationScript, quoteLanguageNote } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -16,7 +16,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
@@ -52,9 +52,12 @@ import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt,
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
-import { isProjectPlainName } from '@mycel/shared'
+import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
+import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
+import { autoMemoryOn, NOT_OUTSIDE_TOOLS } from './auto-memory'
+import { TOOL_OUTPUT_MAX } from '../engine/claude-parse'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -76,6 +79,7 @@ import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
+import { noteSharedAnswer } from './message-notices'
 import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
@@ -84,6 +88,8 @@ import { currentPlan, planLimits } from '../system/limits'
 import { DISK_FULL_TEXT, diskAlmostFull, isDiskFullError } from '../system/storage'
 import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
+import { sharedCopyMap } from './chat-files-share'
+import { chatKindOf } from './place-ctx'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { projectRoomOfChat } from './room-tools'
@@ -117,7 +123,7 @@ import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
-import { HISTORY_MAX_TOKENS } from './prompt'
+import { HISTORY_MAX_TOKENS, memoryTokensOf } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
@@ -259,6 +265,21 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
 const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
+/** Calls whose arguments are a command or a sub-agent's brief and the step's own label (`description`: "Install
+ * python-docx in a venv", shown in the step list instead of the command): a dev-environment command (devenv/tool.ts),
+ * Claude Code's Bash and its Agent calls. A text piece before one that repeats its label, or shares most words with its
+ * command ("Install python-docx in a venv." before `pip install python-docx`), is the AI narrating the step (QA
+ * TC-f3-05), not text "copied into the call" (narration.ts copied, whose 80%-of-words allowance is for a posted message).
+ * Only a command that holds the piece word for word (a heredoc writing it to a file) still counts. */
+const NO_CONTENT_TOOLS = new Set(['box_shell', 'Bash', ...CLAUDE_AGENT_TOOL_NAMES])
+/** The call's arguments that are content it delivers, for the "copied into the call" check (`piece`: the text before
+ * the call): for NO_CONTENT_TOOLS only a command holding the piece word for word, else nothing. */
+export function deliveredArgs(name: string, input: unknown, piece: string): unknown {
+  const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+  if (!NO_CONTENT_TOOLS.has(tool)) return input
+  const command = input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+  return typeof command === 'string' && includesPiece(piece, command) ? { command } : {}
+}
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -537,6 +558,8 @@ export class TurnExec {
   private loosePlaced: string[] = []
   /** new files of this turn whose audience line (chat/save-audience.ts) is not said yet */
   private newSaved: string[] = []
+  /** team files a tool call of this turn changed (an update, a restore): a room copy of one is told about (roomCopies) */
+  private changedSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
   /** the open thinking step's text as the engine sent it (QA AP-033): written on the step, redacted, when it closes */
@@ -819,6 +842,7 @@ export class TurnExec {
     // promptBudget): a small or local model gets less of each, with the usual quiet note
     const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
     const promptTokens = budget.total
+    this.memoryTokens = memoryTokensOf(promptTokens)
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -954,7 +978,8 @@ export class TurnExec {
     this.projectFolder = project?.folderPath ?? null
     // a project's own skills: only in its chats, as the person sees the project now
     this.skillProject = project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
-    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords() }
+    // (auto memory: what someone else wrote is checked as tool output is, chat/auto-memory.ts; batch 11-22c)
+    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords(); this.noteOutside('project_instructions', project!.instructions) }
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
@@ -1027,7 +1052,10 @@ export class TurnExec {
     }
     // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
     const several = !!this.shared || othersWrote
-    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared } : null)
+    // a chat shared with people with files copied in: its answers' paths to those originals as the copies'
+    // (chat/copy-paths.ts mapCopyText), the same files the tool calls open (chat/tools.ts mapPaths)
+    const copiesNow = () => (chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined)
+    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies: copiesNow() } : null)
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
@@ -1079,7 +1107,7 @@ export class TurnExec {
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -1195,6 +1223,9 @@ export class TurnExec {
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    // a skill someone else may have written, or an own skill an AI turn wrote after reading outside content: auto memory's copy and address checks read its words as tool output
+    // (chat/auto-memory.ts), as they read the skill tool's load (batch 11-22c)
+    if (invoked && (!ownPersonalSkill(invoked.skill.path, spec.userId) || this.fileOutsideLevel(invoked.skill.path) >= 1)) this.noteOutside('skill_command', invokedBlock)
     // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
     const answeredQ = answeredNote(rt.db, userMsg.id)
     // the calls whose safety cards this message answers run again now, once (replayCalls)
@@ -1205,7 +1236,8 @@ export class TurnExec {
     if (this.stopReason) return
     const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
-    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id))
+    // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
+    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
     const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
@@ -2052,7 +2084,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(deliveredArgs(e.name, e.input, this.narration.held))))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2066,7 +2098,7 @@ export class TurnExec {
         if (this.spec.clientKind === 'schedule' && this.readsOnly(tool, e.input)) { this.lookUpCalls.add(e.id); this.lookUpCalls.add(stepId(e.id)) }
         // the engine's own tools (web search, sub-agents) leave their echo marks here; the server's tools when they are
         // called (chat/tools.ts), before the call reaches the service (tools/connection-urls.ts)
-        if (!e.name.startsWith(TEAM_TOOL_PREFIX)) recordSent(this.rt.db, this.spec.chatId, e.input)
+        if (!e.name.startsWith(TEAM_TOOL_PREFIX)) { recordSent(this.rt.db, this.spec.chatId, e.input); this.engineToolIds.add(e.id) }
         if (tool === 'agent') return this.startSubtask(e.id, e.input)
         // naming the chat is not part of the answer: the new title itself shows in the Trina list and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
@@ -2089,6 +2121,14 @@ export class TurnExec {
       }
       case 'tool_end': {
         const tool = this.toolNames.get(e.id) ?? ''
+        // the engine's own tools (web search, sub-agents): their output is what auto memory's copy check reads (the
+        // server's tools give theirs whole: chat/tools.ts noteOutside)
+        // (no output, or output cut short: what came in is not all recorded, so auto memory keeps only the person's own
+        // words in this chat for now: review of #332, M3)
+        if (this.engineToolIds.delete(e.id) && !NOT_OUTSIDE_TOOLS.has(tool)) {
+          if (e.output && e.output.length < TOOL_OUTPUT_MAX) this.noteOutside(tool, e.output)
+          else this.rt.outside.markBlind(this.spec.chatId)
+        }
         // a call the person chose not to share in a shared chat did what it should: not a failed step
         const patch: Partial<Step> = { status: e.ok || this.sharedSkipped.has(stepId(e.id)) ? 'ok' : 'error', endedAt: new Date().toISOString() }
         if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search') {
@@ -2111,6 +2151,13 @@ export class TurnExec {
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
         if (tool === 'agent' && this.subtasks.has(e.id)) return this.endSubtask(e.id, e.ok, e.agent, patch)
+        // a remember call that failed before its handler ran (a wrong tool name, input the engine refused) never says
+        // "Remembered": the handler's own words, when it ran, are already on the step (patchToolStep)
+        if (tool === 'remember' && patch.status === 'error') {
+          const st = this.steps.find((x) => x.id === stepId(e.id))
+          const said = st && !st.memory ? rememberedText(st.label) : null
+          if (said !== null) patch.label = tr('notRemembered', this.spec.locale, { text: said }).slice(0, 500)
+        }
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
         return
@@ -2226,7 +2273,8 @@ export class TurnExec {
     const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
     if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
     const at = this.pieceStart
-    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
+    // (a command, a sub-agent's brief and a step's label deliver no words: a piece that repeats them is narration)
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), deliveredArgs(name, input, this.writtenText.slice(at)))) { this.pieceStart = null; return false }
     this.pieceStart = null
     // only where the answer's language is not written in Latin letters and the person did not ask for another one
     // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
@@ -2437,10 +2485,36 @@ export class TurnExec {
   private newSession() {
     // the mark of outside sources goes with the read scope
     this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0, others_words = 0 WHERE id = ?').run(this.spec.chatId)
+    // what the engine saw before is gone with the session: auto memory's copy check starts over (chat/auto-memory.ts)
+    this.rt.outside.clear(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
     clearApprovals(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
+  /** the memory block's tokens for this turn's model (prompt.ts memoryTokensOf): auto memory's "full" check */
+  memoryTokens: number | undefined = undefined
+  /** the engine's own tool calls of this turn (not ours): their tool_end output is kept for the copy check */
+  private engineToolIds = new Set<string>()
+  /** A tool's output came into this chat: kept (in memory only) for auto memory's copy and address checks
+   * (chat/auto-memory.ts), except the person's own answers and the AI's own bookkeeping. */
+  noteOutside(tool: string, text: string, images = 0) {
+    if (NOT_OUTSIDE_TOOLS.has(tool)) return
+    // a picture (a screenshot, an image read) is content the server cannot check (review of #332, M3)
+    if (images > 0) this.rt.outside.markBlind(this.spec.chatId)
+    if (text) this.rt.outside.add(this.spec.chatId, text)
+  }
+  /**
+   * May the AI keep memories on its own in this turn (docs/decisions/20261122-auto-memory.md "Where auto-save runs")?
+   * Per turn: the person's own private chat in the app, with nothing of rooms in it; never a shared chat, a scheduled
+   * run, Slack, a template or restricted run, or a confidential chat. The person's switch is read separately, when the
+   * tool is called (autoMemoryOn).
+   */
+  get autoMemoryPlace(): boolean {
+    if (this.shared || this.restricted || this.templateRun) return false
+    if (!['web', 'desktop', 'mobile'].includes(this.spec.clientKind ?? '')) return false
+    if (confidentialChat(this.rt.db, this.spec.chatId)) return false
+    return !readRooms(this)
+  }
   get tainted(): boolean {
     return !!(this.rt.db.query('SELECT session_tainted FROM chats WHERE id = ?').get(this.spec.chatId) as { session_tainted: number } | null)?.session_tainted
   }
@@ -3081,7 +3155,7 @@ export class TurnExec {
     const L = this.spec.locale
     // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
     const words = this.toolCard(tool, input)
-    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, this.cardInput(tool, input), L, BROWSER_TOOL_NAMES))
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, this.cardInput(tool, input), L))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input, words)
@@ -5141,6 +5215,7 @@ export class TurnExec {
         const d = r.action === 'create' ? parseJson(r.detail) : {}
         if (!d.folder && !d.conflictOf) this.newSaved.push(r.path)
       }
+      if (r.action === 'update' || r.action === 'restore') this.changedSaved.push(r.path)
       if (r.action === 'create' && looseArea(r.path) !== null) {
         // a new file, not a folder, a conflict copy beside its original or a rename in place
         const d = parseJson(r.detail)
@@ -5193,6 +5268,19 @@ export class TurnExec {
       // a shared chat: others read the answer, so no count of the asker's folders (only "only the user" or the whole team)
       return saveAudienceNote(this.rt.db, this.rt.files.rules(), paths, this.spec.userId, { room, shared: !!this.shared })
     } catch { return '' }
+  }
+
+  /**
+   * After a tool call (chat/tools.ts): the team files it changed that a room carries as a copy sent earlier (chat/
+   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI offers to post the new one; or ''.
+   * `say` false (a sub-agent's call, a guest): dropped without a line.
+   */
+  roomCopies(say = true): string {
+    if (!this.changedSaved.length) return ''
+    const paths = this.changedSaved
+    this.changedSaved = []
+    if (!say) return ''
+    try { return roomCopyNote(roomCopiesOf(this.rt.db, this.spec.userId, paths, this.spec.locale), !!this.shared) } catch (e) { this.rt.log.warn('room copies of changed files not looked up', { err: e }); return '' }
   }
 
   private fileSummary(): FileChangeSummary | null {
@@ -5467,6 +5555,12 @@ export class TurnExec {
     // a server stop cut off, a scheduled run or a question from Slack (this.tells), or a turn the server started by
     // itself (no clientKind: skill drafts, merges, file ranking)
     if (!asked && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
+    // a chat shared with people: the others get the unread number for this answer, never a push (chat/message-notices.ts)
+    // (the same end as the finished notice above: not one that ended on its question, stopped or cut off by a stop)
+    if (this.shared && status === 'done' && !asked && this.stopReason !== 'shutdown') this.finishStep('shared answer notices', () => {
+      const chat = this.rt.store.chatRow(this.spec.chatId)
+      if (chat) noteSharedAnswer(this.rt.ctx, chat, this.spec.assistantId, this.spec.userId)
+    })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
   }
 }
@@ -5748,7 +5842,28 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+/** A file that runs or configures something (a script, a workflow, package.json): a room card keeps what it will hold
+ * open, like an instruction file; a document, a page or a picture's code goes behind "자세히". */
+const runnableFile = (p: string) => /\.(?:sh|bash|zsh|fish|py|js|mjs|cjs|ts|mts|cts|jsx|tsx|rb|pl|php|ps1|psm1|bat|cmd|ya?ml|json|jsonc|toml|ini|cfg|conf|env|plist|service|desktop)$|(?:^|\/)(?:Makefile|Dockerfile|Procfile|Gemfile|\.[^/]*rc|\.github\/.*|\.env[^/]*)$/i.test(p.trim())
+/** a command that names an instruction or skill file (instructionLike's names): its card keeps the command open */
+const INSTRUCTION_IN_TEXT = /(?:SKILL|CLAUDE|AGENTS|GEMINI)\.md|(?:^|[\s/'"])skills\//i
+
+/** Tools whose room card lists the file or folder in its rows (roomChangeDetails): the question names the action alone,
+ * in words ("파일 수정"), not a raw path again. */
+const CARD_VERB_ONLY = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'save_room_file', 'save_url', 'save_connector_file'])
+
+/** What a room card's question says the AI is about to do: plain words (a dev-environment command by its description or
+ * its kind, never the command; a file change by its verb, the file in the rows below), else the step's line. */
+export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  // the server's own words for the command, never the AI's description: this card is there because other people's words
+  // may steer the AI (review of the plain-words change)
+  if (tool === 'box_shell') return shellWords('', typeof a.command === 'string' ? a.command : '', L)
+  if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
+  return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
+}
+
+export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean; folded?: true }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -5761,7 +5876,8 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
   // noSize: the text is a list of paths, not what is written (no "26 characters" for a path, QA TC-091)
   const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = [], noSize = false) => [{
     label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
-    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }),
+    // what a file will hold (code, an SVG) is one click away ("자세히"), except in an instruction file: that shows in full
+    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(noSize || !text || targets.some(runnableFile) ? {} : { folded: true as const }) }),
     ...(noSize ? { noSize: true } : {}),
   }]
   switch (tool) {
@@ -5770,7 +5886,7 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
       const files = a.file_paths.map(String)
       return [
         { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
-        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
+        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(files.some(runnableFile) ? {} : { folded: true as const }) }) },
       ]
     }
     case 'write':
@@ -5819,6 +5935,12 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
       return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':
       return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+    case 'box_shell': {
+      // what it does in the server's own words (changing files is said first, whatever else it does; never the AI's
+      // description); the command itself one click away, except when it names an instruction or skill file
+      const cmd = str(a.command)
+      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellWords('', cmd, L))], text: full(cmd), collapsedAt: ROOM_CHANGE_PREVIEW, ...(INSTRUCTION_IN_TEXT.test(cmd) ? {} : { folded: true as const }) }]
+    }
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
       // names, that they may see; an id alone says nothing)
@@ -5875,4 +5997,13 @@ export function copyCardFiles(tool: string, input: unknown, locale: Locale): { t
   }))]
   if (!names.length) return null
   return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
+}
+
+/** The memory text of a step labelled "Remembered: <text>" in any language (shared/src/step-labels.ts), or null. */
+function rememberedText(label: string): string | null {
+  for (const words of Object.values(STEP_TEXT.remembered) as string[]) {
+    const [head, tail] = words.split('{text}') as [string, string]
+    if (label.startsWith(head) && label.endsWith(tail)) return label.slice(head.length, label.length - tail.length)
+  }
+  return null
 }

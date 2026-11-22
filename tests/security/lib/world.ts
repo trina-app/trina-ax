@@ -252,6 +252,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const chatA = (await alice.ok('POST', '/api/chats', { title: C.aliceChatTitle, projectId: projAlice })).id
   const att = await alice.ok('POST', '/api/uploads', undefined, { form: pngForm({ chatId: chatA, name: `${C.aliceAttName}.png` }, `${C.aliceAttName}.png`) })
   const aliceRef = (await alice.ok('POST', '/api/attachments/team-file', { chatId: chatA, path: `users/alice/${C.aliceFileName}.md` })).id
+  inst.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice' OR username = 'alice'").run()
   const sent = await alice.ok('POST', `/api/chats/${chatA}/messages`, {
     clientMessageId: cm(), attachmentIds: [att.id], content: `${C.aliceMsg}\n` + fake(
       { tool: 'artifact', args: { action: 'create', key: 'k1', type: 'html', title: 'secret artifact', content: `<p>${C.aliceArtifact}</p>` } },
@@ -259,7 +260,8 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       { say: C.aliceAnswer },
     ),
   })
-  // the message carries an attachment (outside content), so the server asks before `remember` keeps anything
+  // the message carries an attachment (outside content), so the server asks before `remember` keeps anything (with
+  // auto memory off, as here: docs/decisions/20261122-auto-memory.md; on, it would keep it without a card)
   const confirm = await sockets.alice.next('turn.request', (f) => f.data.turnId === sent.turnId, 30_000)
   await alice.ok('POST', `/api/turns/${sent.turnId}/answer`, { kind: 'ask_user', requestId: confirm.data.request.requestId, answer: 'yes' })
   await sockets.alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 30_000)

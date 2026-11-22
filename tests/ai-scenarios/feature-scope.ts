@@ -35,6 +35,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'chat.list': { reach: 'explains' },
   'chat.list-folders': { reach: 'explains' },
   'rooms.categories': { reach: 'explains', why: 'people ask where a channel went or how to group channels; only admins change categories' },
+  'chat.message-notices': { reach: 'explains', why: 'people ask why they were told about a message in a shared chat, or how to mute one' },
   'chat.threads': { reach: 'explains', why: 'the AI reads a thread only when a person asks it to (answer_comments); people ask how it works' },
   'chat.edit-regenerate': { reach: 'explains' },
   'chat.cards': { reach: 'acts', tools: ['ask_user'] },

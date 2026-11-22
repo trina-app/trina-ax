@@ -316,7 +316,33 @@ export const FolderAudience = z.object({
 })
 export type FolderAudience = z.infer<typeof FolderAudience>
 
+/**
+ * Where a team file went that is not at `path` any more (QA TC-r2b-02: a chat's link to a poster someone moved said only
+ * "can't be found"): 'moved' by `by` at `at`, with `to` only when the caller may read it there; 'trashed'; 'no' for
+ * anything else (nothing recorded, the path is there, or its folder is not one the caller may open: then nothing is
+ * told, exactly as for a path that never existed).
+ */
+export const FileMoved = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('moved'), to: RelPath.optional(), by: UserRef, at: IsoTime }),
+  z.object({ status: z.literal('trashed'), by: UserRef, at: IsoTime }),
+  z.object({ status: z.literal('no') }),
+])
+export type FileMoved = z.infer<typeof FileMoved>
+
+/**
+ * Before an upload on the Files screen (QA TC-7241: a same-name upload silently became "name (2)"): which of these names
+ * a folder the caller may write already holds, compared as the server compares names (case, Unicode form), with the
+ * name as it is on disk. Names hidden from the caller count as free (the upload's rename still steps around them).
+ */
+export const NamesTakenBody = z.object({ folder: RelPath, names: z.array(z.string().min(1).max(255)).min(1).max(100) })
+export const NamesTaken = z.object({
+  taken: z.array(z.object({ name: z.string(), existing: z.string(), type: z.enum(['file', 'folder']) })),
+})
+export type NamesTaken = z.infer<typeof NamesTaken>
+
 export const FILES = {
+  namesTaken: endpoint({ method: 'POST', path: '/api/files/names-taken', auth: 'user', owner: 'C', body: NamesTakenBody, response: NamesTaken, summary: 'Which of these names a folder the caller may write already holds (before an upload asks Replace or keep both), with the name on disk and whether it is a file or a folder.' }),
+  moved: endpoint({ method: 'GET', path: '/api/files/moved', auth: 'user', owner: 'C', query: PathQuery, response: FileMoved, summary: 'Where a team file that is not at this path any more went: moved (and where, when the caller may read it there) or put in the trash, by whom and when. "no" when nothing is known or the old folder is not one the caller may open.' }),
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
   folderAudience: endpoint({ method: 'GET', path: '/api/files/audience', auth: 'user', owner: 'C', query: PathQuery, response: FolderAudience, summary: 'Who can see a folder the caller can open: their access, and where they can write, how many active people can open it (owner and admins included) and whether that is everyone; for the owner and admins also that count apart (by its rules, by role only). Counted, never named.' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),

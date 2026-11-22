@@ -22,7 +22,7 @@
 import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
-import { CHAT_FILES_FOLDER } from '@mycel/shared'
+import { CHAT_FILES_FOLDER, chatFilesWord } from '@mycel/shared'
 import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText, thumbnailUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
@@ -489,6 +489,7 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
   const t = useT()
   const me = useMe()
   const team = me?.team.defaultLocale
+  const locale = useLocale()
   if (kind === 'people') {
     const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || keptWithChat(f)))
     // a My files attachment (QA TC-7286): one some people here can't open goes in as a copy everyone opens, people
@@ -505,7 +506,7 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
   const ups = files.filter((f) => f.source === 'upload' && (f.status === 'uploading' || savedInProject(f)))
   if (!ups.length) return null
   const saved = ups.find((f) => savedInProject(f))?.attachment?.path
-  const folder = saved ? folderOf(saved).slice(folderOf(saved).lastIndexOf('/') + 1) : CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE]
+  const folder = chatFilesWord(saved ? folderOf(saved).slice(folderOf(saved).lastIndexOf('/') + 1) : CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE], locale)
   return (
     <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="shared-upload-line">
       {t('chat.sharedUploadLine', { folder, n: audience })}
@@ -521,6 +522,7 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
  */
 export function SharedQueuedLine({ attachments, audience, kind, className }: { attachments: readonly Attachment[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
   const t = useT()
+  const locale = useLocale()
   if (kind === 'people') {
     if (!attachments.some((a) => a.source === 'chat')) return null
     return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.share.uploadLine')}</p>
@@ -528,7 +530,7 @@ export function SharedQueuedLine({ attachments, audience, kind, className }: { a
   const names = new Set<string>(Object.values(CHAT_FILES_FOLDER))
   const saved = attachments.find((a) => a.source === 'team' && names.has(folderOf(a.path).slice(folderOf(a.path).lastIndexOf('/') + 1)))
   if (!saved) return null
-  const folder = folderOf(saved.path).slice(folderOf(saved.path).lastIndexOf('/') + 1)
+  const folder = chatFilesWord(folderOf(saved.path).slice(folderOf(saved.path).lastIndexOf('/') + 1), locale)
   return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.sharedUploadLine', { folder, n: audience })}</p>
 }
 

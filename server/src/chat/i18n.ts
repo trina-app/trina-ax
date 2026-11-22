@@ -164,10 +164,16 @@ export const TEXT = {
   notRemembered: STEP_TEXT.notRemembered,
   rememberAsking: STEP_TEXT.rememberAsking,
   forgot: STEP_TEXT.forgot,
+  rememberUpdated: STEP_TEXT.rememberUpdated,
+  notRememberedSecret: STEP_TEXT.notRememberedSecret,
+  forgotText: STEP_TEXT.forgotText,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
+  // a path in a tool call that named a file copied into this shared chat was the chat's copy (chat/copy-paths.ts;
+  // review of #355): the AI tells the person, the creator too, that their own team file did not change
+  copyPathMapped: t('이 경로는 이 채팅의 사본이에요. 원본 파일은 그대로예요.', 'This path is this chat\'s copy. The original file is unchanged.', 'Jalur ini adalah salinan di chat ini. File aslinya tidak berubah.', 'このパスはこのチャットのコピーです。元のファイルはそのままです。', 'Esta ruta es la copia de este chat. El archivo original no cambia.', '此路径是此聊天中的副本。原文件保持不变。'),
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
   /** the wider-audience card (docs/decisions/20261122-widening-card-wording.md; before: 20261117-save-card-plain.md):
    * the question first, with the place as a short name ({file}: the file's name, {area}: its project, group, "My
@@ -328,6 +334,8 @@ export const TEXT = {
   /** the person's AI chats, as the web app's sidebar names them (sidebar.aiChats); {name}: the AI's name there */
   aiHistory: t('{name} 기록', '{name} history', 'Riwayat {name}', "{name}の履歴", "Historial de {name}", "{name}历史记录"),
   answerShareNotReady: t('끝난 답변만 대화에 보낼 수 있어요. 답변이 끝난 뒤 다시 보내 주세요.', 'Only a finished answer can be sent to a conversation. Send it again once the answer is done.', 'Hanya jawaban yang sudah selesai yang bisa dikirim ke percakapan. Kirim lagi setelah jawabannya selesai.', "トークに送れるのは完了した回答のみです。回答が終わってからもう一度送ってください。", "Solo se puede enviar a una conversación una respuesta terminada. Vuelva a enviarla cuando la respuesta haya terminado.", "只有已完成的回答才能发送到聊天。请等回答结束后再发送。"),
+  answerShareFailed: t('이 답은 일이 안 됐다는 안내라서 대화방에 보내지 않아요. 다시 해 달라고 하거나 직접 써서 보내 주세요.', 'This answer only says something did not work, so it is not sent to the conversation. Ask again, or write the message yourself.', 'Jawaban ini hanya memberi tahu ada yang tidak berhasil, jadi tidak dikirim ke percakapan. Minta lagi, atau tulis pesannya sendiri.', "この回答はうまくいかなかったことを伝えるだけなので、トークには送りません。もう一度頼むか、自分で書いて送ってください。", 'Esta respuesta solo dice que algo no funcionó, así que no se envía a la conversación. Pídalo de nuevo o escriba el mensaje usted.', '这个回答只是说明某件事没成功，所以不会发到聊天里。请重新让它做，或自己写消息发送。'),
+  answerShareArtifactFailed: t('"{name}" 파일을 함께 보내지 못해서 아무것도 보내지 않았어요. 잠시 뒤 다시 보내 주세요.', 'Nothing was sent: "{name}" could not be attached. Try again in a moment.', 'Tidak ada yang dikirim: "{name}" tidak bisa dilampirkan. Coba lagi sebentar lagi.', "「{name}」を添付できなかったため、何も送っていません。少し待ってからもう一度送ってください。", 'No se envió nada: no se pudo adjuntar "{name}". Vuelva a intentarlo en un momento.', '未能附上“{name}”，所以什么都没有发送。请稍后再试。'),
   answerShareHidden: t('이 대화의 일부 사람에게 가려진 예전 답이 이 답에 쓰여서 보낼 수 없어요.', 'This answer cannot be sent: it used an earlier answer that some people in this conversation cannot see.', 'Jawaban ini tidak bisa dikirim: jawaban ini memakai jawaban sebelumnya yang tidak bisa dilihat sebagian orang di percakapan ini.', "この回答は送れません。このトークの一部の人には表示されない以前の回答を使っています。", "Esta respuesta no se puede enviar: usó una respuesta anterior que algunas personas de esta conversación no pueden ver.", "这个回答无法发送：它用到了之前的一个回答，而这个聊天里有些人看不到那个回答。"),
   answerShareThreadRoot: t('이 메시지의 스레드에 보낼 수 없어요. 메시지가 지워졌을 수 있어요.', "This can't go to that message's thread. The message may have been deleted.", 'Ini tidak bisa dikirim ke utas pesan itu. Pesannya mungkin sudah dihapus.', 'そのメッセージのスレッドには送れません。メッセージが削除された可能性があります。', 'No se puede enviar al hilo de ese mensaje. Puede que el mensaje se haya eliminado.', '无法发到那条消息的话题中。那条消息可能已被删除。'),
   answerShareConfidential: t('보안 작업을 한 채팅이라 답변을 다른 대화에 보낼 수 없어요.', 'This is a confidential chat, so its answers cannot be sent to a conversation.', 'Ini obrolan rahasia, jadi jawabannya tidak bisa dikirim ke percakapan.', "機密扱いのチャットなので、回答をトークに送れません。", "Este es un chat confidencial, así que sus respuestas no se pueden enviar a una conversación.", "这是保密对话，它的回答不能发送到聊天。"),

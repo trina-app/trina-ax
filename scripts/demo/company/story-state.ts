@@ -423,6 +423,13 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       }
     }
     for (const w of c.welcome.filter((x) => x.asked)) await (await as(w.username)).call(API.updateMemberWelcome, { body: { asked: true } }).catch(() => {})
+    // the people were in their projects long before the visitor came: "<who> added you to '<project>'" (#335, QA
+    // TC-r2u-03), which the seed's own member changes raise, is read
+    for (const a of accountsOf(c)) {
+      const api = await as(a.username)
+      const items = (await api.call(API.listNotifications, { query: { limit: 100 } })).items
+      for (const n of items.filter((x) => x.eventType === 'project.joined' && !x.readAt)) await api.call(API.markNotificationRead, { params: { id: n.id } })
+    }
     return result
   } finally {
     for (const api of clients.values()) await api.call(API.logout).catch(() => {})

@@ -23,17 +23,17 @@ const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
 const bytes = (rel: string) => fs.readFileSync(path.join(A.team, ...rel.split('/')))
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0x00, 0xfe])
 
-type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean; roomCardEach?: boolean }
 let rpcId = 0
-async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; locale?: 'ko' | 'en' | 'es' } = {}) {
-  const turnId = o.turn ? A.turn(user, A.chat(user)) : null
+async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; turnId?: string; locale?: 'ko' | 'en' | 'es' } = {}) {
+  const turnId = o.turnId ?? (o.turn ? A.turn(user, A.chat(user)) : null)
   const tc = A.toolCtx(user, turnId)
   if (o.person) {
     const p = o.person
     // like chat/tools.ts turnPerson: confirmWhy says how the card ended (a timeout is not a no); a scheduled run's person
     // is unattended and never asked
     tc.person = {
-      locale: o.locale ?? 'ko', unattended: p.unattended,
+      locale: o.locale ?? 'ko', unattended: p.unattended, ...(p.roomCardEach ? { roomCardEach: true } : {}),
       async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer },
       async confirmWhy(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer ? 'yes' : p.end ?? 'declined' },
       *turnUrls() {},
@@ -623,6 +623,88 @@ describe('rename_files', () => {
   })
 })
 
+
+// QA TC-r2u-25 (S-122): the AI renamed and moved 15 files of a folder everyone sees with no card
+describe('many moves and renames where other people look: one card for the rest of the answer', () => {
+  const seed = (dir: string, n: number) => Array.from({ length: n }, (_, i) => { const rel = `${dir}/memo-${i + 1}.txt`; put(rel, `memo ${i + 1}`); return rel })
+
+  test('a rename_files of 15 in a shared folder asks once, listing them; no: nothing renamed; yes: renamed, and the moves after it in the answer go without asking', async () => {
+    const files = seed('shared/mkt-1225', 15)
+    const no = ask(false)
+    const r0 = await call('alice', 'rename_files', { renames: files.map((f, i) => ({ path: f, new_name: `2026-10-${String(i + 1).padStart(2, '0')}_memo.txt` })) }, { person: no, turn: true })
+    expect(r0.isError).toBe(true)
+    expect(r0.text).toContain('did not allow')
+    expect(no.questions).toHaveLength(1)
+    expect(no.questions[0]).toMatch(/AI가 \d+명이 함께 보는 곳에서 항목 15개의 이름을 바꾸려고 해요/)
+    expect(no.questions[0]).toContain('이 질문을 다시 하지 않아요')
+    expect(has(files[0]!)).toBe(true)
+
+    const yes = ask(true)
+    const turnId = A.turn('alice', A.chat('alice'))
+    const r = await call('alice', 'rename_files', { renames: files.map((f, i) => ({ path: f, new_name: `2026-10-${String(i + 1).padStart(2, '0')}_memo.txt` })) }, { person: yes, turnId })
+    expect(r.isError).toBe(false)
+    expect(yes.questions).toHaveLength(1)
+    expect(has('shared/mkt-1225/2026-10-01_memo.txt')).toBe(true)
+    // then one move per date folder, as the AI did: no more cards in that answer
+    for (let i = 1; i <= 15; i++) {
+      const d = String(i).padStart(2, '0')
+      const m = await call('alice', 'move_files', { paths: [`shared/mkt-1225/2026-10-${d}_memo.txt`], to_folder: `shared/mkt-1225/2026-10-${d}` }, { person: yes, turnId })
+      expect(m.isError).toBe(false)
+    }
+    expect(yes.questions).toHaveLength(1)
+    expect(has('shared/mkt-1225/2026-10-15/2026-10-15_memo.txt')).toBe(true)
+  })
+
+  test('one at a time: three moves and renames go, the fourth asks, and its no stops only that one', async () => {
+    const files = seed('shared/mkt-1226', 5)
+    const p = ask(false)
+    const turnId = A.turn('alice', A.chat('alice'))
+    expect((await call('alice', 'rename_file', { path: files[0]!, new_name: 'a.txt' }, { person: p, turnId })).isError).toBe(false)
+    expect((await call('alice', 'move_files', { paths: [files[1]!], to_folder: 'shared/mkt-1226/sub' }, { person: p, turnId })).isError).toBe(false)
+    expect((await call('alice', 'rename_file', { path: files[2]!, new_name: 'c.txt' }, { person: p, turnId })).isError).toBe(false)
+    expect(p.questions).toHaveLength(0)
+    const fourth = await call('alice', 'move_files', { paths: [files[3]!], to_folder: 'shared/mkt-1226/sub' }, { person: p, turnId })
+    expect(fourth.isError).toBe(true)
+    expect(p.questions).toHaveLength(1)
+    expect(p.questions[0]).toContain('항목 1개를')
+    expect(p.questions[0]).toContain('이미 3개를 옮기거나 이름을 바꿨어요')
+    expect(has(files[3]!)).toBe(true)
+    // a new answer starts its own count
+    expect((await call('alice', 'rename_file', { path: files[3]!, new_name: 'd.txt' }, { person: p, turn: true })).isError).toBe(false)
+  })
+
+  test('my own folder, a copy, a scheduled run or no chat person: no card', async () => {
+    const mine = seed('users/alice/sort-1227', 10)
+    const p = ask(false)
+    expect((await call('alice', 'rename_files', { renames: mine.map((f, i) => ({ path: f, new_name: `n-${i}.txt` })) }, { person: p, turn: true })).isError).toBe(false)
+    const shared = seed('shared/mkt-1227', 6)
+    expect((await call('alice', 'copy_files', { paths: shared, to_folder: 'shared/mkt-1227-copy' }, { person: p, turn: true })).isError).toBe(false)
+    expect(p.questions).toHaveLength(0)
+    const run = { ...ask(false), unattended: true }
+    expect((await call('alice', 'rename_files', { renames: shared.map((f, i) => ({ path: f, new_name: `s-${i}.txt` })) }, { person: run, turn: true })).isError).toBe(false)
+    expect(run.questions).toHaveLength(0)
+    expect((await call('alice', 'rename_files', { folder: 'shared/mkt-1227', find: 's-', replace: 't-' }, { turn: true })).isError).toBe(false)
+  })
+
+  test('a move that changes who can see the files asks once on its own card, which also stands for the many-items card', async () => {
+    const files = seed('shared/mkt-1228', 6)
+    const p = ask(true)
+    const r = await call('alice', 'move_files', { paths: files, to_folder: 'users/alice/kept-1228' }, { person: p, turn: true })
+    expect(r.isError).toBe(false)
+    expect(p.questions).toHaveLength(1)
+    expect(p.questions[0]).toContain('더 이상 볼 수 없게 돼요')
+    // it says that its yes covers the rest of the answer, and then the next renames there go without a card
+    expect(p.questions[0]).toContain('이 질문을 다시 하지 않아요')
+  })
+
+  test('after a room read the room card asks before each call: no second card for many items', async () => {
+    const files = seed('shared/mkt-1229', 6)
+    const p = { ...ask(false), roomCardEach: true }
+    const r = await call('alice', 'rename_files', { renames: files.map((f, i) => ({ path: f, new_name: `r-${i}.txt` })) }, { person: p, turn: true })
+    expect(r.isError).toBe(false)
+    expect(p.questions).toHaveLength(0)
+  })
+})
 
 test('an audience change while the person confirms refuses both moves and copies', async () => {
   for (const tool of ['move_files', 'copy_files']) {

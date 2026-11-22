@@ -416,9 +416,11 @@ describe('a chat row\'s "…"', () => {
       expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
       expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
-      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([pin, link, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link])
+      // and "Mute this chat": a project's shared chat is a conversation (chat/message-notices.ts)
+      const mute = ['chat-row-mute', ko('chat.mute')]
+      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], mute, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, link, mute, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link, mute])
     } finally {
       await m.unmount()
     }

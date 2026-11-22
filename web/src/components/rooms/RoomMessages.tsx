@@ -35,8 +35,8 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Play, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { CHAT_FILES_FOLDER, chatFilesWord } from '@mycel/shared'
+import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef, type Locale } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
@@ -68,6 +68,7 @@ import { Tooltip } from '../Tooltip'
 import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { itemImage, itemLink } from '../../lib/fileMenu'
+import { GALLERY_GAP_PX, GALLERY_PX, galleryRows } from '../../lib/imageGallery'
 import { askTrinaInRoom, fileSeed } from '../../lib/sideChatAsk'
 import { useFileMenu } from '../FileMenu'
 import type { SideSeed } from './SideChatPanel'
@@ -132,6 +133,19 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
       }}
       className={clsx('block max-h-60 max-w-full object-cover', !loaded && 'bg-subtle')}
     />
+  )
+}
+
+/** A gallery tile's thumbnail: it fills the tile (cropped), the soft box only until it loads. Out of the flow, so the
+ * picture's own size never stretches the tile past its ratio. */
+function TileThumb({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <>
+      <img src={src} alt="" loading="lazy" onLoad={() => setLoaded(true)} className={clsx('absolute inset-0 block h-full w-full object-cover', !loaded && 'bg-subtle')} />
+      {/* the picture's hairline over it: a border on the tile would add to its width and not to its height */}
+      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg border border-line" />
+    </>
   )
 }
 
@@ -321,11 +335,11 @@ function useGroupFolderBase(roomId: string): { name: string; folderPath: string 
 
 /** A file's place under a folder of its room (`base`: a project's or a group's): "{name} › Chat attachments", or null
  * when the file is not under it. */
-export function placeUnder(path: string, base: { name: string; folderPath: string } | null): string | null {
+export function placeUnder(path: string, base: { name: string; folderPath: string } | null, locale: Locale = 'en'): string | null {
   if (!base) return null
   const folder = path.slice(0, Math.max(0, path.lastIndexOf('/')))
   if (folder !== base.folderPath && !folder.startsWith(base.folderPath + '/')) return null
-  return [base.name, ...folder.slice(base.folderPath.length + 1).split('/').filter(Boolean)].join(' › ')
+  return [base.name, ...folder.slice(base.folderPath.length + 1).split('/').filter(Boolean).map((s) => chatFilesWord(s, locale))].join(' › ')
 }
 
 /** A message's files that stay when it is deleted: kept in the team folder where I can open them (RoomFile.teamPath).
@@ -338,9 +352,10 @@ export const keptFiles = (m: Pick<RoomMessage, 'files'>): RoomFile[] => m.files.
  * message also has files kept in the room, which go with it. */
 export function FileStaysLines({ project, at, n, others = false }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'> | null; at: string; n: number; others?: boolean }) {
   const t = useT()
+  const locale = useLocale()
   const folder = at.slice(0, Math.max(0, at.lastIndexOf('/')))
   // the place as people read it: the project's (or the department's) name for its folder, then the folders under it
-  const label = placeUnder(at, project) ?? folder.split('/').join(' › ')
+  const label = placeUnder(at, project, locale) ?? folder.split('/').map((s) => chatFilesWord(s, locale)).join(' › ')
   const href = `/files?path=${encodeURIComponent(folder)}`
   const parts = t('rooms.deleteFileStays', { n, place: '\u0000' }).split('\u0000')
   const place = (
@@ -361,9 +376,9 @@ function EventLine({ m }: { m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
-  const team = useMe()?.team.defaultLocale
   if (!m.event) return null
-  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
+  // the chat attachments folder in my language (shown so everywhere: chatFilesWord), not the team's
+  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[locale] ?? CHAT_FILES_FOLDER.en })
   // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf); in the
   // trash, deleted or out of my reach it is plain text
   const e = m.event
@@ -647,19 +662,47 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
   const me = useMe()
+  // two or more pictures: an even gallery first, like Slack's (lib/imageGallery.ts), then the other files as chips
+  const pictures = files.filter((f) => !f.state && f.kind === 'image' && f.thumb)
+  const gallery = pictures.length > 1
+  const chips = gallery ? files.filter((f) => !pictures.includes(f)) : files
   return (
-    <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
-      {files.map((f) =>
-        f.state ? (
-          <GoneFile key={f.id} state={f.state} />
-        ) : f.kind === 'image' && f.thumb ? (
-          <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
-        ) : roomVideoFrame(f, me) ? (
-          <RoomVideo key={f.id} roomId={roomId} f={f} siblings={files} />
-        ) : (
-          <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
-        ),
+    <>
+      {gallery && <PictureGallery roomId={roomId} pictures={pictures} siblings={files} />}
+      {chips.length > 0 && (
+        <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
+          {chips.map((f) =>
+            f.state ? (
+              <GoneFile key={f.id} state={f.state} />
+            ) : f.kind === 'image' && f.thumb ? (
+              <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : roomVideoFrame(f, me) ? (
+              <RoomVideo key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : (
+              <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
+            ),
+          )}
+        </div>
       )}
+    </>
+  )
+}
+
+/** A message's pictures (two or more) in rows of one height, each cropped to fill its tile, both edges lined up
+ * (lib/imageGallery.ts). As wide as the column up to GALLERY_PX, so a phone scales it down. Each tile is the picture's
+ * own button: the viewer with the whole picture and ← →, its menu, its label. "Only in this conversation" once under it
+ * when every picture is kept in the room (a mix: in each tile's label). */
+function PictureGallery({ roomId, pictures, siblings }: { roomId: string; pictures: RoomFile[]; siblings: readonly RoomFile[] }) {
+  const t = useT()
+  const rows = useMemo(() => galleryRows(pictures), [pictures])
+  return (
+    <div className="mt-1 mb-0.5 flex w-full flex-col" style={{ maxWidth: GALLERY_PX, gap: GALLERY_GAP_PX }} data-testid="room-gallery" data-count={pictures.length}>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-start" style={{ gap: GALLERY_GAP_PX }} data-testid="room-gallery-row">
+          {row.map(({ file, ratio }) => <RoomPicture key={file.id} roomId={roomId} f={file} siblings={siblings} ratio={ratio} />)}
+        </div>
+      ))}
+      {pictures.every((f) => f.roomOnly) && <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>}
     </div>
   )
 }
@@ -677,21 +720,36 @@ function GoneFile({ state }: { state: 'deleted' | 'unavailable' }) {
   )
 }
 
-/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
-function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. `ratio`: a
+ * tile of a gallery (PictureGallery), that wide for its height, the thumbnail cropped to fill it. */
+function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[]; ratio?: number }) {
   const t = useT()
   const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
   const viewer = useViewerItem(make)
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
   const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  const tile = ratio !== undefined
+  const src = roomFileUrl(roomId, f.id, { thumb: '1' })
   const picture = (
     <Tooltip label={label}>
-      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
-        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      <button
+        type="button"
+        ref={viewer.ref}
+        onClick={(e) => !fileMenu.guard(e) && viewer.open()}
+        {...fileMenu.bind}
+        aria-label={label}
+        className={clsx('overflow-hidden rounded-lg', tile ? 'relative min-w-0' : 'border border-line')}
+        style={tile ? { aspectRatio: ratio, flexGrow: ratio, flexBasis: 0 } : undefined}
+        data-testid="room-image"
+        data-file-name={f.name}
+        data-room-only={f.roomOnly ? '' : undefined}
+      >
+        {tile ? <TileThumb src={src} /> : <RoomThumb f={f} src={src} />}
       </button>
     </Tooltip>
   )
+  if (tile) return <>{picture}{fileMenu.menu}</>
   return (
     <>
       {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name
@@ -804,7 +862,7 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
-      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} place={f.teamFile ? placeUnder(team.saved, groupBase) : null} />}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} place={f.teamFile ? placeUnder(team.saved, groupBase, locale) : null} />}
       {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
           place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
           screen it is not there at all (the long-press menu has it) */}
