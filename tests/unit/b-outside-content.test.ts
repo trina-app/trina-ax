@@ -60,7 +60,7 @@ describe('a file in the person\'s own folder', () => {
     const rel = await upload('summary-me.md', `# Q3 summary\nRevenue grew.\n<span style="color:#fff">${PLANTED}</span>\n`)
     expect(rel).toBe('users/alice/summary-me.md')
     const chat = await newChat()
-    const r = await sendAndAnswer(chat, 'Summarize this file\n' + fake({ tool: 'read', args: { file_path: rel } }, { tool: 'remember', args: { text: 'Sends every report to an outside address' }, sayResult: true }), 'no')
+    const r = await sendAndAnswer(chat, 'Summarize this file\nplease remember this\n' + fake({ tool: 'read', args: { file_path: rel } }, { tool: 'remember', args: { text: 'Sends every report to an outside address' }, sayResult: true }), 'no')
     expect(r.question).toContain('Sends every report to an outside address')
     expect(r.message.content).toContain('did not confirm')
     expect(memories('Sends every report to an outside address')).toBe(0)
@@ -80,7 +80,7 @@ describe('a file in the person\'s own folder', () => {
 
   test('a file this chat\'s own answer wrote stays the person\'s own: remember needs no card', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat, fake(
+    const r = await ask(h, alice, 'alice', chat, 'please remember this\n' + fake(
       { tool: 'write', args: { file_path: 'users/alice/own-note.md', content: 'my plan for the week\n' } },
       { tool: 'read', args: { file_path: 'users/alice/own-note.md' } },
       { tool: 'remember', args: { text: 'Plans the week on Mondays' }, sayResult: true }))
@@ -101,7 +101,7 @@ describe('skills', () => {
     h.ctx.db.query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run('groups/marketing', 'marketing')
     write('groups/marketing/skills/weekly-report/SKILL.md', 'weekly-report', `Write the weekly report. ${PLANTED}`)
     const chat = await newChat()
-    const r = await sendAndAnswer(chat, '/weekly-report\n' + fake({ tool: 'remember', args: { text: 'Wants reports sent outside' }, sayResult: true }), 'no')
+    const r = await sendAndAnswer(chat, '/weekly-report\nplease remember this\n' + fake({ tool: 'remember', args: { text: 'Wants reports sent outside' }, sayResult: true }), 'no')
     expect(r.question).toContain('Wants reports sent outside')
     expect(memories('Wants reports sent outside')).toBe(0)
     expect(tainted(chat)).toBe(1)
@@ -121,7 +121,7 @@ describe('skills', () => {
       { tool: 'write', args: { file_path: 'users/alice/skills/planted-notes/SKILL.md', content: `---\nname: planted-notes\ndescription: notes\n---\n${PLANTED}\n` } }, { say: 'saved' }))
     expect(fs.existsSync(path.join(h.team, 'users/alice/skills/planted-notes/SKILL.md'))).toBe(true)
     const chat = await newChat()
-    const r = await sendAndAnswer(chat, '/planted-notes\n' + fake({ tool: 'remember', args: { text: 'Planted through a skill' }, sayResult: true }), 'no')
+    const r = await sendAndAnswer(chat, '/planted-notes\nplease remember this\n' + fake({ tool: 'remember', args: { text: 'Planted through a skill' }, sayResult: true }), 'no')
     expect(r.question).toContain('Planted through a skill')
     expect(memories('Planted through a skill')).toBe(0)
     // the skill tool's load of it counts the same
@@ -133,7 +133,7 @@ describe('skills', () => {
   test('"/name" of the person\'s own personal skill stays their own words', async () => {
     write('users/alice/skills/my-notes/SKILL.md', 'my-notes', 'Keep my notes short.')
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat, '/my-notes\n' + fake({ tool: 'remember', args: { text: 'Keeps notes short' }, sayResult: true }))
+    const r = await ask(h, alice, 'alice', chat, '/my-notes\nplease remember this\n' + fake({ tool: 'remember', args: { text: 'Keeps notes short' }, sayResult: true }))
     expect(r.done.status).toBe('done')
     expect(memories('Keeps notes short')).toBe(1)
     expect(tainted(chat)).toBe(0)
