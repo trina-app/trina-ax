@@ -107,7 +107,7 @@ export function entriesOf(md: string): { entries: Map<string, Record<string, str
       const e: Record<string, string> = {}
       t.header.forEach((h, i) => { e[h] = r[i] ?? '' })
       const id = unquote(e.id!)
-      if (!/^[a-z0-9]+(\.[a-z0-9_-]+)+$/.test(id)) problems.push(`entry id "${e.id}" is not a dotted lowercase id in backticks`)
+      if (!/^[a-z0-9]+(\.[A-Za-z0-9_-]+)+$/.test(id)) problems.push(`entry id "${e.id}" is not a dotted id in backticks (area first, lowercase)`)
       if (entries.has(id)) problems.push(`entry id ${id} is listed twice`)
       for (const f of ENTRY_FIELDS) if (!e[f]?.trim()) problems.push(`entry ${id}: the field "${f}" is empty (write "none" or "n/a" with a reason)`)
       if (!/^(OK|VIOLATION|OPEN)\b/.test(e['rule a'] ?? '')) problems.push(`entry ${id}: rule A must start with OK, VIOLATION or OPEN`)

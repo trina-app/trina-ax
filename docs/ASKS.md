@@ -28,7 +28,7 @@ confirm dialogs, and the system prompts of the desktop, menu bar and phone apps.
 
 ## Fields
 
-- **id**: stable, dotted, lowercase; the area first (`share.file`, `ui.files.delete`, `os.mac.mic`).
+- **id**: stable and dotted, the area first in lowercase (`share.file`, `ui.files.delete`, `os.mac.mic`).
 - **where**: the file and line that raise it (lines drift; the test checks the file).
 - **trigger**: when it shows, and when it is skipped.
 - **text (en / ko)**: the title or question, cut with … when long, and the i18n key.
