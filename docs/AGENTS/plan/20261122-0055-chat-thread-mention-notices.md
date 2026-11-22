@@ -1,6 +1,6 @@
 # Shared-chat thread mentions reach the person: Mentions & threads and the desktop notification
 
-- Date (UTC): 2026-11-22 00:58
+- Date (UTC): 2026-11-22 00:55
 - Branch: `fix/chat-thread-mentions`
 - Status: in progress
 - Where: server/src/notifications/service.ts (the Inbox list and "Mark all as read"), server/src/chat/threads.ts (the
@@ -31,7 +31,10 @@ In:
    `roomUnreadCount` counts them, `noticeUnreadCount` does not. `readAll`: the chat-thread rows follow the same tab rule.
 2. `shared activityTabHas`: `chat.thread_reply` is under Threads, and under Mentions while `chatThread.mention`.
 3. `chat/threads.ts sendReply` / `fanOut`: the `chat.thread` event carries `notice: 'mention' | 'reply'` to each person
-   who got a notice from this reply (optional field; an older page ignores it).
+   this reply gave a new notice (or the first mention of an open one), outside their quiet hours, a plain reply only
+   while "Replies in threads I'm part of" is on; a mention is told as a room's mention is (optional field; an older
+   page ignores it). "Mark all as read" of these rows also tells my other windows the thread is read and cancels its
+   pending push.
 4. web: `pages/Activity.tsx` shows the chat-thread rows on 대화's page; `store/inbox.ts` counts them as conversation
    rows; `store/sessionMarkers.ts` tells them in the desktop app (the generic words of the Inbox, the chat's title).
 5. Tests: unit (server list / tabs / read all / event notice; web tab rule and the desktop tell).

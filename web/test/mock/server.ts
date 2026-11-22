@@ -5518,10 +5518,12 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none,
-      // only=notices all of them
-      const unread = mine.filter((n) => !n.readAt).length
-      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: unread, roomUnreadCount: 0, noticeUnreadCount: unread }
+      // no room rows here (the specs that need them answer GET /api/notifications themselves); a chat-thread notice is a
+      // conversation row (the server's CHAT_THREAD_ROW): only=rooms has those alone, only=notices all the others
+      const items = mine.map((n) => this.inboxItem(n))
+      const thread = (x: { code: string }) => x.code === 'chat.thread_reply'
+      const unread = items.filter((x) => !x.readAt).length, threadUnread = items.filter((x) => !x.readAt && thread(x)).length
+      return { items: c.query.only === 'rooms' ? items.filter(thread) : c.query.only === 'notices' ? items.filter((x) => !thread(x)) : items, nextCursor: null, unreadCount: unread, roomUnreadCount: threadUnread, noticeUnreadCount: unread - threadUnread }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
     // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
@@ -5530,8 +5532,9 @@ export class MockServer {
       for (const n of this.inbox) {
         if (n.userId !== c.user.id || n.readAt) continue
         const item = this.inboxItem(n)
-        if (c.body.only === 'rooms' && !item.room) continue
-        if (c.body.only === 'notices' && item.room) continue
+        const conversation = !!item.room || item.code === 'chat.thread_reply'
+        if (c.body.only === 'rooms' && !conversation) continue
+        if (c.body.only === 'notices' && conversation) continue
         if (!activityTabHas(item, c.body.tab)) continue
         n.readAt = now()
         read++

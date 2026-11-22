@@ -243,8 +243,8 @@ export const InboxNotification = z.object({
    * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is
    * there; `title`, the chat's title. `gone`: I no longer see it (no name, no title, no link). Never a reply's text.
    * `mention`: a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md); `name` is then who mentioned
-   * me. Older servers omit it */
-  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional(), mention: z.literal(true).optional() }).optional(),
+   * me. `byId`: that person's id while `name` is given (their photo on the row). Older servers omit it */
+  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), byId: z.string().optional(), title: z.string().nullable(), gone: z.literal(true).optional(), mention: z.literal(true).optional() }).optional(),
   /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
    * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
    * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
@@ -384,11 +384,13 @@ export type InboxNotification = z.infer<typeof InboxNotification>
 export const ActivityTab = z.enum(['all', 'dms', 'mentions', 'threads'])
 export type ActivityTab = z.infer<typeof ActivityTab>
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
- * Mentions, a reply in a thread under Threads (in a direct or group chat too). A notice of the app's own is under All
- * only. The page filters with it and the server marks a tab read with it (POST /api/notifications/read), so both follow
- * one rule. */
-export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room'>, tab: ActivityTab): boolean {
+ * Mentions, a reply in a thread under Threads (in a direct or group chat too). A reply in a thread under a shared AI
+ * chat's answer (chat.thread_reply) is a thread reply as well: under Threads, and under Mentions while one of its
+ * replies mentions me. A notice of the app's own is under All only. The page filters with it and the server marks a
+ * tab read with it (POST /api/notifications/read), so both follow one rule. */
+export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread'>, tab: ActivityTab): boolean {
   if (tab === 'all') return true
+  if (item.code === 'chat.thread_reply') return tab === 'threads' || (tab === 'mentions' && !!item.chatThread?.mention)
   const room = item.room
   if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
   if (tab === 'dms') return room.kind === 'dm' || room.kind === 'group'
