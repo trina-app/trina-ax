@@ -12,7 +12,9 @@
 //
 // A flow is bound to the browser that started it: a short HttpOnly cookie whose hash the flow keeps. Nobody finishes a
 // sign-in someone else started, or sends a person back signed in as the starter's Google account (login CSRF). A
-// connect is also bound to the session that started it. A state works once.
+// connect is also bound to the session that started it. A state works once. The desktop and phone apps start flows
+// bound to a secret their sign-in page keeps instead (no cookie), and Google's return gives them a one-time code, never
+// a session in the system browser (auth/google-login-apps.ts, docs/decisions/20261122-google-login-apps.md).
 import crypto from 'node:crypto'
 import type { Context } from 'hono'
 import type { MyGoogle } from '@mycel/shared/api'
@@ -33,6 +35,7 @@ import { hashToken, safeEqual } from './passwords'
 import { googleStartKeys } from './rate-limit'
 import { authOf } from './service'
 import { getUser } from './users'
+import { googleAppReturn, googleSignInRefusal, holdGoogleCode, type GoogleAppClient } from './google-login-apps'
 
 export const GOOGLE_FLOW_TTL_MS = 10 * 60_000
 /** open flows at once, for the whole server: a flood of starts from many addresses stops here, not at the disk */
@@ -47,11 +50,18 @@ const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.
  * says it in words. A sign-in that worked opens `next` instead. */
 export type GoogleResult = 'connected' | 'not_connected' | 'account_off' | 'password_first' | 'in_use' | 'cancelled' | 'expired' | 'failed'
 
+/** binding_hash: the browser's binding cookie's hash ('web'), or the hash of the secret the app keeps ('desktop',
+ * 'mobile': auth/google-login-apps.ts, migration 133) */
 interface FlowRow {
   id: string; binding_hash: string; intent: 'signin' | 'connect'; user_id: string | null; session_id: string | null
   config_key: string; next: string | null; secret_enc: string | null; key_version: number; status: 'pending' | 'used'; expires_at: string
+  client: 'web' | GoogleAppClient
 }
 interface GoogleClaims { sub: string; email: string | null; hd: string | null }
+/** How a return ended: a result for the page, a web sign-in's address to open, or an app's one-time code */
+type Settled = { row: FlowRow | null; result: GoogleResult } | { row: FlowRow; next: string } | { row: FlowRow; code: string; who: { name: string; username: string } }
+/** what binds a new flow: the browser's cookie, or the secret an app keeps (only its hash comes here) */
+type Binding = { client: 'web' } | { client: GoogleAppClient; secretHash: string }
 
 const random = () => crypto.randomBytes(32).toString('base64url')
 const clean = (v: unknown, max: number): string | null => typeof v === 'string' && v ? v.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
@@ -88,43 +98,59 @@ export function safeNextPath(v: string | null | undefined): string | null {
  * this page was opened at (people on an office, Tailscale or LAN address sign in with the password there: the binding
  * cookie lives on one address), and it is not a demo. */
 export function googleLoginAvailable(ctx: AppContext, reqUrl: string): boolean {
-  if (ctx.config.demo || isFreeRoam(ctx.config)) return false
-  const cfg = googleDriveOf(ctx).config
-  if (!cfg) return false
-  try { return new URL(cfg.redirectUri).origin === new URL(reqUrl).origin } catch { return false }
+  if (!googleAppLoginAvailable(ctx)) return false
+  try { return new URL(googleDriveOf(ctx).config!.redirectUri).origin === new URL(reqUrl).origin } catch { return false }
 }
 
-/** The flow row, the binding cookie and Google's address. Each start counts against the caller's address, connect too. */
-function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null): { url: string } {
+/** The desktop and phone apps can use it (auth/google-login-apps.ts): this server has a Google client of its own and it
+ * is not a demo. Any address the app shows (an office LAN address too): their flow is bound to a secret the app keeps,
+ * not to a cookie of one address. */
+export function googleAppLoginAvailable(ctx: AppContext): boolean {
+  if (ctx.config.demo || isFreeRoam(ctx.config)) return false
+  return !!googleDriveOf(ctx).config
+}
+
+/** The flow row, the binding (a cookie for a browser; for an app, the hash of its secret) and Google's address. Each
+ * start counts against the caller's address, connect too. */
+function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null, bind: Binding = { client: 'web' }): { url: string } {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const hold = a.limiter.hold(googleStartKeys(c.get('info').ip))
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
-  if (!googleLoginAvailable(ctx, c.req.url)) fail('unavailable', msg('googleSignInOff', locale))
+  if (!(bind.client === 'web' ? googleLoginAvailable(ctx, c.req.url) : googleAppLoginAvailable(ctx))) fail('unavailable', msg('googleSignInOff', locale))
   const drive = googleDriveOf(ctx)
   const cfg = drive.config as DriveConfig
   const now = a.now()
   ctx.db.query('DELETE FROM google_signin_flows WHERE expires_at <= ?').run(new Date(now).toISOString())
   if ((ctx.db.query('SELECT COUNT(*) AS n FROM google_signin_flows').get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
   const id = newId(), state = random(), binding = random(), nonce = random(), verifier = crypto.randomBytes(48).toString('base64url')
+  const bindingHash = bind.client === 'web' ? hashToken(binding) : bind.secretHash
   let sealed: { enc: string; keyVersion: number }
   try { sealed = drive.store.seal(SEAL_CONTEXT, id, { verifier, nonce }) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
   ctx.db.transaction(() => {
     // a person's earlier connect still open goes: the binding cookie below replaces its cookie anyway
     if (who) ctx.db.query("DELETE FROM google_signin_flows WHERE user_id = ? AND status = 'pending'").run(who.userId)
-    ctx.db.query('INSERT INTO google_signin_flows (id, state_hash, binding_hash, intent, user_id, session_id, config_key, next, secret_enc, key_version, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, hashToken(state), hashToken(binding), intent, who?.userId ?? null, who?.sessionId ?? null, configKey(cfg), next, sealed.enc, sealed.keyVersion, new Date(now).toISOString(), new Date(now + GOOGLE_FLOW_TTL_MS).toISOString())
+    ctx.db.query('INSERT INTO google_signin_flows (id, state_hash, binding_hash, intent, user_id, session_id, config_key, next, secret_enc, key_version, created_at, expires_at, client) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, hashToken(state), bindingHash, intent, who?.userId ?? null, who?.sessionId ?? null, configKey(cfg), next, sealed.enc, sealed.keyVersion, new Date(now).toISOString(), new Date(now + GOOGLE_FLOW_TTL_MS).toISOString(), bind.client)
   })()
-  c.header('Set-Cookie', bindingCookie(c.req.url, binding, GOOGLE_FLOW_TTL_MS / 1000), { append: true })
+  // an app's flow sets no cookie: the system browser that comes back is not the app's window
+  if (bind.client === 'web') c.header('Set-Cookie', bindingCookie(c.req.url, binding, GOOGLE_FLOW_TTL_MS / 1000), { append: true })
   const url = new URL(GOOGLE_AUTH)
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
   for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: SCOPES, state, nonce, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account' })) url.searchParams.set(k, v)
   return { url: url.href }
 }
 
-/** POST /api/auth/google/start: sign in with a connected Google account. */
-export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, next: string | undefined): { url: string } {
-  return begin(c, ctx, 'signin', null, safeNextPath(next))
+/** POST /api/auth/google/start: sign in with a connected Google account. A browser by default; the desktop or phone app
+ * with the hash of the secret its sign-in page keeps (auth/google-login-apps.ts). */
+export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, b: { next?: string; client?: 'web' | GoogleAppClient; appSecretHash?: string }): { url: string } {
+  const client = b.client ?? 'web'
+  if (client === 'web') {
+    if (b.appSecretHash) fail('bad_request')
+    return begin(c, ctx, 'signin', null, safeNextPath(b.next))
+  }
+  if (!b.appSecretHash) return fail('bad_request')
+  return begin(c, ctx, 'signin', null, safeNextPath(b.next), { client, secretHash: b.appSecretHash })
 }
 
 /** POST /api/me/google/connect: connect my Google account, after my current password. Not for guests, not from a
@@ -147,14 +173,17 @@ export function ownsGoogleState(ctx: AppContext, state: string | undefined): boo
   return !!state && TOKEN_RE.test(state) && !!ctx.db.query('SELECT 1 FROM google_signin_flows WHERE state_hash = ?').get(hashToken(state))
 }
 
-/** Google's return (the Drive callback address): sign in or connect, then a redirect to the page that says how it went.
- * The binding cookie is spent either way. */
+/** Google's return (the Drive callback address). A browser's flow: sign in or connect, then a redirect to the page that
+ * says how it went; its binding cookie is spent either way. An app's flow (auth/google-login-apps.ts): never signs this
+ * browser in; a one-time code for the app, or why not, in a page (desktop) or a redirect to the app (phone). */
 export async function finishGoogle(c: Context<AppEnv>, ctx: AppContext): Promise<Response> {
-  const to = await settle(c, ctx, c.req.query('state'), c.req.query('code'), c.req.query('error'))
+  const s = await settle(c, ctx, c.req.query('state'), c.req.query('code'), c.req.query('error'))
+  const client = s.row?.client ?? 'web'
+  if (client !== 'web') return googleAppReturn(c, { client, ...('code' in s ? { code: s.code, who: s.who } : { result: 'result' in s ? s.result : 'failed' }) })
   c.header('Set-Cookie', bindingCookie(c.req.url, '', 0), { append: true })
   c.header('Cache-Control', 'no-store')
   c.header('Referrer-Policy', 'no-referrer')
-  return c.redirect(to, 302)
+  return c.redirect('next' in s ? s.next : backTo(s.row, 'result' in s ? s.result : 'failed'), 302)
 }
 
 function backTo(row: FlowRow | null, result: GoogleResult): string {
@@ -162,24 +191,27 @@ function backTo(row: FlowRow | null, result: GoogleResult): string {
   return `/login?google=${result}${row?.next ? `&next=${encodeURIComponent(row.next)}` : ''}`
 }
 
-async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undefined, code: string | undefined, error: string | undefined): Promise<string> {
+async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undefined, code: string | undefined, error: string | undefined): Promise<Settled> {
   const a = authOf(ctx)
   const guard = tokenGuard(ctx, c.get('info').ip)
   const row = state && TOKEN_RE.test(state) ? ctx.db.query('SELECT * FROM google_signin_flows WHERE state_hash = ?').get(hashToken(state)) as FlowRow | null : null
-  if (!row) { guard.fail(); return backTo(null, 'expired') }
+  if (!row) { guard.fail(); return { row: null, result: 'expired' } }
+  const end = (result: GoogleResult): Settled => ({ row, result })
   // only the browser that started it: checked before the state is spent, so someone who only saw the address cannot
-  // use up another person's sign-in
-  const binding = readBinding(c)
-  if (!binding || !safeEqual(hashToken(binding), row.binding_hash)) { guard.fail(); return backTo(row, 'expired') }
+  // use up another person's sign-in. An app's flow has no browser to bind: its code is for the app's secret alone
+  if (row.client === 'web') {
+    const binding = readBinding(c)
+    if (!binding || !safeEqual(hashToken(binding), row.binding_hash)) { guard.fail(); return end('expired') }
+  }
   // once: the first return takes it, a reload or a second request finds it used
-  if (!ctx.db.query("UPDATE google_signin_flows SET status = 'used' WHERE id = ? AND status = 'pending' AND expires_at > ?").run(row.id, new Date(a.now()).toISOString()).changes) return backTo(row, 'expired')
-  if (error) return backTo(row, error === 'access_denied' ? 'cancelled' : 'failed')
+  if (!ctx.db.query("UPDATE google_signin_flows SET status = 'used' WHERE id = ? AND status = 'pending' AND expires_at > ?").run(row.id, new Date(a.now()).toISOString()).changes) return end('expired')
+  if (error) return end(error === 'access_denied' ? 'cancelled' : 'failed')
   const drive = googleDriveOf(ctx)
   const cfg = drive.config
   // the client changed since the start (an admin replaced it): its code is for the other one
-  if (!cfg || configKey(cfg) !== row.config_key || !code || code.length > 4096) return backTo(row, 'failed')
+  if (!cfg || configKey(cfg) !== row.config_key || !code || code.length > 4096) return end('failed')
   let secret: { verifier: string; nonce: string }
-  try { secret = drive.store.open({ id: row.id, user_id: SEAL_CONTEXT, secret_enc: row.secret_enc, key_version: row.key_version }) } catch { return backTo(row, 'failed') }
+  try { secret = drive.store.open({ id: row.id, user_id: SEAL_CONTEXT, secret_enc: row.secret_enc, key_version: row.key_version }) } catch { return end('failed') }
   ctx.db.query('UPDATE google_signin_flows SET secret_enc = NULL WHERE id = ?').run(row.id)
   let claims: GoogleClaims | null = null
   try {
@@ -189,8 +221,8 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, state: string | undef
     }, 32_768)
     claims = googleClaims(json.id_token, cfg.clientId, secret.nonce, a.now())
   } catch { claims = null }
-  if (!claims) return backTo(row, 'failed')
-  return row.intent === 'connect' ? backTo(row, connect(c, ctx, row, claims)) : signInWith(c, ctx, row, claims)
+  if (!claims) return end('failed')
+  return row.intent === 'connect' ? end(connect(c, ctx, row, claims)) : signInWith(c, ctx, row, claims)
 }
 
 /** The id_token's claims when it is Google's, for this client, live, for this flow (nonce) and its address verified;
@@ -212,26 +244,31 @@ export function googleClaims(idToken: unknown, clientId: string, nonce: string, 
   return { sub: p.sub, email: clean(p.email, 320), hd: clean(p.hd, 255) }
 }
 
-function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): string {
+/** A sign-in Google answered: a browser's is signed in here; an app's gets a one-time code for the app's secret
+ * (auth/google-login-apps.ts holdGoogleCode), redeemed in the app's own window. */
+function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): Settled {
   const a = authOf(ctx)
   const info = c.get('info')
   const linked = ctx.db.query("SELECT user_id FROM login_identities WHERE provider = 'google' AND subject = ?").get(g.sub) as { user_id: string } | null
   const u = linked ? getUser(ctx.db, linked.user_id) : null
-  const detail = { ip: info.ip, via: viaOf(info), method: 'google' }
-  const no = (result: GoogleResult, reason: string) => {
-    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ...detail, reason } })
-    return backTo(row, result)
+  const detail = { ip: info.ip, via: viaOf(info), method: 'google', ...(row.client === 'web' ? {} : { client: row.client }) }
+  // nobody here connected this Google account (the same answer whether or not it is anyone's elsewhere); turned off
+  // (Google proved who it is, as the right password does: the truth, like a password sign-in of a switched-off
+  // account); a temporary password set by an admin (the forced change needs a session made by that password)
+  const no = googleSignInRefusal(u)
+  if (no || !u) {
+    audit(ctx.db, { actor: null, action: 'auth.login_failed', target: u?.id ?? null, detail: { ...detail, reason: no?.reason ?? 'google_not_connected' } })
+    return { row, result: no?.result ?? 'not_connected' }
   }
-  // nobody here connected this Google account: the same answer whether or not it is anyone's elsewhere
-  if (!u || u.deleted_at || u.role === 'guest') return no('not_connected', 'google_not_connected')
-  // Google proved who it is, as the right password does: the truth, like a password sign-in of a switched-off account
-  if (u.status !== 'active') return no('account_off', 'disabled')
-  // a temporary password set by an admin: the forced change needs a session made by that password (accounts.ts)
-  if (u.must_change_password) return no('password_first', 'temporary_password')
+  if (row.client !== 'web') {
+    // the e-mail as Google says it now; last used is the app's redeem
+    ctx.db.query("UPDATE login_identities SET email = ?, hd = ? WHERE user_id = ? AND provider = 'google'").run(g.email, g.hd, u.id)
+    return { row, code: holdGoogleCode(ctx, { client: row.client, secretHash: row.binding_hash, subject: g.sub }), who: { name: u.name, username: u.username } }
+  }
   ctx.db.query("UPDATE login_identities SET email = ?, hd = ?, last_used_at = ? WHERE user_id = ? AND provider = 'google'").run(g.email, g.hd, new Date(a.now()).toISOString(), u.id)
   audit(ctx.db, { actor: u.id, action: 'auth.login', target: u.id, detail: { ...detail, client: 'web' } })
   a.signIn(c, u.id, 'web', 'cookie')
-  return row.next ?? '/'
+  return { row, next: row.next ?? '/' }
 }
 
 function connect(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): GoogleResult {

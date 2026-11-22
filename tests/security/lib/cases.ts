@@ -205,6 +205,9 @@ export const SPECS: Record<string, Spec> = {
   // person reads and disconnects only their own connected Google account; a connect needs the current password
   startGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/google/start', {}), scope: 'byLevel',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google sign-in started without a Google client: ${r.text}`) } },
+  // the apps' one-time code (server/src/auth/google-login-apps.ts): a made-up code with a made-up secret signs nobody in
+  redeemGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/google/redeem', { code: 'A'.repeat(43), appSecret: 'B'.repeat(43), client: 'desktop' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up Google sign-in code signed in: ${r.text}`) } },
   myGoogle: { build: (c) => c.get('/api/me/google'), scope: 'self' },
   connectGoogle: { skipPositive: true, build: (c) => c.post('/api/me/google/connect', { password: 'Not-the-password-0000' }), scope: 'self',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google connect started with a wrong password: ${r.text}`) } },
