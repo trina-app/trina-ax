@@ -1023,6 +1023,7 @@ export const id: Record<MessageKey, string> = {
   'preview.sheetRowsCut': 'Hanya {rows} baris pertama sheet ini yang ditampilkan. Unduh file untuk melihat semua baris.',
   'preview.sheetHidden': 'Tersembunyi',
   'preview.sheetHiddenTitle': 'Sheet ini disembunyikan di file.',
+  'preview.formulaNotCalculated': 'Pratinjau tidak bisa menghitung rumus ini. Buka file di Excel atau Google Sheets untuk melihat hasilnya.',
   'preview.cantOpen': 'Tidak bisa membuka {what}: {error}',
   'preview.openLink': 'Buka alamat ini di jendela baru?\n\n{url}',
   'preview.kind.docx': 'dokumen Word',

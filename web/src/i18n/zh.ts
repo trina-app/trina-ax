@@ -1000,6 +1000,7 @@ export const zh: Record<MessageKey, string> = {
   "preview.sheetRowsCut": "此工作表只显示前{rows}行。请下载文件查看所有行。",
   "preview.sheetHidden": "已隐藏",
   "preview.sheetHiddenTitle": "此工作表在文件中处于隐藏状态。",
+  "preview.formulaNotCalculated": "预览无法计算此公式。在 Excel 或 Google 表格中打开文件即可看到结果。",
   "preview.cantOpen": "无法打开{what}：{error}",
   "preview.openLink": "在新窗口中打开此地址？\n\n{url}",
   "preview.kind.docx": "Word 文档",

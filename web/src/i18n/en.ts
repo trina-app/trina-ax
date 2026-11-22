@@ -1023,6 +1023,7 @@ export const en: Record<MessageKey, string> = {
   'preview.sheetRowsCut': 'Only the first {rows} rows of this sheet are shown. Download the file to see all rows.',
   'preview.sheetHidden': 'Hidden',
   'preview.sheetHiddenTitle': 'This sheet is hidden in the file.',
+  'preview.formulaNotCalculated': "The preview can't calculate this formula. Open the file in Excel or Google Sheets to see its result.",
   'preview.cantOpen': "Can't open the {what}: {error}",
   'preview.openLink': 'Open this address in a new window?\n\n{url}',
   'preview.kind.docx': 'Word document',

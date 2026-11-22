@@ -1022,6 +1022,7 @@ export const ko = {
   'preview.sheetRowsCut': '이 시트는 처음 {rows}행만 보여요. 모든 행을 보려면 파일을 내려받아 주세요.',
   'preview.sheetHidden': '숨김',
   'preview.sheetHiddenTitle': '파일에서 숨긴 시트예요.',
+  'preview.formulaNotCalculated': '미리보기에서는 이 수식을 계산하지 못해요. 결과는 Excel이나 Google 스프레드시트에서 파일을 열면 보여요.',
   "preview.cantOpen": "열 수 없어요: {what} ({error})",
   'preview.openLink': '이 주소를 새 창에서 열까요?\n\n{url}',
   'preview.kind.docx': 'Word 문서',

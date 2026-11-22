@@ -981,6 +981,7 @@ export const es: Record<MessageKey, string> = {
   'preview.sheetRowsCut': "Solo se muestran las primeras {rows} filas de esta hoja. Descargue el archivo para verlas todas.",
   'preview.sheetHidden': "Oculta",
   'preview.sheetHiddenTitle': "Esta hoja está oculta en el archivo.",
+  'preview.formulaNotCalculated': "La vista previa no puede calcular esta fórmula. Abra el archivo en Excel o Google Sheets para ver el resultado.",
   'preview.cantOpen': "No se puede abrir {what}: {error}",
   'preview.openLink': "¿Abrir esta dirección en una nueva ventana?\n\n{url}",
   'preview.kind.docx': "el documento de Word",

@@ -10,6 +10,7 @@ import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
 import { PreviewLoading } from '../ui'
 import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
+import { fillFormulaResults, type SheetFormula } from '../../lib/sheetFormulas'
 
 /** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
 function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
@@ -134,9 +135,11 @@ export function PptxView({ blob, width, startSlide }: { blob: Blob; width: numbe
 export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?: string; range?: string }) {
   const t = useT()
   const locale = useLocale()
-  const [sheets, setSheets] = useState<(SheetMeta & { html: string })[] | null>(null)
+  const [sheets, setSheets] = useState<(SheetMeta & { html: string; formulas: SheetFormula[] })[] | null>(null)
   const [active, setActive] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // the formula cell last clicked or tapped: its formula shows under the sheet (a phone has no hover)
+  const [picked, setPicked] = useState<SheetFormula | null>(null)
   const tableRef = useRef<HTMLDivElement>(null)
   useSafeLinks(tableRef, [sheets])
   useEffect(() => {
@@ -145,18 +148,25 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
     setError(null)
     ;(async () => {
       const XLSX = await import('xlsx')
-      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS, sheetStubs: true })
-      // a formula cell without a stored result (make_file writes these) shows its formula, not a blank
+      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS, sheetStubs: true, cellNF: true })
+      // Hidden sheets stay in the tabs with a badge; a sheet cut at the row limit shows a notice (R2-FMT-06/07).
+      const meta = sheetMeta(wb, XLSX.utils.decode_range)
+      // A formula cell without a stored result (make_file and openpyxl write these) shows the result the preview
+      // works out (S-112); a formula it can't work out shows as greyed formula text, never a guessed number.
+      const formulas = fillFormulaResults(wb, {
+        cut: new Set(meta.filter((m) => m.cut).map((m) => m.name)),
+        decodeRange: XLSX.utils.decode_range,
+        format: (z, v) => XLSX.SSF.format(z, v),
+      })
       for (const name of wb.SheetNames) {
         for (const row of (wb.Sheets[name] as { '!data'?: (CellObject | undefined)[][] })['!data'] ?? []) {
           row?.forEach((c, j) => {
-            if (c?.t === 'z') row[j] = c.f ? { t: 's', v: `=${c.f}`, w: `=${c.f}` } : undefined
+            if (c?.t === 'z') row[j] = undefined
           })
         }
       }
       // sheet_to_html escapes cell text (cell hyperlinks become <a href>: useSafeLinks); the editable flag stays off
-      // Hidden sheets stay in the tabs with a badge; a sheet cut at the row limit shows a notice (R2-FMT-06/07).
-      const out = sheetMeta(wb, XLSX.utils.decode_range).map((m) => ({ ...m, html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
+      const out = meta.map((m) => ({ ...m, formulas: formulas.get(m.name) ?? [], html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
       if (live) {
         setSheets(out)
         setActive(startSheetIndex(out, startSheet))
@@ -166,6 +176,20 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
       live = false
     }
   }, [blob, startSheet])
+  // formula cells: the formula on hover; one the preview can't work out is greyed
+  const notCalculated = t('preview.formulaNotCalculated')
+  useEffect(() => {
+    const el = tableRef.current
+    const list = sheets?.[active]?.formulas
+    setPicked(null)
+    if (!el || !list) return
+    for (const f of list) {
+      const td = el.querySelector<HTMLElement>(`#sjs-${f.addr}`)
+      if (!td) continue
+      td.dataset.formula = f.shown ? 'shown' : 'raw'
+      td.title = f.shown ? `=${f.formula}` : `=${f.formula}\n${notCalculated}`
+    }
+  }, [sheets, active, notCalculated])
   // the source's rows: marked and scrolled to while its sheet is the open tab
   const targetOpen = !!sheets && startSheet !== undefined && sheets[active]?.name === startSheet
   useEffect(() => {
@@ -192,10 +216,22 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
         tabIndex={0}
         role="region"
         aria-label={current?.name}
-        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft"
+        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft [&_td[data-formula=raw]]:text-faint [&_td[data-formula=raw]]:italic"
         data-sheet={current?.name}
+        onClick={(e) => {
+          const td = (e.target as HTMLElement).closest<HTMLElement>('td[data-formula]')
+          const addr = td?.id.replace(/^sjs-/, '')
+          setPicked((addr && current?.formulas.find((f) => f.addr === addr)) || null)
+        }}
         dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
       />
+      {picked && (
+        <p role="status" className="flex shrink-0 flex-wrap gap-x-2 border-t border-line bg-subtle px-3 py-1.5 text-xs" data-testid="sheet-formula">
+          <span className="font-semibold text-muted">{picked.addr}</span>
+          <span className="min-w-0 truncate font-mono" title={`=${picked.formula}`}>={picked.formula}</span>
+          {!picked.shown && <span className="text-faint">{notCalculated}</span>}
+        </p>
+      )}
       {sheets.length > 1 && (
         <div role="tablist" className="flex shrink-0 gap-1 overflow-x-auto border-t border-line bg-subtle px-2 py-1">
           {sheets.map((s, i) => (
