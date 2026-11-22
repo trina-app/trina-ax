@@ -47,6 +47,7 @@ import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickTo
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
+import { chatChanged } from '../store/live'
 import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { readChatMentions, useChatMentions } from '../store/chatMentions'
@@ -258,7 +259,11 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // new comes to it while nobody else is in it
   const filesAt = useMemo(() => thread.messages.reduce((at, m) => (m.attachments ?? []).reduce((x, a) => (a.updated && a.updated.at > x ? a.updated.at : x), at), ''), [thread.messages])
   const ownLines = !!chat && !chat.shared && !chat.projectId && !chat.sideRoomId
-  const audienceEvents = useAudienceEvents((people || ownLines) && chat && !chat.deletedAt ? chatId : null, people ? `${shared?.audience ?? 0}:${thread.messages.length}:${filesAt}` : 'own')
+  // ...and on every change of the chat itself (chat.updated: someone added and someone removed keeps how many see it the
+  // same, QA TC-b3s-16) and every new version of one of its pages (a page's restore line, QA b3s S-033)
+  const [chatRev, setChatRev] = useState(0)
+  const pagesRev = useChats((s) => s.artifactsRev[chatId] ?? 0)
+  const audienceEvents = useAudienceEvents((people || ownLines) && chat && !chat.deletedAt ? chatId : null, people ? `${shared?.audience ?? 0}:${thread.messages.length}:${filesAt}:${chatRev}:${pagesRev}` : `own:${pagesRev}`)
   const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
@@ -320,6 +325,20 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   useEffect(() => {
     void load()
   }, [load])
+  // a change of this chat while it is on screen (store/live.ts chatChanged): its people lines are read again, and a page
+  // that could not open it ("no longer shared with me") reads it again when it comes back to me, as a reload would (QA
+  // TC-b3s-16: someone added me while my old link was open)
+  const failedNow = useRef<unknown>(null)
+  useEffect(() => { failedNow.current = loadError }, [loadError])
+  // (one read again at a time: several changes in a row are one)
+  const reloading = useRef(false)
+  useEffect(() => chatChanged.on((e) => {
+    if (e.chatId !== chatId) return
+    setChatRev((n) => n + 1)
+    if (!failedNow.current || reloading.current || !e.chat || e.chat.deletedAt || e.change === 'deleted' || e.change === 'purged') return
+    reloading.current = true
+    void load().finally(() => { reloading.current = false })
+  }), [chatId, load])
   // the chat left my lists while it is on screen (chat.updated "deleted": I lost the shared chat when a project's
   // members changed, it went to a trash or was purged; also a list read again after a reconnect): read it again, so a
   // chat I can no longer open shows the not-found page instead of its old messages and a box that cannot send, and one

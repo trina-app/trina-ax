@@ -1135,3 +1135,23 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(postRefusal(e, '#x', 'r1', false).content[0]!.text).toContain('Zeta crew')
   })
 })
+
+// QA b3s S-120: members got only an unread mark when the AI posted for someone. An AI post is the person's own message
+// (rooms.send, author = them): it alerts each member exactly as the same person's own message does, by each member's
+// level for the room (shared room-alerts.ts), and the Activity rows follow the same rule (mentions and followed threads).
+describe('notices: an AI post alerts as the person\'s own message', () => {
+  test('the same notices for every member at each level, and no Activity row either way without a mention', async () => {
+    const db = h.ctx.db
+    const room = rooms.all
+    const noticesOf = (id: string) => (db.query('SELECT user_id, event_type FROM room_notices WHERE source_id = ? ORDER BY user_id').all(id) as { user_id: string; event_type: string }[]).map((n) => `${n.user_id}:${n.event_type}`)
+    for (const level of [null, 'all', 'mentions', 'off'] as const) {
+      db.query("UPDATE room_members SET notify_level = ? WHERE room_id = ? AND user_id <> 'bob'").run(level, room)
+      const own = await h.api('bob').call(API.sendRoomMessage, { params: { id: room }, body: { body: `own ${level}`, clientMessageId: cm(), mentions: [], fileIds: [] } })
+      await turn('bob', post({ room, text: `ai ${level}` }), { answer: 'send' })
+      const ai = (await messagesAs('alice', room)).at(-1)!
+      expect(ai.body).toBe(`ai ${level}`)
+      expect([level, noticesOf(ai.id)]).toEqual([level, noticesOf(own.id)])
+    }
+    db.query('UPDATE room_members SET notify_level = NULL WHERE room_id = ?').run(room)
+  })
+})

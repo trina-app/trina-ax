@@ -14,9 +14,10 @@ export type AudienceEvent = NonNullable<ChatAudience['events']>[number]
  * read again when it changes (the chat's count of people). */
 export function useAudienceEvents(chatId: string | null, key: unknown): AudienceEvent[] {
   const [events, setEvents] = useState<AudienceEvent[]>([])
+  // (another chat's lines never stay on screen while this one's are read; the same chat's stay while they are read
+  // again, so they do not blink on every change)
+  useEffect(() => { setEvents([]) }, [chatId])
   useEffect(() => {
-    // (another chat's lines never stay on screen while this one's are read)
-    setEvents([])
     if (!chatId) return
     let live = true
     api.call(API.getChatAudience, { params: { id: chatId } }).then((a) => { if (live) setEvents(a.events ?? []) }, () => {})

@@ -324,10 +324,11 @@ export const TEXT = {
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría", "将要修改的内容"),
   roomAiChangeAction: t('하는 일', 'Action', 'Tindakan', "操作", "Acción", "操作"),
   /** a room card's words for a dev-environment command, from the command itself (chat/turn.ts shellCardWords): the files it
-   * makes by kind and name, else "run a command"; never the AI's description, never the command (behind 자세히) */
-  roomShellMakesOne: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes a {kind} file: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea un archivo de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
-  roomShellMakesMany: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes {kind} files: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
-  roomShellMakesAny: t('파일을 만드는 명령 실행: {files}', 'Run a command that makes files: {files}', 'Jalankan perintah yang membuat file: {files}', "ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos: {files}", "运行生成文件的命令：{files}"),
+   * makes by kind and name, said as what happens, and that a program does it ("프로그램으로 그림 파일 banner.png 만들기", QA b3s
+   * TC-b3s-23; not "…을 만드는 명령 실행"), else "run a command"; never the AI's description, never the command (behind 자세히) */
+  roomShellMakesOne: t('프로그램으로 {kind} 파일 {files} 만들기', 'Make the {kind} file {files} with a program', 'Buat file {kind} {files} dengan program', "プログラムで{kind}ファイル {files} を作る", "Crear el archivo de {kind} {files} con un programa", "用程序生成{kind}文件 {files}"),
+  roomShellMakesMany: t('프로그램으로 {kind} 파일 {files} 만들기', 'Make the {kind} files {files} with a program', 'Buat file {kind} {files} dengan program', "プログラムで{kind}ファイル {files} を作る", "Crear los archivos de {kind} {files} con un programa", "用程序生成{kind}文件 {files}"),
+  roomShellMakesAny: t('프로그램으로 파일 {files} 만들기', 'Make the files {files} with a program', 'Buat file {files} dengan program', "プログラムでファイル {files} を作る", "Crear los archivos {files} con un programa", "用程序生成文件 {files}"),
   roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
   /** what else the command does, after its words (shellCardWords): installs programs, reaches the internet */
   roomShellPlusInstall: t('{what} (프로그램 설치도 해요)', '{what} (also installs programs)', '{what} (juga memasang program)', "{what}（プログラムのインストールもします）", "{what} (también instala programas)", "{what}（还会安装程序）"),

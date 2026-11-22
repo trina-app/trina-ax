@@ -324,6 +324,26 @@ const roomWord = (v: unknown) => {
   return /^(room:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim()) ? '' : s.replace(/^#/, '')
 }
 
+/** A glob step in words (QA b3s TC-b3s-8: the step showed the pattern itself, 매출 with two wildcard folders): the folder it looks in (its path
+ * and the pattern's folders before the first wildcard), then the kind of file by its extension (".xlsx") or the name it
+ * looks for without the wildcards ("배너"); no wildcard characters. A pattern with no wildcard is a name and shows as one. */
+export function globLabel(verb: string, pattern: unknown, folder: unknown): string {
+  const p = String(pattern ?? '').trim()
+  const wild = /[*?[\]{}]/
+  if (!wild.test(p)) return `${verb} "${clip(p, 60)}"${folder ? ` · ${clip(folder, 50)}` : ''}`
+  const segs = p.split('/').filter(Boolean)
+  const fixed: string[] = []
+  for (const x of segs) { if (wild.test(x)) break; fixed.push(x) }
+  const place = [String(folder ?? '').replace(/\/+$/, ''), ...fixed].filter(Boolean).join('/')
+  const last = segs.length > fixed.length ? segs.at(-1)! : ''
+  // "*.xlsx", "*.{png,jpg}": the kinds; else the name's own letters ("*배너*" -> 배너)
+  const exts = /^\*+\.(?:\{([\w,]+)\}|(\w+))$/.exec(last)
+  const what = exts ? (exts[1] ?? exts[2]!).split(',').filter(Boolean).slice(0, 3).map((e) => `.${e}`).join(', ')
+    : last.replace(/[*?[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
+  const quoted = what && !exts ? `"${clip(what, 40)}"` : what
+  return [verb, place ? clip(place, 60) : '', quoted].filter(Boolean).join(' · ')
+}
+
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
 export function stepLabel(tool: string, input: unknown, locale: Locale, browserTools: ReadonlySet<string>): string {
   const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
@@ -335,7 +355,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   const verb = FILE_STEP_VERB[tool]?.[locale]
   switch (tool) {
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
-    case 'glob': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'glob': return globLabel(verb!, a.pattern, a.path)
     case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))

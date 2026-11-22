@@ -82,3 +82,17 @@ describe('koParticle after service names', () => {
     }
   })
 })
+
+// QA b3s TC-b3s-17: "주간 실적.xlsx을(를)", "버전 2을"
+describe('koParticle after file names and numbers', () => {
+  test('a file name by its extension as read', () => {
+    expect(koParticle('주간 실적.xlsx', '\uc744(\ub97c)')).toBe('\ub97c')
+    expect(koParticle('보고서.pdf', '\uc774(\uac00)')).toBe('\uac00')
+    expect(koParticle('page.html', '(\uc73c)\ub85c')).toBe('\ub85c')
+    expect(koParticle('data.json', '\uc744(\ub97c)')).toBe('\uc744')
+    expect(koParticle('a.docx', '\uc744(\ub97c)')).toBe('\ub97c')
+    expect(koParticle('example.com', '\uc744(\ub97c)')).toBe('\uc744(\ub97c)')
+    expect(koParticle('2', '\uc744(\ub97c)')).toBe('\ub97c')
+    expect(koParticle('3', '(\uc73c)\ub85c')).toBe('\uc73c\ub85c')
+  })
+})

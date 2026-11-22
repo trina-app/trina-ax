@@ -2585,7 +2585,10 @@ export class TurnExec {
   /** Something from outside the team's own words came in (chats.room_outside): the chat skips no room card from then
    * on, until a new
    * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */
-  markOutside() {
+  /** something from outside the team other than a command's own run came in during this answer (sameAnswerTarget) */
+  private outsideInAnswer = false
+  markOutside(o: { run?: boolean } = {}) {
+    if (!o.run) this.outsideInAnswer = true
     this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
     this.syncOutsideMark()
   }
@@ -3050,8 +3053,11 @@ export class TurnExec {
    * connection, the browser, anything unknown) marks the chat as having used something from outside for the rest of
    * its session; then no room card is skipped there. */
   noteRoomTool(tool: string, input?: unknown) {
+    // (a command's own run marks it too, but only something else from outside stops this answer's covers:
+    // sameAnswerTarget; a read of the work folder brings in what earlier commands fetched)
+    const run = tool === 'box_shell'
     if (this.workRead(tool, input)) tool = 'box_shell'
-    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside()
+    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside({ run })
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
@@ -3184,6 +3190,13 @@ export class TurnExec {
       }
       // asked on the card: not a command that went on the promise of undo
       this.boxUndo.delete(command)
+    }
+    // one answer asks once about one target (#381; QA b3s TC-b3s-23: four cards for one banner edit): a command that
+    // makes only the files an earlier command of this answer was allowed to make, and a rename in place of a file this
+    // answer made, go on under that yes (sameAnswerTarget)
+    if (!o.noCover && this.sameAnswerTarget(tool, input)) {
+      if (o.main !== false) this.coverStep(tool, 'roomOnceStep')
+      return null
     }
     // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
     // in its save folder, a send to a pinned connection: chat/schedule-cover.ts); `send` is the connection a call writes
@@ -3334,6 +3347,8 @@ export class TurnExec {
     if (v === ALWAYS_VALUE && always) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
     if (v === 'allow' || (v === ALWAYS_VALUE && always)) {
       this.roomAllowed.add(key)
+      // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
+      if (tool === 'box_shell') { const shape = commandShape(input); if (shape) this.shellAllowed.add(shape) }
       // [이번만 허용]: this kind of change to this file goes without the room card for the rest of this chat
       if (v === 'allow' && !reads) keepApproval()
       if (target && coverOnce) {
@@ -3696,6 +3711,43 @@ export class TurnExec {
   /** A document an edit_hwp call names, as the file layer resolves it for the person (tools/edit-hwp.ts), or null. */
   sourceRel(p: string): string | null {
     try { return authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'read').rel } catch { return null }
+  }
+
+  /** the dev-environment commands of this answer the person allowed on a room card, by their shape (commandShape) */
+  private shellAllowed = new Set<string>()
+  /**
+   * One answer, one card per target after a room read (#381 "One answer never asks twice about the same target"; QA b3s
+   * TC-b3s-23, S-110: one banner edit raised two command cards for the same picture and a rename card for the copy the
+   * answer had just made). Nothing is covered once this answer used something from outside the team other than a
+   * command's own run (outsideInAnswer: a web page, a search, a connection, a work-folder read):
+   * - box_shell: the same command as one the person allowed in this answer, but for its numbers (a font size, a
+   *   position: commandShape), when it only makes files (answerShellOutputs: no removing, moving, copying,
+   *   installing, network or instruction file). Any other command asks: the card is the only look at what runs, and a
+   *   command's words cannot show all it does (docs/decisions/20261122-ask-less-side-chat-runs.md).
+   * - rename_file: a file this answer made (a create of this turn nobody else changed since, roomMadeHere) renamed in its
+   *   folder (the same people, the same bytes), keeping its extension, to no instruction, script or hidden name. Whatever
+   *   let the answer put it there (a card, a cover) stands for its name too.
+   * Fails closed: any error is false.
+   */
+  private sameAnswerTarget(tool: string, input: unknown): boolean {
+    try {
+      if (tool !== 'box_shell' && tool !== 'rename_file') return false
+      // a web page, a search, a connection's answer … in this answer: its author is no member (a command's own run is
+      // not: it is the run this answer's yes allowed)
+      if (this.outsideInAnswer) return false
+      if (tool === 'box_shell') {
+        const shape = this.shellAllowed.size ? commandShape(input) : null
+        return !!shape && this.shellAllowed.has(shape)
+      }
+      if (!input || typeof input !== 'object') return false
+      const a = input as { path?: unknown; new_name?: unknown }
+      const name = typeof a.new_name === 'string' ? a.new_name.trim() : ''
+      if (typeof a.path !== 'string' || !name || /[\\/]/.test(name) || name.startsWith('.') || instructionLike(name) || runnableFile(name)) return false
+      const ext = (n: string) => (/\.([^./]+)$/.exec(n)?.[1] ?? '').toLowerCase()
+      const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), a.path, 'write')
+      if (!r.exists || !r.st?.isFile() || inSkills(r.rel) || instructionLike(r.rel) || ext(r.rel) !== ext(name)) return false
+      return this.roomMadeHere(r.rel)
+    } catch { return false }
   }
 
   /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
@@ -6120,6 +6172,34 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 
+/** a script in a command that removes, moves, renames or copies files (python, node), past what SHELL_DESTRUCTIVE reads */
+const SCRIPT_REMOVES = /\b(?:os\.(?:remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(?:rmtree|move|copy\w*)|unlinkSync|rmSync|rmdirSync|renameSync|copyFileSync|\.unlink\(|\.rmdir\(|\.rename\()/
+/** The files a dev-environment command makes when that is all its words show (TurnExec sameAnswerTarget): its output
+ * names (shellOutputs), none when it removes, moves, copies or links files (SHELL_DESTRUCTIVE, cp, ln, chmod, chown,
+ * touch, tee, a script's os.remove …), installs or downloads programs, reaches the network or names an instruction or
+ * skill file. null: not such a command. */
+export function answerShellOutputs(input: unknown): string[] | null {
+  const c = input && typeof input === 'object' && typeof (input as { command?: unknown }).command === 'string' ? (input as { command: string }).command : ''
+  if (!c || c.length > 20_000) return null
+  const outs = shellOutputs(c, { paths: true })
+  if (!outs.length || SHELL_DESTRUCTIVE.test(c) || /(?:^|[\s;&|(`])(?:cp|ln|chmod|chown|touch|tee|install)\s/.test(c) || shellUsesNetwork(c) || INSTRUCTION_IN_TEXT.test(c) || SCRIPT_REMOVES.test(c)) return null
+  const kind = shellKind(c)
+  return kind === 'install' || kind === 'download' ? null : outs
+}
+
+/** A command as one "kind of run" for one answer's yes (TurnExec sameAnswerTarget): its text with runs of spaces as one
+ * and every number as "#", so the same run again with another size or position is the same run; any other difference
+ * (a word, a program, a path, a quoted string) is another command. null for a command that does more than make files
+ * (answerShellOutputs). */
+export function commandShape(input: unknown): string | null {
+  if (!answerShellOutputs(input)) return null
+  const c = (input as { command: string }).command
+  // code built from numbers or escapes, or run from a string, could be anything with other numbers: never covered
+  if (/\b(?:exec|eval|chr|fromhex|fromCharCode|b64decode|atob)\s*\(|\bbase64\b|\\x[0-9a-f]|\\u[0-9a-f]|\$'|\b(?:ba|z)?sh\s+-c\b|\b(?:perl|ruby|node)\s+-e\b/i.test(c)) return null
+  // only a number standing alone (not part of a name, a path or an escape) is "#"
+  return c.replace(/(?<![\w./\\$-])\d+(?:\.\d+)?(?![\w./])/g, '#').replace(/\s+/g, ' ').trim()
+}
+
 /** the kind of a file a command makes, by its extension (shellCardWords) */
 const SHELL_OUT_KIND: Record<string, 'roomShellKindPicture' | 'roomShellKindPdf' | 'roomShellKindVideo' | 'roomShellKindAudio' | 'roomShellKindSheet' | 'roomShellKindDoc'> = {
   png: 'roomShellKindPicture', jpg: 'roomShellKindPicture', jpeg: 'roomShellKindPicture', gif: 'roomShellKindPicture', webp: 'roomShellKindPicture', svg: 'roomShellKindPicture',
@@ -6135,14 +6215,17 @@ const SHELL_DESTRUCTIVE = /(?:^|[\s;&|(`])(?:rm|rmdir|mv|unlink|shred|truncate|d
 /** The files a dev-environment command says it makes (their names only, as the command names them): what a picture, a
  * PDF, a table or a video is saved as (savefig("chart.png"), -o out.mp4, > report.csv, open("x.csv", "w"), ffmpeg's last
  * name). Only names with a known output extension and no variable in them; at most 20. */
-export function shellOutputs(command: string): string[] {
+export function shellOutputs(command: string, o: { paths?: boolean } = {}): string[] {
   const c = command.slice(0, 20_000)
   const got: string[] = []
   const add = (raw: string | undefined) => {
-    const n = (raw ?? '').trim().replace(/^["']|["']$/g, '').split('/').pop() ?? ''
+    const p = (raw ?? '').trim().replace(/^["']|["']$/g, '')
+    const n = p.split('/').pop() ?? ''
     const m = /^([^\s${}*?`<>|;&()'"\\]{1,80})\.([A-Za-z0-9]{2,5})$/.exec(n)
-    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(n) || got.length >= 20) return
-    got.push(n)
+    // `paths`: each as the command writes it (its folders too), for matching one command's outputs with another's
+    const v = o.paths ? p : n
+    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(v) || got.length >= 20) return
+    got.push(v)
   }
   const each = (re: RegExp) => { for (const m of c.matchAll(re)) add(m[1]) }
   each(/\b(?:savefig|save|to_csv|to_excel|to_html|to_json|write_image|write_html|imwrite|write_videofile|write_audiofile|write_pdf|output_pdf|saveas|save_as)\s*\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']/gi)
