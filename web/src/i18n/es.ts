@@ -390,6 +390,7 @@ export const es: Record<MessageKey, string> = {
   'sidebar.filter.active': "Respondiendo o esperándole",
   'sidebar.filter.confidential': "Confidenciales",
   'sidebar.filter.clear': "Restablecer",
+  'sidebar.filter.reset': "Restablecer valores predeterminados",
   'sidebar.filter.none': "Nada del historial coincide con estas opciones.",
   'sidebar.peek.empty': "Aún no hay respuesta",
   'settings.search': "Buscar en la configuración",

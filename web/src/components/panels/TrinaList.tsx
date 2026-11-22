@@ -3,7 +3,7 @@
 //   답을 기다려요 N (one quiet row while an AI chat waits on me) ·
 //   고정 (my pinned chats) ·
 //   my sections (nav/HistorySections.tsx; docs/decisions/20261122-trina-history-sections.md), each a section of its own ·
-//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
+//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, by date (Today, Yesterday …, each folding: the menu's default "Group by: Date", the owner 2026-11-22): a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
 // Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx). A section is my own
 // way to sort my list (only I see it, it changes nobody's access); a project is a shared place with its own files,
@@ -26,10 +26,10 @@ import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
-import { foldRuns } from '../nav/TaskRunsRow'
 import { aiName } from '../../lib/tabs'
 import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
 import { HistorySections, useSectionRows } from '../nav/HistorySections'
+import { DateGroups } from '../nav/HistoryList'
 import { DROP_OVER } from '../nav/NavFolders'
 import { leftSectionToast, useSectionDrop } from '../nav/SidebarSections'
 import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
@@ -140,10 +140,9 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
           {/* nothing yet: said under the section's heading, not above it */}
           {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
-          <ul>
-            {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
-            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
-          </ul>
+          {/* by date, each date folding, as the menu's default "Group by: Date" (the owner, 2026-11-22); the runs of one
+              scheduled task are one row that opens the task (nav/TaskRunsRow.tsx) */}
+          <DateGroups chats={recent} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} by="date" created={false} projectTag />
           {cursor && (
             <button
               type="button"

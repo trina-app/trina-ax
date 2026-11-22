@@ -390,6 +390,7 @@ export const ja: Record<MessageKey, string> = {
   'sidebar.filter.active': "回答中またはあなたの返事待ち",
   'sidebar.filter.confidential': "機密",
   'sidebar.filter.clear': "リセット",
+  'sidebar.filter.reset': "既定に戻す",
   'sidebar.filter.none': "この条件に合う履歴はありません。",
   'sidebar.peek.empty': "まだ回答はありません",
   'settings.search': "設定を検索",

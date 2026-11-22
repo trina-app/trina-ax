@@ -401,6 +401,7 @@ export const en: Record<MessageKey, string> = {
   'sidebar.filter.active': "Answering or waiting for you",
   'sidebar.filter.confidential': "Confidential",
   'sidebar.filter.clear': "Reset",
+  'sidebar.filter.reset': "Reset to defaults",
   'sidebar.filter.none': "Nothing in the history matches these choices.",
   'sidebar.peek.empty': "No answer yet",
   'settings.search': "Search settings",

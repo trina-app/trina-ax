@@ -400,6 +400,7 @@ export const ko = {
   'sidebar.filter.active': "답변 중이거나 내 답을 기다림",
   'sidebar.filter.confidential': "기밀",
   'sidebar.filter.clear': "기본값으로",
+  'sidebar.filter.reset': "기본값으로 되돌리기",
   'sidebar.filter.none': "이 조건에 맞는 기록이 없어요.",
   'sidebar.peek.empty': "아직 답변이 없어요",
   'settings.search': "설정 검색",

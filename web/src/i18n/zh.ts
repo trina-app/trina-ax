@@ -390,6 +390,7 @@ export const zh: Record<MessageKey, string> = {
   "sidebar.filter.active": "正在回答或等待你",
   "sidebar.filter.confidential": "机密",
   "sidebar.filter.clear": "重置",
+  "sidebar.filter.reset": "恢复默认",
   "sidebar.filter.none": "历史记录中没有符合这些条件的内容。",
   "sidebar.peek.empty": "还没有回答",
   "settings.search": "搜索设置",
