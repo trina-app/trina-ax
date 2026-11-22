@@ -103,7 +103,15 @@ const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|ha
  * telegraphic opening ("Only one file.", "No dedicated room", "Matches quote-writer skill.", "Now the PDF, …",
  * "Leaving page out", "Following the existing naming pattern"), or a next step after a sentence ("Seal lands on (인)
  * correctly. Now post to the room.", 2026-11-18 CHT-02.room). */
+/** "Now the PDF.", "Now the SKILL.md.": a next step, in two to five words, with no verb said to people */
+const NOW_NOTE = /^now\s+(?:the|its|this|that|both)\s+\S+(?:\s+\S+){0,2}[.:]?$/i
 const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b|[.]\s+now\s+(?:post|send|save|stamp|write|make|put|add|upload|share|attach|print|export|overwrite)\b/i
+/** … or a change it is about to make to its own work, as an order to itself ("Shrink the chart a bit so it fits on one
+ * page.", 2026-11-22 scenario QA on Claude Code: the line led a Korean answer) */
+/** … or how a long job of its own is going ("Encoding is wrapping up.", "Rendering is still running.", 2026-11-22 owner
+ * live on Claude Code: saved above the Korean answer) */
+const PROGRESS = /^(?:the\s+)?(?:[a-z]+ing|render|export|upload|download|build|install|conversion|job|process)\s+(?:is|are)\s+(?:still\s+|now\s+|almost\s+)?[a-z]+ing\b[^.!?]*[.]?$/i
+const EDIT_ORDER = /^(?:shrink|resize|enlarge|widen|narrow|tighten|trim|fit|fix|adjust|swap|redo|rebuild|regenerate|convert|rename|move|drop|remove|replace|change|make)\s+(?:the|it|this|that|them|both|all|each)\b/i
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
 const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|the (?:line|row|note|entry|item)|a (?:line|row|note|bullet)|one line)\s+)?(?:under|below|beneath|after|before|above|into|at the (?:end|top|bottom|start) of)\b/i
@@ -126,7 +134,7 @@ const isWorkNote = (t: string) => {
   if (REPORT.test(t)) return false
   if (RETRY_NOTE.test(t) && WORK_NOUN.test(t) && t.length <= 100) return true
   if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
-  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t))) && t.length <= 100)
+  return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || (PROGRESS.test(t) && t.length <= 80) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && (NOTE_MARK.test(t) || EDIT_ORDER.test(t)))) && t.length <= 100)
 }
 
 /** typographic dashes, apostrophes and ellipses count as ASCII (the model writes "—" and "I’ll") */
@@ -157,12 +165,15 @@ export function narrationScript(locale: Locale, message: string, previous?: stri
 /** A bracket's inside that is a label in another script, not content: non-ASCII, no Latin letter, no digit, currency
  * or sentence mark ("인", "서명 날인"; not "339,400원", "₩5") */
 const isBracketName = (inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z0-9.!?。！？$€£¥₩%]/.test(inner)
-const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
+/** `as`: what a name becomes. '' for the script checks (a Korean file name does not make a line Korean); 'file' for the
+ * work-note checks, where a file name is the work named ("Now the SKILL.md.", 2026-11-22: taken out, it left "Now the ."
+ * which named nothing, and the line led a Korean answer) */
+const withoutNames = (s: string, as = '') => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, as)
   // a short piece of another script in brackets is a name too: a form's own label ("Seal lands on (인) correctly.",
   // 2026-11-18 CHT-02.room); no Latin letter and no sentence mark in it
   .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => isBracketName(inner) ? '' : m)
-  .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
-  .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
+  .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, as)
+  .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, as)
 
 /** The person's own words in quote marks are a name too (2026-11-18, EDIT-17.project: '"공용 회의록" — likely in shared.
  * Find it.' went out because of the Korean in the quote): a quoted phrase of at most 40 characters found in the
@@ -208,8 +219,14 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   // a work note (2026-11-17) only before a real call, whose arguments were checked (not on thinking, a stop or an error)
   // lead: a first line above the answer's own text (NarrationHold.dropLeadingNote) is only ever a status opening or the
   // AI thinking aloud about its tools (META), never judged by the wider work-note rules (review of #1272)
-  if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text))
-  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)))) return true
+  const asWork = (x: string) => withoutNames(withoutTheirWords(x, said, false).text, 'file')
+  const nowNote = (x: string) => { const w = asWork(x); return NOW_NOTE.test(w) && WORK_NOUN.test(w) }
+  // ...or "Now the <work thing>." alone on that line (2026-11-22: "Now the SKILL.md." above a Korean answer)
+  if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text)) && !nowNote(t)
+  // a lead-in ("…:") right before a call leads into the call, not into text (2026-11-22, owner live: "Quick speed test on
+  // a short stretch first:" under a Korean line while the run went on)
+  const leadIn = notes && /:\s*$/.test(t) && !TO_PEOPLE.test(withoutNames(t))
+  if (!partial && !leadIn && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && (isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)) || nowNote(t)))) return true
   return false
 }
 
@@ -290,7 +307,8 @@ export class NarrationHold {
     const m = /^(\s*)([^\n]+)\n/.exec(this.buf)
     if (!m) return
     const rest = this.buf.slice(m[0].length)
-    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(m[2]!)) return
+    // (a file name in the answer's script does not make the line the answer's: "Now the 견적서.pdf.")
+    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(withoutNames(m[2]!))) return
     const line = m[2]!
     if (!/[A-Za-z]/.test(line) || mustKeep(line, script, false, false, this.said, true) || copied(line, undefined, this.message)) return
     this.buf = rest.replace(/^\s+/, '')
@@ -333,4 +351,26 @@ export class NarrationHold {
     else if (this.lead !== null) out = '' // only space after a dropped piece: the next piece brings the separator
     return out
   }
+}
+
+/** Hangul, kana or CJK: a script answered in itself, never in Latin letters */
+const NON_LATIN = /[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/
+/** "latin", "cjk" (Hangul, kana, CJK) or null (too short or mixed to tell) */
+function writtenIn(m: string): 'latin' | 'cjk' | null {
+  const cjk = (m.match(/[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/g) ?? []).length
+  const latin = (m.match(/[A-Za-z]{2,}/g) ?? []).length
+  if (cjk >= 4 && latin < 3) return 'cjk'
+  if (!NON_LATIN.test(m) && latin >= 3) return 'latin'
+  return null
+}
+/**
+ * A message in another script than the one before it (QA TC-7429, 2026-11-22: Daniel's English request in a chat begun
+ * in Korean got a Korean answer, on both engines; the earlier messages and the Korean file names outweighed the
+ * instructions' language line). The server says so next to the message, in its own block, only then.
+ */
+export function languageSwitchNote(message: string, previous: string | null | undefined): string | null {
+  if (!previous) return null
+  const now = writtenIn(message), before = writtenIn(previous)
+  if (!now || !before || now === before) return null
+  return '<turn_context>\nThis message is written in another language than the messages before it: answer in the language of this message.\n</turn_context>'
 }

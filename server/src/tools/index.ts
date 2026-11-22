@@ -21,7 +21,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import { deckSummary, PPTX_FORMAT_HINT } from './pptx-check'
-import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText, OFFICE_PICTURE_HINT, RICH_OFFICE_HINT } from './make-file'
+import { docResultText, HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText, OFFICE_PICTURE_HINT, RICH_OFFICE_HINT } from './make-file'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { extractText } from '../files/extract'
 import { toolRegistry } from './registry'
@@ -111,7 +111,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
         'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' : 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. ') +
-      'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
+      'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, or the deck copies or translates another deck (then that deck\'s count), give `expected_slides` (and `expected_notes` for speaker notes); ' +
       'the result states the real slide and notes counts: report those, never other numbers.' +
       // only with safe operations on (MYCEL_SAFE_OPS_1A): their limits are checked in safe-ops/presentation.ts; without
       // them a deck has no slide or image cap, so the sentence would make the AI split a 40-slide deck for nothing
@@ -140,10 +140,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
+        : r.doc && (a.format === 'pdf' || a.format === 'docx') ? `${saved}\n${docResultText(r.doc, a.format)}`
         : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + sheetLine + extraLines
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
-      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}) } }
+      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}), ...(r.doc ? { pictures: r.doc.pictures, ...(r.doc.pages ? { pages: r.doc.pages } : {}) } : {}) } }
     },
   })
 

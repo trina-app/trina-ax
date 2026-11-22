@@ -49,5 +49,5 @@ export function saveAudienceNote(db: Database, rules: RuleSet, paths: readonly s
   if (!everyone) return ''
   const parts = list.map((p) => { try { const w = audienceWords(db, rules, p, me, everyone, o); return w ? `${p}: ${w}` : null } catch { return null } }).filter(Boolean)
   if (!parts.length) return ''
-  return `Who can open the new file now (the server's count from its folder): ${parts.join('; ')}. When you say who can open it, say exactly this; never say that the room's people, the whole team or only the user can open it unless this line says so.`
+  return `Who can open the new file now (the server's count from its folder): ${parts.join('; ')}. Say in your answer where it is and who can open it, in these words (only the user: "only you"); never say that the room's people, the whole team or only the user can open it unless this line says so.`
 }

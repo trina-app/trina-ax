@@ -250,6 +250,26 @@ describe('NarrationHold', () => {
     expect(run(new NarrationHold(null), [{ text: READ_ONLY_LINE + '\n\n' + KO_ANSWER }, 'end'])).toBe(READ_ONLY_LINE + '\n\n' + KO_ANSWER)
   })
 
+  test('11-22 (owner, live): "Now the SKILL.md." is dropped before a call and at the top of a Korean answer; a file name is the work named', () => {
+    // a lead-in right before a call leads into the call (above text it leads into that text: kept)
+    expect(dropped('Quick speed test on a short stretch first:')).toBe(true)
+    expect(run(ko(), [{ text: 'Totals by client:\n\n' + KO_ANSWER }, 'end'])).toBe('Totals by client:\n\n' + KO_ANSWER)
+    // a change to its own work as an order to itself (Claude Code, the same day)
+    expect(dropped('Shrink the chart a bit so it fits on one page.')).toBe(true)
+    expect(dropped('Encoding is wrapping up.')).toBe(true)
+    expect(dropped('Rendering is still running.')).toBe(true)
+    expect(dropped('Sales is growing fast this quarter, team!')).toBe(false)
+    for (const line of ['Now the SKILL.md.', 'Now the 견적서.pdf.', 'Now the PDF.']) {
+      expect(dropped(line), line).toBe(true)
+      for (const n of [1, 7, 500]) expect(run(ko(), [{ text: line + '\n\n' + KO_ANSWER }, 'end'], n), line).toBe(KO_ANSWER)
+    }
+    // content at the top of the answer stays
+    for (const top of ['Now open on weekends.', 'Now the price list is in Sales, Sora.', 'No files found.'])
+      expect(run(ko(), [{ text: top + '\n\n' + KO_ANSWER }, 'end']), top).toBe(top + '\n\n' + KO_ANSWER)
+    // the last piece stays whatever it says
+    expect(run(ko(), [{ text: 'Now the SKILL.md.' }, 'end'])).toBe('Now the SKILL.md.')
+  })
+
   test('the last piece is always kept: an English email asked for in a Korean chat', () => {
     const email = 'Dear Mr. Smith,\n\nThank you for your order. We will ship it on Thursday.\n\nBest regards,\nSora Lee'
     expect(run(ko(), [{ text: '단가표를 읽을게요.' }, 'tool', { text: '\n\n' + email }, 'end'])).toBe('단가표를 읽을게요.\n\n' + email)

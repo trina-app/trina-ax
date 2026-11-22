@@ -2,6 +2,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { trashHint } from './trash-hint'
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
 import { chatPlaces } from './place-ctx'
 import { PLACE_WORDS } from '../files/places'
@@ -580,7 +581,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const scope = main && !isError && args && typeof args === 'object' && projectOnly.has(args) ? exec.projectSearchNote() : null
       // who can open what it saved, from the real folder (chat/save-audience.ts), with who_can_open's gates
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
-      return [placed, skillNote, heldNote, rooms, fact, scope, audience].filter(Boolean).join('\n') || undefined
+      // a search that found nothing while a file of that name is in the person's trash (chat/trash-hint.ts, QA TC-7242)
+      const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && !exec.restricted && !exec.templateRun && !exec.otherAuthors && hintsHere(exec, true) && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
+      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

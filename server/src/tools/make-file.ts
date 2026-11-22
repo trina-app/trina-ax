@@ -73,7 +73,7 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, type Deck, type DeckShape } from './pptx-check'
 import { pictureBesideText } from './pptx-picture'
 import { readDeckIsolated } from '../safe-ops/deck-check'
-import { findPdfBrowser, HTML_PDF_LIMITS, HtmlPdfError, htmlPdfUnavailable, renderHtmlPdf, renderSlot, serverFontDirs } from '../files/html-pdf'
+import { findPdfBrowser, HTML_PDF_LIMITS, HtmlPdfError, htmlPdfUnavailable, pdfPageCount, renderHtmlPdf, renderSlot, serverFontDirs } from '../files/html-pdf'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { withWorkflow } from '../safe-ops/workflow'
 import { publishArtifact } from '../safe-ops/publication'
@@ -88,7 +88,11 @@ import { PLACE_WORDS } from '../files/places'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; chatFile?: ChatMade; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string; linksRemoved?: string[] }
+/** A Word file or PDF made from Markdown, as the result tells the AI (scenario QA 11-22, TC-7385: a "pie chart" PDF held
+ * only lines of ■ characters and the AI reported a chart): its pages (a PDF), its pictures, and whether it has bars drawn
+ * with block characters but no picture. */
+export interface FromMarkdown { pages?: number; pictures: number; textBars: boolean }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; chatFile?: ChatMade; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string; linksRemoved?: string[]; doc?: FromMarkdown }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -391,6 +395,8 @@ export class MakeFile {
       /** docx: the text colours the document uses (docx-format.ts) */
       let marks = new Map<string, TextMark>()
       let svgPictures = 0
+      /** pdf and docx from Markdown: what is in the file (FromMarkdown) */
+      let doc: FromMarkdown | undefined
       /** the CSV sheet's name when it is not the file's name (cut at 31 characters, or characters Excel refuses) */
       let csvSheet: string | undefined
       /** link targets that became plain text (office-links.ts) */
@@ -422,6 +428,7 @@ export class MakeFile {
           linksRemoved = stripUnsafeLinks(ast)
           images = await this.copyImages(c, ast, base, work)
           sources.push(...images)
+          if (a.format === 'pdf' || a.format === 'docx') doc = { pictures: imageCount(ast), textBars: textBars(text) }
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
           if (a.format === 'docx' || a.format === 'pptx') svgPictures = await this.svgPictures(c, ast, work, text)
           if (a.format === 'docx') marks = markTextColors(ast)
@@ -438,7 +445,10 @@ export class MakeFile {
           fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
           from = 'csv'
         }
-        if (a.format === 'pdf') await this.pdf(work, input, from, text)
+        if (a.format === 'pdf') {
+          await this.pdf(work, input, from, text)
+          if (doc) { try { doc.pages = pdfPageCount(readRegular(produced, 64 * 1024 ** 2).bytes) } catch { /* the count is a hint: the file is checked below */ } }
+        }
         else {
           // without images pandoc reads only the files on its command line (--sandbox); with images it must read
           // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
@@ -482,7 +492,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}) }
+      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}), ...(doc ? { doc } : {}) }
       return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...(csvSheet ? { csvSheet } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -1439,3 +1449,29 @@ export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string
 const columnName = (n: number): string => (n > 26 ? columnName(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))
 const displayWidth = (s: string) => [...s].reduce((n, ch) => n + (/[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1), 0)
 
+
+/** The Image nodes of a pandoc document tree (every picture of the document, whatever syntax wrote it). */
+export function imageCount(ast: unknown): number {
+  let n = 0
+  const stack: unknown[] = [ast]
+  while (stack.length) {
+    const x = stack.pop()
+    if (Array.isArray(x)) { for (const y of x) stack.push(y); continue }
+    if (x && typeof x === 'object') {
+      const o = x as { t?: unknown; c?: unknown }
+      if (o.t === 'Image') n++
+      for (const v of Object.values(o)) if (v && typeof v === 'object') stack.push(v)
+    }
+  }
+  return n
+}
+/** a run of block characters (■ █ ▇ ▒ …): a bar drawn with text */
+const TEXT_BAR = /[\u2580-\u259F\u25A0\u25AE\u25AC]{4,}/u
+export const textBars = (markdown: string): boolean => TEXT_BAR.test(markdown)
+/** make_file's line for a Word file or PDF made from Markdown (FromMarkdown). */
+export function docResultText(d: FromMarkdown, format: 'pdf' | 'docx'): string {
+  const pages = d.pages ? `${d.pages} page${d.pages === 1 ? '' : 's'} and ` : ''
+  const pics = d.pictures ? `${d.pictures} picture${d.pictures === 1 ? '' : 's'}` : 'no pictures'
+  const bars = !d.pictures && d.textBars ? ' Bars drawn with block characters (■, █) are text, not a chart: for a chart, draw it as SVG, save it as PNG with make_file and put the picture in; otherwise do not call it a chart.' : ''
+  return `The ${format === 'pdf' ? 'PDF' : 'Word file'} has ${pages}${pics}.${bars}`
+}
