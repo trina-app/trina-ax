@@ -23,7 +23,10 @@ export const CAS_FILE_MAX = 1 << 20
 export const CAS_TOTAL_MAX = 256 << 20
 
 export interface Entry { size: number; mtimeMs: number; ctimeMs: number; ino: number; sha256: string | null }
-export interface Manifest { at: string; files: Record<string, Entry>; truncated: boolean }
+/** `unkept`: files whose content is not in the store (too large for it, over its total, or unreadable now);
+ * `skipped`: folders skipped by name that hold something (node_modules, .git, .env*: no content of theirs is tracked).
+ * Both only when the snapshot was taken with `report` (the own-folder window, track.ts). */
+export interface Manifest { at: string; files: Record<string, Entry>; truncated: boolean; unkept?: string[]; skipped?: string[] }
 export interface Change { path: string; action: 'create' | 'update' | 'delete'; before: string | null; after: string | null; size: number | null }
 
 const sha = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
@@ -62,8 +65,12 @@ export function readInside(abs: string, within: string, maxBytes = HASH_MAX_BYTE
   } catch { return null } finally { fs.closeSync(fd) }
 }
 
+/** The caps of one store: a file up to `fileMax` is kept, at most `totalMax` in all. */
+export interface StoreCaps { fileMax: number; totalMax: number }
+export const PROJECT_CAPS: StoreCaps = { fileMax: CAS_FILE_MAX, totalMax: CAS_TOTAL_MAX }
+
 export class SnapshotStore {
-  constructor(readonly dir: string) {}
+  constructor(readonly dir: string, readonly caps: StoreCaps = PROJECT_CAPS) {}
   private get manifestFile() { return path.join(this.dir, 'manifest.json') }
   private casPath(h: string) { return path.join(this.dir, 'cas', h.slice(0, 2), h) }
 
@@ -86,12 +93,22 @@ export class SnapshotStore {
     walk(path.join(this.dir, 'cas'))
     return n
   }
-  keep(h: string, bytes: Uint8Array, budget: { left: number }) {
-    if (bytes.length > CAS_FILE_MAX || bytes.length > budget.left) return
+  /** keep `bytes` by its hash; true when the store has them (now or before) */
+  keep(h: string, bytes: Uint8Array, budget: { left: number }): boolean {
     const p = this.casPath(h)
-    if (fs.existsSync(p)) return
+    if (fs.existsSync(p)) return true
+    if (bytes.length > this.caps.fileMax || bytes.length > budget.left) return false
     fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 })
-    try { fs.writeFileSync(p, bytes, { mode: 0o600, flag: 'wx' }); budget.left -= bytes.length } catch {}
+    try { fs.writeFileSync(p, bytes, { mode: 0o600, flag: 'wx' }); budget.left -= bytes.length; return true } catch { return fs.existsSync(p) }
+  }
+  has(h: string): boolean { return fs.existsSync(this.casPath(h)) }
+  /** remove every kept content that none of `keep` names (the own-folder store keeps only its newest manifest's) */
+  prune(keep: ReadonlySet<string>) {
+    const cas = path.join(this.dir, 'cas')
+    for (const d of safeList(cas)) {
+      if (!d.isDirectory()) continue
+      for (const f of safeList(path.join(cas, d.name))) if (!keep.has(f.name)) try { fs.rmSync(path.join(cas, d.name, f.name), { force: true }) } catch {}
+    }
   }
 }
 
@@ -103,16 +120,21 @@ function safeList(d: string): fs.Dirent[] {
  * Snapshot of `root/folder` (folder relative to the team root; manifest paths are relative to the team root too, like
  * file_events). Links are not followed and not listed. `prev`: reuse hashes of unchanged files.
  */
-export function takeSnapshot(root: string, folder: string, prev: Manifest | null, store?: SnapshotStore): Manifest {
+export function takeSnapshot(root: string, folder: string, prev: Manifest | null, store?: SnapshotStore, o: { report?: boolean } = {}): Manifest {
   const files: Record<string, Entry> = {}
   let count = 0, truncated = false
-  const budget = { left: store ? Math.max(0, CAS_TOTAL_MAX - store.casBytes()) : 0 }
+  const unkept: string[] = [], skipped: string[] = []
+  const budget = { left: store ? Math.max(0, store.caps.totalMax - store.casBytes()) : 0 }
   let within = path.join(root, folder)
   try { within = fs.realpathSync(within) } catch { return { at: new Date().toISOString(), files, truncated: true } }
   const walk = (rel: string) => {
     for (const e of safeList(path.join(root, rel))) {
       if (truncated) return
-      if (skipName(e.name)) continue
+      if (skipName(e.name)) {
+        // a skipped name that holds something: none of it can come back (report: the caller says so)
+        if (o.report) { const r0 = rel ? `${rel}/${e.name}` : e.name; if (e.isFile() || (e.isDirectory() && safeList(path.join(root, r0)).length)) skipped.push(r0) }
+        continue
+      }
       const r = rel ? `${rel}/${e.name}` : e.name
       // the empty names this server made for a run (srt's mount points) are no change of the folder (QA TC-5349)
       if (isRunPlaceholder(path.join(root, r))) continue
@@ -124,19 +146,26 @@ export function takeSnapshot(root: string, folder: string, prev: Manifest | null
       try { st = fs.lstatSync(abs) } catch { continue }
       if (!st.isFile()) continue
       const old = prev?.files[r]
-      if (old && old.size === st.size && old.mtimeMs === st.mtimeMs && old.ctimeMs === st.ctimeMs && old.ino === st.ino) { files[r] = old; continue }
-      let h: string | null = null
-      if (st.size <= HASH_MAX_BYTES) {
-        const r = readInside(abs, within)
-        if (!r) continue
-        h = sha(r.bytes)
-        store?.keep(h, r.bytes, budget)
+      if (old && old.size === st.size && old.mtimeMs === st.mtimeMs && old.ctimeMs === st.ctimeMs && old.ino === st.ino) {
+        files[r] = old
+        // the same file as before: its content must still be in the store (report: else it cannot come back)
+        if (o.report && (!old.sha256 || !store?.has(old.sha256))) unkept.push(r)
+        continue
       }
+      let h: string | null = null
+      let kept = false
+      if (st.size <= HASH_MAX_BYTES && (!o.report || !store || st.size <= store.caps.fileMax)) {
+        const got = readInside(abs, within)
+        if (!got) { if (o.report) unkept.push(r); continue }
+        h = sha(got.bytes)
+        kept = !!store?.keep(h, got.bytes, budget)
+      }
+      if (o.report && !kept) unkept.push(r)
       files[r] = { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, sha256: h }
     }
   }
   walk(folder)
-  return { at: new Date().toISOString(), files, truncated }
+  return { at: new Date().toISOString(), files, truncated, ...(o.report ? { unkept, skipped } : {}) }
 }
 
 /** What changed from `a` to `b` (content: by hash; a file too large to hash: by size and mtime). */
@@ -151,4 +180,34 @@ export function diffSnapshots(a: Manifest | null, b: Manifest): Change[] {
   // a truncated snapshot does not know about the files it did not reach: no deletes from it
   if (!b.truncated) for (const p of Object.keys(before)) if (!(p in b.files)) out.push({ path: p, action: 'delete', before: before[p]!.sha256, after: null, size: null })
   return out.sort((x, y) => x.path.localeCompare(y.path))
+}
+
+/**
+ * Could a store with `caps` keep every file of `root/folder` (stat only: nothing is read, kept or saved)? What could
+ * not: a file over caps.fileMax, the files past caps.totalMax in all, a name skipped by name that holds something, more
+ * files than a snapshot lists (truncated), anything that is not a regular file or a folder (a link, a socket). Paths
+ * under `exclude` (team-relative prefixes: folders a run cannot write) are not looked at.
+ */
+export function keepable(root: string, folder: string, caps: StoreCaps, exclude: readonly string[] = []): { unkept: string[]; skipped: string[]; truncated: boolean } {
+  const unkept: string[] = [], skipped: string[] = []
+  let count = 0, total = 0, truncated = false
+  const out = (r: string) => exclude.some((x) => r === x || r.startsWith(x + '/'))
+  const walk = (rel: string) => {
+    for (const e of safeList(path.join(root, rel))) {
+      if (truncated) return
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (out(r) || isRunPlaceholder(path.join(root, r))) continue
+      if (skipName(e.name)) { if (e.isFile() || (e.isDirectory() && safeList(path.join(root, r)).length)) skipped.push(r); continue }
+      if (e.isDirectory()) { walk(r); continue }
+      if (!e.isFile()) continue
+      if (++count > SNAPSHOT_MAX_FILES) { truncated = true; return }
+      let st: fs.Stats
+      try { st = fs.lstatSync(path.join(root, r)) } catch { continue }
+      if (!st.isFile()) continue
+      total += st.size
+      if (st.size > caps.fileMax || total > caps.totalMax) unkept.push(r)
+    }
+  }
+  walk(folder)
+  return { unkept, skipped, truncated }
 }

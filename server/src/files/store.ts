@@ -286,3 +286,16 @@ export function moveToTrash(db: Database, root: string, segs: string[], by: { us
   fileEvent(db, { turnId: by.turnId, userId: by.userId, path: segs.join('/'), action: 'delete', size: bytes.length, sha256: sha256(bytes) })
   return id
 }
+
+/** Put `bytes`, the last content of `rel` that is gone already (a dev environment command removed it, devenv/track.ts),
+ * in the trash as a file item, restorable like any deleted file for `days` days. Returns the trash id. */
+export function trashBytes(db: Database, root: string, rel: string, bytes: Uint8Array, by: { userId: string; turnId: string | null }, days: number): string {
+  return trashRow(db, rel, storeBlob(root, 'trash', bytes), bytes.length, by, days)
+}
+/** The trash_items row of a file whose content is at `storage` (.system/trash/…) already. Returns the trash id. */
+export function trashRow(db: Database, rel: string, storage: string, size: number, by: { userId: string; turnId: string | null }, days: number): string {
+  const id = newId()
+  db.query("INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,'file')")
+    .run(id, rel, storage, size, by.userId, by.turnId, new Date(Date.now() + days * 86400_000).toISOString())
+  return id
+}

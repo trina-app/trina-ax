@@ -328,6 +328,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
+      // the command went without the room card on the promise that its own-folder changes can be undone (chat/turn.ts ownBoxRun)
+      mustUndo: (command) => exec.boxUndo.has(command),
+      reverted: () => { exec.boxUndone = true },
       // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
       // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
       keepBulk: async (ask) => {

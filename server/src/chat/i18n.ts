@@ -318,6 +318,8 @@ export const TEXT = {
   scheduleCoverStep: STEP_TEXT.scheduleCoverStep,
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: STEP_TEXT.ownFolderStep,
+  /** the step of a dev-environment command after a room read with no card (its own-folder changes can be undone) */
+  ownUndoStep: STEP_TEXT.ownUndoStep,
   chatOnceStep: STEP_TEXT.chatOnceStep,
   /** under a room answer: the files a grant or [이번만 허용] let the AI save without a card (links) */
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos", "文件"),

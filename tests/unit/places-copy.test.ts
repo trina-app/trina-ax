@@ -352,9 +352,9 @@ describe('review of P2 (adversarial)', () => {
 })
 
 // QA TC-f2-c02: one chart request in a room's ✦ side chat raised three cards (a command twice, the copy into my folder).
-// A copy of what it made into my own folder as a new file goes without a card; the command keeps the room card (a room
-// message could steer it to change my own files, which runs keep no versions of yet: owner 11-22,
-// docs/decisions/20261122-ask-less-side-chat-runs.md); an overwrite in my folder and a team folder ask.
+// A copy of what it made into my own folder as a new file goes without a card; so does the command, now that its changes
+// in my own folder keep versions and go to the trash (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2,
+// tests/unit/box-run-versions.test.ts); an overwrite in my folder and a team folder ask.
 describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => {
   /** alice's own chat that has read a room (chats.rooms_seen, as room_read leaves it; a ✦ side chat counts the same,
    * chat/read-rooms.ts readRooms) */
@@ -366,11 +366,10 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
   const chart = `cd "$TRINA_WORK" && python3 - <<'EOF'\nimport matplotlib.pyplot as plt\nplt.bar(['a'],[1])\nplt.savefig('out/chart.png')\nEOF`
   const made = (chat: string, name: string) => { const p = path.join(chatWork(base, chat), 'out', name); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'PNG-CHART') }
 
-  test('the command keeps the room card in plain words; the copy into users/<me>/ asks nothing; the step says why', async () => {
+  test('the command and the copy into users/<me>/ ask nothing; the steps say why', async () => {
     const chat = await side()
     const ran = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }))
-    expect(ran.cards).toHaveLength(1)
-    expect(ran.cards[0]!.question).toContain('chart.png')
+    expect(ran.cards).toHaveLength(0)
     made(chat, 'chart.png')
     const r = await run('alice', chat, copy(['chat:work/out/chart.png'], 'users/alice/charts-f2/'))
     expect(r.cards).toHaveLength(0)
