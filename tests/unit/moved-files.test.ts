@@ -186,6 +186,44 @@ describe('box_shell in a real run (QA TC-7234: the AI rebuilt the poster at its 
   })
 })
 
+describe('saving where a file was moved away from, and a copy over a file read in this answer (real-run fixes)', () => {
+  test('make_file at a moved file\'s old place is said first (with where it is), the second call makes the new file', async () => {
+    const f = `projects/falcon/${uniq('sheet')}.xlsx`
+    put(f, 'old')
+    svc().move('alice', f, `shared/${f.split('/').pop()}`, 'fail')
+    const turn = A.turn('alice', A.chat('alice'))
+    const tc = A.toolCtx('alice', turn)
+    const h = makeHandler(A.ctx.files, A.ctx.db, tc)
+    const mk = async () => { const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'make_file', arguments: { format: 'xlsx', content: '| a | b |\n|---|---|\n| 1 | 2 |', output: f } } }); return { text: r.result.content[0].text as string, isError: !!r.result.isError } }
+    const first = await mk()
+    expect(first.isError).toBe(true)
+    expect(first.text).toContain(`moved that file to 'shared/${f.split('/').pop()}'`)
+    expect(fs.existsSync(path.join(A.team, ...f.split('/')))).toBe(false)
+    const second = await mk()
+    expect(second.isError).toBe(false)
+    expect(fs.existsSync(path.join(A.team, ...f.split('/')))).toBe(true)
+  })
+
+  test('copy_files over a file of that name read in this answer replaces it as a new version; unread, a "(2)" copy as before', async () => {
+    const d = `shared/${uniq('cp')}`
+    put(`${d}/poster.txt`, 'OLD')
+    put(`${d}-src/poster.txt`, 'NEW')
+    const turn = A.turn('alice', A.chat('alice'))
+    const tc = A.toolCtx('alice', turn)
+    const h = makeHandler(A.ctx.files, A.ctx.db, tc)
+    const call2 = async (name: string, args: unknown) => { const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } }); return { text: r.result.content[0].text as string, isError: !!r.result.isError } }
+    // not read: a copy next to it
+    const unread = await call2('copy_files', { paths: [`${d}-src/poster.txt`], to_folder: d })
+    expect(unread.text).toContain(`${d}/poster (2).txt`)
+    await call2('read', { file_path: `${d}/poster.txt` })
+    const r = await call2('copy_files', { paths: [`${d}-src/poster.txt`], to_folder: d })
+    expect(r.text).toContain('a new version of it')
+    expect(fs.readFileSync(path.join(A.team, ...`${d}/poster.txt`.split('/')), 'utf8')).toBe('NEW')
+    const v = A.ctx.db.query('SELECT COUNT(*) AS n FROM file_versions WHERE path = ?').get(`${d}/poster.txt`) as { n: number }
+    expect(v.n).toBeGreaterThan(0)
+  })
+})
+
 describe('HTTP', () => {
   test('GET /api/files/moved: moved with the new path, hidden for someone who cannot see the old folder', async () => {
     const f = uniq('card') + '.png'

@@ -519,7 +519,7 @@ export class MakeFile {
       fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
       await this.checkWidening(c, out.rel, out.segs, printed.sources)
       // the audit line names every team file whose bytes are in the PDF (the page's pictures, stylesheets, fonts)
-      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
+      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { movedCheck: true, detail: { from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
       return { ...made, html: { pages: printed.pages, blocked: printed.blocked, blockedCount: printed.blockedCount, scripts: printed.scripts } }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -559,7 +559,7 @@ export class MakeFile {
       const produced = path.join(work, 'out.pdf')
       fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
       await this.checkWidening(c, out.rel, out.segs, [src.rel])
-      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: src.rel, pages: printed.pages, slides: drawn.pages } })
+      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { movedCheck: true, detail: { from: src.rel, pages: printed.pages, slides: drawn.pages } })
       return { ...made, html: { pages: printed.pages, blocked: [], blockedCount: 0, scripts: false, deck: { slides: drawn.pages, hidden: drawn.hidden, notDrawn: drawn.notDrawn } } }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -892,7 +892,7 @@ export class MakeFile {
    * so: with none, the file is the AI's own text alone (`own`: chat/shared-actions.ts ownWritingSql counts only that
    * as written by the AI); else where it came from. */
   private place(c: ToolCtx, segs: string[], produced: string, sources: readonly string[]): Promise<MadeFile> {
-    return placeProduced(this.ctx, this.files, c, segs, produced, 'make_file', undefined, { detail: sources.length ? { from: sources[0], files: sources.slice(1, 51) } : { own: true } })
+    return placeProduced(this.ctx, this.files, c, segs, produced, 'make_file', undefined, { movedCheck: true, detail: sources.length ? { from: sources[0], files: sources.slice(1, 51) } : { own: true } })
   }
 }
 
@@ -1032,7 +1032,8 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
 /** thisAnswerOnly: a save of a new thing (a web page, a room's file, a video, an unzip): an existing file there is
  * replaced only when this answer read it (a read in an earlier message keeps both, as before); make_file and the
  * tools that change a named file count the chat's earlier reads too (files/service.ts ReadHashes) */
-export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean }
+/** `movedCheck`: a new file where a file was moved away from is said first (make_file, copies out of the work folder) */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean; movedCheck?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   // `chat:files/<name>` (files/place-output.ts authorizeOutput): attached to this answer, never a team file
@@ -1067,7 +1068,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // place, the moved one stayed on the old date, and the answer said "saved the same file"): said first, once per answer
   // and place, with where the file is now (when this person, and everyone in the chat, may read it there). A second
   // call for the same place makes the new file (the person may want one there)
-  if (!now.exists) movedAwayCheck(ctx, c, rel0)
+  if (!now.exists && po.movedCheck && c.turnId) movedAwayCheck(ctx, c, rel0)
   if (now.exists) {
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)

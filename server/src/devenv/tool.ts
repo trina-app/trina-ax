@@ -253,7 +253,7 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   // a link only for a file the person can open now: the project folder's changes may include a file a teammate's run
   // saved in a sub-folder this person cannot open (a dead link in the answer otherwise)
   if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, (rel) => personCanOpen(h, rel))}`)
-  const left = movedAwayNotes(h, w.changes, o.space)
+  const left = movedAwayNotes(h, w.changes)
   if (left.length) parts.push(...left)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
@@ -274,7 +274,7 @@ function nameable(h: BoxShellHost, rel: string): boolean {
   try { const f = h.ctx.files; return everyoneInChatReads(h.ctx.db, f.rules(), f.principal(h.userId), h.chatId, rel) } catch { return false }
 }
 
-function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; action: string }[], _space: Space | undefined): string[] {
+function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; action: string }[]): string[] {
   const out: string[] = []
   for (const c of changes) {
     if (c.action !== 'create' || out.length >= 5) continue

@@ -232,7 +232,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           const at = join(folder, nameOf(p))
           const seen = readThisAnswer(tc.files, at)
           const r = await svc.copy(tc.user.id, p, at, seen ? { onExists: 'replace', baseSha256: seen, turnId: tc.turnId, tool, confirm: confirmed && added > 0 } : { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
-          if ('path' in r) done.push({ from: p, to: seen && r.path === at ? `${r.path} (a new version of it; its earlier content is kept)` : r.path })
+          if ('path' in r) done.push({ from: p, to: !seen ? r.path : r.path === at ? `${r.path} (a new version of it; its earlier content is kept)` : `${r.path} (${at} changed after you read it, so it was kept unchanged and this copy was saved next to it; tell the person)` })
         }
       } catch (e) {
         failed.push({ path: p, error: e instanceof ToolError && e.code === 'is_folder' ? 'this is a folder: copy_files copies files only (move_files moves folders)' : why(e, tc) })
