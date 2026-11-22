@@ -2,13 +2,15 @@
 // docs/AGENTS/plan/20261122-0454-google-login.md). Connect asks for the current password (ReauthDialog), then Google's
 // page opens in this window and comes back here with ?google=<result>. Connect shows only where it can work: this
 // server has a Google client and Google returns to this address (GET /api/me/google `available`), in a browser (Google
-// refuses to sign in inside the apps' own windows). A connected account always shows, with Disconnect.
+// refuses to sign in inside the apps' own windows). A connected account always shows, with Disconnect. Right after a
+// connect, one line offers Google Drive and Gmail with the same Google account (AlsoConnect; part A2).
 import { LogIn } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { MyGoogle } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { clientKind } from '../../lib/desktop'
+import { connectorHref } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -31,6 +33,8 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
   const navigate = useNavigate()
   const [value, setValue] = useState<MyGoogle | null>(null)
   const [asking, setAsking] = useState(false)
+  // just connected (?google=connected): the line offering Google Drive and Gmail
+  const [offer, setOffer] = useState(false)
   const load = async () => {
     try { setValue(await api.call(API.myGoogle)) } catch { setValue(null) }
   }
@@ -42,6 +46,7 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
     if (!r) return
     const key = RESULT[r]
     if (key) toast({ level: r === 'connected' ? 'success' : 'error', text: t(key) })
+    if (r === 'connected') setOffer(true)
     p.delete('google')
     navigate({ pathname: location.pathname, search: p.size ? `?${p}` : '' }, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,7 +85,7 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
   if (phone) {
     return (
       <>
-        <PhoneListGroup title={t('settings.google.title')} footer={t('settings.google.desc')} testId="security-google">
+        <PhoneListGroup title={t('settings.google.title')} footer={<>{t('settings.google.desc')}{offer && account && <AlsoConnect className="mt-1 block" />}</>} testId="security-google">
           <PhoneListRow
             icon={<LogIn size={16} />}
             title={account ? <span className="block min-w-0"><span className="block truncate" data-testid="google-email">{account.email ?? t('settings.google.title')}</span><span className="block truncate text-xs text-faint">{used}</span></span> : t('settings.google.none')}
@@ -99,6 +104,7 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
       testId="security-google"
       title={account ? <span data-testid="google-email">{account.email ?? t('settings.google.title')}</span> : t('settings.google.none')}
       desc={used ?? undefined}
+      below={offer && account ? <AlsoConnect className="mt-1.5 block text-meta text-muted" /> : undefined}
       control={account
         ? <Button size="sm" variant="ghost" onClick={() => void disconnect()} data-testid="google-disconnect">{t('settings.google.disconnect')}</Button>
         : <Button size="sm" onClick={() => setAsking(true)} data-testid="google-connect">{t('settings.google.connect')}</Button>}
@@ -109,5 +115,33 @@ export function GoogleAccount({ phone, frame }: { phone: boolean; frame?: (child
       {frame ? frame(row) : row}
       {dialog}
     </>
+  )
+}
+
+/** Right after a connect: one line offering the person's own Google Drive and Gmail with the same Google account (their
+ * Google address then carries it as login_hint, so Google skips its account picker; server/src/auth/login-identities.ts).
+ * Only the ones this person can connect here and has not yet; none: no line. */
+function AlsoConnect({ className }: { className?: string }) {
+  const t = useT()
+  const [apps, setApps] = useState<{ id: string; name: string }[] | null>(null)
+  useEffect(() => {
+    let live = true
+    void Promise.all([
+      api.call(API.myDriveConnection).then((d) => (d.configured && d.status !== 'connected' ? [{ id: 'google-drive', name: 'Google Drive' }] : []), () => []),
+      api.call(API.myGoogleApps).then((r) => r.apps.filter((a) => a.id === 'gmail' && a.available && a.status !== 'connected').map(() => ({ id: 'gmail', name: 'Gmail' })), () => []),
+    ]).then(([drive, gmail]) => { if (live) setApps([...drive, ...gmail]) })
+    return () => { live = false }
+  }, [])
+  if (!apps?.length) return null
+  return (
+    <span className={className} data-testid="google-also-connect">
+      {t('settings.google.alsoConnect')}{' '}
+      {apps.map((a, i) => (
+        <Fragment key={a.id}>
+          {i > 0 && ' · '}
+          <Link to={connectorHref(a.id)} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid={`google-also-${a.id}`}>{a.name}</Link>
+        </Fragment>
+      ))}
+    </span>
   )
 }
