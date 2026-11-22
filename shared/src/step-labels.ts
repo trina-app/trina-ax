@@ -412,29 +412,43 @@ export const SHELL_KIND_WORDS = {
   install: t('프로그램 설치', 'Install tools', 'Pasang program', "ツールをインストール", "Instalar herramientas", "安装工具"),
   make: t('결과물 만들기', 'Make the result', 'Buat hasilnya', "成果物を作成", "Crear el resultado", "生成结果"),
   download: t('내려받기', 'Download', 'Unduh', "ダウンロード", "Descargar", "下载"),
+  change: t('파일 바꾸기', 'Change files', 'Ubah berkas', "ファイルを変更", "Cambiar archivos", "修改文件"),
   check: t('파일 확인', 'Check files', 'Periksa berkas', "ファイルを確認", "Revisar archivos", "检查文件"),
   wait: t('기다리기', 'Wait', 'Menunggu', "待機", "Esperar", "等待"),
   run: t('작업 실행', 'Run a task', 'Jalankan tugas', "作業を実行", "Ejecutar una tarea", "执行任务"),
 } satisfies Record<string, T>
 export type ShellKind = keyof typeof SHELL_KIND_WORDS
 
-/** What a shell command does, roughly, from its parts (split at && || ; | and new lines): an install anywhere wins,
- * then making something (a render, a build, a conversion), a download, a look at files, a pause; else "run". */
+/** What a shell command does, roughly, from its parts (split at && || ; | and new lines). Anything that changes or
+ * removes files (rm, mv, a "> file" redirect, sed -i, find -delete…) is said as such first, whatever else the command
+ * does; then an install, making something (a render, a build), a download, a pause, a look at files (only programs that
+ * read, with no redirect or command substitution); else "run". The words are the server's own: a room card asks with
+ * them, never with the AI's description (docs/AGENTS/plan/20261122-0156-step-labels-plain.md). */
 export function shellKind(command: string): ShellKind {
-  const parts = command.slice(0, 4000).split(/&&|\|\||[;|\n]/).map((p) => p.trim()
+  const c = command.slice(0, 4000)
+  // a redirect into a file (not 2>&1 or > /dev/null), sed -i, find -delete / -exec, tee: it writes
+  const quiet = c.replace(/\d*>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
+  if (/>/.test(quiet.replace(/<<-?\s*['"]?\w+['"]?/g, '')) || /(?:^|\s)-(?:delete|exec|execdir|ok)\b/.test(c) || /\bsed\s+(?:-\w*\s+)*-i/.test(c)) return 'change'
+  const parts = c.split(/&&|\|\||[;|\n]/).map((p) => p.trim()
     // leading VAR=value assignments, export / env / sudo / time / exec in front of the program
-    .replace(/^(?:(?:export|env|sudo|time|exec|nohup)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)*/, '')
-    .replace(/^(?:sudo|time|exec|nohup)\s+/, '')).filter(Boolean)
-  const progs = parts.map((p) => ({ p, w: p.split(/\s+/)[0]!.replace(/^.*\//, '').toLowerCase() }))
+    .replace(/^(?:(?:export|env|sudo|time|exec|nohup|command)\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)*/, '')
+    .replace(/^(?:sudo|time|exec|nohup|command)\s+/, '')).filter(Boolean)
+  const progs = parts.map((p) => { const ws = p.split(/\s+/); return { p, w: ws[0]!.replace(/^.*\//, '').toLowerCase(), args: ws.slice(1).map((x) => x.toLowerCase()) } })
+  const change = new Set(['rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'ln', 'truncate', 'dd', 'tee', 'touch', 'unlink', 'shred', 'rsync', 'kill', 'pkill', 'killall'])
+  // (a program run by another: xargs rm, timeout 60 rm …)
+  if (progs.some(({ w, args }) => change.has(w) || (['xargs', 'timeout', 'nice', 'watch', 'parallel', 'flock'].includes(w) && args.some((x) => change.has(x.replace(/^.*\//, '')))) || (w === 'git' && ['push', 'commit', 'reset', 'rm', 'mv', 'checkout', 'clean', 'restore', 'rebase', 'merge'].includes(args[0] ?? '')))) return 'change'
   const has = (re: RegExp) => progs.some(({ p }) => re.test(p))
   if (has(/^(?:npm|pnpm|yarn|bun|deno)\s+(?:i|install|add|ci)\b|^(?:pip3?|uv|pipx|poetry)\s+(?:install|add|sync)\b|^(?:python3?\s+-m\s+pip|uv\s+pip)\s+install\b|^(?:apt(?:-get)?|brew|apk|dnf|yum|cargo|gem|go)\s+(?:install|add|get)\b|^npx\s+\S+\s+install\b/i)) return 'install'
-  if (has(/\b(?:render|ffmpeg|remotion|hyperframes|magick|convert|build|compile|export|bundle|make)\b|^(?:make|tsc|vite|webpack|pandoc|libreoffice|soffice)\b/i)) return 'make'
+  // making something: the program itself, or a runner's script / tool named so (npx hyperframes render, npm run build)
+  const makers = new Set(['ffmpeg', 'make', 'tsc', 'vite', 'webpack', 'pandoc', 'libreoffice', 'soffice', 'magick', 'convert', 'remotion', 'hyperframes'])
+  const makeWord = /^(?:render|build|export|compile|bundle|remotion|hyperframes)$/
+  if (progs.some(({ w, args }) => makers.has(w) || (['npx', 'bunx', 'pnpm', 'yarn', 'npm', 'bun', 'deno'].includes(w) && args.slice(0, 3).some((x) => makeWord.test(x))))) return 'make'
   if (has(/^(?:wget|git\s+(?:clone|pull|fetch)|curl\b.*(?:\s-[A-Za-z]*[oO]\b|--output|--remote-name))/i)) return 'download'
-  const look = new Set(['ls', 'find', 'wc', 'du', 'df', 'cat', 'head', 'tail', 'stat', 'file', 'tree', 'grep', 'rg', 'test', '[', 'which', 'pwd', 'md5sum', 'sha256sum', 'shasum', 'ffprobe', 'identify', 'sort', 'uniq', 'awk', 'sed', 'jq', 'echo', 'printf', 'cut', 'tr', 'xargs'])
   const busy = progs.filter(({ w }) => !['cd', 'mkdir', 'set', 'source', '.', 'true', 'export'].includes(w))
   if (busy.length && busy.every(({ w }) => w === 'sleep')) return 'wait'
+  const look = new Set(['ls', 'find', 'wc', 'du', 'df', 'cat', 'head', 'tail', 'stat', 'file', 'tree', 'grep', 'rg', 'test', '[', 'which', 'pwd', 'md5sum', 'sha256sum', 'shasum', 'ffprobe', 'identify', 'sort', 'uniq', 'jq', 'echo', 'printf', 'cut', 'tr'])
   const real = busy.filter(({ w }) => w !== 'sleep')
-  if (real.length && real.every(({ w }) => look.has(w))) return 'check'
+  if (real.length && !/\$\(|`/.test(c) && real.every(({ w }) => look.has(w))) return 'check'
   return 'run'
 }
 

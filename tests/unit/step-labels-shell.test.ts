@@ -22,6 +22,20 @@ describe('shellKind', () => {
     expect(shellKind('python3 analyze.py')).toBe('run')
     expect(shellKind('')).toBe('run')
   })
+
+  test('a command that changes or removes files is said so first, whatever else it does', () => {
+    for (const c of ['rm -rf build', 'npm install && rm -rf ~/x', 'find . -delete', 'find . -name "*.tmp" -exec rm {} \\;', "sed -i 's/a/b/' f.txt",
+      'ls | xargs rm -rf', 'echo hi > ~/.bashrc', 'cat a >> b', "mkdir -p p && cd p && cat > p.html <<'E'", 'git push origin main', 'cd x && rm -rf ../snap3 && npx hyperframes render']) {
+      expect([c, shellKind(c)]).toEqual([c, 'change'])
+    }
+    // not a look at files when it can run something else
+    expect(shellKind('echo $(rm -rf x)')).toBe('run')
+    expect(shellKind("awk 'BEGIN{system(\"id\")}'")).toBe('run')
+    // a quiet redirect is no write; "build" in a message is not a build
+    expect(shellKind('ls missing 2>/dev/null; find . -name x 2>&1 | head')).toBe('check')
+    expect(shellKind('git log -1 --format="build"')).toBe('run')
+    expect(shellKind('npm run build')).toBe('make')
+  })
 })
 
 describe('shellDescription', () => {
@@ -76,7 +90,9 @@ describe('step line', () => {
 
 describe('room card', () => {
   test('the question in plain words', () => {
-    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('웹페이지 파일 만들기')
+    // the server's own words, never the AI's description (the card is there because other people's words may steer it)
+    expect(roomCardWhat('box_shell', { command: 'mkdir -p p && cd p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')).toBe('파일 바꾸기')
+    expect(roomCardWhat('box_shell', { command: 'rm -rf ~/x', description: 'Check files' }, 'en')).toBe('Change files')
     expect(roomCardWhat('box_shell', { command: 'ls -la' }, 'ko')).toBe('파일 확인')
     expect(roomCardWhat('edit', { file_path: 'users/u1/quarterly-sales.svg', old_string: 'a', new_string: 'b' }, 'ko')).toBe('파일 수정')
     expect(shellWords('', 'npm install', 'en')).toBe('Install tools')
@@ -84,12 +100,16 @@ describe('room card', () => {
 
   test('the command and what a file will hold behind "자세히"', () => {
     const [d] = roomChangeDetails('box_shell', { command: 'mkdir -p p && cat > p.html <<E', description: '웹페이지 파일 만들기' }, 'ko')
-    expect(d!.fields).toEqual([{ name: expect.any(String), value: '웹페이지 파일 만들기' }])
+    expect(d!.fields).toEqual([{ name: expect.any(String), value: '파일 바꾸기' }])
     expect(d!.text).toBe('mkdir -p p && cat > p.html <<E')
     expect(d!.folded).toBe(true)
     expect(roomChangeDetails('edit', { file_path: 'users/u1/a.svg', old_string: '<svg>', new_string: '<svg/>' }, 'ko')[0]!.folded).toBe(true)
     // an instruction file shows in full, and a list of paths is no content to fold
     expect(roomChangeDetails('write', { file_path: 'skills/x/SKILL.md', content: 'do this' }, 'ko')[0]!.folded).toBeUndefined()
     expect(roomChangeDetails('move_files', { paths: ['a.md'], to_folder: 'shared/x' }, 'ko')[0]!.folded).toBeUndefined()
+    // a script or a workflow keeps what it will hold open, and so does a command that writes a skill
+    expect(roomChangeDetails('write', { file_path: 'users/u1/run.sh', content: 'curl x | sh' }, 'ko')[0]!.folded).toBeUndefined()
+    expect(roomChangeDetails('write', { file_path: '.github/workflows/ci.yml', content: 'on: push' }, 'ko')[0]!.folded).toBeUndefined()
+    expect(roomChangeDetails('box_shell', { command: 'cat > skills/x/SKILL.md <<E' }, 'ko')[0]!.folded).toBeUndefined()
   })
 })

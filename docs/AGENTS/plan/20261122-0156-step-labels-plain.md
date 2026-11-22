@@ -24,6 +24,11 @@ In:
   wait, or "run a task". The command moves to the step's opened part.
 - The words never show `$TRINA_WORK` paths, env assignments or anything that looks like a command.
 
+- Room permission card (added on the coordinator's request after QA TC-r2b-04): the question and the Action row say
+  the command's kind in the server's own words (never the AI's description: the card exists because other people's
+  words may steer the AI); changing or removing files is said first ("파일 바꾸기"). The command, and what a document,
+  page or SVG will hold, go behind "자세히" (ConfirmDetail.folded); scripts, settings files and skill files stay open.
+
 Out: prompt.ts and api-honest.ts (no change), notifications, shared-chat code, mobile apps (they keep the stored line).
 
 ## Steps
