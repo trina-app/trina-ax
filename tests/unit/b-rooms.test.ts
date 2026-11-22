@@ -274,7 +274,9 @@ test('session markers: each room.message says the notice its recipient got, as t
   expect(marks(t1.id)[nora.id]).toBeNull()
   const t2 = await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
   expect(marks(t2.id)[nora.id]).toBe('room.mention')
-  // a reply in a thread: its followers (the root's author) get room.dm, nobody else
+  // a reply in a thread: its followers (the root's author) get room.dm, nobody else. "Replies in threads I'm part of"
+  // is off by default since #360 (a followed reply is then one quiet notice per unread run, b-rooms-notify.test.ts): on
+  savePreferences(h.ctx.db, nora.id, { roomThreadReplies: true })
   await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
   const root = await send(nora.client, team.id, 'a thread starts')
   const r1 = await send(mia.client, team.id, 'a reply', { threadRootId: root.id })
