@@ -27,11 +27,12 @@ export function addLoginIdentity(db: Database, userId: string, g: GoogleIdentity
   db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at, last_used_at) VALUES (?, 'google', ?, ?, ?, ?, ?)").run(userId, g.sub, g.email, g.hd, now, now)
 }
 
-/** How many active people (not guests) have no password: their accounts were made with Google, so they sign in and
- * re-check only with Google. While there is one, Google sign-in stays possible here: the team switch does not stop it
- * for them, and the server's own Google client is not removed or replaced (docs/decisions/20261122-google-reauth.md). */
+/** How many active people (not guests) have no password and a connected Google account: their accounts were made with
+ * Google, so they sign in and re-check only with Google. While there is one, Google sign-in stays possible here: the
+ * team switch does not stop it for them, and the server's own Google client is not removed or replaced
+ * (docs/decisions/20261122-google-reauth.md). An account with neither has no way in that Google could take away. */
 export function passwordlessCount(db: Database): number {
-  return (db.query("SELECT COUNT(*) AS n FROM users WHERE password_hash IS NULL AND status = 'active' AND deleted_at IS NULL AND guest = 0").get() as { n: number }).n
+  return (db.query("SELECT COUNT(*) AS n FROM users u WHERE u.password_hash IS NULL AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 AND EXISTS (SELECT 1 FROM login_identities l WHERE l.user_id = u.id)").get() as { n: number }).n
 }
 
 /** The people who connected a Google account (Admin › Members' "Google"; part A2): ids only. */
