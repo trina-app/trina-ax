@@ -221,23 +221,34 @@ function audienceEventsOf(db: AppContext['db'], chatId: string, full: boolean): 
   return out
 }
 
+/** pages of restore lines read at most for one list (chatEventsOf) */
+const EVENT_PAGES = 20
+
 /** The chat's lines for `viewer`, oldest first, the newest AUDIENCE_EVENTS_SHOWN of them: who changed its people
  * (audienceEventsOf) and who restored a version of a file there, only of a file the viewer may open (its name as the
  * chain's root has it, read now). The actor is named as audienceEventsOf names people. */
 function chatEventsOf(ctx: AppContext, chatId: string, viewer: string, full: boolean): NonNullable<ChatAudience['events']> {
   const db = ctx.db
   const people = audienceEventsOf(db, chatId, full)
-  const rows = db.query("SELECT at, actor_id, file_id, version FROM chat_file_events WHERE chat_id = ? AND kind = 'restored' ORDER BY at DESC, id DESC LIMIT ?").all(chatId, AUDIENCE_EVENTS_SHOWN) as { at: string; actor_id: string; file_id: string; version: number }[]
+  // newest first, a page at a time, until AUDIENCE_EVENTS_SHOWN lines the viewer may see are found (the visibility is
+  // checked here, not in SQL: a LIMIT first could leave a viewer none while older lines they may see exist). At most
+  // EVENT_PAGES pages are read
+  const page = (offset: number) => db.query("SELECT at, actor_id, file_id, version FROM chat_file_events WHERE chat_id = ? AND kind = 'restored' ORDER BY at DESC, id DESC LIMIT ? OFFSET ?").all(chatId, AUDIENCE_EVENTS_SHOWN, offset) as { at: string; actor_id: string; file_id: string; version: number }[]
+  let rows = page(0)
   if (!rows.length) return people
   const seen = new Map(chatFilesOf(ctx).visibleTo(viewer, chatId).map((v) => [v.id, v.root.name]))
   const files: NonNullable<ChatAudience['events']> = []
-  for (const e of rows.reverse()) {
-    const name = seen.get(e.file_id)
-    if (!name) continue
-    const u = db.query('SELECT name, status, deleted_at FROM users WHERE id = ?').get(e.actor_id) as { name: string; status: string; deleted_at: string | null } | null
-    if (!u || !(full || (u.status === 'active' && !u.deleted_at))) continue
-    files.push({ at: e.at, kind: 'restored', actor: u.name, names: [name], version: e.version })
+  for (let n = 0; rows.length && files.length < AUDIENCE_EVENTS_SHOWN && n < EVENT_PAGES; n++, rows = rows.length < AUDIENCE_EVENTS_SHOWN ? [] : page(n * AUDIENCE_EVENTS_SHOWN)) {
+    for (const e of rows) {
+      if (files.length >= AUDIENCE_EVENTS_SHOWN) break
+      const name = seen.get(e.file_id)
+      if (!name) continue
+      const u = db.query('SELECT name, status, deleted_at FROM users WHERE id = ?').get(e.actor_id) as { name: string; status: string; deleted_at: string | null } | null
+      if (!u || !(full || (u.status === 'active' && !u.deleted_at))) continue
+      files.push({ at: e.at, kind: 'restored', actor: u.name, names: [name], version: e.version })
+    }
   }
+  files.reverse()
   return [...people, ...files].sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0)).slice(-AUDIENCE_EVENTS_SHOWN)
 }
 

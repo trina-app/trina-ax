@@ -1,8 +1,8 @@
 // QA S-120 (docs/decisions/20261122-room-link-ask-and-team-file-names.md): a linked team file in a room post.
-// The poster's card: a file the asker's own AI made in a group folder in an earlier answer is theirs to share (the card
-// names who cannot open it and Send lets them view it); a teammate's file in a team folder the asker reads stays a
-// link, and the card now NAMES the room members who cannot open it (the folder's rule); a teammate's personal file
-// reached only through a share keeps the count. The viewer's side: GET/POST /api/rooms/:id/messages/:messageId/file-access
+// The poster's card: a file the asker's own AI made in a group folder in an earlier answer is theirs to share (Send lets
+// them view it); a teammate's file in a team folder the asker reads stays a link. A member's card COUNTS the room
+// members who cannot open a team-folder file (names would say who is outside the group: review of batch 3, #389, the
+// rule of files/access-routes.ts); the owner and admins get the names; a teammate's personal file keeps the count. The viewer's side: GET/POST /api/rooms/:id/messages/:messageId/file-access
 // (rooms/file-ask.ts) answers ask / asked / open / no, and the ask is an ordinary file access request.
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner (b-harness people).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -61,26 +61,32 @@ const link = (rel: string) => `[${rel.slice(rel.lastIndexOf('/') + 1)}](/files/v
 const lastIn = async (roomId: string) => ((await h.api('alice').call(API.listRoomMessages, { params: { id: roomId }, query: {} })).items as RoomMessage[]).at(-1)!
 
 describe('the poster\'s card', () => {
-  test('root cause: a file my AI made in a group folder in an earlier answer is mine to share; the card names who cannot open it', async () => {
+  test('root cause: a file my AI made in a group folder in an earlier answer is mine to share; the card counts who cannot open it', async () => {
     const rel = 'groups/marketing/q3-summary-120.md'
     const made = await turn('alice', fake({ tool: 'write', args: { file_path: rel, content: '# Q3 summary\n' }, sayResult: true }))
     // the AI's write records alice as the file's maker (files/shares.ts creatorOf): she owns it and may share it
     expect(fileSharesOf(h.ctx).view('alice', rel, 'en')).toMatchObject({ canShare: true, mine: true })
     const r = await turn('alice', post({ room: rooms.all, text: `Q3: ${link(rel)}` }), { chat: made.chatId, answer: 'no' })
-    expect(r.card!.question).toContain("Bob Lee can't open the file yet; sending shares it with them.")
+    expect(r.card!.question).toContain("1 person there can't open the file yet; sending shares it with them.")
+    expect(r.card!.question).not.toContain('Bob Lee')
   })
 
-  test('a teammate\'s file in a team folder I read: still a link, but the card names the room members who cannot open it', async () => {
+  test('a teammate\'s file in a team folder I read: still a link; a member\'s card counts who cannot open it, an admin\'s names them', async () => {
     const rel = 'groups/marketing/erins-plan-120.md'
     put(rel, '# Erin\'s plan'); wroteIt('erin', rel)
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: rel } }), post({ room: rooms.all, text: `Plan: ${link(rel)}` })].join('\n'), { answer: 'send' })
     expect(r.card!.options!.map((x) => x.value).filter((v) => v !== '__always')).toEqual(['send', 'no'])
-    expect(r.card!.question).toContain("Bob Lee can't open the linked file.")
+    expect(r.card!.question).toContain("1 person can't open 1 linked file.")
+    expect(r.card!.question).not.toContain('Bob Lee')
     expect((await lastIn(rooms.all)).files).toEqual([])
     // Ask <owner> follows the post, and the AI is told the people there can ask from the link themselves
     const out = JSON.parse(r.content)
     expect(out.cannot_open).toContain('Ask Erin Yoo')
     expect(out.cannot_open).toContain('Ask to view')
+    // carol (an admin, who sees every folder's access) posting the same file: the card names bob
+    socks.carol ??= await h.ws('carol', { windowId: 'win-rla-carol' })
+    const byAdmin = await turn('carol', [fake({ tool: 'read', args: { file_path: rel } }), post({ room: rooms.all, text: `Plan: ${link(rel)}` })].join('\n'), { answer: 'no' })
+    expect(byAdmin.card!.question).toContain("Bob Lee")
   })
 
   test('in Korean the AI is told the room link\'s button by its Korean label ("보기 요청"), never "Ask to view"', async () => {

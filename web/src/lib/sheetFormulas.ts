@@ -217,7 +217,12 @@ function round(n: number, d: number): number {
 
 type Sheet = { data: (CellObject | undefined)[][]; rows: number; cut: boolean }
 const MAX_DEPTH = 200
-const MAX_CELLS = 500_000
+/** Cell reads for the whole workbook preview, all formulas together (a few hundred ms): thousands of "=SUM(A1:A1048576)"
+ * each with a budget of its own froze the tab (review of batch 3, #374). Past it every formula left shows as its text,
+ * never a number worked out from part of a range. */
+const MAX_CELLS = 8_000_000
+/** Filled range values kept for reuse (all ranges together), so the same range read by many formulas costs its reads once. */
+const MAX_KEPT = 2_000_000
 
 export class FormulaBook {
   private sheets = new Map<string, Sheet | null>() // null: two sheets with one upper-case name
@@ -228,7 +233,11 @@ export class FormulaBook {
   private memo = new Map<string, Scalar | Unsupported>()
   private busy = new Set<string>()
   private depth = 0
+  /** cell reads so far, for the whole book (MAX_CELLS) */
   private reads = 0
+  /** the filled values of a range read in full (key: sheet and box), and how many values are kept (MAX_KEPT) */
+  private ranges = new Map<string, Exclude<Scalar, null>[]>()
+  private kept = 0
   /** The file asks to be recalculated on open (openpyxl and XlsxWriter set this; XlsxWriter stores 0 as every
    * result): Excel then ignores the stored results, so the preview does too. */
   readonly fullCalc: boolean
@@ -271,7 +280,6 @@ export class FormulaBook {
     if (this.busy.has(key)) throw new Unsupported('circular')
     if (this.depth >= MAX_DEPTH) throw new Unsupported('depth') // not memoised: a shallower start may succeed
     this.busy.add(key)
-    if (this.depth === 0) this.reads = 0 // the cell budget is per formula
     this.depth++
     const outer = this.root
     try {
@@ -345,8 +353,25 @@ export class FormulaBook {
     return this.cell(ref.sheet, ref.r0, ref.c0)
   }
 
-  private *cells(ref: Ref): Generator<Scalar> {
-    for (let r = ref.r0; r <= ref.r1; r++) for (let c = ref.c0; c <= ref.c1; c++) yield this.cell(ref.sheet, r, c)
+  /** A range's values in order, without its empty cells (every use skips them: SUM-like numbers, COUNT, COUNTA), so
+   * a million-row range of a few thousand values is reused as those few thousand. Read in full before any is used,
+   * and kept (up to MAX_KEPT values): a read that fails (Unsupported, also the budget) keeps nothing, so a range is
+   * reused only as it was read whole. */
+  private cells(ref: Ref): readonly Exclude<Scalar, null>[] {
+    const key = `${ref.sheet.toUpperCase()}!${ref.r0},${ref.c0}:${ref.r1},${ref.c1}`
+    const known = this.ranges.get(key)
+    if (known) return known
+    const out: Exclude<Scalar, null>[] = []
+    for (let r = ref.r0; r <= ref.r1; r++)
+      for (let c = ref.c0; c <= ref.c1; c++) {
+        const v = this.cell(ref.sheet, r, c)
+        if (v !== null) out.push(v)
+      }
+    if (this.kept + out.length <= MAX_KEPT) {
+      this.ranges.set(key, out)
+      this.kept += out.length
+    }
+    return out
   }
 
   private scalar(n: Node, here: string): Scalar {

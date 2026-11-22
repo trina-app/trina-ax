@@ -66,6 +66,24 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs
   } finally { fs.closeSync(fd) }
 }
 
+/** readRegular without holding the server: the same refusals and `seen`, the bytes read in awaited pieces of at most
+ * 4 MiB (the page check's pictures and scripts, up to 40 MB a page: review of batch 3, #379). */
+export async function readRegularAsync(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs.Stats): Promise<{ bytes: Buffer; st: fs.Stats }> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    if (st.size > maxBytes) throw new ToolError('file is too large')
+    const bytes = Buffer.alloc(st.size)
+    let off = 0
+    while (off < st.size) {
+      const at = off
+      const n = await new Promise<number>((res, rej) => fs.read(fd, bytes, at, Math.min(4 * 1024 * 1024, st.size - at), at, (e, got) => (e ? rej(e) : res(got))))
+      if (n <= 0) break
+      off += n
+    }
+    return { bytes: bytes.subarray(0, off), st }
+  } finally { fs.closeSync(fd) }
+}
+
 /** The first `n` bytes of a regular, singly linked file (same refusals and `seen` as readRegular): a CSV's column names. */
 export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
   const { fd, st } = openToRead(abs, seen)

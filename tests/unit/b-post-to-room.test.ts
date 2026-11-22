@@ -174,7 +174,8 @@ describe('the card, and the post', () => {
     // (QA TC-4791: one plain question, who cannot open the file by name and what Send does about it, two choices; Send
     // goes with the files, so the copy lets Bob open it)
     // (the only source is that same file, which Send shares with Bob: no "can't see some of the sources" line; review of #1240)
-    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\nBob Lee can't open the file yet; sending shares it with them.\nEveryone in this conversation will see it, including people who join later.")
+    // (a team-folder file: a member's card counts, never names who is outside the group: review of batch 3, #389)
+    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't open the file yet; sending shares it with them.\nEveryone in this conversation will see it, including people who join later.")
     // "Always allow" as on every other server card (the quiet middle button and its note); on this card it answers as
     // Send, with the files (its own kind, post_files: docs/decisions/20261116-always-allow-more-cards.md)
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send_files'], ['Always allow', '__always'], ["Don't send", 'no']])
@@ -253,16 +254,16 @@ describe('the card\'s words (QA TC-4791)', () => {
     expect(noteOf(other.card)).toContain(SEEN)
   })
 
-  // (a team folder the asker reads: who opens it is the folder's rule, so the card names them since QA S-120,
-  // docs/decisions/20261122-room-link-ask-and-team-file-names.md; a teammate's personal file keeps the count:
-  // b-room-link-ask.test.ts)
-  test('a teammate\'s file in a team folder and a plain Send: no copy, the link only; the card names who cannot open it', async () => {
+  // (a team folder the asker reads: a member's card counts who cannot open it, names only for the owner and admins:
+  // review of batch 3, #389, docs/decisions/20261122-room-link-ask-and-team-file-names.md; b-room-link-ask.test.ts)
+  test('a teammate\'s file in a team folder and a plain Send: no copy, the link only; the card counts who cannot open it', async () => {
     put('groups/marketing/erins-plan.md', '# Erin\'s plan')
     wroteIt('erin', 'groups/marketing/erins-plan.md')
     const text = 'Plan: [erins-plan.md](/files/view?path=groups/marketing/erins-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/erins-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send' })
     expect(r.card!.options!.map((x) => x.value).filter((v) => v !== '__always')).toEqual(['send', 'no'])
-    expect(r.card!.question).toContain("Bob Lee can't open the linked file.")
+    expect(r.card!.question).toContain("1 person can't open 1 linked file.")
+    expect(r.card!.question).not.toContain('Bob Lee')
     expect(r.card!.details!.map((d) => d.label)).toEqual(['What will be sent'])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)

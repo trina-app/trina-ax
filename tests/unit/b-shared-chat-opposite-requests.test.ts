@@ -9,6 +9,7 @@ import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { closedQuestionNote } from '../../server/src/chat/open-questions'
+import { setAnswerReads, type ReadGroup } from '../../server/src/chat/shared-answers'
 import { sharedSection } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
@@ -46,6 +47,21 @@ describe('opposite requests in a shared chat', () => {
     expect(red.content).toContain('Which part of the cover should be blue?')
     // the person's own words still come last, as sent
     expect(red.content).toContain('make the cover red')
+  })
+
+  test('the question of an answer kept from some (a k or x group in its record): only who asked, never its words', async () => {
+    for (const flag of ['k', 'x'] as const) {
+      const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+      const asked = await send('alice', chat.id, 'make the cover blue\n' + askCard(`Which part of the payroll deck ${flag}?`))
+      expect(openRows(chat.id)).toEqual(['alice'])
+      // her answer read a connection (k) or something not all known (x): people who cannot see it must not get its words
+      setAnswerReads(h.ctx.db, chat.id, asked.id, [{ c: ['alice'], s: [{ type: 'integration', id: 'gmail' }], [flag]: 1 } as ReadGroup])
+      const red = await send('bob', chat.id, 'make the cover red\n' + fake({ echo: 'message' }))
+      expect(red.content).toContain('<closed_question>')
+      expect(red.content).toContain('"person":"Alice Kim"')
+      expect(red.content).not.toContain('payroll deck')
+      expect(red.content).toContain('private to its asker')
+    }
   })
 
   test('another person\'s safety card (a share, naming a file only they see) or an answered card: no note', async () => {

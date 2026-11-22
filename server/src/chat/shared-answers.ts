@@ -117,6 +117,16 @@ export function answerRecord(db: Database, messageId: string): AnswerRecord | nu
   return r ? parseRecord(r.reads, r.left_out) : null
 }
 
+/** Is the answer of this turn kept from some who see its chat: a k or x group in its record (a connection's read, or
+ * reads not all known), or no readable record (hidden from everyone but its runner)? A check that fails: true. */
+export function answerKeptFromSome(db: Database, turnId: string): boolean {
+  try {
+    const t = db.query('SELECT message_id FROM turns WHERE id = ?').get(turnId) as { message_id: string | null } | null
+    const rec = t?.message_id ? answerRecord(db, t.message_id) : null
+    return !rec || rec.reads.some((g) => !!g.k || !!g.x)
+  } catch { return true }
+}
+
 /** Every record of a chat, by answer (a record that cannot be read: absent). */
 export function answerRecords(db: Database, chatId: string): Map<string, AnswerRecord> {
   const out = new Map<string, AnswerRecord>()

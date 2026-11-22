@@ -145,11 +145,13 @@ export function closeChatQuestions(db: Database, chatId: string): { requestId: s
 /** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next
  * turn's engine message names them, so another person's request is not dropped without a word (prompt.ts sharedSection
  * "opposite requests"). `name`: the asker's label name (chat/shared.ts labelName). '' when there are none. */
-export function closedQuestionNote(closed: readonly { name: string; question: string }[]): string {
+export function closedQuestionNote(closed: readonly { name: string; question?: string }[]): string {
   if (!closed.length) return ''
-  // the words inside the block, never a tag of their own (as answeredNote)
-  const json = JSON.stringify(closed.map((c) => ({ person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-  return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}. Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
+  // the words inside the block, never a tag of their own (as answeredNote). A question without its words: its answer is
+  // kept from some who see the chat (runtime.ts closedOthers), so only who asked
+  const json = JSON.stringify(closed.map((c) => (c.question === undefined ? { person: c.name } : { person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  const hidden = closed.some((c) => c.question === undefined) ? ' A question without its words is private to its asker: never guess or repeat what it was about; only say that their question is still open.' : ''
+  return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}.${hidden} Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
 }
 
 /** Each answer in words: the picked options by their labels (`picked`: as these words instead), a site card's choice in

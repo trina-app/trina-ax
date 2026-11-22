@@ -64,6 +64,11 @@ describe('restore line', () => {
     }
     // the line is ids and a number only
     expect(db().query('SELECT actor_id, file_id, version FROM chat_file_events WHERE chat_id = ?').all(c.id)).toEqual([{ actor_id: 'erin', file_id: rootId, version: 1 }])
+    // newer restore lines of a file nobody here may open, more than a page of them, do not push the one they may see
+    // out of the list (people-share.ts chatEventsOf: visibility first, then the limit)
+    for (let i = 0; i < 60; i++) db().query("INSERT INTO chat_file_events (chat_id, at, actor_id, kind, file_id, version) VALUES (?, ?, 'erin', 'restored', 'no-such-file', 1)").run(c.id, new Date(Date.now() + 60_000 + i).toISOString())
+    const later = await h.api('bob').call(API.getChatAudience, { params: { id: c.id } })
+    expect(later.events?.filter((e) => e.kind === 'restored')).toEqual([expect.objectContaining({ actor: 'Erin Yoo', names: ['견적서.md'], version: 1 })])
   })
 })
 
