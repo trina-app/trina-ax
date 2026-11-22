@@ -55,6 +55,11 @@ export const UserPrefs = z.object({
   goalCard: z.literal('hidden').optional().catch(undefined),
   /** 'hidden': the person hid "Ready in your team" on Home (its "Hide"); Settings › Profile's "Show it again" clears it */
   preparedCard: z.literal('hidden').optional().catch(undefined),
+  /** 'off': the person turned off "자동으로 기억하기" (Settings › Memory): the AI keeps only what they ask it to keep,
+   * as before 2026-11-22. Absent = on (docs/decisions/20261122-auto-memory.md) */
+  autoMemory: z.literal('off').optional().catch(undefined),
+  /** 'seen': the one-time line under the first memory the AI kept on its own was shown */
+  autoMemoryNotice: z.literal('seen').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -517,6 +522,17 @@ export const Step = z.object({
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
    * list (docs/DECISIONS.md "Sub-agents") */
   parentId: z.string().max(100).optional(),
+  /** a remember or forget step that changed one of the person's memories (chat/tools.ts): which, how, its text and,
+   * for a change, the text before, for the step's 되돌리기 (through the memory routes). Only for the person whose turn it
+   * was (stripped for every other viewer, as `detail` is) */
+  memory: z.object({
+    id: z.string().max(64),
+    change: z.enum(['created', 'updated', 'forgotten']),
+    text: z.string().max(1000),
+    before: z.string().max(1000).optional(),
+    /** the first memory the AI kept on its own for this person: the step shows the one-time line under it */
+    first: z.literal(true).optional(),
+  }).optional(),
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),

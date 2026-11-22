@@ -61,6 +61,7 @@ import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../compo
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
+import { AutoMemoryRow } from '../components/settings/AutoMemoryRow'
 import { MyExport } from '../components/settings/MyExport'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
@@ -881,6 +882,7 @@ export function Memories() {
           </IconButton>
         </SettingsBarAction>
         <p className="mb-2 text-sm text-muted">{t('memory.desc')}</p>
+        <AutoMemoryRow />
         <MemoriesNotUsed use={use} />
         {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
         {!items && !error && <Skeleton lines={3} />}
@@ -924,6 +926,7 @@ export function Memories() {
   }
   return (
     <Section title={t('settings.memory')} desc={t('memory.desc')} page>
+      <AutoMemoryRow />
       {!!error && <LoadError error={error} onRetry={() => load(failedMore.current)} what="settings-memory" />}
       <MemoriesNotUsed use={use} />
       {!items && !error && <Skeleton lines={3} />}
