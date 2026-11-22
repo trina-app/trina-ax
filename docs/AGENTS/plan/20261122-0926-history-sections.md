@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 09:26
 - Branch: `feat/history-sections`
-- Status: draft (waiting for the plan review)
+- Status: in progress (plan review: approve with changes, folded in)
 - Where: web (`components/panels/TrinaList.tsx`, `panels/TrinaPanel.tsx`, `nav/HistoryList.tsx`, `nav/ChatItem.tsx`,
   `nav/SidebarSections.tsx`, `nav/NavFolders.tsx`, `phone/TrinaDrawer.tsx`, `store/navFolders.ts`), shared
   (`api/entities.ts` UserPrefs), server (`chat/nav-folders.ts`, one rule). Why: the Trina list is core, and the
@@ -39,86 +39,100 @@ that is already in the Trina header gets the same shape as Claude Code's. One co
 
 ## Scope
 
-In:
+Plan review (2026-11-22, approve with changes, 14 items) folded in below; the numbers in [R1]…[R14] are the review's.
+Two PRs in the same batch: **A** (kind-generic sections + Trina sections) and **B** (menu rows, folding date groups,
+`prefs.historyView`), B on top of A.
 
-1. **Sections in the Trina list** (`TrinaList.tsx`): between 고정 (pinned) and 트리나 기록, my sections of kind `chats` in
-   their order, each a `PanelSection` (name, ▾ fold, count, "⋯": Rename · Move up · Move down · Delete section, as
-   `SectionMenu`). A chat in a section is not repeated in 트리나 기록 (one place per chat, as Chats: pinned › section ›
-   history). Empty section: one line and how to fill it ("Drag a chat here, or use Move to section in its ⋯"). Data
-   from `GET /api/chats/groups` `folders` (count, first rows) and `GET /api/chats?folderId=` for "더 보기" in a
-   section, as the 11-13 Trina folders did.
-2. **Fill**: Move to section / Remove from section in the chat row's "⋯" (desktop), the phone long-press sheet and the
-   chat header "⋯"; drag a row onto a section header, between sections, and onto 트리나 기록 to take it out. A toast
-   says where it went, with Undo (`undoMoves` made kind-generic).
-3. **One code path**: `SidebarSections.tsx` gets a `kind` (`'rooms' | 'chats'`): `useSections(kind)`,
-   `useSectionActions(kind)`, `useSectionRowItems(kind, …)`, `SectionMenu`, `SectionEmpty`, the name check. The Chats
-   sidebar calls them with `'rooms'` (behaviour unchanged); the Trina list with `'chats'`. `NavFolders.tsx`'s generic
-   `useFolderActions`/`NewFolderRow` stay the base; no second sections system. Strings are the `sidebarSections.*`
-   keys; only the few that name "conversations" get a chats variant.
-4. **The menu** (`RecentsMenu`, desktop dropdown and phone sheets), rows in this order:
-   Status ▸ · Last activity ▸ | Group by ▸ · Sort by ▸ | **New section** | **Reset to defaults** (only when changed).
-   Same keyboard as today. The filtered list (`HistoryList`) shows sections too only while Group by is None or Date
-   (with Group by Project the project groups stand alone, as now); a filter applies inside sections.
-5. **Foldable date groups** in `HistoryList` (Today, Yesterday, This week, This month, Older): the header is a fold
-   button as `PanelSection`'s, key `section:trina-date:<bucket>`.
-6. **Per person on every device**: `UserPrefs.historyView` = `{ panel?: Partial<RecentsView>, drawer?: Partial<RecentsView> }`
-   (only what differs from the default, so a later default still reaches people, as the localStorage key does now).
-   Read from `me.prefs`, written with `PATCH /api/me` (debounced, optimistic). The localStorage value is moved once
-   into prefs when prefs has none, then the key is removed. No migration (prefs is one JSON column).
-7. **Server rule for project chats**: today a chat in a project (or a shared chat) cannot go in a list folder
-   (`nav-folders.ts` 216 and the `c.project_id IS NULL` read filter), and moving a chat into a project takes it out.
-   Keep that rule (see open question 1): the row's Move to section is shown off with its reason, as the 11-13 menu did.
+In, PR A:
+
+1. **One sections block** (`nav/HistorySections.tsx`) used by both surfaces [R1, R2]:
+   - the computer's Trina panel at rest (`TrinaList.tsx`): between 고정 and 트리나 기록, rows from
+     `GET /api/chats/groups` `folders` (`top`, 3), then 더 보기 reads `GET /api/chats?folderId=`;
+   - the filtered panel and the phone drawer (`HistoryList.tsx`; the drawer is `phone/TrinaDrawer.tsx` → HistoryList,
+     `DRAWER_VIEW`, Group by Date): sections are their own headers above the "트리나 기록" fold in the drawer, and on
+     top of the filtered list on the panel; rows from the loaded chats by `folderId`, filtered by Status / Last activity
+     and sorted by Sort by; an empty section is hidden while a filter is on; with Group by Date (or None) a chat in a
+     section is not repeated in the date groups; with Group by Project the sections are not drawn.
+   - each section is a `PanelSection` (name, ▸ fold kept in `listFolds` `folder:<id>`, count, "⋯"). Folded, it shows
+     its strongest session marker (`strongestMark` of its chats and `marked`) and keeps the open chat drawn (`keep`)
+     [R7].
+2. **Fill**: Move to section / Remove from section in a chat's "⋯" (row, phone long-press sheet) and drag onto a
+   section header (out: onto 트리나 기록). The item is off with the server's exact reason [R3]: a room's side chat has
+   none; a chat someone shared with me (people-shared, not mine) says the shared-chat reason; a project chat or a chat
+   shared through a project says the project reason; the creator of a people-shared chat may file it. A scheduled
+   task's folded runs row has no section items [R12]. Toast with Undo.
+3. **Add chats** [R8]: `AddConversationsDialog` made kind-generic (`AddChatsDialog` = the same dialog over my chats that
+   can go in a section). Opens after New section, from an empty section's line and from the section's "⋯".
+4. **One code path** [R6]: `SidebarSections.tsx` takes a kind (`'rooms' | 'chats'`) through a small per-kind adapter
+   (items, the item's current section, file, words): `useSections(kind)`, `useSectionActions(kind)`, `SectionMenu`,
+   `SectionEmpty`, `useSectionDrop(kind, …)`, `undoMoves`, Add. `nameCheck` and `liveSection` go by kind. For chats the
+   current section reads both the chats store and `groups.folders` (a chat not loaded yet), and the delete confirm
+   counts from `groups.folders[].count`. The Chats sidebar calls it with `'rooms'`, unchanged.
+5. **Refusals in section words** [R3]: `store/navFolders.ts` maps every `navFolder*` reason (`folder_project_chat`,
+   `folder_shared_chat`, full, name taken, gone) to `sidebarSections.*` for both kinds. Move to project of a chat in a
+   section: the toast says it left section X.
+6. **Retire the old Trina folder words and paths** [R4]: `folderKindName`, `FoldersLabelWords`, `FolderMenu`,
+   `useFolderRowItems`, `NewFolderRow`, `NewFolderButton`, `useFolderActions`, `FolderIcon`, the `navFolders.kind*`,
+   `separate*`, `projectStays` words ("대화 폴더는 트리나 폴더와 따로 있어요").
+7. **Paging** [R9]: the client keeps reading pages while a "더 보기" (or the first page) adds fewer than a page's worth
+   of rows outside sections, up to 5 reads. No server change.
+8. **New section** in the history menu (both surfaces), then Add chats.
+9. **States** [R12]: a deleted chat leaves its section (the server drops the item) and a restored one is in 트리나 기록;
+   a chat moved into or shared through a project drops out; a person with no sections sees no sections block; guests
+   can use sections (their own chats).
+
+In, PR B:
+
+10. **Menu**: Status ▸ · Last activity ▸ | Group by ▸ · Sort by ▸ | New section | Reset to defaults. Reset [R10] resets
+    only that surface's view (panel: Group by None; drawer: Date), never sections or folds, and shows only while the
+    view differs.
+11. **Folding date groups** in `HistoryList` (Today, Yesterday, This week, This month, Older), kept in `listFolds`
+    `section:trina-date:<bucket>`.
+12. **Per person on every device** [R11]: `UserPrefs.historyView = { panel?, drawer? }`, each field `.catch(undefined)`
+    (what differs from that surface's default only), written with `PATCH /api/me`; another device picks it up on its
+    next `/api/me` read. No localStorage migration (the old keys are read as today until the person changes the view
+    once; then prefs win).
+13. **Group by default** [R13]: unchanged (panel None, drawer Date) until the owner answers.
 
 Out (cuts to stay lean):
 
 - **Group by Status**: Status is already a filter ("Answering or waiting for you"); a group per state would show a
   near-empty header most of the time and the waiting row on top already gathers what needs me.
 - **Environment**: Trina has no per-chat environment.
-- **View all**: our grouped view's caps already end in "Show all projects"/"N more"; a second "View all" would be a
-  duplicate.
-- **"Show" as a new menu name**: our Status and Last activity already are Claude Code's Show; renaming them would
-  break settled names (naming-decisions).
-- Emoji on sections, sort inside a section, sections shared with the team, sections that mix chats and rooms (one
-  kind per list, as the server's composite key already enforces).
-- A section's "+ Ask Trina here" (the 11-13 folder header had it): not in Claude Code's menu; later if asked.
+- **View all**: our grouped view's caps already end in "Show all projects"/"N more".
+- **"Show" as a new menu name**: our Status and Last activity already are Claude Code's Show.
+- Emoji on sections, sort inside a section, sections shared with the team, sections that mix chats and rooms.
+- Project and shared chats in sections: asked of the owner; if allowed, a PR C (server + security review).
 
 ## Steps
 
-1. This plan (first commit). Then wait for the plan review and fold its changes in.
-2. `SidebarSections.tsx` kind-generic; Chats sidebar unchanged (its unit and e2e tests must stay green).
-3. `TrinaList.tsx`: sections block from `groups.folders`, one place per chat, fold, empty line, "더 보기".
-4. `ChatItem.tsx` row "⋯" / phone sheet / chat header: Move to section, Remove from section, drag source.
-5. `HistoryList.tsx`: menu rows New section and Reset to defaults; date headers fold; sections in the filtered list
-   (None/Date grouping).
-6. `UserPrefs.historyView` in shared, server accepts it in `PATCH /api/me` (zod), `useRecentsView` reads/writes it;
-   one-time move from localStorage.
-7. i18n: new keys in `en.ts`, then ko, ja, zh, es, id.
-8. `changes/history-sections.md`; decision `docs/decisions/20261122-trina-history-sections.md` (it brings back the
-   kind `chats` folders the owner took off the screen on 11-13, now as sections, at the owner's request of 11-22).
-9. Screenshots (1440 and 390, light and dark: the menu, sections with chats, an empty section, folded date groups)
-   in `shots-histsections/`, checked by me; ui-polish pass.
-10. Tests, QA sheet rows, PR into dev (no enqueue).
+1. This plan (first commit), then the review's changes (second commit).
+2. PR A: `SidebarSections.tsx` kind-generic; `HistorySections.tsx`; `TrinaList.tsx`, `HistoryList.tsx`, `ChatItem.tsx`
+   (row items, drag), Add chats; refusal words; retire the old folder parts; paging; New section in the menu; i18n;
+   `changes/history-sections.md`; decision file; unit + e2e tests.
+3. PR B: menu Reset row, folding date groups, `prefs.historyView`; i18n; tests.
+4. Screenshots (1440 and 390, light and dark, the panel and the drawer: the menu, sections with chats, an empty
+   section, a folded section with a marker, folded date groups) in `shots-histsections/`, checked by me [R14].
+5. A subagent walks every exit [R14]: make a section from the menu, fill it on a phone, delete a section with chats,
+   Undo after a move.
+6. Tests, QA sheet rows, PRs into dev (no enqueue).
 
 ## Decisions
 
 - New: `docs/decisions/20261122-trina-history-sections.md`.
-- Changes: DECISIONS.md "List folders on screen" (2026-11-13; the Trina folders went off the screen that day:
-  TrinaList.tsx header) and keeps docs/decisions/20261121-personal-sidebar-sections.md's model and name.
+- Supersedes [R5]: DECISIONS.md 2026-11-13 "The Trina list's own folders leave the screen" (nav-rail redesign) and
+  docs/decisions/20261121-personal-sidebar-sections.md "Left out: … The Trina AI-chat folders, which are unchanged";
+  both quoted in the decision. It says how a project and a section differ in one sentence.
 - Keeps: "Trina history: Group by defaults to None" (11-14), and the flat 트리나 기록 under the sections.
 
 ## Open questions, each with a recommendation
 
-1. **Project chats in a section?** Claude Code puts any session in a section. Our server refuses project and shared
-   chats (a project chat lives in its project). *Recommendation: keep the rule for this PR* (no server change, no
-   permission review; the row says why), and reopen it if the owner tries to file a project chat. Changing it later is
-   a small server change (the items are already per person).
-2. **Sections in the filtered list?** *Recommendation: yes for Group by None and Date (sections on top, filtered),
-   no for Group by Project* (two kinds of headers would compete).
-3. **Default fold of a new section?** *Recommendation: open*, as Chats sections.
-4. **Phone drag?** *Recommendation: none* (a long press is the row's sheet); Move to section is the phone's way, as in
-   Chats.
-5. **Where "New section" lives on desktop**: Claude Code puts it in the sidebar menu. *Recommendation: only in the
-   history menu and in Move to section* (no "+" on the 트리나 기록 header: one more button at rest).
+1. **Project chats in a section?** Asked of the owner. Until then the server rule stays and the item says why
+   (recommendation: keep). Allowed → PR C.
+2. **Group by default** (panel None, drawer Date): asked of the owner; unchanged until then.
+3. **Default fold of a new section?** Open, as Chats sections.
+4. **Phone drag?** None; Move to section and Add chats are the phone's ways, as in Chats.
+5. **"New section" on desktop**: only in the history menu, in Move to section and nowhere else.
 
 ## Risks
 
