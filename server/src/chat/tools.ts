@@ -50,7 +50,7 @@ import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, KEEP_READ_LINE, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -907,7 +907,8 @@ const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x &&
  */
 export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'> & Partial<Pick<TurnExec, 'shared' | 'otherAuthors'>>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
   const earlier = [...(exec.files.carried?.hashes.keys() ?? []), ...exec.files.allReads.keys()]
-  if (!earlier.length) return null
+  // (a call that can carry the fact at all: a refusal, a search or a listing; anything else needs no look-up below)
+  if (!isError && !SEARCH_TOOLS.has(name) && name !== 'list') return null
   // other people read this chat's answers: never that a named person's access changed
   const shared = !!exec.shared || !!exec.otherAuthors
   let me: Principal
@@ -927,6 +928,13 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!gone(rel) || granted(rel)) continue
     places.set(placeKey(pl), pl)
   }
+  // ...and the folders of a group this person left lately that they named themselves in this chat (QA TC-b4s, S-118: a
+  // shared chat's first answer never read groups/영업, so no earlier read named it, and every later search and listing
+  // said nothing about it)
+  const left = new Map<string, string>()
+  // (a guest is in no group: never "you were in a group")
+  if (me.role !== 'guest') for (const pl of leftGroupPlaces(exec, me.id, gone, granted)) if (!places.has(placeKey(pl))) left.set(placeKey(pl), pl)
+  if (!places.size && !left.size) return null
   // a search a shared chat refused for having no path ("Not searched: … needs a folder", peopleSearchPlace): it would
   // have looked everywhere, so it covers the lost place like a path-less search (TC-b3s-22: after the refusal the AI
   // searched other folders, listed "/" and "groups" and asked for a path, never told that access had ended)
@@ -936,6 +944,14 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!m) return null
     const rel = relOf(m[1]!)
     const place = places.get(placeKey(teamPlaceOf(rel, gone)))
+    if (rel && !place) {
+      // a path in (or above) a folder of a group they left: that folder's fact, once a turn
+      const k = placeKey(rel)
+      const hit = [...left].filter(([pk]) => !noted.has(pk) && (k === pk || k.startsWith(pk + '/')))
+      if (!hit.length || !gone(rel)) return null
+      for (const [pk] of hit) noted.add(pk)
+      return leftGroupNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
+    }
     if (!rel || !place || !gone(rel) || !gone(place)) return null
     // the very file, still the version read: the file service already said its access ended (files/moved.ts)
     // (who can restore it, named: the file service's own line says only "whoever manages the folder")
@@ -953,9 +969,72 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
   const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
   const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
-  if (!hit.length) return null
-  for (const [pk] of hit) noted.add(pk)
-  return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
+  // a folder of a group they left and named: any search or listing of this answer looked for it (it was never in their
+  // list again, whatever folder the search named: QA TC-b4s searched shared and groups/마케팅, then listed groups)
+  const leftHit = [...left].filter(([pk]) => !noted.has(pk))
+  if (!hit.length && !leftHit.length) return null
+  for (const [pk] of [...hit, ...leftHit]) noted.add(pk)
+  return [hit.length ? lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared }) : null,
+    leftHit.length ? leftGroupNote(exec.rt.db, leftHit.map(([, pl]) => pl), exec.spec.locale, { shared }) : null].filter(Boolean).join('\n')
+}
+
+/** How long after someone left a group its folders still get the lost-access fact (S-118): long enough for the chats
+ * of that week, short enough that an old move is not news. */
+const LEFT_GROUP_DAYS = 30
+/** The person's latest messages in the chat read for the folder's name: this turn's and the one before it. */
+const LEFT_GROUP_MESSAGES = 2
+/** Korean particles and words that may follow a folder's name in a message ("영업 폴더", "영업의", "영업에서"): a name
+ * followed by any other letter is another word ("영업일", "인사말") */
+const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|폴더|팀|부서|[은는이가을를의에도로와과])/u
+
+/** Is the folder name `own` written as a word of its own in `said` (both NFC lower case)? */
+export function namesFolder(said: string, own: string): boolean {
+  for (let i = said.indexOf(own); i >= 0; i = said.indexOf(own, i + 1)) {
+    const before = i > 0 ? said[i - 1]! : ''
+    if (before && /[\p{L}\p{N}]/u.test(before)) continue
+    if (AFTER_NAME.test(said.slice(i + own.length))) return true
+  }
+  return false
+}
+
+/**
+ * The team folders a group rule opens (read or write) for a group this person left within LEFT_GROUP_DAYS and is not
+ * back in (group_member_since.left_at; one edit of a group deletes and adds back within seconds, which keeps no
+ * left_at), that were open to the group before they left (a rule or folder made later was never theirs), that the rules
+ * no longer let them read and no share opens, and whose own name (the folder's last part) the person wrote as a word of
+ * its own in this turn's message or the one before. Naming it themselves is what makes saying it reveal nothing new, also to the others
+ * in a shared chat. [] on any failure.
+ */
+export function leftGroupPlaces(exec: Pick<TurnExec, 'rt' | 'spec'>, userId: string, gone: (rel: string) => boolean, granted: (rel: string) => boolean): string[] {
+  try {
+    const since = new Date(Date.now() - LEFT_GROUP_DAYS * 86400000).toISOString()
+    // (the group's own folder, groups.folder_id, and any folder a rule opens for the group; each from before they left)
+    const rows = exec.rt.db.query(`WITH left_groups AS (SELECT s.group_id, s.left_at FROM group_member_since s
+        WHERE s.user_id = ?1 AND s.left_at IS NOT NULL AND s.left_at >= ?2
+          AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = s.group_id AND gm.user_id = s.user_id))
+      SELECT f.path AS path FROM left_groups l JOIN groups g ON g.id = l.group_id JOIN folders f ON f.id = g.folder_id
+        WHERE f.created_at <= l.left_at
+      UNION SELECT f.path FROM left_groups l JOIN folder_rules r ON r.subject_type = 'group' AND r.subject_id = l.group_id
+        AND r.access IN ('read', 'write') AND r.updated_at <= l.left_at JOIN folders f ON f.id = r.folder_id`).all(userId, since) as { path: string }[]
+    if (!rows.length) return []
+    // the person's own words now: this turn's message and the one before it ("영업 폴더 단가표 열어줘", then "다시 해 봐")
+    const spec = exec.spec as { chatId?: string }
+    const said = (exec.rt.db.query(`SELECT m.content FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user'
+        AND (m.author_id = ? OR (m.author_id IS NULL AND c.user_id = ?)) ORDER BY m.created_at DESC, m.id DESC LIMIT ?`).all(spec.chatId ?? '', userId, userId, LEFT_GROUP_MESSAGES) as { content: string }[])
+      .map((r) => r.content).join('\n').normalize('NFC').toLowerCase()
+    if (!said) return []
+    const out: string[] = []
+    for (const r of rows) {
+      const rel = relOf(r.path)
+      const top = rel.split('/')[0]?.normalize('NFC').toLowerCase()
+      const own = rel.split('/').pop()?.normalize('NFC').toLowerCase() ?? ''
+      // never a personal folder (users/…: reached only through a share) or a name too short to tell apart
+      if (!rel || top === 'users' || [...own].length < 2 || !namesFolder(said, own)) continue
+      if (!gone(rel) || granted(rel)) continue
+      out.push(rel)
+    }
+    return out
+  } catch { return [] }
 }
 
 /** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a

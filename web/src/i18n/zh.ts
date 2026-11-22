@@ -6147,6 +6147,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.page.importNone": "没有可移入的对话。",
   "projects.page.chatsEmpty": "还没有内容。在这里提问，对话会保留在此项目中。",
   "chat.notFoundWhy": "这可能是只有创建者才能看到的对话，可能已被删除，也可能属于你不是成员的项目。请让发送链接的人把它共享给你。",
+  "chat.notFoundGuest": "作为访客，你只能打开受邀加入的地方和你自己发起的对话。其他人的对话无法打开。",
   "chat.goneDraft": "你在这里输入的内容保留在下面。复制后可以在你自己的对话中使用。",
   "chat.share.keepsThrough": "{name} 仍可通过 {groups} 查看。",
   "chat.share.sharedToMeAlone": "{name} 与你共享了此对话。目前没有其他人能看到它。",

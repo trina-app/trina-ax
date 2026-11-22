@@ -2173,7 +2173,7 @@ export class TurnExec {
         const work = this.workRead(tool, e.input) ? this.workShown(e.input) : null
         const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
           : work !== null ? stepLabel(tool, { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) }, this.spec.locale, BROWSER_TOOL_NAMES)
-          : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
+          : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, tool === 'artifact' ? this.artifactTitled(e.input) : e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
@@ -3308,7 +3308,7 @@ export class TurnExec {
     const L = this.spec.locale
     // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
     const words = this.toolCard(tool, input)
-    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, this.cardInput(tool, input), L))
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, tool === 'artifact' ? this.artifactTitled(this.cardInput(tool, input)) : this.cardInput(tool, input), L))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input, words)
@@ -4636,6 +4636,18 @@ export class TurnExec {
 
   /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside
    * (ChatStore.viewSteps shows it to a viewer who may see every path it names). */
+  /** An artifact call that names its page by key only ("read", "update", "restore"): with the title of the newest
+   * version of that page in this chat, so its step says the page's name, never its key (QA TC-b3s-8, TC-b4s
+   * "화면 보기 · year-end-party"). Anything else as it is. */
+  private artifactTitled(input: unknown): unknown {
+    const a = input && typeof input === 'object' ? input as { key?: unknown; title?: unknown } : null
+    if (!a || (typeof a.title === 'string' && a.title.trim()) || typeof a.key !== 'string' || !a.key) return input
+    try {
+      const r = this.rt.db.query('SELECT title FROM artifacts WHERE chat_id = ? AND key = ? AND title IS NOT NULL ORDER BY version DESC LIMIT 1').get(this.spec.chatId, a.key) as { title: string } | null
+      return r?.title?.trim() ? { ...a, title: r.title } : input
+    } catch { return input }
+  }
+
   private sharedStep(tool: string, input: unknown, label: string): Pick<StoredStep, 'label' | 'sv'> {
     if (!this.shared) return { label }
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}

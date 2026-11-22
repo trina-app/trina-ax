@@ -37,6 +37,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { keptFolder } from '../store/teamFiles'
+import { filesChanged } from '../store/live'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
@@ -192,6 +193,19 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     if (seen.current !== null && seen.current !== live && !editing) setRev((v) => v + 1)
     seen.current = live
   }, [live, editing])
+  // a team file that changed on the server (a version brought back in 버전 기록, someone's or the AI's save): read it
+  // again, unless I am editing or saving it (my own save reads it again itself) (QA TC-f2-d03: after a restore the
+  // preview kept the old text until a reload)
+  const holding = useRef(false)
+  useEffect(() => { holding.current = !!editing || saving }, [editing, saving])
+  useEffect(() => {
+    if (file.source !== 'team') return
+    const at = file.path.normalize('NFC')
+    return filesChanged.on((changes) => {
+      if (holding.current) return
+      if (changes.some((c) => c.path.normalize('NFC') === at && (c.action === 'update' || c.action === 'restore' || c.action === 'create'))) setRev((v) => v + 1)
+    })
+  }, [file])
 
   /** "PDF로 저장": the server prints the page and saves the PDF next to it; a read-only folder gets it as a download */
   const savePdf = async () => {

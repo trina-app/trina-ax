@@ -1746,6 +1746,8 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     try {
       await sendWidening((confirm) => api.call(API.restoreVersion, { body: { path, versionId: v.id, ...(confirm ? { confirm: true } : {}) } }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') }))
       toast({ level: 'success', text: t('files.restored', { version: v.version }) })
+      // the open preview reads the file again at once, without waiting for the server's files.changed (QA TC-f2-d03)
+      filesChanged.emit([{ path, action: 'restore', by: null, turnId: null }])
       onRestored()
       onClose()
     } catch (e) {

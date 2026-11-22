@@ -6222,6 +6222,7 @@ export const en: Record<MessageKey, string> = {
   "projects.page.importNone": "No chats to bring in.",
   "projects.page.chatsEmpty": "Nothing yet. Ask here and it stays in this project.",
   "chat.notFoundWhy": "It may be a chat only its creator can see, it may have been deleted, or it may belong to a project you're not a member of. Ask the person who sent the link to share it with you.",
+  "chat.notFoundGuest": "As a guest, you can open only the place you were invited to and the chats you started. Other people's chats don't open for you.",
   "chat.goneDraft": "What you were typing here is kept below. Copy it to use it in a chat of your own.",
   "chat.share.keepsThrough": "{name} keeps access through {groups}.",
   "chat.share.sharedToMeAlone": "Shared with you by {name}. Nobody else can see it right now.",

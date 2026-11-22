@@ -324,8 +324,10 @@ export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers 
 /** Who can give access to `place` again, said as the folder rules decide it (writeGranters: the project's creator by
  * name where the person may see it, else an admin, never by name), with the screen in the user's language; never "whoever
  * manages the folder", which names nobody (S-118 real run: "영업 폴더를 관리하는 분께"). */
-export function regrantLine(db: Database, place: string, L: Locale): string {
+export function regrantLine(db: Database, place: string, L: Locale, o: { shared?: boolean } = {}): string {
   const g = writeGranters(db, place, L, () => false)
+  // a chat other people read: who, never how (for a group folder "adds them to the group" would say whose groups changed)
+  if (o.shared) return `Who can give access again: ${g.who}; say only who, never how or why, and not "whoever manages the folder" or a guessed person.`
   return `Who can give access again: ${g.who} (${g.how}); say exactly that, not "whoever manages the folder" or a guessed person.`
 }
 /** `shared`: other people read this chat's answers (a shared project or people chat, or others wrote in it): then only
@@ -335,12 +337,30 @@ export function lostAccessNote(db: Database, places: readonly string[], L: Local
   const it = places.length > 1 ? 'them' : 'it'
   if (o.shared) {
     return `Earlier in this chat ${named} could be opened; ${it} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. ` +
-      `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+      `${regrantLine(db, places[0] ?? '', L, { shared: true })} ${KEEP_READ_LINE}`
   }
   return `Earlier in this chat this user opened ${named}; access to ${it} has ended for them (their groups or the folder's access changed, or it was moved). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
     'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it is not among their folders or was never there. ' +
     `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
 }
+
+/** S-118 (QA TC-b4s): a team folder that a group this person left recently opened, which they named themselves in this
+ * chat, and which the folder rules no longer let them read. Unlike lostAccessNote no answer here read it (a shared
+ * chat's first answer may not search a place some of its people cannot open), so the fact is that their groups changed,
+ * not that this chat opened it. `shared`: other people read the answer: only that it cannot be opened from this chat. */
+export function leftGroupNote(db: Database, places: readonly string[], L: Locale, o: { shared?: boolean } = {}): string {
+  const named = nameList(places.map((p) => `'${oneLine(p)}'`))
+  const it = places.length > 1 ? 'them' : 'it'
+  if (o.shared) {
+    return `${named} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. Do not say ${it} was not found or is not there. ` +
+      `${regrantLine(db, places[0] ?? '', L, { shared: true })} ${LEFT_GROUP_END}`
+  }
+  return `This user was in a group that opens ${named} and is no longer in it: access to ${it} has ended for them (their groups changed). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uBD80\uC11C\uAC00 \uBC14\uB00C\uC5B4 \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it was not found, is not among their folders or was never there. ' +
+    `${regrantLine(db, places[0] ?? '', L)} ${LEFT_GROUP_END}`
+}
+/** the end of leftGroupNote: nothing was read there in this chat, so only the path (review of the batch 5 plan) */
+const LEFT_GROUP_END = 'Do not ask them for a path or where the folder is.'
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */
 export function writeLimitText(kind: 'bytes' | 'files', max: number, path: string): string {
