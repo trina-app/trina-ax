@@ -86,7 +86,7 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { projectRoomOfChat } from './room-tools'
-import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
+import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -780,8 +780,6 @@ export class TurnExec {
       // 팀 파일's picks among a folder's files: no tool at all either (fails closed the same way)
       this.fileRank = draft || this.skillDraft || this.shareJudge || this.shareMerge ? null : fileRankOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
-    // the chat's engine was switched off by an admin: this answer comes from the team default
-    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
     // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
     // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so)
@@ -791,6 +789,9 @@ export class TurnExec {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
       if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
+    // the chat's engine was switched off by an admin: this answer comes from the team default (after the guest check: a
+    // guest who gets no answer gets no step about which AI would have answered, QA TC-7050)
+    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
@@ -3571,7 +3572,7 @@ export class TurnExec {
    */
   private peopleSearchPlace(): { path: string } | { refuse: string } {
     if (this.peopleSearch) return this.peopleSearch
-    const NONE = { refuse: 'Not searched: there is no folder everyone in this chat can open. Name a folder to search.' }
+    const NONE = { refuse: `Not searched: there is no folder everyone in this chat can open. Name a folder to search as the path (${OWN_FOLDER_HINT}).` }
     try {
       const rules = this.rt.files.rules()
       const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id))
@@ -3593,8 +3594,24 @@ export class TurnExec {
       if (out.length === 1) return (this.peopleSearch = { path: out[0]! })
       if (!out.length) return (this.peopleSearch = NONE)
       const names = out.slice(0, 20).map((p) => `"${neutralizeTags(p)}"`).join(', ')
-      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}) as the path and search again.` })
+      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}), or the folder the user means, as the path and search again (${OWN_FOLDER_HINT}).` })
     } catch { return (this.peopleSearch = NONE) }
+  }
+
+  /** A shared chat's glob without a path whose pattern starts with folder names: those folders as its path (search-path.ts
+   * globFolderPrefix, QA TC-7041), before anything else looks at its path (the people chat's refusal, the project
+   * folder default, the read card). Only where the path-less search would not find them: a pattern under users/ (the
+   * person's own folder is never searched without its path), or any folder in a people chat that refuses a search
+   * without a path; a project chat's "reports/*.md" keeps looking in the project folder, and a people chat's one shared
+   * folder keeps matching below it. The arguments to use: the same object when nothing changes. */
+  liftGlobPath(tool: string, args: unknown): unknown {
+    if (!this.shared || tool !== 'glob') return args
+    const lifted = globFolderPrefix(args)
+    if (!lifted) return args
+    const top = lifted.path.split('/')[0]!
+    const users = (this.rt.files.fx.caseInsensitive ? top.toLowerCase() : top) === 'users'
+    if (!users && !(this.shared.kind === 'people' && 'refuse' in this.peopleSearchPlace())) return args
+    return { ...(args as object), ...lifted }
   }
 
   /** A people-shared chat's search without a path that cannot run (peopleSearchPlace): the refusal, else null. */
@@ -5482,6 +5499,10 @@ export const ROOM_CHANGE_FULL = 100_000
  * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
  * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
+/** The people chat's "Not searched" refusals (peopleSearchPlace): the user's own folder is searched by its own path, after
+ * their yes on a card (QA TC-7041: the AI took the refusal for "your folder cannot be used here"). */
+const OWN_FOLDER_HINT = 'the user\'s own folder too: path "users/<their id>"; they are asked on a card first'
+
 /** the PDF tools whose output ownFolderTarget works out itself (ownFolderPdf) */
 const PDF_OUT_TOOLS = new Set(['stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf'])
 

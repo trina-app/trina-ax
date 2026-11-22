@@ -38,6 +38,7 @@ import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
 import { demoAnswerKey } from '../../lib/freeRoam'
 import { meGuest } from '../../lib/guests'
+import { useGuestNoAi } from '../GuestView'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
 import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
@@ -128,7 +129,9 @@ const typeOf = (name: string) => {
 /** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
  * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
 // (a guest with their own sign-in reads the member's "connect your own" for the no-AI ones, with its button)
-const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing'])
+// guest_no_ai: the server never lets this guest's turn start here (their AI choice cannot answer on this team); it reads
+// the same, as a known state: a calm notice and no Try again (QA TC-7050)
+const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing', 'guest_no_ai'])
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
@@ -785,6 +788,10 @@ export function AssistantMessage({
   // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
   // again (it would be refused until then; owner rule: never an error's look for a known state)
   const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
+  // a guest whose AI does not answer them (QA TC-7050): a known state too, a calm notice with no Try again (trying again
+  // fails the same way); while the guest box under the chat already says it (useGuestNoAi), no second notice here
+  const guestNoAnswer = guest && m.status === 'error' && !atLimit && !!reason && GUEST_ASKS.has(reason)
+  const guestBox = useGuestNoAi()
   // (an older limit answer may be asked again once the limit has started again)
   const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
@@ -881,7 +888,14 @@ export function AssistantMessage({
             <span className="min-w-0 flex-1 py-1 leading-6 break-keep text-ink">{errText}</span>
           </div>
         )}
-        {m.status === 'error' && !atLimit && (
+        {guestNoAnswer && !guestBox && (
+          <div role="status" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-guest-no-ai">
+            <Info size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6 break-keep text-ink">{errText}</span>
+            {isLast && guestOwn && isNoAiReason(reason) && <span className="ml-auto flex"><AiAccessButton /></span>}
+          </div>
+        )}
+        {m.status === 'error' && !atLimit && !guestNoAnswer && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one

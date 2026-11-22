@@ -256,11 +256,21 @@ export async function chatWidening(ctx: AppContext, viewer: Principal, chat: Cha
   return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place, extra: f.perAnswer })
 }
 
-/** The dialog's counts of a check. */
-const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string): ShareCheck => ({
+/** The positions in the list as sent (`list`) of the entries just added (`added`) that bring in someone a warning is
+ * about (`missing`, among the people they add now): the ones the warning names (QA TC-7042). Positions, never ids:
+ * the check says who only as the sharer picked them. */
+function warnPicksOf(ctx: AppContext, list: readonly { subjectType: 'user' | 'group'; subjectId: string }[], added: readonly AudienceSubject[], newPeople: readonly string[], missing: readonly string[]): number[] {
+  const miss = new Set(missing), now = new Set(newPeople)
+  const warn = new Set(added.filter((s) => resolveSubjects(ctx.db, [s]).some((id) => now.has(id) && miss.has(id))).map(subjectKey))
+  return list.flatMap((x, i) => (warn.has(`${x.subjectType}:${x.subjectId}`) ? [i] : []))
+}
+type Picked = { list: readonly { subjectType: 'user' | 'group'; subjectId: string }[]; added: readonly AudienceSubject[]; people: readonly string[] }
+/** The dialog's counts of a check (`picked`: the list as sent, the entries it adds and the people the check is for). */
+const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string, picked?: Picked): ShareCheck => ({
   added, memoryAnswers: x.f.memoryAnswers.length, fileAnswers: x.f.fileAnswers.length, accountAnswers: x.f.accountAnswers.length,
   places: x.f.places, otherPlaces: x.f.otherPlaces, roomsUnseen: x.f.roomsUnseen, unchecked: x.f.unchecked.length, ...(x.earlierFiles ? { earlierFiles: x.earlierFiles } : {}),
   ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me) } : {}),
+  ...(picked ? { warnPicks: warnPicksOf(ctx, picked.list, picked.added, picked.people, x.f.missing) } : {}),
 })
 /** A check with nothing in it but the files (a chat already shared: the step on its own). */
 const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: string): ShareCheck => ({
@@ -326,7 +336,7 @@ export async function previewChatAudience(ctx: AppContext, rt: ChatRuntime, user
   const x = await findingsFor(ctx, me, plan.r, plan.newPeople, { cache: checkCacheKey(ctx, userId, plan.r.id, plan.before, wanted, plan.newPeople) })
   // someone new would see a room it read but for old answers hidden from them: never shown, as a save says
   if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-  return { check: checkOf(ctx, plan.newPeople.length, x, locale, userId), previewKey: keyOf(ctx, userId, plan.r.id, wanted, x, plan.before.messages) }
+  return { check: checkOf(ctx, plan.newPeople.length, x, locale, userId, { list: body.subjects, added: plan.added, people: plan.newPeople }), previewKey: keyOf(ctx, userId, plan.r.id, wanted, x, plan.before.messages) }
 }
 
 /** What a save is made against, read synchronously: the chat's entries, the people who see it now and every message of
@@ -388,7 +398,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
       if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
       const key = keyOf(ctx, userId, r.id, wanted, x, before.messages)
-      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(ctx, newPeople.length, x, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(ctx, newPeople.length, x, locale, userId, { list: body.subjects, added, people: newPeople }), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
       checked = x.f
       madeSeen = x.made
     } else if (body.withFiles && before.shared) {

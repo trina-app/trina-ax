@@ -479,6 +479,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // sharedGate, before anything is fetched)
       if (exec.shared && !outside.has(name)) {
         // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
+        // a glob whose pattern names the folder: that folder as its path first (QA TC-7041)
+        args = exec.liftGlobPath(name, args)
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         args = exec.sharedArgs(name, args)
@@ -639,6 +641,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
       }
       if (exec.shared && !work) {
+        // a glob whose pattern names the folder: that folder as its path first (QA TC-7041; the file tool reads these
+        // arguments, so they are changed in place)
+        const lifted = exec.liftGlobPath(name, args)
+        if (lifted !== args) Object.assign(args as object, lifted)
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {

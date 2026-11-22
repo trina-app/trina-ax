@@ -139,6 +139,10 @@ export const ShareCheck = z.object({
   /** files this chat made in my own folder that the people in it can't open (docs/decisions/
    * 20261121-share-chat-files.md): the Share step "Share the files from this chat too?". Only for me, its creator */
   madeFiles: z.array(ChatMadeFile).optional(),
+  /** the positions, in the list of people and groups as sent, of the entries just added that bring in someone a warning
+   * line is about: the lines name only these (QA TC-7042: a person already in the chat through a group was named).
+   * Positions, never ids. Older servers omit it: all the entries being added */
+  warnPicks: z.array(z.number().int().nonnegative()).optional(),
 })
 export type ShareCheck = z.infer<typeof ShareCheck>
 

@@ -8,7 +8,9 @@
 // every member then sees by the room's own rule (SEE_SQL with each member's start, thread roots included; none of them
 // has it hidden), kept in room storage (no room_file_refs row), not on the download-only list, and not a copy of a team
 // file (a phone's team pick: team_path / origin 'team_copy'; an AI answer's attached copy: origin 'answer_copy', or on an
-// older row the message's kept scope naming the file). In doubt the file stays. The same test runs again for each file
+// older row the message's kept scope naming the file), except a copy of the sender's own file on their own message made
+// from nothing but their own files and this room (ownFileCopy: an AI post or "Send to a chat room" of a file in
+// users/<sender>/, which they sent on purpose, as an upload). In doubt the file stays. The same test runs again for each file
 // just before it moves, for the members of the conversion's moment (people added to the project later were told in the
 // confirm that they can open the moved files).
 //
@@ -72,12 +74,12 @@ export interface MoveRow {
 }
 
 /** A room-stored file sent on a message the whole room may see, with what the test reads of its message. */
-export interface Candidate extends FileRow { origin: string | null; source_scope: string | null; seq: number }
+export interface Candidate extends FileRow { origin: string | null; source_scope: string | null; seq: number; author_kind: string; author_id: string | null }
 
 /** The room-stored files of a room on a message that is not deleted, not an event and for the whole room (`fileId`:
  * that one only). */
 export function candidates(ctx: AppContext, roomId: string, fileId?: string): Candidate[] {
-  return ctx.db.query(`SELECT f.*, m.source_scope, m.seq FROM room_files f JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+  return ctx.db.query(`SELECT f.*, m.source_scope, m.seq, m.author_kind, m.author_id FROM room_files f JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND m.visibility = 'room'
       AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)${fileId ? ' AND f.id = ?' : ''} ORDER BY f.rowid`)
     .all(...(fileId ? [roomId, fileId] : [roomId])) as Candidate[]
@@ -87,22 +89,70 @@ export function candidates(ctx: AppContext, roomId: string, fileId?: string): Ca
  * (the conversion's moment) are asked whether they see it. */
 export function stayReason(ctx: AppContext, f: Candidate, joinedBy = '9999'): string | null {
   if (f.team_path) return 'team_copy'
-  if (f.origin && f.origin !== 'upload') return f.origin
+  // a copy of the sender's own file that they sent themselves (post_to_room's card, "Send to a chat room") moves like
+  // their upload of it (QA TC-7046, docs/decisions/20261121-make-project-own-file-copies.md); any other copy stays
+  const ownCopy = ownFileCopy(ctx, f)
+  if (f.origin && f.origin !== 'upload' && !(f.origin === 'answer_copy' && ownCopy)) return f.origin
   // an older row: a copy an AI answer attached is named in its message's kept scope (chat/answer-share.ts attached);
   // anything that names the file there stays (in doubt, keep)
-  if (f.source_scope && f.source_scope.includes(f.id)) return 'answer_copy'
+  if (!ownCopy && f.source_scope && f.source_scope.includes(f.id)) return 'answer_copy'
   if (ctx.files.quarantine.hasHash(f.sha256)) return 'quarantined'
   const unseen = ctx.db.query(`SELECT 1 FROM room_messages m JOIN room_members mm ON mm.room_id = m.room_id JOIN users uu ON uu.id = mm.user_id AND uu.status = 'active' AND uu.deleted_at IS NULL
     WHERE m.id = ? AND mm.joined_at <= ? AND NOT (${SEE_MEMBER_SQL}) LIMIT 1`).get(f.message_id, joinedBy)
   return unseen ? 'not_seen' : null
 }
 
-/** What "Make it a project" will do with a room's files: those that move, and how many stay. */
-export function splitFiles(ctx: AppContext, roomId: string): { moving: Candidate[]; staying: number } {
+/** Is this room file a copy its sender made of a file in their own folder (users/<sender>/…), on their own message, from
+ * nothing but their own files and this conversation? Read from the message's kept scope (chat/answer-share.ts): the copy
+ * in `attached` with the team path it was made from, and `sources`, everything the answer and the files that went with
+ * it used (an AI-made file's own inputs too), complete (`unknown` false). Every source must be the sender's own folder
+ * or this room (its files move with it, and its people are the project's; a file made from a team folder, another room,
+ * a connection or a shared Drive stays: people added later would get what they may not see). Anything else, or a scope
+ * that does not parse: no (in doubt, keep). */
+function ownFileCopy(ctx: AppContext, f: Candidate): boolean {
+  const sender = f.user_id
+  if (!f.source_scope || !sender || f.author_kind !== 'user' || f.author_id !== sender) return false
+  const fold = (x: string) => (ctx.files.fx.caseInsensitive ? x.normalize('NFC').toLowerCase() : x.normalize('NFC'))
+  const mine = (p: unknown): boolean => {
+    if (typeof p !== 'string') return false
+    const segs = p.split('/').filter((x) => x && x !== '.')
+    return segs.length >= 2 && !segs.includes('..') && fold(segs[0]!) === 'users' && fold(segs[1]!) === fold(sender)
+  }
+  try {
+    const kept = JSON.parse(f.source_scope) as { sources?: unknown; unknown?: unknown; attached?: unknown }
+    if (kept.unknown !== false || !Array.isArray(kept.sources) || !Array.isArray(kept.attached)) return false
+    const hit = kept.attached.filter((a) => !!a && typeof a === 'object' && (a as { file?: unknown }).file === f.id) as { path?: unknown }[]
+    if (hit.length !== 1 || !mine(hit[0]!.path) || String(hit[0]!.path).split('/').filter(Boolean).length < 3) return false
+    return kept.sources.every((x) => {
+      if (!x || typeof x !== 'object') return false
+      const s = x as { type?: unknown; id?: unknown; path?: unknown }
+      if (s.type === 'user') return s.id === sender
+      if (s.type === 'name') return mine(s.path)
+      if (s.type === 'room') return s.id === f.room_id
+      return false
+    })
+  } catch { return false }
+}
+
+/** Why a file stays, as the confirm says it: `copy` (a copy of a file from a folder: people added to the project later
+ * would get it), `unseen` (not everyone here sees it) or `other` (its bytes are on the download-only list, or a reason
+ * this build does not know). */
+export const stayKind = (reason: string): 'copy' | 'unseen' | 'other' => (reason === 'team_copy' || reason === 'answer_copy' ? 'copy' : reason === 'not_seen' ? 'unseen' : 'other')
+
+/** What "Make it a project" will do with a room's files: those that move, how many stay, and of those how many are copies
+ * and how many stay for another reason (stayKind). */
+export function splitFiles(ctx: AppContext, roomId: string): { moving: Candidate[]; staying: number; stayingCopies: number; stayingOther: number } {
   const moving: Candidate[] = []
-  let staying = 0
-  for (const f of candidates(ctx, roomId)) { if (stayReason(ctx, f) === null) moving.push(f); else staying++ }
-  return { moving, staying }
+  let staying = 0, stayingCopies = 0, stayingOther = 0
+  for (const f of candidates(ctx, roomId)) {
+    const why = stayReason(ctx, f)
+    if (why === null) { moving.push(f); continue }
+    staying++
+    const k = stayKind(why)
+    if (k === 'copy') stayingCopies++
+    else if (k === 'other') stayingOther++
+  }
+  return { moving, staying, stayingCopies, stayingOther }
 }
 
 /** A simulated crash (tests): the run stops as the process would, writing nothing more. */

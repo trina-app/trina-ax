@@ -148,8 +148,9 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'team.joined') return item.joined ? joinedText(item.joined, t) : t('teamLink.joinedNoticeGone')
   if (item.code === 'project.joined' && item.projectJoined) return projectJoinedText(item.projectJoined, t)
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
-  // there; one I no longer see says so (no title, no link)
-  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // there; one I no longer see says so with who shared it, as a row of its own ("A chat from Mina …", QA TC-7047: no
+  // title, it may have been renamed since; no link)
+  if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? (item.chatShared.name ? t('notifications.event.chat.sharedGoneNamed', { name: item.chatShared.name }) : t('notifications.event.chat.sharedGoneAny')) : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did

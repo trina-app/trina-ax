@@ -63,7 +63,8 @@ import { ShareCopyLink } from '../ShareCopyLink'
  * `again`: the save answered with the check instead of saving (no key: the preview failed; or something changed). */
 type Preview =
   | { for: string; state: 'loading' }
-  | { for: string; state: 'ready'; check: ShareCheck; key: string; again?: 'changed' | 'unchecked' }
+  // `list`: the people and groups as sent, which ShareCheck.warnPicks counts in
+  | { for: string; state: 'ready'; check: ShareCheck; key: string; again?: 'changed' | 'unchecked'; list: readonly ProjectParticipant[] }
   | { for: string; state: 'failed' }
 
 /** How long the preview waits after the last change of the picks (as the project dialogs' count). */
@@ -178,7 +179,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     const asked = setTimeout(() => {
       api.call(API.previewChatAudience, { params: { id: chat.id }, body: { subjects: picks } }).then((r) => {
         if (seq.current !== n) return
-        setPreview({ for: picksKey, state: 'ready', check: r.check, key: r.previewKey })
+        setPreview({ for: picksKey, state: 'ready', check: r.check, key: r.previewKey, list: picks })
       }, (e) => {
         if (seq.current !== n) return
         setPreview({ for: picksKey, state: 'failed' })
@@ -217,7 +218,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       if (r.status === 'confirm') {
         // not saved: what they would see now, in place; the same Share again saves it
         if (!adding.length) setFilesAgain({ files: r.check.madeFiles ?? [], key: r.confirmKey })
-        else if (audienceKey(picks) === key) setPreview({ for: key, state: 'ready', check: r.check, key: r.confirmKey, again: r.reason ?? 'unchecked' })
+        else if (audienceKey(picks) === key) setPreview({ for: key, state: 'ready', check: r.check, key: r.confirmKey, again: r.reason ?? 'unchecked', list: dirty ? picks : saved })
         return
       }
       const before = useChats.getState().chats.find((c) => c.id === r.chat.id)
@@ -278,7 +279,10 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
   const check = current?.state === 'ready' ? current.check : null
   const stake = !!check && shareAtStake(check)
-  const warnNames = addedNames
+  // the warning names only the picks that bring in someone it is about (ShareCheck.warnPicks: their places in the list
+  // the check was asked for, QA TC-7042: not a person already in the chat through a group); an older server: everyone
+  // being added
+  const warnNames = check?.warnPicks?.length && current?.state === 'ready' ? warnNamesOf(t, current.list, check.warnPicks, nameOf) || addedNames : addedNames
   const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
   const grey = checking ? (slow ? t('share.grey.checking') : null)
@@ -305,7 +309,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
           <IconButton label={t('tabs.back')} onClick={() => setListing(false)} className="-ml-2 shrink-0 touch-hit" data-testid="widening-list-back">
             <ChevronLeft size={18} aria-hidden />
           </IconButton>
-          <span className="min-w-0 break-keep" data-testid="widening-list-title">{t('share.widenList.title', { names: addedNames })}</span>
+          <span className="min-w-0 break-keep" data-testid="widening-list-title">{t('share.widenList.title', { names: warnNames })}</span>
         </span>
       ) : <span className="block min-w-0 truncate" data-testid="chat-share-title">{title}</span>}
       footer={listing ? undefined : personal || !editable ? (
@@ -340,7 +344,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     >
       {listing && audience ? (
         <div ref={body}>
-          <WideningList target={{ kind: 'chat', chatId: chat.id }} add={picks} names={addedNames} phone={phone} oneChat onOpen={phone ? openOnPhone : undefined}
+          <WideningList target={{ kind: 'chat', chatId: chat.id }} add={picks} names={warnNames} phone={phone} oneChat onOpen={phone ? openOnPhone : undefined}
             scroller={scroller} initialScroll={listScroll.current} onScroll={(top) => { listScroll.current = top }} />
         </div>
       ) : personal ? (
@@ -485,4 +489,9 @@ export function useSharedWithNames(chatId: string | null, by: { id: string; name
     return () => { live = false }
   }, [chatId, by?.id, by?.name, me, t])
   return names
+}
+
+/** The names a warning line says (whoNames): the picks at the places `warn` lists, in the list the check was asked for. */
+export function warnNamesOf(t: ReturnType<typeof useT>, list: readonly ProjectParticipant[], warn: readonly number[], nameOf: (x: ProjectParticipant) => string): string {
+  return whoNames(t, warn.flatMap((i) => (list[i] ? [{ subjectType: list[i]!.subjectType, name: nameOf(list[i]!) }] : [])))
 }

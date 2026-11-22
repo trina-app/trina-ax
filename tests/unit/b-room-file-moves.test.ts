@@ -99,6 +99,8 @@ test('which files move: room-visible and seen by all; a team pick, an answer cop
   const { info, chat } = await convert(mia.client, roomId)
   // otto does not see `plan.pdf` either (sent before he joined)
   expect([info.filesMoving, info.filesStaying]).toEqual([1, 6])
+  // by why (QA TC-7046): 3 copies (the pick, both answer copies), 1 download-only, the other 2 not seen by everyone
+  expect([info.filesStayingCopies, info.filesStayingOther]).toEqual([3, 1])
   expect(moves(roomId).map((m) => m.room_file_id)).toEqual([after.id])
   const r = await roomFileMovesOf(h.ctx).run()
   expect(r).toMatchObject({ done: 1, kept: 0 })
@@ -119,6 +121,34 @@ test('which files move: room-visible and seen by all; a team pick, an answer cop
   const line = page.find((m) => m.event?.type === 'project_files_moved')
   expect(line).toMatchObject({ author: null, event: { moved: 1, kept: 6 } })
   void afterMsg
+})
+
+test('QA TC-7046: a copy of the sender\'s own file made from their own files and this room moves; any other copy stays', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-own-copy')
+  // a copy on mia's own message, with its kept scope (chat/answer-share.ts) as sendShare writes it
+  const copyWith = async (name: string, kept: (id: string) => unknown, by = mia) => {
+    const f = await up(by.id, roomId, name, `copy ${name}`)
+    const m = await send(by.client, roomId, [f.id])
+    h.ctx.db.query("UPDATE room_files SET origin = 'answer_copy' WHERE id = ?").run(f.id)
+    h.ctx.db.query('UPDATE room_messages SET source_scope = ? WHERE id = ?').run(JSON.stringify(kept(f.id)), m.id)
+    return f
+  }
+  const own = (id: string, sources: unknown[], unknown = false, at = `users/${mia.id}/notes/${id}.md`) => ({ sources, unknown, attached: [{ file: id, path: at, links: [] }] })
+  // moves: made from mia's own folder and this room (an AI post of a file it made in her folder)
+  const a = await copyWith('own-a.md', (id) => own(id, [{ type: 'user', id: mia.id }, { type: 'room', id: roomId }, { type: 'name', path: `users/${mia.id}/notes` }]))
+  // stays: made from a team folder; from another room; not all known; a copy of someone else's folder; nora's message
+  const b = await copyWith('own-b.md', (id) => own(id, [{ type: 'user', id: mia.id }, { type: 'folder', id: 'f1' }]))
+  const c = await copyWith('own-c.md', (id) => own(id, [{ type: 'room', id: crypto.randomUUID() }]))
+  const d = await copyWith('own-d.md', (id) => own(id, [{ type: 'user', id: mia.id }], true))
+  const e = await copyWith('own-e.md', (id) => own(id, [], false, `users/${nora.id}/x/${id}.md`))
+  const g = await copyWith('own-g.md', (id) => own(id, [], false, 'shared/docs/x.md'))
+  const k = await copyWith('own-k.md', (id) => ({ sources: [], unknown: false, attached: [{ file: id, path: `users/${mia.id}/n/${id}.md`, links: [] }] }), nora)
+  const { info, chat } = await convert(mia.client, roomId)
+  expect([info.filesMoving, info.filesStaying, info.filesStayingCopies]).toEqual([1, 6, 6])
+  expect(moves(roomId).map((m) => m.room_file_id)).toEqual([a.id])
+  await roomFileMovesOf(h.ctx).run()
+  expect(refOf(a.id)?.path).toBe(`${chat}/own-a.md`)
+  for (const f of [b, c, d, e, g, k]) expect(refOf(f.id)).toBeNull()
 })
 
 test('names: "(2)", the same name twice, a case-only clash, CLAUDE.md and _FILES.md taken, a refused name made safe', async () => {

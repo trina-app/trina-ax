@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:42
 - Branch: `fix/sharing-sq-findings`
-- Status: in progress
+- Status: in progress (plan review applied)
 - Where: server/src/chat, server/src/rooms, server/src/notifications, shared/src, web/src. Why: fixes of existing
   sharing, project and notification features (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Bug fixes and wording; one optional API field each (old clients ignore them), no migration.
@@ -41,10 +41,14 @@ Six findings from the scenario QA on dev 3d747563a (shots in the QA rows):
 In:
 
 1. **Search with the folder in the pattern.** A `glob` call without a path whose pattern starts with plain folder
-   names (no `* ? [ ] { } !`) runs as `path` = those folders, `pattern` = the rest (the same files: glob matches the
-   pattern relative to `path`). Done once, before the people-chat refusal, the project-folder default and the read
-   card (both call sites in chat/tools.ts), so the card asks for `users/<me>` and the search runs after yes. Private
-   chats are unchanged (it is only in the shared branch).
+   names (no `* ? [ ] { } ! \`; the last segment always stays the pattern) runs as `path` = those folders, `pattern` =
+   the rest (the same files: glob matches the pattern relative to `path`). Only where the path-less search would not
+   find them: a prefix under `users/` (the person's own folder is never searched without its path), or any prefix in a
+   people chat that refuses a search without a path. A project chat's `reports/*.md` keeps looking in the project
+   folder, and a people chat's one shared folder keeps matching below it (review note). Done before the people-chat
+   refusal, the project-folder default, `projectOnly`/`SKIP_OWN` and the read card (both call sites in chat/tools.ts),
+   so the card asks for `users/<me>` and the search runs after yes. Private chats are unchanged. grep's own `glob`
+   argument is not changed (grep needs a path in a people chat anyway).
 2. **Prompt and refusal words (people-shared chat).** Say that the asker's own folder (`users/<id>/`) can be searched
    and read here by giving its path, and that the server asks them on a card first. The "Not searched" refusal says
    the same ("or the folder you mean, such as the user's own folder, as path"). The "continue privately" lines name
@@ -54,22 +58,27 @@ In:
    `{type:'chat'}` source of **that same chat** counts as seen by the people being added (they see the chat's files
    once they are in it; an answer hidden from someone stays covered by `hidden` as today). A chat source of another
    chat is unchanged.
-4. **The warning names only people who miss something.** `ShareCheck.warnSubjects` (optional): the picked entries
-   (`user:<id>`, `group:<id>`) among the newly added ones that bring in at least one person who misses something. The
-   dialog names only those; without the field (an older server) it names all added picks, as today.
+4. **The warning names only people who miss something.** `ShareCheck.warnPicks` (optional): the positions, in the
+   list as sent, of the newly added entries that bring in at least one person a warning is about (positions, never
+   ids: the check never says who). The dialog's warning and the widening list title name only those; without the
+   field (an older server) all added picks, as today.
 5. **Make it a project: AI posts of the sender's own files move.** An answer copy moves (when everything else passes,
-   `not_seen` included) when its message's kept scope (`source_scope.attached`) names this file's source as a path in
-   the **sender's own folder** (`users/<sender>/…`): the sender sent their own file on purpose (post_to_room card or
-   "Send to a chat room"), the same as an upload of it. A copy of any other team file stays (the plan's reason). The
-   info carries `filesStayingCopies` (how many stay because they are copies of team files); the dialog says each
-   reason in its own line: "not everyone here can see them" only for those, "copies of team files stay in the
-   conversation, so people added to the project later don't get them" for copies.
+   `not_seen` included) when it is on its sender's own message, its kept scope's `attached` entry names a path in the
+   **sender's own folder** (`users/<sender>/…`, case-folded on a case-insensitive disk), and the kept scope is complete
+   (`unknown` false) with every source the sender's own folder or this same room (review note: an AI-made file's
+   inputs are in `kept.sources`; one made from a team folder stays). A copy of any other file stays (the plan's
+   reason). The info carries `filesStayingCopies` and `filesStayingOther` (download-only); the dialog says each reason
+   in its own line.
 6. **Notices.** A gone share notice says "A chat from {name} is no longer shared with you." (generic "A chat is no
    longer shared with you." without the name). No title: the chat may have been renamed after they lost it. A re-share
    to someone who lost the chat replaces that day's row with a new one (new id: unread, pushed by the same rule as a
-   first share); the one-row-a-day rule stays for anything else.
+   first share; its push rows go with the old one, ON DELETE CASCADE). A row still unread from the last 10 minutes is
+   updated in place instead (no second push for a quick remove and add, review note). `chatShared` is only called for
+   people who did not see the chat just before, so the old "group row becomes a share by name" update had no caller.
 7. **Feed row files.** `rooms/inbox.ts` sends `files` (count) and `fileName` (the first file's name) for the newest
-   message also when it has text; the row shows the text, then "📎 name" (+ "+N" for more) on its own small line.
+   message also when it has text, only for a message counted through FOR_ME_SQL and not deleted (review note: the
+   stand-in `own` message is not checked); the row shows the text, then a paperclip and the name (+ "+N") on its own
+   small line.
 8. **Guest without AI.** Server: the guest check runs before the "chosen AI is off" step, so a refused guest has no
    such step. The step reads plainly: "The AI picked for this chat is turned off, so your team's usual AI is
    answering." (6 languages). Web: a guest's failed answer for a no-AI reason (`guest_no_ai`, `no_credential`,
@@ -95,7 +104,7 @@ agents; `server/src/engine/api-honest.ts` is not touched. A chat title snapshot 
 
 ## Decisions
 
-- `docs/decisions/20261121-make-project-own-file-copies.md`: an AI post of the sender's own file moves with "Make it a
+- `docs/decisions/20261122-make-project-own-file-copies.md`: an AI post of the sender's own file moves with "Make it a
   project" like their upload; copies of other team files stay. Changes plan 20261121-0619 "Which files move" for that
   one case.
 

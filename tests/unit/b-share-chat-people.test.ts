@@ -15,6 +15,8 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { unsharePeopleChecked } from '../../server/src/chat/people-guard'
 import { unshareUncheckedChats } from '../../server/src/chat/shared'
 import { noSearchPath } from '../../server/src/chat/turn'
+import { globFolderPrefix } from '../../server/src/chat/search-path'
+import { addSources } from '../../server/src/chat/read-scope'
 import { peopleAudience, peopleChatsLost } from '../../server/src/chat/chat-audience'
 import { buildTurnPrompt, sharedSection } from '../../server/src/chat/prompt'
 import { runAccountCleanups } from '../../server/src/auth/account-removal'
@@ -334,6 +336,92 @@ describe('turns in a people-shared chat', () => {
     } finally {
       for (const r of rows) db().query(`INSERT INTO folder_rules (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r))
     }
+  })
+})
+
+describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
+  const cardOf = (user: string, turnId: string) => ws[user]!.next('turn.request', (f) => f.data.turnId === turnId, 15_000)
+  const answer = (user: string, turnId: string, requestId: string, value: 'share' | 'skip') =>
+    h.api(user).call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId, answer: value } })
+
+  test('the folder pieces of a glob pattern without a path become its path', () => {
+    expect(globFolderPrefix({ pattern: 'users/qa-member/**/*.html' })).toEqual({ path: 'users/qa-member', pattern: '**/*.html' })
+    expect(globFolderPrefix({ pattern: 'users/qa-member/a.html', path: '/' })).toEqual({ path: 'users/qa-member', pattern: 'a.html' })
+    for (const args of [{ pattern: '**/*.md' }, { pattern: '*.md' }, { pattern: 'users/x/', path: '' }, { pattern: './users/x/*.md' }, { pattern: 'a\\*b/*.md' }, { pattern: 'users/x/*.md', path: 'shared' }, { pattern: '/users/x/*.md' }])
+      expect({ args, out: globFolderPrefix(args) }).toEqual({ args, out: null })
+  })
+
+  test("TC-7041: a glob of the asker's own folder named in the pattern asks on the card and runs after yes", async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    const started = await send('alice', id, fake({ tool: 'glob', args: { pattern: 'users/alice/**/*.md' }, sayResult: true }))
+    const card = await cardOf('alice', started.turnId)
+    await answer('alice', started.turnId, card.data.request.requestId, 'share')
+    const done = (await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)).data.message
+    expect(done.content).not.toContain('Not searched')
+    expect(done.content).toContain('newsletter-oct.md')
+    // no: nothing of it
+    const again = await send('alice', id, fake({ tool: 'glob', args: { pattern: 'users/alice/*.md' }, sayResult: true }))
+    const card2 = await cardOf('alice', again.turnId)
+    await answer('alice', again.turnId, card2.data.request.requestId, 'skip')
+    const no = (await ws.alice!.next('message.done', (f) => f.data.messageId === again.assistantMessage.id, 30_000)).data.message
+    expect(no.content).not.toContain('todo.md')
+  })
+
+  test('TC-7041: the people chat lines say the own folder works by its path; the menu is named by its exact label', () => {
+    const s = sharedSection({ project: null, audience: 3, asker: 'Bob Lee' }, 'ko')
+    expect(s).toContain("Bob Lee's own folder (users/<Bob Lee's id>/) works here too")
+    expect(s).toContain('"나만 보는 채팅에서 이어 하기" in the menu that opens from this chat\'s title')
+    expect(s).toContain('untranslated')
+    expect(s).not.toContain("this chat's menu at the top")
+  })
+
+  test("TC-7042: the chat's own files are no place someone added to it misses", async () => {
+    // what a work-folder read or a chat file read records: the chat itself
+    const id = await newChat()
+    addSources(db(), id, [{ type: 'chat', id }])
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob] } })
+    expect(p.check).toMatchObject({ places: [], otherPlaces: false, fileAnswers: 0, roomsUnseen: false })
+    // another chat's files still count
+    const other = await newChat()
+    const id2 = await newChat()
+    addSources(db(), id2, [{ type: 'chat', id: other }])
+    const q = await h.api('alice').call(API.previewChatAudience, { params: { id: id2 }, body: { subjects: [bob] } })
+    expect(q.check.places.length + (q.check.otherPlaces ? 1 : 0)).toBeGreaterThan(0)
+  })
+
+  test('TC-7042: the warning names only picks that bring in someone it is about', async () => {
+    const id = await newChat()
+    // an answer that read alice's own folder: bob and erin miss it
+    addSources(db(), id, [{ type: 'user', id: 'alice' }])
+    // erin already sees it through marketing; picking her by name with bob: only bob is new
+    await share('alice', id, [marketing])
+    const erin: Sub = { subjectType: 'user', subjectId: 'erin' }
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [marketing, erin, bob] } })
+    expect(p.check.places.length + (p.check.otherPlaces ? 1 : 0)).toBeGreaterThan(0)
+    // positions in the list as sent, never ids
+    expect(p.check.warnPicks).toEqual([2])
+    expect(JSON.stringify(p.check)).not.toMatch(/bob|erin/)
+  })
+
+  test('TC-7047: a share again after the chat was taken away is a new notice; a quick remove and add is not', async () => {
+    const id = await newChat('alice', 'reshare me')
+    await share('alice', id, [bob])
+    const first = db().query("SELECT id FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").get(id) as { id: string }
+    // a quick remove and add while it is unread: the same row
+    await share('alice', id, [])
+    await share('alice', id, [bob])
+    expect(db().query("SELECT id FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id)).toEqual([{ id: first.id }])
+    // read (or older than the quiet time): a share again replaces it with a new unread row
+    db().query("UPDATE chat_share_notices SET read_at = ? WHERE id = ?").run(new Date().toISOString(), first.id)
+    await share('alice', id, [])
+    const gone = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((x) => x.code === 'chat.shared' && x.chatId === null && x.id === first.id)
+    expect(gone?.chatShared).toMatchObject({ gone: true, title: null, name: 'Alice Kim' })
+    await share('alice', id, [bob])
+    const rows = db().query("SELECT id, read_at FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id) as { id: string; read_at: string | null }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0]!.id).not.toBe(first.id)
+    expect(rows[0]!.read_at).toBeNull()
   })
 })
 

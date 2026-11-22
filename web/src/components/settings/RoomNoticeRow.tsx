@@ -5,6 +5,7 @@
 // pages/Room.tsx) and reads it. Names and the line are people's words: one line each, cut with an ellipsis, inside
 // <bdi>. No button and no card: a row is a row.
 import clsx from 'clsx'
+import { Paperclip } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { listTime } from '../../lib/format'
@@ -27,7 +28,7 @@ type T = ReturnType<typeof useT>
 /** The words of a row. `title`: the room's name as the app shows it, when the rooms list has the room (an unnamed group
  * chat is named after its people there). `mark`: "@" when the row mentions me or everyone, with what it means for a
  * screen reader. */
-export function roomRowText(room: RoomNotice['room'], t: T, title?: string | null): { who: string; where: string; line: string; mark: string | null } {
+export function roomRowText(room: RoomNotice['room'], t: T, title?: string | null): { who: string; where: string; line: string; mark: string | null; file: string | null } {
   const name = room.ai ? t('rooms.aiName') : room.from ?? t('rooms.goneUser')
   const people = room.people ?? 1
   const who = people > 1 ? t('rooms.groupNamesMore', { names: name, n: people - 1 }) : name
@@ -36,9 +37,12 @@ export function roomRowText(room: RoomNotice['room'], t: T, title?: string | nul
   const where = room.thread ? `${place} › ${t('rooms.thread')}` : place
   // an AI answer is Markdown: one plain line of it, as the 대화 list shows it
   const text = room.preview ? (room.ai ? plainLine(room.preview) : room.preview) : ''
-  const line = text || (room.files ? t('rooms.lastFiles', { n: room.files }) : '')
+  // the message's files (QA TC-7049): the first one's name, "+2" for more; the line itself when there is no text
+  const files = room.files ?? 0
+  const fileNamed = room.fileName ? `${room.fileName}${files > 1 ? ` +${files - 1}` : ''}` : null
+  const line = text || fileNamed || (files ? t('rooms.lastFiles', { n: files }) : '')
   const mark = room.reason === 'mention' ? t('notifications.room.mention') : room.reason === 'everyone' ? `@${t('rooms.mentionAll')}` : null
-  return { who, where, line, mark }
+  return { who, where, line, mark, file: text ? fileNamed : null }
 }
 
 /** Where a row goes: the thread or the room, with the message to start at (the first unread one). */
@@ -52,7 +56,7 @@ export function RoomNoticeRow({ item, onOpen }: { item: RoomNotice; onOpen: () =
   const locale = useLocale()
   const title = useRoomTitle()
   const listed = useRooms((s) => s.rooms.find((r) => r.id === item.room.id) ?? null)
-  const { who, where, line, mark } = roomRowText(item.room, t, listed ? title(listed) : null)
+  const { who, where, line, mark, file } = roomRowText(item.room, t, listed ? title(listed) : null)
   const unread = !item.readAt
   const n = item.room.count ?? 1
   const at = item.room.at ?? item.createdAt
@@ -84,8 +88,19 @@ export function RoomNoticeRow({ item, onOpen }: { item: RoomNotice; onOpen: () =
             </span>
           )}
         </span>
+        {file && <RoomRowFile name={file} />}
       </span>
     </Link>
+  )
+}
+
+/** The message's file under its text (QA TC-7049): a paperclip and the name, one line. */
+export function RoomRowFile({ name }: { name: string }) {
+  return (
+    <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted" data-testid="notification-room-file">
+      <Paperclip size={12} aria-hidden className="shrink-0" />
+      <bdi className="min-w-0 truncate">{name}</bdi>
+    </span>
   )
 }
 
