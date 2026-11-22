@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 15:18
 - Branch: `fix/pptx-preview-starts-mid-deck`
-- Status: in progress
+- Status: done
 - Where: web/src/components/viewers/OfficeView.tsx. Why: the Word and PowerPoint previews are drawn in the page there
   (docs/REPOSITORY-RULES.md).
 - Version impact: patch: a preview bug fix, no new feature or setting.
@@ -48,4 +48,9 @@ exactly the batch boundaries.
 
 ## Result
 
-(filled in when done)
+- Reproduced on the mock server: a 12-slide deck drawn again while on its way began at slide 9 or 5 (as the owner saw);
+  the new e2e test fails on origin/dev with 4 slides drawn and passes with the fix at 1440 and 390.
+- `web/src/lib/renderHost.ts` `startDraw`: a host per drawing and an abort signal; `useRender` uses it, so Word and
+  PowerPoint previews both get it. Unit test `web/test/unit/render-host.test.ts` fails with one shared element.
+- Not the cause, checked: no server conversion (the deck is drawn in the page), no scroll restore by panel (the panel's
+  scroll keeps a share only while its width changes and only once the person scrolled), no page limit.
