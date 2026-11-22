@@ -471,15 +471,39 @@ export function placeName(path: string, locale: Locale): string | null {
 /** box_shell's spelling of the work folder: $TRINA_WORK, ${TRINA_WORK} */
 const WORK_VAR = /^(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?=\/|$)/i
 
+/** a file id (a UUID) as a path segment: never shown in a worded path (QA TC-7048) */
+const ID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const CHAT_PLACE_QUOTED = /(['"`])chat:(files|work)\/([^'"`\n]*)\1/gi
+const CHAT_PLACE_BARE = /(^|[\s(=,:\[])chat:(files|work)\/([^\s'"`,;)\]]*)/gi
+/** One chat place in words: "This chat › 견적서.pdf", "Work folder › out › a.png"; a file id never shown */
+function chatPlaceSaid(kind: string, rest: string, locale: Locale): string {
+  const key = kind.toLowerCase() === 'work' ? 'work' : 'chatFiles'
+  const segs = rest.split('/').filter((x) => x && !ID_SEG.test(x))
+  return [STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, ...segs].join(' › ')
+}
+
+/**
+ * Any text a person sees beside a step (its line, its error detail) with every chat place in words (QA TC-7048):
+ * "No file 'chat:files/<id>/견적서.pdf' …" reads "No file 'This chat › 견적서.pdf' …". A quoted place may hold spaces; a
+ * bare one ends at a space. Text without a chat place comes back as it is.
+ */
+export function chatPlaceWords(text: string, locale: Locale): string {
+  if (!/chat:(files|work)\//i.test(text)) return text
+  return text
+    .replace(CHAT_PLACE_QUOTED, (_all, q: string, kind: string, rest: string) => `${q}${chatPlaceSaid(kind, rest, locale)}${q}`)
+    .replace(CHAT_PLACE_BARE, (_all, pre: string, kind: string, rest: string) => `${pre}${chatPlaceSaid(kind, rest, locale)}`)
+}
+
 /**
  * A command line with the work folder in words (QA TC-6937): the leading `cd "$TRINA_WORK" &&` goes (a command starts
  * there anyway), and "$TRINA_WORK/out/frame1.png" reads "Work folder › out › frame1.png" (quotes kept as written).
  */
 export function shellWorkWords(command: string, locale: Locale): string {
   const w = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
-  return command
+  return chatPlaceWords(command
     .replace(/^\s*cd\s+(["']?)(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])\/?\1\s*(?:&&|;)\s*/i, '')
-    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
+    // a file id in the path is left out (QA TC-7048: "Work folder › .. › files › 01a2005b-… › qa_demo.mp4")
+    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter((x) => x && !ID_SEG.test(x))].join(' › ')), locale)
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
@@ -496,17 +520,22 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
     const at = label.indexOf(' · ')
     return { label: at < 0 ? label : label.slice(0, at + 3) + shellWorkWords(label.slice(at + 3), locale) }
   }
-  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
+  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label: chatPlaceWords(label, locale) }
   // a call let through without a card ends in " · <why>" (QA 2026-11-11: the 2nd and 3rd saves after one card's
   // "이번만 허용" showed their raw path): the path is before it, and the why stays after the path in words
   const cover = coverWhy(label)?.end ?? null
   const line = cover ? label.slice(0, -cover.length) : label
   const at = line.lastIndexOf(' · ')
-  if (at < 0) return { label }
+  if (at < 0) return { label: chatPlaceWords(label, locale) }
   const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
-  return named ? { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path } : { label }
+  // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
+  if (named && parsePlace(path)) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
+  if (named) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path }
+  // a chat place the line names some other way (cut short, or after "->"): in words all the same
+  const worded = chatPlaceWords(label, locale)
+  return worded !== label ? { label: worded } : { label }
 }
 
 /** The " · <why>" a line ends in when its call went on without a card (COVER_STEP_KEYS, in any language), with its key,

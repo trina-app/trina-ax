@@ -236,9 +236,9 @@ describe('who may attach', () => {
     expect(why(() => chatOutput(ctxWith(placesFor('people', { hidden: true })), 'chat:files/a.pptx'))).toBe(PLACE_WORDS.hiddenTurn)
   })
 
-  test('chat:work/ outputs wait for P2; an existing chat file by id waits for P4; other forms are refused', () => {
+  test('chat:work/ outputs wait for P2; an existing chat file by id is a new version of it (QA TC-7267); other forms are refused', () => {
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:work/out/a.pptx'))).toBe(NO_WORK_WORDS.elsewhere)
-    expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:files/01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208/a.pptx'))).toBe(PLACE_WORDS.inPlace)
+    expect(chatOutput(ctxWith(placesFor('people')), 'chat:files/01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208/a.pptx')).toEqual({ name: 'a.pptx', id: '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208' })
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:files/'))).toContain('name the new file')
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'room:files/a.pptx'))).toContain('room files are not paths yet')
     expect(why(() => authorizeOutput(h.ctx.files.fx, h.ctx.files.rules(), ctxWith(placesFor('people')), 'chat:files/a.docx', { mustExist: true }))).toBe(PLACE_WORDS.inPlace)

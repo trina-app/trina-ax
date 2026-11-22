@@ -75,13 +75,19 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       // left out of the turn's list
       available: () => reg.available(name),
       async call(args, t) {
+        // a produce tool whose output named an existing chat file saves a new version of it (files/place-output.ts
+        // versionProduced, QA TC-7267): told by this call's own context, never by the turn's other calls
+        t.files.chatVersionMade = undefined
         const r = await reg.call(name, args, t.files)
+        const versioned = PLACE_PRODUCE_TOOLS.has(name) && !r.isError && !!t.files.chatVersionMade && !/saved as version \d+/.test(r.text)
         // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
         // (a produce tool's own result only: a web page, a mail or a Drive file that holds such a link stays as it is)
         // ("everyone in this chat" only where other people see the chat now: QA TC-6778)
         const places = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places : undefined
         const kind = places?.ctx.chatKind
-        const text = places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
+        const text = versioned
+          ? `${places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, false, true) : r.text}\nThis was saved as a new version of that chat file, not as a new file: ${kind === 'people' ? 'everyone in this chat opens it' : 'it opens'} from the same file in the chat, and the earlier versions stay (read it with versions: true)${kind === 'people' ? '; anyone here can restore one from the file\'s Versions list' : ''}.`
+          : places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
         return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })
@@ -106,7 +112,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
-      RICH_OFFICE_HINT + OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path; in a chat, a picture of the chat is ![](chat:files/<file_id>/<name>) and one in its work folder ![](chat:work/<path>) (never a link such as /files/view?path=…). \`source\` and \`template\` may be such a chat path too; a source's pictures come from its own place. In a chat shared with people, \`output: "chat:files/<name>"\` attaches the new file to your answer for everyone there. If \`output\` exists, it is replaced (its old version stays in its history) when you read it in this chat; otherwise a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} the person can read (their own earlier document, or a team template under skills/) whose styles the new file takes. ` +
+      RICH_OFFICE_HINT + OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path; in a chat, a picture of the chat is ![](chat:files/<file_id>/<name>) and one in its work folder ![](chat:work/<path>) (never a link such as /files/view?path=…). \`source\` and \`template\` may be such a chat path too; a source's pictures come from its own place. In a chat shared with people, \`output: "chat:files/<name>"\` attaches the new file to your answer for everyone there. To remake or correct a file of the chat ("make it again", a fixed quote), give its own path \`output: "chat:files/<file_id>/<name>"\` after reading it: that saves a new version of it, not a second file. If \`output\` exists, it is replaced (its old version stays in its history) when you read it in this chat; otherwise a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} the person can read (their own earlier document, or a team template under skills/) whose styles the new file takes. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +

@@ -4185,11 +4185,13 @@ export class TurnExec {
    * the people who see this chat now, as a read would be: none hidden from them, they join the answer's record; else
    * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
    */
-  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
-    // a new version of an existing chat file (write, edit, edit_office in place: P4) or a new file attached: who may
-    // (the resolver's words: a project chat's folder, My files, a sub-agent, a k answer) is refused before any card, so
-    // a call that cannot save there never asks the person anything
-    const version = CHAT_VERSION_TOOLS.has(tool)
+  private async confirmChatTarget(target: string, sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
+    // a new version of an existing chat file (write, edit, edit_office in place: P4; edit_pdf in place names the file by
+    // its id: QA TC-7044; a new file is chat:files/<name>, never by an id) or a new file attached: who may (the
+    // resolver's words: a project chat's folder, My files, a sub-agent, a k answer) is refused before any card, so a call
+    // that cannot save there never asks the person anything
+    const at = parsePlace(target)
+    const version = CHAT_VERSION_TOOLS.has(tool) || (at?.kind === 'chatFiles' && !!at.id)
     const ctx = { ...chatPlaces(this, this.files).ctx, main }
     const may = version ? mayWriteChatVersion(ctx) : mayAttachChatFile(ctx)
     if (may !== true) return `Not ${version ? 'changed' : 'attached'} (${tool}): ${may}`
@@ -4216,7 +4218,7 @@ export class TurnExec {
   async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
     // a new file of this chat (chat:files/<name>, files/place-output.ts): exactly the chat's people see it, so what goes
     // in is weighed as a read here: a source some of them cannot open asks on the shared read card first
-    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
+    if (isReservedPlace(target)) return this.confirmChatTarget(target, extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call

@@ -103,8 +103,9 @@ describe('fail closed: a chat place in any path argument of a tool that does not
         // (files/place-output.ts; tests/unit/places-produce.test.ts); a reserved form is refused here still
         const p3 = (PLACE_PRODUCE_TOOLS.has(tool) && (key === 'output' || key === 'output_folder')) || (tool === 'make_file' && (key === 'source' || key === 'template'))
         if (p3 && /^chat:(files|work)\//.test(place)) { expect(no, `${tool}.${key}`).toBeNull(); continue }
-        // P4: edit_office's document may be a chat file (a new version, or a new file made from it: tools/edit-office.ts)
-        if (tool === 'edit_office' && key === 'file_path' && place.startsWith('chat:files/')) { expect(no, `${tool}.${key}`).toBeNull(); continue }
+        // P4: edit_office's and edit_pdf's document may be a chat file (a new version, or a new file made from it:
+        // tools/edit-office.ts, tools/pdf-tools.ts; QA TC-7044)
+        if ((tool === 'edit_office' || tool === 'edit_pdf') && key === 'file_path' && place.startsWith('chat:files/')) { expect(no, `${tool}.${key}`).toBeNull(); continue }
         expect(no, `${tool}.${key}`).toBeString()
       }
     })
