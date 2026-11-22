@@ -53,4 +53,14 @@ tests/unit/b-shared-chat-main-mention.test.ts (main-box mention → Mentions row
 
 ## Result
 
-As planned. TC-f3-03 needed no code change: the test proves Share waits for the check and sends the default tick.
+As planned, plus:
+- Review fixes: reading, muting or losing a chat tells the Inbox when an unread mention row goes; the Inbox reads only
+  listed chat notices; a command that holds the piece word for word (a heredoc) still keeps it as content; Share's
+  retry after a server update keeps the files choice (it went without the files).
+- TC-f1c-01 (coordinator, same area): a ✦ side chat question quotes the room message with the app's English labels
+  ("(file_id … in this room)"); the answer language now follows the person's own words (no "> " lines):
+  languageSwitchNote compares own words and quoteLanguageNote tells the AI.
+- TC-f3-03: Share already waits for the check (screenshot and code); the default tick was off by #355's rule (files
+  made by answers that ran dev-environment commands are marked). A test pins the order; the retry path was the real gap.
+- TC-v2g-03: no change: the raw "chat:files/…" is the stored label (API, logs); the screen's step line already reads
+  "이 채팅 › …" (stepPlace).
