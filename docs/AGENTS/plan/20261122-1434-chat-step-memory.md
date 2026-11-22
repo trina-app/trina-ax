@@ -62,7 +62,7 @@ tool results; sub-agent inner steps (their sub-task line is kept).
 
 ## Steps
 
-1. Migration `441_b_message_step_notes.sql`: `ALTER TABLE messages ADD COLUMN step_notes TEXT`.
+1. Migration `443_b_message_step_notes.sql`: `ALTER TABLE messages ADD COLUMN step_notes TEXT`.
 2. `chat/step-record.ts`: `stepArgs`, `stepResult`, `stepsRecord` (lines + caps), `STEP_RECORD_*` constants.
 3. `turn.ts`: note args on `tool_start`, result on `tool_end` (main AI only), save with the steps, reset on retry.
 4. `runtime.history` / `labelledTranscript`: attach `steps` to eligible answer items (`HistoryItem.steps`).
