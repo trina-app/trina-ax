@@ -29,7 +29,7 @@ CREATE TABLE google_signin_flows (
   id TEXT PRIMARY KEY,
   state_hash TEXT NOT NULL UNIQUE,
   binding_hash TEXT NOT NULL,
-  intent TEXT NOT NULL CHECK (intent IN ('signin', 'connect')),
+  intent TEXT NOT NULL CHECK (intent IN ('signin', 'connect', 'setup', 'join', 'reauth')),
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
   session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
   config_key TEXT NOT NULL,
@@ -39,7 +39,9 @@ CREATE TABLE google_signin_flows (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'used')),
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
-  CHECK ((intent = 'signin' AND user_id IS NULL AND session_id IS NULL) OR (intent = 'connect' AND user_id IS NOT NULL AND session_id IS NOT NULL))
+  -- signin, setup (the first owner, with the setup token) and join (an invite or team link) have nobody signed in yet;
+  -- connect and reauth belong to the session that started them
+  CHECK ((intent IN ('signin', 'setup', 'join') AND user_id IS NULL AND session_id IS NULL) OR (intent IN ('connect', 'reauth') AND user_id IS NOT NULL AND session_id IS NOT NULL))
 );
 CREATE INDEX google_signin_flows_expires ON google_signin_flows(expires_at);
 CREATE INDEX google_signin_flows_user ON google_signin_flows(user_id);
