@@ -1431,12 +1431,13 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     SHOWN_ONLY_RULE,
     OWN_OUTPUT_LOOK_RULE,
     FILE_NAMES_RULE,
-    // a guest has no file viewer page (web App.tsx: /files/view is not for guests): the file card under the answer opens it
-    i.guest ? '' : SOURCE_LINK_RULE,
-    // scenario QA 11-22: never invent, numbers from files, check what was made against the request
+    // scenario QA 11-22: never invent, numbers from files, check what was made against the request (before the link rule:
+    // the card rule of the share words follows the link rule directly)
     NO_INVENT_RULE,
     FIGURES_RULE,
     CHECK_MADE_RULE,
+    // a guest has no file viewer page (web App.tsx: /files/view is not for guests): the file card under the answer opens it
+    i.guest ? '' : SOURCE_LINK_RULE,
     // AI sharing, words (chat/share-words.ts): no path on a card, several files of one name, a refusal's next step, a
     // service that is not connected
     tools.has('ask_user') ? CARD_WORDS_RULE : '',
