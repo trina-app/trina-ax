@@ -481,6 +481,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
         // a glob whose pattern names the folder: that folder as its path first (QA TC-7041)
         args = exec.liftGlobPath(name, args)
+        // a chat shared with people: a new file made in the asker's own folder goes to the chat (QA TC-7261, TC-7279),
+        // before every card below weighs the call
+        args = exec.sharedOutput(name, args, files === exec.files).args
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         args = exec.sharedArgs(name, args)

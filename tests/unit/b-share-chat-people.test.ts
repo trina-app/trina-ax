@@ -425,6 +425,67 @@ describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
   })
 })
 
+describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
+  const answersOf = (id: string) => (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid").all(id) as { id: string }[]).map((r) => r.id)
+  const withheld = async (user: string, id: string) => (await h.api(user).call(API.listMessages, { params: { id }, query: {} })).items.filter((m) => m.role === 'assistant' && m.withheld).length
+
+  test('TC-7262: a dev environment answer of the private time is told before sharing and not kept from people added later', async () => {
+    const id = await newChat('alice', 'video')
+    await ask('alice', id, fake({ say: 'made the video' }))
+    const [first, dev] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), dev)
+    const c = await put('alice', id, [bob])
+    expect(c.status).toBe('confirm')
+    if (c.status !== 'confirm') return
+    expect(c.check).toMatchObject({ devAnswers: 1, unchecked: 0 })
+    await put('alice', id, [bob], c.confirmKey)
+    // no x on any answer: erin, added later, sees them all
+    for (const m of [first, dev]) expect(JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(m) as { reads: string }).reads)[0].x).toBeUndefined()
+    await share('alice', id, [bob, { subjectType: 'user', subjectId: 'erin' }])
+    expect(await withheld('erin', id)).toBe(0)
+  })
+
+  test('TC-7262: a later share says how many earlier answers stay hidden from the person added', async () => {
+    const id = await newChat('alice', 'secret')
+    await share('alice', id, [bob])
+    const [a1] = answersOf(id)
+    db().query('UPDATE shared_answer_reads SET reads = ? WHERE message_id = ?').run(JSON.stringify([{ c: ['alice', 'bob'], s: [], x: 1 }]), a1)
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob, { subjectType: 'user', subjectId: 'erin' }] } })
+    expect(p.check.hiddenAnswers).toBe(1)
+  })
+
+  test('TC-7277/TC-7240: the warning names the files a new person cannot open, with where they are', async () => {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await ask('alice', id, fake({ tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }))
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob] } })
+    expect(p.check.fileAnswers).toBe(1)
+    expect(p.check.fileNames?.[0]).toMatch(/^campaign-brief\.md \(.+\)$/)
+  })
+
+  test('TC-7269: a helper file a later make_file turned into the result is not offered with the chat\'s files', async () => {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await ask('alice', id, fake({ tool: 'write', args: { file_path: 'users/alice/sq7269/quote.md', content: '# Quote' } }, { tool: 'make_file', args: { format: 'docx', source: 'users/alice/sq7269/quote.md', output: 'users/alice/sq7269/quote.docx' }, sayResult: true }))
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).map((f) => f.name)).toEqual(['quote.docx'])
+  })
+
+  test('TC-7286: a My files attachment in a shared chat goes in as a copy everyone opens; a file everyone reads stays a reference', async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    const mine = await h.api('alice').call(API.attachTeamFile, { body: { chatId: id, path: 'users/alice/todo.md' } })
+    const pub = await h.api('alice').call(API.attachTeamFile, { body: { chatId: id, path: 'shared/glossary.md' } })
+    const ids = [mine.id, pub.id]
+    const r = await h.api('alice').call(API.sendMessage, { params: { id }, body: { content: fake({ say: 'got it' }), clientMessageId: cm(), attachmentIds: ids } })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    const q = (await h.api('bob').call(API.listMessages, { params: { id }, query: {} })).items.find((m) => m.id === r.userMessage!.id)!
+    const copy = q.attachments.find((a) => a.name === 'todo.md')!
+    expect(copy.source).toBe('chat')
+    expect((await h.req('bob', `/api/chats/${id}/files/${copy.id}`)).status).toBe(200)
+    expect(q.attachments.find((a) => a.name === 'glossary.md')?.source).toBe('team')
+  })
+})
+
 describe('notices, hiding, lists', () => {
   test('one Inbox notice per chat and person a day; it names the sharer and the chat while it is shared', async () => {
     const id = await newChat('alice', 'notice me')

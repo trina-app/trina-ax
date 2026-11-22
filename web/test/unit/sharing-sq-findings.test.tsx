@@ -44,3 +44,15 @@ test('TC-7046: the files that stay, by why; an older server sends the total only
   expect(en('rooms.makeProject.stayingCopies', { n: 3 })).toContain("people added to the project later won't get them")
   expect(ko('rooms.makeProject.staying', { n: 1 })).toContain('여기 있는 모두가 볼 수 있는 게 아니라서')
 })
+
+test('TC-7277/TC-7262: the warning names the files and where they are, says what dev answers and hidden answers mean', async () => {
+  const { shareWarningLines, shareAtStake } = await import('../../src/components/ShareWarning')
+  const base = { added: 1, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
+  const lines = shareWarningLines(en, { ...base, fileAnswers: 1, fileNames: ['cost.xlsx (Sales › Pricing)'] }, 'Seoyeon')
+  expect(lines).toEqual(["1 answer used files Seoyeon can't open (cost.xlsx (Sales › Pricing)). Seoyeon will see what those answers say."])
+  expect(shareWarningLines(en, { ...base, devAnswers: 2 }, 'Doyoon')[0]).toContain('Doyoon and anyone added later will see them')
+  expect(shareWarningLines(en, { ...base, hiddenAnswers: 3 }, 'Doyoon')[0]).toBe('3 earlier answers stay hidden from Doyoon: they used something only the people here then could see.')
+  expect(shareAtStake({ ...base, devAnswers: 1 })).toBe(true)
+  expect(shareAtStake({ ...base, hiddenAnswers: 1 })).toBe(true)
+  expect(shareAtStake(base)).toBe(false)
+})

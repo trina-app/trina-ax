@@ -32,7 +32,7 @@ import { CHAT_AUDIENCE_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { loadPrincipal, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, type Principal } from '../policy/access'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { roomsOf } from '../rooms/service'
@@ -47,7 +47,7 @@ import { confirmMac } from './answer-share'
 import { checkAudience, findingsState, rulesFingerprint, type AudienceFindings } from './audience-check'
 import { createHash } from 'node:crypto'
 import { sourceKey, sourceOf, type ReadSource } from './read-scope'
-import type { ReadGroup } from './shared-answers'
+import { chatNodes, withheldAmong, type ReadGroup } from './shared-answers'
 import { placeWords } from './place-words'
 import { wideningAnswers, type WideningResult, type WideningSubject } from './widening'
 import { isPeopleRow, peopleAudience, rememberAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
@@ -62,8 +62,31 @@ import { closeFileAsks, copyMade, discardVerified, madeFilesOf, madeState, readV
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 /** The Share step's list, in the creator's words (the folder as the Files screen names it). */
-const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string): ChatMadeFile[] =>
-  files.map((f) => ({ name: f.name, place: placeWords(ctx.db, f.path.slice(0, f.path.lastIndexOf('/')), L, me), size: f.size }))
+const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string, f?: AudienceFindings): ChatMadeFile[] => {
+  // made by an answer that used something a person being added cannot open (QA TC-7370): marked, and the dialog's
+  // safer "without these files" becomes its first button
+  const risky = f ? new Set([...f.fileAnswers, ...f.memoryAnswers, ...f.accountAnswers]) : new Set<string>()
+  return files.map((x) => ({ name: x.name, place: placeWords(ctx.db, x.path.slice(0, x.path.lastIndexOf('/')), L, me), size: x.size, ...(risky.has(x.messageId) ? { private: true as const } : {}) }))
+}
+/** The files a new person misses (AudienceFindings.missedFiles) that I may read now myself (an answer of someone else
+ * in the chat may have read a place I cannot: never named), each with where it is in the Files screen's words ("원가.xlsx
+ * (영업 › 단가)", QA TC-7240), at most FILE_NAMES_MAX. */
+const FILE_NAMES_MAX = 5
+function fileNamesOf(ctx: AppContext, f: AudienceFindings, me: string, L: Locale): string[] {
+  const p = loadPrincipal(ctx.db, me)
+  if (!p) return []
+  const rules = ctx.files.rules()
+  const out: string[] = []
+  for (const rel of f.missedFiles) {
+    if (out.length >= FILE_NAMES_MAX) break
+    if (!atLeast(rules.access(p, rel.split('/').filter(Boolean)), 'read')) continue
+    const dir = rel.slice(0, Math.max(0, rel.lastIndexOf('/')))
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    const line = dir ? `${name} (${placeWords(ctx.db, dir, L, me)})` : name
+    if (!out.includes(line)) out.push(line)
+  }
+  return out
+}
 /** The key of a save with `withFiles` that brings nobody new in (a chat already shared): over the files and their bytes. */
 const filesKeyOf = (ctx: AppContext, userId: string, chatId: string, files: readonly MadeFile[]) =>
   confirmMac(ctx, { kind: 'chat.files', v: 1, userId, chatId, made: madeState(files) })
@@ -188,7 +211,7 @@ function gainedBy(ctx: AppContext, chat: ChatRow, add: readonly { subjectType: '
 /** The checks of the last minute (the preview, the widening list): the same list against the same chat, rules and
  * people answers from here, so 60 previews a minute never hash big files 60 times. A save never reads it. */
 const CHECK_CACHE_MS = 60_000
-type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[] }
+type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[]; hidden: number }
 const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<Findings> }>>()
 
 /** What the people `newPeople` (ids) would see that they could not before, with the answers whose records they miss
@@ -206,7 +229,16 @@ async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, ne
     // the files the chat made in my own folder (the Share step), for its creator only
     // (never a file of an answer hidden from anyone in it or being added: chat/chat-files-share.ts hiddenAnswers)
     const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat, { audience: newPeople }) : []
-    return { f, earlierFiles, made }
+    // a chat shared already: the earlier answers its records keep from someone being added (QA TC-7262: the dialog said
+    // nothing and every answer was hidden from the newcomer); a first share records them for everyone it adds
+    const hiddenIds = new Set<string>()
+    if (isPeopleRow(chat) && newPeople.length) {
+      const nodes = chatNodes(db, chat.id)
+      // (not one already hidden from me: nothing of it is told)
+      const fromMe = withheldAmong(db, rules, nodes, viewer.id)
+      for (const id of newPeople) for (const m of withheldAmong(db, rules, nodes, id)) if (!fromMe.has(m)) hiddenIds.add(m)
+    }
+    return { f, earlierFiles, made, hidden: hiddenIds.size }
   }
   if (!o.cache) return compute()
   const now = Date.now()
@@ -269,7 +301,10 @@ type Picked = { list: readonly { subjectType: 'user' | 'group'; subjectId: strin
 const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string, picked?: Picked): ShareCheck => ({
   added, memoryAnswers: x.f.memoryAnswers.length, fileAnswers: x.f.fileAnswers.length, accountAnswers: x.f.accountAnswers.length,
   places: x.f.places, otherPlaces: x.f.otherPlaces, roomsUnseen: x.f.roomsUnseen, unchecked: x.f.unchecked.length, ...(x.earlierFiles ? { earlierFiles: x.earlierFiles } : {}),
-  ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me) } : {}),
+  ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me, x.f) } : {}),
+  ...(x.f.fileAnswers.length ? (() => { const names = fileNamesOf(ctx, x.f, me, L); return names.length ? { fileNames: names } : {} })() : {}),
+  ...(x.hidden ? { hiddenAnswers: x.hidden } : {}),
+  ...(x.f.devAnswers.length ? { devAnswers: x.f.devAnswers.length } : {}),
   ...(picked ? { warnPicks: warnPicksOf(ctx, picked.list, picked.added, picked.people, x.f.missing) } : {}),
 })
 /** A check with nothing in it but the files (a chat already shared: the step on its own). */
@@ -441,12 +476,18 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         const rules = ctx.files.rules()
         const places = new Map<string, ReadSource>()
         for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
-        // not all known (older answers the scope does not describe, dev environment commands, rooms it does not name, my
-        // memories or personal accounts): someone who sees it later and is not in this group misses it
-        const notAll = checked ? checked.unchecked.length > 0 || checked.accountAnswers.length > 0 || checked.roomsUnseen || checked.memoryAnswers.length > 0 : !use.known || use.roomsUnseen
-        const group: ReadGroup = { c: [...afterPeople].sort(), s: [...places.values()], ...(notAll ? { x: 1 as const } : {}) }
+        // not all known (older answers the scope does not describe, my memories or personal accounts; every answer when
+        // it read rooms it does not name): someone who sees it later and is not in this group misses that answer. Per
+        // answer (QA TC-7262: one dev environment answer kept every answer from people added later); a dev environment
+        // answer after the gap is not x: the sharer was told (devAnswers) and pressed Share
+        const notAllIds = checked ? new Set([...checked.unchecked, ...checked.accountAnswers, ...checked.memoryAnswers]) : null
+        const allNotAll = checked ? checked.roomsUnseen : !use.known || use.roomsUnseen
+        const c = [...afterPeople].sort(), sources = [...places.values()]
         const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')
-        for (const id of use.answers) add.run(id, r.id, JSON.stringify([group]))
+        for (const id of use.answers) {
+          const group: ReadGroup = { c, s: sources, ...(allNotAll || notAllIds?.has(id) ? { x: 1 as const } : {}) }
+          add.run(id, r.id, JSON.stringify([group]))
+        }
         audit(db, { actor: userId, action: 'chat.share', target: r.id, detail: { kind: 'people', audience: newPeople.length, answers: checked ? new Set([...checked.fileAnswers, ...checked.memoryAnswers, ...checked.accountAnswers]).size : 0, unchecked: checked?.unchecked.length ?? 0, memories: (checked?.memoryAnswers.length ?? 0) > 0, confirmed: body.confirmKey !== undefined } })
       }
       const ins = db.query('INSERT OR IGNORE INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)')

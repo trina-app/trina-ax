@@ -295,6 +295,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // again). Only its creator ever gets one
   const stepFiles: ChatMadeFile[] = !editable ? [] : adding.length ? (check?.madeFiles ?? []) : (filesAgain?.files ?? audience?.madeFiles ?? [])
   const filesStep = stepFiles.length > 0 && !removesAll
+  const riskyFiles = stepFiles.some((f) => f.private)
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
   const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
   return (
@@ -330,8 +331,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
             <>
               {/* without files: a save of the picks as they are; nothing changed (a chat already shared): just close. A
                   phone: one full-width button a row, the main one first (QA TC-6945) */}
-              <Button disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className="max-sm:order-2 max-sm:w-full" data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
-              <Button variant="primary" busy={busy} disabled={checking} onClick={() => void save(true)} className="max-sm:order-1 max-sm:w-full" data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
+              {/* a file made from something a person being added can't open (QA TC-7370): "without" is the main button */}
+              <Button variant={riskyFiles ? 'primary' : undefined} busy={riskyFiles ? busy : undefined} disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className={riskyFiles ? 'max-sm:order-1 max-sm:w-full' : 'max-sm:order-2 max-sm:w-full'} data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
+              <Button variant={riskyFiles ? undefined : 'primary'} busy={riskyFiles ? undefined : busy} disabled={riskyFiles ? busy || checking : checking} onClick={() => void save(true)} className={riskyFiles ? 'max-sm:order-2 max-sm:w-full' : 'max-sm:order-1 max-sm:w-full'} data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
             </>
           ) : (
             <>
@@ -420,6 +422,7 @@ function FilesStep({ files, who, changed }: { files: readonly ChatMadeFile[]; wh
             <span className="min-w-0">
               <span className="block break-all text-ink">{f.name}</span>
               <span className="block truncate text-xs text-muted" title={f.place}>{f.place}</span>
+              {f.private && who && <span className="block text-xs leading-5 break-keep text-warn" data-testid="chat-share-files-private">{t('chat.shareFiles.private', { names: who })}</span>}
             </span>
           </li>
         ))}

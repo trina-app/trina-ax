@@ -88,6 +88,76 @@ In:
 Out: the other findings of the same run (versions, edit_pdf, footer line, step paths, video fonts) belong to other
 agents; `server/src/engine/api-honest.ts` is not touched. A chat title snapshot for gone notices (needs a migration).
 
+## Part 2: scenario QA P1s with the same roots (TC-7261, 7262, 7269, 7275/7277, 7279, 7280, 7282, 7286, 7367, 7370, 7376)
+
+Root causes found in the code (dev 7ddf0bafe):
+
+- **R1. Output into one person's folder (TC-7261 shared case, 7279, 7376, 7280, the 7041 deck).** In a chat shared with
+  people, "a file you make goes to chat:files" is only a prompt line (decision 20261121-shared-chat-output-to-chat-files
+  H1). make_file's `output` is required and the AI picks `users/<asker>/…`. The save card asks only for a place that is
+  there already (rooms/ai-tools.ts SAVE_CARD_TOOLS), so a new file in the asker's folder needs no card and the others
+  get a dead link. TC-7280's "read your personal folder" card came from that save.
+- **R2. One dev answer hides every earlier answer from people added later (TC-7262).** At the first share
+  (people-share.ts ~447) every answer so far gets ONE group; it is `x` (not all known) when ANY answer is unchecked (a
+  box_shell answer), has memories or personal accounts. Someone added later is not in that group, so all answers are
+  withheld. The later share's check shows only the grey "1 older answer couldn't be checked".
+- **R3. A "My files" attachment in an already shared chat stays a team reference (TC-7286).** routes/chats.ts accepts a
+  `team` attachment in a people chat as a reference (sharedAttachment); the others cannot open it. Decision
+  20261121-share-chat-files Rule 2: the chat holds a copy.
+- **R4. The warning names no file, and "Share with files" is the default (TC-7275/7277, 7370).** ShareCheck carries
+  counts only; the files step's primary button copies files whose content the new person may not open.
+- **R5. Not-found without why (TC-7282, 7367).** A people chat's search without a path covers only folders everyone
+  may open; the AI is not told to say so when something is not found.
+- **R6. Helper files offered for sharing (TC-7269).** madeFilesOf lists every file the chat made in my folder, also the
+  .md/.html a later make_file used as its source.
+
+Fixes:
+
+1. **Shared output guard (R1).** chat/tools.ts, people-shared chat, main AI, a tool of SAVE_CARD_TOOLS whose write
+   target is a team path that is not there yet and whose nearest existing folder not everyone in the chat may read
+   (everyoneMayUse), unless the asker's latest message names that folder (its last segment, below users/<id>):
+   - a produce tool with one `output` (make_file, edit_office, edit_pdf, merge_pdfs, stamp_pdf, comment_docx,
+     make_zip): `output` becomes `chat:files/<file name>` (attached to the answer, the decision's place);
+   - any other save (write, save_url, query_data, resize_images, split_pdf, unzip_file, save_* …): refused with plain
+     words: deliver with a produce tool into chat:files/, keep scratch work in chat:work/ (box_shell, copy_files), or a
+     folder everyone here can open; a folder only the asker opens only when they name it.
+   A sub-agent gets the refusal (it cannot attach). Project chats unchanged (their project folder is the place).
+2. **Records at the first share (R2).** The x flag goes per answer: only the answers that are not all known (the scope
+   gap without accounts, personal accounts, memories; every answer when rooms are unnamed). A box_shell answer of the
+   private time is no longer x: the sharer is told in a yellow line before sharing ("N answers ran commands that may
+   have used files only you can open; {names} will see them"), the same consent as every other line, so it shows to
+   people added later too (the cutover rule). ShareCheck gets `devAnswers` (the grey "couldn't be checked" keeps only
+   the scope gap).
+3. **The later share says what stays hidden (R2).** ShareCheck gets `hiddenAnswers`: answers the records keep from at
+   least one person being added (shared-answers.ts withheldAmong per new person). A yellow line: "N earlier answers stay
+   hidden from {names}: they used something only the people there then could see."
+4. **Attach copies (R3).** Send and edit in a chat shared with people: a `team` attachment that not everyone in the chat
+   may open is copied into the chat (ChatFiles.keepCopy with the sender's read; size, quarantine and storage checks as
+   copyEarlier) and the message carries the chat file. The composer of a people-shared chat shows one line under team
+   attachments before sending: "Everyone in this chat will see the files you attach; files they can't open go in as a
+   copy." (the consent).
+5. **Name the files, safer default (R4).** ShareCheck gets `fileNames` (up to 5 names of files the sharer may open that a
+   new person misses) and the files line says them and that the new person will see what those answers say. The made
+   files step marks `private` files (made by an answer that used something a new person misses); when any is private,
+   "Share without these files" is the primary button.
+6. **Prompt (R5).** People chat: when a folder or file the asker names is not found, say a search here covers only
+   places everyone in this chat can open, ask for its path (the card asks first) or offer a chat only they see.
+7. **Helper files (R6).** madeFilesOf leaves out a file that a later make_file in the chat used as its source
+   (file_events detail.from) when that output is offered too.
+
+Plan review of Part 2 (applied): the output guard covers only produce tools with one output and only the asker's own
+folder, never refuses other saves (save_chat_file, save_connector_file, save_room_file, write save to the asker's folder
+on purpose), uses the turn's own user message and "my files" words, skips a k answer and sub-agents, and is written down
+in docs/decisions/20261122-shared-output-in-code.md. Attach copies only the sender's own files (a group folder file
+stays a reference behind the read card) and refuses the send when such a file cannot be copied. The named files are only
+those the sharer may read now. The dev line says "and anyone added later", devAnswers is in the confirm key, and the
+project members' share keeps dev answers with its unchecked ones (no change there). Hidden answers are counted from one
+walk of the chat per person, leaving out answers hidden from the sharer. TC-7240 (where each file came from) and TC-7236
+(a guest's Try again, = TC-7050) folded in.
+
+Out: hiding cost answers from a newcomer by default (TC-7275 note) stays the sharer's choice on the warning (consent
+model); a chat title snapshot.
+
 ## Steps
 
 1. Plan (this file), independent plan review, notes applied.

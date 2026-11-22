@@ -116,7 +116,8 @@ export const ShareChatBody = z.object({
 }).strict()
 /** A file the chat made in its creator's own folder, as the Share step lists it to the creator: its name, the folder in
  * the Files screen's words ("My files › 견적 › Sincere") and its size. Never sent to anyone else. */
-export const ChatMadeFile = z.object({ name: z.string(), place: z.string(), size: z.number().int().nonnegative() })
+/** `private`: made by an answer that used something a person being added cannot open (QA TC-7370) */
+export const ChatMadeFile = z.object({ name: z.string(), place: z.string(), size: z.number().int().nonnegative(), private: z.literal(true).optional() })
 export type ChatMadeFile = z.infer<typeof ChatMadeFile>
 /** What the people who would start to see a chat would see that they could not before (docs/DECISIONS.md "Share in one
  * press", QA TC-3092): counts of answers and places, never who. `added`: how many people start to see it;
@@ -143,6 +144,14 @@ export const ShareCheck = z.object({
    * line is about: the lines name only these (QA TC-7042: a person already in the chat through a group was named).
    * Positions, never ids. Older servers omit it: all the entries being added */
   warnPicks: z.array(z.number().int().nonnegative()).optional(),
+  /** the names of up to 5 files those answers read that someone being added can't open (I read them myself): the
+   * files line names them (QA TC-7277) */
+  fileNames: z.array(z.string()).optional(),
+  /** answers that ran commands in the dev environment, which may have used files only I can open (a first share): a
+   * warning line, since people added later see them too (QA TC-7262) */
+  devAnswers: z.number().int().nonnegative().optional(),
+  /** earlier answers that stay hidden from at least one person being added (their records: QA TC-7262) */
+  hiddenAnswers: z.number().int().nonnegative().optional(),
 })
 export type ShareCheck = z.infer<typeof ShareCheck>
 
