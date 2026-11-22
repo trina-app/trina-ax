@@ -186,13 +186,14 @@ describe('formula results in the sheet preview', () => {
     const { shown } = preview(
       aiBook({
         S: [
-          [0.1, 0.2, '=0.5-0.4-0.1', '=10.1+20.2-30.3', '=(0.5-0.4-0.1)*1', '=A1+B1=0.3', '=IF(A1+B1=0.3,"OK","Mismatch")', '=XYZ1+1'],
+          [0.1, 0.2, '=0.5-0.4-0.1', '=10.1+20.2-30.3', '=(0.5-0.4-0.1)*1', '=A1+B1=0.3', '=IF(A1+B1=0.3,"OK","Mismatch")', '=XYZ1+1', '=(0.5-0.4-0.1)'],
           [null, true, '=IF(TRUE,A2)&"x"', '=MIN(IF(TRUE,A2),5)', '=SUM(IF(TRUE,B2))', '=IF(TRUE,A2)', '="é"<"f"', '="apple"<"Banana"'],
           ['=IFERROR(A2,"-")', '=SUM(TRUE,1)', '=IFERROR(1/0,A2)', null, null, null, null, null],
         ],
       }),
     )
     expect(['C1', 'D1', 'E1', 'F1', 'G1', 'H1'].map((a) => shown('S', a))).toEqual(['0', '0', '=(0.5-0.4-0.1)*1', 'TRUE', 'OK', '=XYZ1+1'])
+    expect(shown('S', 'I1')).toBe('=(0.5-0.4-0.1)') // Excel skips its zero rule inside parentheses
     expect(['C2', 'D2', 'E2', 'F2', 'G2', 'H2'].map((a) => shown('S', a))).toEqual(['x', '5', '0', '0', '="é"<"f"', 'TRUE'])
     expect(['A3', 'B3', 'C3'].map((a) => shown('S', a))).toEqual(['0', '2', '0'])
   })

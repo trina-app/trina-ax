@@ -103,6 +103,7 @@ type Node =
   | { t: 'un'; op: string; a: Node }
   | { t: 'bin'; op: string; a: Node; b: Node }
   | { t: 'pct'; a: Node }
+  | { t: 'paren'; a: Node } // kept: Excel's zero rule for a last + or - does not apply inside parentheses
   | { t: 'call'; fn: string; args: Node[] }
 
 // Excel precedence, lowest first: comparison, &, + -, * /, ^, unary minus, %.
@@ -154,7 +155,7 @@ function parse(src: string): Node {
     if (t.v === '(') {
       const a = level(0)
       expect(')')
-      return a
+      return { t: 'paren', a }
     }
     return no(`op ${t.v}`)
   }
@@ -367,6 +368,8 @@ export class FormulaBook {
         const a = num(this.scalar(n.a, here))
         return isErr(a) ? a : a / 100
       }
+      case 'paren':
+        return this.value(n.a, here)
       case 'bin':
         return this.binary(n.op, this.scalar(n.a, here), this.scalar(n.b, here), n === this.root)
       case 'call':
