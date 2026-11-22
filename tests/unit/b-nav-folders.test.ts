@@ -18,6 +18,10 @@ import { updateGroupAs } from '../../server/src/admin/groups'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { startHarness, type Harness as BHarness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
+import { getChatRuntime } from '../../server/src/chat/runtime'
+import { listNavFolders, visibleChatItems } from '../../server/src/chat/nav-folders'
+import { chatGroups } from '../../server/src/chat/chat-groups'
+import { chatView } from '../../server/src/chat/shared'
 
 setDefaultTimeout(60_000)
 let h: Harness | undefined
@@ -262,7 +266,7 @@ test('what a folder shows is checked on every read: a stale row of someone else\
   expect((await mia.client.call('GET', `/api/chats/${inProject}`)).folderId).toBe(f)
 })
 
-test(`at most ${NAV_FOLDER_ITEMS_MAX} a folder; rows of chats I no longer see make room first`, async () => {
+test(`at most ${NAV_FOLDER_ITEMS_MAX} a folder; rows of chats in the trash make room first`, async () => {
   const { mia, make, chat, fileChat, db } = await setup()
   const f = (await make(mia.client, 'chats', 'big')).body.id
   const now = new Date().toISOString()
@@ -464,6 +468,26 @@ describe('every chat of my history: shared project chats and chats shared with m
   const inFolder = async (user: string, folderId: string) => (await b.api(user).call(API.listChats, { query: { folderId } })).items.map((c: Chat) => c.id)
   const grouped = async (user: string, folderId: string) => (await b.api(user).call(API.listChatGroups, {})).folders.find((f) => f.id === folderId)!
   const raw = async (user: string, path: string) => (await b.req(user, path)).text()
+  /** alice shares a new chat (one answer) with these subjects */
+  const sharedWith = async (title: string, subjects: { subjectType: 'user' | 'group'; subjectId: string }[]) => {
+    const c = await b.api('alice').call(API.createChat, { body: { title } })
+    await ask('alice', c.id, 'hello')
+    let r = await b.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects } })
+    if (r.status === 'confirm') r = await b.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects, confirmKey: r.confirmKey } })
+    expect(r.status).toBe('saved')
+    return c
+  }
+  /** bob's section shows nothing of this chat, by every read: count, top, ?folderId, the groups, the chat itself */
+  const nothingOf = async (folderId: string, chatId: string, title: string, count = 0) => {
+    const f = await mine('bob', folderId)
+    expect([f.count, f.top.map((c) => c.id)]).toEqual([count, []])
+    expect(await inFolder('bob', folderId)).toEqual([])
+    const g = await grouped('bob', folderId)
+    expect([g.count, g.top.map((c) => c.id)]).toEqual([count, []])
+    for (const path of ['/api/nav-folders', '/api/chats/groups', `/api/chats?folderId=${folderId}`]) expect(await raw('bob', path)).not.toContain(title)
+    const got = await b.req('bob', `/api/chats/${chatId}`)
+    if (got.status === 200) expect(((await got.json()) as Chat).folderId).toBeUndefined()
+  }
 
   test('a shared project chat: filed once I wrote in it; out while I lost the project, back after; nobody else sees my folder', async () => {
     const f = await section('bob', 'BOB-FOLDER-CANARY')
@@ -540,5 +564,84 @@ describe('every chat of my history: shared project chats and chats shared with m
     await file('bob', d.id, f.id)
     await b.api('alice').call(API.deleteChat, { params: { id: d.id } })
     expect(b.ctx.db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE chat_id = ?').get(d.id)).toEqual({ n: 0 })
+  })
+
+  test('a chat shared with a group: filed; out of the group, it drops out (no count, top, page, group row or folderId); back after', async () => {
+    // bob joins marketing (alice's group) for this test
+    const before = (b.ctx.db.query("SELECT user_id FROM group_members WHERE group_id = 'marketing'").all() as { user_id: string }[]).map((r) => r.user_id)
+    updateGroupAs(b.ctx, 'dana', 'marketing', { memberIds: [...before, 'bob'] }, 'en')
+    try {
+      const f = await section('bob', 'groups')
+      const c = await sharedWith('GROUP-SHARED-CANARY', [{ subjectType: 'group', subjectId: 'marketing' }])
+      expect((await file('bob', c.id, f.id)).folderId).toBe(f.id)
+      expect(await inFolder('bob', f.id)).toEqual([c.id])
+      // out of the group: out of his section by every read
+      updateGroupAs(b.ctx, 'dana', 'marketing', { memberIds: before }, 'en')
+      await nothingOf(f.id, c.id, 'GROUP-SHARED-CANARY')
+      expect((await reason(file('bob', c.id, f.id)))[0]).toBe(404)
+      // back in the group: back in his section (the row stayed)
+      updateGroupAs(b.ctx, 'dana', 'marketing', { memberIds: [...before, 'bob'] }, 'en')
+      expect(await inFolder('bob', f.id)).toEqual([c.id])
+    } finally { updateGroupAs(b.ctx, 'dana', 'marketing', { memberIds: before }, 'en') }
+  })
+
+  test('a deactivated person: their section counts and shows no chat shared with them (by the server\'s own reads)', async () => {
+    const f = await section('bob', 'before leaving')
+    const c = await sharedWith('DEACTIVATED-CANARY', [{ subjectType: 'user', subjectId: 'bob' }])
+    expect((await file('bob', c.id, f.id)).folderId).toBe(f.id)
+    const rt = getChatRuntime(b.ctx)
+    b.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'bob'").run()
+    try {
+      expect(listNavFolders(rt, 'bob').find((x) => x.id === f.id)).toMatchObject({ count: 0, top: [] })
+      expect(visibleChatItems(rt, 'bob', f.id)).toEqual([])
+      expect(JSON.stringify(chatGroups(rt, 'bob'))).not.toContain('DEACTIVATED-CANARY')
+      expect(chatView(rt, 'bob', rt.store.chatRow(c.id)!).folderId).toBeUndefined()
+      // nor does the creator's copy ever carry it
+      expect(chatView(rt, 'alice', rt.store.chatRow(c.id)!).folderId).toBeUndefined()
+    } finally { b.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'bob'").run() }
+    expect(listNavFolders(rt, 'bob').find((x) => x.id === f.id)).toMatchObject({ count: 1 })
+  })
+
+  test('a guest who wrote in a project\'s shared chat: it is not theirs to file (404/409) and nothing of it is counted', async () => {
+    const f = await section('bob', 'as a guest')
+    const shared = await b.api('alice').call(API.createChat, { body: { projectId, title: 'GUEST-SHARED-CANARY' } })
+    await ask('bob', shared.id, 'hi')
+    expect((await file('bob', shared.id, f.id)).folderId).toBe(f.id)
+    b.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    try {
+      await nothingOf(f.id, shared.id, 'GUEST-SHARED-CANARY')
+      expect([404, 409]).toContain((await reason(file('bob', shared.id, f.id)))[0])
+    } finally { b.ctx.db.query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
+    expect(await inFolder('bob', f.id)).toEqual([shared.id])
+  })
+
+  test('a full section keeps the rows of chats I hid or lost (they count, as a hidden room does); only the trash makes room', async () => {
+    const f = await section('bob', 'full')
+    const hidden = await sharedWith('kept hidden', [{ subjectType: 'user', subjectId: 'bob' }])
+    const lost = await sharedWith('kept lost', [{ subjectType: 'user', subjectId: 'bob' }])
+    await file('bob', hidden.id, f.id)
+    await file('bob', lost.id, f.id)
+    await b.api('bob').call(API.hideChat, { params: { id: hidden.id } })
+    await b.api('alice').call(API.putChatAudience, { params: { id: lost.id }, body: { subjects: [] } })
+    const db = b.ctx.db, now = new Date().toISOString()
+    const ins = db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?, 'bob', NULL, 'x', 'user', 'claude-code', NULL, ?, ?)")
+    const put = db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, 'bob', 'chats', ?, NULL, ?)")
+    const made: string[] = []
+    db.transaction(() => { for (let i = 0; i < NAV_FOLDER_ITEMS_MAX - 2; i++) { const id = newId(); ins.run(id, now, now); put.run(f.id, id, now); made.push(id) } })()
+    const extra = await b.api('bob').call(API.createChat, { body: { title: 'one more' } })
+    expect(await reason(file('bob', extra.id, f.id))).toEqual([409, 'nav_folder_full'])
+    // the hidden and the lost chat's rows are still there
+    const rowsOf = (id: string) => (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE chat_id = ?').get(id) as { n: number }).n
+    expect([rowsOf(hidden.id), rowsOf(lost.id)]).toEqual([1, 1])
+    // one of bob's own goes to the trash behind the folder's back: its row makes room, the other two stay
+    db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(now, made[0]!)
+    expect((await file('bob', extra.id, f.id)).folderId).toBe(f.id)
+    expect([rowsOf(hidden.id), rowsOf(lost.id), rowsOf(made[0]!)]).toEqual([1, 1, 0])
+    // shown again, the hidden one is back in its section
+    // (only what shows counts: the lost chat's row is kept, not counted)
+    expect((await mine('bob', f.id)).count).toBe(NAV_FOLDER_ITEMS_MAX - 2)
+    await b.api('bob').call(API.unhideChat, { params: { id: hidden.id } })
+    expect((await b.api('bob').call(API.getChat, { params: { id: hidden.id } })).folderId).toBe(f.id)
+    expect((await mine('bob', f.id)).count).toBe(NAV_FOLDER_ITEMS_MAX - 1)
   })
 })

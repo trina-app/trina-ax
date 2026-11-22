@@ -334,8 +334,9 @@ export class ChatStore {
     if (r.deleted_at || r.room_id) return null
     const row = this.db.query("SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ? AND kind = 'chats'").get(viewer, r.id) as { folder_id: string } | null
     if (!row) return null
-    const h = historyWhere(this.db, viewer)
-    return this.db.query(`SELECT 1 FROM chats WHERE id = ? AND ${h.sql}`).get(r.id, ...h.args) ? row.folder_id : null
+    // this one chat by id, the rule checked on it alone (historyWhere `on`: never the viewer's whole history)
+    const h = historyWhere(this.db, viewer, { on: 'chats' })
+    return this.db.query(`SELECT 1 FROM chats WHERE chats.id = ? AND ${h.sql}`).get(r.id, ...h.args) ? row.folder_id : null
   }
   /** An answer finished after the person last had the chat on screen (answerState). */
   unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean { return !!this.answerState(r).unseen }

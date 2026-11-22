@@ -24,7 +24,7 @@ import { fail } from '../http/errors'
 import { roomsOf } from '../rooms/service'
 import { tr } from './i18n'
 import { historyWhere, inHistory } from './history-list'
-import { isInternalChat } from './internal-chats'
+import { isInternalChat, notInternalChat } from './internal-chats'
 import type { ChatRuntime } from './runtime'
 import { Audiences, chatFor, chatView } from './shared'
 import { CHAT_COLS, type ChatRow } from './store'
@@ -44,18 +44,19 @@ interface FiledChat { folderId: string; row: ChatRow }
  * hidden from my list) is left out. At most NAV_FOLDERS_MAX × NAV_FOLDER_ITEMS_MAX rows (makeRoom).
  */
 export function visibleChatItems(rt: Pick<ChatRuntime, 'db' | 'files'>, userId: string, folderId?: string, aud = new Audiences(rt.db, rt.files)): FiledChat[] {
-  const h = historyWhere(rt.db, userId)
-  const rows = rt.db.query(`SELECT i.folder_id AS i_folder_id, c.* FROM nav_folder_items i JOIN (SELECT ${CHAT_COLS} FROM chats WHERE ${h.sql}) c ON c.id = i.chat_id
-      WHERE i.user_id = ? AND i.kind = 'chats'${folderId ? ' AND i.folder_id = ?' : ''} ORDER BY c.updated_at DESC, c.id DESC`)
-    .all(...h.args, userId, ...(folderId ? [folderId] : [])) as (ChatRow & { i_folder_id: string })[]
+  // from my rows to their chats by id, the rule checked per chat (historyWhere `on`)
+  const h = historyWhere(rt.db, userId, { on: 'c' })
+  const rows = rt.db.query(`SELECT i.folder_id AS i_folder_id, ${CHAT_COLS.split(', ').map((x) => `c.${x}`).join(', ')} FROM nav_folder_items i JOIN chats c ON c.id = i.chat_id
+      WHERE i.user_id = ? AND i.kind = 'chats'${folderId ? ' AND i.folder_id = ?' : ''} AND ${h.sql} ORDER BY c.updated_at DESC, c.id DESC`)
+    .all(userId, ...(folderId ? [folderId] : []), ...h.args) as (ChatRow & { i_folder_id: string })[]
   const out: FiledChat[] = []
   for (const { i_folder_id, ...row } of rows) if (inHistory(aud, userId, row)) out.push({ folderId: i_folder_id, row })
   return out
 }
 /** Is this one chat in my history now (the rule of visibleChatItems, for one row)? */
 export function chatInHistory(rt: Pick<ChatRuntime, 'db' | 'files'>, userId: string, r: ChatRow, aud = new Audiences(rt.db, rt.files)): boolean {
-  const h = historyWhere(rt.db, userId)
-  return !!rt.db.query(`SELECT 1 FROM chats WHERE id = ? AND ${h.sql}`).get(r.id, ...h.args) && inHistory(aud, userId, r)
+  const h = historyWhere(rt.db, userId, { on: 'chats' })
+  return !!rt.db.query(`SELECT 1 FROM chats WHERE chats.id = ? AND ${h.sql}`).get(r.id, ...h.args) && inHistory(aud, userId, r)
 }
 /**
  * `i` = nav_folder_items, `m` = room_members, `r` = rooms: the person's rows of rooms they are in now, not archived, not
@@ -188,17 +189,17 @@ export function orderNavFolders(rt: ChatRuntime, userId: string, kind: NavFolder
 }
 
 // ---------------- items ----------------
-/** Room for one more in the folder: rows that do not show now go first, then the limit is checked against every row
- * left. Chats: rows that fail visibleChatItems (not in my history now: the trash, a chat I lost, a draft). Rooms: rows of rooms
+/** Room for one more in the folder: rows that can never show again go first, then the limit is checked against every
+ * row left. Chats: rows of a chat in the trash, a room's AI session or a server draft; a chat I hid or lost keeps its
+ * row and counts (it comes back). Rooms: rows of rooms
  * I left or that are archived, or filed before I joined again; a hidden room's row stays (it comes back) and counts. */
-function makeRoom(rt: Pick<ChatRuntime, 'db' | 'files'>, userId: string, f: FolderRow, locale: Locale) {
-  const db = rt.db
+function makeRoom(db: Database, userId: string, f: FolderRow, locale: Locale) {
   const total = () => (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ? AND user_id = ?').get(f.id, userId) as { n: number }).n
   if (total() < NAV_FOLDER_ITEMS_MAX) return
-  if (f.kind === 'chats') {
-    const keep = visibleChatItems(rt, userId, f.id).map((x) => x.row.id)
-    db.query("DELETE FROM nav_folder_items WHERE folder_id = ? AND user_id = ? AND kind = 'chats' AND chat_id NOT IN (SELECT value FROM json_each(?))").run(f.id, userId, JSON.stringify(keep))
-  }
+  // chats: only rows that can never show again go (a chat in the trash, a room's AI session, a server draft); a chat I
+  // hid or lost access to keeps its row (it comes back with access) and counts, as a hidden room does
+  if (f.kind === 'chats') db.query(`DELETE FROM nav_folder_items WHERE folder_id = ? AND user_id = ? AND kind = 'chats' AND chat_id IN (SELECT c.id FROM chats c
+      WHERE c.id IN (SELECT chat_id FROM nav_folder_items WHERE folder_id = ? AND user_id = ?) AND (c.deleted_at IS NOT NULL OR c.room_id IS NOT NULL OR NOT (${notInternalChat(db, 'c.id')})))`).run(f.id, userId, f.id, userId)
   else db.query(`DELETE FROM nav_folder_items WHERE folder_id = ?2 AND user_id = ?1 AND rowid NOT IN (SELECT i.rowid FROM nav_folder_items i
       JOIN room_members m ON m.room_id = i.room_id AND m.user_id = i.user_id JOIN rooms r ON r.id = i.room_id
       WHERE i.user_id = ?1 AND i.folder_id = ?2 AND r.archived_at IS NULL AND i.added_at >= m.joined_at)`).run(userId, f.id)
@@ -239,7 +240,7 @@ export function setChatFolder(rt: ChatRuntime, userId: string, chatId: string, f
   const now = db.query('SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').get(userId, a.row.id) as { folder_id: string } | null
   if (now?.folder_id === f.id) return chatView(rt, userId, a.row)
   db.transaction(() => {
-    makeRoom(rt, userId, f, locale)
+    makeRoom(db, userId, f, locale)
     db.query('DELETE FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').run(userId, a.row.id)
     db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, ?, 'chats', ?, NULL, ?)").run(f.id, userId, a.row.id, nowIso())
   })()
@@ -265,7 +266,7 @@ export function setRoomFolder(ctx: AppContext, userId: string, roomId: string, f
   const now = db.query('SELECT folder_id, added_at FROM nav_folder_items WHERE user_id = ? AND room_id = ?').get(userId, roomId) as { folder_id: string; added_at: string } | null
   if (now?.folder_id === f.id && now.added_at >= me.joined_at) return rooms.get(userId, roomId)
   db.transaction(() => {
-    makeRoom({ db, files: ctx.files }, userId, f, locale)
+    makeRoom(db, userId, f, locale)
     db.query('DELETE FROM nav_folder_items WHERE user_id = ? AND room_id = ?').run(userId, roomId)
     db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, ?, 'rooms', NULL, ?, ?)").run(f.id, userId, roomId, nowIso())
   })()
