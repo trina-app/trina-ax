@@ -804,6 +804,12 @@ export function reachSupported(): boolean {
   return runPlatform() === 'darwin' ? typeof sys.slotOf === 'function' : !!sys.forward && !!sys.bridge
 }
 
+/** A job or dev server of this chat, or one of the person's own (not a shared chat's) in any chat, runs or waits to
+ * start: it has the network, and a command may change the code it runs (a hot reload, files in users/<id>) */
+export function chatRunsLive(ctx: AppContext, chatId: string, userId: string): boolean {
+  try { return [...openRuns(ctx.db, 'running'), ...openRuns(ctx.db, 'waiting')].some((r) => r.chat_id === chatId || (r.user_id === userId && !r.shared_key)) } catch { return true }
+}
+
 /**
  * The ports a run in `space` may reach (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): those of the
  * running jobs and dev servers of the same chat and folder, and only those whose view is this run's:
@@ -814,11 +820,6 @@ export function reachSupported(): boolean {
  * macOS: the port of the row's slot (a slot that went to another run has no state for this run any more). Linux: the
  * port the AI named for the dev server. Nothing else on localhost: not the server's ports, not another chat's runs.
  */
-/** A job or dev server of this chat is running (it has the network, and a command may change the code it runs) */
-export function chatRunsLive(ctx: AppContext, chatId: string): boolean {
-  try { return openRuns(ctx.db, 'running').some((r) => r.chat_id === chatId) } catch { return true }
-}
-
 export function reachTargets(ctx: AppContext, space: Space): ReachTarget[] {
   if (!space.chatId || !reachSupported()) return []
   const rows = openRuns(ctx.db, 'running').filter((r) => r.chat_id === space.chatId && r.root === space.root && r.unit)

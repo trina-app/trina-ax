@@ -510,7 +510,7 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
 
   // review of #401: a job or dev server of this chat has the network, and a command could change the code it runs (a hot
   // reload): while one runs, commands keep the card
-  test('while a job of this chat runs, a command keeps the room card', async () => {
+  test('while a job of this chat runs, or one of mine waits elsewhere, a command keeps the room card', async () => {
     const chat = await side()
     const id = crypto.randomUUID()
     h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'server', 'dev', 'npm run dev', ?, '', 'running', ?)")
@@ -519,6 +519,16 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
       const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
       expect(r.cards).toHaveLength(1)
     } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
+    // a job of hers waiting to start in another chat (it may run code in her own folder): the card too
+    const other = await personal()
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'job', 'later', 'node watch.js', ?, '', 'waiting', ?)")
+      .run(id, other, chatWork(base, other), new Date().toISOString())
+    try {
+      const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
+      expect(r.cards).toHaveLength(1)
+    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
+    // none: no card
+    expect((await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')).cards).toHaveLength(0)
   })
 
   // a project chat's command keeps the network the team and the person allow (it asked the card)
