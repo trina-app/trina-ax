@@ -372,7 +372,7 @@ describe('the AI knows the demo\'s services are practice copies', () => {
   test('banner words live in a source file the AI reads and edits; words on the banner are a text edit, never a new scene (owner, 11-22)', () => {
     // the demo note: read the source, edit only the named words, then draw again; a named word on the banner is no scene request
     expect(DEMO_BANNER_NOTE).toContain("read the source file, change only the words the user named with the edit tool")
-    expect(DEMO_BANNER_NOTE).toContain('replace 흐린 아침 with 밝은 아침; every other word stays exactly as it is')
+    expect(DEMO_BANNER_NOTE).toContain('replace grey with green; every other word stays exactly as it is')
     expect(DEMO_BANNER_NOTE).toContain('Never rewrite, add or drop words the user did not name.')
     expect(DEMO_BANNER_NOTE).toContain('When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it.')
     expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('read that file, edit only the words the user named')
