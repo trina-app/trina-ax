@@ -441,12 +441,11 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
   // among the people and another person's words on the run's branch, the switch does not hold in a scheduled run
   test('a scheduled run in a chat shared with a guest, where another person wrote: the switch does not hold; without the guest it does', async () => {
     on()
-    // a shared project chat bob sees (the finance group reads projects/falcon); a guest is never in a people-shared chat
+    // a shared project chat (the finance group reads projects/falcon) that bob made: a guest is never in a people-shared
+    // chat, and sees only the project chat they made (chat/shared.ts chatAudienceOf)
     const projectId = (await oldProject(h, 'alice', { name: 'Falcon WA', folderPath: 'projects/falcon', instructions: '' })).id
     await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
-    const id = (await h.api('alice').call(API.createChat, { body: { projectId } })).id as string
-    const first = await h.api('alice').call(API.sendMessage, { params: { id }, body: { content: fake({ say: 'hi' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
-    await doneOf(first.turnId)
+    const id = (await h.api('bob').call(API.createChat, { body: { projectId } })).id as string
     // bob's words on the branch (a message of his, as he would write it)
     const leaf = h.rt().store.chatRow(id)!.active_leaf_id
     const bobMsg = uuidv7()
