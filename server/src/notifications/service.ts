@@ -731,15 +731,18 @@ export class Notifications {
     if (row.event_type === 'chat.thread_reply') return chatThreadNoticeOut(this.ctx, row)
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {
-      const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
+      const a = this.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { actor_id: string | null; detail: string | null } | null
       let d: { projectId?: string; userId?: string } = {}
       try { d = JSON.parse(a?.detail ?? '{}') } catch {}
       const u = d.userId ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(d.userId) as { name: string } | null : null
       const pr = d.projectId ? this.ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(d.projectId) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null : null
       let sees = false
       if (pr && pr.trashed_with === null) { try { sees = atLeast(this.ctx.files.rules().access(this.ctx.files.principal(row.user_id), pr.folder_path.split('/')), 'read') } catch { sees = false } }
+      // the notice of the person who was let in (chat/project-joins.ts, QA TC-r2u-03): who let them in, while that account is there
+      const you = !!d.userId && d.userId === row.user_id
+      const by = you && a?.actor_id ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(a.actor_id) as { name: string } | null : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: sees ? 'project' : null, outcome: null,
-        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null } }
+        projectJoined: { name: u?.name ?? null, project: sees && pr ? { id: pr.id, name: pr.name } : null, ...(you ? { you: true as const, by: by?.name ?? null } : {}) } }
     }
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {

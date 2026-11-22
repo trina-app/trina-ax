@@ -97,6 +97,12 @@ export const serviceSetupLink = (service: NonNullable<InboxNotification['service
  * who added themselves, or anyone through a group): who, while their account is there, and the project, while I still
  * see it; "누군가" and "프로젝트" for the part the server leaves out. */
 export function projectJoinedText(j: NonNullable<InboxNotification['projectJoined']>, t: T): string {
+  // I was the one let in (QA TC-r2u-03): who added me, and the project while I see it
+  if (j.you) {
+    if (j.by && j.project) return t('notifications.event.project.addedYouBy', { name: j.by, project: j.project.name })
+    if (j.project) return t('notifications.event.project.addedYouProject', { project: j.project.name })
+    return t('notifications.event.project.addedYou')
+  }
   if (j.name && j.project) return t('notifications.event.project.joinedNamed', { name: j.name, project: j.project.name })
   if (j.name) return t('notifications.event.project.joinedName', { name: j.name })
   if (j.project) return t('notifications.event.project.joinedProject', { project: j.project.name })

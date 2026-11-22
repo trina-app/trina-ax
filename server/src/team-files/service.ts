@@ -943,6 +943,21 @@ export class TeamFiles {
     return { added, lost, fingerprint, isNew: !to.exists, folder: to.rel }
   }
 
+  /** How many active people other than `userId` can read at least one of `rels` now (the folder rules and folder
+   * shares, as audienceChange counts them). A path `userId` may not read, or one that is not there, adds nobody. For
+   * the AI's card before many moves or renames in places other people use (tools/file-moves.ts, QA TC-r2u-25). */
+  othersReading(userId: string, rels: readonly string[]): number {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const segs: string[][] = []
+    for (const rel of rels) { try { segs.push(authorize(this.fx, rules, user, rel, 'read', { mustExist: false }).segs) } catch { /* nobody */ } }
+    if (!segs.length) return 0
+    const reads = readerCheck(this.ctx.db, rules)
+    let n = 0
+    for (const p of activePeople(this.ctx.db)) if (p.id !== user.id && segs.some((s) => reads(p, s))) n++
+    return n
+  }
+
   /**
    * The AI's move_files / copy_files into a folder that is not there yet (docs/DECISIONS.md "move_files and copy_files
    * make the target folder"): the missing folders are made one by one under the same checks as a new file's folders

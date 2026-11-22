@@ -61,6 +61,12 @@ export function projectJoins(ctx: AppContext, before: JoinState | null, after: J
         const id = audit(ctx.db, { actor: by.actor, action: 'project.member_gained', target: pr.id, detail: { projectId: pr.id, userId: g.id, via: by.via, ...(by.actor === g.id ? { self: true } : {}) } })
         // their scheduled tasks that paused because they did not see it start again (chat/schedules.ts resumeForProject)
         try { getChatRuntime(ctx).schedules.resumeForProject(g.id, pr.id) } catch (e) { ctx.log.warn('paused project tasks not resumed', { err: e }) }
+        // the person themselves when someone else let them in (QA TC-r2u-03: added to a project, told nothing): the same
+        // notice, read as "<actor> added you to '<project>'" (notifications/service.ts); never for their own change or a
+        // change nobody made (a server job), nor for a new or re-enabled account (its first look shows its projects)
+        if (by.actor && by.actor !== g.id && by.via !== 'account') {
+          try { notificationsOf(ctx).projectJoined(g.id, String(id)) } catch { ctx.log.warn('project added notice failed') }
+        }
         // its members (who saw it before; not the person, not who made the change: they know)
         for (const m of now) {
           if (m.id === g.id || m.id === by.actor || !was.has(m.id)) continue
