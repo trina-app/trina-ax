@@ -19,7 +19,8 @@
     {
       "kind": "cover",
       "headline": "Offices that\nstay *green*",
-      "sub": "Office plant subscriptions, from setup to care"
+      "sub": "Office plant subscriptions, from setup to care",
+      "picture": "groups/Soopteum/Brand/Images/desk-plant.jpg"
     },
     {
       "kind": "about",
@@ -157,11 +158,41 @@
     },
     {
       "kind": "contact",
-      "line": "Let us suggest plants\nfor your office",
+      "line": "Let's pick plants\nfor your office",
       "offer": "Book a free site visit",
       "email": "hello@soopteum.example",
       "phone": "+82 2-6000-0142",
       "website": "soopteum.example"
+    }
+  ],
+  "pictures": [
+    {
+      "path": "groups/Soopteum/Brand/Images/desk-plant.jpg",
+      "subject": "a succulent on a wooden office table",
+      "lettering": false,
+      "calm": "left",
+      "tone": "mixed"
+    },
+    {
+      "path": "groups/Soopteum/Brand/Images/meeting-table.jpg",
+      "subject": "potted succulents and pencils on a meeting table",
+      "lettering": false,
+      "calm": "top",
+      "tone": "light"
+    },
+    {
+      "path": "groups/Soopteum/Brand/Images/workspace.jpg",
+      "subject": "a person working at a window seat among plants",
+      "lettering": false,
+      "calm": "top",
+      "tone": "dark"
+    },
+    {
+      "path": "groups/Soopteum/Brand/Images/office.jpg",
+      "subject": "an office desk with a potted tree",
+      "lettering": false,
+      "calm": "right",
+      "tone": "light"
     }
   ]
 }

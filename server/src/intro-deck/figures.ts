@@ -61,9 +61,9 @@ function flow(e: FigEnv, f: F<'flow'>, o: Box) {
   const { cv, c } = e, g = cv.g
   const n = f.steps.length, gap = 56, cw = (o.w - gap * (n - 1)) / n
   const key = clampKey(f.key, n, n - 1)
-  const heads = f.steps.map((s, i) => fit(c, `figure.steps[${i}].head`, s.head, { ...R2.head, weight: 800 }, cw - 16, 1))
-  const bodies = f.steps.map((s, i) => fit(c, `figure.steps[${i}].body`, s.body, R2.body, cw - 16, 3))
-  const numS = 96, ruleGap = 40, headGap = 48
+  const heads = f.steps.map((s, i) => fit(c, `figure.steps[${i}].head`, s.head, { ...R2.headL, size: n >= 5 ? 36 : 44, min: 32 }, cw - 16, 1))
+  const bodies = f.steps.map((s, i) => fit(c, `figure.steps[${i}].body`, s.body, { ...R2.body, size: n >= 5 ? 26 : 30, min: 24 }, cw - 16, 3))
+  const numS = 120, ruleGap = 40, headGap = 48
   const block = numS + ruleGap + headGap + Math.max(...heads.map((h) => linesH(h))) + (bodies.some(Boolean) ? 16 + Math.max(...bodies.map((b) => linesH(b))) : 0)
   const y = Math.round(o.y + Math.max(0, (o.h - block) / 2))
   const ry = y + numS + ruleGap
@@ -365,14 +365,21 @@ function statementGrid(e: FigEnv, f: F<'grid'>, o: Box) {
   })
 }
 function panelGrid(e: FigEnv, f: F<'grid'>, o: Box) {
+  // what the company does, round 3: open columns (no boxes), each a tinted tile with the icon, a rule, the name large
+  // and its line; two columns for four, three for three, five or six
   const { cv, c } = e, g = cv.g
   const n = f.items.length
-  const cols = n <= 4 ? n : 3, rows = Math.ceil(n / cols), gap = 24
-  const cw = (o.w - gap * (cols - 1)) / cols, pad = 44, tw = cw - pad * 2
+  const cols = n === 4 ? 2 : n <= 3 ? n : 3, rows = Math.ceil(n / cols)
+  const gapX = 96, gapY = rows > 1 ? 72 : 0
+  const cw = (o.w - gapX * (cols - 1)) / cols
+  const two = cols === 2
+  const tile = rows > 2 ? 64 : 96
+  const iconX = two ? tile + 40 : 0
+  const tw = cw - iconX
   type Tag = { f: NonNullable<ReturnType<typeof fit>>; w: number }
   const cells = f.items.map((it, i) => {
-    const hd = fit(c, `figure.items[${i}].head`, it.head, { ...R2.head, weight: 800 }, tw, 2)
-    const bd = fit(c, `figure.items[${i}].body`, it.body, R2.bodyS, tw, 3)
+    const hd = fit(c, `figure.items[${i}].head`, it.head, { ...R2.headL, size: rows > 2 ? 36 : 48, min: 32 }, tw, 1)
+    const bd = fit(c, `figure.items[${i}].body`, it.body, { ...R2.body, size: rows > 2 ? 26 : 32, min: 24 }, tw, 2)
     const tags: Tag[] = []
     for (const t of it.tags ?? []) { const tf = fit(c, `figure.items[${i}].tags`, t, R2.tag, tw - 40, 1); if (tf) tags.push({ f: tf, w: Math.ceil(widest(tf) * 1.1 + 32) }) }
     const tagRows: Tag[][] = [[]]
@@ -380,29 +387,30 @@ function panelGrid(e: FigEnv, f: F<'grid'>, o: Box) {
     for (const t of tags) { if (lw + t.w > tw && tagRows[tagRows.length - 1]!.length) { tagRows.push([]); lw = 0 } tagRows[tagRows.length - 1]!.push(t); lw += t.w + 8 }
     return { hd, bd, tags: tagRows.filter((r) => r.length) }
   })
-  const tile = rows > 1 ? 72 : 88
-  const textH = Math.max(...cells.map((cl) => linesH(cl.hd) + (cl.bd ? 14 + linesH(cl.bd) : 0) + (cl.tags.length ? 24 + cl.tags.length * 46 : 0)))
-  const minH = pad + tile + 48 + textH + pad
-  const ph = Math.max(minH, Math.min(rows > 1 ? 270 : 470, Math.floor((o.h - gap * (rows - 1)) / rows)))
-  const y0 = Math.round(o.y + Math.max(0, (o.h - (ph * rows + gap * (rows - 1))) / 2))
+  const textH = (cl: (typeof cells)[number]) => linesH(cl.hd) + (cl.bd ? 14 + linesH(cl.bd) : 0) + (cl.tags.length ? 22 + cl.tags.length * 46 : 0)
+  const cellH = Math.max(...cells.map((cl) => (two ? 44 + Math.max(tile, textH(cl)) : 44 + tile + 32 + textH(cl))))
+  const total = cellH * rows + gapY * (rows - 1)
+  const y0 = Math.round(o.y + Math.max(0, (o.h - total) / 2))
   f.items.forEach((it, i) => {
-    const col = i % cols, r = Math.floor(i / cols), x = o.x + col * (cw + gap), y = y0 + r * (ph + gap), hot = f.key === i
-    cv.path(roundRectD(x, y, cw, ph, Math.max(e.radius, 12)), { fill: hot ? g.t20 : g.t10, role: 'panel' })
-    cv.path(roundRectD(x + pad, y + pad, tile, tile, Math.round(tile * 0.24)), { fill: hot ? g.mark : g.bg, role: 'tile' })
-    cv.icon(it.icon, x + pad + tile * 0.25, y + pad + tile * 0.25, Math.round(tile * 0.5), hot ? g.onMark : g.mark, 1.6)
+    const col = i % cols, r = Math.floor(i / cols), x = o.x + col * (cw + gapX), y = y0 + r * (cellH + gapY), hot = f.key === i
+    cv.line(x, y, x + cw, y, g.lineStrong, 2)
+    const ty = y + 44
+    cv.path(roundRectD(x, ty, tile, tile, Math.round(tile * 0.26)), { fill: hot ? g.mark : g.t10, role: 'tile' })
+    cv.icon(it.icon, x + tile * 0.22, ty + tile * 0.22, Math.round(tile * 0.56), hot ? g.onMark : g.accent, 1.7)
     const cl = cells[i]!
-    const th = linesH(cl.hd) + (cl.bd ? 14 + linesH(cl.bd) : 0) + (cl.tags.length ? 24 + cl.tags.length * 46 : 0)
-    let yy = y + ph - pad - th
-    yy += cv.text(cl.hd, x + pad, yy, tw, g.text, { role: 'head' })
-    if (cl.bd) yy += 14 + cv.text(cl.bd, x + pad, yy + 14, tw, g.dim, { role: 'body' })
+    let yy = two ? ty + Math.max(0, Math.round((tile - linesH(cl.hd)) / 2) - (cl.bd ? 0 : 0)) : ty + tile + 32
+    if (two) yy = ty
+    const tx = x + iconX
+    yy += cv.text(cl.hd, tx, yy, tw, g.text, { role: 'head' })
+    if (cl.bd) yy += 14 + cv.text(cl.bd, tx, yy + 14, tw, g.dim, { role: 'body' })
     if (cl.tags.length) {
-      yy += 24
+      yy += 22
       for (const row of cl.tags) {
-        let tx = x + pad
+        let gx = tx
         for (const t of row) {
-          cv.path(roundRectD(tx, yy, t.w, 36, 18), { stroke: { color: g.lineStrong, width: 1.5 } })
-          cv.text(t.f, tx + 16, yy + 18 - linesH(t.f) / 2, t.w - 32, g.dim, { role: 'tag' })
-          tx += t.w + 8
+          cv.path(roundRectD(gx, yy, t.w, 36, 18), { stroke: { color: g.lineStrong, width: 1.5 } })
+          cv.text(t.f, gx + 16, yy + 18 - linesH(t.f) / 2, t.w - 32, g.dim, { role: 'tag' })
+          gx += t.w + 8
         }
         yy += 46
       }

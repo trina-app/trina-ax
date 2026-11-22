@@ -19,7 +19,8 @@
     {
       "kind": "cover",
       "headline": "사무실에\n*초록*을 들이는 일",
-      "sub": "식물 설치부터 격주 관리까지, 사무실 식물 구독"
+      "sub": "식물 설치부터 격주 관리까지, 사무실 식물 구독",
+      "picture": "groups/숲틈/브랜드/이미지/desk-plant.jpg"
     },
     {
       "kind": "about",
@@ -162,6 +163,36 @@
       "email": "hello@soopteum.example",
       "phone": "02-6000-0142",
       "website": "soopteum.example"
+    }
+  ],
+  "pictures": [
+    {
+      "path": "groups/숲틈/브랜드/이미지/desk-plant.jpg",
+      "subject": "a succulent on a wooden office table",
+      "lettering": false,
+      "calm": "left",
+      "tone": "mixed"
+    },
+    {
+      "path": "groups/숲틈/브랜드/이미지/meeting-table.jpg",
+      "subject": "potted succulents and pencils on a meeting table",
+      "lettering": false,
+      "calm": "top",
+      "tone": "light"
+    },
+    {
+      "path": "groups/숲틈/브랜드/이미지/workspace.jpg",
+      "subject": "a person working at a window seat among plants",
+      "lettering": false,
+      "calm": "top",
+      "tone": "dark"
+    },
+    {
+      "path": "groups/숲틈/브랜드/이미지/office.jpg",
+      "subject": "an office desk with a potted tree",
+      "lettering": false,
+      "calm": "right",
+      "tone": "light"
     }
   ]
 }

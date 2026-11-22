@@ -305,7 +305,9 @@ describe('the compositions', () => {
     }
     const right = at([cover({ picture: IMG + 'wide.jpg' }), contact], 0, { picNotes: { [IMG + 'wide.jpg']: { lettering: false, calm: 'right', tone: 'dark' } } })
     expect(right.out.variant).toBe('A')
-    expect(texts(right.out.items).find((t) => t.role === 'headline')!.x).toBe(W - ML - 1000)
+    // the headline box ends at the right margin (1,400 px wide when it fits at the cover size, else 1,000)
+    const rh = texts(right.out.items).find((t) => t.role === 'headline')!
+    expect(rh.x + rh.w).toBe(W - ML)
     // lettering where the type would sit: the picture becomes a panel beside the type, never under it
     const lettered = at([cover({ picture: IMG + 'wide.jpg' }), contact], 0, { picNotes: { [IMG + 'wide.jpg']: { lettering: true, calm: 'left', tone: 'dark' } } })
     expect(lettered.out.variant).not.toBe('A')
@@ -360,7 +362,8 @@ describe('the compositions', () => {
     expect(cmp.out.variant).toBe('compare')
     const figs = one({ kind: 'about', statement: '정밀 부품을 만듭니다', figure: { kind: 'figures', items: [{ number: '340곳', label: '고객사' }, { number: '15년', label: '업력' }] } })
     expect(figs.problems).toEqual([])
-    const alone = one({ kind: 'about', statement: '반도체 장비와 의료기기에 들어가는 *정밀 가공 부품*을 만듭니다', facts: [{ label: '설립', value: '2009년' }, { label: '직원', value: '48명' }] })
+    // (no spare brand picture here: with one the about is a half, tested under "spare pictures")
+    const alone = one({ kind: 'about', statement: '반도체 장비와 의료기기에 들어가는 *정밀 가공 부품*을 만듭니다', facts: [{ label: '설립', value: '2009년' }, { label: '직원', value: '48명' }] }, { picNotes: {} })
     expect(alone.problems).toEqual([])
     expect(alone.out.variant).toBe('statement')
   })
@@ -377,8 +380,32 @@ describe('the compositions', () => {
     expect(one({ kind: 'proof', title: '고객', names: ['아크메전자', '아크메테크', '아크메기계'], quote: { text: '좋아요', who: '아크메' } }).problems.join('\n')).toContain('give exactly one of quote, names or a compare figure')
   })
 
+  test('spare pictures (round 3): noted brand pictures no slide uses go behind the numbers (dark first, wide only), then to the about and the closing as halves; never a planned, lettered or logo picture', () => {
+    const numbers: DeckSlide2 = { kind: 'numbers', title: '숫자로 보는 회사', figure: { kind: 'figures', items: [{ number: '340곳', label: '고객사' }, { number: '0.02%', label: '불량률' }] } }
+    const about: DeckSlide2 = { kind: 'about', statement: '정밀 부품을 만듭니다', facts: [{ label: '설립', value: '2009년' }] }
+    const slides = [cover(), about, numbers, contact]
+    const notes = { [IMG + 'wide.jpg']: { lettering: false, calm: 'left', tone: 'dark' }, [IMG + 'square.jpg']: { lettering: false, calm: 'left', tone: 'light' }, [IMG + 'portrait.jpg']: { lettering: false, calm: 'none', tone: 'light' } } as const
+    const d = doc(slides, { picNotes: notes })
+    const img = (i: number) => layoutSlide2(d, i).items.filter((it) => it.t === 'image' && !it.logo).map((it) => (it as { src: string }).src)
+    expect(img(2)).toEqual([IMG + 'wide.jpg'])
+    expect(layoutSlide2(d, 2).variant).toBe('photo')
+    expect(img(1)).toEqual([IMG + 'portrait.jpg'])
+    expect(layoutSlide2(d, 1).variant).toBe('half')
+    expect(img(3)).toEqual([IMG + 'square.jpg'])
+    expect(layoutSlide2(d, 3).variant).toBe('half')
+    // a picture the outline planned for a slide, one with lettering and the logo are never spare
+    const none = doc(slides, { picNotes: { ...notes, [IMG + 'portrait.jpg']: { lettering: true, calm: 'none', tone: 'light' } }, planned: [IMG + 'wide.jpg', IMG + 'square.jpg'] })
+    expect(layoutSlide2(none, 1).variant).toBe('statement')
+    expect(layoutSlide2(none, 2).variant).not.toBe('photo')
+    expect(layoutSlide2(none, 3).variant).not.toBe('half')
+    // every spare slide still fits (no problems), and the numbers' type stays white over the picture
+    const problems: string[] = []
+    for (let i = 0; i < slides.length; i++) layoutSlide2(d, i, undefined, problems)
+    expect(problems).toEqual([])
+  })
+
   test('the closing: one line, an action pill, a ledger of contacts, the accent on the drawn ground; page number only', () => {
-    const d = doc([cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' }, contact], { accents: { 2: ACCENT } })
+    const d = doc([cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' }, contact], { accents: { 2: ACCENT }, picNotes: {} })
     const problems: string[] = []
     const out = layoutSlide2(d, 2, undefined, problems)
     expect(problems).toEqual([])
@@ -391,7 +418,7 @@ describe('the compositions', () => {
     expect(fadeUnder(out, 'line')).toBe(0)
   })
 
-  test('content slides: the eyebrow ("NN   section"), the running footer (company, "NN / TT"), one figure, no accent', () => {
+  test('content slides: the running footer ("company · section", "NN / TT"), one figure, no accent', () => {
     const slides: DeckSlide2[] = [cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' },
       { kind: 'needs', title: '부품 때문에 일정이 밀린다면', figure: { kind: 'merge', inputs: ['전화', '이메일', '방문'], target: { icon: 'inbox', head: '한곳으로' } } },
       { kind: 'offer', title: '설계부터 납품까지', sub: '도면 한 장으로 시작해요', figure: { kind: 'layers', items: [{ head: '납품' }, { head: '가공' }, { head: '설계' }] } },
@@ -406,8 +433,7 @@ describe('the compositions', () => {
       for (let i = 2; i <= 7; i++) {
         const s = out.slides[i]!
         const t = allText(s.items)
-        expect(t, `${theme} ${i}`).toContain(`${String(i + 1).padStart(2, '0')}   섹션${i}`)
-        expect(t, `${theme} ${i}`).toContain('아크메정밀')
+        expect(t, `${theme} ${i}`).toContain(`아크메정밀  ·  섹션${i}`)
         expect(t).toContain(`${String(i + 1).padStart(2, '0')} / 09`)
         expect(s.items.some((it) => it.t === 'svg'), `${theme} ${i}: no accent on a content slide`).toBe(false)
         sane(s.items)

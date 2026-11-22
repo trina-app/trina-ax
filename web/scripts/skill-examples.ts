@@ -12,12 +12,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..')
-const INPUTS = path.join(ROOT, 'examples', 'data', 'example-coffee')
+const EXAMPLES = path.join(ROOT, 'examples', 'data')
 const ORIGIN = 'http://example.test'
 const SKILLS = ['intro-deck', 'card-news', 'promo-video'] as const
 type Skill = (typeof SKILLS)[number]
-/** the three shown (1-based): the deck's cover, numbers and process; the first three cards; the video's hook, work, proof */
-const PICK: Record<Skill, number[]> = { 'intro-deck': [1, 5, 6], 'card-news': [1, 2, 3], 'promo-video': [1, 3, 4] }
+/** the three shown (1-based): the deck's cover, about and numbers; the first three cards; the video's hook, work, proof */
+const PICK: Record<Skill, number[]> = { 'intro-deck': [1, 2, 5], 'card-news': [1, 2, 3], 'promo-video': [1, 3, 4] }
 const LABEL = { ko: '18초 영상', en: '18-second video' } as const
 
 const args = process.argv.slice(2)
@@ -28,6 +28,8 @@ if (!SKILLS.includes(skill) || !file || !(locale === 'ko' || locale === 'en') ||
 }
 const at = args.indexOf('--pick')
 const pick = at >= 0 ? args[at + 1]!.split(',').map(Number) : PICK[skill]
+// the intro deck is made on 숲틈 / Soopteum (its brand pictures in images/), the others on 예시커피 / Example Coffee
+const INPUTS = path.join(EXAMPLES, skill === 'intro-deck' ? 'soopteum' : 'example-coffee')
 const font = path.join(ROOT, 'web', 'dist', 'vendor', 'fonts', 'PretendardVariable.woff2')
 if (!fs.existsSync(font)) { console.error('web/dist has no fonts yet: run `bun run build` in web/ first'); process.exit(1) }
 
@@ -40,8 +42,8 @@ async function open(page: Page, html: string) {
     if (p === '/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html })
     const vendor = path.join(ROOT, 'web', 'dist', p)
     if (p.startsWith('/vendor/') && vendor.startsWith(path.join(ROOT, 'web', 'dist', 'vendor') + path.sep) && fs.existsSync(vendor)) return route.fulfill({ status: 200, path: vendor })
-    const input = path.join(INPUTS, locale, path.basename(p))
-    if (p.startsWith('/groups/') && fs.existsSync(input)) return route.fulfill({ status: 200, path: input })
+    const input = [path.join(INPUTS, locale, path.basename(p)), path.join(INPUTS, 'images', path.basename(p))].find((f) => fs.existsSync(f))
+    if (p.startsWith('/groups/') && input) return route.fulfill({ status: 200, path: input })
     console.warn(`not found: ${p}`)
     return route.fulfill({ status: 404, body: '' })
   })

@@ -263,6 +263,7 @@ export function docOf(plan: Plan, st: BuildState, notes: string[][]): DeckDoc2 {
     logo: plan.logo, pattern: plan.pattern, seed: plan.seed,
     slides: st.slides.map((s, i) => s ?? placeholder(plan.stubs[i]!)),
     sections: plan.stubs.map((s) => s.section), pics: plan.pics, picNotes: plan.picNotes, accents: st.accents, treat: st.treat, notes,
+    planned: plan.stubs.flatMap((s) => (s.picture ? [s.picture] : [])),
   }
 }
 /** A stand-in for a slide not made yet (only so a slide's page number and neighbours are known). */

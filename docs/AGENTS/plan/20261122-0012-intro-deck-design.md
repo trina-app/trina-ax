@@ -18,7 +18,7 @@ with only a name and a one-liner. The example is made on a fictional, realistic 
 In: the round-2 compositions and figures (cover, about, content header, grids, flow, quote, closing), the example
 picture (ko, en) and its inputs, the viewer's line naming the invented company of the deck example.
 Out: the skills list, other packs and their examples (another agent changes the list), the SKILL.md text (its
-example hash stays), pictures and logos (the example company has none, as 예시커피 had none).
+example hash stays), customer logo rows (they need a new schema slot).
 
 ## Steps
 
@@ -31,6 +31,10 @@ example hash stays), pictures and logos (the example company has none, as 예시
 5. Example: examples/data/soopteum (숲틈 / Soopteum), scripts/intro-deck-example.ts builds the artifact HTML, then
    web/scripts/skill-examples.ts takes the picture.
 6. Tests, typecheck, check:prepush; changes/ and a decision file.
+
+Round 3 (review: still too plain): spare brand pictures behind the numbers and beside the about and the closing; a
+colour block for the pains and the quote; the company's letter as a graphic on drawn covers; titles 72 px, body
+30–32 px; no label over titles (impeccable's ban); four free photos for the example (images/SOURCES.md, NOTICE).
 
 ## Decisions
 
@@ -49,5 +53,5 @@ test/unit/onb6-skills.test.tsx and i18n.test.ts.
 
 ## Result
 
-As planned. The example's slides are filled by hand from the fictional intro in the tool's slots and checked by the
+Round 2 as planned, then round 3 after review (see Steps). The example's slides are filled by hand from the fictional intro in the tool's slots and checked by the
 tool's schema and a number check (scripts/intro-deck-example.ts), instead of a live AI run.
