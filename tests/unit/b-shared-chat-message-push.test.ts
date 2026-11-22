@@ -7,9 +7,10 @@ import crypto from 'node:crypto'
 import { PushService } from '../../server/src/notifications/push-service'
 import type { NativeSend } from '../../server/src/notifications/push-native'
 import { getChatRuntime } from '../../server/src/chat/runtime'
-import { noteSharedAnswer } from '../../server/src/chat/message-notices'
 import { pushBadge } from '../../server/src/notifications/push-badge'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { API } from '@mycel/shared/api'
+import { ask, startHarness, type Harness as BHarness } from '../lib/b-harness'
 
 setDefaultTimeout(90_000)
 let h: Harness, p: PushService | undefined
@@ -55,16 +56,36 @@ test('a person\'s message in a shared chat: one phone push each, the badge count
   expect(mine).toHaveLength(2)
   expect(new Set(mine.map((s) => s.payload.notificationId)).size).toBe(2)
   expect(mine.map((s) => s.payload.badge)).toEqual(want)
-  // an answer of Trina's to the owner: one more on nora's number, no push of its own
-  const before = pushBadge(h.ctx, nora.id)!
-  noteSharedAnswer(h.ctx, getChatRuntime(h.ctx).store.chatRow(chat.id)!, `answer-${crypto.randomUUID()}`, (h.ctx.db.query('SELECT user_id FROM chats WHERE id = ?').get(chat.id) as { user_id: string }).user_id)
-  expect(pushBadge(h.ctx, nora.id)).toBe(before + 1)
-  await p.tick()
-  expect(sent.filter((s) => s.payload.code === 'chat.message')).toHaveLength(2)
   await nora.client.call('POST', `/api/chats/${chat.id}/seen`)
   await owner.call('POST', `/api/chats/${chat.id}/messages`, { content: 'three', attachmentIds: [], clientMessageId: cm() })
   await ended()
   await nora.client.call('POST', `/api/chats/${chat.id}/seen`)
   await p.tick()
   expect(sent.filter((s) => s.payload.code === 'chat.message')).toHaveLength(2)
+})
+
+// With an answer (the fake engine): each exchange is two unread messages for the other person, the message and Trina's
+// answer (message-notices.ts: an answer counts for the number only), so the icon reads 2, then 4. One notice per message
+// and per answer: nothing is counted twice (QA from #350's review: "badge [2, 4]" is this, not a double count)
+test('an exchange with an answer: one notice for the message, one for the answer; the number counts both, once each', async () => {
+  const b: BHarness = await startHarness({ name: 'shared-chat-message-badge', stallTimeoutMs: 60_000 })
+  try {
+    const sock = await b.ws('alice'); await sock.next('hello')
+    const chat = (await b.api('alice').call(API.createChat, { body: {} })).id
+    const bob = (b.ctx.db.query("SELECT id FROM users WHERE username = 'bob'").get() as { id: string }).id
+    const subjects = [{ subjectType: 'user' as const, subjectId: bob }]
+    let r = await b.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects } })
+    if (r.status === 'confirm') r = await b.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects, confirmKey: r.confirmKey } })
+    expect(r.status).toBe('saved')
+    const kinds = () => (b.ctx.db.query('SELECT kind FROM chat_message_notices WHERE user_id = ? AND chat_id = ? AND read_at IS NULL AND suppressed = 0 ORDER BY created_at, kind DESC').all(bob, chat) as { kind: string }[]).map((x) => x.kind)
+    const badges: (number | null)[] = []
+    for (const t of ['one', 'two']) {
+      await ask(b, sock, 'alice', chat, '@fake ' + JSON.stringify({ say: `ok ${t}` }))
+      for (let i = 0; i < 40 && kinds().length < badges.length * 2 + 2; i++) await new Promise((x) => setTimeout(x, 50))
+      badges.push(pushBadge(b.ctx, bob))
+    }
+    expect(kinds().sort()).toEqual(['answer', 'answer', 'message', 'message'])
+    expect(badges).toEqual([2, 4])
+    sock.close()
+  } finally { await b.close() }
 })
