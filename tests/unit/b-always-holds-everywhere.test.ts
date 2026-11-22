@@ -20,7 +20,8 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { gateUrl, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
-import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
+import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
+import { sameCard } from '../../server/src/chat/open-questions'
 import { steerableRun } from '../../server/src/chat/shared-run'
 import { askLoginAfterOthers } from '../../server/src/devenv/tool'
 
@@ -306,9 +307,12 @@ describe('a live turn with a guest: Always holds for this chat only', () => {
       expect(alwaysHere(guest(), 'delete_files')).toBe('offer')
       for (const kind of ['remember', 'skill_files', 'dev_login'] as const) {
         const asked: { options: { label: string; value: string }[]; note?: string }[] = []
-        const v = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async (options, extra) => { asked.push({ options, ...extra }); return ALWAYS_VALUE })
+        // (the Always for good's value on this card does nothing: it is not one of its options)
+        const wrong = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_VALUE)
+        expect([kind, wrong, forGood(kind)]).toEqual([kind, ALWAYS_VALUE, 0])
+        const v = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async (options, extra) => { asked.push({ options, ...extra }); return ALWAYS_CHAT_VALUE })
         expect([kind, v]).toEqual([kind, 'yes'])
-        expect(asked[0]!.options.map((o) => o.label)).toEqual(['Yes', 'Always in this chat', 'No'])
+        expect(asked[0]!.options.map((o) => [o.label, o.value])).toEqual([['Yes', 'yes'], ['Always in this chat', ALWAYS_CHAT_VALUE], ['No', 'no']])
         expect(asked[0]!.note).toContain('in this chat only')
         expect([kind, forGood(kind)]).toEqual([kind, 0])
         // this chat, the same people: no card; someone new, another chat, or no guest any more: it asks (or the usual)
@@ -316,8 +320,24 @@ describe('a live turn with a guest: Always holds for this chat only', () => {
         expect(alwaysHere(guest({ audience: () => ['alice', 'bob', 'gina'] }), kind)).toBe('offer')
         expect(alwaysHere(guest({ chatId: other }), kind)).toBe('offer')
         expect(alwaysHere(live(), kind)).toBe('offer')
+        // the people cannot be told: it holds for nobody (fails closed)
+        expect(alwaysHere(guest({ audience: () => { throw new Error('x') } }), kind)).toBe('offer')
       }
+      // a side chat, or a guest's own chat: the people are the person and the room's members; someone new asks again
+      const side = (people: string[]) => guest({ audience: () => people })
+      await withAlways(side(['alice', 'erin']), 'move_files', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_CHAT_VALUE)
+      expect(alwaysHere(side(['alice', 'erin']), 'move_files')).toBe('on')
+      expect(alwaysHere(side(['alice', 'erin', 'gina']), 'move_files')).toBe('offer')
+      // nothing kept when the people cannot be told
+      await withAlways(guest({ audience: () => { throw new Error('x') } }), 'video', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_CHAT_VALUE)
+      expect(db().query("SELECT COUNT(*) n FROM chat_card_approvals WHERE user_id = 'alice' AND kind = 'card_always' AND target = 'video'").get()).toEqual({ n: 0 })
     } finally { db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
+  test('a press of "Always in this chat" that waited is not the same card once the guest is gone (it asks again)', () => {
+    const card = (always: string) => ({ kind: 'ask_user', origin: 'server', requestId: 'r', question: 'Delete?', options: [{ label: 'Yes', value: 'yes' }, { label: 'x', value: always }, { label: 'No', value: 'no' }] }) as never
+    expect(sameCard(card(ALWAYS_CHAT_VALUE), card(ALWAYS_VALUE))).toBe(false)
+    expect(sameCard(card(ALWAYS_CHAT_VALUE), card(ALWAYS_CHAT_VALUE))).toBe(true)
   })
 })
 
