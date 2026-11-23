@@ -103,6 +103,8 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!, 'quote.txt'), 'utf8')).toBe('the quote')
     expect(canOpen('bob', 'alice', rel)).toBe(true)
     expect(shared.files[0]!.name).toBe(made[0]!)
+    // named for its one file, never for the sentence the chat's title may be
+    expect(made[0]).toBe('quote')
     const res = takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')
     expect(res.removed).toBe(1)
     expect(folders()).toEqual(before)

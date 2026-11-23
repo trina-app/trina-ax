@@ -470,7 +470,10 @@ function chatMadeFiles(exec: TurnExec): ChatFileRow[] {
 async function makeChatFolder(exec: TurnExec, files: string[], chatFiles: readonly ChatFileRow[] = []): Promise<TakeBackFolder> {
   const db = exec.rt.db, userId = exec.spec.userId, L = exec.spec.locale
   const svc = componentC(exec.rt.ctx).files
-  const title = ((db.query('SELECT title FROM chats WHERE id = ?').get(exec.spec.chatId) as { title: string } | null)?.title ?? '')
+  // one file: the folder takes its name ("견적서.docx" -> "견적서"); a chat's title is often the whole first request, which
+  // made a folder named after a sentence (QA of the shared-chat folder share). Several files: the plain name
+  const only = files.length + chatFiles.length === 1 ? (chatFiles[0]?.name ?? files[0]!.split('/').pop() ?? '') : ''
+  const title = only.replace(/\.[^.]+$/, '')
     .normalize('NFC').replace(/[\u0000-\u001f\u007f/\\:*?"<>|\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/g, ' ').replace(/\s+/g, ' ')
   const cut = [...title].slice(0, 60).join('').replace(/^[.\s]+|[.\s]+$/g, '')
   // never a name the server keeps in a personal folder (skills, downloads, attachments ...: keptNames, by foldKey) nor
