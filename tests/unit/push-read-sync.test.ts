@@ -247,3 +247,62 @@ test('an iPhone whose number went up since its last push gets no sync (the next 
   await tick(SYNC_GAP_MS)
   expect(syncs).toHaveLength(0)
 })
+
+test('a real push that lands while an iPhone sync is under way wins: its number is kept, the sync never writes over it', async () => {
+  h = await harness('push-read-sync-race')
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const nora = await addMember(h, owner, { username: 'nora' })
+  let roomClock = Date.now()
+  roomsOf(h.ctx).clock = () => (roomClock += 2000)
+  let now = Date.now(), release = () => {}, hang = true
+  const pushes: NativeSend[] = [], syncs: NativeSend[] = []
+  p = new PushService(h.ctx, { config: () => null, native: () => ({ url: 'https://push.example.test' }), now: () => now, requestTimeoutMs: 60_000,
+    transport: async () => { throw new Error('no web push here') },
+    nativeTransport: async (i) => { pushes.push(i); return { statusCode: 200 } },
+    syncTransport: async (i) => { syncs.push(i); if (hang) await new Promise<void>((r) => { release = r }); return { statusCode: 200 } } })
+  const sid = (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(nora.id) as { id: string }).id
+  const device = p.registerDevice(nora.id, sid, { consent: true, platform: 'ios', environment: 'production', token: crypto.randomBytes(32).toString('hex') })
+  await new Promise((r) => setTimeout(r, 5))
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const say = (body: string) => mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body, clientMessageId: cm() })
+  const recorded = () => (h.ctx.db.query('SELECT badge FROM push_phone_sync WHERE subscription_id = ?').get(device.id) as { badge: number }).badge
+  const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10)); return ok() }
+  await say('one'); now += 1000; await p.tick()
+  await say('two'); now += 1000; await p.tick()
+  expect(recorded()).toBe(2)
+  // read on the computer: a sync with 0 goes and waits at the gateway
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  now += SYNC_EVERY_MS; const round = p.tick()
+  expect(await until(() => syncs.length === 1)).toBe(true)
+  expect(syncs[0]!.sync!.badge).toBe(0)
+  // meanwhile a new message is pushed with 1
+  await say('three'); now += 1000; void p.tick()
+  expect(await until(() => pushes.length === 3)).toBe(true)
+  expect(pushes[2]!.payload.badge).toBe(1)
+  expect(await until(() => recorded() === 1)).toBe(true)
+  // the sync is answered: the newer push's 1 stays recorded
+  release(); await round
+  expect(recorded()).toBe(1)
+  // and a later round sends nothing: the count is 1, as recorded (no sync with 0 for an unread notice)
+  hang = false
+  now += SYNC_GAP_MS; await p.tick()
+  now += SYNC_GAP_MS; await p.tick()
+  expect(syncs).toHaveLength(1)
+})
+
+test('an iPhone sync whose round began before a real push reached the phone is dropped before it is sent', async () => {
+  const { mia, nora, dm, send, tick, syncs, device } = await setup('ios')
+  await send(mia.client, 'one'); await tick(1000)
+  await send(mia.client, 'two'); await tick(1000)
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  // the round works out its number, then a real push reaches the phone before the sync goes
+  const svc = p as any, real = svc.o.badge
+  svc.o.badge = (id: string) => { svc.pushedAt.set(device.id, ++svc.pushSeq); return real(id) }
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(0)
+  // the next round (no push since it began) sends it
+  svc.o.badge = real
+  await tick(SYNC_GAP_MS)
+  expect(syncs.map((s) => s.sync!.badge)).toEqual([0])
+})

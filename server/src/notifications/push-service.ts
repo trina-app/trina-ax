@@ -308,6 +308,9 @@ export class PushService {
     return Promise.all([this.work,this.syncWork]).then(()=>{})
   }
   private syncWork:Promise<void>|null=null
+  /** per phone, the push counter when a real push last reached it; a sync round started before it is stale (iPhone) */
+  private pushedAt=new Map<string,number>()
+  private pushSeq=0
   private syncedAt=-Infinity
   private badgeAt=-Infinity
   /** Per phone, the notices pushed to it within a push's day (push_phone_ledger) that are read now (on any device), no
@@ -349,7 +352,7 @@ export class PushService {
     const nowMs=this.o.now();if(this.stopped||nowMs-this.syncedAt<SYNC_EVERY_MS)return
     this.syncedAt=nowMs
     const native=this.o.native(),syncTransport=this.o.syncTransport;if(!native||!syncTransport)return
-    const key=nativeConfigKey(native),db=this.ctx.db,day=this.iso().slice(0,10),started=performance.now()
+    const key=nativeConfigKey(native),db=this.ctx.db,day=this.iso().slice(0,10),started=performance.now(),roundAt=++this.pushSeq
     db.query('DELETE FROM push_phone_ledger WHERE sent_at<?').run(this.iso(nowMs-SYNC_KEEP_MS))
     const read=this.readOnPhones(key)
     if(nowMs-this.badgeAt>=SYNC_BADGE_EVERY_MS){this.badgeAt=nowMs;for(const r of db.query('SELECT subscription_id sid FROM push_phone_sync WHERE badge>0').all() as {sid:string}[])if(!read.has(r.sid))read.set(r.sid,[])}
@@ -366,10 +369,11 @@ export class PushService {
       const mark=this.readMark(sub.user_id)
       const setChanged=all.length>0&&digestOf(all)!==st?.digest
       if(st?.read_mark===mark&&!setChanged)continue
+      // (the number is written only when given: a real push may have recorded a newer one since the round began)
       const remember=(o:{badge?:number|null;digest?:string|null;count?:boolean})=>db.query(`INSERT INTO push_phone_sync(subscription_id,badge,digest,read_mark,synced_at,day,day_count) VALUES(?,?,?,?,?,?,?)
-        ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge,digest=excluded.digest,read_mark=excluded.read_mark,synced_at=COALESCE(excluded.synced_at,push_phone_sync.synced_at),
+        ON CONFLICT(subscription_id) DO UPDATE SET badge=CASE WHEN ? THEN excluded.badge ELSE push_phone_sync.badge END,digest=excluded.digest,read_mark=excluded.read_mark,synced_at=COALESCE(excluded.synced_at,push_phone_sync.synced_at),
         day=COALESCE(excluded.day,push_phone_sync.day),day_count=CASE WHEN excluded.day IS NULL THEN push_phone_sync.day_count WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`)
-        .run(sid,o.badge===undefined?st?.badge??null:o.badge,o.digest===undefined?st?.digest??null:o.digest,mark,o.count?this.iso():null,o.count?day:null,o.count?1:0)
+        .run(sid,o.badge===undefined?st?.badge??null:o.badge,o.digest===undefined?st?.digest??null:o.digest,mark,o.count?this.iso():null,o.count?day:null,o.count?1:0,o.badge===undefined?0:1)
       let device:NativeDevice
       try{this.safeSecrets();device=this.vault.decrypt(`${sub.user_id}|${sub.session_id}|${sub.id}`,'native-push',sub.secret_enc,sub.key_version) as NativeDevice}catch{continue}
       const ios=device.platform==='ios'
@@ -378,12 +382,23 @@ export class PushService {
       // Android's ids: as many as fit the gateway's body next to this token (ids are at most 100 characters)
       const clear=ios?[]:all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103))))
       const digest=digestOf(all)
-      const badge=ios?this.o.badge(sub.user_id):null
+      let badge=ios?this.o.badge(sub.user_id):null
       // an iPhone: only a lower number (a higher one comes with the next real push); Android: only a changed set
       const go=ios?badge!==null&&st?.badge!=null&&badge<st.badge:clear.length>0&&digest!==st?.digest
       if(!go){remember(ios?{digest}:{});continue}
       jobs.push({sid,run:async()=>{
         if(this.stopped||performance.now()-started>SYNC_BUDGET_MS)return
+        // an iPhone: a real push may have reached it since the round began (with a higher number): then this sync is
+        // stale and the next round looks again. Else the number is worked out again now and goes only while it is still
+        // below the one recorded; that recorded number is the snapshot the save below must still find
+        let snapshot:number|null=null
+        if(ios){
+          if((this.pushedAt.get(sid)??-Infinity)>=roundAt)return
+          snapshot=(db.query('SELECT badge FROM push_phone_sync WHERE subscription_id=?').get(sid) as {badge:number|null}|null)?.badge??null
+          const now=this.o.badge(sub.user_id)
+          if(now===null||snapshot===null||now>=snapshot)return
+          badge=now
+        }
         const locale=getUser(db,sub.user_id)?.locale??teamDefaultLocale(db),abort=new AbortController(),wait=this.o.requestTimeoutMs??10_000,syncId=newId()
         const timer=setTimeout(()=>abort.abort(),wait)
         let status=0
@@ -395,7 +410,11 @@ export class PushService {
         const sent=status>=200&&status<300
         // a failed one is tried again after SYNC_GAP_MS (its number and set stay the old ones; its mark is cleared so
         // the next round looks again)
-        if(sent)remember({badge,digest,count:true})
+        if(sent){
+          remember({digest,count:true})
+          // the number only if no newer real push recorded its own meanwhile (it wins: the phone shows the newest)
+          if(ios)db.query('UPDATE push_phone_sync SET badge=? WHERE subscription_id=? AND badge IS ?').run(badge,sid,snapshot)
+        }
         else db.query(`INSERT INTO push_phone_sync(subscription_id,synced_at,day,day_count) VALUES(?,?,?,1) ON CONFLICT(subscription_id) DO UPDATE SET read_mark=NULL,synced_at=excluded.synced_at,
           day=excluded.day,day_count=CASE WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`).run(sid,this.iso(),day)
         // counts only, never ids or what was read
@@ -476,6 +495,7 @@ export class PushService {
       if(allowed.sub.kind==='native'){
         const delivered=status>=200&&status<300
         if(delivered||(status===0&&failure?.outcome!=='push_cancelled'))this.ctx.db.query('INSERT INTO push_phone_ledger(subscription_id,notification_id,src,sent_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(row.subscription_id,row.notification_id,src.inbox,this.iso())
+        if(delivered)this.pushedAt.set(row.subscription_id,++this.pushSeq)
         if(delivered&&sentBadge!==null)this.ctx.db.query('INSERT INTO push_phone_sync(subscription_id,badge) VALUES(?,?) ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge').run(row.subscription_id,sentBadge)
       }
       if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
