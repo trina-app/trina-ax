@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 23:40
 - Branch: `feat/office-place-picture`
-- Status: in progress
+- Status: done
 - Where: `server/src/files`, `server/src/tools/edit-office.ts`. Why: edit_office is the one path for changing an Office file.
 - Version impact: minor, because edit_office can add and move pictures in two more formats.
 
@@ -40,4 +40,4 @@ Typecheck, affected suites, `check:prepush` on Bun 1.3.12, a real deck and workb
 
 ## Result
 
-Not done yet.
+Built as planned: `insert_picture` and `move_picture` for .pptx and .xlsx. A real deck and workbook, each edited with both ops, open in LibreOffice with the picture where asked. Not opened in PowerPoint or Excel themselves.
