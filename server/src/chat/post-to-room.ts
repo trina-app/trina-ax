@@ -721,7 +721,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a project chat: its own project folder is the person's work with their project, the owner's F10 "견적서")
         const projectFolder = (() => { const p = db.query('SELECT p.folder_path AS f FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(spec.chatId) as { f: string } | null; return p?.f ? p.f.replace(/\/+$/, '') : null })()
         const projectFolderId = projectFolder ? (db.query('SELECT id FROM folders WHERE path = ?').get(projectFolder) as { id: string } | null)?.id ?? null : null
-        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, (rel) => namedRel(rel) || canShareOf(rel) || (!!projectFolder && (rel === projectFolder || rel.startsWith(projectFolder + '/'))), earlier, chatMine, projectFolderId) } catch { return false } })()
+        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()
         // after a room read (a DM or a private channel read in this chat: QA F5 #2 and #3 sent the same content
         // twice): the second post of the same sources to a place the person's own words name goes on the first card's yes
         // (one card per source; the person's "Always allow" covers the first too, Rule A)
