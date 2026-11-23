@@ -374,6 +374,9 @@ const CHANGE_ASK = new RegExp(['\\uB9CC\\uB4E4', '\\uC800\\uC7A5', '\\uCD94\\uAC
 /** a word asking to read, show or sum up (읽/보여/요약/정리해서, read, show, summar…): a clause with one is about reading
  * the file it names, not changing it */
 const READ_ASK = new RegExp(['\\uC77D', '\\uBCF4\\uC5EC', '\\uC694\\uC57D', '\\b(read|show|summari[sz]e|open|look)\\b', '\\b(baca|lihat|lee|muestra|abre)\\b', '\\u8AAD|\\u8BFB|\\u770B|\\u8981\\u7D04|\\u603B\\u7ED3'].join('|'), 'iu')
+/** a clause that keeps the file it names or uses it only as a source: a "don't" (하지 말/말고/않/안 …, don't, never,
+ * without…) or a source word (참고/바탕/기반/보고, based on, using, use, from…) */
+const KEEP_OR_SOURCE = new RegExp(['\\uD558\\uC9C0\\s*\\uB9D0', '\\uB9D0\\uACE0', '\\uC54A', '(^|\\s)\\uC548\\s', '\\uCC38\\uACE0', '\\uBC14\\uD0D5', '\\uAE30\\uBC18', '\\uBCF4\\uACE0\\s', "\\b(don'?t|do not|never|without|not|based on|using|use|from|instead)\\b", '\\b(jangan|tanpa|berdasarkan|no|sin|basado)\\b', '\\u53C2\\u8003|\\u57FA\\u4E8E|\\u4E0D\\u8981|\\u3057\\u306A\\u3044\\u3067|\\u53C2\\u7167'].join('|'), 'iu')
 /** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
 const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
@@ -3653,8 +3656,9 @@ export class TurnExec {
     if (this.spec.clientKind === 'schedule' || this.spec.clientKind === 'slack') return false
     const m = this.rt.db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
     if (!m || m.auto_sent) return false
-    const said = withoutQuoteLines(m.content ?? '').normalize('NFC').toLowerCase()
-    const n = segs.slice(2).join('/').normalize('NFC').toLowerCase()
+    // (letter case as written: Notes.md and notes.md are two files on a case-sensitive disk)
+    const said = withoutQuoteLines(m.content ?? '').normalize('NFC')
+    const n = segs.slice(2).join('/').normalize('NFC')
     if (n.length < 3) return false
     // the clauses of the message: a sentence, a comma, "and", or a Korean "…고" joining two asks
     for (const clause of said.split(/[.!?。](?=\s|$)|[\n,;，、]|\s(?:and|then|dan|y|然后)\s|(?<=\p{Script=Hangul})고\s/u)) {
@@ -3663,9 +3667,11 @@ export class TurnExec {
       const before = clause[at - 1] ?? ' ', after = clause[at + n.length] ?? ' '
       // the whole name standing apart (not "old-방문-메모.txt", "방문-메모.txt.bak"); after a "/" only as the end of
       // their own folder's path (users/<them>/…), never another folder's file of that name
-      const own = before === '/' && clause.slice(0, at).endsWith(`${segs[0]}/${segs[1]}/`.toLowerCase())
+      const own = before === '/' && clause.slice(0, at).toLowerCase().endsWith(`${segs[0]}/${segs[1]}/`.toLowerCase())
       if ((/[\p{L}\p{N}_.\/-]/u.test(before) && !own) || /[\p{N}_\p{Script=Latin}.\/-]/u.test(after)) continue
-      if (CHANGE_ASK.test(clause) && !READ_ASK.test(clause) && !SAVE_NOT.test(clause)) return true
+      // (never "수정하지 말고 새 파일 만들어줘", "don't change notes.md", "참고해서 보고서 만들어줘": the file is kept or only a source;
+      // security review of this change)
+      if (CHANGE_ASK.test(clause) && !READ_ASK.test(clause) && !SAVE_NOT.test(clause) && !KEEP_OR_SOURCE.test(clause)) return true
     }
     return false
   }
@@ -4603,8 +4609,11 @@ export class TurnExec {
     // A save into the person's own folder in their own project chat (QA b5 F10: the AI's working copy of a quote in
     // their folder asked "AI가 내 개인 폴더에 파일을 저장하려고 해요" twice): the card guards only that the others see the
     // name it saves under (and so whether one was there), which is less than the read above lets them see; the
-    // person's earlier file stays as a version. Only in a chat nobody else wrote in (their words could pick the name)
-    if (this.shared?.kind === 'project' && (!kind.save || !this.othersWrote) && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
+    // person's earlier file stays as a version. Only in a chat nobody else wrote in and that read no room (their words
+    // could pick the name; security review of this change). A teammate's project file read here does not stop it: in a
+    // project chat that is the usual case, and what such words could choose is only the name of a file in the person's
+    // own folder, shown to the project's people, who see what a read of that folder brings here anyway
+    if (this.shared?.kind === 'project' && (!kind.save || (!this.othersWrote && !readRooms(this))) && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
       const before = missing.length
       missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
       // (recorded as the person's yes would be: the people who see the chat now are covered for it, so the engine's session

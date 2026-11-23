@@ -72,7 +72,9 @@ function expectNothingForBob(text: string) {
 }
 
 describe('the save card', () => {
-  for (const where of ['people', 'project'] as const) {
+  // (her own project chat: no save card, as no read card there since docs/decisions/20261123-do-then-undo.md "project
+  // saves, own folder"; below)
+  for (const where of ['people'] as const) {
     test(`${where}: a save into her own folder that is there asks with save words; no keeps the folder as it was and tells bob nothing`, async () => {
       const chat = where === 'people' ? await peopleChat() : await projectChat()
       const before = listing()
@@ -103,6 +105,17 @@ describe('the save card', () => {
       expectNothingForBob(JSON.stringify((await messages('bob', chat)).filter((m) => m.role === 'assistant')))
     })
   }
+
+  test('project: in her own project chat a save into her own folder that is there asks nothing (QA b5 F10)', async () => {
+    const chat = await projectChat()
+    const n = audits(chat).length
+    const bobFrom = ws.bob!.frames.length
+    const started = await send('alice', chat, 'save the attachment in my folder\n' + fake({ tool: 'save_connector_file', args: { file: 'mcp-file:nope', save_as: 'users/alice/' }, sayResult: true }))
+    await doneOf('alice', started.assistantMessage.id)
+    expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    expect(audits(chat).slice(n).some((a) => a.decision === 'declined')).toBe(false)
+    expect(ws.bob!.frames.slice(bobFrom).some((f) => f.type === 'turn.request')).toBe(false)
+  })
 
   test('a new file in her own folder raises no card (save_connector_file and save_url alike)', async () => {
     const chat = await peopleChat()

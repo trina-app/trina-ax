@@ -723,7 +723,7 @@ async function sitemapList(base: URL, o: WebFetchCall, timeoutMs: number): Promi
 
 /** Fetch a page as text. Throws ToolError with a message for the model. */
 /** What a failed fetch tells the AI to try next (QA b5 F1) */
-export const WEB_FETCH_NEXT = 'If the user typed or gave this address themselves and a connected service in "Connected services" reads web pages (a scraping or crawling service), read it with that service now, without asking the user; otherwise tell the user in one sentence.'
+export const WEB_FETCH_NEXT = 'If the user typed this address in their own message and a connected service in "Connected services" reads web pages (a scraping or crawling service), read it with that service now, without asking the user; otherwise tell the user in one sentence.'
 export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<WebFetchResult> {
   let deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
   let current = rawUrl
