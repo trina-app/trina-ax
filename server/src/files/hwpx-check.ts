@@ -9,6 +9,7 @@
 // only: nothing is expanded and no record is read).
 import { CfbError, cfbMismatch, readCfb } from './cfb'
 import { zipDirectory, type ZipDirEntry } from './zip-write'
+import type { HwpLayout, HwpPictureNote } from './hwp-picture'
 
 /** worker mode that writes a .hwpx (office-worker.ts) */
 export const HWPX_WRITE_MODE = 'hwpx-write'
@@ -141,6 +142,13 @@ export type HwpChange =
   | { find: string; replace: string; occurrence?: number; all?: boolean }
   | { cell: { next_to?: string; direction?: 'right' | 'below'; occurrence?: number; table?: number; row?: number; col?: number }; value: string }
   | { add_rows: { table?: number; table_with?: string; after_row?: number; copy_row?: number; rows: string[][] } }
+  | HwpImageChange
+/** An image change: `image` is the picture's path in the team folder (the server reads it; the worker gets its bytes). */
+export interface HwpImageChange {
+  image: string; at?: string; place?: 'over' | 'after' | 'before'; cell?: { next_to: string; direction?: 'right' | 'below' }
+  occurrence?: number; width_mm?: number; height_mm?: number; layer?: 'behind' | 'front'
+}
+export const isImageChange = (c: HwpChange): c is HwpImageChange => 'image' in c
 
 /** worker modes that run a document's checks again on a file the editor made (files/hwpx-edit.ts, files/hwp-edit.ts) */
 export const HWPX_VERIFY_MODE = 'hwpx-verify'
@@ -160,14 +168,33 @@ export function hwpOutputPath(output: string, source: string): string {
 export interface LineEdit { at: number; remove: number; insert: string[]; changes: number[] }
 /** The worker's report on a change it made: which change, where (for the AI), the text before and after. */
 export interface HwpEditNote { change: number; where: string; before: string; after: string; /** other changes in the same paragraph */ also?: number[] }
-export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[] }
+export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[]; pictures?: HwpPictureNote[] }
 
-/** stdin of the worker's edit mode: 4 bytes (big-endian) for the length of the changes' JSON, the JSON, the document */
-export const encodeHwpEditRequest = (changes: HwpChange[], doc: Uint8Array) => encodeHwpxRequest(JSON.stringify(changes), doc)
-export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array } {
+/** What an edit with image changes sends along: the page layout and each image change's picture (by change index). */
+export interface HwpEditExtra { layout: HwpLayout; images: { change: number; bytes: Uint8Array }[] }
+/** stdin of the worker's edit mode: 4 bytes (big-endian) for the length of the JSON, the JSON, then the bytes. Without
+ * images the JSON is the changes and the bytes the document; with images it is { changes, layout, images: [[change,
+ * length], ...] } and the bytes are the images in that order, then the document. */
+export function encodeHwpEditRequest(changes: HwpChange[], doc: Uint8Array, extra?: HwpEditExtra): Uint8Array {
+  if (!extra?.images.length) return encodeHwpxRequest(JSON.stringify(changes), doc)
+  const json = JSON.stringify({ changes, layout: extra.layout, images: extra.images.map((x) => [x.change, x.bytes.length]) })
+  return encodeHwpxRequest(json, new Uint8Array(Buffer.concat([...extra.images.map((x) => Buffer.from(x.bytes)), Buffer.from(doc)])))
+}
+export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array; layout: unknown; images: Map<number, Uint8Array> } {
   const r = decodeHwpxRequest(b)
   if (!r.template) throw new Error('bad request')
-  return { changes: JSON.parse(r.astJson), doc: r.template }
+  const v = JSON.parse(r.astJson) as unknown
+  if (Array.isArray(v)) return { changes: v, doc: r.template, layout: null, images: new Map() }
+  const o = v as { changes?: unknown; layout?: unknown; images?: unknown }
+  if (!o || typeof o !== 'object' || !Array.isArray(o.images)) throw new Error('bad request')
+  const images = new Map<number, Uint8Array>()
+  let at = 0
+  for (const x of o.images as unknown[]) {
+    if (!Array.isArray(x) || !Number.isInteger(x[0]) || !Number.isInteger(x[1]) || x[1] < 0 || at + x[1] > r.template.length || images.has(x[0])) throw new Error('bad request')
+    images.set(x[0], r.template.subarray(at, at + x[1]))
+    at += x[1]
+  }
+  return { changes: o.changes, doc: r.template.subarray(at), layout: o.layout, images }
 }
 /** stdout of the worker's edit mode: the report's JSON framed the same way, then the new file */
 export const encodeHwpEditResult = (report: HwpEditReport, file: Uint8Array) => encodeHwpxRequest(JSON.stringify(report), file)
@@ -175,7 +202,7 @@ export function decodeHwpEditResult(b: Uint8Array): { report: HwpEditReport; fil
   const r = decodeHwpxRequest(b)
   if (!r.template) throw new Error('bad result')
   const report = JSON.parse(r.astJson) as HwpEditReport
-  if (!Array.isArray(report?.lineEdits) || !Array.isArray(report.notes) || !Array.isArray(report.placeholders)) throw new Error('bad result')
+  if (!Array.isArray(report?.lineEdits) || !Array.isArray(report.notes) || !Array.isArray(report.placeholders) || (report.pictures !== undefined && !Array.isArray(report.pictures))) throw new Error('bad result')
   return { report, file: r.template }
 }
 
@@ -245,12 +272,13 @@ export function hwpEditMismatch(changes: HwpChange[], old: string[], got: string
     const removed = old.slice(e.at, e.at + e.remove).map(bare).join('')
     const added = e.insert.map(bare).join('')
     const made = e.changes.map((c) => changes[c]!)
+    if (made.some(isImageChange)) return `edit ${k + 1}: an image change changed text`
     const n = `change ${e.changes[0]! + 1}`
     const one = made[0]!
     if (!('find' in one) || made.some((c) => !('find' in c))) {
       if (made.length !== 1) return `${n}: other changes are in the same place`
       if (removed) return `${n}: text was removed where ${'cell' in one ? 'an empty cell was filled' : 'rows were added'}`
-      const text = 'cell' in one ? bareText(one.value) : 'add_rows' in one ? one.add_rows.rows.flat().map(bareText).join('') : ''
+      const text = 'value' in one ? bareText(one.value) : 'add_rows' in one ? one.add_rows.rows.flat().map(bareText).join('') : ''
       if (added !== text) return `${n}: its new text does not read back`
       continue
     }
@@ -258,37 +286,72 @@ export function hwpEditMismatch(changes: HwpChange[], old: string[], got: string
     if (ok === null) return `${n}: the paragraph is too long to check`
     if (!ok) return `${n}: the paragraph does not read as its old text with the replacement`
   }
-  for (const i of changes.keys()) if (!shown.has(i)) return `change ${i + 1}: it does not show in the document`
+  // an image change adds no text: it shows as one picture of the report (whose part the container check compares)
+  const pics = report.pictures ?? []
+  for (const [i, c] of changes.entries()) {
+    if (isImageChange(c)) {
+      if (shown.has(i)) return `change ${i + 1}: a picture changed text`
+      if (pics.filter((p) => p.change === i).length !== 1) return `change ${i + 1}: its picture does not show in the document`
+    } else if (!shown.has(i)) return `change ${i + 1}: it does not show in the document`
+  }
+  if (pics.some((p) => !Number.isInteger(p?.change) || !changes[p.change] || !isImageChange(changes[p.change]!))) return 'a picture does not come from an image change'
   return null
 }
 
 /**
  * The new file's parts against the old file's, from the two central directories only (the server expands and parses
  * neither): the same parts in the same order, each with the same CRC, sizes and method, but the sections the changes
- * are in. A part added, dropped or changed elsewhere is refused. Returns why not, or null.
+ * are in; with pictures (`added`: their parts) also Contents/content.hpf, and exactly those parts after the old ones,
+ * stored or deflated. A part added, dropped or changed elsewhere is refused. Returns why not, or null.
  */
-export function hwpxPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array): string | null {
+export function hwpxPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array, added: string[] = []): string | null {
   let a: ZipDirEntry[], b: ZipDirEntry[]
   try { a = zipDirectory(oldFile); b = zipDirectory(newFile) } catch (e) { return `a zip directory could not be read (${String((e as Error).message).slice(0, 80)})` }
-  if (a.length !== b.length || a.some((x, i) => x.name !== b[i]!.name)) return 'the new file does not have the same parts as the old one'
+  if (b.length !== a.length + added.length || a.some((x, i) => x.name !== b[i]!.name)) return 'the new file does not have the same parts as the old one'
+  for (const [k, name] of added.entries()) {
+    const y = b[a.length + k]!
+    if (y.name !== name || !/^BinData\/image\d+\.(png|jpg)$/.test(name) || a.some((x) => x.name.toLowerCase() === name.toLowerCase())) return `the new file has ${JSON.stringify(y.name)}, which the change does not add`
+    if (y.method !== 0 && y.method !== 8) return `${y.name} has another compression`
+  }
   for (const [i, x] of a.entries()) {
     const y = b[i]!
-    if (/^Contents\/section\d+\.xml$/i.test(x.name)) { if (y.method !== 0 && y.method !== 8) return `${x.name} has another compression`; continue }
+    const changeable = /^Contents\/section\d+\.xml$/i.test(x.name) || (added.length > 0 && /^Contents\/content\.hpf$/i.test(x.name))
+    if (changeable) { if (y.method !== 0 && y.method !== 8) return `${x.name} has another compression`; continue }
     if (x.crc !== y.crc || x.usize !== y.usize || x.csize !== y.csize || x.method !== y.method) return `${x.name} is not the same as before`
   }
   return null
 }
-
 /** A .hwp's stream paths edit_hwp may change: the body sections. */
 export const isHwpSection = (path: string) => /^BodyText\/Section\d+$/.test(path)
 
 /**
  * The new .hwp's container against the old one's, read in the server with files/cfb.ts (sector chains and the
  * directory; nothing expanded, no record read): the same header, the same directory entries byte for byte but a
- * stream's place and size, and every stream the same bytes but the body sections. Returns why not, or null.
+ * stream's place and size, and every stream the same bytes but the body sections; with pictures (`added`: their
+ * streams) also DocInfo, and exactly those streams (and a BinData storage when there was none) new, each one hung where
+ * an empty tree pointer was. Returns why not, or null.
  */
-export function hwpPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array): string | null {
-  try { return cfbMismatch(readCfb(oldFile), readCfb(newFile), isHwpSection) } catch (e) {
+export function hwpPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array, added: string[] = []): string | null {
+  try {
+    const a = readCfb(oldFile), b = readCfb(newFile)
+    if (added.some((p) => !/^BinData\/BIN[0-9A-F]{4}\.(png|jpg)$/.test(p) || !b.streams.has(p) || a.streams.has(p))) return 'the new file does not have the pictures the change adds'
+    const storage = !a.entries.some((e) => e.type === 1 && e.path === 'BinData')
+    return cfbMismatch(a, b, (p) => isHwpSection(p) || (added.length > 0 && p === 'DocInfo'), (p) => added.includes(p) || (added.length > 0 && storage && p === 'BinData'))
+  } catch (e) {
     return `a compound file could not be read (${String(e instanceof CfbError ? e.message : 'damaged').slice(0, 80)})`
   }
+}
+
+/** The fresh worker's check of a file with new pictures: the old and the new file (verify modes, files/hwp-edit.ts and
+ * files/hwpx-edit.ts), framed as a request: {"verify":"pictures","old":<length>}, then the old file, then the new. */
+export const encodeVerifyPictures = (oldFile: Uint8Array, newFile: Uint8Array) =>
+  encodeHwpxRequest(JSON.stringify({ verify: 'pictures', old: oldFile.length }), new Uint8Array(Buffer.concat([Buffer.from(oldFile), Buffer.from(newFile)])))
+/** A verify mode's input: a bare file (zip or compound file), or the framed old and new file of encodeVerifyPictures. */
+export function decodeVerifyInput(input: Uint8Array): { file: Uint8Array; old?: Uint8Array } {
+  const magic = input.length >= 4 && ((input[0] === 0x50 && input[1] === 0x4b) || (input[0] === 0xd0 && input[1] === 0xcf))
+  if (magic) return { file: input }
+  const r = decodeHwpxRequest(input)
+  const o = JSON.parse(r.astJson) as { verify?: unknown; old?: unknown }
+  if (o?.verify !== 'pictures' || !Number.isInteger(o.old) || !r.template || (o.old as number) > r.template.length) throw new Error('bad request')
+  return { old: r.template.subarray(0, o.old as number), file: r.template.subarray(o.old as number) }
 }

@@ -173,6 +173,19 @@ export const EditHwpChange = z.union([
       rows: z.array(z.array(hwpText(5000)).max(64)).min(1).max(500).describe('One list per new row, one value per cell of the copied row, left to right'),
     }),
   }),
+  z.strictObject({
+    image: relPath.describe('A picture in the team folder (a signature, a seal, a logo): PNG (transparent parts stay see-through) or JPG; chat attachments are in the .attachments folder'),
+    at: z.string().min(1).max(500).optional().describe('Text inside one paragraph the picture goes over or next to, e.g. the seal mark printed after the signer\'s name, or the name'),
+    place: z.enum(['over', 'after', 'before']).optional().describe('With at: centred over the text (default), right after it or right before it'),
+    cell: z.strictObject({
+      next_to: z.string().min(1).max(500).describe('The whole text of the label cell, e.g. "Signature": the picture is centred in the cell right of it (or below it)'),
+      direction: z.enum(['right', 'below']).optional().describe('Where that cell is from the label (default right)'),
+    }).optional().describe('Or a table cell next to a label'),
+    occurrence: n1.optional().describe('Which match of at (or which label cell), 1-based in reading order, when there are several'),
+    width_mm: z.number().min(2).max(300).optional().describe('The picture\'s width in mm (a seal is usually 10-20, a signature 25-40); its height follows the picture'),
+    height_mm: z.number().min(2).max(300).optional().describe('Or its height in mm (with width_mm too: both as given)'),
+    layer: z.enum(['behind', 'front']).optional().describe('Behind the text, like a seal over the seal mark (default), or in front of it'),
+  }),
 ])
 export const EditHwpInput = z.strictObject({
   file_path: relPath.describe('The .hwp or .hwpx to change; read it in this turn first'),

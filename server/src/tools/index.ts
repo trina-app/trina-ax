@@ -165,14 +165,17 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   reg.register({
     name: 'edit_hwp',
     description: 'Change the text of an existing Hangul document (.hwp or .hwpx) and save it in the same format, keeping everything else in the file exactly as it was: ' +
-      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows. Read the file in this chat first. ' +
+      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows, put in a signature or seal picture. Read the file in this chat first. ' +
       'Each change is found in the document as you read it: { find, replace } replaces text inside one paragraph (the new text takes the ' +
       'formatting of the text it replaces; when it appears more than once, give occurrence or all: true); { cell: { next_to: "<the label ' +
       'cell\'s whole text>" } (or with direction "below"; or { table, row, col }, 1-based), value } fills an empty cell; { add_rows: ' +
       '{ table_with: "<the whole text of one of its cells>" or table, after_row?, copy_row?, rows: [[...], ...] } } adds rows shaped like ' +
       'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. ' +
-      'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. Plain text only: no new formatting, ' +
-      'images or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
+      'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. ' +
+      '{ image: "<a PNG or JPG in the team folder>", at: "<text>" } puts the picture (a signature, a seal; a PNG keeps its see-through parts) over that text, e.g. the seal mark printed after the signer\'s name (place "after" or "before": next to it), ' +
+      'or with cell: { next_to: "<label>" } centred in the cell right of (or below) that label, e.g. the signature cell; it floats behind the text (layer "front": over it), nothing else moves; ' +
+      'width_mm or height_mm sets its size (a seal 12-20 mm, a signature 25-40 mm wide). For "sign this" / "stamp this" use the person\'s own signature or seal image (look in their folder and .attachments); ' +
+      'if there is none, ask them to attach one. After it, look at the page with hwp_render. Text changes are plain text: no new formatting or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
       'tab, a field or a merged cell), nothing is saved and the error says why. Without `output` the result is a new version of the ' +
       'same file (the previous one stays in its history); with `output` a new file of the same format. ' +
       'To write a new document, use make_file. write and edit cannot change .hwp or .hwpx files.',
@@ -180,13 +183,13 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     // only while the HWP plugin is installed and on for the company (tools/hwp-writing.ts); otherwise not listed, and a
     // call is refused as unknown, as for hwp_render
     available: () => hwpWritingOn(ctx),
-    describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
+    describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes${a.changes.some((c) => 'image' in c) ? ', pictures' : ''})`,
     async run(a, t) {
       const r = await editHwpFile(ctx, c.files, t, a)
       const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       return {
         text: editHwpFileText(r, link),
-        summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.report.pictures?.length ? ` ${r.report.pictures.length} pictures` : ''}${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
         structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
       }
     },

@@ -6,6 +6,7 @@ import { authorize } from '../policy/authorize'
 import { SearchAdmission } from './search-admission'
 import { sha256 } from './store'
 import { disabledHwpEngine, HwpError, type HwpEngine, type RenderedPage } from './hwp-engine'
+import type { HwpLayout } from './hwp-picture'
 
 /** A document to preview, opened for one person by a check made now: `key` names it in the cache (a team path, a room
  * file), `bytes` were read through the request's admission (bound to that check: no link, no swap, a quarantined hash
@@ -97,6 +98,31 @@ export class HwpPreviews {
       const id = randomUUID()
       this.cache.set(key, { key, source: f.key, id, result, expires: Date.now() + 600000 })
       return { ...result, id }
+    } finally { this.running.delete(user); this.inflight.delete(job); signal?.removeEventListener('abort', onAbort) }
+  }
+
+  /** The page layout of a document edit_hwp places a picture in (the caller read and checked its bytes): the same
+   * renderer, limits and turn-taking as a page (one job per person and per server; waits up to 15 s for a free turn). */
+  async layout(user: string, bytes: Buffer, ext: 'hwp' | 'hwpx', signal?: AbortSignal): Promise<HwpLayout> {
+    if (process.platform === 'linux' && this.files.ctx.config.mode === 'prod' && !converterCgroup()) throw new HwpError('isolation')
+    const engine = this.engine
+    if (!engine.layout) throw new HwpError('disabled')
+    for (const until = Date.now() + 15_000; this.running.has(user) || this.running.size >= L.perServer;) {
+      if (Date.now() > until) throw new HwpError('busy')
+      if (signal?.aborted) throw new HwpError('cancelled')
+      await Bun.sleep(250)
+    }
+    this.running.add(user)
+    const generation = this.generation
+    const job = new AbortController()
+    const onAbort = () => job.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    this.inflight.add(job)
+    try {
+      const r = await engine.layout(bytes, ext, job.signal)
+      if (signal?.aborted) throw new HwpError('cancelled')
+      if (generation !== this.generation || job.signal.aborted) throw new HwpError('changed')
+      return r
     } finally { this.running.delete(user); this.inflight.delete(job); signal?.removeEventListener('abort', onAbort) }
   }
 }
