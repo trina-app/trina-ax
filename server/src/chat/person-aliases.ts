@@ -175,5 +175,10 @@ export function saysTeam(said: string): boolean {
  * and that teammate is `targetId`. `resolve`: rooms/reader.ts resolvedByTitle (passed in: no import cycle). */
 export function titleNames(said: string, targetId: string, resolve: (ref: string) => { one: { id: string } } | { many: unknown[] } | null): boolean {
   const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
-  return titlesIn(own).some((k) => { const r = resolve(k); return !!r && 'one' in r && r.one.id === targetId })
+  const t = own.normalize('NFC').toLowerCase()
+  // (as the recipient only: "<title>(님)께/한테/에게/더러", or "to (my) <title>"; never "팀장님 보고서 민수한테")
+  const asRecipient = (k: string) => /^[a-z]+$/.test(k)
+    ? new RegExp(`\\bto\\s+(?:my\\s+|our\\s+|the\\s+)?${k}(?![a-z])`).test(t)
+    : new RegExp(`${k}\\s?(?:\uB2D8|\uC528)?\\s?(?:\uAED8|\uD55C\uD14C|\uC5D0\uAC8C|\uB354\uB7EC)`, 'u').test(t)
+  return titlesIn(own).some((k) => { if (!asRecipient(k)) return false; const r = resolve(k); return !!r && 'one' in r && r.one.id === targetId })
 }

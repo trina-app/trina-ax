@@ -76,7 +76,7 @@ export function quietRun(db: import('bun:sqlite').Database, turnId: string | nul
 export function ownWorkChat(db: import('bun:sqlite').Database, chatId: string, userId: string, answerId: string | null, quotes: (db: import('bun:sqlite').Database, answerId: string) => boolean): boolean {
   try {
     const ch = db.query('SELECT user_id, others_words, rooms_seen, room_outside, side_room_id FROM chats WHERE id = ?').get(chatId) as { user_id: string; others_words: number; rooms_seen: number | null; room_outside: number; side_room_id: string | null } | null
-    if (!ch || ch.others_words || ch.rooms_seen || ch.room_outside || ch.side_room_id) return false
+    if (!ch || ch.user_id !== userId || ch.others_words || ch.rooms_seen || ch.room_outside || ch.side_room_id) return false
     if (db.query('SELECT 1 FROM turns WHERE chat_id = ? AND outside_content <> 0 LIMIT 1').get(chatId)) return false
     if (db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, userId)) return false
     if (answerId && quotes(db, answerId)) return false
