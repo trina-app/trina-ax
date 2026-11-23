@@ -84,6 +84,20 @@ export class LocalAppsHost {
     return typeof id === 'string' && ID.test(id) ? Object.keys(this.settings(team, id)) : []
   }
 
+  /** The connections of `team` confirmed on this computer (Connect pressed), by id: never a command or a value. */
+  connected(team: string): string[] {
+    return Object.entries(this.data.teams[team] ?? {}).filter(([id, e]) => ID.test(id) && !!e?.confirmed).map(([id]) => id)
+  }
+  /** Settings › Connectors' Remove: the confirm is dropped, so the next call asks again on this computer; a running
+   * program of it stops. Its setting values stay. False for a malformed id or one never confirmed here. */
+  forget(team: string, id: unknown): boolean {
+    if (typeof id !== 'string' || !ID.test(id)) return false
+    this.apps.stop(team, id)
+    if (!this.data.teams[team]?.[id]?.confirmed) return false
+    this.put(team, id, { confirmed: undefined })
+    return true
+  }
+
   private async confirm(c: { team: string; name: string; lines: string[]; program: string }): Promise<boolean> {
     const parent = this.o.parent()
     if (!parent) return false

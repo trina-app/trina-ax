@@ -291,7 +291,8 @@ export const TEXT = {
   /** "Always allow" on any card (chat/always-allow.ts) and what it means, under the buttons */
   cardAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
-  cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
+  // what it covers: every skill or rule save of this person, not only the ones they asked for (ask registry finding)
+  cardAlwaysSkills: t('스킬 저장은 항상 허용', 'Always allow skill saves', 'Selalu izinkan penyimpanan skill', 'スキルの保存は常に許可', 'Permitir siempre guardar habilidades', '始终允许保存技能'),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
   /** cardAlwaysNote for a kind without a line of its own (QA TC-ask2-15: "이런 확인" did not say what Always allow covers,
    * and a copy card after Always allow on read and save looked like a broken promise): {what} is ALWAYS_WHAT[kind] */

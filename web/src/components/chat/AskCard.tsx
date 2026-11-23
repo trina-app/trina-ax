@@ -89,11 +89,12 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            // the team's "Always allow" switch is off (Admin › Team AI settings): no Always on this card
+            choices={withAlways(
               { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
-              { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }) },
+              r.noAlways ? null : { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
               { label: t('browser.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -109,15 +110,17 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <div className="space-y-2 px-4 py-3 text-sm">
           {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
           <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
+          {/* the person's own list is full: no Always, and where to make room */}
+          {r.listFull && <p className="text-xs text-muted" data-testid="dev-env-site-full">{t('devEnvSite.listFull')}</p>}
           <ChoiceRow
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            choices={withAlways(
               { label: t('devEnvSite.allowOnce'), onClick: () => void run({ kind: 'dev_env_site', decision: 'once' }), testId: 'dev-env-site-once' },
-              { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
+              r.listFull ? null : { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
               { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'dev_env_site', decision: 'deny' }), testId: 'dev-env-site-deny' },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -352,9 +355,13 @@ function QuestionText({ r }: { r: { question: string; placeTip?: { text: string;
  * them as a phone shows them: stacked full width, the main one on top (as the skill share card's stacked buttons). On a
  * computer one row in the order of the yes/no card and of every dialog (docs/DESIGN-SYSTEM.md), the row reversed: the
  * "no" first and the main one last, on the right. A failed answer's reason comes after the buttons, under them. */
-const CHOICE_LOOKS = { 3: ['primary', 'secondary', 'ghost'], 4: ['primary', 'secondary', 'secondary', 'ghost'] } as const
+/** the looks by number of choices: two (no "always": the card offers none) keep the quiet "no"; three: once, always,
+ * no; four (a connector card): once, always for this tool, always for the whole connector, no */
+const CHOICE_LOOKS = { 2: ['primary', 'ghost'], 3: ['primary', 'secondary', 'ghost'], 4: ['primary', 'secondary', 'secondary', 'ghost'] } as const
+/** the three choices, or two when "always" is not offered */
+const withAlways = (main: Choice, always: Choice | null, no: Choice): Choice[] => (always ? [main, always, no] : [main, no])
 function ChoiceRow({ choices, busy, error, className }: { choices: Choice[]; busy: boolean; error: string | null; className?: string }) {
-  const looks = CHOICE_LOOKS[choices.length === 4 ? 4 : 3]
+  const looks: readonly ('primary' | 'secondary' | 'ghost')[] = CHOICE_LOOKS[choices.length === 2 ? 2 : choices.length === 4 ? 4 : 3]
   return (
     <div className={className}>
       <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center" data-testid="ask-choices">

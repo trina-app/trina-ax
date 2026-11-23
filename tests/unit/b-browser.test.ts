@@ -11,6 +11,7 @@ import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_FITTED_IMAGES, VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { mp4Available } from '../../server/src/promo-video/render'
@@ -161,6 +162,25 @@ describe('browser tools', () => {
       const d3 = await desk.next('message.done', (f) => f.data.messageId === r3.assistantMessage.id, 20_000)
       expect(d3.data.message.content).toContain('did not allow opening intranet.corp')
     } finally { stop() }
+  })
+
+  test('office-network address with the team "Always allow" switch off: a site kept for good does not count and the card offers no Always (ask registry finding)', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'intranet page' }] }))
+    h.ctx.db.query("INSERT OR IGNORE INTO browser_site_grants (user_id, host) VALUES ('alice', '192.168.10.7')").run()
+    updateTeamSettings(h.ctx.db, { roomAlwaysAllow: false } as never)
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await send(fake({ tool: 'navigate', args: { url: 'http://192.168.10.7/wiki' }, sayResult: true }))(chat.id)
+      const card = await desk.next('turn.request', (f) => f.data.turnId === r.turnId)
+      expect(card.data.request).toMatchObject({ kind: 'browser_site', host: '192.168.10.7', noAlways: true })
+      await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'always' } })
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(d.data.message.content).toBe('intranet page')
+    } finally {
+      updateTeamSettings(h.ctx.db, { roomAlwaysAllow: true } as never)
+      h.ctx.db.query("DELETE FROM browser_site_grants WHERE user_id = 'alice' AND host = '192.168.10.7'").run()
+      stop()
+    }
   })
 
   test('a browser site card waits after the answer (docs/decisions/20261119-safety-cards-wait.md): for that window only, and the answer opens it once in that window', async () => {

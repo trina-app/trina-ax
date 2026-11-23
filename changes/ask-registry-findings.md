@@ -1,0 +1,5 @@
+- "Always allow" now also counts in your own scheduled tasks for moving and copying files, large downloads and AI videos, and in shared chats for deleting files, skill folders, project members and folder access. Who may change what is still checked.
+- Settings › 트리나에게 허용한 것 now lists connectors you let send without asking, and in the desktop app the sites its browser may open. You can remove each one there.
+- Settings › 커넥터 in the desktop app lists the programs connected on this computer, with Remove.
+- Fewer confirms: editing or regenerating an earlier message shows a short note instead of a dialog, restoring a version asks only when someone else's edits would be lost, skipping invites in team setup asks nothing, and links in Office previews open in a new tab.
+- The scheduled task card says it shows every time, and the skill-save button says "Always allow skill saves".

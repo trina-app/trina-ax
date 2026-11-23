@@ -86,6 +86,15 @@ export const TEXT = {
     es: '¿Cambiar esta tarea programada a lo siguiente? Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones.\n\nTítulo: {title}\nHorario: {when}',
     zh: '要把此定时任务改成下面这样吗？它会在无人看管的情况下自动执行下面的指令。请检查指令和其中的地址。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
+  // under the buttons: why this card has no "Always allow" (a kept exception of Rule A, docs/ASKS.md schedule.create)
+  everyTime: {
+    ko: '이 확인은 매번 나와요. 예약 작업은 아무도 보지 않을 때 실행되기 때문이에요.',
+    en: 'This card shows every time: a scheduled task runs when nobody is watching.',
+    id: 'Kartu ini muncul setiap kali: tugas terjadwal berjalan saat tidak ada yang mengawasi.',
+    ja: 'この確認は毎回表示されます。定期タスクは誰も見ていないときに実行されるためです。',
+    es: 'Esta tarjeta aparece cada vez: una tarea programada se ejecuta cuando nadie la vigila.',
+    zh: '每次都会显示此确认：定时任务会在无人看管时运行。',
+  } satisfies L5,
   project: { ko: '프로젝트: {name}', en: 'Project: {name}', id: 'Proyek: {name}', ja: 'プロジェクト：{name}', es: 'Proyecto: {name}', zh: '项目：{name}' } satisfies L5,
   question: {
     ko: 'AI가 예약 작업을 만들려고 해요. 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: {title}\n일정: {when}',
@@ -378,7 +387,7 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & T
     // the query first, so the whole of it is highlighted (a random-looking part inside it is part of that mark)
     details.push({ label: TEXT.labelUrlsLongQuery[L], text: t, marks: [...new Set([...longQuery.map((u) => new URL(u).search), ...opaqueParts(t)])] })
   }
-  return { question: lines.join('\n\n'), urls, longQuery, extra: { details } }
+  return { question: lines.join('\n\n'), urls, longQuery, extra: { details, ...(mode === 'create' ? { note: TEXT.everyTime[L] } : {}) } }
 }
 
 /** The card's answers: with "allow" team connections or pinned own connections the person picks whether runs may send

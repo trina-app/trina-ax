@@ -66,7 +66,22 @@ export const SiteAllowance = z.object({
 })
 export type SiteAllowance = z.infer<typeof SiteAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance])
+/** "Always allow" on a connection's send card (server/src/integrations/connections/tools.ts keepAlwaysAllow): the
+ * person's changes at that service go without the card. On their own connection it is its write rule ("allow"); on a
+ * team connection, their own row (never the admin's rule). Id `send:<connection id>`; taking it back sets their own
+ * connection to asking, or deletes their row (docs/decisions/20261123-ask-registry-findings.md). */
+export const ConnectorSendAllowance = z.object({
+  kind: z.literal('connector_send'),
+  id: z.string(),
+  /** the connection's name */
+  connection: z.string(),
+  /** whose connection: the person's own, or the team's */
+  scope: z.enum(['personal', 'team']),
+  createdAt: z.string(),
+})
+export type ConnectorSendAllowance = z.infer<typeof ConnectorSendAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {

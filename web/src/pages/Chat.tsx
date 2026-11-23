@@ -55,7 +55,7 @@ import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { useRooms } from '../store/rooms'
 import { isGuestMe } from '../lib/guests'
-import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
+import { emptyThread, rowButtonsWait, runningMessage, savedFilesFrom, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import { LinkAskAccess } from '../components/LinkAskAccess'
@@ -78,7 +78,7 @@ import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
-import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
+import { Button, CopyButton, EmptyState, IconButton, Skeleton, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -475,12 +475,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
 
-  /** files the AI changed in the part of the branch that is about to be replaced */
-  const changedFilesFrom = (id: string) => {
-    const i = messages.findIndex((m) => m.id === id)
-    return messages.slice(i).some((m) => (m.files?.saved.length ?? 0) > 0)
-  }
-  const confirmBranch = async (fromId: string) => !changedFilesFrom(fromId) || (await confirmDialog({ title: t('chat.branchConfirmTitle'), body: t('chat.branchConfirmBody'), confirm: t('common.continue') }))
+  // an edit or a new answer goes ahead at once (docs/decisions/20261123-ask-registry-findings.md, decision 10); when the
+  // part it replaces saved files, one line above the box says they stay as they are
+  const [branchNote, setBranchNote] = useState(false)
+  const noteBranch = (fromId: string) => setBranchNote(savedFilesFrom(messages, fromId))
 
   const stopIfRunning = async () => {
     if (running) await stop(chatId).catch(() => {})
@@ -488,7 +486,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   /** with: another engine / model ("retry with another model", people allowed to pick only) */
   const onRegenerate = async (m: ViewMessage, with_?: EnginePick) => {
-    if (!(await confirmBranch(m.id))) return
+    noteBranch(m.id)
     stick.current = true
     try {
       await stopIfRunning()
@@ -498,7 +496,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
     }
   }
   const onEdit = async (m: ViewMessage, text: string) => {
-    if (!(await confirmBranch(m.id))) return
+    noteBranch(m.id)
     stick.current = true
     try {
       await stopIfRunning()
@@ -511,6 +509,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
+    setBranchNote(false)
     const author = { id: me.user.id, name: me.user.name }
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
@@ -878,6 +877,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           <>
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
+          {/* an edit or a new answer replaced a part that saved files: they stay as they are (no confirm before it) */}
+          {branchNote && <p className="pb-2 text-sm text-muted" role="status" data-testid="branch-files-note">{t('chat.branchNotice')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
           {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}

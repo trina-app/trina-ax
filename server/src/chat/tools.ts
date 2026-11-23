@@ -45,7 +45,7 @@ import { tr } from './i18n'
 import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
-import { alwaysHere, withAlways } from './always-allow'
+import { alwaysHere, teamAllowsAlways, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
@@ -71,7 +71,7 @@ import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_TOOLS, SHARED_UNDER_ALWAYS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
@@ -238,7 +238,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // (each call behind the asker's card where some people here could not see the answer:
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
+    // (a tool of SHARED_UNDER_ALWAYS too while the person's own Always for its card is on: Rule A)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom && !(Object.hasOwn(SHARED_UNDER_ALWAYS, t.name) && alwaysHere(exec.alwaysPlace?.(), SHARED_UNDER_ALWAYS[t.name]!) === 'on')) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -251,12 +252,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
   // person there (docs/decisions/20261121-ai-scratch-files.md rule 4, QA TC-7332)
   if (!exec.templateRun) add(deleteFilesTool(exec))
-  // a team project's members behind the server's card (chat/project-members.ts): not offered in
-  // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
-  // everywhere else but the person's own chat with the person there
+  // a team project's members behind the server's card (chat/project-members.ts): not offered in confidential or draft
+  // chats (add() above) nor in an approved template run; in a shared chat only under the person's own Always
+  // (SHARED_UNDER_ALWAYS); refused up front in a scheduled run or a chat others wrote in unless that Always is on
   if (!exec.templateRun) add(projectMembersTool(exec))
-  // a team folder's access for one person or group behind the server's card every time (chat/folder-access-tool.ts):
-  // only in the person's own chat (never shared, confidential, Slack, scheduled, template or restricted, a guest's)
+  // a team folder's access for one person or group behind the server's card (chat/folder-access-tool.ts): the person's
+  // own chat, or under their own Always also a shared chat, a chat others wrote in and their scheduled run (never
+  // confidential, Slack, template or restricted, a guest's)
   if (!folderAccessOff(exec)) add(folderAccessTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
@@ -359,8 +361,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       },
       // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
       // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
-      askSite: async (host, command) => {
-        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
+      askSite: async (host, command, o) => {
+        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, ...(o?.listFull ? { listFull: true as const } : {}), expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
         return answer === 'once' || answer === 'always' || answer === 'deny' ? answer : null
       },
     }))
@@ -1148,6 +1150,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
     unattended: exec.spec.clientKind === 'schedule' || exec.restricted,
+    // the person's own Always for a kind of card, as alwaysHere reads it here (their own scheduled run too, Rule A; the
+    // guest limit kept there): a tool that would refuse an unattended run at once reads it first
+    alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
     // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
@@ -1825,10 +1830,13 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         const host = u.host
         if (!host || !u.href) continue
         const office = async (): Promise<Awaited<ReturnType<Tool['call']>> | 'ok' | 'shown'> => {
-          if (exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host)) return 'ok'
-          const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
-          if (decision === 'always') rt.grantSite(spec.userId, host)
-          else if (decision === 'once') exec.allowedHosts.add(host)
+          // the team's "Always allow" switch (Admin › Team AI settings), as every other Always: off, a site kept for good
+          // does not count (kept, not deleted) and the card offers no Always (an "always" answer counts once)
+          const keep = teamAllowsAlways(rt.db)
+          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) return 'ok'
+          const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }), ...(keep ? {} : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+          if (decision === 'always' && keep) rt.grantSite(spec.userId, host)
+          else if (decision === 'once' || decision === 'always') exec.allowedHosts.add(host)
           else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
           // the office-network card showed the full address (up to 2000 characters)
           return url.length <= 2000 ? 'shown' : 'ok'

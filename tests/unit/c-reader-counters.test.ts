@@ -105,7 +105,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/files/folder-shares.ts": { n: {"users/": 5}, why: "the share's own owner tests" },
   // (the merge of AI sharing and folder sharing, integrate/sharing-all)
   "server/src/chat/share-with-person.ts": { n: {"users/": 1}, why: "a team folder vs one in the person's own files: a folder is refused here and sent to share_folder" },
-  "server/src/chat/folder-access-tool.ts": { n: {"users/": 1}, why: "change_folder_access refuses a folder in someone's own files (team folders only)" },
+  "server/src/chat/folder-access-tool.ts": { n: {"users/": 1, "missingReaders": 1, "import:missingReaders": 1}, why: "change_folder_access refuses a folder in someone's own files (team folders only); missingReaders -> viewersOf (share-aware): in a shared chat only a folder everyone there can open" },
   "server/src/chat/grant-reads.ts": { n: {"viewersOf": 1, "access": 1, "import:viewersOf": 1}, why: "readByGrant: viewersOf (the hook) per read source; the access line: whether a pending path is read by the folder rules" },
   "server/src/admin/folder-save.ts": { n: {"users/": 1}, why: "users/ carries no rules (moved from routes/admin.ts)" },
   "server/src/files/share-fixes.ts": { n: {"users/": 1}, why: "Ask an admin is for team folders only" },

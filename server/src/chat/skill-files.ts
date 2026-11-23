@@ -5,7 +5,9 @@
 // here too). Those are refused before any card, with the reason and where to do it instead: a card nobody can answer
 // is never raised. A chat that has read rooms (chat/read-rooms.ts: a room read, a ✦ side chat, a quoted message) puts
 // nothing into a skill folder (other people's words could have asked for it). The card is the server's (origin
-// 'server'), raised for every call: no earlier answer, room grant or "always" covers it. It shows the full paths, who
+// 'server'), raised for every call unless the person chose "Always allow" for it (withAlways), which also lifts the
+// shared chat, the chat others wrote in, the scheduled run and the room-read refusals (Rule A, docs/decisions/
+// 20261123-ask-registry-findings.md); no earlier answer or room grant covers it. It shows the full paths, who
 // gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
@@ -46,17 +48,21 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   const r = (why: string, next: string, summary: string) => ({ text: nothing(why, next), summary: `${SKILL_FILES_TOOL} -> refused: ${summary}` })
   const own = 'the user can ask for it in one of their own chats, or do it on the Files screen'
   if (files && files !== exec.files) return r('only the main AI may change skill folders, where the user answers its card; a helper (sub-agent) cannot ask the user', 'put it in your report; the main AI calls skill_files itself', 'sub-agent')
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'skill_files') !== 'on') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
-  if (exec.shared) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
+  // the person's own Always for skill-folder changes holds in their scheduled run and in a shared chat or a chat others
+  // wrote in (Rule A, decision 1 of docs/decisions/20261123-ask-registry-findings.md)
+  const always = alwaysHere(exec.alwaysPlace?.(), 'skill_files') === 'on'
+  if (exec.spec.clientKind === 'schedule' && !always) return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
+  if (exec.shared && !always) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return r('this is a confidential chat, which keeps to local tools', 'the user can ask in another chat, or do it on the Files screen', 'confidential chat')
   // a chat of a Slack thread: its answers may be posted to a channel, whose people may not see who gets a skill
   if (exec.spec.clientKind === 'slack' || exec.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(exec.spec.chatId)) return r('this chat answers in Slack, where a channel may read the answer', 'the user can ask in the app, or do it on the Files screen', 'slack')
   // someone else wrote in this chat (it was shared): their words are in it
-  if (exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
+  if (!always && exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
   // a chat that has read rooms (a room read, a side chat, a quoted message): nothing goes into a skill folder (S7)
-  if (intoSkills(args) && readRooms(exec)) return r(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
+  // (not under the person's own Always for skill-folder changes: final after a room read too, Rule A)
+  if (!always && intoSkills(args) && readRooms(exec)) return r(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
   return null
 }
 

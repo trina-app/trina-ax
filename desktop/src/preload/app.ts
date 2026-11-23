@@ -114,6 +114,8 @@ const bridge: DesktopBridge = {
           onConfirmed: on('bridge:local-confirmed'),
           setSettings: (id, values) => ipcRenderer.invoke('bridge:local-settings', String(id), values && typeof values === 'object' ? { ...values } : {}),
           settingNames: (id) => ipcRenderer.invoke('bridge:local-setting-names', String(id)),
+          connected: () => ipcRenderer.invoke('bridge:local-connected'),
+          forget: (id) => ipcRenderer.invoke('bridge:local-forget', String(id)),
         },
       }
     : {}),

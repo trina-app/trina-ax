@@ -6,18 +6,30 @@
 // allowed for a conversation) can join the same list. On a phone this section also holds Browser and Dev environment
 // sites (`folded`, pages/Settings.tsx): its own list is then the first part, under a heading of its own, and a row's
 // 지우기 is an icon with a 44 px target.
+// A connection's send card answered "Always allow" (connector_send) is a row too: "Gmail · 묻지 않고 보내기". Inside the
+// desktop app the list also holds this computer's in-app browser sites (shared/src/desktop-bridge.ts
+// DesktopBrowserSettings; docs/decisions/20261123-ask-registry-findings.md, decision 8): they stay on this computer, so
+// their row says so ("example.com · 이 컴퓨터의 브라우저"), and Remove goes to the app (bridge.removeSite). Not on a phone's
+// folded page, where the Browser part under it lists them already.
 import clsx from 'clsx'
 import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PRODUCT_NAMED_AFTER_AI, type AiAllowance, type CardAllowance, type RoomFilesAllowance, type SiteAllowance } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { browserSettingsBridge, type BrowserSettingsBridge, type DesktopBrowserSettings } from '../../lib/desktop'
 import { formatMonthDay } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../ui'
 import { useRoomTitle } from '../rooms/RoomIcon'
 
-export function AiAllowances({ folded = false }: { folded?: boolean }) {
+/** This computer's in-app browser sites as rows: public ones, then office-network ones not listed already. */
+export function deviceSiteRows(s: DesktopBrowserSettings | null): { host: string; office: boolean }[] {
+  if (!s) return []
+  return [...s.always.map((host) => ({ host, office: s.privateAlways.includes(host) })), ...s.privateAlways.filter((h) => !s.always.includes(h)).map((host) => ({ host, office: true }))]
+}
+
+export function AiAllowances({ folded = false, bridge = browserSettingsBridge() }: { folded?: boolean; bridge?: BrowserSettingsBridge | null }) {
   const t = useT()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const locale = useLocale()
@@ -30,6 +42,33 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // the desktop app's browser sites (not on a phone's folded page: its Browser part lists them)
+  const device = folded ? null : bridge
+  const [sites, setSites] = useState<DesktopBrowserSettings | null>(null)
+  useEffect(() => {
+    if (!device) return
+    let live = true
+    const off = device.onChange((x) => live && setSites(x))
+    device.get().then((x) => live && x && setSites(x), () => {})
+    return () => {
+      live = false
+      off()
+    }
+  }, [device])
+  const deviceRows = deviceSiteRows(sites)
+  const removeSite = async (host: string) => {
+    if (!device) return
+    setBusy(`device:${host}`)
+    try {
+      const next = await device.removeSite(host)
+      if (next) setSites(next)
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(null)
+    }
+  }
+  const deviceWhat = (office: boolean) => t(office ? 'allowances.deviceOffice' : 'allowances.deviceSite')
   const remove = async (a: AiAllowance) => {
     setBusy(a.id)
     try {
@@ -55,16 +94,16 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
       <p className="mb-3 text-sm text-muted">{t('allowances.desc')}</p>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={2} />}
-      {items && !items.length && (
+      {items && !items.length && !deviceRows.length && (
         <p className="text-sm text-muted" data-testid="allowances-empty">
           {t('allowances.empty')}
         </p>
       )}
-      {items && items.length > 0 && (
+      {items && (items.length > 0 || deviceRows.length > 0) && (
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = a.kind === 'card' ? cardName(a) : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'card' ? cardName(a) : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
@@ -78,6 +117,13 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
                       {/* the shared chat card's Always: the connection's answers, not one tool; "<connector> 전체 항상 허용":
                           every tool (docs/decisions/20261123-one-always-allow.md) */}
                       <span>{a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}</span>
+                    </p>
+                  ) : a.kind === 'connector_send' ? (
+                    // a connection's send card answered "Always allow": "Gmail · 묻지 않고 보내기"
+                    <p className="text-sm [overflow-wrap:anywhere]" data-testid="allowance-send">
+                      <span className="font-medium">{a.connection}</span>
+                      <span className="px-1.5 text-faint" aria-hidden>·</span>
+                      <span>{t('allowances.connectorSend')}</span>
                     </p>
                   ) : a.kind === 'site' ? (
                     // a site for good (docs/decisions/20261122-always-allow-holds-everywhere.md): "example.com · 웹 주소 열기"
@@ -103,6 +149,32 @@ export function AiAllowances({ folded = false }: { folded?: boolean }) {
                   </IconButton>
                 ) : (
                   <Button size="sm" variant="ghost" busy={busy === a.id} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void remove(a)} data-testid="allowance-delete">
+                    {t('allowances.delete')}
+                  </Button>
+                )}
+              </li>
+            )
+          })}
+          {/* this computer's in-app browser sites (kept by the desktop app, not the team server) */}
+          {deviceRows.map((r) => {
+            const place = `${r.host} · ${deviceWhat(r.office)}`
+            const key = `device:${r.host}`
+            return (
+              <li key={key} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === key && 'opacity-60')} data-testid="allowance-row" data-device="">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm [overflow-wrap:anywhere]" data-testid="allowance-device-site">
+                    <span className="font-medium">{r.host}</span>
+                    <span className="px-1.5 text-faint" aria-hidden>·</span>
+                    <span>{deviceWhat(r.office)}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">{t('allowances.always')}</p>
+                </div>
+                {phone ? (
+                  <IconButton label={t('allowances.deleteLabel', { place })} className="touch-hit shrink-0" disabled={!!busy} onClick={() => void removeSite(r.host)} data-testid="allowance-delete">
+                    <Trash2 size={16} />
+                  </IconButton>
+                ) : (
+                  <Button size="sm" variant="ghost" busy={busy === key} disabled={!!busy} aria-label={t('allowances.deleteLabel', { place })} onClick={() => void removeSite(r.host)} data-testid="allowance-delete">
                     {t('allowances.delete')}
                   </Button>
                 )}

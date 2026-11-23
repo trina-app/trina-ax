@@ -211,7 +211,9 @@ export const AskUserRequest = z.object({
   share: ShareCardAsk.optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
-export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
+export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional(),
+  /** the team's "Always allow" switch is off (Admin › Team AI settings): the card offers no Always; older servers omit it */
+  noAlways: z.literal(true).optional() })
 /** The AI filled in a connection for the person to finish (connect_service, docs/INTEGRATIONS.md "Connecting from a chat").
  * The card shows where a key or sign-in goes (`service.host`). The person pastes the key into the card or signs in; the
  * key goes from the card to POST /api/turns/:id/connect sealed in the browser ('integration.secret'), never through
@@ -265,6 +267,9 @@ export const DevEnvSiteRequest = z.object({
   host: z.string(),
   /** the command that needs it, secrets hidden */
   command: z.string().optional(),
+  /** the person's own list of allowed sites is full (DEV_ENV_MAX_USER_SITES): the card offers no Always and says so,
+   * with where to remove sites; older servers omit it */
+  listFull: z.literal(true).optional(),
   expiresAt: z.string().optional(),
 })
 export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest, DevEnvSiteRequest])
