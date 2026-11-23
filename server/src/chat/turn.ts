@@ -128,7 +128,7 @@ import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
-import { stepArgs, stepResult, STEP_NOTES_MAX, STEP_RECORD_MIN_BUDGET, withStepRecords, type StepNotes } from './step-record'
+import { stepArgs, stepResult, STEP_NOTES_MAX, STEP_RECORD_MIN_BUDGET, withStepRecords, type RecordItem, type StepNotes } from './step-record'
 import { HISTORY_MAX_TOKENS, memoryTokensOf } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
@@ -172,7 +172,7 @@ import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, othersSessionFiles, ownSessionOn, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { mapCopyText } from './copy-paths'
-import { afterCutover, answerHiddenFrom, answerRecord, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
+import { afterCutover, answerHiddenFrom, answerRecord, answerRecords, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, SHARED_LATER, type ChatRow, type ProjectRow, type StoredStep } from './store'
@@ -976,6 +976,7 @@ export class TurnExec {
     // them in this answer too
     let ownSince: string | null = null
     let held: ReadGroup[] = []
+    let ownAnswers: string[] = []
     let resume = false
     // (Codex and the API engine always start fresh; so does the first message)
     if (this.shared) {
@@ -991,8 +992,10 @@ export class TurnExec {
         // what others wrote since, as this person may see it; more than the window holds: a fresh session (summary)
         const items = leak ? [] : rt.history(userMsg.parent_id, { runner: spec.userId, withheld: hidden, everyone: true, copies: chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined })
         const after = new Set(path.slice(at + 1))
-        const since = leak ? null : sinceOwnBlock(items.filter((x) => after.has(x.id)))
-        if (since !== null) { sid = own.sid; resume = true; ownSince = since; held = h }
+        // (with the step records of the answers in it the person may get: another person's work, so this one goes on
+        // from it, chat/step-record.ts)
+        const since = leak ? null : sinceOwnBlock(this.withRecords(items.filter((x) => after.has(x.id)), true, chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined))
+        if (since !== null) { sid = own.sid; resume = true; ownSince = since; held = h; ownAnswers = own.answers }
       }
     } else {
       resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
@@ -1038,7 +1041,14 @@ export class TurnExec {
         // another person's record: their card's yes covered what their answer read, not what this session read)
         const plainKeys = new Set(held.filter((g) => !g.k && !g.y).flatMap((g) => g.s.map(sourceKey)))
         const covered = new Set(held.filter((g) => g.k || g.y).flatMap((g) => g.s.map(sourceKey)).filter((k) => !plainKeys.has(k)))
-        const rest = [...(readScope(rt.db, spec.chatId) ?? []), ...held.filter((g) => !g.k && !g.y).flatMap((g) => g.s)].filter((x) => !covered.has(sourceKey(x)))
+        // the chat's read scope holds every person's reads: one in another person's answer record and in none of this
+        // session's is theirs (their session holds it, never this one); what no record holds (a room, Slack, ...) counts
+        const heldKeys = new Set(held.flatMap((g) => g.s.map(sourceKey)))
+        const othersKeys = new Set<string>()
+        const mine = new Set(ownAnswers)
+        for (const [id, rec] of answerRecords(rt.db, spec.chatId)) if (!mine.has(id)) for (const g of rec.reads) for (const x of g.s) othersKeys.add(sourceKey(x))
+        const scope = (readScope(rt.db, spec.chatId) ?? []).filter((x) => heldKeys.has(sourceKey(x)) || !othersKeys.has(sourceKey(x)))
+        const rest = [...scope, ...held.filter((g) => !g.k && !g.y).flatMap((g) => g.s)].filter((x) => !covered.has(sourceKey(x)))
         if (rest.length && missingReaders(rt.db, rules, rest, this.sharedAudience()).length) ok = false
         const all = held.flatMap((g) => g.s)
         if (ok && all.length && missingReaders(rt.db, rules, all, [spec.userId]).length) ok = false
@@ -1155,19 +1165,7 @@ export class TurnExec {
       const copies = copiesNow()
       const h = rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared, copies } : null)
       if (historyBudget !== undefined && historyBudget < STEP_RECORD_MIN_BUDGET) return h
-      try {
-        const me = this.principal
-        const rules = rt.files.rules()
-        const audience = this.shared ? this.sharedAudience() : []
-        const everyone = this.shared ? this.audienceReadable() : null
-        const canList = (p: string) => !!me && rules.canList(me, p.split('/').filter(Boolean)) && (!everyone || everyone(p))
-        const shared = this.shared ? {
-          hiddenFrom: (id: string) => answerHiddenFrom(rt.db, rt.files, spec.chatId, id, audience).size > 0,
-          // (no turn row: counted as before the share, as ChatStore.viewSteps does)
-          sharedLater: (id: string) => { const r = rt.db.query('SELECT t.shared_checked AS c FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?').get(id) as { c: number | null } | null; return !r || r.c === null || r.c === SHARED_LATER },
-        } : undefined
-        return withStepRecords(rt.db, h, { asker: spec.userId, several, withheld: this.sharedWithheld, canList, shared, ...(copies?.size ? { mapText: (t: string) => mapCopyText(t, copies) } : {}) })
-      } catch (e) { rt.log.warn('step records for the history failed', { err: e, turn: this.id }); return h }
+      return this.withRecords(h, several, copies)
     }
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
@@ -4164,6 +4162,29 @@ export class TurnExec {
     this.live?.forget()
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
+  }
+
+  /** The history items with the step records of the answers this person may get them for (chat/step-record.ts): their
+   * own, and in a chat shared now other people's answers they see. In a shared chat the new answer is everyone's to
+   * read: a line names the paths it keeps aside only when the asker and everyone who sees the chat now may list them,
+   * and an earlier answer hidden from any of them, or from before the share, gives no arguments or results. A failure
+   * leaves the text alone, as before. */
+  private withRecords<T extends RecordItem>(h: T[], several: boolean, copies?: ReadonlyMap<string, unknown>): T[] {
+    const rt = this.rt, spec = this.spec
+    try {
+      const me = this.principal
+      const rules = rt.files.rules()
+      const audience = this.shared ? this.sharedAudience() : []
+      const everyone = this.shared ? this.audienceReadable() : null
+      const canList = (p: string) => !!me && rules.canList(me, p.split('/').filter(Boolean)) && (!everyone || everyone(p))
+      const shared = this.shared ? {
+        hiddenFrom: (id: string) => answerHiddenFrom(rt.db, rt.files, spec.chatId, id, audience).size > 0,
+        // (no turn row: counted as before the share, as ChatStore.viewSteps does)
+        sharedLater: (id: string) => { const r = rt.db.query('SELECT t.shared_checked AS c FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?').get(id) as { c: number | null } | null; return !r || r.c === null || r.c === SHARED_LATER },
+      } : undefined
+      const map = copies?.size ? { mapText: (t: string) => mapCopyText(t, copies as never) } : {}
+      return withStepRecords(rt.db, h, { asker: spec.userId, several, withheld: this.sharedWithheld, canList, shared, ...map })
+    } catch (e) { rt.log.warn('step records for the history failed', { err: e, turn: this.id }); return h }
   }
 
   /** What this person's own session of a shared chat holds of its answers (ownSessionOn): the groups of their records
