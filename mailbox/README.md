@@ -5,6 +5,9 @@ Reference code for **email into rooms** (plan
 and the mailbox that a team server pulls room mail from. The contract is
 [shared/src/cloud-protocol/mail-in.ts](../shared/src/cloud-protocol/mail-in.ts) (MIT).
 
+**The hosting service runs it on AWS (Amazon SES on `in.trina.app`): [mailbox-ses/](../mailbox-ses/README.md).** The Cloudflare
+entry (`worker.ts`, `wrangler.example.toml`) stays as a reference only.
+
 **It is not deployed from this repository.** No Cloudflare account, domain, DNS record or production service is set
 up by this code or its tests. The ops steps are in
 [docs/runbooks/room-email-mailbox.md](../docs/runbooks/room-email-mailbox.md).
