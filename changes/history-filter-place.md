@@ -1,1 +1,0 @@
-- The Trina history's filter is now on the **Trina history** header, right above the list it controls, on the computer and the phone. **New section** moved out of the filter into that header's **⋯** menu, so the filter menu is only about the view.

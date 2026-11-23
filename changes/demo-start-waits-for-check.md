@@ -1,2 +1,0 @@
-- The live demo's **Start** button no longer fails when pressed during the browser check. It shows that it is checking and starts the demo by itself when the check is done. If the check really fails, the page says so and offers **Try again**.
-- The live demo's landing page has a language picker, so a visitor can choose their language whatever their browser is set to. The demo then opens in that language.

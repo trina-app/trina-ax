@@ -1,4 +1,0 @@
-- A scheduled task made without its card no longer changes who can open a folder or a project, even under "Always allow".
-- Under "Always allow", Trina changes folder access or project members only for people your own message names when a guest is in the shared chat, or when a scheduled run read other people's words.
-- "Send this to my manager" now asks first when Trina only guessed who your manager is; your yes is remembered.
-- Undo on a folder share keeps people you added to that folder by hand.
