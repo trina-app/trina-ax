@@ -57,7 +57,7 @@ function exec(o: O) {
     askPerson: async () => { throw new Error('no card may be asked') }, alwaysPlace: () => place,
   } as never
 }
-const text = (r: { content: { text?: string }[] }) => r.content[0]!.text ?? ''
+const text = (r: { content: readonly unknown[] }) => (r.content[0] as { text?: string } | undefined)?.text ?? ''
 const ledger = () => (db().query("SELECT r.subject_id AS s FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'Ledger' AND r.subject_type = 'user'").all() as { s: string }[]).map((r) => r.s).sort()
 const newChat = async (user: string, body: Record<string, unknown> = {}) => (await h.api(user).call(API.createChat, { body })).id as string
 
