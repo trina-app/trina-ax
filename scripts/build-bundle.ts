@@ -50,6 +50,7 @@ import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 import { flatFile, linuxList } from './system/packages'
+import { PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES } from '../server/src/promo-video/audio'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -304,6 +305,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
+    // what the promo video's MP4 reads from the version folder (promo-video/render.ts offers it only with all of them)
+    ...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES,
     // every entry point built (main.js and the workers)
     ...ENTRIES.map(([, out]) => `server/src/${out}`),
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
@@ -395,6 +398,13 @@ export async function buildLinuxBundle(o: {
   for (const f of PRETENDARD_STATIC) {
     fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
+
+  // the promo video's font and sounds, with the sounds' sources and licences: the MP4 render reads them from here
+  for (const f of [...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES]) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true })
+    fs.copyFileSync(path.join(REPO, f), path.join(dir, f))
+    fs.chmodSync(path.join(dir, f), 0o644)
   }
 
   // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)
