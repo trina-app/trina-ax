@@ -24,8 +24,11 @@
   own Always holds).
 - **Rule, the create tier in a shared chat:** a tool that only makes something new (20261123-do-then-undo.md) runs with
   no card in a shared chat where nobody else wrote, no room was read and nothing someone else wrote came in (it used to
-  never hold there, since any shared chat counted as other people's words). The short answer of such a create (at most
-  300 characters, no file, no link, not an error: "created v10") does not count as outside content that ends the tier.
+  never hold there, since any shared chat counted as other people's words). A short answer of such a create (at most
+  2,000 characters, no file, no link, not an error) reaches the AI only as a line the server builds (that it ran, and its
+  version-like numbers, "v10"), never the service's words, so it does not count as outside content that ends the tier
+  (security review: a short answer can still carry instructions). Another person's message counts as soon as it is
+  written (read live, not only at the turn's start).
 - **Rule, one card per call:** a call of the same tool with the same arguments while its card waits (the AI called it
   again before the press) gets that same card, so one press runs it once (flow 3 made the app twice).
 - **Why:** the per-answer card asked again in every answer (flow 3: 9 cards for 4 creates); a team connection everyone

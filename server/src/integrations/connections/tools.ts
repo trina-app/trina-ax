@@ -226,12 +226,19 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row, plain = false) {
   })()
 }
 
-/** The short answer of a create the create tier let through (gate: nothing from outside, nobody else's words) says what
- * was made ("앱 \"견적-계산기\"을 만들었습니다 (v10)"): it joins the chat's sources, but does not count as outside content
- * that ends the tier for the next create of the same answer or chat (QA batch 5 flow 3: every create after the first
- * asked). A longer or error answer, a file kept or an image, marks the chat as before. */
-const TIER_ANSWER_MAX = 300
+/** A create the create tier let through (gate: nothing from outside, nobody else's words) that succeeded with a short
+ * answer: the AI never gets the service's words, only a line the server builds (that it ran, and the version-like tokens
+ * of the answer: "v10", "42"), so nothing the service wrote can steer what comes next and the chat is not marked as
+ * holding outside content (QA batch 5 flow 3: every create after the first asked). It still joins the chat's sources. A
+ * longer or error answer, a file kept, an image or a link: the answer as it is, and the chat marked as before (security
+ * review: a 300-character answer can carry instructions, so it is never shown as it is without the mark). */
+const TIER_ANSWER_MAX = 2000
 const plainTierAnswer = (sent: Sent | null, text: string, isError: boolean | undefined, kept: number) => !!sent?.tier && !isError && !kept && text.length <= TIER_ANSWER_MAX
+/** the server's own line for such an answer: the tool, the service and at most five short tokens with a digit */
+function tierLine(service: string, tool: string, text: string): string {
+  const tokens = [...new Set(text.match(/(?<![\p{L}\p{N}])[vV#]?\d[\p{N}.\-]{0,15}(?![\p{L}\p{N}])/gu) ?? [])].slice(0, 5)
+  return `${tool} ran at ${service} and reported success.${tokens.length ? ` Numbers in its answer: ${tokens.join(', ')}.` : ''} (Its own words are not shown here.)`
+}
 
 /**
  * A shared chat (BuildCtx.shared; docs/decisions/20261118-shared-chat-connections.md): before anything is fetched, a
@@ -1322,7 +1329,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           parsed = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
           plain = plainTierAnswer(sent, parsed.text, parsed.isError, parsed.kept.length) && !parsed.links.length
         } finally { noteAnswer(ctx, chat, current, plain) }
-        const { text: raw, isError, links, kept } = parsed
+        const { text: answered, isError, links, kept } = parsed
+        const raw = plain ? tierLine(current.name, t.name, h.hide(answered)) : answered
         // a draft the person said yes to on its card: sending it unchanged needs no second card (chat/card-approvals.ts)
         if (sent && !isError) keepMade(ctx, current, b, t.name, sent, raw)
         // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model

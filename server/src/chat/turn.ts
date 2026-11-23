@@ -5633,7 +5633,7 @@ export class TurnExec {
     // the same call is waiting on this same card already (the AI called it again before the press): that card is this
     // call's too, so one press runs it once (QA batch 5 flow 3: "Create app" twice, the app made twice)
     let twin: string | null = null
-    try { twin = waitingTwin(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, tool: call.name, args: call.args, request: card as TurnRequest }) } catch (e) { this.rt.log.warn('waiting card lookup failed', { err: e, turn: this.id }) }
+    try { twin = waitingTwin(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, tool: call.name, args: call.args, request: card as TurnRequest, window: o.window ?? null }) } catch (e) { this.rt.log.warn('waiting card lookup failed', { err: e, turn: this.id }) }
     if (twin) { call.deferred = twin; this.cardMissing.set(request.requestId, 'ended'); return true }
     const window = o.window ?? null
     // what the replay needs (open-questions.ts CallMeta): the first asking turn (a card re-raised while the call runs
