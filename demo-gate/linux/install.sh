@@ -129,7 +129,7 @@ visudo -cqf "$HERE/sudoers" || die "sudoers file does not check"
 install -m 440 -o root -g root "$HERE/sudoers" /etc/sudoers.d/trina-demo
 # the host's own sudo settings: I/O logging needs a pty (off for tdgate in our file); a log file only grows
 if grep -hsE '^[[:space:]]*Defaults[^#]*(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -qv 'tdgate'; then
-  say "note: this host logs sudo input/output; /etc/sudoers.d/trina-demo turns it off for tdgate"
+  die "this host logs sudo input/output (log_output/log_input): add Defaults:tdgate !log_output, !log_input for sudo.ws, then run install.sh again"
 fi
 if grep -hsE '^[[:space:]]*Defaults[^#]*logfile' /etc/sudoers /etc/sudoers.d/* >/dev/null; then
   say "note: this host's sudo writes a log file; every instance the gate starts or checks adds lines to it"

@@ -92,6 +92,9 @@ LockPersonality, RestrictRealtime, RestrictSUIDSGID or SystemCallArchitectures, 
 root; install.sh checks sudo plus the instance sandbox in a transient unit with the gate unit's properties before the
 start, and that the gate warms an instance after (else it stops the units). The overflow uid counts as root only for
 the explicit MYCEL_HTML_PDF_BROWSER inside the folder MYCEL_SANDBOX_ROOT_UNMAPPED names (/opt/trina-demo). Secrets
-must be plain files; I/O logging of sudo is off for tdgate.
+must be plain files. Ubuntu 26.04's sudo is sudo-rs: the sudoers file sets only `Defaults:tdgate !use_pty` (sudo-rs
+refuses requiretty and log_output; it never asks for a tty and has no I/O logging); install.sh stops if a sudo.ws host
+logs I/O. The first install run also found that install.sh read its hosting files from the stage copy after moving
+the app out of it (fixed).
 
 PR: https://github.com/trina-app/trina-ax/pull/446
