@@ -202,3 +202,29 @@ describe('a schedule the person asked for in their own words', () => {
     expect(typed.card).toBeNull()
   })
 })
+
+describe('a title names one person (chat/person-aliases.ts)', () => {
+  const title = (id: string, t: string) => h.ctx.db.query('INSERT INTO user_profiles (user_id, title) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET title = excluded.title').run(id, t)
+  test('"팀장님한테 보내줘" with one 팀장 in the directory: sent to them with no card and no question', async () => {
+    title('carol', '팀장')
+    try {
+      const r = await turn('alice', `팀장님한테 회의 10시라고 보내줘\n${post({ room: '팀장님', text: '회의 10시' })}`)
+      expect(r.card).toBeNull()
+      const out = JSON.parse(r.content)
+      expect(out).toMatchObject({ status: 'sent' })
+      expect(out.note).toContain('"팀장"')
+      const dm = (h.ctx.db.query("SELECT r.id FROM rooms r WHERE r.kind = 'dm' AND r.dm_key = ?").get(['alice', 'carol'].sort().join('|')) as { id: string })
+      expect((await messagesAs('carol', dm.id)).at(-1)!.body).toBe('회의 10시')
+    } finally { h.ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run('carol') }
+  })
+  test('two people with the title: nothing is sent to either without the person\'s pick', async () => {
+    title('carol', '팀장'); title('dana', '팀장')
+    try {
+      const r = await turn('alice', `팀장님한테 회의 11시라고 보내줘\n${post({ room: '팀장님', text: '회의 11시' })}`)
+      expect(r.card).toBeNull()
+      expect(r.content).toContain('Nothing was posted')
+      expect(r.content).toMatch(/several|which one/)
+    } finally { h.ctx.db.query("DELETE FROM user_profiles WHERE user_id IN ('carol', 'dana')").run() }
+  })
+})
+

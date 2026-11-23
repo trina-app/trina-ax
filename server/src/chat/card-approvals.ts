@@ -39,6 +39,10 @@ export type ApprovalKind =
   /** a server card's "Always in this chat" (chat/always-allow.ts keepAlwaysAt) in a turn with a guest among the people,
    * where Always is never kept for good: target = the card's kind; detail.c = who saw the chat then */
   | 'card_always'
+  /** content from sources some recipients could not see that the person sent on a post card in this chat (chat/post-to-
+   * room.ts; docs/decisions/20261123-do-then-undo.md "one card per source"): target ''; detail.keys = the sources
+   * (sourceKey). A later post to a place their own words name, of content from those sources only, needs no card */
+  | 'post_sources'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12

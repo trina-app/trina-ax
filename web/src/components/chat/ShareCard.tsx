@@ -90,7 +90,10 @@ function useLive(ids: readonly string[]): { live: ShareCardState[] | null; reloa
 }
 
 /** `fixes`: the step's server offers (Step.fixes); the one the record's `next.fixId` names is this card's button. */
-export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes?: readonly StepFix[] }) {
+/** how long a share that went without a card offers 취소 (docs/decisions/20261123-do-then-undo.md) */
+const SHARE_UNDO_MS = 10_000
+
+export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShared; fixes?: readonly StepFix[]; endedAt?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const ids = useMemo(() => shared.files.map((f) => f.linkId).filter((x): x is string => !!x), [shared])
@@ -98,9 +101,18 @@ export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [listed, setListed] = useState(false)
+  // a share just done: 취소 takes back exactly the people it added (never those who could open it already), for a few
+  // seconds; Manage access stays for later
+  const [undoLeft, setUndoLeft] = useState(() => (endedAt && shared.op === 'share' && shared.outcome === 'done' && shared.who.length ? Math.max(0, Date.parse(endedAt) + SHARE_UNDO_MS - Date.now()) : 0))
+  const [taken, setTaken] = useState(false)
+  useEffect(() => {
+    if (undoLeft <= 0) return
+    const id = setTimeout(() => setUndoLeft(0), undoLeft)
+    return () => clearTimeout(id)
+  }, [undoLeft])
   const restored = isRestored(shared, live)
   const mine = liveFiles(shared, live)
-  const title = shareHeadline(t, locale, shared, restored)
+  const title = taken ? t('shareCard.takenBack') : shareHeadline(t, locale, shared, restored)
   const notes = shareNotes(t, locale, shared, restored)
   const refused = shared.outcome === 'refused'
   const stop = shared.op === 'stop' && !restored
@@ -133,10 +145,30 @@ export default function ShareCard({ shared, fixes }: { shared: StepShared; fixes
     }
   }
 
+  const takeBack = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const remove = shared.who.map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
+      for (const f of mine) await api.call(API.putFileShares, { body: { path: f.path, add: [], remove } })
+      fileSharesChanged.emit()
+      setTaken(true)
+      setUndoLeft(0)
+    } catch (e) {
+      setError(e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, t('shareCard.undoFailed')) : t('shareCard.undoFailed'))
+    } finally {
+      setBusy(false)
+      reload()
+    }
+  }
+
   const Next = refused && shared.next ? nextButtons[shared.next.kind] : undefined
   const button = refused
     ? (Next && shared.next ? Next({ next: shared.next, shared, fix: fixes?.find((f) => f.id === shared.next?.fixId) }) : null)
     : !mine.length ? null
+    : taken ? null
+    : undoLeft > 0 && !shared.files[0]?.folder
+      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{t('postedCard.undo')}</Button>
     // (a folder's Undo is the server's only: past its time the button is Manage access)
     : stop && (undoId || !shared.files[0]?.folder)
       ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('shareCard.undo')}</Button>

@@ -1,7 +1,8 @@
 // share_folder (server/src/chat/share-folder.ts; docs/decisions/20261116-share-folder-tool.md; the folder-sharing design's
 // PR 6 with security review M6, M7, M9; QA "Manual AI tests" MAN-019): the AI shares a folder in the asker's own files.
 // An add shows the server's card with "Always allow" for folder shares (kind share_folder, its own; once chosen it is
-// final: Rule A, docs/decisions/20261116-sharing-all-integration.md) and never the explicit-ask skip; a stop or removal
+// final: Rule A, docs/decisions/20261116-sharing-all-integration.md), and none when the asker's own message asked for
+// exactly it (docs/decisions/20261123-do-then-undo.md); a stop or removal
 // narrows, so it runs
 // without a card when the asker's own message names the folder, and its record carries the server's Undo. A folder is
 // named only by its path, its place in words, a quoted name or the app's own mention. Off where nobody can answer a
@@ -97,29 +98,35 @@ describe('sharing a folder: always the card', () => {
 
   test('Cancel shares nothing', async () => {
     const dir = folder('bob', 'Cancel')
-    const r = await turn('bob', `Share "${dir.split('/').pop()}" with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'no' })
+    // (no ask in the person's own words: the card; docs/decisions/20261123-do-then-undo.md)
+    const r = await turn('bob', `go ahead\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.content).toContain('chose not to share')
     expect(peopleOn('bob', dir)).toEqual([])
   })
 
-  test('Always allow for FILE shares on, and the folder and person named in a share request: the folder card still shows (its own kind; no explicit-ask skip either)', async () => {
+  test('Always allow for FILE shares on: the folder card still shows (its own kind); the folder and person named in a share request: no card (docs/decisions/20261123-do-then-undo.md)', async () => {
     keepAlways(h.ctx.db, 'bob', 'share_files', null)
     // (Always allow is really on: a file share asked the same way goes without its card)
     put('users/bob/plain-file.txt')
     const file = await turn('bob', `share plain-file.txt with Tess Yoon\n${swp({ paths: ['users/bob/plain-file.txt'], people: ['Tess Yoon'] })}`)
     expect(cardsTo('bob', file.turnId)).toBe(0)
     const dir = folder('bob', 'Always')
-    const r = await turn('bob', `share the folder ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'no' })
+    const r = await turn('bob', `go on\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.card).not.toBeNull()
     expect(r.card!.options!.map((o) => o.value)).toEqual(['yes', '__always', 'no'])
     expect(peopleOn('bob', dir)).toEqual([])
+    // the person's own message asks for exactly this share: done without the card, its card has the undo
+    const asked = await turn('bob', `share the folder ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`)
+    expect(cardsTo('bob', asked.turnId)).toBe(0)
+    expect(peopleOn('bob', dir)).toEqual(['tess'])
+    expect(JSON.parse(asked.content).note).toContain('without a confirmation card')
   })
 
   test('"Always allow" for folder shares: picked on the card it shares and is kept; then no card, also after other people\'s words in my own chat; a stop still asks unless named', async () => {
     const kind = () => h.ctx.db.query("SELECT 1 FROM card_always_allow WHERE user_id = 'bob' AND kind = 'share_folder'").get()
     try {
       const one = folder('bob', 'AlwaysF')
-      const r = await turn('bob', `Share "${one.split('/').pop()}" with Tess Yoon\n${sf({ folder: one, add: ['Tess Yoon'] })}`, { answer: '__always' })
+      const r = await turn('bob', `go ahead\n${sf({ folder: one, add: ['Tess Yoon'] })}`, { answer: '__always' })
       expect(r.card).not.toBeNull()
       expect(peopleOn('bob', one)).toEqual(['tess'])
       expect(kind()).not.toBeNull()
@@ -245,7 +252,7 @@ describe('stopping and taking people off: narrowing, server Undo', () => {
 
   test('P6-3: the audit names the turn (add, remove, stop, and a refusal before any change); the undo snapshot names the step', async () => {
     const dir = folder('bob', 'Audit')
-    const added = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { answer: 'yes' })
+    const added = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`)
     const add = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'folder_share.add' AND actor_id = 'bob' ORDER BY id DESC").get() as { detail: string }
     expect(JSON.parse(add.detail)).toMatchObject({ via: 'ai', turnId: added.turnId })
     const removed = await turn('bob', `stop sharing ${dir} with Tess Yoon\n${sf({ folder: dir, remove: ['Tess Yoon'] })}`)
@@ -323,8 +330,9 @@ describe('other people\'s words in the chat', () => {
     const noPerson = await turn('bob', `share ${dir} with her\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId })
     expect(noPerson.content).toContain('only with the people the user')
     mark()
-    const ok = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId, answer: 'yes' })
-    expect(ok.card).not.toBeNull()
+    // (named in full in the person's own words: no card, docs/decisions/20261123-do-then-undo.md)
+    const ok = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId })
+    expect(cardsTo('bob', ok.turnId)).toBe(0)
     expect(JSON.parse(ok.content).status).toBe('shared')
   })
 

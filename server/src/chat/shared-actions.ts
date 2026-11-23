@@ -137,7 +137,8 @@ const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|
  * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까", and a request word that goes on as something else
  * ("공유해줘서 고마워요", "공유해줘야 하나요", "공유해줘도 되나", "공유해 달라고 했던") name nobody to share with */
 const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)(?!\\s?(?:\\uC11C|\\uC57C|\\uB3C4|\\uACE0|\\uB77C|\\uC694\\s?\\?))`
-const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
+// (the Korean room or channel word may stand apart from the name: "<name> room-to", QA F5 2026-11-23)
+const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\s?\\uBC29\\uC73C\\uB85C|\\s?\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\s?\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
   const e = escapeRe(n)
@@ -486,6 +487,10 @@ export const POST_ASK = re([`\\uC62C\\uB824${ASK_END}`, `\\uBCF4\\uB0B4${ASK_END
 export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB9CC\\uB4E4\\uC5B4|\\uC62E\\uACA8|\\uB2EC\\uC544)${ASK_END}`,
   `(\\uC218\\uC815|\\uCD94\\uAC00|\\uC791\\uC131|\\uC5C5\\uB370\\uC774\\uD2B8|\\uBCC0\\uACBD|\\uB4F1\\uB85D)\\s?\\uD574${ASK_END}`,
   '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
+/** a scheduled task in the person's words: when it runs (every day, every week, every N, tomorrow, weekdays, in each
+ * language) or the word itself (schedule, reservation, jadwal). tools/schedules.ts: a task the person asked for in their
+ * own words is made without its card (docs/decisions/20261123-do-then-undo.md) */
+export const SCHEDULE_ASK = re(['\\uB9E4\\uC77C', '\\uB9E4\\uC8FC', '\\uB9E4\\uB2EC', '\\uB9E4\\uC6D4', '\\uB9E4\\uB144', '\\uD3C9\\uC77C', '\\uB9C8\\uB2E4', '\\uB0B4\\uC77C', '\\uBAA8\\uB808', '\\uC608\\uC57D', '\\u6BCE\\u65E5', '\\u6BCE\\u9031', '\\u6BCE\\u6708', '\\u6BCE\\u671D', '\\u660E\\u65E5', '\\u5B9A\\u671F', '\\u6BCF\\u5929', '\\u6BCF\\u5468', '\\u6BCF\\u6708', '\\u660E\\u5929', '\\u5B9A\\u65F6', '\\b(every|daily|weekly|monthly|hourly|tomorrow|schedule|remind me|setiap|besok|jadwal|cada|ma\\u00F1ana|todos los|programa)\\b'])
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
 

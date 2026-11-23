@@ -22,6 +22,7 @@ import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
 import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
+import { aliasOf, isOwnerTitle, learnAlias, notePending, titleKey, titlesIn } from '../chat/person-aliases'
 import { findForm, isStatusEmoji, searchForms } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
@@ -192,9 +193,61 @@ export function findRoom(db: Database, userId: string, ref: string, only?: strin
 
 /** A teammate post_to_room can reach (findPeople): `dmRoomId` is our 1:1 chat when there is one I am in; `exact`: the
  * name or username was given in full, not a part of it. */
-export interface Teammate { id: string; name: string; dmRoomId: string | null; exact: boolean }
+export interface Teammate { id: string; name: string; dmRoomId: string | null; exact: boolean
+  /** found by a title or role the person used ("팀장님"), not by a name (chat/person-aliases.ts): how, and the title as
+   * matched. Exactly one such match counts as the person naming that teammate (docs/decisions/20261123-do-then-undo.md) */
+  via?: { how: TitleHow; ref: string }
+  /** a name or id that answered a title the server could not tell: the title kept as the person's alias now */
+  learned?: string }
+/** How a title found its teammate: the person's own alias, a profile title, the team's owner, the project's creator, the
+ * one owner or admin */
+export type TitleHow = 'alias' | 'title' | 'owner' | 'creator' | 'staff'
 /** How post_to_room names a teammate found by findPeople (`room: "person:<id>"`), for the candidates it gives back */
 export const PERSON_REF = 'person:'
+/** For the descriptions of the tools that send or share to a person: a title is given as the user said it */
+export const TITLE_REF_LINE = ' A title or role the user calls someone by ("팀장님", "my manager", "대표님") can be given as it is: the server finds that teammate in the team\'s directory and the names the user taught it, and when it cannot tell it lists who could be meant (ask the user once; their answer is remembered).'
+
+/** The active people of this team but me that I may reach (the same people the app's new 1:1 chat may open). */
+function reachablePeople(db: Database, userId: string) {
+  const reach = reachFilter(db, userId)
+  return (db.query("SELECT id, username, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string; role: string }[]).filter((p) => reach(p.id))
+}
+const dmOfFor = (db: Database, userId: string) => (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
+  .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
+
+/**
+ * The teammate a title or role names (chat/person-aliases.ts; docs/decisions/20261123-do-then-undo.md): the person's own
+ * alias for it; else the teammates whose profile title holds the word; else, for an owner word, the team's owner; for a
+ * lead word, the project's creator (`projectId`: a project chat) or the one owner or admin. Never me, never a guest.
+ * `one`: exactly one, which counts as the person naming them; `many`: several could be meant (the AI asks once); null:
+ * not a title, or nobody.
+ */
+export function resolvedByTitle(db: Database, userId: string, ref: string, o: { projectId?: string | null } = {}): { one: Teammate } | { many: Teammate[]; total: number } | null {
+  const key = titleKey(ref)
+  if (!key) return null
+  const people = reachablePeople(db, userId).filter((p) => !isGuestRow(db, p.id))
+  const dmOf = dmOfFor(db, userId)
+  const out = (p: { id: string; name: string }, how: TitleHow): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact: true, via: { how, ref: key } })
+  const alias = aliasOf(db, userId, ref)
+  const aliased = alias ? people.find((p) => p.id === alias) : undefined
+  if (aliased) return { one: out(aliased, 'alias') }
+  const pick = (list: typeof people, how: TitleHow) => (list.length === 1 ? { one: out(list[0]!, how) } : list.length ? { many: list.slice(0, 10).map((p) => out(p, how)), total: list.length } : null)
+  let titled: typeof people = []
+  try {
+    const rows = db.query("SELECT user_id, title FROM user_profiles WHERE title <> ''").all() as { user_id: string; title: string }[]
+    const has = new Set(rows.filter((r) => titlesIn(r.title).includes(key) || r.title.normalize('NFC').toLowerCase().replace(/\s+/g, '') === key).map((r) => r.user_id))
+    titled = people.filter((p) => has.has(p.id))
+  } catch { titled = [] }
+  if (titled.length) return pick(titled, 'title')
+  if (isOwnerTitle(key)) return pick(people.filter((p) => p.role === 'owner'), 'owner')
+  if (o.projectId) {
+    const c = (db.query('SELECT created_by FROM projects WHERE id = ?').get(o.projectId) as { created_by: string | null } | null)?.created_by
+    const creator = c ? people.find((p) => p.id === c) : undefined
+    if (creator) return { one: out(creator, 'creator') }
+  }
+  return pick(people.filter((p) => p.role === 'owner' || p.role === 'admin'), 'staff')
+}
+const isGuestRow = (db: Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
 
 /**
  * The teammates `ref` names (post_to_room "tell bob …", docs/DECISIONS.md "post_to_room to a person"): the active people
@@ -202,19 +255,29 @@ export const PERSON_REF = 'person:'
  * was not. `person:<id>` is that person; else a name: the person's name as a whole beats a part of it (two letters at
  * least), the username counts in full only, and "님" or "씨" after it are dropped as for rooms. Several equally good
  * matches: the first 10 of them and how many there are (`total`; the AI asks). None: null.
+ * A title or role ("팀장님") that no name matches is looked up in the directory (resolvedByTitle). With `learn` (a tool that
+ * sends or shares, in chat `chatId`): one teammate named by name or id that answers a title the server could not tell
+ * just before is kept as the person's alias (person-aliases.ts learnAlias); the result says so (`learned`).
  */
-export function findPeople(db: Database, userId: string, ref: string): { one: Teammate } | { many: Teammate[]; total: number } | null {
+export function findPeople(db: Database, userId: string, ref: string, o: { projectId?: string | null; chatId?: string | null; learn?: boolean } = {}): { one: Teammate } | { many: Teammate[]; total: number } | null {
   const raw = ref.trim()
-  // (only the people I may reach: a guest, the people of their places; nobody, a guest outside my places)
-  const reach = reachFilter(db, userId)
-  const people = (db.query("SELECT id, username, name FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id").all(userId) as { id: string; username: string; name: string }[]).filter((p) => reach(p.id))
-  const dmOf = (otherId: string) => (db.query(`SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.kind = 'dm' AND r.dm_key = ? AND r.archived_at IS NULL`)
-    .get(userId, [userId, otherId].sort().join('|')) as { id: string } | null)?.id ?? null
+  const people = reachablePeople(db, userId)
+  const dmOf = dmOfFor(db, userId)
   const out = (p: { id: string; name: string }, exact: boolean): Teammate => ({ id: p.id, name: p.name, dmRoomId: dmOf(p.id), exact })
+  // one teammate by name or id: maybe the answer to a title asked a moment ago (kept as the person's alias)
+  const answered = (t: Teammate): { one: Teammate } => {
+    if (!o.learn || !t.exact) return { one: t }
+    const unique = (k: string) => { const r = resolvedByTitle(db, userId, k, o); return !!r && 'one' in r && r.one.via?.how !== 'alias' }
+    const learned = learnAlias(db, userId, t, { chatId: o.chatId ?? null, unique })
+    return { one: learned ? { ...t, learned } : t }
+  }
   if (raw.startsWith(PERSON_REF)) {
     const p = people.find((x) => x.id === raw.slice(PERSON_REF.length))
-    return p ? { one: out(p, true) } : null
+    return p ? answered(out(p, true)) : null
   }
+  // a title the person taught (their alias) wins over a part of someone's name ("팀장" in "김팀장")
+  const key = titleKey(raw)
+  if (key && aliasOf(db, userId, raw)) return resolvedByTitle(db, userId, raw, o)
   const qs = [...new Set([norm(raw.replace(/^@+/, '')), norm(strip(raw.replace(/^@+/, '')))].filter((q) => q.length > 0))]
   if (!qs.length) return null
   let best = 0
@@ -231,9 +294,16 @@ export function findPeople(db: Database, userId: string, ref: string): { one: Te
     if (score > best) { best = score; hits = [] }
     if (score === best) hits.push(p)
   }
+  // a title no name matches in full: the directory (several or none: kept a moment, so the person's answer is learned)
+  if (key && best < 80) {
+    const t = resolvedByTitle(db, userId, raw, o)
+    if (t && 'one' in t) return t
+    if (o.learn) notePending(userId, key, t ? t.many.map((x) => x.id) : [])
+    if (t) return t
+  }
   if (!hits.length) return null
   const found = hits.slice(0, 10).map((p) => out(p, best >= 80))
-  return found.length === 1 ? { one: found[0]! } : { many: found, total: hits.length }
+  return found.length === 1 ? answered(found[0]!) : { many: found, total: hits.length }
 }
 
 /** The room's title as titleOf gives it, from the rows alone (no counts): what a name is matched against. */
