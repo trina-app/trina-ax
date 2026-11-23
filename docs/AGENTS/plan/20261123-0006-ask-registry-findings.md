@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 00:06
 - Branch: `fix/ask-registry-findings` (stacked on `docs/ask-registry`, PR #421)
-- Status: in progress
+- Status: done
 - Where: server (cards), web (Settings, a few confirms), desktop (local-app list). Why: the registry's findings
   (docs/ASKS.md "Findings"), decided by the owner under Rule A (docs/decisions/20261116-always-allow-final-rule-a.md)
 - Version impact: minor, because Settings lists more allowances and the desktop bridge gets two calls (older apps
@@ -101,4 +101,9 @@ that lists them and the kept exceptions.
 
 ## Result
 
-(at the end)
+Built as planned. The plan review added: offering the three tools in a shared chat only under Always
+(`SHARED_UNDER_ALWAYS`), the scheduled run's room-read refusals of deletes and skill folders under Always, the shared
+chat prompt line, and an explicit guest refusal for members. The code review added: in a shared chat, folder access
+only on a folder everyone there can open, and members only of the chat's own project (the result shows to everyone
+there). Results under Always say "no card", never "confirmed". The desktop browser sites show in 트리나에게 허용한 것
+in the desktop app only (not on a phone page, where the Browser part already lists them).
