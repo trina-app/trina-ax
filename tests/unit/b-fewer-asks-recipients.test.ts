@@ -240,7 +240,7 @@ describe('share_folder: who, which folder, and no card for what the person asked
 
   test('the team word counts only as who it goes to', () => {
     for (const w of ['팀원들한테 공유해줘', '우리 팀에게 보내줘', 'share it with my team', 'comparte con mi equipo', 'チームメンバーに共有して', '分享给团队成员']) expect([w, saysTeam(w)]).toEqual([w, true])
-    for (const w of ['"우리 팀 자료" 폴더 Bob Lee한테 공유해줘', '팀원들 말고 Bob Lee한테만 공유해줘', '팀원 Bob Lee한테 공유해줘', '팀원들한테 말고 Bob Lee한테', 'not to my team, only Bob', 'my team notes to Bob', '팀원들한테 받은 자료 Bob Lee한테 공유해줘', '팀원들한테 안 보이게 Bob Lee한테만 공유해줘', 'notes I sent to my team: share them with Bob Lee', 'share the notes I sent to my team with Bob Lee', 'share with Bob Lee only, not with team members', 'share this rather than with my team']) expect([w, saysTeam(w)]).toEqual([w, false])
+    for (const w of ['"우리 팀 자료" 폴더 Bob Lee한테 공유해줘', '팀원들 말고 Bob Lee한테만 공유해줘', '팀원 Bob Lee한테 공유해줘', '팀원들한테 말고 Bob Lee한테', 'not to my team, only Bob', 'my team notes to Bob', '팀원들한테 받은 자료 Bob Lee한테 공유해줘', '팀원들한테 안 보이게 Bob Lee한테만 공유해줘', 'notes I sent to my team: share them with Bob Lee', 'share the notes I sent to my team with Bob Lee', 'share with Bob Lee only, not with team members', 'share this rather than with my team', '민수 없이 팀원들한테 공유해줘', '팀원들한테 공유해줘. 민수는 아직 보면 안 돼', '민수는 안 보게 팀원들한테 공유해줘']) expect([w, saysTeam(w)]).toEqual([w, false])
   })
   test('the AI adding the team word to a named person: the card shows; after someone else\'s words too', async () => {
     const dir = folder('bob', '우리 팀 자료')
@@ -253,6 +253,16 @@ describe('share_folder: who, which folder, and no card for what the person asked
     const r2 = await turn('bob', `"${dir2.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir2, add: ['팀원들'] })}`, { chat, answer: 'no' })
     expect(r2.card).not.toBeNull()
     expect(peopleOn('bob', dir2)).toEqual([])
+  })
+  test('a teammate left out by a short name: the card shows', async () => {
+    h.ctx.db.query("UPDATE users SET name = '김민수' WHERE id = 'tess'").run()
+    try {
+      const chat = await chatWith('bob', 'tess')
+      const dir = folder('bob', 'Short name')
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘. 민수 확인 부탁\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'no' })
+      expect(r.card).not.toBeNull()
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query("UPDATE users SET name = 'Tess Yoon' WHERE id = 'tess'").run() }
   })
   test('a card with more people than it lists: someone swapped in among those not shown is a different card', () => {
     const many = (last: string) => [...Array.from({ length: 12 }, (_, i) => `u${i}`), last].map((subjectId) => ({ subjectType: 'user' as const, subjectId, name: subjectId }))

@@ -179,7 +179,7 @@ const TEAM_AS_RECIPIENT = new RegExp([
   '(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)\\u7ED9\\u56E2\\u961F\\u6210\\u5458', '\\u7ED9\\u56E2\\u961F\\u6210\\u5458(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)',
 ].join('|'), 'iu')
 /** ...and nothing in the words leaves anyone out ("not with my team", "rather than", "except", 말고, 빼고, 以外, 不要) */
-const TEAM_LEFT_OUT = new RegExp(["\\b(?:not|rather than|instead of|except|excluding|without|only|don'?t|never|sin|excepto|solo|bukan|kecuali|tanpa|hanya)\\b", '\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uB9CC\\s', '\\u4EE5\\u5916|\\u3067\\u306F\\u306A\\u304F|\\u4E0D\\u8981|\\u9664\\u4E86'].join('|'), 'iu')
+const TEAM_LEFT_OUT = new RegExp(["\\b(?:not|rather than|instead of|except|excluding|without|only|don'?t|never|sin|excepto|solo|bukan|kecuali|tanpa|hanya)\\b", '\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uB9CC\\s|\\uC5C6\\uC774|\\uC548\\s?\\uBCF4|\\uBCF4\\uBA74\\s?\\uC548', '\\u4EE5\\u5916|\\u3067\\u306F\\u306A\\u304F|\\u4E0D\\u8981|\\u9664\\u4E86'].join('|'), 'iu')
 export function saysTeam(said: string): boolean {
   const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC')
   return TEAM_AS_RECIPIENT.test(own) && !TEAM_LEFT_OUT.test(own)

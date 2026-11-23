@@ -428,11 +428,14 @@ export function shareFolderTool(exec: TurnExec): Tool {
   }
 }
 
-/** A teammate's name or username stands anywhere in the words */
+/** A teammate's name, username or a part of a name stands anywhere in the words */
 function namesATeammate(db: TurnExec['rt']['db'], me: string, said: string): boolean {
   const text = fold(said)
   const rows = db.query("SELECT name, username FROM users WHERE id <> ? AND deleted_at IS NULL").all(me) as { name: string | null; username: string | null }[]
-  return rows.some((u) => [u.name, u.username].some((n) => !!n && n.trim().length >= 2 && text.includes(fold(n))))
+  // (each word of a name, and a Korean name without its family name: "민수" for 김민수. A word that only looks like a name
+  // costs one card, a name missed could share with someone the person left out)
+  const parts = (n: string) => { const w = fold(n).split(/\s+/).filter(Boolean); return [fold(n), ...w, ...w.flatMap((x) => (/^\p{Script=Hangul}{3,4}$/u.test(x) ? [x.slice(1)] : []))] }
+  return rows.some((u) => [u.name, u.username].some((n) => !!n && parts(n).some((p) => p.length >= 2 && text.includes(p))))
 }
 
 /** The person's own files this very message attached (their own .attachments; a shared chat's uploads live elsewhere and
