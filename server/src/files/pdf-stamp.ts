@@ -8,7 +8,7 @@
 // Where the image goes is said as the page is shown: from its top-left corner, in mm, in the page's visible box (the
 // CropBox, else the MediaBox) and with its /Rotate applied, so "bottom-right" is the bottom-right a reader sees. The
 // page's own drawing is wrapped in q … Q first, so a page that leaves its coordinates changed cannot move the image.
-import { degrees, PDFDocument, popGraphicsState, pushGraphicsState } from 'pdf-lib'
+import { degrees, PDFDocument, popGraphicsState, pushGraphicsState, type PDFPage } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 
@@ -38,6 +38,15 @@ export interface StampReport {
 export const mmToPt = (mm: number) => (mm * 72) / 25.4
 export const ptToMm = (pt: number) => (pt * 25.4) / 72
 const round1 = (n: number) => Math.round(n * 10) / 10
+
+/** The part of the page a reader sees: the CropBox within the MediaBox. A CropBox reaching past the MediaBox shows only
+ * their overlap, so measuring from the CropBox alone put a picture off by the difference. */
+export function visibleBox(page: PDFPage): { x: number; y: number; width: number; height: number } {
+  const c = page.getCropBox(), m = page.getMediaBox()
+  const x = Math.max(c.x, m.x), y = Math.max(c.y, m.y)
+  const width = Math.min(c.x + c.width, m.x + m.width) - x, height = Math.min(c.y + c.height, m.y + m.height) - y
+  return width > 0 && height > 0 ? { x, y, width, height } : m
+}
 
 /** What kind of image the bytes are (by their first bytes, never the name): png, jpg, or null. */
 export function imageKind(b: Uint8Array): 'png' | 'jpg' | null {
@@ -149,7 +158,7 @@ export async function stampPdfRequest(input: Uint8Array): Promise<Uint8Array> {
   const pageNo = o.page === 'last' ? pages : o.page
   if (!Number.isInteger(pageNo) || pageNo < 1 || pageNo > pages) throw new ToolError(`the PDF has ${pages} page${pages === 1 ? '' : 's'}, so there is no page ${o.page}; nothing was saved`)
   const page = doc.getPage(pageNo - 1)
-  const box = page.getCropBox()
+  const box = visibleBox(page)
   const rot = ((Math.round(page.getRotation().angle / 90) * 90) % 360 + 360) % 360
   const turned = rot === 90 || rot === 270
   const w = turned ? box.height : box.width

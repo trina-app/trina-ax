@@ -209,7 +209,9 @@ export const STAMP_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-
 export const StampPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to put the image on'),
   image: relPath.describe('The image to put on it: a PNG (transparent parts stay see-through) or a JPG in the team folder'),
-  page: pageNo(1).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
+  at: z.string().min(1).max(500).optional().describe('For a seal or signature: the printed mark to put it on, or the signer\'s name and its mark as they are on one line, e.g. "(seal)" or "Kim Minsu (seal)". The tool finds the place, checks it on the saved file, and refuses when it cannot prove it. Read the PDF first. Not with position'),
+  occurrence: z.number().int().min(1).optional().describe('With at, when the text is in several places: which one, counted by page, then top to bottom, then left to right'),
+  page: pageNo(1).optional().describe('The page: a number (1 = the first page) or "last" (default "last"; with at, default: the whole PDF)'),
   position: z.union([
     z.enum(STAMP_POSITIONS),
     z.strictObject({

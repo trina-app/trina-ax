@@ -1,0 +1,2 @@
+- To sign or seal a PDF, the AI can now name the printed mark, such as (인) or a signer's name and mark. The seal lands on that mark and is checked on the saved page. If the place cannot be proved, nothing is saved and the AI asks which place.
+- A picture on a PDF whose visible area differs from its page box now lands where it was asked for.

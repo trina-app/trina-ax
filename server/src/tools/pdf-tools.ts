@@ -41,6 +41,7 @@ import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
+import { assertNoStampAfterRefusal } from './pdf-at'
 import { madeThisTurn } from './stamp-pdf'
 
 type EditIn = z.output<typeof EditPdfInput>
@@ -228,6 +229,7 @@ async function editChatPdf(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Edi
     await inputs.load()
     // the bytes are the ones the AI read (a save in between: read again)
     if (head && sha256(parts[0]!.bytes) !== seen) throw new ToolError(`'${head.path}' was changed after you read it; read it again and give the changes for what it says now`, 'conflict')
+    if (a.operations.some((o) => 'stamp_image' in o)) assertNoStampAfterRefusal(c, parts[0]!.bytes)
     const font = editFont(parts, a)
     const sources = [...new Set(parts.filter((p) => p.rel).map((p) => p.rel))]
     if (head) {
@@ -261,6 +263,7 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     const src = parts[0]!
     const ops = editOps(inputs, a)
     await inputs.load()
+    if (a.operations.some((o) => 'stamp_image' in o)) assertNoStampAfterRefusal(c, src.bytes)
     const font = editFont(parts, a)
     const sources = [...new Set(parts.filter((p) => p.rel).map((p) => p.rel))]
     if (a.replace === true && a.output !== undefined) throw new ToolError('give either replace: true or output, not both')

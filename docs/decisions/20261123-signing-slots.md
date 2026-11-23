@@ -37,5 +37,12 @@
   government forms: the seal is on the mark.
 - **Card order:** edit_office asks its card before its worker, so a dry run of the worker comes first when a card will be
   shown: nobody approves a call that is then refused. The card, Always and ownership rules do not change.
-- **Later:** PDF gets the same target and the same picture card; the Word preview's vertical offset is QA TC-8358.
+- **PDF (`stamp_pdf` `at`):** the same resolver and invariant, on pdftotext's word boxes in the page as shown. One line only,
+  the name next to its mark, a known mark as whole words, reading order by line bands, never drawing order. Every word of the
+  label and mark must show rendered ink with nothing over it. A solid picture of the seal's size is drawn there first, and the
+  page is rendered to see where it really lands and how much shows. On the file about to be saved, every page's words must
+  be unchanged and the seal's pixels inside that place. Anything not proved saves nothing, and for the rest of that turn a stamp
+  by coordinates on those bytes is refused, so the AI asks the person.
+- **Later:** `edit_pdf` `stamp_image` with `at`. The picture-ownership card on PDF waits for the owner: it would stop scheduled
+  runs that stamp a shared company seal.
 - **Version impact:** patch.

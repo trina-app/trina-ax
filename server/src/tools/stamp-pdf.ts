@@ -36,11 +36,12 @@ import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { skillRootOf } from '../skills/guard'
 import { makeWorkDir } from './isolate'
+import { assertNoStampAfterRefusal, planPdfAt, verifyPdfAt, type PdfLanding } from './pdf-at'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof StampPdfInput>
 /** fresh: the image went onto the AI's own PDF of this turn (madeThisTurn), not into a copy */
-export interface StampedPdf extends MadeFile { source: string; image: string; report: StampReport; fresh?: boolean }
+export interface StampedPdf extends MadeFile { source: string; image: string; report: StampReport; fresh?: boolean; /** at: the text it landed on and the distance measured on the saved file */ landed?: PdfLanding }
 
 /** the word in a default output name, in the team's language ("견적서 (날인).pdf") */
 export const STAMPED: Record<Locale, string> = { ko: '날인', en: 'stamped', id: 'distempel', ja: '押印', es: 'sellado', zh: '盖章' }
@@ -58,7 +59,8 @@ export const STAMP_PDF_DESCRIPTION = 'Put an image (a company seal, a signature,
   'with margin_mm to the edges (default 15), or { x_mm, y_mm } for the image\'s top-left corner, measured from the top-left of the page as it is shown. ' +
   'width_mm: the image\'s width (default 30; a company seal is usually 20-40 mm); its height follows the image. ' +
   'Otherwise the new file is "<name> (stamped).pdf" next to the original unless you give output. ' +
-  'To find a spot (next to a name or "(seal)"), read that page with pages and as_images first; the page image shows the whole page. ' +
+  'To sign or seal at a printed mark, give at (the mark, or the signer\'s name and its mark on one line) instead of position: the tool measures the place and checks it on the saved file. If it refuses, ask the person which place; do not work out coordinates to get around it. ' +
+  'For any other spot, read that page with pages and as_images first; the page image shows the whole page. ' +
   'After stamping, read the new file\'s page with as_images to check the placement before you answer. ' +
   'It cannot change the text of a PDF; a PDF locked with a password cannot be stamped.'
 
@@ -131,13 +133,20 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
     throw new ToolError(`output is the original '${src.rel}'; to replace it (its old version stays in its history), read it in this chat first. Otherwise leave output out to save a new file next to it`)
   }
 
+  // `at`: the one proved place of the printed mark, or a refusal; a stamp by coordinates cannot step around that refusal
+  if (a.at !== undefined && a.position !== undefined) throw new ToolError('give at or position, not both; nothing was saved')
+  if (a.at === undefined && a.occurrence !== undefined) throw new ToolError('occurrence goes with at; nothing was saved')
+  if (a.at === undefined) assertNoStampAfterRefusal(c, pdf)
+  const planned = a.at !== undefined ? await planPdfAt(c, src.rel, pdf, picture, kind, { at: a.at, occurrence: a.occurrence, page: a.page, width_mm: a.width_mm }) : null
   const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
-    page: a.page ?? 'last', position: a.position ?? 'bottom-right', width_mm: a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
+    page: planned ? planned.page + 1 : a.page ?? 'last', position: planned?.position ?? a.position ?? 'bottom-right', width_mm: planned?.width_mm ?? a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
     margin_mm: a.margin_mm ?? STAMP_DEFAULT_MARGIN_MM, image: kind,
   }, pdf, picture), c.signal, PDF_OUTPUT_MAX)
   let r: ReturnType<typeof decodeStampResult>
   try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
   if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')
+  // what was saved is what was planned: the same text everywhere, the picture drawn in its place
+  const landed = planned ? await verifyPdfAt(c, pdf, planned, r.file) : undefined
   assertGuestOutput(ctx.db, c.user.id, r.file.length, out.rel)
 
   // the new file carries the PDF's and the image's bytes: asked like make_file's sources
@@ -149,7 +158,7 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
     const produced = path.join(work, 'out.pdf')
     fs.writeFileSync(produced, r.file, { flag: 'wx', mode: 0o600 })
     const made = await placeProduced(ctx, files, c, out.segs, produced, 'stamp_pdf')
-    return { ...made, source: src.rel, image: img.rel, report: r.report, ...(fresh && made.path === src.rel ? { fresh: true } : {}) }
+    return { ...made, source: src.rel, image: img.rel, report: r.report, ...(fresh && made.path === src.rel ? { fresh: true } : {}), ...(landed ? { landed } : {}) }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
@@ -161,10 +170,11 @@ export function stampPdfText(r: StampedPdf, link: string): string {
     : r.path === r.source ? `Saved a new version of ${r.path} with the image on it; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
   const at = `The image is on page ${x.page} of ${x.pages}: ${x.rectMm.width} x ${x.rectMm.height} mm, ${x.rectMm.x} mm from the left and ${x.rectMm.y} mm from the top (the page is ${x.pageMm.width} x ${x.pageMm.height} mm).`
+  const on = r.landed ? `\nIt is on ${r.landed.on}: measured on the saved file, ${r.landed.mm} mm from the centre of that text.` : ''
   const redo = r.fresh
     ? `redo the steps that made the PDF (same output) and stamp it again with another position (stamping this file again would put a second image on it)`
     : `stamp the original again with another position and output: '${r.path}' (that replaces this copy instead of making another one)`
   const check = `Check it before you answer: read '${r.path}' with pages: "${x.page}" and as_images: true, and look at where the image landed; if it covers text or sits in the wrong place, ${redo}.`
   const signed = x.signed ? ` The original PDF had a digital signature; tell the user that the stamped ${r.path === r.source ? 'version' : 'copy'} no longer carries a valid signature.` : ''
-  return `${where}\n${at}\n${check}${signed}`
+  return `${where}\n${at}${on}\n${check}${signed}`
 }

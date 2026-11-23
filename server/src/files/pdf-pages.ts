@@ -13,7 +13,7 @@ import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 import { dropUnreached, replaceOnPage, winAnsiCan, wordsElsewhere, writeStandardWidths, type FallbackFont, type FontStyle, type ReplaceOutcome } from './pdf-text'
 import { fieldBoxesOnPage, fillForm, formReport, type FormReport } from './pdf-form'
-import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
+import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition, visibleBox } from './pdf-stamp'
 
 export const PDF_PAGES_MODE = 'pdf-pages'
 /** all the PDFs (and images and the font) of one call together. Measured in the office worker (pdf-lib holds the
@@ -152,7 +152,7 @@ async function open(bytes: Uint8Array, name: string): Promise<PDFDocument> {
 
 /** the page as shown: its visible box, its turn, and its shown width and height */
 function shown(page: PDFPage) {
-  const box = page.getCropBox()
+  const box = visibleBox(page)
   const r = ((Math.round(page.getRotation().angle / 90) * 90) % 360 + 360) % 360
   const turned = r === 90 || r === 270
   return { box, r, w: turned ? box.height : box.width, h: turned ? box.width : box.height }
