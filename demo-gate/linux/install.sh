@@ -3,8 +3,10 @@
 # after a new stage to update the app and the programs. It touches only its own users, folders, nft table, units and
 # sudoers file; it never changes another service, another user or another firewall table.
 #   sh STAGE/app/demo-gate/linux/install.sh --stage STAGE --origin https://demo-staging.trina.app --site-key KEY [--no-start]
-# It stops the gate and the tunnel before it changes the app. --no-start leaves both stopped after every check, for a
-# deploy that starts the gate, sees it warm and only then starts the tunnel.
+# It stops AND disables the gate and the tunnel before it changes anything of theirs, and enables them again only after
+# every check passed: a failed install stays off, also after a reboot. --no-start leaves both stopped and disabled
+# (`tddeploy deploy` then starts the gate, sees it warm, and only then opens the tunnel). The first app it replaces is
+# kept in /var/lib/trina-demo/rollback for `tddeploy rollback`; a retry never replaces that copy.
 # STAGE is what stage.sh prepared (dl/ with the downloads, app/ built). It is copied to a folder of root's first and
 # only that copy is read; the downloads are checked against pins.env (and scripts/system/packages.json for
 # chrome-headless-shell) and unpacked here, never taken from the stage's unpacked tools/. Optional files in
@@ -73,6 +75,27 @@ mkuser tdbuild /var/demo-build
 mkuser tdcred /var/lib/trina-demo-cred
 RUN_UID=$(id -u tdrun) RUN_GID=$(id -g tdrun)
 
+# ---- nothing of the demo runs while its files change; off until every check passed (also across a reboot) ----
+for u in trina-demo-tunnel.service trina-demo-gate.service; do
+  if systemctl cat "$u" >/dev/null 2>&1; then systemctl disable --now "$u" >/dev/null 2>&1 || die "could not stop and disable $u"; fi
+  if systemctl is-active --quiet "$u"; then die "$u is still active"; fi
+done
+# the nightly build also writes as tdgate
+systemctl stop trina-demo-snapshots.timer trina-demo-snapshots.service >/dev/null 2>&1 || true
+if pgrep -u tdgate >/dev/null 2>&1; then die "tdgate still has processes: nothing was changed"; fi
+
+# ---- paths in folders a role user owns: root never follows a link there ----
+safe_dir() { if [ -L "$1" ] || { [ -e "$1" ] && [ ! -d "$1" ]; }; then die "$1 must be a plain folder"; fi; }
+safe_file() {
+  if [ -L "$1" ]; then die "$1 is a symbolic link"; fi
+  if [ -e "$1" ] && { [ ! -f "$1" ] || [ "$(stat -c %h "$1")" != 1 ]; }; then die "$1 must be a regular file with one name"; fi
+}
+for d in "$G" "$G/state" "$G/secrets" /var/demo-tunnel; do safe_dir "$d"; done
+for f in "$G/gate.json" "$G/secrets/turnstile-secret" "$G/secrets/ai-credential" /var/demo-tunnel/creds.json /var/demo-tunnel/config.yml; do safe_file "$f"; done
+rm -f "$G/gate.json.new"
+BK=/var/lib/trina-demo/gate-backups RB=/var/lib/trina-demo/rollback
+install -d -o root -g root -m 700 "$BK" "$RB"
+
 # ---- folders ----
 install -d -o root -g root -m 755 $O $O/bin $O/etc /etc/trina-demo
 install -d -o tdgate -g tdgate -m 700 $G $G/state $G/secrets
@@ -104,8 +127,21 @@ install -d -o tdrun -g tdgate -m 751 $FS/i
 install -d -o root -g root -m 755 $FS/.snapshots $FS/.build
 for l in $LOCALES; do install -d -o tdgate -g tdrun -m 2750 "$FS/.snapshots/$l"; done
 
-# ---- nothing of the demo runs while its app and programs change ----
-systemctl stop trina-demo-tunnel.service trina-demo-gate.service 2>/dev/null || true
+# ---- the running version, kept once for `tddeploy rollback`: the first one, later only one a deploy proved good. A
+# retry after a failed deploy finds a version that is not proved and keeps the copy it has. ----
+CUR=$(cat "$O/app/.git-head" 2>/dev/null || true)
+GOOD=$(cat "$RB/GOOD" 2>/dev/null || true)
+GOOD_HEAD=$(cat "$RB/$GOOD/app/.git-head" 2>/dev/null || true)
+PROVED=$(cat "$RB/DEPLOYED" 2>/dev/null || true)
+if [ -n "$CUR" ] && [ -f "$G/gate.json" ] && { [ -z "$GOOD" ] || { [ "$PROVED" = "$CUR" ] && [ "$GOOD_HEAD" != "$CUR" ]; }; }; then
+  n="app-$CUR-$(date -u +%Y%m%d%H%M%S)"
+  rm -rf "${RB:?}/$n.tmp"; install -d -o root -g root -m 700 "$RB/$n.tmp"
+  cp -a "$O/app" "$RB/$n.tmp/app"
+  install -o root -g root -m 600 "$G/gate.json" "$RB/$n.tmp/gate.json"
+  mv "$RB/$n.tmp" "$RB/$n"
+  printf '%s\n' "$n" > "$RB/GOOD.new"; mv "$RB/GOOD.new" "$RB/GOOD"
+  say "kept for rollback: $n"
+fi
 
 # ---- programs, unpacked from the checked downloads, and the app ----
 fresh() { rm -rf "${1:?}.new"; install -d -o root -g root -m 755 "$1.new"; }
@@ -119,7 +155,7 @@ ln -s "$CH_VERSION/$CH_DIR" $O/chrome-headless-shell.new/current; swap $O/chrome
 t=$(mktemp -d); unzip -q "$ST/dl/bun.zip" -d "$t"; install -m 755 "$t/bun-linux-x64/bun" $O/bin/bun; rm -rf "$t"
 install -m 755 "$ST/dl/cloudflared" $O/bin/cloudflared
 chk $O/claude/bin/claude "$CLAUDE_SHA256"; chk $O/bin/cloudflared "$CLOUDFLARED_SHA256"
-for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync tdfw-check tdscope; do install -m 755 "$HERE/$f" $O/bin/; done
+for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync tdfw-check tdscope tddeploy; do install -m 755 "$HERE/$f" $O/bin/; done
 install -m 644 "$HERE/trina-demo.nft" $O/etc/
 rm -rf $O/app.new; mv "$ST/app" $O/app.new
 if [ -d $O/app ]; then rm -rf $O/app-old; mv $O/app $O/app-old; fi
@@ -185,37 +221,39 @@ if [ ! -f $G/gate.json ]; then
     const fs = require("node:fs"); const [src, origin, siteKey, ver, uid, gid] = process.argv.slice(1)
     const c = JSON.parse(fs.readFileSync(src, "utf8"))
     c.publicOrigin = origin; c.turnstile.siteKey = siteKey; c.pool.codeVersion = ver; c.pool.runAs = { uid: +uid, gid: +gid }
-    fs.writeFileSync("/var/demo-gate/gate.json", JSON.stringify(c, null, 2) + "\n", { mode: 0o600 })
+    fs.writeFileSync("/var/demo-gate/gate.json.new", JSON.stringify(c, null, 2) + "\n", { mode: 0o600, flag: "wx" })
+    fs.renameSync("/var/demo-gate/gate.json.new", "/var/demo-gate/gate.json")
   ' "$O/app/demo-gate/gate.example.linux.json" "$ORIGIN" "$SITEKEY" "$VER" "$RUN_UID" "$RUN_GID"
   say "gate.json made ($ORIGIN, codeVersion $VER)"
 else
   # shellcheck disable=SC2016
   $O/node/bin/node -e '
     const fs = require("node:fs"); const f = "/var/demo-gate/gate.json"; const c = JSON.parse(fs.readFileSync(f, "utf8"))
-    if (c.pool.codeVersion !== process.argv[1]) { c.pool.codeVersion = process.argv[1]; fs.writeFileSync(f, JSON.stringify(c, null, 2) + "\n", { mode: 0o600 }); console.log("install: gate.json codeVersion " + process.argv[1]) }
+    if (c.pool.codeVersion !== process.argv[1]) { c.pool.codeVersion = process.argv[1]; fs.writeFileSync(f + ".new", JSON.stringify(c, null, 2) + "\n", { mode: 0o600, flag: "wx" }); fs.renameSync(f + ".new", f); console.log("install: gate.json codeVersion " + process.argv[1]) }
   ' "$VER"
 fi
-chown tdgate:tdgate $G/gate.json; chmod 600 $G/gate.json
+safe_file "$G/gate.json"; chown -h tdgate:tdgate "$G/gate.json"; chmod 600 "$G/gate.json"
 $O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e "import {parseConfig} from '$O/app/demo-gate/src/config.ts'; import fs from 'node:fs'; parseConfig(JSON.parse(fs.readFileSync('$G/gate.json','utf8')), '$G')" || die "gate.json does not parse"
 # an existing gate.json may hold an older instance command: migrated here (with a backup), and nothing starts unless the
 # whole sandbox is in it (a new gate with the old command would run without it and look healthy)
 # shellcheck disable=SC2016
 $O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e '
   import fs from "node:fs"
-  import { linuxCommandProblems, migrateLinuxCommand } from "/opt/trina-demo/app/demo-gate/src/linux-command.ts"
+  import { LINUX_INSTANCES_DIR, linuxCommandProblems, migrateLinuxCommand } from "/opt/trina-demo/app/demo-gate/src/linux-command.ts"
   const f = "/var/demo-gate/gate.json", c = JSON.parse(fs.readFileSync(f, "utf8"))
   const next = migrateLinuxCommand(c.pool.command)
   const bad = linuxCommandProblems(next)
+  if (c.pool.instancesDir !== LINUX_INSTANCES_DIR) bad.push("pool.instancesDir is not " + LINUX_INSTANCES_DIR)
   if (bad.length) { console.error("install: pool.command in gate.json: " + bad.join("; ")); process.exit(1) }
   if (JSON.stringify(next) !== JSON.stringify(c.pool.command)) {
-    const b = f + ".bak-command-" + new Date().toISOString().replace(/\D/g, "").slice(0, 14)
+    const b = "/var/lib/trina-demo/gate-backups/gate.json-" + new Date().toISOString().replace(/\D/g, "").slice(0, 14)
     fs.copyFileSync(f, b, fs.constants.COPYFILE_EXCL); fs.chmodSync(b, 0o600)
     c.pool.command = next
-    const t = f + ".new"; fs.writeFileSync(t, JSON.stringify(c, null, 2) + "\n", { mode: 0o600 }); fs.renameSync(t, f)
+    const t = f + ".new"; fs.writeFileSync(t, JSON.stringify(c, null, 2) + "\n", { mode: 0o600, flag: "wx" }); fs.renameSync(t, f)
     console.log("install: pool.command migrated (backup " + b + ")")
   }
 ' || die "pool.command does not have the instance sandbox: nothing was started"
-chown tdgate:tdgate $G/gate.json; chmod 600 $G/gate.json; for b in "$G"/gate.json.bak-command-*; do if [ -f "$b" ]; then chown tdgate:tdgate "$b"; fi; done
+safe_file "$G/gate.json"; chown -h tdgate:tdgate "$G/gate.json"; chmod 600 "$G/gate.json"
 $O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e "import {parseConfig} from '$O/app/demo-gate/src/config.ts'; import fs from 'node:fs'; parseConfig(JSON.parse(fs.readFileSync('$G/gate.json','utf8')), '$G')" || die "gate.json does not parse after the command check"
 
 # ---- units; this host's CI runner folders hidden from the gate and its instances (a drop-in) ----
@@ -267,19 +305,18 @@ say "reflink clone ok"
 runuser -u tdrun -- sh -c 'd=/srv/tdg/i/.bwrap-check; rm -rf "$d"; mkdir -m 700 "$d" && /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind "$d" "$d" --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /opt/trina-demo/bin/tdscope /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; r=$?; rm -rf "$d"; exit $r' || die "the instance sandbox (bwrap, with a nested bwrap) does not run as tdrun"
 say "bwrap ok as tdrun (instance sandbox and a nested one)"
 
-systemctl enable trina-demo-snapshots.timer trina-demo-gate.service >/dev/null
+systemctl enable trina-demo-snapshots.timer >/dev/null
 systemctl start trina-demo-snapshots.timer
 # the login copy only where someone signed in as tdcred: a host on a long-lived token (claude setup-token, handed to
 # tdgate-set-credential) keeps the timer off, so a later install does not turn it back on
 if [ -f /var/lib/trina-demo-cred/.claude/.credentials.json ]; then
   systemctl enable --now trina-demo-credsync.timer >/dev/null
 fi
-[ -f /var/demo-tunnel/config.yml ] && systemctl enable trina-demo-tunnel.service >/dev/null
 
+off() { systemctl disable --now trina-demo-tunnel.service trina-demo-gate.service >/dev/null 2>&1 || true; }
 if [ "$START" = 1 ]; then
   if ! ls $FS/.snapshots/*/*/manifest.json >/dev/null 2>&1; then say "no snapshots yet: building them (several minutes)"; systemctl start trina-demo-snapshots.service || say "snapshot build had failures: journalctl -u trina-demo-snapshots"; fi
-  systemctl restart trina-demo-gate.service
-  [ -f /var/demo-tunnel/config.yml ] && systemctl restart trina-demo-tunnel.service
+  systemctl start trina-demo-gate.service
   # the gate must warm at least one instance (through sudo, in the unit) within 5 minutes
   i=0; warm=0
   while [ $i -lt 60 ]; do
@@ -290,14 +327,27 @@ except Exception: print(0)')
     i=$((i + 1)); sleep 5
   done
   if ! [ "$warm" -ge 1 ] 2>/dev/null; then
-    systemctl stop trina-demo-tunnel.service trina-demo-gate.service
-    die "the gate warmed no instance in 5 minutes: the tunnel and the gate were stopped (journalctl -u trina-demo-gate)"
+    off
+    die "the gate warmed no instance in 5 minutes: the tunnel and the gate are stopped and disabled (journalctl -u trina-demo-gate)"
   fi
   say "the gate warmed $warm instance(s)"
   if ! $O/bin/tdfw-check; then
-    systemctl stop trina-demo-tunnel.service trina-demo-gate.service
-    die "the firewall checks failed with the gate running: the tunnel and the gate were stopped"
+    off
+    die "the firewall checks failed with the gate running: the tunnel and the gate are stopped and disabled"
+  fi
+  if [ -f /var/demo-tunnel/config.yml ]; then
+    systemctl start trina-demo-tunnel.service; sleep 3
+    if ! systemctl is-active --quiet trina-demo-tunnel.service; then off; die "the tunnel did not stay up: the tunnel and the gate are stopped and disabled"; fi
+    systemctl enable trina-demo-gate.service trina-demo-tunnel.service >/dev/null
+  else
+    systemctl enable trina-demo-gate.service >/dev/null
   fi
   say "started: systemctl status trina-demo-gate trina-demo-tunnel; curl -s 127.0.0.1:19190/__demo/health"
+else
+  say "--no-start: the gate and the tunnel are stopped and disabled. To open them, in this order:"
+  say "  systemctl start trina-demo-gate   # then wait until /__demo/health shows every instance warm"
+  say "  $O/bin/tdfw-check"
+  say "  systemctl start trina-demo-tunnel"
+  say "  systemctl enable trina-demo-gate trina-demo-tunnel"
 fi
 say "all done"

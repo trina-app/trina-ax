@@ -12,7 +12,7 @@ import {
 } from '../src/model.ts'
 import { WORDMARK_DARK, WORDMARK_LIGHT } from '../src/brand.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
-import { LINUX_BUN, LINUX_TDSCOPE, linuxCommandProblems, migrateLinuxCommand } from '../src/linux-command.ts'
+import { LINUX_BUN, LINUX_COMMAND, LINUX_COMMAND_V1, LINUX_INSTANCES_DIR, LINUX_TDSCOPE, linuxCommandProblems, migrateLinuxCommand } from '../src/linux-command.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
@@ -526,17 +526,42 @@ describe('config', () => {
     expect(() => parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20001] } }, '/srv')).toThrow(ConfigError)
     expect(parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20002] } }, '/srv').pool.portRange).toEqual([20000, 20002])
   })
-  test('the Linux instance command: an older one is migrated, one without the sandbox is refused', () => {
-    const now = (JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'gate.example.linux.json'), 'utf8')) as { pool: { command: string[] } }).pool.command
-    expect(linuxCommandProblems(now)).toEqual([])
-    expect(migrateLinuxCommand(now)).toEqual(now)
-    // what the first Linux gate.json holds: no UTS namespace, no tdscope
-    const old = now.filter((x) => x !== LINUX_TDSCOPE && x !== '--unshare-uts').filter((x, i, a) => x !== '--hostname' && a[i - 1] !== '--hostname')
-    expect(linuxCommandProblems(old).join()).toMatch(/--unshare-uts.*--hostname.*tdscope/)
-    expect(migrateLinuxCommand(old)).toEqual(now)
-    expect(linuxCommandProblems(['/usr/bin/choom', '-n', '800', '--', LINUX_BUN, 'main.ts', '--config', '{config}'])).toEqual(['no /usr/bin/bwrap ... -- in pool.command'])
-    const moved = [...now]; moved.splice(moved.indexOf(LINUX_TDSCOPE), 1); moved.splice(moved.indexOf(LINUX_BUN) + 1, 0, LINUX_TDSCOPE)
-    expect(linuxCommandProblems(migrateLinuxCommand(moved)).join()).toContain('not directly before')
+  test('the Linux instance command: exactly the template; the one older command is migrated', () => {
+    const now = (JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'gate.example.linux.json'), 'utf8')) as { pool: { command: string[]; instancesDir: string } }).pool
+    expect(now.command).toEqual([...LINUX_COMMAND])
+    expect(now.instancesDir).toBe(LINUX_INSTANCES_DIR)
+    expect(linuxCommandProblems(LINUX_COMMAND)).toEqual([])
+    expect(migrateLinuxCommand(LINUX_COMMAND)).toEqual([...LINUX_COMMAND])
+    // the only variables are {dir} and {config}
+    expect([...new Set(LINUX_COMMAND.filter((x) => x.includes('{')))].sort()).toEqual(['{config}', '{dir}'])
+    expect(linuxCommandProblems(LINUX_COMMAND_V1).length).toBe(1)
+    expect(migrateLinuxCommand(LINUX_COMMAND_V1)).toEqual([...LINUX_COMMAND])
+  })
+  test('the Linux instance command: every way around the sandbox is refused and never migrated', () => {
+    const c = () => [...LINUX_COMMAND]
+    const without = (flag: string, value: string) => { const x = c(); const i = x.findIndex((v, n) => v === flag && x[n + 1] === value); expect(i).toBeGreaterThan(-1); x.splice(i, 2); return x }
+    const bypass: Record<string, string[]> = {
+      'no --tmpfs /srv/tdg': without('--tmpfs', '/srv/tdg'),
+      'no --tmpfs /run': without('--tmpfs', '/run'),
+      'no --tmpfs /tmp': without('--tmpfs', '/tmp'),
+      'no --tmpfs /dev/shm': without('--tmpfs', '/dev/shm'),
+      '--bind / /': c().map((x, i, a) => (x === '--ro-bind' && a[i + 1] === '/' ? '--bind' : x)),
+      'a wider bind after the sandbox': (() => { const x = c(); x.splice(x.indexOf('--proc'), 0, '--bind', '/home', '/home'); return x })(),
+      '--unshare-uts only as a --setenv value': (() => { const x = c(); x.splice(x.indexOf('--unshare-uts'), 1, '--setenv', 'X', '--unshare-uts'); return x })(),
+      'no choom': c().slice(4),
+      'choom with another score': c().map((x) => (x === '800' ? '0' : x)),
+      'no --unshare-pid': c().filter((x) => x !== '--unshare-pid'),
+      'no tdscope': c().filter((x) => x !== LINUX_TDSCOPE),
+      'tdscope after bun': (() => { const x = c().filter((v) => v !== LINUX_TDSCOPE); x.splice(x.indexOf(LINUX_BUN) + 1, 0, LINUX_TDSCOPE); return x })(),
+      '--new-session': (() => { const x = c(); x.splice(5, 0, '--new-session'); return x })(),
+      'a third variable': c().map((x) => (x === '{config}' ? '{port}' : x)),
+      'another server': c().map((x) => (x.endsWith('/main.ts') ? '/tmp/main.ts' : x)),
+      'an extra argument': [...c(), '--extra'],
+    }
+    for (const [what, argv] of Object.entries(bypass)) {
+      expect(linuxCommandProblems(argv).length, what).toBe(1)
+      expect(migrateLinuxCommand(argv), what).toEqual(argv)
+    }
   })
   test('how the gate runs things as the instance user', () => {
     const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')

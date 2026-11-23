@@ -121,10 +121,6 @@ sh STAGE/app/demo-gate/linux/stage.sh STAGE                  # no root: pinned d
 sudo sh STAGE/app/demo-gate/linux/install.sh --stage STAGE --origin https://demo.example --site-key <turnstile site key>
 ```
 
-A deploy that keeps the site down for the shortest time: `install.sh ... --no-start` (stops the gate and tunnel, updates,
-migrates `pool.command` with a backup and refuses a command without the whole sandbox), `systemctl start
-trina-demo-gate`, wait for the warm count, `tdfw-check`, `systemctl start trina-demo-tunnel`.
-
 `install.sh` copies the stage to a folder of root's first and reads only that copy; it checks the downloads against
 `pins.env` (and `scripts/system/packages.json` for chrome-headless-shell) and unpacks them itself. It is idempotent
 (run it again after a new stage to update the app; `gate.json` is kept, its `pool.codeVersion` follows the app). It
@@ -143,6 +139,29 @@ placeholder and every AI answer is "busy".
 
 `tdfw-check` (root) checks the table from each user (the internet, the LAN, Tailscale, Postgres on loopback, DNS, and
 what each may reach).
+
+### Deploy and rollback
+
+Two scripts hold the order, so nobody retypes it. A gate restart ends every live session (visitor routing is in memory):
+`tddeploy` refuses while visitors are live unless given `--drop-live`.
+
+```sh
+# on the operator's machine, in a checkout: the source, .git-head and the app build (no root, nothing running changes)
+sh demo-gate/linux/stage-remote.sh <ssh host> <commit>
+# on the host, as root
+sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy deploy --stage /var/tmp/trina-demo-stage --expect <full commit>
+sh /var/lib/trina-demo/tddeploy rollback --expect <good commit>      # back to the kept version
+sh /var/lib/trina-demo/tddeploy status
+```
+
+- **Deploy:** tunnel and gate stopped and disabled, `install.sh --no-start` (it migrates the one older `pool.command`
+  with a backup in `/var/lib/trina-demo/gate-backups` and refuses any command but the exact template), gate started,
+  every instance warm, `tdfw-check`, tunnel started, both enabled. A failure leaves both stopped and disabled, also
+  after a reboot.
+- **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` keeps the running app and its `gate.json`
+  there once. A retry of a failed deploy keeps that copy; only a version a deploy proved replaces it at the next deploy.
+- **Rollback:** refuses a copy whose `.git-head` is not the expected commit, then tunnel off, gate off, app and
+  `gate.json` (tdgate, 600) restored, gate started, every instance warm, `tdfw-check`, tunnel started, both enabled.
 
 ## Run
 

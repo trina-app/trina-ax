@@ -1,0 +1,121 @@
+#!/bin/sh
+# Deploy or roll back the free-roam demo on its Linux host, as root, in the one safe order (README "Deploy and rollback"):
+# tunnel off, gate off, change, gate on, every instance warm, firewall checked, and only then the tunnel. The units are
+# enabled again only after all of that, so a failed run stays off, also after a reboot.
+#   tddeploy deploy --stage STAGE --expect <full commit> [--drop-live]
+#   tddeploy rollback --expect <commit or its start> [--drop-live]
+#   tddeploy status
+# --drop-live: go on although visitors are live (a gate restart ends their sessions). Rollback uses the copy in
+# /var/lib/trina-demo/rollback (install.sh keeps it), and refuses it unless its commit is the expected one.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 022
+O=/opt/trina-demo G=/var/demo-gate RB=/var/lib/trina-demo/rollback SELF=/var/lib/trina-demo/tddeploy
+GATE=trina-demo-gate.service TUNNEL=trina-demo-tunnel.service
+say() { echo "tddeploy: $*"; }
+die() { echo "tddeploy: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "run as root"
+CMD=${1:-}; [ $# -eq 0 ] || shift
+STAGE='' EXPECT='' DROP=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --stage) STAGE=${2:?}; shift 2 ;;
+    --expect) EXPECT=${2:?}; shift 2 ;;
+    --drop-live) DROP=1; shift ;;
+    *) die "unknown option $1" ;;
+  esac
+done
+
+health() { curl -s -m 3 http://127.0.0.1:19190/__demo/health | python3 -I -c "import json,sys
+try: d=json.load(sys.stdin); print(d$1)
+except Exception: print('$2')"; }
+check_live() {
+  live=$(health '["live"]' 0)
+  if [ "$live" != 0 ] && [ "$DROP" != 1 ]; then die "$live visitor(s) are live: wait for 0, or pass --drop-live (their sessions end)"; fi
+  say "live visitors now: $live"
+}
+units_off() {
+  for u in "$TUNNEL" "$GATE"; do
+    systemctl disable --now "$u" >/dev/null 2>&1 || die "could not stop and disable $u"
+    if systemctl is-active --quiet "$u"; then die "$u is still active"; fi
+  done
+}
+# gate on, every instance warm, firewall, tunnel on, then enabled. Any failure: both off and disabled.
+bring_up() {
+  want=$(python3 -I -c 'import json;p=json.load(open("/var/demo-gate/gate.json"))["pool"];print(p.get("warmPerLocale",2)*len(p.get("locales",["en","ko"])))')
+  systemctl start "$GATE" || { units_off; die "the gate did not start: both are off"; }
+  i=0 warm=0
+  while [ $i -lt 100 ]; do
+    warm=$(health '["pool"]["warm"]' 0)
+    [ "$warm" -ge "$want" ] && break
+    i=$((i + 1)); sleep 3
+  done
+  [ "$warm" -ge "$want" ] || { units_off; die "the gate warmed $warm of $want instances in 5 minutes: both are off (journalctl -u trina-demo-gate)"; }
+  say "warm $warm of $want"
+  "$O/bin/tdfw-check" </dev/null > /run/trina-demo-fw.log 2>&1 || { grep -v '^ok' /run/trina-demo-fw.log >&2 || true; units_off; die "the firewall checks failed: both are off"; }
+  say "$(tail -1 /run/trina-demo-fw.log)"
+  systemctl start "$TUNNEL" || { units_off; die "the tunnel did not start: both are off"; }
+  sleep 5
+  systemctl is-active --quiet "$TUNNEL" || { units_off; die "the tunnel did not stay up: both are off"; }
+  systemctl enable "$GATE" "$TUNNEL" >/dev/null
+  say "gate and tunnel up and enabled"
+}
+
+case "$CMD" in
+  deploy)
+    [ -n "$STAGE" ] && [ -n "$EXPECT" ] || die "deploy needs --stage and --expect"
+    printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{40}$' || die "--expect must be the full commit"
+    [ "$(cat "$STAGE/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || die "the stage is not at $EXPECT (run stage-remote.sh)"
+    # a copy of root's, so a rollback does not depend on the stage or on an install that stopped half way
+    install -d -o root -g root -m 755 /var/lib/trina-demo
+    install -o root -g root -m 755 "$STAGE/app/demo-gate/linux/tddeploy" "$SELF"
+    check_live
+    sh "$STAGE/app/demo-gate/linux/install.sh" --stage "$STAGE" --no-start </dev/null \
+      || die "install failed: the gate and the tunnel are off. Fix it and run deploy again, or: sudo sh $SELF rollback --expect <good commit>"
+    [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || { units_off; die "the installed app is not $EXPECT: both are off"; }
+    bring_up
+    printf '%s\n' "$EXPECT" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+    say "deployed $EXPECT"
+    ;;
+  rollback)
+    [ -n "$EXPECT" ] || die "rollback needs --expect"
+    printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{7,40}$' || die "--expect must be a commit"
+    n=$(cat "$RB/GOOD" 2>/dev/null || true)
+    if [ -z "$n" ]; then
+      # an install that stopped before it kept a copy changed nothing of the app: the gate and tunnel only come back
+      cur=$(cat "$O/app/.git-head" 2>/dev/null || true)
+      case "$cur" in "$EXPECT"*) ;; *) die "no rollback copy in $RB, and the app is $cur, not $EXPECT" ;; esac
+      if [ -L "$G/gate.json" ] || [ ! -f "$G/gate.json" ]; then die "$G/gate.json is not a regular file"; fi
+      say "no rollback copy: the app was not changed and is at $cur"
+      check_live; units_off; bring_up
+      printf '%s\n' "$cur" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+      say "back at $cur"
+      exit 0
+    fi
+    [ -d "$RB/$n/app" ] && [ -f "$RB/$n/gate.json" ] || die "the rollback copy $n is not whole"
+    head=$(cat "$RB/$n/app/.git-head" 2>/dev/null || true)
+    case "$head" in "$EXPECT"*) ;; *) die "the rollback copy is $head, not $EXPECT: nothing was changed" ;; esac
+    python3 -I -c 'import json,sys;json.load(open(sys.argv[1]))' "$RB/$n/gate.json" || die "the rollback copy's gate.json does not read"
+    check_live
+    units_off
+    if pgrep -u tdgate >/dev/null 2>&1; then die "tdgate still has processes"; fi
+    if [ -L "$G/gate.json" ] || { [ -e "$G/gate.json" ] && [ ! -f "$G/gate.json" ]; }; then die "$G/gate.json is not a regular file"; fi
+    rm -rf "$O/app.new"; cp -a "$RB/$n/app" "$O/app.new"
+    chown -R root:root "$O/app.new"; chmod -R go-w "$O/app.new"; chmod -R a+rX "$O/app.new"
+    rm -rf "$O/app-failed"
+    if [ -d "$O/app" ]; then mv "$O/app" "$O/app-failed"; fi
+    mv "$O/app.new" "$O/app"
+    rm -f "$G/gate.json.new"
+    install -T -o tdgate -g tdgate -m 600 "$RB/$n/gate.json" "$G/gate.json.new"
+    mv -T "$G/gate.json.new" "$G/gate.json"
+    say "app and gate.json are back at $head"
+    bring_up
+    printf '%s\n' "$head" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+    say "rolled back to $head"
+    ;;
+  status)
+    say "app $(cat "$O/app/.git-head" 2>/dev/null || echo none); proved $(cat "$RB/DEPLOYED" 2>/dev/null || echo none); rollback copy $(cat "$RB/GOOD" 2>/dev/null || echo none)"
+    say "gate $(systemctl is-active "$GATE" || true)/$(systemctl is-enabled "$GATE" 2>/dev/null || true); tunnel $(systemctl is-active "$TUNNEL" || true)/$(systemctl is-enabled "$TUNNEL" 2>/dev/null || true); warm $(health '["pool"]["warm"]' '?'), live $(health '["live"]' '?')"
+    ;;
+  *) die "usage: tddeploy deploy --stage STAGE --expect COMMIT | rollback --expect COMMIT | status (--drop-live)" ;;
+esac
