@@ -161,6 +161,9 @@ export const ConfirmDetail = z.object({
    * it, behind one "자세히" (docs/decisions/20261122-connector-always-allow.md). A client that does not know this shows
    * the detail as before. */
   hidden: z.literal(true).optional(),
+  /** what will run or instruct an AI (an instruction file, a script, a config): the client never folds it by its shape. A
+   * client that does not know this shows the text as before. */
+  keepOpen: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),

@@ -6714,6 +6714,7 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
     label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
     // what a file will hold (code, an SVG) is one click away ("자세히"), except in an instruction file: that shows in full
     ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(noSize || !text || targets.some(runnableFile) ? {} : { folded: true as const }) }),
+    ...(targets.some(instructionLike) || targets.some(runnableFile) ? { keepOpen: true as const } : {}),
     ...(noSize ? { noSize: true } : {}),
   }]
   switch (tool) {
@@ -6722,7 +6723,7 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
       const files = a.file_paths.map(String)
       return [
         { label: tr('roomAiConfirmFiles', L), text: files.map(at).join('\n'), noSize: true },
-        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(files.some(runnableFile) ? {} : { folded: true as const }) }) },
+        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW, ...(files.some(runnableFile) ? {} : { folded: true as const }) }), ...(files.some(instructionLike) || files.some(runnableFile) ? { keepOpen: true as const } : {}) },
       ]
     }
     case 'write':

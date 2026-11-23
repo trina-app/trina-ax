@@ -688,7 +688,7 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
 /** A detail as the card opens it (lib/cardPayload.ts): complete JSON folds when it can be read back into plain lines.
  * Everything else is as the server sent it (code it marked `folded` folds; with marks it stays open). */
 const byShape = (d: ConfirmDetail): ConfirmDetail => {
-  if (!d.text || d.folded || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact || d.fullChars) return d
+  if (!d.text || d.keepOpen || d.folded || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact || d.fullChars) return d
   return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true, jsonFold: true } as ConfirmDetail : d
 }
 

@@ -15,10 +15,12 @@ const parsed = (t: string): unknown => {
 }
 const isStringList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string')
 
-/** Complete JSON that is not a plain list of names. */
+/** Complete JSON that is not a plain list of names, written exactly as JSON.stringify writes it: the lines read from it
+ * then say the same as the text (a number past double precision or a repeated key would not round-trip). */
 export function isPayload(text: string): boolean {
-  const v = parsed(text.trim())
-  return v !== undefined && !isStringList(v)
+  const t = text.trim()
+  const v = parsed(t)
+  return v !== undefined && !isStringList(v) && (t === JSON.stringify(v) || t === JSON.stringify(v, null, 2))
 }
 
 /** Every email, address of any scheme, IP address and phone number in a text. Bounded and anchored: linear on 100,000 characters. */
@@ -34,7 +36,7 @@ export function destinations(text: string): string[] {
 /**
  * The plain lines that stay in view of a folded payload, or null when there are too many to be a summary. JSON is read by
  * its parsed keys and values (so an escaped address counts): "path: value" for each, a long value by its start plus any
- * address further on. `known`: values the card already shows on their own rows.
+ * address further on. `known`: for text that is not JSON, destinations the card already shows on their own rows.
  */
 export function payloadLines(text: string, known: readonly string[] = []): string[] | null {
   const have = new Set(known)
@@ -43,15 +45,16 @@ export function payloadLines(text: string, known: readonly string[] = []): strin
   if (v === undefined) { for (const d of destinations(text)) if (!have.has(d)) out.add(d) }
   else {
     const stack: [string, unknown][] = [['', v]]
-    const line = (path: string, s: string) => out.add(path ? `${path}: ${s}` : s)
+    // (a key with a line break must not read as a line of its own)
+    const line = (path: string, s: string) => out.add(path ? `${path.replace(/[\r\n\u2028\u2029]/g, ' ')}: ${s}` : s)
     while (stack.length) {
       const [path, x] = stack.pop()!
       if (typeof x === 'string') {
-        if (!x.trim() || have.has(x)) continue
+        if (!x.trim()) { line(path, JSON.stringify(x)); continue }
         if (x.length <= SHORT_VALUE && !x.includes('\n')) line(path, x)
         else {
           line(path, `${[...x.replace(/\s+/g, ' ').trim()].slice(0, VALUE_START).join('')}…`)
-          for (const d of destinations(x)) if (!have.has(d)) line(path, d)
+          for (const d of destinations(x)) line(path, d)
         }
       } else if (Array.isArray(x)) {
         if (!x.length) line(path, '[]')
