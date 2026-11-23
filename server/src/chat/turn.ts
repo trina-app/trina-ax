@@ -250,6 +250,14 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
+/** The shared connection card's line under its buttons: what Always and "<connector> 전체 항상 허용" cover, at most 300
+ * characters (AskUserRequest.note; a longer one would keep the card from showing): the Always line alone when both do
+ * not fit */
+export function sharedNote(L: Locale, service: string): string {
+  const one = tr('sharedConnectionAlwaysNote', L, { service })
+  const both = `${one} ${tr('sharedConnectionAllNote', L)}`
+  return both.length <= 300 ? both : one.slice(0, 300)
+}
 /** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
 /** `full`: the whole texts of the card's details it carries only the start of (chat/card-fold.ts), by detail index */
 interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number; full?: Map<number, string> }
@@ -4590,7 +4598,7 @@ export class TurnExec {
       // card, and the whole connection's ("<connector> 전체 항상 허용", every tool too), with one line saying what each
       // covers; elsewhere only Allow / Don't allow (no Always for this chat only: 20261123-one-always-allow.md)
       options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, ...(forGood ? [{ label: tr('sharedConnectionAlwaysAll', L), value: 'always' }, { label: tr('connectorAllAlways', L, { service: name }), value: 'all' }] : []), { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
-      ...(forGood ? { buttons: true as const, row: true as const, note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
+      ...(forGood ? { buttons: true as const, row: true as const, note: sharedNote(L, name) } : {}),
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -5474,6 +5482,7 @@ export class TurnExec {
       // no card needed): their choice for that kind, where it may be offered now (team switch, confidential; a guest
       // among the people too: one Always, docs/decisions/20261123-one-always-allow.md).
       // Not when the card reads differently now (asked again: their choice waits for that card)
+      // (a connector card's "<connector> 전체 항상 허용" is kept only when the run reaches that card: asked again otherwise)
       const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
       if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer') {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }

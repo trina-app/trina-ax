@@ -14,7 +14,7 @@ async function waitingTask(page: Page) {
   expect(r.ok()).toBeTruthy()
 }
 
-test('the address card: open once, allow this site in this conversation, or don\'t open', async ({ page }) => {
+test('the address card: open once, always allow this site, or don\'t open', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -22,12 +22,12 @@ test('the address card: open once, allow this site in this conversation, or don\
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('AI가 이 대화에 없던 주소를 열려고 해요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.')
-  await expect(card).toContainText('이 대화에서는 example.co.kr의 다른 주소도 묻지 않고 열어요')
+  await expect(card).toContainText('앞으로 모든 대화에서 example.co.kr의 다른 주소도 묻지 않고 열어요')
   await expect(card.getByTestId('ask-detail-mark')).toHaveCount(0)
   await expect(card.getByRole('radio')).toHaveCount(3)
   await expect(card.getByLabel('열기', { exact: true })).toBeVisible()
   await expect(card.getByLabel('열지 않기')).toBeVisible()
-  await card.getByLabel('이 대화에서 이 사이트 허용 (example.co.kr)').check()
+  await card.getByLabel('이 사이트 항상 허용 (example.co.kr)').check()
   await card.getByRole('button', { name: '답하기' }).click()
   await expect(card).toHaveCount(0)
   await expect(page.getByTestId('assistant-message').first()).toContainText('You chose "site"')

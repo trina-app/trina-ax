@@ -831,7 +831,7 @@ const sharedAlwaysKey = (row: Pick<Row, 'scope'>, sent: Sent): string | null =>
 /** The line under a card with both Always buttons: what each covers, at most NOTE_MAX characters (a card's note; a
  * longer one is dropped by the app): the tool's line alone when both do not fit */
 const NOTE_MAX = 300
-function alwaysNoteOf(L: Locale, mode: 'reads' | 'acts', name: string, what: string): string {
+export function alwaysNoteOf(L: Locale, mode: 'reads' | 'acts', name: string, what: string): string {
   const one = say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name, what })
   const both = `${one} ${say('allAlwaysNote', L, { name })}`
   return both.length <= NOTE_MAX ? both : one.slice(0, NOTE_MAX)

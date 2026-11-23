@@ -18,6 +18,8 @@ import { integrationsOf } from '../../server/src/integrations/connections/servic
 import { setAccess } from '../../server/src/integrations/connections/store'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { ALL_TOOLS } from '../../server/src/integrations/connections/tool-allow'
+import { alwaysNoteOf } from '../../server/src/integrations/connections/tools'
+import { sharedNote } from '../../server/src/chat/turn'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -99,12 +101,28 @@ describe('no Always for one chat anywhere', () => {
       'server/src/chat/i18n.ts', 'server/src/chat/always-allow.ts', 'server/src/chat/turn.ts', 'server/src/integrations/connections/text.ts',
       'server/src/integrations/connections/tools.ts', 'server/src/tools/url-gate.ts',
       ...['en', 'ko', 'id', 'ja', 'es', 'zh'].map((l) => `web/src/i18n/${l}.ts`),
+      'web/test/mock/server.ts', 'web/test/e2e/exfil-followups.spec.ts',
     ]
     const banned = [/Always in this chat/, /이 (대화|채팅)에서 항상 허용/, /이 대화에서 이 사이트 허용/, /Allow this site in this conversation/, /この(会話|チャット)では常に許可/, /Siempre en este chat/, /Selalu di obrolan ini/, /在(此|这个)对话中始终允许/, /ALWAYS_CHAT_VALUE|always_chat|chatScoped|keepAlwaysAt/]
     for (const f of files) {
       const text = fs.readFileSync(path.join(ROOT, f), 'utf8')
       for (const b of banned) expect([f, b.source, b.test(text)]).toEqual([f, b.source, false])
     }
+  })
+})
+
+describe('the line under the four buttons', () => {
+  test('never over 300 characters (a longer one keeps the card from showing), in every language, with a long name', () => {
+    const long = 'Google Drive (a.very.long.account.name@example-company.co.kr) — shared'.padEnd(80, 'x')
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      for (const name of ['Aside', long]) {
+        expect([L, name.length, sharedNote(L, name).length <= 300]).toEqual([L, name.length, true])
+        for (const mode of ['reads', 'acts'] as const) expect([L, mode, alwaysNoteOf(L, mode, name, 'Get post').length <= 300]).toEqual([L, mode, true])
+      }
+    }
+    // a short name: both lines
+    expect(sharedNote('en', 'Aside')).toContain('Always allow all: every tool of it also runs without asking')
+    expect(alwaysNoteOf('en', 'reads', 'Aside', 'Get post')).toContain('Always allow all of Aside')
   })
 })
 
@@ -116,7 +134,7 @@ describe('"Bright Data 전체 항상 허용" on the first connector card', () =>
     expect(r.cards[0]!.options.map((o) => [o.label, o.value])).toEqual([['Allow', 'allow'], ['Always allow', 'always'], ['Always allow all of Bright Data', 'all'], ['Don’t allow', 'deny']])
     expect(r.cards[0]!.buttons).toBe(true)
     expect(r.cards[0]!.note).toContain('in every chat')
-    expect(r.cards[0]!.note).toContain('Always allow all of Bright Data: every Bright Data tool runs without asking.')
+    expect(r.cards[0]!.note).toContain('Always allow all of Bright Data: every Bright Data tool runs without asking, and what it returns shows in shared chats too.')
     expect(r.cards[0]!.note!.length).toBeLessThanOrEqual(300)
   })
 
