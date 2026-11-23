@@ -29,17 +29,33 @@ const SCRIPT_LETTER: Record<AnswerScript, RegExp> = {
   zh: /[㐀-䶿一-鿿豈-﫿]/,
 }
 
-/** A message that asks for another language or a translation (영어로, 인도네시아어로, 일본말로, 스페인어 버전, 英語で, 用西班牙语,
- * English, translate …): no piece is dropped in that answer. */
+/** A message that asks for another language or a translation (영어로, 스웨덴어로, 일본말로, 스페인어 버전, 英語で, 用西班牙语,
+ * English, translate …): no piece is dropped in that answer. Any language counts, by the shape of its name, so one
+ * nobody listed keeps its text. The answer's own language and ordinary words of that shape are taken out first (NOT_ASKING:
+ * "자막은 한국어로", 0.16.0 gate, turned this rule off and "Korean text renders correctly. Attaching it now." led a Korean
+ * answer). A language named with no ending (한국어로 하나, 일본어 하나) counts when it is a common one. */
 const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
-  '영어', '영문', '번역', '[가-힣]어\\s*(?:로|으로|버전|번역|판)', '[가-힣]말로',
-  '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
-  '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '翻译', '英文', '英语',
+  '영어', '영문', '번역', '[가-힣]어(?:로|으로|\\s*버전|\\s*번역|\\s*판)', '[가-힣]\\s?말로', '일본어', '중국어', '스페인어', '프랑스어', '독일어', '베트남어', '인도네시아어', '태국어', '러시아어', '아랍어', '이탈리아어', '포르투갈어', '힌디어', '네덜란드어', '튀르키예어', '터키어', '말레이어', '폴란드어', '몽골어', '스웨덴어', '그리스어', '[가-힣]{2,}어\\s*(?:메일|이메일|자막|문서|공지|편지|문구|안내문)',
+  '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|の|版|訳)', '翻訳', '英語',
+  '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '(?:英|日|韩|韓|法|德|俄)语', '(?:写成|换成|译成|翻成|改成)[\\u4E00-\\u9FFF]{1,6}[语文]', '[\\u4E00-\\u9FFF]{1,4}[语文](?:邮件|字幕|文档|版本)', '翻译', '英文', '英语',
   'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'japanese',
   '영작', 'commit', 'chinese', 'korean',
   // the message quotes 3 or more Latin words (after ":" or in quotes)
   '[:：]\\s*[A-Za-z]+(?:[\\s,.\'-]+[A-Za-z]+){2,}', '["“\'‘「][A-Za-z]+(?:[\\s,.-]+[A-Za-z]+){2,}',
 ].join('|'), 'i')
+/** What only looks like asking for another language, by the answer's script: its own language's names and ordinary words
+ * that end like a language name. */
+const NOT_ASKING: Record<AnswerScript, RegExp> = {
+  ko: new RegExp([
+    '한국어', '한국말', '한글', '우리말', 'korean', '단어', '용어', '(?<!말)레이어', '플레이어', '소프트웨어', '하드웨어', '미들웨어', '펌웨어', '시니어', '주니어', '엔지니어', '커리어', '캐리어', '아이디어', '미디어', '인테리어', '바이어', '프리미어', '기어', '정말', '참말', '거짓말', '존댓말', '존대말', '반말', '높임말', '혼잣말', '막말', '줄임말', '머리말', '맺음말', '꼬리말', '인사말', '끝말',
+  ].join('|'), 'gi'),
+  ja: /日本語|japanese|敬語|丁寧語|尊敬語|謙譲語|用語|単語|標準語|熟語|外来語|略語|新語|流行語|主語|述語|物語/gi,
+  zh: /中文|汉语|漢語|华语|華語|简体|簡體|繁体|繁體|chinese|口语|书面语|成语|术语|用语/gi,
+}
+/** Does the message ask for a language other than the answer's own? (each word taken out leaves a mark no pattern reads
+ * across: "깨졌어 한국어로" must not become "깨졌어 로") */
+const asksOtherLanguage = (message: string, script: AnswerScript) => ASKS_FOR_OTHER_LANGUAGE.test(message.replace(NOT_ASKING[script], '\u0000'))
+
 /** Text that is often in English though the chat is not: a slogan, copy, a commit message, a button or label. Such a
  * message turns the hold off unless it gives the new words in the answer's own script (OWN_SCRIPT_COPY): "배너 문구를
  * '작지 않아 큰 햇살이야!'로 바꿔 줘" asks for Korean words (demo re-test 11-22: "Try with a full team path." went out at
@@ -154,7 +170,7 @@ const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].
  */
 export function narrationScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (locale !== 'ko' && locale !== 'ja' && locale !== 'zh') return null
-  if (ASKS_FOR_OTHER_LANGUAGE.test(message)) return null
+  if (asksOtherLanguage(message, locale)) return null
   if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, locale)) return null
   if (SCRIPT_LETTER[locale].test(message)) return locale
   if (writesLatin(message, locale)) return null
@@ -421,7 +437,7 @@ const mostlyLatin = (m: string) => {
 export function leadScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (mostlyLatin(message)) return null
   // a follow-up to a request for another language ("영어 이메일 써줘", then "좀 더 짧게"): the draft is still in it (review)
-  if (previous && ASKS_FOR_OTHER_LANGUAGE.test(ownWords(previous))) return null
+  if (previous && (locale === 'ko' || locale === 'ja' || locale === 'zh') && asksOtherLanguage(ownWords(previous), locale)) return null
   return narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
 }
 

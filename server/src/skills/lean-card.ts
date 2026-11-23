@@ -30,7 +30,7 @@ export function skillAbout(text: string | undefined): string | null {
  * The lean batch of a skill card: `to` the level it goes to, `copy` a copy, `followers` who follows it there, `warn` a
  * line the card must not hide (a same-name skill it replaces or hides, code that can run), joined on one line.
  */
-export function skillBatch(o: { tool: string; to: Level; copy: boolean; name: string; text?: string; followers: number; warn?: string[] }, L: Locale): Batch {
+export function skillBatch(o: { tool: string; to: Level; copy: boolean; save?: boolean; name: string; text?: string; followers: number; warn?: string[] }, L: Locale): Batch {
   const where = placeWords(o.to, L)
   const ref = levelRef(o.to)
   const team = o.to.level === 'team'
@@ -38,9 +38,9 @@ export function skillBatch(o: { tool: string; to: Level; copy: boolean; name: st
   const about = skillAbout(o.text)
   const warn = (o.warn ?? []).map((x) => x.trim()).filter(Boolean).join(' ')
   return {
-    key: `skill:${o.copy ? 'copy' : 'move'}:${JSON.stringify(ref)}`,
-    one: st(o.copy ? 'batchCopyOne' : 'batchMoveOne', L, { where }).slice(0, 300),
-    many: st(o.copy ? 'batchCopyMany' : 'batchMoveMany', L, { where, n: '{n}' }).slice(0, 300),
+    key: `skill:${o.save ? 'save' : o.copy ? 'copy' : 'move'}:${JSON.stringify(ref)}`,
+    one: st(o.save ? 'batchSaveOne' : o.copy ? 'batchCopyOne' : 'batchMoveOne', L, { where }).slice(0, 300),
+    many: st(o.save ? 'batchSaveMany' : o.copy ? 'batchCopyMany' : 'batchMoveMany', L, { where, n: '{n}' }).slice(0, 300),
     item: oneLine(o.name, 200),
     ...(about ? { about } : {}),
     ...(warn ? { warn: oneLine(warn, 600) } : {}),

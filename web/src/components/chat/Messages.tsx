@@ -52,7 +52,7 @@ import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard, { BatchCard } from './AskCard'
-import { groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
+import { gathers, groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
 import TodoCard, { todoStepOf } from './TodoCard'
 import ShareCard from './ShareCard'
 import TeamFolderCard from './TeamFolderCard'
@@ -897,7 +897,8 @@ export function AssistantMessage({
         {/* cards of one kind from this answer show as one card, one press (lib/cardBatch.ts) */}
         {groupCards(requests).map((g) => {
           const r = g[0]!
-          if (showsAsBatch(g)) return <BatchCard key={groupKey(r) ?? r.request.requestId} cards={g} />
+          // (a first card alone too while the answer runs: the rest of its group may still come, and one press must cover them)
+          if (showsAsBatch(g) || (streaming && gathers(r.request))) return <BatchCard key={groupKey(r) ?? r.request.requestId} cards={g} answerRunning={streaming} />
           return r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />
         })}
         {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
