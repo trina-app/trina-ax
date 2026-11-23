@@ -42,14 +42,40 @@ export function groupCards<T extends CardLike>(cards: readonly T[]): T[][] {
 /** A group (or one card) shown as the lean or grouped card: two or more, or one that leads in plain words. */
 export const showsAsBatch = (g: readonly CardLike[]): boolean => g.length > 1 || (g.length === 1 && groupable(g[0]!.request) && !!g[0]!.request.batch.item)
 
+/** how long a card that joined a group must be on screen before a press covers it */
+export const CARD_JOIN_LOCK_MS = 1_500
+/** the longest the buttons stay locked by cards that keep arriving; a press then covers only the cards seen long enough */
+export const CARD_JOIN_LOCK_MAX_MS = 4_000
+
+/**
+ * The lock of a group's buttons. `at`: when each card now in the group came on screen (0: with the group itself). Locked
+ * while the newest card is under CARD_JOIN_LOCK_MS old, for at most CARD_JOIN_LOCK_MAX_MS of arrivals in a row (a card
+ * waiting inside a call has a time limit: it must stay answerable). `seen`: the cards a press may cover. `next`: when this
+ * changes (null: it will not).
+ */
+export function joinLock(at: ReadonlyMap<string, number>, now: number): { locked: boolean; seen: Set<string>; next: number | null } {
+  const seen = new Set<string>()
+  const young: number[] = []
+  for (const [id, t] of at) { if (now - t >= CARD_JOIN_LOCK_MS) seen.add(id); else young.push(t) }
+  if (!young.length) return { locked: false, seen, next: null }
+  const times = [...at.values()].filter((t) => t > 0).sort((a, b) => a - b)
+  // where this run of arrivals began: each one under the lock's length after the one before
+  let i = times.length - 1
+  while (i > 0 && times[i]! - times[i - 1]! < CARD_JOIN_LOCK_MS) i--
+  const until = times[i]! + CARD_JOIN_LOCK_MAX_MS
+  const locked = now < until
+  const ages = Math.min(...young) + CARD_JOIN_LOCK_MS
+  return { locked, seen, next: locked ? Math.min(ages, until) : ages }
+}
+
 /**
  * The answers one press sends, in order: the unticked items their card's "no" (the last option) first, so an "Always
  * allow" that answers the rest of its kind (server chat/open-questions.ts alwaysAlso) never meets one meant as a no;
  * then the ticked ones the pressed value.
  */
-export function pressPlan(cards: readonly CardLike[], value: string, ticked: ReadonlySet<string>): { requestId: string; answer: string }[] {
-  // one card alone has no tick: it is the one pressed
-  const on = (c: CardLike) => cards.length === 1 || ticked.has(c.request.requestId)
+export function pressPlan(cards: readonly CardLike[], value: string, ticked: ReadonlySet<string>, alone = cards.length === 1): { requestId: string; answer: string }[] {
+  // one card alone has no tick: it is the one pressed (`alone`: of the whole group, when `cards` is only the part seen)
+  const on = (c: CardLike) => alone || ticked.has(c.request.requestId)
   const no = cards.filter((c) => !on(c))
   const yes = cards.filter(on)
   const lastOf = (c: CardLike) => (c.request.kind === 'ask_user' ? c.request.options?.at(-1)?.value ?? null : null)
