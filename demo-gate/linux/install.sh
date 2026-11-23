@@ -147,7 +147,9 @@ CUR=$(cat "$O/app/.git-head" 2>/dev/null || true)
 GOOD=$(cat "$RB/GOOD" 2>/dev/null || true)
 GOOD_HEAD=$(cat "$RB/$GOOD/app/.git-head" 2>/dev/null || true)
 PROVED=$(cat "$RB/DEPLOYED" 2>/dev/null || true)
-if [ -n "$CUR" ] && [ -f "$G/gate.json" ] && { [ -z "$GOOD" ] || { [ "$PROVED" = "$CUR" ] && [ "$GOOD_HEAD" != "$CUR" ]; }; }; then
+# (installing the running commit again is no new version: the older copy stays the way back)
+NEXT=$(cat "$ST/app/.git-head" 2>/dev/null || true)
+if [ -n "$CUR" ] && [ -f "$G/gate.json" ] && { [ -z "$GOOD" ] || { [ "$PROVED" = "$CUR" ] && [ "$GOOD_HEAD" != "$CUR" ] && [ "$NEXT" != "$CUR" ]; }; }; then
   n="app-$CUR-$(date -u +%Y%m%d%H%M%S)"
   rm -rf "${RB:?}/$n.tmp"; install -d -o root -g root -m 700 "$RB/$n.tmp"
   cp -a "$O/app" "$RB/$n.tmp/app"
