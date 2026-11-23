@@ -53,7 +53,7 @@
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
-import { floorFree, inOwnFolder } from './explicit-send'
+import { floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { isGuestUser } from '../credentials/guest-ai'
 import { instructionFiles } from './prompt'
 import type { Database } from 'bun:sqlite'
@@ -87,7 +87,7 @@ import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
 import { ownPaste } from './own-paste'
-import { roomMessagesSeen } from './read-rooms'
+import { quotesOnBranch, roomMessagesSeen } from './read-rooms'
 import { alwaysOn } from './always-allow'
 import { fileSharesOf } from '../files/shares'
 
@@ -916,10 +916,7 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   // (never with a guest among the people who would see it: someone from outside the team, as post_to_room keeps)
   // (a chat of the person's own that never read anything another person wrote and nobody else wrote in: its answers are
   // their own work, whatever the scope can list; post-to-room.ts ownWorkOnly)
-  const ownWork = (() => { try {
-    const ch = c.db.query('SELECT user_id, others_words, rooms_seen FROM chats WHERE id = ?').get(c.chatId) as { user_id: string; others_words: number; rooms_seen: number } | null
-    return !!ch && ch.user_id === c.userId && !ch.others_words && !roomMessagesSeen(ch.rooms_seen as never) && !c.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(c.chatId, c.userId)
-  } catch { return false } })()
+  const ownWork = ownWorkChat(c.db, c.chatId, c.userId, null, quotesOnBranch) && (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(c.chatId) as { user_id: string } | null)?.user_id === c.userId
   // (only where the scope cannot say what it read: a known source some member cannot see still takes the floor)
   const notKnown = prov.unknown || prov.otherPlaces || prov.keys.length !== (prov.counted?.length ?? 0)
   const direct = !reason && !hidden && ((ownWork && notKnown) || floorFree(prov, c.userId, () => false, new Set(), (id) => (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === c.userId)) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))

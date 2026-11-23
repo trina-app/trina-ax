@@ -56,10 +56,10 @@ import { askerMessageId, askerSpec, askingAnswerId, madeHere } from './asked-in'
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK } from './shared-actions'
-import { approvedSources, floorFree, inOwnFolder } from './explicit-send'
+import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { keepPick, saysTitle } from './person-aliases'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
-import { readRooms } from './read-rooms'
+import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
@@ -724,7 +724,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // a chat that never read anything another person wrote (no room or DM, no teammate's file, page or service: the
         // chat's own marks, others_words and rooms_seen) holds only the person's own work: whatever its answers read is
         // theirs, also where the server cannot list every source ("참고한 자료를 다 알 수 없어요", QA F5 new-sh/new-po)
-        const ownWorkOnly = !readRooms(exec) && !exec.othersWords && !exec.otherAuthors
+        const ownWorkOnly = !readRooms(exec) && !exec.othersWords && !exec.otherAuthors && ownWorkChat(db, spec.chatId, spec.userId, spec.assistantId ?? null, quotesOnBranch)
+          // (and every file that goes carries nothing someone else wrote: a file of mine made from a teammate's earlier)
+          && [...attached].every((rel) => { try { return exec.ownFileOutside(rel) === 0 } catch { return false } })
         // (only where the server cannot list every source: a known one some there cannot see still takes the floor)
         const notKnown = !pvNow || pvNow.unknown || pvNow.otherPlaces || pvNow.keys.length !== (pvNow.counted?.length ?? 0)
         const explicitNew = wordsAsk && ((ownWorkOnly && notKnown) || (!!pvNow && (() => { try { return floorFree(pvNow!, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()))

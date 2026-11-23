@@ -13,6 +13,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
 import { createTool } from '../../server/src/integrations/connections/tools'
 import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
+import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import type { CountedSource } from '../../server/src/chat/answer-share'
 
 setDefaultTimeout(60_000)
@@ -68,6 +69,13 @@ describe('the create tier (connections/tools.ts createTool)', () => {
     expect(createTool({ google_app: 'docs' }, t('create_document'), {})).toBe(false)
     expect(createTool({ google_app: null }, t('create​_app'), {})).toBe(false)
     expect(createTool({ google_app: null }, t('create_app', { title: 'Create and publish app' }), {})).toBe(false)
+  })
+})
+
+describe('tools that never mark the chat as having used something from outside', () => {
+  test('a subset of the own-words tools, never a sub-agent, a skill or a new connection', () => {
+    for (const t of NO_OUTSIDE_TOOLS) expect([t, OWN_WORDS_TOOLS.has(t)]).toEqual([t, true])
+    for (const t of ['connect_service', 'skill', 'agent', 'Agent', 'Task', 'web_fetch', 'room_read', 'save_url', 'box_shell']) expect([t, NO_OUTSIDE_TOOLS.has(t)]).toEqual([t, false])
   })
 })
 
