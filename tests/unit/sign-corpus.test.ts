@@ -564,7 +564,7 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       const fill = (n: number) => Array.from({ length: n }, (_, i) => hwpxPara(`본문 ${i}`, { cache: false })).join('')
       const splits = hwpxTable(rows9, { cache: false, treatAsChar: false, pageBreak: 'CELL' }), whole = hwpxTable(rows9, { cache: false, treatAsChar: false, pageBreak: 'NONE' })
       const parts = (l: HwpLayout) => l.pages.reduce((n, p) => n + new Set(p.cells.map((c) => c.table)).size, 0)
-      for (const [name, body] of [['the second split', fill(1) + whole + hwpxPara('중간', { cache: false }) + splits], ['the first split', fill(15) + splits + hwpxPara('중간', { cache: false }) + whole]] as const) {
+      for (const [name, body] of [['the second split', fill(1) + whole + fill(15) + splits], ['the first split', fill(15) + splits + hwpxPara('중간', { cache: false }) + whole]] as const) {
         test(`two equal tables, ${name} over pages: refused for both signers and both tables`, async () => {
           const doc = hwpxDoc([body + hwpxPara('끝', { cache: false })])
           expect(parts(await engine.layout(Buffer.from(doc), 'hwpx'))).toBe(3)
