@@ -4407,11 +4407,10 @@ export class TurnExec {
     // 2026-11-23, docs/decisions/20261123-do-then-undo.md: "개인 폴더 읽기 카드" in QA F10): no card. Never a share of it
     // (another person's), never a skill, never a save card
     // (only their folder's files, never what their browser or a connection showed; never with a guest among the people)
-    // (and a chat of their own they shared with people: the owner's "내 채팅", QA F5 new-sh)
-    const ownShared = this.shared?.kind === 'people' && (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id === this.spec.userId
     // (never a skill of theirs: its words become the AI's instructions here, a card of its own; never a copy of their
     // files into the chat's own places, which puts them in front of everyone there as files: NO_OWN_SKIP)
-    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
+    // (a project chat only: a chat shared with people keeps the card, its people are not the person's project's)
+    if (this.shared?.kind === 'project' && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
       const before = missing.length
       missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
       // (recorded as the person's yes would be: the people who see the chat now are covered for it, so the engine's session
