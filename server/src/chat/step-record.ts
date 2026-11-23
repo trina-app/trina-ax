@@ -238,10 +238,15 @@ export const STEP_RECORD_TOTAL = 6_000
 export const OTHER_RECORD_ANSWERS = 4
 export const OTHER_RECORD_CHARS = 1_800
 /** The tools of another person's answer whose notes (arguments, result) may be shown to the asker: the team's own file
- * tools (their paths shown only when everyone may list them: stepFor). A connection's, an app's or the browser's
- * steps (the other person's own accounts, what their pages showed) and a connector's file saved in (save_connector_file:
- * its source is their connection) show their name and how they ended only. */
-const othersNotes = (tool: string | undefined): boolean => !!tool && knownStepTool(tool) && !BROWSER_TOOL_NAMES.has(tool) && !NO_RESULT_TOOLS.has(tool) && tool !== 'save_connector_file'
+ * tools that name team paths (their paths shown only when everyone may list them: stepFor). Everything else (a
+ * connection's, an app's or the browser's step, a card's answer, a post, a share, a web address, a data query) shows
+ * its name and how it ended only. */
+const OTHERS_NOTE_TOOLS: ReadonlySet<string> = new Set(['read', 'list', 'glob', 'grep', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render',
+  'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'delete_files'])
+/** (only a step that names team paths, kept aside for whoever may list them all: StoredStep.sv, shown by stepFor) */
+const othersNotes = (s: StoredStep): boolean => !!s.tool && OTHERS_NOTE_TOOLS.has(s.tool) && !!s.sv
+/** the tools whose line names a room, a person or what was shared (ChatStore.viewSteps): their verb alone for others */
+const OTHERS_WORDS_ONLY: ReadonlySet<string> = new Set(['post_to_room', 'share_with_person', 'stop_sharing', 'share_folder'])
 
 /**
  * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own
@@ -289,7 +294,11 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     if (withNotes && o.shared) { try { withNotes = !o.shared.hiddenFrom(h.id) } catch { withNotes = false } }
     if (before) steps = steps.map((s) => { const { sv: _sv, tool, ...rest } = s; return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, 'en') } })
     let notes = withNotes ? parseNotes(row.step_notes) : {}
-    if (other) { const ok = new Set(steps.filter((x) => othersNotes(x.tool)).map((x) => x.id)); notes = Object.fromEntries(Object.entries(notes).filter(([id]) => ok.has(id))) }
+    if (other) {
+      const ok = new Set(steps.filter(othersNotes).map((x) => x.id))
+      notes = Object.fromEntries(Object.entries(notes).filter(([id]) => ok.has(id)))
+      steps = steps.map((x) => (x.tool && OTHERS_WORDS_ONLY.has(x.tool) ? (({ sv: _sv, ...rest }) => ({ ...rest, label: stepWords(x, 'en') }))(x) : x))
+    }
     let text = stepsRecord(steps, notes, o.canList)
     if (!text) continue
     if (o.mapText) text = o.mapText(text)

@@ -1046,7 +1046,9 @@ export class TurnExec {
         const heldKeys = new Set(held.flatMap((g) => g.s.map(sourceKey)))
         const othersKeys = new Set<string>()
         const mine = new Set(ownAnswers)
-        for (const [id, rec] of answerRecords(rt.db, spec.chatId)) if (!mine.has(id)) for (const g of rec.reads) for (const x of g.s) othersKeys.add(sourceKey(x))
+        // (only kinds of place a read card writes to the answer's record: a team folder read through a skill or the
+        // project instructions goes into the read scope alone, so a folder still counts)
+        for (const [id, rec] of answerRecords(rt.db, spec.chatId)) if (!mine.has(id)) for (const g of rec.reads) for (const x of g.s) if (x.type === 'user' || x.type === 'name') othersKeys.add(sourceKey(x))
         const scope = (readScope(rt.db, spec.chatId) ?? []).filter((x) => heldKeys.has(sourceKey(x)) || !othersKeys.has(sourceKey(x)))
         const rest = [...scope, ...held.filter((g) => !g.k && !g.y).flatMap((g) => g.s)].filter((x) => !covered.has(sourceKey(x)))
         if (rest.length && missingReaders(rt.db, rules, rest, this.sharedAudience()).length) ok = false
