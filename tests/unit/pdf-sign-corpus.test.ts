@@ -7,7 +7,8 @@ import path from 'node:path'
 import { PDFDocument, rgb } from 'pdf-lib'
 import fontkit from '../../server/node_modules/@pdf-lib/fontkit'
 import { makeHandler } from '../../server/src/mcp/protocol'
-import { lineBands, parseWordBoxes, resolvePdfMark, sameWords, type PPage, type PWord } from '../../server/src/files/pdf-marks'
+import { lineBands, parseWordBoxes, PDF_WORDS_MAX, resolvePdfMark, sameWords, type PPage, type PWord } from '../../server/src/files/pdf-marks'
+import { decodeMarksResult, encodeMarksRequest, pdfMarksRequest } from '../../server/src/files/pdf-marks-worker'
 import { SEAL_TOLERANCE_MM } from '../../server/src/files/sign-slots'
 import { STAMPED } from '../../server/src/tools/stamp-pdf'
 import { teamDefaultLocale } from '../../server/src/admin/settings'
@@ -231,10 +232,20 @@ describe('stamp_pdf at: refused, nothing saved', () => {
     const fixed = rebuildXref(s)
     await refused(fixed, { at: 'HHng (Seal)' }, 'letter map')
   })
-  t('a huge page and a PDF with too many words are refused before they are drawn', async () => {
+  t('a huge page is refused before it is drawn', async () => {
     await refused(doc([T(100, 600, 'Hong (Seal)')], { media: '[0 0 6000 6000]' }), { at: 'Hong (Seal)' }, 'too large')
-    const many = Array.from({ length: 31_000 }, (_, i) => `1 0 0 1 ${5 + (i % 190) * 3} ${5 + Math.floor(i / 190) * 5} Tm (w) Tj`).join(' ')
-    await refused(doc([`BT /F1 1 Tf ${many} ET\n` + T(100, 830, 'Hong (Seal)')]), { at: 'Hong (Seal)' }, 'too large')
+  })
+  test('too many words: refused in the worker; a page at the cap is handled in near-linear time', async () => {
+    const word = (i: number) => `<word xMin="${(i % 190) * 3}" yMin="${Math.floor(i / 190) * 5}" xMax="${(i % 190) * 3 + 2}" yMax="${Math.floor(i / 190) * 5 + 4}">w${i}</word>`
+    const xml = (n: number) => Buffer.from(`<page width="595" height="842"><line>${Array.from({ length: n }, (_, i) => word(i)).join('')}</line></page>`)
+    const over = xml(PDF_WORDS_MAX + 1)
+    const r = decodeMarksResult(await pdfMarksRequest(encodeMarksRequest({ kind: 'resolve', at: '(Seal)', xmlLength: over.length }, over, new Uint8Array(1))))
+    expect(r).toMatchObject({ kind: 'ask' })
+    expect((r as { ask: string }).ask).toContain('too much text')
+    const pages = parseWordBoxes(xml(PDF_WORDS_MAX).toString())
+    const t0 = performance.now()
+    expect(lineBands(pages[0]!).flat()).toHaveLength(PDF_WORDS_MAX)
+    expect(performance.now() - t0).toBeLessThan(3000)
   })
   t('another page that differs between two PDF readers is refused', async () => {
     const a = T(100, 600, 'One (Seal)'), other = '0 0 1 rg 100 100 200 200 re f\n', twin = '1 0 0 rg 300 300 100 100 re f\n'
