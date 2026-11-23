@@ -495,6 +495,34 @@ describe('config', () => {
     expect(parseConfig(base, '/srv').limits).toMatchObject({ streamsPerInstance: 2, instanceCapMargin: 1.2 })
     expect(parseConfig(base, '/srv').ai).toMatchObject({ models: [...DEFAULT_MODELS], defaultModel: 'claude-sonnet-5-5' })
   })
+  test('the example configs load; the Linux one clones by reflink, runs instances under choom and takes 30', () => {
+    const dir = path.join(import.meta.dir, '..')
+    // the Linux example names the instance user by placeholder (install.sh writes its ids)
+    const read = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8').replace('"<tdrun uid>"', '964').replace('"<tdrun gid>"', '964'))
+    expect(fs.readFileSync(path.join(dir, 'gate.example.linux.json'), 'utf8')).toContain('"<tdrun uid>"')
+    for (const f of ['gate.example.json', 'gate.example.linux.json']) expect(() => parseConfig(read(f), dir)).not.toThrow()
+    const l = parseConfig(read('gate.example.linux.json'), dir)
+    expect(l.pool).toMatchObject({ instancesDir: '/srv/tdg/i', snapshotsDir: '/srv/tdg/.snapshots', cloneCommand: ['cp', '--reflink=always', '-R'], maxLive: 30, portRange: [19200, 19399] })
+    expect(l.pool.command.slice(0, 4)).toEqual(['/usr/bin/choom', '-n', '800', '--'])
+    // each instance in its own bwrap: own pid and IPC namespaces, the instances' file system hidden but for its own
+    // folder, no --new-session (the gate keeps its process group)
+    const bw = l.pool.command.slice(4, l.pool.command.indexOf('--', 5) + 1)
+    expect(bw[0]).toBe('/usr/bin/bwrap')
+    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
+    expect(bw).not.toContain('--new-session')
+    expect(bw).not.toContain('--unshare-net')
+    // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so, for the explicit browser
+    // inside /opt/trina-demo only
+    expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('/opt/trina-demo')
+    expect(l.pool.env.MYCEL_HTML_PDF_BROWSER!.startsWith('/opt/trina-demo/')).toBe(true)
+    expect(l.pool.path.split(':')[0]).toBe('/opt/trina-demo/claude/bin')
+    expect(l.limits.maxStreams).toBe(12)
+    // three ports per instance: 30 live and 2 warm for each of the six languages fit the range
+    expect(l.pool.portRange[1] - l.pool.portRange[0] + 1).toBeGreaterThanOrEqual(3 * (l.pool.maxLive + l.pool.warmPerLocale * l.pool.locales.length))
+    // at least three ports: one instance's listener, model proxy and the proxy's internal server
+    expect(() => parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20001] } }, '/srv')).toThrow(ConfigError)
+    expect(parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20002] } }, '/srv').pool.portRange).toEqual([20000, 20002])
+  })
   test('how the gate runs things as the instance user', () => {
     const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')
     expect(runMode(c, 501)).toBe('sudo')

@@ -157,7 +157,7 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
   const clone = p.cloneCommand ?? (process.platform === 'darwin' ? ['cp', '-c', '-R'] : ['cp', '-R'])
   if (!Array.isArray(clone) || !clone.length || clone.some((x) => typeof x !== 'string')) throw new ConfigError('config: pool.cloneCommand must be a list of strings')
   const range = (p.portRange ?? [19200, 19399]) as [number, number]
-  if (!Array.isArray(range) || range.length !== 2 || !(range[0] > 1024 && range[1] >= range[0] + 1 && range[1] < 65536)) throw new ConfigError('config: pool.portRange must be [from, to] above 1024')
+  if (!Array.isArray(range) || range.length !== 2 || !(range[0] > 1024 && range[1] >= range[0] + 2 && range[1] < 65536)) throw new ConfigError('config: pool.portRange must be [from, to] above 1024, at least three ports (each instance takes three)')
   const instancesDir = abs(p.instancesDir, 'pool.instancesDir')
   if (instancesDir.length + 9 > MAX_INSTANCES_DIR) throw new ConfigError(`config: pool.instancesDir is too long (${instancesDir.length} bytes; at most ${MAX_INSTANCES_DIR - 9}, the instances' unix sockets must fit 104 bytes)`)
   if (!command.some((x) => (x as string).includes('{dir}') || (x as string).includes('{config}'))) throw new ConfigError('config: pool.command must name {config} or {dir} (the sweeper only kills a process group whose command line holds its folder)')
