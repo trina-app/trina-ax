@@ -726,7 +726,9 @@ describe('engine sessions', () => {
 
   test("the owner's case: a read of the asker's own folder after the card's yes, then every later turn resumes; bob's answers never show it", async () => {
     const chat = await newShared()
-    const read = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'read your file' }), 'share')
+    // (her own folder, in a chat she made that nobody else wrote in: no card since docs/decisions/20261123-do-then-undo.md,
+    // the read kept as the card's yes would keep it, so the session goes on the same way)
+    const read = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'read your file' }))
     expect(read.done.content).toBe('read your file')
     for (let i = 0; i < 3; i++) expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
     // bob writes in between: his turn is fresh (never her session), hers goes on
@@ -740,8 +742,8 @@ describe('engine sessions', () => {
     const chat = await newShared()
     const file = 'projects/falcon/QUOTE-견적서.md'
     await ask('alice', chat.id, 'make the quote\n' + fake({ tool: 'write', args: { file_path: file, content: '# Quote\nTotal: 100\n' } }, { say: 'Made the quote.' }))
-    // her own folder after the card's yes: bob may not open it
-    await askWithCard('alice', chat.id, 'check my note\n' + fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Checked your note.' }), 'share')
+    // her own folder (no card since docs/decisions/20261123-do-then-undo.md, kept as the card's yes would): bob may not open it
+    await ask('alice', chat.id, 'check my note\n' + fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Checked your note.' }))
     // bob's first turn in the chat (a fresh session): alice's steps, the file and its folder, under her answer
     const bob = await ask('bob', chat.id, 'which file?\n' + fake({ echo: 'system' }))
     const r = recs(bob.done.content)

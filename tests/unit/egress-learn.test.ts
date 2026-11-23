@@ -343,7 +343,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     const asked: Asked[] = []
     const r = await call('schedule_create', { title: 'digest', prompt, repeat: 'once', time: '09:00', date: day() }, turnIn(await chatWith('make a task')), person('create', asked))
     expect(r.isError).toBeFalsy()
-    expect(asked[0]!.question).toContain('runs cannot open the address below yet')
+    expect(asked[0]!.question).toContain('Runs cannot open the address below now')
     expect(asked[0]!.question).not.toContain('On each run it opens')
     expect(asked[0]!.extra!.details![1]).toMatchObject({ label: 'Addresses in the instruction (runs cannot open them yet)', text: MARKED })
     expect(r.text).toContain('its runs cannot open the web addresses in the prompt until it does')
@@ -355,7 +355,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     h.ctx.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, enabled, next_run_at) VALUES (?, 'alice', 'Old digest', ?, 'daily', '09:00', 0, ?)`).run(id, prompt, new Date(Date.now() + 86400_000).toISOString())
     const review = (await h.api('alice').call(API.getScheduleReview, { params: { id } })).request
     expect(review.question).toContain('made without its confirmation card')
-    expect(review.question).toContain('runs cannot open the address below yet')
+    expect(review.question).toContain('Runs cannot open the address below now')
     // five languages, each different from the promise; one address in the singular (English, Spanish), two counted
     const input = { title: 't', prompt, repeat: 'daily' as const, time: '09:00' }
     const two = { ...input, prompt: `${prompt} Also read https://news.example.net/today.` }
