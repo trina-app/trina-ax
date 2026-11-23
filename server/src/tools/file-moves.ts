@@ -221,6 +221,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const where = `${folder || 'the team root'}${isNew ? ' (a new folder)' : ''}`
     const change = `this would change who can see ${ok.length === 1 ? 'it' : 'these files'} in ${where}: ${added} more, ${lost} fewer people`
     let confirmed = false
+    // the card did not show: the person's own Always let it go (the summary says so, never "confirmed")
+    let underAlways = false
     // many moves where other people look (QA TC-r2u-25; not copies: the originals stay): one card for the rest of the
     // answer; when the card below asks anyway, its yes (which lists them too) stands for it
     const bulk = mode === 'move' ? bulkPlan(tc, ok, folder) : null
@@ -253,6 +255,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       const question = [fill(lead, { n: count, to: placeWords(ctx.db, folder, L, tc.user.id) }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
         bulk?.ask && bulk.b.done ? fill(TEXT.bulkEarlier[L], { n: bulk.b.done }, L) : '',
         bulk?.ask ? TEXT.bulkRest[L] : fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
+      underAlways = !!tc.person.alwaysOn?.('move_files')
       const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files' })
       if (end !== 'yes') {
         throw new ToolError(refusal({
@@ -312,7 +315,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       done.length ? audienceResult(added, lost, total, mode, where) : '',
       done.length ? bulkResult(bulk?.said) : '',
     ].filter(Boolean).join('\n\n')
-    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (confirmed by the user: +${added} -${lost})` : ''}`
+    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (${underAlways ? 'Always allow, no card' : 'confirmed by the user'}: +${added} -${lost})` : ''}`
     if (!done.length) return { text, isError: true, summary }
     return { text, summary, structured: mode === 'move' ? { moved: done, failed } : { copied: done, failed } }
   }

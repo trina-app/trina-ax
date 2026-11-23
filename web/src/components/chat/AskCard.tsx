@@ -89,11 +89,12 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            // the team's "Always allow" switch is off (Admin › Team AI settings): no Always on this card
+            choices={withAlways(
               { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
-              { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }) },
+              r.noAlways ? null : { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
               { label: t('browser.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -109,15 +110,17 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <div className="space-y-2 px-4 py-3 text-sm">
           {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
           <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
+          {/* the person's own list is full: no Always, and where to make room */}
+          {r.listFull && <p className="text-xs text-muted" data-testid="dev-env-site-full">{t('devEnvSite.listFull')}</p>}
           <ChoiceRow
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            choices={withAlways(
               { label: t('devEnvSite.allowOnce'), onClick: () => void run({ kind: 'dev_env_site', decision: 'once' }), testId: 'dev-env-site-once' },
-              { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
+              r.listFull ? null : { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
               { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'dev_env_site', decision: 'deny' }), testId: 'dev-env-site-deny' },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -351,12 +354,17 @@ function QuestionText({ r }: { r: { question: string; placeTip?: { text: string;
  * computer one row in the order of the yes/no card and of every dialog (docs/DESIGN-SYSTEM.md), the row reversed: the
  * "no" first and the main one last, on the right. A failed answer's reason comes after the buttons, under them. */
 const CHOICE_LOOKS = ['primary', 'secondary', 'ghost'] as const
-function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choice, Choice]; busy: boolean; error: string | null; className?: string }) {
+/** Two choices (no "always": the card offers none) keep the quiet "no" */
+const PAIR_LOOKS = ['primary', 'ghost'] as const
+/** the three choices, or two when "always" is not offered */
+const withAlways = (main: Choice, always: Choice | null, no: Choice): [Choice, Choice, Choice] | [Choice, Choice] => (always ? [main, always, no] : [main, no])
+function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choice, Choice] | [Choice, Choice]; busy: boolean; error: string | null; className?: string }) {
+  const looks = choices.length === 2 ? PAIR_LOOKS : CHOICE_LOOKS
   return (
     <div className={className}>
       <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center" data-testid="ask-choices">
         {choices.map((c, i) => (
-          <Button key={i} size="sm" variant={CHOICE_LOOKS[i]} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
+          <Button key={i} size="sm" variant={looks[i]} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
             {c.label}
           </Button>
         ))}

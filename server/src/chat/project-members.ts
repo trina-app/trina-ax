@@ -56,7 +56,7 @@ import { seenWhy } from './grant-reads'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { alwaysHere, withAlways } from './always-allow'
+import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 
 export const PROJECT_MEMBERS_TOOL = 'change_project_members'
 
@@ -462,6 +462,8 @@ export function projectMembersTool(exec: MembersExec): Tool {
     // the person's "Always allow" for members changes is final (owner 2026-11-13, docs/decisions/
     // 20261116-always-allow-final-rule-a.md): no card, also after room reads or content someone else wrote
     s.open = true
+    // (no card under the person's own Always: the result says so, never "confirmed on the card")
+    const underAlways = alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on'
     let answer: Awaited<ReturnType<MembersExec['askPerson']>>
     try {
       let missing: typeof answer.missing = null
@@ -518,14 +520,15 @@ export function projectMembersTool(exec: MembersExec): Tool {
     auditCall({ ...base, outcome: 'done', people, ...(partly ? { after: 'failed' } : {}) }, r.id)
     const list = (xs: readonly Subject[]) => xs.map((x) => `${ai(x.name)} (${kindWord(x)})`).join(', ')
     const text = [
-      `Changed the members of the project '${ai(r.name)}' (${r.folder_path}), confirmed by the user on the card:`,
+      `Changed the members of the project '${ai(r.name)}' (${r.folder_path})${underAlways ? '' : ', confirmed by the user on the card'}:`,
       p.adds.length ? `added ${list(p.adds)}` : '',
       p.removes.length ? `removed ${list(p.removes)}` : '',
       p.already.length ? `already members, unchanged: ${list(p.already)}` : '',
       `${people} people see it now (its members). The user can see and change its members on ${panel(L, r.name)}: /projects/${r.id}?members=1`,
+      underAlways ? RAN_UNDER_ALWAYS : '',
       partly ? 'The members were saved, but a step after the save (telling people, closing what the people removed had open) did not finish; an admin can check the server log.' : '',
     ].filter(Boolean).join('\n')
-    return { content: [{ type: 'text' as const, text }], summary: `${PROJECT_MEMBERS_TOOL} -> +${p.adds.length} -${p.removes.length}, ${p.plan.gained.length} gain and ${p.plan.lost.length} lose it (confirmed by the user)` }
+    return { content: [{ type: 'text' as const, text }], summary: `${PROJECT_MEMBERS_TOOL} -> +${p.adds.length} -${p.removes.length}, ${p.plan.gained.length} gain and ${p.plan.lost.length} lose it (${underAlways ? 'Always allow, no card' : 'confirmed by the user'})` }
   }
 
   /** The project: `name` (its name or folder) among the projects the person sees, or this chat's project. `own`: it is

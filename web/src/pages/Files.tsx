@@ -1704,7 +1704,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
   )
 }
 
-function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: () => void; onRestored: () => void }) {
+/** exported for its tests */
+export function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: () => void; onRestored: () => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -1738,10 +1739,11 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
   const restore = async (v: FileVersion) => {
-    // the people whose later versions drop out of the latest content are named (QA TC-7246); nobody else: today's words
+    // the people whose later versions drop out of the latest content are named first (QA TC-7246); when nobody else's
+    // edits drop out, the restore goes at once: the current content is kept as a version anyway
+    // (docs/decisions/20261123-ask-registry-findings.md, decision 11)
     const dropouts = restoreDropouts(items ?? [], now, v.version, me.user.id)
-    const body = dropouts.length ? t('files.restoreBodyNames', { names: nameList(locale, dropouts) }) : t('files.restoreBody')
-    if (!(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body, confirm: t('common.restore') }))) return
+    if (dropouts.length && !(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body: t('files.restoreBodyNames', { names: nameList(locale, dropouts) }), confirm: t('common.restore') }))) return
     setBusy(v.id)
     try {
       await sendWidening((confirm) => api.call(API.restoreVersion, { body: { path, versionId: v.id, ...(confirm ? { confirm: true } : {}) } }), (n) => confirmDialog({ title: t('files.widenTitle'), body: t('files.restoreWidenBody', { n }), confirm: t('common.restore') }))
@@ -1807,7 +1809,7 @@ function HistoryModal({ path, onClose, onRestored }: { path: string; onClose: ()
                 <Badge tone="neutral">{t('files.sameAsNow')}</Badge>
               ) : (
                 current.canRestore && (
-                  <Button size="sm" busy={busy === v.id} onClick={() => restore(v)}>
+                  <Button size="sm" busy={busy === v.id} onClick={() => restore(v)} data-testid="history-restore">
                     <ArchiveRestore size={14} aria-hidden /> {t('common.restore')}
                   </Button>
                 )
