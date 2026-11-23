@@ -24,7 +24,8 @@
 - **Layer:** behind body text, in front in a table by default: filled cells hid or cut off a picture behind the text.
 - **Measured in Hancom Docs:** forms Hancom saved: vertical 0.0 to 0.5 mm, horizontal 1.1 to 1.7 mm left of "(인)". Two
   public government forms saved by Hangul: on the label's line, nothing moved, 1.3 and 2.8 mm left of the centre of the
-  longer mark "(서명 또는 인)", so its last word is not fully under a 15 mm seal. No correction factor was added.
+  longer mark "(서명 또는 인)", whose last word a 15 mm seal then misses; so the tool description tells the AI to give only
+  the mark's last characters, and with those the seal covers "인" on both forms. No correction factor was added.
 - **Known limits:** with the paragraph anchor the renderer draws the next text line over the label's line, and on a page
   that is one table it draws a row a little taller; the file is right in Hancom. Eight attribute variants did not change
   the first. hwp_render is that renderer, so the tool result does not treat it as proof of the spot. The renderer's
