@@ -74,12 +74,21 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys and GitHub App, the owner recovery claim and the data disk grow', () => {
+  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys, GitHub App and mail service, the owner recovery claim and the data disk grow', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
-      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'github-app-set', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
+      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'github-app-set', 'hosted-speech-key-set', 'idle-wait', 'mail-in-set', 'notices-set',
       'owner-recovery-claimed', 'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
+  })
+  test('mail-in-set: every value the gate lets through is one the team server reads (mailInConfig)', async () => {
+    const { mailInConfig } = await import('../../server/src/rooms/apps/mail/client')
+    for (const v of V.tenantCommands.allowed.filter((c) => c.command === 'mail-in-set')) {
+      const s = v.stdin as { url: string | null; domain: string | null }
+      expect(tenantCommandProblem('mail-in-set', {}, s)).toBeNull()
+      if (s.url) expect(mailInConfig({ MYCEL_MAIL_IN_URL: s.url, MYCEL_MAIL_IN_DOMAIN: s.domain! })).toEqual({ origin: s.url, domain: s.domain! })
+    }
+    expect(TENANT_COMMANDS['mail-in-set'].output.safeParse({ ok: true, changed: true, restarted: false }).success).toBe(true)
   })
   test('error-reports-set: every key the gate lets through is one parseDsn reads; the answer shape', () => {
     const urls = V.tenantCommands.allowed.filter((c) => c.command === 'error-reports-set').map((c) => (c.stdin as { url: string | null }).url)

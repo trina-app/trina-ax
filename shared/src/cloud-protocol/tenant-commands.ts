@@ -153,6 +153,25 @@ export type ErrorReportsInput = z.infer<typeof ErrorReportsInput>
 export const ErrorReportsResult = z.object({ ok: z.literal(true), changed: z.boolean(), restarted: z.boolean() })
 export type ErrorReportsResult = z.infer<typeof ErrorReportsResult>
 
+/** The mail service's https origin for room email (the team server's MYCEL_MAIL_IN_URL, server/src/rooms/apps/mail/
+ * client.ts): https://<lower-case DNS name>[:port], no path. mycel-ctl checks the same pattern: the value becomes a line
+ * of the team server's environment file, so a newline, quote, backslash, space or "=" is refused. */
+export const MailInOrigin = z.string().max(300).regex(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){1,9}(?::[0-9]{1,5})?$/)
+/** The domain of the room addresses (the team server's MYCEL_MAIL_IN_DOMAIN): a lower-case DNS name, as client.ts reads it. */
+export const MailInDomain = z.string().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,9}[a-z]{2,63}$/)
+/** mail-in-set's stdin: the hosting service's mail service for room email (trina-ax docs/runbooks/room-email-mailbox.md),
+ * both values, or both null to take them away. A team server needs both, else it has no Email. Turned on per team by
+ * the hosting service; the team's admin switch "Let rooms get email" still decides. */
+export const MailInSetInput = z.union([
+  z.strictObject({ url: MailInOrigin, domain: MailInDomain }),
+  z.strictObject({ url: z.null(), domain: z.null() }),
+])
+export type MailInSetInput = z.infer<typeof MailInSetInput>
+/** mail-in-set's answer: as ErrorReportsResult (changed: a line of the environment file changed; restarted: the server
+ * was restarted to read it, once no answer has run for up to 60 s, also on a resend after an earlier busy call). */
+export const MailInSetResult = ErrorReportsResult
+export type MailInSetResult = z.infer<typeof MailInSetResult>
+
 /** github-app-set's stdin: the GitHub App the team server's GitHub connector signs in through (trina-ax
  * server/src/integrations/github/app.ts reads it from <secrets>/integrations/github/app.json; its rules are at least
  * this wide). slug: the app's name in github.com/apps/<slug>. The secret is printable ASCII without spaces. It is only
@@ -275,6 +294,9 @@ export const TENANT_COMMANDS = {
   'error-reports-set': { args: NoArgs, stdin: ErrorReportsInput, output: ErrorReportsResult, timeoutSec: 120 },
   /** the hosting service's GitHub App (GitHubAppFile, GitHubAppResult). Idempotent: send it again when unsure. */
   'github-app-set': { args: NoArgs, stdin: GitHubAppFile, output: GitHubAppResult, timeoutSec: 30 },
+  /** the hosting service's mail service for room email (MailInSetInput, MailInSetResult): MYCEL_MAIL_IN_URL and
+   * MYCEL_MAIL_IN_DOMAIN in the environment file. Idempotent: send it again when unsure. Waits up to 60 s for running answers. */
+  'mail-in-set': { args: NoArgs, stdin: MailInSetInput, output: MailInSetResult, timeoutSec: 120 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in
