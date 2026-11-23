@@ -140,6 +140,34 @@ describe('Start and the browser check', () => {
     expect(p.sends).toEqual(['tok-2'])
   })
 
+  test('Turnstile recovering after the error showed: a visitor who pressed Start still presses only once', () => {
+    const p = fakePage()
+    p.press()
+    p.runTimers() // the wait ran out
+    expect(p.error.textContent).toBe(CHECK_ERROR)
+    p.win.demoCheckDone('late')
+    expect(p.sends).toEqual(['late'])
+    expect(p.error.textContent).toBe('')
+  })
+
+  test('Turnstile recovering when nobody pressed Start sends nothing', () => {
+    const p = fakePage()
+    for (let i = 0; i < CHECK_MAX_ERRORS; i++) p.win.demoCheckFailed('600010')
+    expect(p.error.textContent).toBe(CHECK_ERROR)
+    p.win.demoCheckDone('tok-1')
+    expect(p.sends).toEqual([])
+    expect(p.button.textContent).toBe('Start')
+  })
+
+  test('a language chosen after the error cancels the earlier press', () => {
+    const p = fakePage()
+    p.press()
+    p.runTimers()
+    p.chooseLanguage()
+    p.win.demoCheckDone('late')
+    expect(p.sends).toEqual([])
+  })
+
   test('a configuration error, which a retry cannot fix, shows at once', () => {
     const p = fakePage()
     p.press()
