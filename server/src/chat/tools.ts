@@ -212,7 +212,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean } = {}): boolean => {
+  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean; integration?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -220,9 +220,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
     // or for a merge only on its team skills)
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
-    // a free-roam demo (demo/guard.ts FREE_ROAM_REFUSED_TOOLS): no new connections, no background work, nothing that
-    // fetches an address the visitor picks, no dev environment, no video render; intro_deck without its site reader
-    if (freeRoamToolFenced(exec.rt.ctx, t.name)) return false
+    // a free-roam demo (demo/guard.ts): only the tools of its allow-list and a connected service's; no new connections,
+    // no background work, nothing that fetches an address the visitor picks, no dev environment, no video render;
+    // intro_deck without its site reader
+    if (freeRoamToolFenced(exec.rt.ctx, t.name, { integration: o.integration })) return false
     if (t.name === 'intro_deck' && freeRoamToolCallRefused(exec.rt.ctx, t.name, { step: 'read' })) {
       const inner = t
       t = { ...inner, async call(args, files) {
@@ -426,7 +427,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, desktop: exec.desktop, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
-      if (!add(wrapRegistered(exec, t), { connection: !!sharedConn })) continue
+      if (!add(wrapRegistered(exec, t), { connection: !!sharedConn, integration: p.name === 'integrations' })) continue
       outside.add(t.name)
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))

@@ -26,7 +26,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { PromoMp4State, PromoVideoInfo } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { REPO_ROOT } from '../app-config'
+import { isFreeRoam, REPO_ROOT } from '../app-config'
 import { HttpError } from '../http/errors'
 import { chatFor } from '../chat/shared'
 import { getChatRuntime } from '../chat/runtime'
@@ -79,6 +79,8 @@ const real = (p: string) => { try { return fs.realpathSync(p) } catch { return n
 /** The tools of a render on this server, or why there is none. Read for every info answer (an install or a removal
  * shows without a restart); `platform` and `env` for the tests. */
 export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; isolation?: IsolationKind; uid?: number; ffmpeg?: readonly string[] } = {}): { tools: RenderTools } | { why: Mp4Why } {
+  // a public demo renders no video, whichever route asks (the share of an answer to a room starts one: chat/answer-share.ts)
+  if (isFreeRoam(ctx.config)) return { why: 'unsupported' }
   const platform = o.platform ?? process.platform, env = o.env ?? process.env
   if (!fs.existsSync(PROMO_FONT_PATH) || !fs.existsSync(AUDIO_DIR)) return { why: 'unsupported' }
   if (platform === 'darwin') {

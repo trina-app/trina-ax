@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 15:23
 - Branch: `fix/demo-tool-allowlist`
-- Status: in progress
+- Status: done
 - Where: server/src/demo/guard.ts, server/src/chat/tools.ts, server/src/promo-video/render.ts. Why: the free-roam fence
   and the turn's tool set live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A public demo instance refuses two things it should never have reached; nothing changes on any
@@ -50,4 +50,6 @@ the promo video tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `FREE_ROAM_TOOLS` holds the 51 tools a real free-roam turn listed plus the 10 conditional ones.
+`generate_video` and `save_work_file` are refused by name. A test with the demo's fakes shows the fence takes away only
+refused tools: Higgsfield's, Gmail's, Drive's and the banner tool stay offered, and the fake `generate_image` answers.

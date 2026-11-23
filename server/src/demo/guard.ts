@@ -186,8 +186,8 @@ export function freeRoamRawFenced(ctx: AppContext, module: string): boolean {
 }
 
 /**
- * The turn tools a free-roam demo never offers (chat/tools.ts add), by why. Everything else of the registry is offered as
- * on any server (the full table with reasons: docs/decisions/20261119-demo-free-roam-a.md). The model proxy refuses a
+ * The turn tools a free-roam demo never offers (chat/tools.ts add), by why (the full table with reasons:
+ * docs/decisions/20261119-demo-free-roam-a.md). What it does offer is FREE_ROAM_TOOLS below. The model proxy refuses a
  * request that names a tool the turn was not given (proxy/model-proxy.ts checkToolNames), so a tool left out here
  * cannot be called through a sub-agent or an older engine either.
  */
@@ -196,12 +196,34 @@ export const FREE_ROAM_REFUSED_TOOLS: Readonly<Record<string, string>> = {
   schedule_create: 'scheduled tasks run in the background', schedule_list: 'scheduled tasks', schedule_delete: 'scheduled tasks',
   web_fetch: 'the visitor would choose what this machine fetches', save_url: 'the same: a download from any address',
   promo_video: 'heavy work (a video render)', save_promo_video: 'heavy work (an MP4 render)',
-  box_shell: 'the dev environment',
+  box_shell: 'the dev environment', save_work_file: 'the dev environment (its work folder)',
+  generate_video: 'heavy work, and it costs the team credits',
 }
+/**
+ * The turn tools a free-roam demo may offer: an allow-list, so a tool added later is closed here until someone decides
+ * it is safe for a public visitor (docs/decisions/20261123-demo-tool-allowlist.md). A new tool goes here or in
+ * FREE_ROAM_REFUSED_TOOLS; tests/unit/a-demo-free-roam.test.ts fails while it is in neither. A connected service's tools
+ * (the integrations provider: the demo's fake Gmail and Higgsfield) are open as a group, and have names of their own.
+ */
+export const FREE_ROAM_TOOLS: ReadonlySet<string> = new Set([
+  // offered in every free-roam turn
+  'artifact', 'ask_user', 'change_folder_access', 'change_project_members', 'comment_docx', 'copy_files', 'delete_files',
+  'edit', 'edit_files', 'edit_office', 'edit_pdf', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list',
+  'looking_at', 'make_file', 'make_zip', 'merge_pdfs', 'move_files', 'move_skill', 'my_folders', 'post_to_room',
+  'promo_video_versions', 'query_data', 'read', 'remember', 'rename_file', 'rename_files', 'resize_images', 'room_file',
+  'room_read', 'rooms', 'save_connector_file', 'save_room_file', 'set_title', 'share_file', 'share_folder',
+  'share_with_person', 'shared_with_me', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'stop_sharing', 'todo_write',
+  'unzip_file', 'who_can_open', 'write',
+  // offered only in some chats, or with the demo's fakes or a plugin
+  'answer_comments', 'chat_file', 'save_chat_file', 'restore_chat_file', 'change_banner_text', 'drive_list', 'drive_read',
+  'drive_search', 'edit_hwp', 'hwp_render',
+])
 /** the browser pane tools (the desktop app's in-app browser: device work, and pages of addresses the visitor picks) */
 const PANE = new Set<string>(PANE_TOOLS.map((t) => t.name))
-export function freeRoamToolFenced(ctx: AppContext, name: string): boolean {
-  return isFreeRoam(ctx.config) && (name in FREE_ROAM_REFUSED_TOOLS || PANE.has(name))
+export function freeRoamToolFenced(ctx: AppContext, name: string, o: { integration?: boolean } = {}): boolean {
+  if (!isFreeRoam(ctx.config)) return false
+  if (Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, name) || PANE.has(name)) return true
+  return !o.integration && !FREE_ROAM_TOOLS.has(name)
 }
 /** intro_deck's site reader (step "read": pages of addresses the visitor names) is off; its other steps stay */
 export function freeRoamToolCallRefused(ctx: AppContext, name: string, args: unknown): boolean {
