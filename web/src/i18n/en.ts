@@ -7362,6 +7362,8 @@ export const en: Record<MessageKey, string> = {
   "postedCard.undone": "Taken back: nobody sees it any more",
   "postedCard.undoFailed": "Couldn't take it back. Try again.",
   "shareCard.takenBack": "Sharing taken back",
+  "shareCard.madeFolder": "Made the folder \"{file}\" and shared it",
+  "shareCard.madeFolderTakenBack": "Deleted the folder \"{file}\" and took the sharing back",
   "scheduledCard.made": "Scheduled \"{title}\"",
   "scheduledCard.paused": "\"{title}\" is paused",
   "scheduledCard.deleted": "\"{title}\" is deleted",

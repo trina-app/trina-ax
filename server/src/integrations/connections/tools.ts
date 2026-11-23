@@ -328,6 +328,13 @@ export function createTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
   return !takesRecipient(t.inputSchema) && !argsReachOthers(args)
 }
 
+/** The admin's setting for a team connection holds for the create tier: a team connection whose admin chose "ask" (its
+ * write rule) asks for every change, a create too. A person's own connection, or a team one set to send without asking,
+ * keeps the tier. */
+export function createTierOk(row: Pick<Row, 'scope' | 'write_policy'>): boolean {
+  return !(row.scope === 'team' && row.write_policy !== 'allow')
+}
+
 /** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */
 function titleArg(args: unknown): string | null {
   const a = args && typeof args === 'object' ? (args as Record<string, unknown>) : {}
@@ -673,7 +680,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // made). Never api_request, team files, a scheduled run or after a room read (there every change asks on its card)
   // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
   // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
-  if (sent.create && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
+  // (an admin who chose "ask" for a team connection is asked of every change there, the create tier too: createTierOk)
+  if (sent.create && createTierOk(row) && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
     && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersWords?.() === false && !(sharedMode && guestShared(b))) return false
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its

@@ -32,6 +32,7 @@ import { neutralizeTags } from './prompt'
 import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
+import { saveTakeBack, type TakeBackGrant } from '../files/share-take-back'
 import { lookedFile, lookedPerson } from './looking-at'
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
@@ -337,6 +338,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const told = new Set<string>()
         /** somebody newly got access to some file (nobody: everyone named could already open every file) */
         let fresh = false
+        // exactly the grants this share wrote, per file: what its card's 취소 takes back on the server (never access a
+        // person had before: files/share-take-back.ts)
+        const wrote: TakeBackGrant[] = []
+        let tb: { id: string; until: string } | null | undefined
+        const takeBack = () => (tb === undefined ? (tb = saveTakeBack(db, spec.userId, wrote, null, exec.runningStepId('share_with_person'))) : tb)
         // the card's record: the files shared so far, the people, who got a notice; a file that could not be shared
         // makes it partial (or refused, with none shared) and names why from the server's own reason
         const record = (failedAt?: number, reason?: NonNullable<StepShared['refusal']>['reason']): StepShared => ({
@@ -345,6 +351,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           ...(cardOwner(plan[0]?.owner, spec.userId) ? { owner: cardOwner(plan[0]?.owner, spec.userId) } : {}),
           ...cardPeople(db, who), level: 'view', ...(told.size ? { notified: [...told].slice(0, 50) } : {}),
           ...(already.length ? { already: cardPeople(db, already).who } : {}),
+          ...(wrote.length && takeBack() ? { takeBack: takeBack()! } : {}),
         })
         const soFar = () => (done.length ? ` ${done.length} of ${plan.length} files were shared before that.` : '')
         for (let i = 0; i < plan.length; i++) {
@@ -352,6 +359,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           try {
             const r = shares.change(spec.userId, f.path, who.map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId })), [], L, 'ai')
             done.push(cardFile(db, f.path, L, spec.userId, r.share.id))
+            for (const g of r.inserted) wrote.push({ shareId: r.share.id, subjectType: g.subjectType, subjectId: g.subjectId, at: r.at })
             for (const id of r.added) told.add(id)
             if (r.added.length) fresh = true
           } catch (e) {

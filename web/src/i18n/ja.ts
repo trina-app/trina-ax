@@ -7315,6 +7315,8 @@ export const ja: Record<MessageKey, string> = {
   "postedCard.undone": "取り消しました。もう誰にも見えません",
   "postedCard.undoFailed": "取り消せませんでした。もう一度お試しください。",
   "shareCard.takenBack": "共有を取り消しました",
+  "shareCard.madeFolder": "フォルダ「{file}」を作って共有しました",
+  "shareCard.madeFolderTakenBack": "フォルダ「{file}」を削除して共有を取り消しました",
   "scheduledCard.made": "「{title}」を予約しました",
   "scheduledCard.paused": "「{title}」を一時停止しました",
   "scheduledCard.deleted": "「{title}」を削除しました",
