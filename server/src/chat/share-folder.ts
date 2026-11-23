@@ -159,12 +159,11 @@ export function shareFolderTool(exec: TurnExec): Tool {
             // the files are only in this chat (the person's own attachments): the obvious thing is a folder of theirs with
             // those files in it, shared with the people they named. Never with a guest here, in a run, from Slack or for a
             // waiting call run again; a recipient that is unclear later keeps this answer (madeNo)
-            const attached = adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors ? chatOnlyFiles(exec) : { here: [], earlier: [] }
+            const chatFiles = adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors ? chatOnlyFiles(exec) : []
             // ...and the files this person's answers made in the chat's own place (chat:files), when the chat holds only
             // their own work (QA b5 F5: "이 견적서" made as chat:files/견적서.docx, then "이 폴더 팀원들한테 공유해줘"
             // asked which folder twice)
-            const madeFiles = !attached.here.length && adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen ? chatMadeFiles(exec) : []
-            const chatFiles = attached.here.length ? attached.here : madeFiles.length ? [] : attached.earlier
+            const madeFiles = !chatFiles.length && adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen ? chatMadeFiles(exec) : []
             if (chatFiles.length || madeFiles.length) { try { made = await makeChatFolder(exec, chatFiles, madeFiles) } catch (e) { rt.log.warn('a folder for the chat files could not be made', { err: e }) } }
             if (!made) return no('Nothing was shared: the user did not say which folder, and this chat used none of their folders. Ask the user which folder to share, by its name.', 'refused: no folder to guess')
             g = made.path
@@ -320,7 +319,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
         const referred = (w: Who) => {
           const h = how.get(keyOf(w))
           // (a word for the whole team goes without a card only in a chat that took in nobody else's words)
-          if (h?.team) return saysTeam(said) && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen
+          // ...to people who already see this chat (a shared or project chat; a group never in it gets the card), when the
+          // team word is all the call names and the message names no one else ("Bob only, not my team")
+          if (h?.team) return !!exec.shared && a.data.add.length === 1 && saysTeam(said) && !namesATeammate(db, spec.userId, said) && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen
           if (h?.via && saysTitle(said, h.via)) return true
           return w.subjectType === 'group' ? namesRecipient(said, w.name, { names: [w.name], person: false }) : namedInFull(said, recipientWords(db, w))
         }
@@ -427,23 +428,22 @@ export function shareFolderTool(exec: TurnExec): Tool {
   }
 }
 
-/** The person's own files that are only in this chat, on this branch: `here`, what this message attached; `earlier`, what
- * the one earlier message that attached anything did (several: none, the AI asks which; an old private file never goes
- * along with the one meant). The order of use is the caller's: this message's, then what the AI made, then `earlier`, so a
- * source attached before a document was made never goes in its place (security review). Their own .attachments only. At
- * most 20. */
-function chatOnlyFiles(exec: TurnExec): { here: string[]; earlier: string[] } {
+/** A teammate's name or username stands anywhere in the words */
+function namesATeammate(db: TurnExec['rt']['db'], me: string, said: string): boolean {
+  const text = fold(said)
+  const rows = db.query("SELECT name, username FROM users WHERE id <> ? AND deleted_at IS NULL").all(me) as { name: string | null; username: string | null }[]
+  return rows.some((u) => [u.name, u.username].some((n) => !!n && n.trim().length >= 2 && text.includes(fold(n))))
+}
+
+/** The person's own files this very message attached (their own .attachments; a shared chat's uploads live elsewhere and
+ * are not taken). Never an earlier message's: an older private file, or the source of a document made since, is not what
+ * "this" means, and the server cannot tell (security review). At most 20. */
+function chatOnlyFiles(exec: TurnExec): string[] {
   const db = exec.rt.db, userId = exec.spec.userId
   const mine = `users/${userId}/.attachments/`
-  const rows = db.query(`WITH RECURSIVE up(id, parent_id, depth) AS (SELECT id, parent_id, 0 FROM messages WHERE id = ?1
-      UNION ALL SELECT x.id, x.parent_id, up.depth + 1 FROM messages x JOIN up ON x.id = up.parent_id WHERE up.depth < 2000)
-    SELECT m.attachments a, up.depth d FROM up JOIN messages m ON m.id = up.id JOIN chats c ON c.id = m.chat_id
-    WHERE m.chat_id = ?2 AND m.role = 'user' AND (m.author_id = ?3 OR (m.author_id IS NULL AND c.user_id = ?3)) AND json_valid(m.attachments) AND json_array_length(m.attachments) > 0 ORDER BY up.depth`).all(exec.spec.userMessageId, exec.spec.chatId, userId) as { a: string; d: number }[]
-  const paths = (a: string) => { try { return [...new Set((JSON.parse(a) as { path?: unknown }[]).flatMap((x) => (typeof x?.path === 'string' && x.path.startsWith(mine) && !x.path.slice(mine.length).includes('..') ? [x.path] : [])))] } catch { return [] } }
-  const lists = rows.map((r) => ({ d: r.d, files: paths(r.a) })).filter((r) => r.files.length)
-  if (!lists.length) return { here: [], earlier: [] }
-  if (lists[0]!.d === 0) return { here: lists[0]!.files.slice(0, 20), earlier: [] }
-  return { here: [], earlier: lists.length === 1 ? lists[0]!.files.slice(0, 20) : [] }
+  const m = db.query("SELECT attachments a FROM messages WHERE id = ? AND chat_id = ? AND role = 'user' AND json_valid(attachments)").get(exec.spec.userMessageId, exec.spec.chatId) as { a: string } | null
+  if (!m) return []
+  try { return [...new Set((JSON.parse(m.a) as { path?: unknown }[]).flatMap((x) => (typeof x?.path === 'string' && x.path.startsWith(mine) && !x.path.slice(mine.length).includes('..') ? [x.path] : [])))].slice(0, 20) } catch { return [] }
 }
 
 /** The files the AI made in this chat's own place (chat:files/…: a document made in a shared chat) in the person's

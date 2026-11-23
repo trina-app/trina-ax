@@ -149,6 +149,16 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(folders()).toEqual(b2)
   })
 
+  test('in a private chat a source attached earlier never goes as "this": nothing is made', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const src = await upload(c.id, 'salary-real.txt', 'private')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c.id, [src.id])
+    const before = folders()
+    const r = await turn(`이 견적서 Bob Lee한테 공유해줘\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+
   test('a recipient the message does not name: nothing is made, the old answer', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const a = await upload(c.id, 'memo.txt', 'memo')
