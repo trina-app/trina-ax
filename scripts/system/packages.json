@@ -129,6 +129,14 @@
       },
       "artifacts": ["chrome-headless-shell"]
     },
+    "video": {
+      "install": "default",
+      "for": "the promo video's MP4 (server/src/promo-video/render.ts, docs/decisions/20261123-linux-video-mp4.md): node in /opt/trina/node (the srt group's layout) and the pinned HyperFrames CLI in /opt/trina/hyperframes/<version>-<lock sha12>. It runs the browser group's chrome-headless-shell and the media group's ffmpeg; xz-utils unpacks node",
+      "packages": {
+        "xz-utils": ""
+      },
+      "artifacts": ["node", "hyperframes"]
+    },
     "google-apps": {
       "install": "default",
       "for": "Gmail, Google Calendar, Docs and Sheets for the AI (server/src/integrations/google-apps/library.ts): the Google Workspace MCP library, run by the server on 127.0.0.1",
@@ -215,7 +223,7 @@
     },
     "node": {
       "version": "22.23.4",
-      "for": "srt's runtime (srt needs 22.12 or later, NODE_USE_ENV_PROXY 22.21; Debian 13 has 20), on Linux and on a Mac team server (install-macos.sh). sha256 from the release's SHASUMS256.txt",
+      "for": "srt's runtime (srt needs 22.12 or later, NODE_USE_ENV_PROXY 22.21; Debian 13 has 20) and the HyperFrames CLI's (the video group), on Linux and on a Mac team server (install-macos.sh). sha256 from the release's SHASUMS256.txt",
       "platforms": {
         "linux-amd64": {
           "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
@@ -258,6 +266,17 @@
           "sha256": "b7d7c2dd63545cabe996191b6f20f0b652c7de123d9ca451dda7e5f1ebbcbbbc",
           "size": 25115691,
           "dir": "python"
+        }
+      }
+    },
+    "hyperframes": {
+      "version": "0.9.15",
+      "for": "the HyperFrames CLI (Apache-2.0) that renders a promo video to MP4. packages.sh (pk_video_install) installs it with npm ci --ignore-scripts from scripts/promo-video/hyperframes/package-lock.json (root/hyperframes/ in a bundle), which pins this tarball (its sha512 integrity is the same file as this sha256) and every package under it",
+      "platforms": {
+        "any": {
+          "url": "https://registry.npmjs.org/hyperframes/-/hyperframes-0.9.15.tgz",
+          "sha256": "8a41e40c991d418c0caa3ae110d42c362692e2d98e4fb23a3f88f748a85740ef",
+          "size": 7931300
         }
       }
     },
