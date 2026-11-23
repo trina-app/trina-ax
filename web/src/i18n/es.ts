@@ -915,6 +915,7 @@ export const es: Record<MessageKey, string> = {
   "connect.teamConnect": "Conectar para el equipo",
   "connect.teamWay": "Conéctelo una vez para todo el equipo con una cuenta de Google compartida, o conecte la suya.",
   "connect.ownConnect": "Conectar la mía",
+  "connect.ownConnectApp": "Conectar mi {name}",
   "connect.ownWhere": "Su propia cuenta se conecta en su página de Configuración › Conectores. Vuelva aquí cuando termine.",
   "connect.ownDone": "Ya la conecté",
   'connect.access': "Quién puede usarla",

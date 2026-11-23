@@ -1,7 +1,7 @@
 // connect_service for the built-in Google apps (server/src/chat/connect-google-app.ts): which calls are one, and what
 // the AI is told for each state of the app (AI scenario CON-01.calendar, 2026-11-17).
 import { describe, expect, test } from 'bun:test'
-import { googleAppAsked, googleAppTeamCard, googleAppWay } from '../../server/src/chat/connect-google-app'
+import { googleAppAsked, googleAppOwnCard, googleAppTeamCard, googleAppWay } from '../../server/src/chat/connect-google-app'
 
 describe('which call is a built-in Google app', () => {
   test('by name, in any case or spacing, English or Korean', () => {
@@ -85,5 +85,23 @@ describe('who gets the card with Connect for the team', () => {
     expect(googleAppTeamCard(app('disconnected', null, 'connected'), true)).toBe(false)
     expect(googleAppTeamCard(app('needs_reconnect'), true)).toBe(false)
     for (const r of ['not_set_up', 'unsupported', 'service_limited'] as const) expect(googleAppTeamCard(app('disconnected', r), true)).toBe(false)
+  })
+})
+
+// QA TC-8034: a member who can connect it themselves gets a card with their own Connect, never the team's way
+describe('who gets the card with only their own Connect', () => {
+  const app = (status: 'connected' | 'disconnected' | 'needs_reconnect', reason: 'not_set_up' | 'unsupported' | 'service_limited' | null = null, shared: 'connected' | 'needs_reconnect' | null = null) => ({ status, reason, shared: shared ? { status: shared } : null })
+  test('a member, the app set up and not connected: the card', () => {
+    expect(googleAppOwnCard(app('disconnected'), 'member')).toBe(true)
+  })
+  test('owners and admins have the team card; a guest uses no connections', () => {
+    for (const r of ['owner', 'admin', 'guest'] as const) expect(googleAppOwnCard(app('disconnected'), r)).toBe(false)
+  })
+  test('connected, needing their own sign-in, not available, or covered by a team account: the words', () => {
+    expect(googleAppOwnCard(app('connected'), 'member')).toBe(false)
+    expect(googleAppOwnCard(app('needs_reconnect'), 'member')).toBe(false)
+    for (const r of ['not_set_up', 'unsupported', 'service_limited'] as const) expect(googleAppOwnCard(app('disconnected', r), 'member')).toBe(false)
+    expect(googleAppOwnCard(app('disconnected', null, 'connected'), 'member')).toBe(false)
+    expect(googleAppOwnCard(app('disconnected', null, 'needs_reconnect'), 'member')).toBe(false)
   })
 })
