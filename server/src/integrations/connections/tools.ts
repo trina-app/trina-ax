@@ -705,12 +705,15 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   // a team connection's change (its account is everyone's): the labelled lines stay in view, each long value (code, a page)
   // as its length only, the exact text one click away; the person's own connection or app: everything behind "자세히"
-  const teamPlain = plain && row.scope === 'team' && !sent.runs
+  const teamCall = plain && row.scope === 'team' && !sent.runs
+  // ...never folded while a long random-looking part (it can carry data) is in it: its highlight stays in view (code review)
+  const foldTeam = teamCall && !marks.length
   // (lines that cannot show every value as sent, code with its indentation: the call's own top-level values, briefLines)
-  const base = teamPlain && !shown.exact ? briefLines(sent.raw, L) : shown.fields
-  const cut = teamPlain ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
+  const brief = foldTeam && !shown.exact ? briefLines(sent.raw, L) : null
+  const base = brief ?? shown.fields
+  const cut = foldTeam ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
   const folded = cut.some((f, i) => f !== shown.fields[i]) || base !== shown.fields
-  const hide = plain && !(teamPlain && cut.length)
+  const hide = plain && !teamCall
   const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
@@ -754,9 +757,12 @@ const CARD_VALUE_SHOWN = 200
 /** A team connection's change card where the card's lines cannot show every value as sent (code with its indentation, a
  * long page: cardLines null): the call's top-level values, a short one-line value as it is, any other by its length
  * (AB4 F3: "견적-계산기" on its line, the app's 2,344 characters of HTML not); the exact text stays one click away */
-function briefLines(args: unknown, L: Locale): CardLine[] {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return []
-  return Object.entries(args as Record<string, unknown>).slice(0, 12).map(([k, v]) => {
+function briefLines(args: unknown, L: Locale): CardLine[] | null {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null
+  const all = Object.entries(args as Record<string, unknown>)
+  // more than a card shows: no lines of our own, the text stays open (never a value silently left off: code review)
+  if (!all.length || all.length > 12) return null
+  return all.map(([k, v]) => {
     const text = typeof v === 'string' ? v : JSON.stringify(v) ?? ''
     const short = (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') && text.length <= CARD_VALUE_SHOWN && !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text)
     return { name: fieldWord(k.slice(0, 80), L), value: short ? text : say('longValue', L, { n: text.length.toLocaleString(L) }) }

@@ -104,7 +104,7 @@ export const chatSrc = (id: string, name: string) => chatFilePath(id, name.repla
 export const chatFileOf = (src: string): string | null => /^chat:files\/([0-9a-f-]{8,64})\//i.exec(src)?.[1] ?? null
 
 /** A picture or the logo the person may use: a team file in a brand folder; with `attached` (the promo video; AB4 F11,
- * docs/decisions/20261123-ab4-asks-left.md) also the person's own upload (users/<me>/.attachments/…: a file they attached in a chat only they see), or one of
+ * docs/decisions/20261123-ab4-asks-left.md) also, in a chat only they see, the person's own upload (users/<me>/.attachments/…: a file they attached in a chat only they see), or one of
  * this chat's own files (chat:files/…: everyone who sees the chat sees it already, so it is never copied to a team
  * folder for the video); a real PNG / JPEG / WebP of at least `min` px. `into` and `without` word the problems for what
  * is being made (the video by default). */
@@ -134,7 +134,7 @@ export function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: numbe
       src = '/' + r.rel
       bytes = Buffer.from(readRegular(r.abs, PICTURE_MAX_BYTES, r.st).bytes)
     } catch { notOpen(); return null }
-    if (!inBrandFolder(rel) && !(o.attached && rel.startsWith(`users/${t.user.id}/.attachments/`))) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/)${o.attached ? ' or a picture attached in this chat' : ''} can go into the ${o.into ?? 'video'}`); return null }
+    if (!inBrandFolder(rel) && !(o.attached && t.places?.ctx.chatKind === 'personal' && rel.startsWith(`users/${t.user.id}/.attachments/`))) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/)${o.attached ? ' or a picture attached in this chat' : ''} can go into the ${o.into ?? 'video'}`); return null }
   }
   const kind = kindOf(bytes)
   const size = kind ? imageSize(bytes) : null

@@ -395,6 +395,10 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     const real = q.hasHash.bind(q)
     q.hasHash = (x: string) => x === sha || real(x)
     try { expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404) } finally { q.hasHash = real }
+    // the same chat file named from another chat of dana's: not a picture there (a chat's files are that chat's)
+    const other = await h.api('dana').call(API.createChat, { body: {} })
+    const elsewhere = await send('dana', other.id, fake({ tool: 'promo_video', args: slots({ promise: { headline: ['See where the power', '*goes*'], picture: place } }), sayResult: true }))
+    expect(elsewhere).toContain('is not a picture this person can open')
     // the chat made private again: alice no longer sees it, nor its video
     h.ctx.db.query('DELETE FROM chat_audience WHERE chat_id = ?').run(chat.id)
     expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
