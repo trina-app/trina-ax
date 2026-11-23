@@ -311,21 +311,24 @@ describe('stopping and taking people off: narrowing, server Undo', () => {
 })
 
 describe('other people\'s words in the chat', () => {
-  test('a chat marked as holding other people\'s words: refused unless the asker names the folder (and, for an add, the person)', async () => {
+  test('a chat marked as holding other people\'s words: no refusal first; the card shows the folder and the person (AB4 F5)', async () => {
     const dir = folder('bob', 'Marked')
     const first = await turn('bob', fake({ say: 'hi' }))
     const mark = () => h.ctx.db.query('UPDATE chats SET others_words = 1 WHERE id = ?').run(first.chatId)
     mark()
-    const unnamed = await turn('bob', `share that folder with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId })
-    expect(unnamed.content).toContain('by its full name in quotes')
-    expect(cardsTo('bob', unnamed.turnId)).toBe(0)
+    // "that folder", "her": neither named in the message; the card names both, and Share shares it
+    const unnamed = await turn('bob', `share that folder with her\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId, answer: 'yes' })
+    expect(unnamed.card).not.toBeNull()
+    expect(unnamed.card!.share!.who.map((w) => w.name)).toEqual(['Tess Yoon'])
+    expect(unnamed.content).not.toContain('by its full name in quotes')
+    expect(JSON.parse(unnamed.content).status).toBe('shared')
+    expect(peopleOn('bob', dir)).toEqual(['tess'])
+    // Cancel there shares nothing
+    const dir2 = folder('bob', 'Marked')
     mark()
-    const noPerson = await turn('bob', `share ${dir} with her\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId })
-    expect(noPerson.content).toContain('only with the people the user')
-    mark()
-    const ok = await turn('bob', `share ${dir} with Tess Yoon\n${sf({ folder: dir, add: ['Tess Yoon'] })}`, { chat: first.chatId, answer: 'yes' })
-    expect(ok.card).not.toBeNull()
-    expect(JSON.parse(ok.content).status).toBe('shared')
+    const no = await turn('bob', `share that one too\n${sf({ folder: dir2, add: ['Tess Yoon'] })}`, { chat: first.chatId, answer: 'no' })
+    expect(no.card).not.toBeNull()
+    expect(peopleOn('bob', dir2)).toEqual([])
   })
 
   test('a shared chat: only the asker gets the record; the other viewer (and a chat shared later) sees the verb alone (M7)', async () => {

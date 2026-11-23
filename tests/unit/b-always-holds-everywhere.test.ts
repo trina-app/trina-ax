@@ -244,6 +244,19 @@ describe('B4: share_folder in a shared chat', () => {
   })
 })
 
+// AB4 F5: without Always, a folder named only in an answer to the AI's question ("이 폴더", "박준호에게요") went to a
+// refusal and a new question, again and again; now the card (the folder and the people on it) is the one check
+describe('AB4 F5: share_folder in a shared chat without Always', () => {
+  test('the folder and person not named in the message: one card, not a refusal', async () => {
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_folder'").run()
+    const chat = await sharedChatBobWroteIn()
+    const r = await turn('alice', chat, `share this folder with my teammates\n${folderCall(2)}`)
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.options!.map((o) => o.value)).toContain('__always')
+    expect(r.content).not.toContain('by its full name in quotes')
+  })
+})
+
 describe('B4 and B5: post_to_room in a shared chat, also mentioning everyone', () => {
   test('Always allow once: no card for a post or an @everyone post in a new shared chat or the run; removed: the card', async () => {
     const chat = await sharedChatBobWroteIn()

@@ -33,6 +33,8 @@ beforeAll(async () => {
     { name: 'scrape_as_markdown', description: 'Scrapes a page', inputSchema: { type: 'object', properties: { url: { type: 'string' }, format: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'get_post', title: 'Get post', description: 'Reads a post', inputSchema: { type: 'object', properties: { url: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'resend_invoice', description: 'Resends an invoice', inputSchema: { type: 'object', properties: { to: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    // AB4 F3: a Repl-like change that reaches nobody else (an app in the workspace)
+    { name: 'create_app', title: 'Create app', description: 'Create or update an app in the workspace.', inputSchema: { type: 'object', properties: { name: { type: 'string' }, code: { type: 'string' } }, required: ['name'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
   ]
   integrationsOf(h.ctx, { net: svc.net() })
   const team = await h.api('carol').call(API.createTeamIntegration, { body: { kind: 'mcp', name: 'Bright Data', url: `${svc.base}/mcp-open`, auth: 'none', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } } as never })
@@ -50,7 +52,7 @@ const done = async (user: string, chatId: string, messageId: string) => {
   await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
   return d.data.message as Message
 }
-type Card = { question: string; options: { label: string; value: string }[]; note?: string }
+type Card = { question: string; options: { label: string; value: string }[]; note?: string; details?: { text?: string; hidden?: boolean; exact?: boolean; fields?: { name: string; value: string }[] }[] }
 /** a turn whose cards are answered by `pick` until it ends; returns the cards */
 async function askCards(user: string, chatId: string, content: string, pick: (card: Card) => string) {
   const started = await send(user, chatId, content)
@@ -172,5 +174,45 @@ describe('a read-only connector tool in a shared chat', () => {
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.options.map((o) => o.value)).not.toContain('always')
     expect(callsOf('resend_invoice')).toBe(n)
+  })
+})
+
+// AB4 F3 (the owner-flow A/B run, 2026-11-23): the stand-in "Repl" was a TEAM connection, whose changes in a shared chat
+// ask every time (a team account is everyone's). The card says why in plain words, and the app's code is behind
+// "자세히" only, never open on the card. (A personal connection's change gets Always for good: b-shared-chat-connections,
+// c-local-apps-always.)
+describe("a team connection's change in a shared chat (AB4 F3)", () => {
+  const code = `<!DOCTYPE html><html><body><script>let total = 0\n${'total += 1\n'.repeat(40)}</script></body></html>`
+  test('one plain sentence and why it asks each time; the code behind 자세히; no Always; asked again in a new chat', async () => {
+    clear()
+    const n = callsOf('create_app')
+    for (const chat of [await newShared(), await newShared()]) {
+      const r = await askCards('alice', chat.id, via(T('create_app'), { name: 'quote-calculator', code }), (c) => c.options[0]!.value)
+      expect(r.cards.length).toBe(1)
+      const card = r.cards[0]!
+      expect(card.question).toBe('Create app in Bright Data\n\nThis connection is shared by the team, so in a shared chat the AI asks before every change.')
+      expect(card.question).not.toContain('<!DOCTYPE')
+      expect(card.options.length).toBe(2)
+      expect(card.options.map((o) => o.value)).not.toContain('always')
+      // a team account is everyone's: the labelled lines stay in view, the code by its length, the exact text one click away
+      const d = card.details![0]!
+      expect(d.hidden).toBeUndefined()
+      expect(d.exact).toBe(true)
+      expect(d.text).toContain('<!DOCTYPE')
+      expect(d.fields!.map((f) => f.value)).toContain('quote-calculator')
+      expect(d.fields!.some((f) => f.value.includes('<'))).toBe(false)
+      expect(d.fields!.some((f) => /^\(long, [\d,]+ characters/.test(f.value))).toBe(true)
+    }
+    expect(callsOf('create_app')).toBe(n + 2)
+    expect(grants('alice')).toEqual([])
+  })
+
+  test('in a chat only alice sees, the same team change offers Always allow, and its code is never open on a line either', async () => {
+    const own = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await askCards('alice', own.id, via(T('create_app'), { name: 'stock-table', code }), last)
+    expect(r.cards.length).toBe(1)
+    expect(r.cards[0]!.question).toBe('Create app in Bright Data')
+    expect(r.cards[0]!.options.map((o) => o.value)).toEqual(['allow', 'always', 'deny'])
+    expect(r.cards[0]!.details![0]!.fields!.some((f) => f.value.includes('<!DOCTYPE'))).toBe(false)
   })
 })

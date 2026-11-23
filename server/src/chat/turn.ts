@@ -85,7 +85,7 @@ import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
-import { noteSharedAnswer } from './message-notices'
+import { noteSharedAnswer, type Ring } from './message-notices'
 import { CARD_LATER_ARGS_MAX, takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { TurnToolSet } from '../turns'
@@ -6057,11 +6057,14 @@ export class TurnExec {
     if (!asked && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
     // a chat shared with people: the others get the unread number for this answer, never a push (chat/message-notices.ts)
     // (the same end as the finished notice above: not one that ended on its question, stopped or cut off by a stop)
+    // a scheduled run's answer there tells the others as a main message does (a push and the ring: AB4, the owner's
+    // Slack rule; chat/message-notices.ts noteSharedAnswer `scheduled`)
+    let rings: ReadonlyMap<string, Ring> | undefined
     if (this.shared && status === 'done' && !asked && this.stopReason !== 'shutdown') this.finishStep('shared answer notices', () => {
       const chat = this.rt.store.chatRow(this.spec.chatId)
-      if (chat) noteSharedAnswer(this.rt.ctx, chat, this.spec.assistantId, this.spec.userId)
+      if (chat) rings = noteSharedAnswer(this.rt.ctx, chat, this.spec.assistantId, this.spec.userId, { scheduled: this.spec.clientKind === 'schedule' })
     })
-    this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
+    this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...(long ? { notify: 'answer' as const } : {}), ...(rings?.size ? { notices: rings } : {}) })
   }
 }
 

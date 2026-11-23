@@ -85,7 +85,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked). In a
   // frame that runs scripts, its team script files too (lib/frame-scripts.ts).
   const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
-  const files = useFrameFiles(inlines && sharedChat !== null ? artifact!.content : null, { folder: '', scripts: scripts === true, withholdScripts: sharedChat !== false })
+  const files = useFrameFiles(inlines && sharedChat !== null ? artifact!.content : null, { folder: '', scripts: scripts === true, withholdScripts: sharedChat !== false, chatId })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true

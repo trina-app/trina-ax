@@ -21,7 +21,7 @@ import { needsReview, nextRun, type ScheduleRow } from './schedules'
 import { scopeColumns, type SaveLapse } from './schedule-scope'
 import { timingOf } from './schedule-timing'
 import { egressOf } from '../tools/egress'
-import { cardScope, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
+import { cardScope, runOpensUnderAllSites, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
 
 /** The task's save scope as its card shows it now; for a task nobody confirmed, a folder that cannot be one is left out
  * (it was never allowed), for a lapsed one it is refused (there is nothing to allow again). */
@@ -45,7 +45,7 @@ function build(ctx: AppContext, s: ScheduleRow, L: Locale) {
   const writable = again ? [] : taskConnections(writableConnections(ctx, s.user_id), input)
   const scope = scopeNow(ctx, s, L, again)
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
-  const card = scheduleCard(input, writable.map((r) => r.name), L, again ? 'recheck' : 'review', { urlsOpen: egressOf(ctx).known, scope: cardScope(ctx.db, s.user_id, L, scope.save, scope.sources, again ? [] : scope.sends), why: (s.save_lapse_reason as SaveLapse | null) ?? 'folder' })
+  const card = scheduleCard(input, writable.map((r) => r.name), L, again ? 'recheck' : 'review', { urlsOpen: egressOf(ctx).known, allSites: runOpensUnderAllSites(ctx, s.chat_id ?? null, s.user_id), scope: cardScope(ctx.db, s.user_id, L, scope.save, scope.sources, again ? [] : scope.sends), why: (s.save_lapse_reason as SaveLapse | null) ?? 'folder' })
   const options = scheduleOptions(L, writable.length > 0 || (!again && scope.sends.length > 0), again ? 'recheck' : 'review')
   // what the answer approves: the task as it is, the connections offered and the save scope (not the wording, which
   // follows the language)

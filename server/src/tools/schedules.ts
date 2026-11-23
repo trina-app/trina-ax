@@ -21,7 +21,7 @@ import { redactorFor } from '../integrations/connections/redact'
 import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
-import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
+import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, opensUnderAllSites, type ConfirmExtra } from './url-gate'
 import { cardSources, cleanPins, makeSaveFolder, MAX_PINS, MAX_SOURCES, resolveSaveFolder, saveFolderChanged, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 import { MAX_EVERY_MINUTES, REPEATS, timingOf, type TimingSource } from '../chat/schedule-timing'
@@ -103,13 +103,15 @@ export const TEXT = {
     es: 'En cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
     zh: '每次运行时，它会不经询问打开下面的{n}个地址。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
+  // the server does not know its own exit address (tools/egress.ts) and the person's "Allow all websites" is off: runs
+  // cannot open the addresses; the way out in plain words (AB4: "공인 주소" was server talk)
   urlsBlocked: {
-    ko: '아래 주소 {n}개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 주소마다 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
-    en: 'On this server, runs cannot open the {n} addresses below yet: the team server does not know its own public address, so each address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open them without asking. An address can carry data out, so check each one in full.',
-    id: 'Di server ini, tugas belum bisa membuka {n} alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi setiap alamat perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
-    ja: 'このサーバーでは、実行時に下の{n}件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、アドレスごとに人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
-    es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
-    zh: '在此服务器上，运行时还不能打开下面的{n}个地址：团队服务器还不知道自己的公网地址，所以每个地址都需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它们。地址可能会把数据带出去，请完整检查每一个地址。',
+    ko: '아래 주소 {n}개는 지금 실행 때 열 수 없어요. 이 서버에서는 아무도 보지 않는 실행이 웹 주소를 혼자 열지 않아요. 설정 › 트리나에게 허용한 것에서 “모든 사이트 허용”을 켜면 실행 때 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'Runs cannot open the {n} addresses below now: on this server a run nobody watches does not open web addresses on its own. Turn on "Allow all websites" in Settings › Allowed for Trina and runs open them without asking. An address can carry data out, so check each one in full.',
+    id: 'Tugas belum bisa membuka {n} alamat di bawah saat berjalan: di server ini tugas yang tidak diawasi tidak membuka alamat web sendiri. Nyalakan "Izinkan semua situs" di Pengaturan › Yang diizinkan untuk Trina, maka tugas membukanya tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
+    ja: '下の{n}件のアドレスは今は実行時に開けません。このサーバーでは、誰も見ていない実行はWebアドレスを自分では開きません。設定 › トリナに許可したことで「すべてのサイトを許可」をオンにすると、実行時に確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Las ejecuciones no pueden abrir ahora las {n} direcciones de abajo: en este servidor una ejecución que nadie vigila no abre direcciones web por su cuenta. Active "Permitir todos los sitios" en Configuración › Permitido para Trina y las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '运行时现在还不能打开下面的{n}个地址：在此服务器上，无人看管的运行不会自己打开网址。在“设置 › 允许 Trina 做的事”中打开“允许所有网站”后，运行时会不经询问打开它们。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
   /** one address: English and Spanish say it in the singular; Korean, Indonesian, Japanese and Chinese count it like the rest */
   urlsOne: {
@@ -121,12 +123,30 @@ export const TEXT = {
     zh: '每次运行时，它会不经询问打开下面的1个地址。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   urlsBlockedOne: {
-    ko: '아래 주소 1개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 이 주소를 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
-    en: 'On this server, runs cannot open the address below yet: the team server does not know its own public address, so the address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open it without asking. An address can carry data out, so check it in full.',
-    id: 'Di server ini, tugas belum bisa membuka 1 alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi alamat itu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
-    ja: 'このサーバーでは、実行時に下の1件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、このアドレスには人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
-    es: 'En este servidor, las ejecuciones aún no pueden abrir la dirección de abajo: el servidor del equipo no conoce su propia dirección pública, así que la dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
-    zh: '在此服务器上，运行时还不能打开下面的1个地址：团队服务器还不知道自己的公网地址，所以这个地址需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它。地址可能会把数据带出去，请完整检查这个地址。',
+    ko: '아래 주소 1개는 지금 실행 때 열 수 없어요. 이 서버에서는 아무도 보지 않는 실행이 웹 주소를 혼자 열지 않아요. 설정 › 트리나에게 허용한 것에서 “모든 사이트 허용”을 켜면 실행 때 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'Runs cannot open the address below now: on this server a run nobody watches does not open web addresses on its own. Turn on "Allow all websites" in Settings › Allowed for Trina and runs open it without asking. An address can carry data out, so check it in full.',
+    id: 'Tugas belum bisa membuka 1 alamat di bawah saat berjalan: di server ini tugas yang tidak diawasi tidak membuka alamat web sendiri. Nyalakan "Izinkan semua situs" di Pengaturan › Yang diizinkan untuk Trina, maka tugas membukanya tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: '下の1件のアドレスは今は実行時に開けません。このサーバーでは、誰も見ていない実行はWebアドレスを自分では開きません。設定 › トリナに許可したことで「すべてのサイトを許可」をオンにすると、実行時に確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Las ejecuciones no pueden abrir ahora la dirección de abajo: en este servidor una ejecución que nadie vigila no abre direcciones web por su cuenta. Active "Permitir todos los sitios" en Configuración › Permitido para Trina y las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
+    zh: '运行时现在还不能打开下面的1个地址：在此服务器上，无人看管的运行不会自己打开网址。在“设置 › 允许 Trina 做的事”中打开“允许所有网站”后，运行时会不经询问打开它。地址可能会把数据带出去，请完整检查这个地址。',
+  } satisfies L5,
+  /** the exit address unknown, but the person's own "Allow all websites" is on (url-gate.ts opensUnderAllSites): runs
+   * open them while it stays on (it is read again at run time) */
+  urlsAllSites: {
+    ko: '“모든 사이트 허용”이 켜져 있는 동안, 실행할 때마다 아래 주소 {n}개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'While "Allow all websites" is on, each run opens the {n} addresses below without asking. An address can carry data out, so check each one in full.',
+    id: 'Selama "Izinkan semua situs" menyala, setiap kali berjalan tugas ini membuka {n} alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
+    ja: '「すべてのサイトを許可」がオンの間は、実行のたびに下の{n}件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Mientras "Permitir todos los sitios" esté activado, cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '在“允许所有网站”打开期间，每次运行时会不经询问打开下面的{n}个地址。地址可能会把数据带出去，请完整检查每一个地址。',
+  } satisfies L5,
+  urlsAllSitesOne: {
+    ko: '“모든 사이트 허용”이 켜져 있는 동안, 실행할 때마다 아래 주소 1개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'While "Allow all websites" is on, each run opens the address below without asking. An address can carry data out, so check it in full.',
+    id: 'Selama "Izinkan semua situs" menyala, setiap kali berjalan tugas ini membuka 1 alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: '「すべてのサイトを許可」がオンの間は、実行のたびに下の1件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Mientras "Permitir todos los sitios" esté activado, cada ejecución abre sin preguntar la dirección de abajo. Una dirección puede sacar datos; revísela completa.',
+    zh: '在“允许所有网站”打开期间，每次运行时会不经询问打开下面的1个地址。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   /** addresses with a query over MAX_UNCONFIRMED_QUERY characters: a person must confirm each one every time
    * (url-gate.ts ③), and nobody is there during a run, so runs never open them */
@@ -316,24 +336,35 @@ export function scheduleWhen(src: TimingSource, L: Locale): string {
   return fill(TEXT[s.repeat][L], { time: s.time, date, day: String(s.day ?? ''), weekday })
 }
 
+/** Which addresses a run of `userId`'s task in `chatId` opens under their own "Allow all websites" while the server's
+ * exit address is unknown (url-gate.ts opensUnderAllSites), for the schedule card's words; a guest among a shared
+ * chat's people changes nothing (one Always, docs/decisions/20261123-one-always-allow.md). */
+export function runOpensUnderAllSites(ctx: AppContext, chatId: string | null, userId: string): (url: string) => boolean {
+  return (u) => opensUnderAllSites(ctx.db, chatId, userId, u)
+}
+
 /** The schedule card: what the run will do, unattended, and what it may open or send without asking. 'create': the
  * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts);
  * 'edit': the person changed a task in Settings (chat/schedule-edit.ts), with the project it runs in, if any.
  * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
  * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & TimingSource, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; project?: string | null; scope?: CardScope; why?: SaveLapse; sharedWith?: number } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
-  const open = o.urlsOpen !== false
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & TimingSource, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; allSites?: (url: string) => boolean; project?: string | null; scope?: CardScope; why?: SaveLapse; sharedWith?: number } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
+  const known = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
   // a query over MAX_UNCONFIRMED_QUERY characters always needs a person (url-gate.ts ③): runs never open such an
   // address, wherever it came from, so the card lists them apart with their query highlighted instead of promising them
   const longQuery = urls.filter((u) => new URL(u).search.slice(1).length > MAX_UNCONFIRMED_QUERY)
   const opens = urls.filter((u) => !longQuery.includes(u))
+  // the exit address unknown: a run still opens a plain address under the person's own "Allow all websites" (url-gate.ts
+  // opensUnderAllSites, `allSites`), so the card says that, not "cannot open" (AB4: the run then opened it)
+  const allSites = !known && opens.length > 0 && !!o.allSites && opens.every(o.allSites)
+  const open = known || allSites
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
   const head = fill(TEXT[mode === 'review' ? 'reviewQuestion' : mode === 'edit' ? 'editQuestion' : mode === 'recheck' ? 'recheckQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L), why: TEXT[`lapse_${o.why ?? 'folder'}`][L] })
   // an edit can move the task into a project (its folder and instructions); the project's name is one line too
   const lines = [o.project ? `${head}\n${fill(TEXT.project[L], { name: o.project.replace(/\s+/g, ' ').trim() })}` : head]
-  if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(opens.length) }))
+  if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (known ? 'urlsOne' : allSites ? 'urlsAllSitesOne' : 'urlsBlockedOne') : known ? 'urls' : allSites ? 'urlsAllSites' : 'urlsBlocked'][L], { n: String(opens.length) }))
   if (longQuery.length) lines.push(fill(TEXT[longQuery.length === 1 ? 'longQueryOne' : 'longQuery'][L], { n: String(longQuery.length), max: String(MAX_UNCONFIRMED_QUERY) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
@@ -538,8 +569,10 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
       await egressSettled(ctx)
       const urlsOpen = egressOf(ctx).known
+      // a run of this person in this chat opens a plain address under their own "Allow all websites" (AB4)
+      const allSites = runOpensUnderAllSites(ctx, shared?.id ?? null, t.user.id)
       const timing = inputTiming(parsed.data, new Date(), rt.timeZone)
-      const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
+      const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, allSites, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
         ...(shared ? { sharedWith: new Audiences(ctx.db, ctx.files).ofChat(shared).length } : {}) })
       const options = scheduleOptions(L, offered.length > 0 || scope.sends.length > 0)
       const answer = person.choose
@@ -570,7 +603,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
-      const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
+      const blocked = !urlsOpen && card.urls.length > card.longQuery.length && !card.urls.filter((u) => !card.longQuery.includes(u)).every(allSites) ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does or the user turns on "Allow all websites" (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
