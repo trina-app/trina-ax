@@ -59,7 +59,8 @@ function render() {
           'div',
           { class: `tab${t.active ? ' active' : ''}`, 'data-testid': 'pane-tab', 'data-tab-id': t.tabId },
           h('button', { class: 'title', type: 'button', role: 'tab', 'aria-selected': t.active ? 'true' : 'false', title: t.url, onclick: () => ui.pane.select(t.tabId) }, t.popup ? `${tr('pane.popup')}: ${t.title || t.url}` : tabLabel(t)),
-          h('button', { class: 'x', type: 'button', 'aria-label': tr('pane.closeTab'), onclick: () => ui.pane.closeTab(t.tabId) }, '×'),
+          // the tab's own name in the label: with several tabs a screen reader does not hear "Close tab" for each one
+          h('button', { class: 'x', type: 'button', 'aria-label': `${tr('pane.closeTab')}: ${t.popup ? `${tr('pane.popup')}: ${t.title || t.url}` : tabLabel(t)}`, onclick: () => ui.pane.closeTab(t.tabId) }, '×'),
         ),
       ),
       h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.newTab'), title: tr('pane.newTab'), onclick: () => ui.pane.newTab() }, '+'),
@@ -74,7 +75,8 @@ function render() {
           class: 'icon log-button',
           type: 'button',
           'aria-expanded': showLog ? 'true' : 'false',
-          'aria-label': tr('pane.activity'),
+          // the unseen count in the name: aria-label replaces the badge's number for a screen reader
+          'aria-label': activity.unseen ? `${tr('pane.activity')} (${activity.unseen})` : tr('pane.activity'),
           title: tr('pane.activity'),
           'data-testid': 'activity-button',
           onclick: () => {
@@ -87,7 +89,7 @@ function render() {
           },
         },
         '☰',
-        activity.unseen ? h('span', { class: 'badge', 'data-testid': 'activity-count' }, String(activity.unseen)) : null,
+        activity.unseen ? h('span', { class: 'badge', 'aria-hidden': 'true', 'data-testid': 'activity-count' }, String(activity.unseen)) : null,
       ),
       h(
         'button',
