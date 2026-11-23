@@ -86,6 +86,6 @@ replacing an existing picture, HWP → PDF export.
 Built as planned, with two changes found while testing with the renderer and Hancom Docs: the picture is anchored at the
 end of a body paragraph (not before the label, and never inside a cell: a cell grows around it), and it is placed from
 the paper, not from the paragraph (the renderer collapses a paragraph with a behind-text picture placed from it). After review and a check on forms Hancom saved: documents without a stored layout are anchored to the label's paragraph or
-the paragraph after its table (vertical 0.0 mm measured; horizontal 1.1 to 1.7 mm off; the preview of such a document
+the paragraph after its table (vertical 0.0 to 0.5 mm measured; horizontal 1.1 to 1.7 mm off; the preview of such a document
 draws the next line too high, see the decision file). Decision:
 docs/decisions/20261123-hwp-insert-image.md. HWP to PDF is not available (the engine only draws PNG pages).

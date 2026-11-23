@@ -20,8 +20,8 @@
   - Any paragraph without one (Hancom Docs web saves none): Hangul wraps by itself and can differ from the renderer by a
     line above the label (measured: 5 mm). The picture is placed from the top of the label's body paragraph; for a place
     in a table, from the body paragraph after the table, because Hangul measures a table's own paragraph from below it.
-- **Measured in Hancom Docs** on made-up forms Hancom saved, through the whole tool path: vertical 0.0 mm on the measured
-  seals; horizontal 1.1 to 1.7 mm to the left of "(인)" (the renderer's line is a little narrower than Hancom's). No
+- **Measured in Hancom Docs** on made-up forms Hancom saved, through the whole tool path: vertical 0.0 to 0.5 mm on the
+  three seals measured over body text (seals in a table were checked by eye); horizontal 1.1 to 1.7 mm to the left of "(인)" (the renderer's line is a little narrower than Hancom's). No
   correction factor was added: the error does not follow one rule across these few lines.
 - **Known limits:** with the paragraph anchor the pinned renderer draws the NEXT text line one line too high, over the
   label's line, so Trina's preview of such a document looks wrong while the file is right. The paper anchor on a real
