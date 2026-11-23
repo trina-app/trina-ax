@@ -33,13 +33,19 @@ const SCRIPT_LETTER: Record<AnswerScript, RegExp> = {
  * English, translate …): no piece is dropped in that answer. Languages go by their names, and the answer's own is not
  * one of them ("자막은 한국어로", 0.16.0 gate: it turned this rule off and "Korean text renders correctly. Attaching it
  * now." led a Korean answer; a word that only ends like one, 레이어로, 소프트웨어로, 敬語で, is no language either). */
-const KO_LANGS = '일본|중국|스페인|프랑스|독일|베트남|인도네시아|태국|러시아|아랍|이탈리아|포르투갈|힌디|네덜란드|튀르키예|터키|말레이|타갈로그|몽골|라틴|폴란드'
+const KO_ASKS = [
+  '영어', '영문', '번역', '일본어', '중국어', '스페인어', '프랑스어', '독일어', '베트남어', '인도네시아어', '태국어', '러시아어', '아랍어', '이탈리아어', '포르투갈어', '힌디어', '네덜란드어', '튀르키예어', '터키어', '말레이어', '타갈로그어', '몽골어', '라틴어', '폴란드어', '일본말', '중국말',
+  // 불어 and 독어 are also plain Korean words: only with what asks for a language
+  '영작', '불어\\s*(?:로|으로|버전|번역|판)', '독어\\s*(?:로|으로|버전|번역|판)',
+]
+/** Korean by name: another language only where the answer's own is not Korean */
+const KO_NAMED = [
+  '영어', '한국어', '한국말', '한글로',
+]
 const JA_LANGS = '英|中国|韓国|スペイン|フランス|ドイツ|ベトナム|インドネシア|タイ|ロシア|アラビア|イタリア|ポルトガル|ヒンディー|オランダ'
 const ZH_LANGS = '英|日|韩|韓|法|德|西班牙|俄|越南|印尼|泰|阿拉伯|意大利|葡萄牙'
 const asksPattern = (own: AnswerScript) => new RegExp([
-  '영어', '영문', '번역', '영작', '翻訳', '英語', '翻译', '英文', '英语',
-  // by name anywhere; 불어 and 독어 (also plain Korean words) only with what asks for a language
-  `(?:${KO_LANGS}${own === 'ko' ? '' : '|한국'})(?:어|말로)`, `(?:불|독${own === 'ko' ? '' : '|한'})어\\s*(?:로|으로|버전|번역|판)`,
+  ...KO_ASKS, ...(own === 'ko' ? [] : KO_NAMED), '翻訳', '英語', '翻译', '英文', '英语',
   `(?:${JA_LANGS}${own === 'ja' ? '' : '|日本'})語`,
   `(?:${ZH_LANGS})[语語]`, `用(?:${ZH_LANGS}${own === 'zh' ? '' : '|中'})文`, `(?:${ZH_LANGS}${own === 'zh' ? '' : '|中'})文版`,
   'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'commit',
