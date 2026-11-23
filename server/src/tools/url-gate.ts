@@ -16,7 +16,7 @@
 //   ①b addresses on a site the person allowed on an address card ("이 사이트 항상 허용", user_allowed_sites: for good,
 //     in every chat they ask in and their scheduled runs, until they remove it in Settings › Allowed for Trina; Rule A,
 //     docs/decisions/20261122-always-allow-holds-everywhere.md B3; a guest among the people too, and no per-chat site
-//     any more: docs/decisions/20261123-one-always-allow.md, migration 446 emptied chat_allowed_sites): the same
+//     any more: docs/decisions/20261123-one-always-allow.md, migration 450 emptied chat_allowed_sites): the same
 //     registrable domain (eTLD+1, Public Suffix List with its private
 //     section: news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io are two), for this
 //     person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:

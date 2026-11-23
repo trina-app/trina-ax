@@ -38,7 +38,7 @@
   named while a guest is among the people (`guestInShared`), a team connection's change in a shared chat, a team
   connection refused while a guest is there, a scheduled run with a guest and another person's words that would act
   without the maker's own Always (only their Always lets a change go there).
-- **Stored rows:** migration 446 deletes the per-chat rows (`chat_card_approvals` kinds `shared_connection`,
+- **Stored rows:** migration 450 deletes the per-chat rows (`chat_card_approvals` kinds `shared_connection`,
   `shared_unsure_tool`, `shared_own_act`, `card_always`, which lasted 12 hours at most, and every `chat_allowed_sites`
   row). None becomes permanent, which would widen what the person chose; the next card offers "항상 허용". The person's
   permanent rows stay. A card raised before this version and answered with its old "Always in this chat" value reads as a
@@ -48,7 +48,7 @@
   person chose it on a card that says so; the owner rejects teammate and guest guards on top of Always (Rule A).
 - **Tests:** `tests/unit/b-one-always-allow.test.ts` (no per-chat Always text anywhere; one press of "Bright Data 전체 항상
   허용", then another tool has no card in a new chat and in the scheduled run; Settings shows one entry, removing it asks
-  again; moved connection, switch off, lost access; a change still asks; migration 446),
+  again; moved connection, switch off, lost access; a change still asks; migration 450),
   `b-shared-chat-connections.test.ts` (a guest among the people: four buttons, Always holds there and from elsewhere),
   `b-always-holds-everywhere.test.ts` (no "Always in this chat" on any card, the old value is a no; the guest's site card
   is for good).

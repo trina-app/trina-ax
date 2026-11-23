@@ -4,7 +4,7 @@
 // read card means no card for another tool of that connection in a new chat and in the person's scheduled run;
 // Settings lists it as one entry and removing it brings the card back; a moved connection, the team's switch off and a
 // lost access end it; a change still asks every time; a guest among the people: the card offers the same four buttons
-// and the person's Always holds there too; migration 446 removes the per-chat rows and keeps the permanent ones.
+// and the person's Always holds there too; migration 450 removes the per-chat rows and keeps the permanent ones.
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -209,7 +209,7 @@ describe('"Bright Data 전체 항상 허용" on the first connector card', () =>
   })
 })
 
-describe('migration 446', () => {
+describe('migration 450', () => {
   test('removes the per-chat rows and keeps the permanent ones', () => {
     const chat = (db().query('SELECT id FROM chats LIMIT 1').get() as { id: string }).id
     const t = new Date().toISOString()
@@ -219,7 +219,7 @@ describe('migration 446', () => {
     db().query('INSERT OR IGNORE INTO chat_allowed_sites (chat_id, user_id, site) VALUES (?, ?, ?)').run(chat, 'alice', 'example.com')
     db().query('INSERT OR IGNORE INTO user_allowed_sites (user_id, site, chat_id, created_at) VALUES (?, ?, ?, ?)').run('alice', 'kept.example', chat, t)
     db().query("INSERT OR IGNORE INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'remember', ?)").run(t)
-    db().exec(fs.readFileSync(path.join(ROOT, 'server/migrations/446_b_one_always_allow.sql'), 'utf8'))
+    db().exec(fs.readFileSync(path.join(ROOT, 'server/migrations/450_b_one_always_allow.sql'), 'utf8'))
     expect((db().query("SELECT kind FROM chat_card_approvals WHERE user_id = 'alice' ORDER BY kind").all() as { kind: string }[]).map((r) => r.kind)).toEqual(['connector', 'file_change'])
     expect(db().query('SELECT COUNT(*) n FROM chat_allowed_sites').get()).toEqual({ n: 0 })
     expect(db().query("SELECT COUNT(*) n FROM user_allowed_sites WHERE user_id = 'alice' AND site = 'kept.example'").get()).toEqual({ n: 1 })
