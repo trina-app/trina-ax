@@ -891,7 +891,7 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const shown = argLines(args ?? {}, L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
-  const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}), hidden: true as const, callJson: true as const }]
+  const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}), hidden: true as const }]
   const what = toolTitle(t, L, kindOf(row))
   const page = pageOf(args)
   const question = page ? say('unsureReadPage', L, { name: row.name, page }) : say('unsureRead', L, { name: row.name, what })

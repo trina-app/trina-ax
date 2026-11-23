@@ -85,6 +85,9 @@ test('JSON that is not a service call stays open: a file, a scheduled task, code
 })
 
 test('blank values stay, and a key with a line break is one line', () => {
+  const names = Array.from({ length: 14 }, (_, i) => `Person${i}`).join('\n')
+  expect(payloadLines(JSON.stringify({ to: names }))![0]).toContain('Person13')
+  expect(payloadLines(JSON.stringify({ to: 'a\u2028b\r\nc' }))).toEqual(['to: a b c'])
   expect(payloadLines('{"bcc":" "}')).toEqual(['bcc: " "'])
   expect(payloadLines(JSON.stringify({ 'note\nto: boss@ok.example': 'x' }))).toEqual(['note to: boss@ok.example: x'])
   expect(payloadLines('{"to":"a@b.co","bcc":"a@b.co"}', ['a@b.co'])).toEqual(['to: a@b.co', 'bcc: a@b.co'])

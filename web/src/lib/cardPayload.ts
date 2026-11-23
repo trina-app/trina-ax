@@ -51,7 +51,7 @@ export function payloadLines(text: string, known: readonly string[] = []): strin
       const [path, x] = stack.pop()!
       if (typeof x === 'string') {
         if (!x.trim()) { line(path, JSON.stringify(x)); continue }
-        if (x.length <= SHORT_VALUE && !x.includes('\n')) line(path, x)
+        if (x.length <= SHORT_VALUE) line(path, x.replace(/[\r\n\u2028\u2029]+/g, ' '))
         else {
           line(path, `${[...x.replace(/\s+/g, ' ').trim()].slice(0, VALUE_START).join('')}…`)
           for (const d of destinations(x)) line(path, d)
