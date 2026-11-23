@@ -120,6 +120,36 @@ test('PDF, Excel, Word and PowerPoint previews render under the app CSP', async 
   expect(realErrors(errors)).toEqual([])
 })
 
+// A seal floats in a box of width 0 in docx-preview's page: the base style's img max-width made it 0 wide, so the panel
+// showed a stamped form with no seal while the file had it (QA TC-8342). Files stamped by the real editor.
+test.describe('a stamped Word form in the file panel', () => {
+  let dir: string
+  test.beforeAll(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'mycel-stamped-docx-'))
+    execFileSync('bun', [path.join(import.meta.dirname, 'stamped-docx.ts'), dir], { timeout: 20_000 })
+  })
+  test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  for (const place of ['over', 'after', 'next_to']) {
+    test(`shows the seal placed ${place}`, async ({ page }) => {
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      await signIn(page)
+      await page.goto('/files?path=marketing')
+      const name = `stamp-${place}.docx`
+      await page.getByTestId('files-input').setInputFiles(path.join(dir, name))
+      const panel = await open(page, name)
+      await expect(panel.locator('.docx-wrapper')).toContainText('김가나테스트', { timeout: 15_000 })
+      const seal = panel.locator('.docx-wrapper img')
+      await expect(seal).toHaveCount(1)
+      await expect.poll(() => seal.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(0)
+      if (process.env.STAMP_SHOTS) await panel.screenshot({ path: path.join(process.env.STAMP_SHOTS, `${place}.png`) })
+      const box = (await seal.boundingBox())!
+      expect(box.width).toBeGreaterThan(20)
+      expect(box.height).toBeGreaterThan(20)
+    })
+  }
+})
+
 // pdf.js 6 draws scanned images (CCITT fax and JBIG2, JPEG 2000) with WebAssembly decoders and text in fonts a PDF
 // does not embed with CMap files, all from /assets/pdfjs-<version>/ (web/src/lib/pdfjs-assets.ts). Without them pdf.js
 // only logs a warning and the page stays blank or loses its text, so this looks at the drawn pixels, the text layer

@@ -178,7 +178,23 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
     // (the menu too: an `inline` one is drawn outside its box)
     const h = (e: Event) => !box.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setOpen(false)
     document.addEventListener('pointerdown', h)
-    return () => document.removeEventListener('pointerdown', h)
+    // a menu opened by a finger holds no focus, so its own Esc (onKey) never hears the key and what is under it (the
+    // phone's drawer, Esc at the window) closed instead (QA TC-8343): the top menu takes that Esc first
+    const esc = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const at = document.activeElement
+      if (menu.current?.contains(at) || box.current?.contains(at)) return
+      if ([...document.querySelectorAll('[role="menu"]')].at(-1) !== menu.current) return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+      giveBack()
+    }
+    window.addEventListener('keydown', esc, true)
+    return () => {
+      document.removeEventListener('pointerdown', h)
+      window.removeEventListener('keydown', esc, true)
+    }
   }, [open])
   /** a computer's menu put in its place (menuSpot), measured as it is drawn: at the window's 0,0 first, which also
    * finds where a parent that holds fixed boxes (a transform) has its corner. Phones: the sheet, nothing to place. */
