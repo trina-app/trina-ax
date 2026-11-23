@@ -78,7 +78,9 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
     try {
       // only the grants this share wrote, also on a folder it made: someone added by hand since keeps theirs while the
       // folder stays (a file saved there since keeps it); the share stops whole below only when the folder is gone
-      shares.change(userId, s.path, [], ours, L, 'ai', { quiet: true })
+      // (a folder goes through put: change takes files only)
+      if (shareId === folderShare) shares.put(userId, s.path, [], ours, L, 'ai')
+      else shares.change(userId, s.path, [], ours, L, 'ai', { quiet: true })
       removed += ours.length
     } catch (e) {
       // the folder's sharing could not be stopped: nothing of it is deleted and the record can be pressed again (the
@@ -105,8 +107,9 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
     for (const d of [...(f.made ?? [])].filter(mine).reverse()) svc.removeEmptyFolder(userId, d)
     folderGone = !!f.path && mine(f.path) && !fs.existsSync(path.join(ctx.files.fx.root, ...f.path.split('/')))
     // the folder went: its sharing stops whole (nothing is left to open; a folder made again there later is not shared)
-    const fs0 = folderShare ? shares.row(folderShare) : null
-    if (folderGone && fs0 && fs0.state === 'live') { try { shares.put(userId, fs0.path, [], [], L, 'ai', { stop: true }) } catch { /* already gone with the folder */ } }
+    // (the folder is no longer on disk, so FileShares.put cannot stop it: the row ends here, as a folder deleted with
+    // its sharing ends; a folder made again at that path later is a new one, never this share paused)
+    if (folderGone && folderShare) db.query("UPDATE file_shares SET state = 'dead' WHERE id = ? AND state = 'live'").run(folderShare)
   }
   audit(db, { actor: userId, action: 'file.share', target: rec.takeBack[0] ? `file-share:${rec.takeBack[0].shareId}` : null, detail: { personal: true, takeBack: true, removed, skipped, ...(rec.folder ? { folderRemoved: folderGone } : {}) } })
   if (removed) shares.changedSoon()

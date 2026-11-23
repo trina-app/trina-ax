@@ -121,7 +121,7 @@ describe('"share this folder" with the files only in the chat', () => {
     const rel = `users/alice/${made[0]}`
     // since: a file of her own saved there, and Carol added by hand (the Share dialog)
     put(`${rel}/mine.txt`, 'kept')
-    fileSharesOf(h.ctx).change('alice', rel, [user('carol')], [], 'en', 'dialog')
+    fileSharesOf(h.ctx).put('alice', rel, [user('carol')], [], 'en', 'dialog')
     expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, ...rel.split('/'), 'mine.txt'))).toBe(true)
     expect(canOpen('bob', 'alice', rel)).toBe(false)

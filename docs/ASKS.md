@@ -241,7 +241,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.room.memberRemove` | `web/src/components/rooms/MembersDialog.tsx:51` | Remove someone from a group room. | Remove {name}? / {name}님을 내보낼까요? (`rooms.info.removeTitle`) | Cancel / Remove from chat | none | n/a | n/a | a guest subject gets its own body | other:access | OK |
 | `ui.room.messageDelete` | `web/src/components/rooms/RoomMessages.tsx:476` | Delete a room message. | Delete this message? / 메시지를 삭제할까요? (`rooms.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
 | `ui.room.saveWiden` | `web/src/components/rooms/SaveToTeamSheet.tsx:91` | Save room files to a team folder people outside the conversation see. | Show it to more people? / 더 많은 사람이 보게 저장할까요? (`rooms.save.widenTitle`) | Cancel / Save | none | n/a | n/a | n/a | shows-private-to-others | OK |
-| `ui.roomApp.newAddress` | `web/src/components/rooms/apps/AppsDialog.tsx:927` | Make a room app's webhook address again. | Regenerate the Webhook URL? / Webhook URL을 다시 만들까요? | Cancel / Regenerate | none | n/a | n/a | n/a | irreversible | OK |
+| `ui.roomApp.newAddress` | `web/src/components/rooms/apps/AppsDialog.tsx:927` | Make a room app's webhook address again, or the Email app's address (#436). | Regenerate the Webhook URL? / Webhook URL을 다시 만들까요? (`roomApps.newAddressTitle`; `roomApps.newEmailTitle` for the Email app) | Cancel / Regenerate | none | n/a | n/a | n/a | irreversible | OK |
 | `ui.roomApp.remove` | `web/src/components/rooms/apps/AppsDialog.tsx:936` | Remove an app from a room. | Remove {app} from {room}? / {room}에서 {app} 앱을 뺄까요? | Cancel / Remove | none | n/a | n/a | n/a | irreversible | OK |
 | `ui.team.invite` | `web/src/components/TeamMenu.tsx:195` | "Invite people" (admins): a member link or a guest flow. | Invite people / 팀원 초대 (`teamMenu.invite`) | tabs / Close | none | n/a | n/a | admin only | sends-to-others | OK |
 | `ui.team.linkRevoke` | `web/src/components/onboarding/TeamLinkPanel.tsx:627` | Turn off the team invite link. | Turn off the invite link? / 초대 링크를 끌까요? (`teamLink.revokeTitle`) | Cancel / Turn link off | none | n/a | n/a | admin only | irreversible | OK |
@@ -513,7 +513,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/rooms/RoomMessages.tsx` | 1 | `ui.room.messageDelete` |
 | `web/src/components/rooms/SaveToTeamSheet.tsx` | 2 | `ui.room.saveWiden` |
 | `web/src/components/rooms/SendHere.tsx` | 1 | `ui.share.roomSideChat` |
-| `web/src/components/rooms/apps/AppsDialog.tsx` | 2 | `ui.roomApp.newAddress`, `ui.roomApp.remove` |
+| `web/src/components/rooms/apps/AppsDialog.tsx` | 3 | `ui.roomApp.newAddress`, `ui.roomApp.remove`, `not-an-ask` |
 | `web/src/components/settings/AccountDeletion.tsx` | 2 | `ui.settings.accountDelete` |
 | `web/src/components/settings/DevEnvSites.tsx` | 2 | `ui.devEnv.siteRemove`, `ui.devEnv.fullInternet` |
 | `web/src/components/settings/DriveConnection.tsx` | 2 | `ui.drive.disconnect` |
