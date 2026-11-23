@@ -1004,7 +1004,15 @@ export type AuditEntry = z.infer<typeof AuditEntry>
  * whisper.cpp on this server (private, slow on small servers). docs/DECISIONS.md "Voice input through OpenRouter". */
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
-export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+/** whisper large-v3 turbo on OpenRouter (DeepInfra, Groq): the default, $0.012 an hour of sound */
+export const WHISPER_TURBO_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+/** ElevenLabs Scribe v2 on OpenRouter (ElevenLabs, zero data retention): a team with its own key can pick it in Team
+ * settings (docs/decisions/20261123-speech-scribe-v2.md), $0.22 an hour of sound. It becomes the default only after the
+ * hosting key's guardrail at OpenRouter allows it (the owner, 2026-11-23). */
+export const SCRIBE_V2_SPEECH_MODEL = 'elevenlabs/scribe-v2'
+export const DEFAULT_SPEECH_MODEL = WHISPER_TURBO_SPEECH_MODEL
+/** the models Admin › Team settings › Voice input suggests for the team's own key (any OpenRouter STT model may be typed) */
+export const SPEECH_MODEL_SUGGESTIONS: readonly string[] = [SCRIBE_V2_SPEECH_MODEL, WHISPER_TURBO_SPEECH_MODEL]
 /** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and
  * other reads): 4 CPU cores and 8 GB of memory (the owner, 2026-11-19). A 2 vCPU box took 1.5-1.9 s for each second
  * of speech (QA 2026-11-01). The memory floor is a little under 8 GiB: an "8 GB" machine reports less. */
@@ -1102,6 +1110,10 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** "Let rooms get email" (email into rooms, plan docs/AGENTS/plan/20261123-0421-room-email.md): rooms may add an Email
+   * app. Off by default; off removes every room's address at the mail service (mail to them is refused). Older servers
+   * omit it. */
+  roomEmail: z.boolean().optional(),
   /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
    * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
    * already made keep working until removed. The team owner and admins share team files either way. */

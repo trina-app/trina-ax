@@ -293,7 +293,7 @@ const threadOnScreen = (chatId: string, rootId: string) =>
   useSessionMarkers.getState().visible && typeof location !== 'undefined' && location.pathname === `/c/${chatId}/t/${rootId}`
 function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (threadOnScreen(chatId, rootId)) return
-  // a plain reply follows "Replies in threads I'm part of", off by default: a thread rings only on a mention (the server
+  // a plain reply follows "Replies in threads I'm part of", on by default (a missing value is on; the server
   // decides it, with quiet hours, when it sets the event's notice: a `reply` notice comes only with the switch on; this
   // window drops it once it knows the switch went off since); a mention is told as a room's mention is
   if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return

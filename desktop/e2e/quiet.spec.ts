@@ -39,6 +39,11 @@ test.describe('quiet browsing', () => {
 
     const c = await chrome(app)
     await expect(c.getByTestId('activity-count')).toBeVisible()
+    // a screen reader hears the count with the button's name, and which tab each × closes
+    const unseen = (await c.getByTestId('activity-count').innerText()).trim()
+    await expect(c.getByTestId('activity-button')).toHaveAccessibleName(`활동 기록 (${unseen})`)
+    const tab = c.getByTestId('pane-tab').first()
+    await expect(tab.locator('button.x')).toHaveAccessibleName(`탭 닫기: ${(await tab.locator('button.title').innerText()).trim()}`)
     await expect(c.getByTestId('notice')).toHaveCount(0)
     await expect(c.locator('.activity')).toHaveCount(0) // the old stacked banners
     const log = await activityLog(app)
@@ -48,6 +53,7 @@ test.describe('quiet browsing', () => {
     // a public site is never reported as the office network
     await expect(log.locator('[data-kind="blocked"]', { hasText: 'attacker.test' })).toHaveCount(0)
     await expect(c.getByTestId('activity-count')).toHaveCount(0) // seen
+    await expect(c.getByTestId('activity-button')).toHaveAccessibleName('활동 기록')
     await c.getByTestId('activity-button').click()
     await expect(c.getByTestId('activity')).toHaveCount(0)
   })

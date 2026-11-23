@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, SPEECH_MODEL_SUGGESTIONS, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
@@ -257,6 +257,9 @@ export default function TeamSettingsPage() {
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                        {/* email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): off until an owner or admin turns it on;
+                            an older server leaves the field out (off) */}
+                        <SwitchRow id="ts-room-email" testId="team-room-email" value={f.roomEmail === true} onChange={(v) => setF({ ...f, roomEmail: v })} title={t('teamSettings.roomEmail')} desc={t('teamSettings.row.roomEmailDesc')} />
                         {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                         {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
@@ -750,7 +753,11 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       {/* the hosting service's key is for its one model; the team picks a model for its own key */}
       {provider === 'openrouter' && !hostedKey && (
         <SettingRow id="ts-speech-model" title={t('speech.model')}
-          control={<input id="ts-speech-model" className={clsx(inputCls, 'md:w-64')} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />} />
+          control={<>
+            <input id="ts-speech-model" list="ts-speech-model-list" className={clsx(inputCls, 'md:w-64')} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} data-testid="team-speech-model" />
+            {/* suggestions only: any OpenRouter speech-to-text model may be typed */}
+            <datalist id="ts-speech-model-list">{SPEECH_MODEL_SUGGESTIONS.map((m) => <option key={m} value={m} />)}</datalist>
+          </>} />
       )}
       {provider === 'openrouter' && (
         <Loadable state={key} lines={1}>

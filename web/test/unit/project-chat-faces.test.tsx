@@ -2,7 +2,7 @@
 // phone's drawer (nav/ChatItem.tsx), with components/chat/SharedChat.tsx ChatFaces (docs/DECISIONS.md "Faces in every
 // chat list", amending "The faces on the project page"): the faces of the OTHER people who wrote in it (the server
 // leaves me out), the most recent first, overlapping, at most 3 and then "+N" (2 on a phone); on a project page one
-// other person with the name. Nobody else yet: the people icon, no face. The pictures say nothing to a screen reader:
+// other person with the name. The people icon shows with them; nobody else yet: the icon alone. The pictures say nothing to a screen reader:
 // the row reads "공유 채팅 · 내가 시작함 · 참여: Bob, Alex" (who started it first: the writers alone read as its owner,
 // QA TC-r2a-10; "Bob님이 시작함" alone when he is the only other writer); on a computer the shared tooltip lists the names on the faces, and while the
 // row has keyboard focus. A private chat has no face and no icon. In the Trina list's rows no name shows, and the faces
@@ -89,7 +89,7 @@ const stack = (root: FakeElement) => {
 }
 const label = (root: FakeElement, prefix = 'project-chat') => root.querySelector(`[data-testid="${prefix}-people-label"]`)?.textContent ?? null
 
-test('one other person: their face and their name on a computer, no people icon; nobody else yet: the icon, no face', async () => {
+test('one other person: their face and their name on a computer, with the people icon; nobody else yet: the icon, no face', async () => {
   directory = [ALEX, BOB]
   let page = await row(chat('출시 일정', { by: BOB, people: [BOB] }))
   try {
@@ -103,8 +103,8 @@ test('one other person: their face and their name on a computer, no people icon;
     // the letter on its tile, decorative
     expect(link.querySelectorAll('[aria-hidden="true"]').map((e) => e.textContent)).toContain('B')
     expect(page.find('project-chat-more')).toBeNull()
-    // the faces take the people icon's place
-    expect(page.find('shared-icon')).toBeNull()
+    // the people icon stays before the title
+    expect(page.find('shared-icon')).not.toBeNull()
   } finally { await page.unmount() }
   // nobody else wrote yet (or a chat that came without people): the people icon, no face, no name
   for (const c of [chat('빈 채팅', { by: BOB, people: [] }), chat('빈 채팅', { by: BOB })]) {
@@ -132,7 +132,7 @@ test('two people: two faces, the most recent first, no name and no "+N"; the row
     expect(faces.every((f) => f.cls.includes('ring-canvas'))).toBe(true)
     expect(page.get('project-chat-people').getAttribute('aria-hidden')).toBe('true')
     expect(page.find('project-chat-by')).toBeNull()
-    expect(page.find('shared-icon')).toBeNull()
+    expect(page.find('shared-icon')).not.toBeNull()
     expect(label(link)).toBe('공유 채팅 · 내가 시작함 · 참여: Bob, Alex')
     expect(link.textContent.match(/Bob/g)).toHaveLength(1)
   } finally { await page.unmount() }
@@ -243,7 +243,7 @@ async function trinaRow(c: Chat, projectTag = false) {
 }
 const projectsBefore = useProjects.getState()
 
-test('a Trina list row: the others\' faces in place of the people icon, no name; the names in the label', async () => {
+test('a Trina list row: the others\' faces beside the people icon, no name; the names in the label', async () => {
   directory = [ALEX, BOB, CHO, DEV, EVE]
   const page = await trinaRow(chat('출시 일정', { by: BOB, people: [EVE, DEV, CHO], peopleCount: 4 }))
   try {
@@ -252,7 +252,7 @@ test('a Trina list row: the others\' faces in place of the people icon, no name;
     expect(faces.map((f) => f.text)).toEqual(['E', 'D', 'C', '+1', '+2'])
     // a list panel's colour around each face (not the page's)
     expect(faces.every((f) => f.cls.includes('ring-subtle'))).toBe(true)
-    expect(li.querySelector('[data-testid="shared-icon"]')).toBeNull()
+    expect(li.querySelector('[data-testid="shared-icon"]')).toBeTruthy()
     expect(li.querySelector('[data-testid="chat-row-by"]')).toBeNull()
     expect(label(li, 'chat-row')).toBe('공유 채팅 · Bob님이 시작함 · 참여: Eve, Dev, Cho 외 1명')
     // the pictures say nothing; each name is read once (in the label)
@@ -261,7 +261,7 @@ test('a Trina list row: the others\' faces in place of the people icon, no name;
   } finally { await page.unmount() }
 })
 
-test('a Trina list row: one other writer is a face only; nobody else: the people icon; a private chat: neither', async () => {
+test('a Trina list row: one other writer is a face and the people icon; nobody else: the icon only; a private chat: neither', async () => {
   directory = [ALEX, BOB]
   let page = await trinaRow(chat('출시 일정', { by: ALEX, people: [BOB] }))
   try {
@@ -269,7 +269,7 @@ test('a Trina list row: one other writer is a face only; nobody else: the people
     expect(stack2(li, 'chat-row')!.map((f) => f.text)).toEqual(['B'])
     expect(li.querySelector('[data-testid="chat-row-by"]')).toBeNull()
     expect(label(li, 'chat-row')).toBe('공유 채팅 · 내가 시작함 · 참여: Bob')
-    expect(li.querySelector('[data-testid="shared-icon"]')).toBeNull()
+    expect(li.querySelector('[data-testid="shared-icon"]')).toBeTruthy()
   } finally { await page.unmount() }
   // a shared chat only I wrote in: the icon as before, no face
   page = await trinaRow(chat('주간 보고', { people: [], peopleCount: 0 }))

@@ -12,5 +12,5 @@
     "noUncheckedIndexedAccess": false,
     "resolveJsonModule": true
   },
-  "include": ["shared/src", "server/src", "relay/src", "demo-gate", "tests", "scripts", "ee/cloud"]
+  "include": ["shared/src", "server/src", "relay/src", "mailbox/src", "demo-gate", "tests", "scripts", "ee/cloud"]
 }

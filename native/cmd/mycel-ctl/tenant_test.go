@@ -857,3 +857,99 @@ func TestTenantResetLinkLocked(t *testing.T) {
 		t.Fatalf("other failure: %d", code)
 	}
 }
+
+// mail-in-set: the MYCEL_MAIL_IN_URL and MYCEL_MAIL_IN_DOMAIN lines of /etc/default/<id>, every other line kept, both
+// or neither, idempotent, a restart only on a change and only when idle, strict shapes (no line injection).
+func TestTenantMailInSet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	defaultsDir = t.TempDir()
+	t.Cleanup(func() { defaultsDir = "/etc/default" })
+	prevWait := errorReportsIdleWait
+	errorReportsIdleWait = 0
+	t.Cleanup(func() { errorReportsIdleWait = prevWait })
+	p := filepath.Join(defaultsDir, "mycel")
+	enroll := "# written by mycel-enroll\nMYCEL_TEAM_TZ=Asia/Seoul\nMYCEL_ERROR_REPORT_URL=https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\n"
+	must(t, os.WriteFile(p, []byte(enroll), 0o644))
+	f.started, f.startKnown = time.Now().Add(-time.Hour), true
+	set := func(stdin string) map[string]any {
+		t.Helper()
+		code, out, errs := tb.tctl(stdin, "mail-in-set", "--json")
+		if code != 0 {
+			t.Fatalf("%s: %d %q %s", stdin, code, out, errs)
+		}
+		return jsonOf(t, out)
+	}
+	file := func() string { b, _ := os.ReadFile(p); return string(b) }
+	on := `{"url":"https://abc123.lambda-url.us-east-1.on.aws","domain":"in.trina.app"}`
+	lines := "MYCEL_MAIL_IN_URL=https://abc123.lambda-url.us-east-1.on.aws\nMYCEL_MAIL_IN_DOMAIN=in.trina.app\n"
+
+	if m := set(on); m["ok"] != true || m["changed"] != true || m["restarted"] != true || f.restarts != 1 {
+		t.Fatalf("set: %v, %d restarts", m, f.restarts)
+	}
+	if got := file(); got != enroll+lines {
+		t.Fatalf("set: %q", got)
+	}
+	// the same values again: nothing, no restart
+	if m := set(on); m["changed"] != false || m["restarted"] != false || f.restarts != 1 {
+		t.Fatalf("same: %v, %d restarts", m, f.restarts)
+	}
+	// another domain only: changed in place
+	if m := set(`{"url":"https://abc123.lambda-url.us-east-1.on.aws","domain":"in.example.com"}`); m["changed"] != true || f.restarts != 2 {
+		t.Fatalf("domain: %v", m)
+	}
+	if got := file(); got != enroll+"MYCEL_MAIL_IN_URL=https://abc123.lambda-url.us-east-1.on.aws\nMYCEL_MAIL_IN_DOMAIN=in.example.com\n" {
+		t.Fatalf("domain: %q", got)
+	}
+	// busy: written, not restarted; the resend restarts
+	time.Sleep(20 * time.Millisecond)
+	f.turns = []int{1}
+	restarts := f.restarts
+	if m := set(`{"url":null,"domain":null}`); m["changed"] != true || m["restarted"] != false || f.restarts != restarts {
+		t.Fatalf("off busy: %v", m)
+	}
+	if got := file(); got != enroll {
+		t.Fatalf("off: %q", got)
+	}
+	f.turns = nil
+	if m := set(`{"url":null,"domain":null}`); m["changed"] != false || m["restarted"] != true || f.restarts != restarts+1 {
+		t.Fatalf("off resend: %v", m)
+	}
+	if m := set(`{"url":null,"domain":null}`); m["changed"] != false || m["restarted"] != false {
+		t.Fatalf("off again: %v", m)
+	}
+	// refused before anything is written
+	restarts = f.restarts
+	for _, bad := range []string{
+		`{"url":"https://mail.example.invalid\nNODE_OPTIONS=--require=/tmp/x.js","domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid","domain":"in.example.invalid\nLD_PRELOAD=/tmp/x.so"}`,
+		`{"url":"https://mail.example.invalid\"","domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid/","domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid/api","domain":"in.example.invalid"}`,
+		`{"url":"http://mail.example.invalid","domain":"in.example.invalid"}`,
+		`{"url":"https://Mail.example.invalid","domain":"in.example.invalid"}`,
+		`{"url":"https://u@mail.example.invalid","domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid x","domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid","domain":"localhost"}`,
+		`{"url":"https://mail.example.invalid","domain":"in.example.invalid="}`,
+		`{"url":"https://mail.example.invalid","domain":null}`,
+		`{"url":null,"domain":"in.example.invalid"}`,
+		`{"url":"https://mail.example.invalid"}`,
+		`{"url":null,"domain":null,"x":1}`, `{}`, ``, `[1]`, `not json`,
+	} {
+		if code, out, _ := tb.tctl(bad, "mail-in-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("accepted %q: %d %q", bad, code, out)
+		}
+	}
+	if file() != enroll || f.restarts != restarts {
+		t.Fatalf("a refused value changed the file or restarted: %q", file())
+	}
+	// the same patterns as the contract's MailInOrigin and MailInDomain
+	src, err := os.ReadFile("../../../shared/src/cloud-protocol/tenant-commands.ts")
+	must(t, err)
+	c := strings.ReplaceAll(string(src), `\/`, `/`)
+	if !strings.Contains(c, "regex(/"+mailInOriginRE.String()+"/)") || !strings.Contains(c, "regex(/"+mailInDomainRE.String()+"/)") {
+		t.Fatal("the mail-in patterns and the contract's MailInOrigin / MailInDomain differ")
+	}
+}

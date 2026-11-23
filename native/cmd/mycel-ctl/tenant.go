@@ -819,8 +819,14 @@ func cmdErrorReportsSet(e *env, args []string) (int, error) {
 	if err != nil {
 		return 1, fmt.Errorf("/etc/default/%s: %v", t.in.ID, err)
 	}
-	// unchanged, but the running server started before the file's last change (an earlier call found it busy, or
-	// another writer changed the file): it still runs with the old value, so it is restarted like a change
+	return t.out(map[string]any{"ok": true, "changed": changed, "restarted": t.restartForDefaults("error-reports-set", changed)})
+}
+
+// restartForDefaults restarts the server after a change of /etc/default/<id>, once no answer has run for up to
+// errorReportsIdleWait. Also without a change when the running server started before the file's last change (an
+// earlier call found it busy, or another writer changed the file): it still runs with the old values. Busy or a failed
+// restart: false (the server reads the file at its next start, or at the next resend).
+func (t *tenant) restartForDefaults(cmd string, changed bool) bool {
 	stale := false
 	if !changed {
 		if started, ok := t.serverStarted(); ok {
@@ -829,16 +835,73 @@ func cmdErrorReportsSet(e *env, args []string) (int, error) {
 			}
 		}
 	}
-	restarted := false
-	if changed || stale {
-		if idle, running := t.waitIdle(errorReportsIdleWait); !idle {
-			fmt.Fprintf(t.e.stderr, "error-reports-set: %d answers still running, the server reads the change at its next start\n", running)
-		} else if restarted, err = t.restart(); err != nil {
-			fmt.Fprintf(t.e.stderr, "error-reports-set: %v; the server reads the change at its next start\n", err)
-			restarted = false
-		}
+	if !changed && !stale {
+		return false
 	}
-	return t.out(map[string]any{"ok": true, "changed": changed, "restarted": restarted})
+	if idle, running := t.waitIdle(errorReportsIdleWait); !idle {
+		fmt.Fprintf(t.e.stderr, "%s: %d answers still running, the server reads the change at its next start\n", cmd, running)
+		return false
+	}
+	restarted, err := t.restart()
+	if err != nil {
+		fmt.Fprintf(t.e.stderr, "%s: %v; the server reads the change at its next start\n", cmd, err)
+		return false
+	}
+	return restarted
+}
+
+// The room email mail service (server/src/rooms/apps/mail/client.ts mailInConfig): two lines of /etc/default/<id>.
+const (
+	mailInURLName    = "MYCEL_MAIL_IN_URL"
+	mailInDomainName = "MYCEL_MAIL_IN_DOMAIN"
+)
+
+// mailInOriginRE and mailInDomainRE: the contract's MailInOrigin and MailInDomain (shared/src/cloud-protocol
+// tenant-commands.ts). The whole value must match: it goes on a line of the server's environment file.
+var (
+	mailInOriginRE = regexp.MustCompile(`^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){1,9}(?::[0-9]{1,5})?$`)
+	mailInDomainRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,9}[a-z]{2,63}$`)
+)
+
+// mail-in-set < { url, domain } | { url: null, domain: null }: the hosting service's mail service for room email
+// (docs/runbooks/room-email-mailbox.md), the MYCEL_MAIL_IN_URL and MYCEL_MAIL_IN_DOMAIN lines of /etc/default/<id>
+// (every other line stays). Both null take both lines away. The same values again change nothing (changed false). The
+// server is restarted as for error-reports-set. The answer is { ok, changed, restarted }.
+func cmdMailInSet(e *env, args []string) (int, error) {
+	t := newTenant(e, "mail-in-set")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	_, m, err := t.stdinJSON(4 << 10)
+	if err != nil {
+		return 1, err
+	}
+	if len(m) != 2 || m["url"] == nil || m["domain"] == nil {
+		return 1, fmt.Errorf("stdin must be { url, domain }")
+	}
+	var url, domain *string
+	if json.Unmarshal(m["url"], &url) != nil || json.Unmarshal(m["domain"], &domain) != nil {
+		return 1, fmt.Errorf("url, domain: strings, or both null")
+	}
+	if (url == nil) != (domain == nil) {
+		return 1, fmt.Errorf("url and domain: both, or both null")
+	}
+	if url != nil && (len(*url) > 300 || !mailInOriginRE.MatchString(*url)) {
+		return 1, fmt.Errorf("url: not https://<lower-case host>[:port]")
+	}
+	if domain != nil && (len(*domain) > 253 || !mailInDomainRE.MatchString(*domain)) {
+		return 1, fmt.Errorf("domain: not a lower-case DNS name")
+	}
+	c1, err := setDefaultsLine(t.in.ID, mailInURLName, url)
+	if err != nil {
+		return 1, fmt.Errorf("/etc/default/%s: %v", t.in.ID, err)
+	}
+	c2, err := setDefaultsLine(t.in.ID, mailInDomainName, domain)
+	if err != nil {
+		return 1, fmt.Errorf("/etc/default/%s: %v", t.in.ID, err)
+	}
+	changed := c1 || c2
+	return t.out(map[string]any{"ok": true, "changed": changed, "restarted": t.restartForDefaults("mail-in-set", changed)})
 }
 
 // githubAppFile: where the server reads its GitHub App (server/src/integrations/github/app.ts githubAppFile, the

@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Room email mailbox (trina-ax mailbox-ses): SES receiving for the mail domain -> S3 (raw, deleted after sealing,
+  1-day lifecycle) -> Lambda gateway (seal, queue in DynamoDB) ; Lambda function URL = the team servers' mail-in API.
+  Deploy with mailbox-ses/deploy.sh (it also tags the stack purpose=room-email and activates the rule set).
+
+Parameters:
+  MailDomain:
+    Type: String
+    Default: in.trina.app
+    AllowedPattern: '^[a-z0-9.-]+$'
+  CpTeamsUrl:
+    Type: String
+    Default: https://cp.trina.app/internal/mail-in/team
+  CpTokenParam:
+    Type: String
+    Default: /room-email/cp-lookup-token
+  CodeBucket:
+    Type: String
+  CodeKey:
+    Type: String
+  RuleSetName:
+    Type: String
+    Default: room-email
+
+Resources:
+  MailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'room-email-raw-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: delete-raw-mail-after-1-day
+            Status: Enabled
+            ExpirationInDays: 1
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  MailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SesPutRawMail
+            Effect: Allow
+            Principal: { Service: ses.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub '${MailBucket.Arn}/raw/*'
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref AWS::AccountId }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:receipt-rule-set/${RuleSetName}:receipt-rule/*' }
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt MailBucket.Arn, !Sub '${MailBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: room-email-mailbox
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: x, Enabled: true }
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  GatewayLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/room-email-gateway
+      RetentionInDays: 14
+      Tags: [{ Key: purpose, Value: room-email }]
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/room-email-api
+      RetentionInDays: 14
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: room-email-gateway
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: room-email-gateway
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: [logs:CreateLogStream, logs:PutLogEvents], Resource: !Sub '${GatewayLogs.Arn}' }
+              - { Effect: Allow, Action: [s3:GetObject, s3:DeleteObject], Resource: !Sub '${MailBucket.Arn}/raw/*' }
+              - { Effect: Allow, Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Query], Resource: !GetAtt Table.Arn }
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: room-email-api
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: room-email-api
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: [logs:CreateLogStream, logs:PutLogEvents], Resource: !Sub '${ApiLogs.Arn}' }
+              - { Effect: Allow, Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Query], Resource: !GetAtt Table.Arn }
+              - { Effect: Allow, Action: ssm:GetParameter, Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${CpTokenParam}' }
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  GatewayFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: GatewayLogs
+    Properties:
+      FunctionName: room-email-gateway
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.gateway
+      MemorySize: 512
+      Timeout: 60
+      Role: !GetAtt GatewayRole.Arn
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Environment:
+        Variables:
+          MAIL_DOMAIN: !Ref MailDomain
+          TABLE: !Ref Table
+          BUCKET: !Ref MailBucket
+          RAW_PREFIX: raw/
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  GatewayInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref GatewayFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 3600
+
+  GatewaySesPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GatewayFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:receipt-rule-set/${RuleSetName}:receipt-rule/*'
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ApiLogs
+    Properties:
+      FunctionName: room-email-api
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.api
+      MemorySize: 256
+      Timeout: 60
+      Role: !GetAtt ApiRole.Arn
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Environment:
+        Variables:
+          MAIL_DOMAIN: !Ref MailDomain
+          TABLE: !Ref Table
+          CP_TEAMS_URL: !Ref CpTeamsUrl
+          CP_TOKEN_PARAM: !Ref CpTokenParam
+      Tags: [{ Key: purpose, Value: room-email }]
+
+  ApiUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ApiFunction.Arn
+      AuthType: NONE
+      InvokeMode: RESPONSE_STREAM
+
+  # The API checks every call itself (TrinaMailIn signature by a relay team key the CP serves).
+  ApiUrlPublic:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ApiFunction.Arn
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+  ApiUrlInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ApiFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+  RuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Ref RuleSetName
+
+  Rule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn: [MailBucketPolicy, GatewaySesPermission]
+    Properties:
+      RuleSetName: !Ref RuleSet
+      Rule:
+        Name: room-email-in
+        Enabled: true
+        ScanEnabled: true
+        TlsPolicy: Optional
+        Recipients: [!Ref MailDomain]
+        Actions:
+          - S3Action: { BucketName: !Ref MailBucket, ObjectKeyPrefix: raw/ }
+          - LambdaAction: { FunctionArn: !GetAtt GatewayFunction.Arn, InvocationType: Event }
+          - StopAction: { Scope: RuleSet }
+
+Outputs:
+  ApiHost:
+    Description: the API host; team servers get MYCEL_MAIL_IN_URL=https://<this host>
+    Value: !Select [0, !Split ['/', !Select [1, !Split ['https://', !GetAtt ApiUrl.FunctionUrl]]]]
+  MailBucketName:
+    Value: !Ref MailBucket
+  TableName:
+    Value: !Ref Table
