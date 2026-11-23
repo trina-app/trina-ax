@@ -54,6 +54,13 @@ function doc(streams: string[], o: Opt = {}): Uint8Array {
   return writePdf(objs)
 }
 
+/** the file again with its cross-reference table made from where the objects now are */
+function rebuildXref(s: string): Uint8Array {
+  const body = s.slice(0, s.lastIndexOf('\nxref\n') + 1)
+  const offs = [...body.matchAll(/(?:^|\n)(\d+) 0 obj\n/g)].map((m) => ({ n: Number(m[1]), at: m.index + (m[0].startsWith('\n') ? 1 : 0) })).sort((a, b) => a.n - b.n)
+  const table = `xref\n0 ${offs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o.at).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${offs.length + 1} /Root 1 0 R >>\nstartxref\n${body.length}\n%%EOF\n`
+  return new Uint8Array(Buffer.from(body + table, 'latin1'))
+}
 const run = (cmd: string[]) => { const r = Bun.spawnSync(cmd, { stdout: 'pipe', stderr: 'pipe' }); if (r.exitCode !== 0) throw new Error(r.stderr.toString()); return r }
 const wordsOf = (rel: string) => parseWordBoxes(run(['pdftotext', '-bbox-layout', '-cropbox', file(rel), '-']).stdout.toString())
 /** the centre of the red seal as drawn on a page, in points from the top-left of the page as shown */
@@ -104,6 +111,7 @@ describe('stamp_pdf at: on the right mark', () => {
     onWord(r.out, 1, '(Seal)')
     expect(r.text).toContain('"(seal)"'.replace('seal', 'Seal'))
     expect(r.text).toContain('measured on the saved file')
+    expect(r.text).toContain('matched from the PDF\'s text layer')
   })
   t('one signer of two on a line lands on that signer', async () => {
     const pdf = doc([T(80, 600, 'A: Kim Cheolsu (Seal)') + T(330, 600, 'B: Hong Gildong (Seal)')])
@@ -154,13 +162,6 @@ describe('stamp_pdf at: on the right mark', () => {
     expect(past.isError).toBe(false)
     onWord(past.out, 1, '(Seal)')
   })
-  t('text inside a Form XObject', async () => {
-    const form = T(100, 600, 'Hong Gildong (Seal)')
-    const pdf = doc(['/X1 Do\n'], { objs: [`<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Length ${form.length} >>\nstream\n${form}\nendstream`], res: '/XObject << /X1 4 0 R >>' })
-    const r = await stamp(pdf, { at: 'Hong Gildong (Seal)' })
-    expect(r.isError).toBe(false)
-    onWord(r.out, 1, '(Seal)')
-  })
   t('text drawn twice for bold is one place', async () => {
     const r = await stamp(doc([T(100, 600, 'Hong (Seal)') + T(100.2, 600, 'Hong (Seal)')]), { at: 'Hong (Seal)' })
     expect(r.isError).toBe(false)
@@ -191,8 +192,8 @@ describe('stamp_pdf at: on the right mark', () => {
 
 describe('stamp_pdf at: refused, nothing saved', () => {
   t('a name hidden next to someone else\'s visible mark', async () => {
-    await refused(doc([T(100, 600, 'Guarantor:') + T(170, 600, 'Alice', '3 Tr') + T(215, 600, '(Seal)')]), { at: 'Alice (Seal)' }, 'does not show')
-    await refused(doc([T(100, 600, 'Guarantor:') + `1 1 1 rg\n` + T(170, 600, 'Alice') + `0 0 0 rg\n` + T(215, 600, '(Seal)')]), { at: 'Alice (Seal)' }, 'does not show')
+    await refused(doc([T(100, 600, 'Guarantor:') + T(170, 600, 'Alice', '3 Tr') + T(215, 600, '(Seal)')]), { at: 'Alice (Seal)' })
+    await refused(doc([T(100, 600, 'Guarantor:') + `1 1 1 rg\n` + T(170, 600, 'Alice') + `0 0 0 rg\n` + T(215, 600, '(Seal)')]), { at: 'Alice (Seal)' })
   })
   t('a mark covered by a box', async () => {
     await refused(doc([T(100, 600, 'Hong (Seal)') + '1 1 1 rg 90 590 200 30 re f\n']), { at: 'Hong (Seal)' }, 'does not show')
@@ -205,6 +206,43 @@ describe('stamp_pdf at: refused, nothing saved', () => {
     await refused(doc([T(100, 600, 'Hong (Sign here please)')]), { at: 'Hong (Sign here please)' })
     await refused(doc([T(100, 600, 'Hong Gildong')]), { at: 'Hong Gildong' }, 'no printed sign mark')
     await refused(doc([T(100, 600, 'Hong(Seal)')]), { at: 'Hong(Seal)' }, 'joined')
+  })
+  t('text inside a Form XObject: how it is drawn cannot be checked', async () => {
+    const form = T(100, 600, 'Hong Gildong (Seal)')
+    const pdf = doc(['/X1 Do\n'], { objs: [`<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Length ${form.length} >>\nstream\n${form}\nendstream`], res: '/XObject << /X1 4 0 R >>' })
+    await refused(pdf, { at: 'Hong Gildong (Seal)' }, 'embedded drawing')
+  })
+  t('a name at the left and another person\'s mark across the page are not one label', async () => {
+    await refused(doc([T(40, 600, 'Hong') + T(346, 600, '(Seal)') + T(300, 600, 'Lee')]), { at: 'Hong (Seal)' }, 'not on one line')
+    await refused(doc([T(40, 600, 'Hong') + T(346, 600, '(Seal)')]), { at: 'Hong (Seal)' }, 'not on one line')
+  })
+  t('replacement text, hidden text over stripes, white text crossed by a rule, tiny text, a mostly covered mark', async () => {
+    await refused(doc(['/Span << /ActualText (Hong) >> BDC\n' + T(100, 600, 'Kims') + 'EMC\n' + T(132, 600, '(Seal)')]), { at: 'Hong (Seal)' }, 'ActualText')
+    const stripes = Array.from({ length: 16 }, (_, i) => `${95 + i * 8} 590 3 30 re f\n`).join('')
+    await refused(doc([stripes + T(100, 600, 'Hong (Seal)', '3 Tr')]), { at: 'Hong (Seal)' }, 'hidden text')
+    await refused(doc(['1 1 1 rg\n' + T(100, 600, 'Hong (Seal)') + '0 0 0 RG 1 w 90 604 m 260 604 l S\n']), { at: 'Hong (Seal)' }, 'white text')
+    await refused(doc(['BT /F1 1 Tf 100 600 Td (Hong \\(Seal\\)) Tj ET\n']), { at: 'Hong (Seal)' }, 'too small')
+    await refused(doc([T(100, 600, 'Hong (Seal)') + '1 1 1 rg 132 590 30 30 re f\n']), { at: 'Hong (Seal)' }, 'does not show')
+  })
+  t('two different letters that read as one in a font\'s map are refused', async () => {
+    const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 2 beginbfchar <48> <0048> <4C> <0048> endbfchar endcmap end end'
+    const pdf = doc([T(100, 600, 'HLng (Seal)')], { objs: [`<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`] })
+    const s = Buffer.from(pdf).toString('latin1').replace('/BaseFont /Helvetica >>', '/BaseFont /Helvetica /ToUnicode 4 0 R >>')
+    const fixed = rebuildXref(s)
+    await refused(fixed, { at: 'HHng (Seal)' }, 'letter map')
+  })
+  t('a huge page and a PDF with too many words are refused before they are drawn', async () => {
+    await refused(doc([T(100, 600, 'Hong (Seal)')], { media: '[0 0 6000 6000]' }), { at: 'Hong (Seal)' }, 'too large')
+    const many = Array.from({ length: 31_000 }, (_, i) => `1 0 0 1 ${5 + (i % 190) * 3} ${5 + Math.floor(i / 190) * 5} Tm (w) Tj`).join(' ')
+    await refused(doc([`BT /F1 1 Tf ${many} ET\n` + T(100, 830, 'Hong (Seal)')]), { at: 'Hong (Seal)' }, 'too large')
+  })
+  t('another page that differs between two PDF readers is refused', async () => {
+    const a = T(100, 600, 'One (Seal)'), other = '0 0 1 rg 100 100 200 200 re f\n', twin = '1 0 0 rg 300 300 100 100 re f\n'
+    const base = Buffer.from(doc([a, other])).toString('latin1')
+    const obj = `7 0 obj\n<< /Length ${twin.length} >>\nstream\n${twin}\nendstream\nendobj\n`
+    const at = base.lastIndexOf('\nxref\n') + 1
+    const shifted = base.slice(0, at) + obj + base.slice(at).replace(/startxref\s+(\d+)/, (_m, x: string) => `startxref\n${Number(x) + obj.length}`)
+    await refused(new Uint8Array(Buffer.from(shifted, 'latin1')), { at: 'One (Seal)' }, 'another page')
   })
   t('text turned upright', async () => {
     await refused(doc(['BT /F1 12 Tf 0 1 -1 0 300 400 Tm (Hong Gildong \\(Seal\\)) Tj ET\n']), { at: 'Hong Gildong (Seal)' }, 'not on one line')
@@ -222,7 +260,7 @@ describe('stamp_pdf at: refused, nothing saved', () => {
     const a = T(100, 600, 'Alice (Seal)'), b = T(100, 600, 'Bobby (Seal)')
     const base = Buffer.from(doc([a])).toString('latin1')
     const twin = `5 0 obj\n<< /Length ${b.length} >>\nstream\n${b}\nendstream\nendobj\n`
-    const at = base.lastIndexOf('xref\n')
+    const at = base.lastIndexOf('\nxref\n') + 1
     const shifted = base.slice(0, at) + twin + base.slice(at).replace(/startxref\s+(\d+)/, (_m, x: string) => `startxref\n${Number(x) + twin.length}`)
     await refused(new Uint8Array(Buffer.from(shifted, 'latin1')), { at: 'Alice (Seal)' })
   })
@@ -250,6 +288,13 @@ describe('stamp_pdf at: refused, nothing saved', () => {
     // the AI can still answer with the right mark in that turn
     const right = await r.call('stamp_pdf', { file_path: r.rel, image: 'users/alice/seal.png', at: 'Upper (Seal)' })
     expect(right.isError).toBe(false)
+    // also on a new file made from it, or any other PDF in that answer
+    const split = await r.call('split_pdf', { file_path: r.rel, parts: ['1'], output: 'users/alice/split-after.pdf' })
+    const made = (/users\/alice\/[^'"\s)]*\.pdf/.exec(split.text) ?? ['users/alice/other.pdf'])[0]
+    if (!fs.existsSync(file(made))) put(made, doc([T(100, 600, 'Other')]))
+    const onNew = await r.call('stamp_pdf', { file_path: made, image: 'users/alice/seal.png', position: 'center', output: 'users/alice/split-stamped.pdf' })
+    expect(onNew.isError).toBe(true)
+    expect(onNew.text).toContain('by coordinates')
     // and a later turn is a new question
     const later = await turn('alice')('stamp_pdf', { file_path: r.rel, image: 'users/alice/seal.png', position: 'center', output: 'users/alice/later.pdf' })
     expect(later.isError).toBe(false)

@@ -425,7 +425,7 @@ const mul = (a: M, b: M): M => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * 
 const apply = (m: M, x: number, y: number) => ({ x: x * m[0] + y * m[2] + m[4], y: x * m[1] + y * m[3] + m[5] })
 const lin = (m: M, x: number, y: number) => ({ x: x * m[0] + y * m[2], y: x * m[1] + y * m[3] })
 
-interface TextState { ctm: M; tc: number; tw: number; tz: number; tl: number; font: string | null; fontRaw: string; size: number; tr: number; ts: number }
+interface TextState { ctm: M; tc: number; tw: number; tz: number; tl: number; font: string | null; fontRaw: string; size: number; tr: number; ts: number; /** the fill's lightness, 0 black to 1 white; null: not a plain colour */ fill: number | null }
 interface Glyph {
   code: number; bytes: string; letters: string
   /** the advance in text space (size, Tc, Tw), before horizontal scaling */
@@ -472,7 +472,7 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
     // upright or level strokes only (a table's lines), at most RULES_MAX a page: a page of hatching is not a table
     if (rules.length < RULES_MAX && Math.hypot(b.x - a.x, b.y - a.y) > 2 && (Math.abs(b.x - a.x) < 0.5 || Math.abs(b.y - a.y) < 0.5)) rules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })
   }
-  let st: TextState = { ctm: ID, tc: 0, tw: 0, tz: 100, tl: 0, font: null, fontRaw: '', size: 0, tr: 0, ts: 0 }
+  let st: TextState = { ctm: ID, tc: 0, tw: 0, tz: 100, tl: 0, font: null, fontRaw: '', size: 0, tr: 0, ts: 0, fill: 0 }
   const stack: TextState[] = []
   let tm: M = ID, tlm: M = ID
   let group = 0
@@ -517,6 +517,11 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
       case 'Q': if (stack.length) st = stack.pop()!; break
       case 'cm': if (a.length >= 6) st.ctm = mul(a.slice(-6).map(n) as M, st.ctm); break
       case 'BT': tm = tlm = ID; group++; break
+      case 'g': st.fill = n(a[0]); break
+      case 'rg': st.fill = 0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]); break
+      case 'k': st.fill = (1 - n(a[3])) * (1 - (0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]))); break
+      case 'cs': st.fill = null; break
+      case 'sc': case 'scn': st.fill = a.length === 1 && typeof a[0] === 'number' ? a[0] : a.length === 3 && a.every((x) => typeof x === 'number') ? 0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]) : null; break
       case 'Tc': st.tc = n(a[0]); break
       case 'Tw': st.tw = n(a[0]); break
       case 'Tz': st.tz = n(a[0]); break
@@ -626,6 +631,25 @@ export function findMatches(p: PageText, find: string, matchCase: boolean): numb
     if (g.length) out.push(g)
   }
   return out
+}
+
+/** One drawn letter for checking a signing place (files/pdf-marks-worker.ts): where it is in user space and how it is drawn. */
+export interface DrawnGlyph {
+  letters: string; code: number; font: unknown; mapped: boolean
+  x: number; y: number; dx: number; dy: number; hx: number; hy: number
+  /** text render mode; the fill's lightness (null: not a plain colour); inside marked content with /ActualText */
+  tr: number; fill: number | null; actual: boolean
+}
+/** The letters page content draws directly (not those inside a Form XObject). Null when its content cannot be decoded. */
+export function drawnGlyphs(doc: PDFDocument, pageIndex: number): DrawnGlyph[] | null {
+  const page = doc.getPage(pageIndex)
+  const content = contentOf(doc.context, page)
+  if (content === null) return null
+  const p = readPage(doc.context, resourcesOf(doc.context, page), content)
+  return p.glyphs.map((g) => {
+    const show = p.shows[g.show]!
+    return { letters: g.letters, code: g.code, font: g.font, mapped: !!g.font?.mapped, x: g.x, y: g.y, dx: g.dx, dy: g.dy, hx: g.hx, hy: g.hy, tr: show.st.tr, fill: show.st.fill, actual: show.marked.some((i) => p.marks[i]?.actual) }
+  })
 }
 
 /** a page's text as this tool reads it (for tests and messages) */

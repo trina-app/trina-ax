@@ -136,7 +136,7 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
   // `at`: the one proved place of the printed mark, or a refusal; a stamp by coordinates cannot step around that refusal
   if (a.at !== undefined && a.position !== undefined) throw new ToolError('give at or position, not both; nothing was saved')
   if (a.at === undefined && a.occurrence !== undefined) throw new ToolError('occurrence goes with at; nothing was saved')
-  if (a.at === undefined) assertNoStampAfterRefusal(c, pdf)
+  if (a.at === undefined) assertNoStampAfterRefusal(c)
   const planned = a.at !== undefined ? await planPdfAt(c, src.rel, pdf, picture, kind, { at: a.at, occurrence: a.occurrence, page: a.page, width_mm: a.width_mm }) : null
   const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
     page: planned ? planned.page + 1 : a.page ?? 'last', position: planned?.position ?? a.position ?? 'bottom-right', width_mm: planned?.width_mm ?? a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
@@ -146,7 +146,7 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
   try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
   if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')
   // what was saved is what was planned: the same text everywhere, the picture drawn in its place
-  const landed = planned ? await verifyPdfAt(c, pdf, planned, r.file) : undefined
+  const landed = planned ? await verifyPdfAt(c, planned, r.file) : undefined
   assertGuestOutput(ctx.db, c.user.id, r.file.length, out.rel)
 
   // the new file carries the PDF's and the image's bytes: asked like make_file's sources
@@ -170,7 +170,7 @@ export function stampPdfText(r: StampedPdf, link: string): string {
     : r.path === r.source ? `Saved a new version of ${r.path} with the image on it; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
   const at = `The image is on page ${x.page} of ${x.pages}: ${x.rectMm.width} x ${x.rectMm.height} mm, ${x.rectMm.x} mm from the left and ${x.rectMm.y} mm from the top (the page is ${x.pageMm.width} x ${x.pageMm.height} mm).`
-  const on = r.landed ? `\nIt is on ${r.landed.on}: measured on the saved file, ${r.landed.mm} mm from the centre of that text.` : ''
+  const on = r.landed ? `\nIt is on ${r.landed.on}: measured on the saved file, ${r.landed.mm} mm from the centre of that text. That text was matched from the PDF's text layer, which a file can state differently from what it draws, so say the person should check the name beside the seal.` : ''
   const redo = r.fresh
     ? `redo the steps that made the PDF (same output) and stamp it again with another position (stamping this file again would put a second image on it)`
     : `stamp the original again with another position and output: '${r.path}' (that replaces this copy instead of making another one)`

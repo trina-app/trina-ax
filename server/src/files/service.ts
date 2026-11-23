@@ -297,8 +297,9 @@ export class TurnFiles {
    * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
    * visible (tools/stamp-pdf.ts madeThisTurn) */
   madeHashes = new Map<string, string>()
-  /** PDFs (sha256) whose signing place stamp_pdf `at` refused in this turn: a stamp by coordinates must not step around it */
-  signRefused = new Set<string>()
+  /** stamp_pdf `at` refused a signing place in this turn: no picture on any PDF by coordinates until the next turn (a split,
+   * merge or rotate makes new bytes, so a block on one file could be stepped around) */
+  signRefused = false
   /** saves under skills/ the person confirmed on the server's card in this turn: path -> sha256 of the confirmed
    * bytes, or '*' for a produced file (skills/guard.ts) */
   skillApprovals = new Map<string, string>()

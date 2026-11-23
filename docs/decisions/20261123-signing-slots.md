@@ -42,7 +42,13 @@
   label and mark must show rendered ink with nothing over it. A solid picture of the seal's size is drawn there first, and the
   page is rendered to see where it really lands and how much shows. On the file about to be saved, every page's words must
   be unchanged and the seal's pixels inside that place. Anything not proved saves nothing, and for the rest of that turn a stamp
-  by coordinates on those bytes is refused, so the AI asks the person.
+  by coordinates on any PDF is refused, so the AI asks the person (a split or rotate makes new bytes, so a block on one file
+  could be stepped around). The name and mark must be one printed line with at most one font height between words. ActualText,
+  hidden or white text, text under 5 pt and a font whose letter map reads two letters as one are refused; ink is checked letter
+  by letter. Every page is compared in a small drawing, so a page two PDF readers read differently cannot change unseen. The
+  resolver runs in the office worker, with caps on words (30,000), page pixels, pages (60), memory and time. **Limit:** a
+  ToUnicode map that lies consistently cannot be detected without OCR, so the result says the text came from the PDF's text
+  layer and the person should check the name beside the seal.
 - **Later:** `edit_pdf` `stamp_image` with `at`. The picture-ownership card on PDF waits for the owner: it would stop scheduled
   runs that stamp a shared company seal.
 - **Version impact:** patch.

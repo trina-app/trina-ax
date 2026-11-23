@@ -9,22 +9,23 @@ import { bareMarkAsk, pickSignMark, placedOn, type SignMark } from './sign-slots
 
 export interface PBox { x0: number; y0: number; x1: number; y1: number }
 export interface PWord extends PBox { text: string; /** pdftotext's own line, to see a line drawn backwards */ line: number }
-export interface PPage { words: PWord[] }
+export interface PPage { words: PWord[]; /** its size as pdftotext reports it, in points (not turned with /Rotate) */ w?: number; h?: number }
 
-export const PDF_WORDS_MAX = 400_000
+/** words of one PDF a signing place is looked for in: a long contract fits, and the work stays small */
+export const PDF_WORDS_MAX = 30_000
 const unescape = (s: string) => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, n: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[n]!)
 
 /** pdftotext -bbox-layout's output: the pages and their words. Throws when it is not that. */
 export function parseWordBoxes(xml: string): PPage[] {
   const pages: PPage[] = []
   let line = 0, n = 0
-  for (const m of xml.matchAll(/<page\b|<line\b|<word xMin="([-\d.]+)" yMin="([-\d.]+)" xMax="([-\d.]+)" yMax="([-\d.]+)">([^<]*)<\/word>/g)) {
-    if (m[0] === '<page') { pages.push({ words: [] }); continue }
+  for (const m of xml.matchAll(/<page width="([\d.]+)" height="([\d.]+)"|<line\b|<word xMin="([-\d.]+)" yMin="([-\d.]+)" xMax="([-\d.]+)" yMax="([-\d.]+)">([^<]*)<\/word>/g)) {
+    if (m[1] !== undefined) { pages.push({ words: [], w: Number(m[1]), h: Number(m[2]) }); continue }
     if (m[0] === '<line') { line++; continue }
     if (!pages.length || ++n > PDF_WORDS_MAX) throw new Error('word boxes')
-    const [x0, y0, x1, y1] = [m[1], m[2], m[3], m[4]].map(Number) as [number, number, number, number]
+    const [x0, y0, x1, y1] = [m[3], m[4], m[5], m[6]].map(Number) as [number, number, number, number]
     if (![x0, y0, x1, y1].every(Number.isFinite)) throw new Error('word boxes')
-    pages[pages.length - 1]!.words.push({ text: unescape(m[5]!), x0, y0, x1, y1, line })
+    pages[pages.length - 1]!.words.push({ text: unescape(m[7]!), x0, y0, x1, y1, line })
   }
   return pages
 }
@@ -49,28 +50,54 @@ const union = (w: PBox[]): PBox => ({ x0: Math.min(...w.map((x) => x.x0)), y0: M
 
 /** The page's lines in reading order: words whose heights overlap by half or more of the smaller, measured against the
  * line's first word so that a slope cannot chain lines together; left to right in each. A word drawn twice at one spot
- * (fake bold) is one word. */
+ * (fake bold) is one word. Close to linear in the words: nearby words are found by a grid, open lines by a sliding list. */
 export function lineBands(p: PPage): PWord[][] {
-  const seen: PWord[] = []
-  for (const w of p.words) if (!seen.some((o) => o.text === w.text && meet(o, w) > 0.8 * Math.min(area(o), area(w)))) seen.push(w)
+  const cell = 4, grid = new Map<string, PWord[]>(), seen: PWord[] = []
+  const key = (t: string, x: number, y: number) => `${t}|${x}|${y}`
+  for (const w of p.words) {
+    const gx = Math.floor(w.x0 / cell), gy = Math.floor(w.y0 / cell)
+    let twin = false
+    for (let i = -1; i <= 1 && !twin; i++) for (let j = -1; j <= 1 && !twin; j++) twin = (grid.get(key(w.text, gx + i, gy + j)) ?? []).some((o) => meet(o, w) > 0.8 * Math.min(area(o), area(w)))
+    if (twin) continue
+    seen.push(w)
+    const k = key(w.text, gx, gy)
+    const list = grid.get(k)
+    if (list) list.push(w); else grid.set(k, [w])
+  }
   const bands: { head: PWord; words: PWord[] }[] = []
-  for (const w of [...seen].sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)) {
-    const b = bands.find((x) => overlapY(x.head, w) >= 0.5 * Math.min(x.head.y1 - x.head.y0, w.y1 - w.y0))
-    if (b) b.words.push(w); else bands.push({ head: w, words: [w] })
+  let open: typeof bands = []
+  for (const w of seen.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)) {
+    open = open.filter((x) => x.head.y1 > w.y0)
+    const b = open.find((x) => overlapY(x.head, w) >= 0.5 * Math.min(x.head.y1 - x.head.y0, w.y1 - w.y0))
+    if (b) b.words.push(w)
+    else { const made = { head: w, words: [w] }; bands.push(made); open.push(made) }
   }
   return bands.map((b) => b.words.sort((x, y) => x.x0 - y.x0))
 }
 
-interface Hit { page: number; band: PWord[]; at: number; map: { w: number; k: number }[]; letters: string }
+/** Runs of one printed line: at most one font height between words. Words that only share a height (a name at the left and
+ * another person's mark across the page) are never one label. */
+function runsOf(band: PWord[]): PWord[][] {
+  const runs: PWord[][] = []
+  for (const w of band) {
+    const last = runs.at(-1)?.at(-1)
+    if (last && w.x0 - last.x1 <= Math.max(last.y1 - last.y0, w.y1 - w.y0)) runs.at(-1)!.push(w)
+    else runs.push([w])
+  }
+  return runs
+}
+
+interface Hit { page: number; band: PWord[]; whole: PWord[]; at: number; map: { w: number; k: number }[]; letters: string }
 function hitsOf(pages: PPage[], q: string, only: number | undefined): Hit[] {
   const out: Hit[] = []
   pages.forEach((p, page) => {
     if (only !== undefined && only !== page) return
-    for (const band of lineBands(p)) {
-      let letters = ''
+    for (const whole of lineBands(p)) for (const band of runsOf(whole)) {
+      const parts: string[] = []
       const map: { w: number; k: number }[] = []
-      band.forEach((w, i) => { const t = compact(norm(w.text)); for (let k = 0; k < t.length; k++) map.push({ w: i, k }); letters += t })
-      for (let at = letters.indexOf(q); at >= 0; at = letters.indexOf(q, at + q.length)) out.push({ page, band, at, map, letters })
+      band.forEach((w, i) => { const t = compact(norm(w.text)); for (let k = 0; k < t.length; k++) map.push({ w: i, k }); parts.push(t) })
+      const letters = parts.join('')
+      for (let at = letters.indexOf(q); at >= 0; at = letters.indexOf(q, at + q.length)) out.push({ page, band, whole, at, map, letters })
     }
   })
   return out
@@ -82,7 +109,7 @@ export interface PdfTarget {
   /** what the seal is centred on */
   aim: PBox
   /** every word of the label and the mark, which must show on the page */
-  words: PBox[]
+  words: (PBox & { text: string })[]
   /** the text it lands on, for the result */
   on: string
 }
@@ -103,7 +130,7 @@ export function resolvePdfMark(pages: PPage[], at: string, o: { page?: number; o
   const n = (signed.occurrence ?? 1) - 1
   const h = hits[n]
   if (!h) return { ask: `${shown(at)} is in ${hits.length} place${hits.length > 1 ? 's' : ''}, so there is no occurrence ${n + 1}` }
-  const line = h.band.map((w) => norm(w.text)).join(' ')
+  const line = h.whole.map((w) => norm(w.text)).join(' ')
   const bare = bareMarkAsk(label, signed.mark, line, o.occurrence)
   if (bare) return { ask: bare }
   return placeOf(pages, h, hits, label, signed.mark, at)
@@ -117,6 +144,12 @@ function placeOf(pages: PPage[], h: Hit, hits: Hit[], label: string, mark: SignM
   if (first.k !== 0 || last.k !== wordLen(last.w) - 1) return { ask: `the mark in ${shown(at)} is joined to other letters in the PDF's text, so its place cannot be measured. Ask the person where it goes` }
   const labelWords = [...new Set(h.map.slice(h.at, h.at + compact(label).length).map((x) => x.w))].map((i) => h.band[i]!)
   const markWords = h.band.slice(first.w, last.w + 1)
+  // the name and its mark are one printed line for pdftotext too. Only inside a known mark may it break ("(sign or seal)" set
+  // with wide spaces), since those words cannot belong to two people
+  for (let i = 1; i < labelWords.length; i++) {
+    const a = labelWords[i - 1]!, b = labelWords[i]!
+    if (a.line !== b.line && !(markWords.includes(a) && markWords.includes(b))) return { ask: `${shown(at)} is not on one printed line of the PDF, so the name and the mark are not proved to belong together. Give the signer's name and its mark as they are on one line, or ask the person` }
+  }
   // text turned upright or drawn backwards: its order on the page is not its reading order, so whose mark it is is not proved
   // (a word's box is as tall as its font's whole height, so a short upright word of wide letters is taller than wide)
   const turned = (w: PWord) => [...compact(w.text)].length >= 3 && w.y1 - w.y0 > 1.5 * (w.x1 - w.x0)
@@ -131,7 +164,7 @@ function placeOf(pages: PPage[], h: Hit, hits: Hit[], label: string, mark: SignM
   // two places on different lines whose heights overlap cannot be put in a sure order
   const box = union(markWords)
   for (const x of hits) {
-    if (x === h || x.page !== h.page || x.band === h.band) continue
+    if (x === h || x.page !== h.page || x.whole === h.whole) continue
     const b = x.band[x.map[x.at]!.w]!
     if (overlapY(box, b) > 0) return { ask: `${shown(at)} is in places side by side at slightly different heights on page ${h.page + 1}, so their order is not sure. Give the signer's name with the mark` }
   }
@@ -175,19 +208,24 @@ const pxBox = (i: Pixels, b: PBox) => ({
   x1: Math.min(i.w, Math.ceil(b.x1 * PX)), y1: Math.min(i.h, Math.ceil(b.y1 * PX)),
 })
 
-/** The box shows drawn letters: enough of its pixels stand apart from the colour most of it has. White, covered or clipped
- * text has none. */
-export function showsInk(i: Pixels, b: PBox): boolean {
+/** One letter's box shows that letter: enough pixels stand apart from the colour most of it has, over enough of its height
+ * (a rule crossing white text covers a few rows). `small`: a punctuation mark, which only has to show something. */
+export function glyphShows(i: Pixels, b: PBox, small: boolean): boolean {
   const r = pxBox(i, b)
   if (r.x1 <= r.x0 || r.y1 <= r.y0) return false
   const hist = new Uint32Array(52)
   const total = (r.x1 - r.x0) * (r.y1 - r.y0)
   for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) hist[Math.floor(gray(i, x, y) / 5)]!++
-  const top = hist.indexOf(Math.max(...hist))
-  const back = top * 5 + 2
-  let ink = 0
-  for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) if (Math.abs(gray(i, x, y) - back) > 48) ink++
-  return ink / total >= 0.02
+  const back = hist.indexOf(Math.max(...hist)) * 5 + 2
+  let ink = 0, rows = 0
+  for (let y = r.y0; y < r.y1; y++) {
+    let here = 0
+    for (let x = r.x0; x < r.x1; x++) if (Math.abs(gray(i, x, y) - back) > 48) here++
+    ink += here
+    if (here) rows++
+  }
+  if (small) return ink > 0
+  return ink / total >= 0.05 && rows / (r.y1 - r.y0) >= 0.35
 }
 
 /** The pixels that differ between two drawings of one page: their box (in points) and how many. */
