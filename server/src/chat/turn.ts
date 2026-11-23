@@ -4400,6 +4400,10 @@ export class TurnExec {
       kind.save = saves && !skillUse && missing.length > 0 && missing.every((m) => writes.has(m.key))
       if (kind.save) missing = missing.map((m) => ({ ...m, key: SAVE_KEY + m.key }))
     } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse('failed') }
+    // the person's own folder read in their own project's chat: their own material for their own project (the owner,
+    // 2026-11-23, docs/decisions/20261123-do-then-undo.md: "개인 폴더 읽기 카드" in QA F10): no card. Never a share of it
+    // (another person's), never a skill, never a save card
+    if (this.shared?.kind === 'project' && !kind.save && !skillUse) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId))
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
     if (!missing.length) return this.noteSharedReads(sources, audience) ? null : refuse('failed')

@@ -17,7 +17,7 @@ export interface FloorProv { unknown: boolean; hidden: boolean; otherPlaces: boo
 
 /** True when nothing in `prov` is floor 2 for `userId`. `named(rel)`: a team-folder file the person named, attached or
  * the AI made in this answer. Fails closed. */
-export function floorFree(prov: FloorProv, userId: string, named: (rel: string) => boolean = () => false, approved: ReadonlySet<string> = new Set()): boolean {
+export function floorFree(prov: FloorProv, userId: string, named: (rel: string) => boolean = () => false, approved: ReadonlySet<string> = new Set(), mine: (chatId: string) => boolean = () => false): boolean {
   const counted = prov.counted ?? []
   if (prov.unknown || prov.hidden || prov.otherPlaces) return false
   // a key that is no counted source (rooms read without saying which, 'unknown'): not known, so it asks
@@ -26,7 +26,12 @@ export function floorFree(prov: FloorProv, userId: string, named: (rel: string) 
     // a source the person already said yes to sending, on a card in this chat (post_sources: one card per source)
     if (approved.has(c.key)) return true
     const s = c.source
-    if (s.type === 'user') return s.id === userId && !s.via && !s.share
+    // the person's own things: their folder (a share of it too), what their browser or own connection showed them
+    // (the owner, 2026-11-23: the floor is only someone ELSE's private place)
+    if (s.type === 'user') return s.id === userId
+    // a chat the person is in: the AI's work in their own chat is their own work (QA F5: the file it made there)
+    if (s.type === 'chat') return mine(s.id)
+    // a team folder: each file that counts is one the person named, made here or may share themselves
     if (s.type === 'folder') return c.files.size > 0 && [...c.files].every(named)
     return false
   })
