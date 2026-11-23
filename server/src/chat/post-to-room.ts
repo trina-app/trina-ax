@@ -721,7 +721,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a project chat: its own project folder is the person's work with their project, the owner's F10 "견적서")
         const projectFolder = (() => { const p = db.query('SELECT p.folder_path AS f FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(spec.chatId) as { f: string } | null; return p?.f ? p.f.replace(/\/+$/, '') : null })()
         const projectFolderId = projectFolder ? (db.query('SELECT id FROM folders WHERE path = ?').get(projectFolder) as { id: string } | null)?.id ?? null : null
-        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()
+        // a chat that never read anything another person wrote (no room or DM, no teammate's file, page or service: the
+        // chat's own marks, others_words and rooms_seen) holds only the person's own work: whatever its answers read is
+        // theirs, also where the server cannot list every source ("참고한 자료를 다 알 수 없어요", QA F5 new-sh/new-po)
+        const ownWorkOnly = !readRooms(exec) && !exec.othersWords && !exec.otherAuthors
+        // (only where the server cannot list every source: a known one some there cannot see still takes the floor)
+        const notKnown = !pvNow || pvNow.unknown || pvNow.otherPlaces || pvNow.keys.length !== (pvNow.counted?.length ?? 0)
+        const explicitNew = wordsAsk && ((ownWorkOnly && notKnown) || (!!pvNow && (() => { try { return floorFree(pvNow!, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()))
         // after a room read (a DM or a private channel read in this chat: QA F5 #2 and #3 sent the same content
         // twice): the second post of the same sources to a place the person's own words name goes on the first card's yes
         // (one card per source; the person's "Always allow" covers the first too, Rule A)

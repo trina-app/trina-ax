@@ -225,6 +225,11 @@ describe('the AI\'s work in my own chat is mine (the owner, 2026-11-23)', () => 
     const room = await turn('alice', `이거 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
     expect(room.card).toBeNull()
     expect(room.content).toContain('"status":"sent"')
+    // the same again (QA F5 shared1-sh2): still no card, and the chat is not marked as having read anything from outside
+    const again = await turn('alice', `이거 Carol Park한테 보내줘\n${post({ room: 'Carol Park', text: `Proposal again: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    expect(again.card).toBeNull()
+    // (a chat that only made a file and sent it read nothing from outside: chats.room_outside stays 0)
+    expect(h.ctx.db.query('SELECT rooms_seen, others_words, room_outside FROM chats WHERE id = ?').get(c)).toEqual({ rooms_seen: 0, others_words: 0, room_outside: 0 })
   })
 })
 

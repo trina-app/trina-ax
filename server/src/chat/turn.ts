@@ -160,7 +160,7 @@ import { demoFakesOf } from '../demo/fakes'
 import { bannerSourceFor } from '../tools/demo-banner'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, NO_OUTSIDE_TOOLS, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
 import { explicitPlaceAsk } from './explicit-place'
@@ -3122,7 +3122,7 @@ export class TurnExec {
     // sameAnswerTarget; a read of the work folder brings in what earlier commands fetched)
     const run = tool === 'box_shell'
     if (this.workRead(tool, input)) tool = 'box_shell'
-    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside({ run })
+    if (!OWN_CHAT_TEAM_TOOLS.has(tool) && !NO_OUTSIDE_TOOLS.has(tool)) this.markOutside({ run })
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
