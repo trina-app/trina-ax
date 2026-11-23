@@ -101,6 +101,7 @@ beforeEach(() => {
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url, method: init?.method ?? 'GET', body })
     const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { 'content-type': 'application/json' } })
+    if (url.includes('/api/files/shares/take-back')) return json({ removed: 1, skipped: 0 })
     if (url.includes('/api/files/shares/cards')) return json({ items: live.filter((x) => (body as { ids: string[] }).ids.includes(x.id)) })
     if (url.includes('/api/files/shares') && init?.method === 'PUT') {
       const b = body as { path: string; add: { subjectType: 'user' | 'group'; subjectId: string }[] }
@@ -271,16 +272,22 @@ test('a post just sent: Undo deletes the message, then the card says it was take
   try { expect(old.get('posted-card-delete').textContent).toBe('Delete') } finally { await old.unmount() }
 })
 
-test('a share just done: Undo takes back the people it added, from every file', async () => {
+test('a share just done: Undo takes back what it added by the server\'s record (never earlier access)', async () => {
   live = [mine(L1, 'Quote.pdf', [{ subjectType: 'user', subjectId: 'jun', name: 'Jun' }] as never)]
-  const m = await mount(<ShareCard shared={sharedOne} endedAt={new Date().toISOString()} />)
+  const takeBack = { id: 't'.repeat(22), until: new Date(Date.now() + 600_000).toISOString() }
+  const m = await mount(<ShareCard shared={{ ...sharedOne, takeBack }} endedAt={new Date().toISOString()} />)
   try {
     await m.until(() => m.find('share-card-takeback'), 'Undo')
     await m.click('share-card-takeback')
-    const put = calls.find((c) => c.method === 'PUT')!
-    expect(put.body).toEqual({ path: 'users/me/Quote.pdf', add: [], remove: [{ subjectType: 'user', subjectId: 'jun' }] })
+    const tb = calls.find((c) => c.url.includes('/api/files/shares/take-back'))!
+    expect(tb.body).toEqual({ id: takeBack.id })
+    // the card never removes people itself (it could take a file they had before)
+    expect(calls.find((c) => c.method === 'PUT')).toBeUndefined()
     expect(m.get('action-card-title').textContent).toBe(t('shareCard.takenBack'))
   } finally { await m.unmount() }
+  // a record without the server's take-back offers no 취소
+  const old = await mount(<ShareCard shared={sharedOne} endedAt={new Date().toISOString()} />)
+  try { await old.until(() => old.find('share-card-manage'), 'Manage'); expect(old.find('share-card-takeback')).toBeNull() } finally { await old.unmount() }
 })
 
 test('a scheduled task made from my words: next run, Pause, and Delete through the Scheduled route', async () => {

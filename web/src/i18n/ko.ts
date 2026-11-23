@@ -7367,6 +7367,8 @@ export const ko = {
   "postedCard.undone": "보낸 글을 지웠어요. 이제 아무도 볼 수 없어요",
   "postedCard.undoFailed": "지우지 못했어요. 다시 해 주세요.",
   "shareCard.takenBack": "공유를 취소했어요",
+  "shareCard.madeFolder": "\"{file}\" 폴더를 만들고 공유했어요",
+  "shareCard.madeFolderTakenBack": "\"{file}\" 폴더를 지우고 공유를 취소했어요",
   "scheduledCard.made": "\"{title}\" 예약을 만들었어요",
   "scheduledCard.paused": "\"{title}\" 예약을 멈췄어요",
   "scheduledCard.deleted": "\"{title}\" 예약을 지웠어요",

@@ -7323,6 +7323,8 @@ export const es: Record<MessageKey, string> = {
   "postedCard.undone": "Retirado: ya nadie lo ve",
   "postedCard.undoFailed": "No se pudo retirar. Inténtelo de nuevo.",
   "shareCard.takenBack": "Se deshizo el uso compartido",
+  "shareCard.madeFolder": "Se creó la carpeta \"{file}\" y se compartió",
+  "shareCard.madeFolderTakenBack": "Se eliminó la carpeta \"{file}\" y se deshizo el uso compartido",
   "scheduledCard.made": "Se programó \"{title}\"",
   "scheduledCard.paused": "\"{title}\" está en pausa",
   "scheduledCard.deleted": "Se eliminó \"{title}\"",

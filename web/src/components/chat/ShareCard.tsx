@@ -101,9 +101,9 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [listed, setListed] = useState(false)
-  // a share just done: 취소 takes back exactly the people it added (never those who could open it already), for a few
-  // seconds; Manage access stays for later
-  const [undoLeft, setUndoLeft] = useState(() => (endedAt && shared.op === 'share' && shared.outcome === 'done' && shared.who.length ? Math.max(0, Date.parse(endedAt) + SHARE_UNDO_MS - Date.now()) : 0))
+  // a share just done: 취소 takes back exactly the grants it added, by the server's record of them (never access someone
+  // had before), and a folder it made from the chat's files; for a few seconds. Manage access stays for later
+  const [undoLeft, setUndoLeft] = useState(() => (endedAt && shared.op === 'share' && shared.outcome === 'done' && shared.who.length && shared.takeBack ? Math.max(0, Date.parse(endedAt) + SHARE_UNDO_MS - Date.now()) : 0))
   const [taken, setTaken] = useState(false)
   useEffect(() => {
     if (undoLeft <= 0) return
@@ -112,7 +112,7 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
   }, [undoLeft])
   const restored = isRestored(shared, live)
   const mine = liveFiles(shared, live)
-  const title = taken ? t('shareCard.takenBack') : shareHeadline(t, locale, shared, restored)
+  const title = taken ? (shared.madeFolder && shared.files[0] ? t('shareCard.madeFolderTakenBack', { file: shared.files[0].name }) : t('shareCard.takenBack')) : shareHeadline(t, locale, shared, restored)
   const notes = shareNotes(t, locale, shared, restored)
   const refused = shared.outcome === 'refused'
   const stop = shared.op === 'stop' && !restored
@@ -149,13 +149,9 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     setBusy(true)
     setError(null)
     try {
-      // only the people this share added: a person told of it (notified: newly given access), a group not among those who
-      // could open it already; never someone who had it before (security review)
-      const told = new Set(shared.notified ?? [])
-      const had = new Set((shared.already ?? []).map((w) => `${w.subjectType}:${w.subjectId}`))
-      const remove = shared.who.filter((w) => (w.subjectType === 'user' ? told.has(w.subjectId) : !had.has(`${w.subjectType}:${w.subjectId}`))).map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
-      if (!remove.length) { setTaken(true); setUndoLeft(0); return }
-      for (const f of mine) await api.call(API.putFileShares, { body: { path: f.path, add: [], remove } })
+      // the server takes off only the grants this share wrote (files/share-take-back.ts), never someone's earlier access
+      if (!shared.takeBack) { setUndoLeft(0); return }
+      await api.call(API.takeBackFileShares, { body: { id: shared.takeBack.id } })
       fileSharesChanged.emit()
       setTaken(true)
       setUndoLeft(0)
@@ -172,7 +168,7 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     ? (Next && shared.next ? Next({ next: shared.next, shared, fix: fixes?.find((f) => f.id === shared.next?.fixId) }) : null)
     : !mine.length ? null
     : taken ? null
-    : undoLeft > 0 && !shared.files[0]?.folder
+    : undoLeft > 0 && (!shared.files[0]?.folder || shared.madeFolder)
       ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{t('postedCard.undo')}</Button>
     // (a folder's Undo is the server's only: past its time the button is Manage access)
     : stop && (undoId || !shared.files[0]?.folder)

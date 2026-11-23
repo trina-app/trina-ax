@@ -7367,6 +7367,8 @@ export const id: Record<MessageKey, string> = {
   "postedCard.undone": "Ditarik kembali: tidak ada yang melihatnya lagi",
   "postedCard.undoFailed": "Tidak bisa ditarik kembali. Coba lagi.",
   "shareCard.takenBack": "Berbagi dibatalkan",
+  "shareCard.madeFolder": "Folder \"{file}\" dibuat dan dibagikan",
+  "shareCard.madeFolderTakenBack": "Folder \"{file}\" dihapus dan berbagi dibatalkan",
   "scheduledCard.made": "Terjadwal \"{title}\"",
   "scheduledCard.paused": "\"{title}\" dijeda",
   "scheduledCard.deleted": "\"{title}\" dihapus",

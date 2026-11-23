@@ -26,10 +26,15 @@
   already sent on a card in this chat to everyone the new place holds: one card per source, `post_sources`, never wider), a guest 1:1 or a guest in the room when
   files go, a screen target, a waiting rerun, Slack and runs. `share_with_person`: the same in shared and project chats
   nobody else wrote in. `share_folder` add: the person's own folder (named, or the one they used last in this chat) with
-  people they named, a resolved title, or "팀원들" (the project's or their group's people, never guests). The app's
+  people they named, a resolved title, or "팀원들" (the project's or their group's people, never guests). When the
+  files are only in the chat (the person's own attachments here) there is no folder to pick: on the same clear ask it
+  makes a folder in their own files named for the chat, puts copies in it and shares that ("<폴더>를 만들고 공유했어요 ·
+  취소"; 취소 stops the share and deletes the folder and the unchanged copies). A guest here or an unclear recipient:
+  nothing is made, the AI asks for the folder as before. The app's
   "Send to a conversation" sends at once when the server marks the confirm `direct`. Undo: the posted card offers 취소
   for 10 s (the room's delete of the message: its text, files and notices), then 지우기; the share card offers 취소 for
-  10 s (takes back the people it added); the app's toast offers 취소. A phone notice already delivered stays on the
+  10 s (takes back the people it added: the server records the grants each share wrote, and 취소 removes only
+  those, never access someone had before; POST /api/files/shares/take-back, the sharer's alone, once); the app's toast offers 취소. A phone notice already delivered stays on the
   phone (the message it opens is gone).
 - **Rule: titles.** A title or role is looked up in the person's aliases, then the team owner for an owner word, then
   the directory's job titles (an owner's or admin's title names them alone; a member's own title is asked about, since
@@ -50,7 +55,8 @@
   name starts with a create verb with no other change, message, share or money word, no recipient in its schema or call,
   no team files, not `api_request`, not a Google app, no word for something others reach (public, webhook, key, token,
   user, member, repo, issue, release, deploy…): no card in a turn the person watches, not in a run, not after the chat
-  read a room, a connected service, the browser or other people's content, not with a guest in a shared chat. Change, delete, send and unknown: the card, with its Always.
+  read a room, a connected service, the browser or other people's content, not with a guest in a shared chat, and on a team connection only when its admin's rule sends without asking (an
+  admin's "ask" asks for a create too). Change, delete, send and unknown: the card, with its Always.
 - **Rule: project saves.** In a project chat, a save into that project's folder from the person's own files (their
   folder only: never the browser, a connection or a share) where everyone who can see it sees the chat and no guest
   does, in a chat nobody else wrote in and that read no room: no card. Versions and the trash keep it undoable.
