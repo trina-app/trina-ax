@@ -52,7 +52,7 @@ import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { apiTimeContext, buildSubagentPrompt, buildTurnContext, sinceOwnBlock, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
@@ -169,10 +169,10 @@ import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
-import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { audienceOf, chatAudienceOf, isSharedRow, messageFor, othersSessionFiles, ownSessionOn, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { mapCopyText } from './copy-paths'
-import { answerHiddenFrom, answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
+import { afterCutover, answerHiddenFrom, answerRecord, answerRecords, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, SHARED_LATER, type ChatRow, type ProjectRow, type StoredStep } from './store'
@@ -955,39 +955,94 @@ export class TurnExec {
     // engine session: resume only when the session ends exactly where this turn continues (same branch)
     let sid = chat.engine_session_id ?? ''
     const stash = sid ? rt.sessionStash(spec.chatId, sid) : ''
-    // a chat several people wrote in (a shared chat, or one that stopped being shared): only a session this person's own
-    // turn wrote (another person's holds what they read, chat/shared.ts), and in a shared chat only while everyone who
-    // sees it now may see what the chat read (the session holds file contents the transcript does not: someone who
-    // joined the project since would otherwise be answered from them without a card)
-    let resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
-      && (!(this.shared || othersWrote) || stashWrittenBy(rt.db, chat, spec.userId))
-      && (!this.shared || !this.scopeHiddenFromAudience())
+    // a shared chat: the answers hidden from this person (chat/shared-answers.ts) never reach the engine (the transcript
+    // has a line in their place). A failure: no turn (fails closed). A chat that stopped being shared after others wrote
+    // in it (a deleted project's, now its creator's; the rollback guard) keeps them from its creator's engine too
+    if (this.shared || othersWrote) {
+      try { this.sharedWithheld = withheldFrom(rt.db, rt.files.rules(), spec.chatId, spec.userId) }
+      catch (e) {
+        rt.log.warn('shared answer record failed', { err: e, turn: this.id })
+        this.error = engineError('crash', spec.locale)
+        return
+      }
+    }
+    const hidden = this.sharedWithheld
+    // a shared chat keeps one engine session per person (docs/decisions/20261123-shared-chat-own-session.md): the
+    // person's own session goes on, as in their own chat, also after a read some here could not see; what others wrote
+    // since its last answer comes with the message, as they may see it (sinceOwn). Never another person's session: it
+    // holds their steps and results (chat/step-record.ts gives a fresh session the asker's own steps only). What each
+    // answer shows is guarded per answer as before (the read cards, the answer's record), and the record of this one
+    // carries what the session holds (sessionHeld): a connected service's result some may not see (k) stays hidden from
+    // them in this answer too
+    let ownSince: string | null = null
+    let held: ReadGroup[] = []
+    let resume = false
+    // (Codex and the API engine always start fresh; so does the first message)
+    if (this.shared) {
+      const own = claude && userMsg.parent_id ? ownSessionOn(rt.db, spec.chatId, spec.userId, rt.store.pathTo(userMsg.parent_id).map((m) => m.id), (x) => rt.sessionStash(spec.chatId, x), (f) => fs.existsSync(f)) : null
+      const h = own ? this.sessionHeld(own.answers) : null
+      if (own && h) {
+        const path = rt.store.pathTo(userMsg.parent_id).map((m) => m.id)
+        const at = path.indexOf(own.leaf)
+        const leafLeft = new Set(answerRecord(rt.db, own.leaf)?.left ?? [])
+        // an answer hidden from this person now above the session's last answer that the session had in it: fails
+        // closed (the rule only shows more, never less, so this should not happen)
+        const leak = path.slice(0, at + 1).some((id) => hidden.has(id) && !leafLeft.has(id))
+        // what others wrote since, as this person may see it; more than the window holds: a fresh session (summary)
+        const items = leak ? [] : rt.history(userMsg.parent_id, { runner: spec.userId, withheld: hidden, everyone: true, copies: chatKindOf(this) === 'people' ? sharedCopyMap(rt.ctx, spec.chatId, spec.userId) : undefined })
+        const after = new Set(path.slice(at + 1))
+        const since = leak ? null : sinceOwnBlock(items.filter((x) => after.has(x.id)))
+        if (since !== null) { sid = own.sid; resume = true; ownSince = since; held = h }
+      }
+    } else {
+      resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
+        // a chat several people wrote in that is no longer shared: only a session this person's own turn wrote
+        && (!othersWrote || stashWrittenBy(rt.db, chat, spec.userId))
+    }
     // a team file attached earlier on this branch that the person can no longer open: the stashed session still holds
     // its content and answered from it (security round 4). Start from the DB history, where it is blanked. Moves and
     // deletes reset the sessions of people who lose a file (FileService.dropSessionsOf); this covers any other way.
     if (resume && this.branchLostAttachment(userMsg.parent_id)) {
       resume = false
-      fs.rmSync(stash, { force: true })
+      fs.rmSync(rt.sessionStash(spec.chatId, sid), { force: true })
+      ownSince = null
+      held = []
     }
-    // a shared chat: the answers hidden from this person (chat/shared-answers.ts) never reach the engine (the transcript
-    // has a line in their place), and the answer records which ones above it were not in its context: a fresh session
-    // has none of them; a resumed one (this person's own session) none of those its last answer had left out. A
-    // failure: no turn (fails closed). A chat that stopped being shared after others wrote in it (a deleted project's,
-    // now its creator's; the rollback guard) keeps them from its creator's engine too; its answers get no record
-    if (this.shared || othersWrote) {
+    // the session the since-block belongs to (a retry in a fresh session gets the whole history instead)
+    const ownSid = ownSince ? sid : null
+    // a shared chat: the answer records which answers above it were not in its context: a fresh session has none of the
+    // hidden ones; a resumed one (this person's own session) none of those its last answer had left out, nor any after
+    // it (sinceOwn leaves them out of what it adds)
+    if (this.shared) {
       try {
-        const hidden = withheldFrom(rt.db, rt.files.rules(), spec.chatId, spec.userId)
-        if (this.shared) {
-          const above = rt.store.pathTo(userMsg.parent_id).filter((m) => hidden.has(m.id)).map((m) => m.id)
-          const before = resume && userMsg.parent_id ? answerRecord(rt.db, userMsg.parent_id)?.left ?? [] : null
-          setLeftOut(rt.db, spec.chatId, spec.assistantId, before ? above.filter((id) => before.includes(id)) : above)
-        }
-        this.sharedWithheld = hidden
+        const above = rt.store.pathTo(userMsg.parent_id).filter((m) => hidden.has(m.id)).map((m) => m.id)
+        setLeftOut(rt.db, spec.chatId, spec.assistantId, above)
       } catch (e) {
         rt.log.warn('shared answer record failed', { err: e, turn: this.id })
         this.error = engineError('crash', spec.locale)
         return
       }
+    }
+    // what the resumed session holds joins this answer's record, as a read of this answer would (sessionHeld): a
+    // connected service's result as it was (k: hidden from people who join later and may not use it) and a read a card's
+    // yes covered as it was (y: the card said it stays for everyone who sees the chat, people added later included).
+    // Anything else the chat read (its read scope: files read with no card, rooms, Slack, ...) that someone who sees
+    // the chat now cannot open (a person who joined since, or lost access), or anything the session holds that the
+    // person themselves can no longer open: a fresh session, as before (the history, without it). A record that
+    // cannot be written, or a check that fails: a fresh session
+    if (resume && this.shared) {
+      let ok = true
+      try {
+        const rules = rt.files.rules()
+        const covered = new Set<string>()
+        for (const rec of answerRecords(rt.db, spec.chatId).values()) for (const g of rec.reads) if (g.y || g.k) for (const x of g.s) covered.add(sourceKey(x))
+        const rest = [...(readScope(rt.db, spec.chatId) ?? []), ...held.filter((g) => !g.k && !g.y).flatMap((g) => g.s)].filter((x) => !covered.has(sourceKey(x)))
+        if (rest.length && missingReaders(rt.db, rules, rest, this.sharedAudience()).length) ok = false
+        const all = held.flatMap((g) => g.s)
+        if (ok && all.length && missingReaders(rt.db, rules, all, [spec.userId]).length) ok = false
+      } catch (e) { rt.log.warn('own session check failed', { err: e, turn: this.id }); ok = false }
+      for (const g of held) if (ok && (g.k || g.y)) ok = this.noteSharedReads(g.s, g.c, !!g.y, !!g.k)
+      if (!ok) { resume = false; ownSince = null }
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
     // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
@@ -1309,9 +1364,11 @@ export class TurnExec {
     const claudeMessage = (resumed: boolean, sessionId: string) => {
       if (!resumed) return message
       if (this.restricted) return unfinished + message
+      // this person's own session of a shared chat: what others wrote since its last answer first (sinceOwnBlock)
+      const since = ownSince && sessionId === ownSid ? `${ownSince}\n\n` : ''
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${unfinished}${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${since}${unfinished}${message}`
     }
     // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
     // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
@@ -2523,7 +2580,15 @@ export class TurnExec {
   private attaching = 0
   /** Does this answer hold a k group (a connection's answer hidden from people added later: chat/shared-answers.ts)?
    * Then no file is attached to it: a hidden answer must not carry a file everyone in the chat can open by its id. */
-  get hiddenFromLater(): boolean { return [...this.sharedReads.values()].some((x) => x.k) }
+  get hiddenFromLater(): boolean {
+    const v = [...this.sharedReads.values()].some((x) => x.k)
+    // (asked only where a file would be attached or changed: it is refused now) the next answer starts fresh, without
+    // the session that holds the connection's answer, and may attach it (docs/decisions/20261123-shared-chat-own-session.md)
+    if (v) this.freshNext = true
+    return v
+  }
+  /** the next answer of this person starts a fresh session (this one's session is not kept) */
+  private freshNext = false
   /** An attach starts (before its copy): from now on no k group joins this answer until the returned release. The
    * caller checks hiddenFromLater after this, so a k group recorded before it is seen too. */
   beginAttach(): () => void {
@@ -4092,12 +4157,24 @@ export class TurnExec {
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
 
-  /** Has this chat read something some of the people who see it now cannot see (its read scope against today's
-   * audience)? A session that read it is not resumed then. */
-  private scopeHiddenFromAudience(): boolean {
-    const scope = readScope(this.rt.db, this.spec.chatId)
-    if (!scope?.length) return false
-    try { return missingReaders(this.rt.db, this.rt.files.rules(), scope, this.sharedAudience()).length > 0 } catch { return true }
+  /** What this person's own session of a shared chat holds of its answers (ownSessionOn): the groups of their records
+   * (what each read, with the people who saw the chat then), for this answer's record.
+   * null: not resumed (an answer gone, without a record, from before the cutover or the chat's share, or with an x
+   * group: what it read is not all known; fails closed). */
+  private sessionHeld(answers: readonly string[]): ReadGroup[] | null {
+    const cutover = hiddenAnswersCutover(this.rt.db)
+    const out: ReadGroup[] = []
+    try {
+      for (const id of answers) {
+        const m = this.rt.db.query('SELECT m.created_at, c.shared_at, c.people_shared_at FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND m.chat_id = ?').get(id, this.spec.chatId) as { created_at: string; shared_at: string | null; people_shared_at: string | null } | null
+        // (and not from before the chat was shared with people: the share resets the sessions too, people-share.ts)
+        if (!m || !afterCutover(cutover, m.created_at, m.shared_at) || (m.people_shared_at && m.created_at < m.people_shared_at)) return null
+        const rec = answerRecord(this.rt.db, id)
+        if (!rec || rec.reads.some((g) => g.x)) return null
+        out.push(...rec.reads)
+      }
+    } catch (e) { this.rt.log.warn('own session record not read', { err: e, turn: this.id }); return null }
+    return out
   }
 
   /** A search of this turn stayed in the project folder (sharedArgs): the note for its result, the first time only. */
@@ -5745,8 +5822,15 @@ export class TurnExec {
 
   // ---------------- session stash ----------------
   /** no saved session for this chat: the next turn starts a fresh one from the DB history */
-  private dropSession() {
-    fs.rmSync(path.dirname(this.rt.sessionStash(this.spec.chatId, 'x')), { recursive: true, force: true })
+  private dropSession(sid?: string) {
+    // a chat several people write in: only this person's own sessions (each person keeps theirs: chat/shared.ts
+    // ownSessionOn); the chat's last-session columns go too (the rollback guard reads them)
+    if (this.shared || this.othersWrote) {
+      const own = this.rt.db.query('SELECT DISTINCT engine_session_blob AS f FROM turns WHERE chat_id = ? AND user_id = ? AND engine_session_blob IS NOT NULL').all(this.spec.chatId, this.spec.userId) as { f: string }[]
+      for (const r of own) fs.rmSync(r.f, { force: true })
+      if (sid) fs.rmSync(this.rt.sessionStash(this.spec.chatId, sid), { force: true })
+      this.rt.db.query('UPDATE turns SET engine_session_blob = NULL WHERE chat_id = ? AND user_id = ?').run(this.spec.chatId, this.spec.userId)
+    } else fs.rmSync(path.dirname(this.rt.sessionStash(this.spec.chatId, 'x')), { recursive: true, force: true })
     this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
   }
   private stashSession(sid: string, b64: string) {
@@ -5761,11 +5845,10 @@ export class TurnExec {
     const kept = sessionPictures(bytes)
     const tooManyPictures = !sessionPicturesKept(kept, turnImageCaps(this.rt.db, this.spec.turnId))
     if (tooManyPictures) this.rt.log.info('saved session holds too many pictures: the next answer starts fresh', { turn: this.id, pictures: kept.count, bytes: kept.bytes })
-    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked || tooManyPictures) {
-      // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
-      // turn starts a fresh session from the DB history
-      fs.rmSync(dir, { recursive: true, force: true })
-      this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
+    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked || tooManyPictures || this.freshNext) {
+      // too big to keep, or it may hold files the person can no longer read (reset while this turn ran), or a file was
+      // refused for what it held (hiddenFromLater): the next turn starts a fresh session from the DB history
+      this.dropSession(sid)
       return
     }
     // Claude Code compacted the session in this turn, or the slim above took pictures out: it no longer holds all that
@@ -5776,7 +5859,9 @@ export class TurnExec {
       try { forgetSessionText(this.rt.db, this.spec.chatId) } catch (e) { this.rt.log.warn('forgetting the session text failed', { err: e, turn: this.id }) }
     }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    for (const f of fs.readdirSync(dir)) if (f !== `${sid}.jsonl`) fs.rmSync(path.join(dir, f), { force: true })
+    // a chat several people write in keeps each other person's own newest session (chat/shared.ts ownSessionOn)
+    const keep = this.shared || this.othersWrote ? othersSessionFiles(this.rt.db, this.spec.chatId, this.spec.userId) : new Set<string>()
+    for (const f of fs.readdirSync(dir)) if (f !== `${sid}.jsonl` && !keep.has(path.join(dir, f)) && !f.includes('.tmp-')) fs.rmSync(path.join(dir, f), { force: true })
     const file = this.rt.sessionStash(this.spec.chatId, sid)
     const tmp = `${file}.tmp-${process.pid}`
     fs.writeFileSync(tmp, bytes, { mode: 0o600 })

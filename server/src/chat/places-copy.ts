@@ -90,7 +90,9 @@ export function resolveCtxOf(exec: TurnExec, files: TurnFiles): ResolveCtx {
   const kind: ResolveCtx['chatKind'] = isGuestUser(rt.db, spec.userId) ? 'guest' : confidentialChat(rt.db, spec.chatId) ? 'locked'
     : spec.clientKind === 'schedule' ? 'scheduled' : exec.shared?.kind === 'people' ? 'people' : exec.shared?.kind === 'project' ? 'project' : 'personal'
   return {
-    db: rt.db, userId: spec.userId, chatId: spec.chatId, main: files === exec.files, chatKind: kind, hiddenGroup: exec.hiddenFromLater,
+    db: rt.db, userId: spec.userId, chatId: spec.chatId, main: files === exec.files, chatKind: kind,
+    // read only where a file would be attached or changed (files/places.ts): asking it there starts the next answer fresh
+    get hiddenGroup() { return exec.hiddenFromLater },
     workFolder: files.workFolder, workWhy: files.workWhy, workCopyIn: () => files === exec.files && workCopyInHere(exec),
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
