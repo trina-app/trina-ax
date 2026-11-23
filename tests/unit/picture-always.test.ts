@@ -83,7 +83,7 @@ describe('Always allow on the picture card', () => {
     const first = await turn('alice', await newChat(), stamp('users/alice/a1.docx', ['shared/a/ceo.png']), 'always')
     expect(first.cards).toHaveLength(1)
     expect(first.cards[0]!.options!.map((o) => o.value)).toContain(ALWAYS)
-    expect(first.cards[0]!.note).toContain('Any other picture still asks')
+    expect(first.cards[0]!.note).toContain('even if someone later replaces the file at that name. Other files still ask.')
     const before = fs.readFileSync(abs('users/alice/a1.docx'))
     const again = await turn('alice', await newChat(), stamp('users/alice/a1.docx', ['shared/a/ceo.png']))
     expect(again.cards).toHaveLength(0)

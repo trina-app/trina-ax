@@ -13,7 +13,9 @@
 - **Where it holds:** as every Always (Rule A): every chat of the person and their own scheduled run, with no caps. In a
   scheduled run a picture without an Always is refused and nothing is saved. Settings › 트리나에게 허용한 것 lists one row
   per picture and takes it back. The team's "Always allow" switch and a confidential chat work as for every other card.
-- **Scope is the name, not the bytes:** a new version at the same path or of the same chat file stays approved, as a
-  Claude Code path rule does.
+- **Scope is the name, not the bytes:** approval follows the team path or the chat file id. If someone later replaces
+  the file at that name (a new version too), the new picture goes in with no card, as a Claude Code allow rule follows
+  its path (the owner's "클로드랑 동일한 기준"). The card says this in plain words, so the person sees it before choosing
+  Always (security re-review of 07a5b9082).
 - **Tests:** `tests/unit/picture-always.test.ts`.
 - **Version impact:** minor, with the new card option and Settings row.
