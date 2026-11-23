@@ -143,7 +143,7 @@ test('a held poll answers when mail comes; a newer poll of the team ends the old
   await s.call(a, 'sync', { v: 1, hashes: [sha(addr)] })
   const held = s.call(a, 'poll', { v: 1, ack: [], waitMs: 20_000 })
   await new Promise((r) => setTimeout(r, 20))
-  expect(s.deps.waiters.held('team-a')).toBe(1)
+  expect((s.deps.waiters as Waiters).held('team-a')).toBe(1)
   await receiveMail(s.deps, { to: `${addr}@${DOMAIN}`, from: 'x@y', raw: enc('Subject: hi\r\n\r\nbody') })
   expect((await held).json.items.length).toBe(1)
   // two polls: the first answers empty at once
