@@ -3,6 +3,7 @@
 // refer to them by id (B: attachmentsByIds when a message is sent). In a shared project chat a file from the computer
 // goes into the project folder instead and is attached as a team file (uploads/shared-chat.ts); in a chat shared with
 // people and groups it is kept with the chat (chat/chat-files.ts, source 'chat').
+import { BY_PERSON } from '../files/own-upload'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
@@ -138,7 +139,7 @@ export class Attachments {
     const mime = mimeOf(final) ?? 'application/octet-stream'
     this.ctx.db.query(`INSERT INTO attachments (${COLS}, sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(id, userId, chatId, r.rel, final, size, mime, kind, dims?.width ?? null, dims?.height ?? null, thumb, sha256)
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'upload', size, sha256, detail: { attachment: id, chatId } })
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'upload', size, sha256, detail: { attachment: id, chatId, ...BY_PERSON } })
     this.files.extractText(r.rel)
     publishChanges(this.ctx, [{ path: r.rel, action: 'create', by: { id: userId, name: user.name }, turnId: null }])
     return toApi(this.row(id)!)
@@ -161,7 +162,7 @@ export class Attachments {
     // the bytes were checked against sha256 (the upload's own check) and moved into place as they are: what was placed is
     // known by its inode, so the reference does not read the whole file again
     const before = fs.statSync(src)
-    const entry = await this.files.placeUpload(userId, place.folder, name, src, 'rename', sha256, { action: 'upload', detail: { attachment: id, chatId: chat.id } }, { taken: instructionFile })
+    const entry = await this.files.placeUpload(userId, place.folder, name, src, 'rename', sha256, { action: 'upload', detail: { attachment: id, chatId: chat.id, ...BY_PERSON } }, { taken: instructionFile })
     let placed: fs.Stats | null = null
     try { placed = fs.lstatSync(path.join(this.files.root, ...entry.path.split('/'))) } catch { /* gone already: create says so */ }
     const known = placed && placed.isFile() && placed.size === before.size ? { sha256, ino: placed.ino, dev: placed.dev, size: placed.size } : undefined
