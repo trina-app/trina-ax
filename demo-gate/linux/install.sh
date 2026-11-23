@@ -140,7 +140,9 @@ S=$ST/secrets
 OWNER=$(stat -c %U "$STAGE")
 gone() { runuser -u "$OWNER" -- rm -f -- "$STAGE/secrets/$1"; }
 if [ -f "$S/turnstile-secret" ]; then install -o tdgate -g tdgate -m 600 "$S/turnstile-secret" $G/secrets/turnstile-secret; gone turnstile-secret; say "Turnstile secret in place"; fi
-if [ -f "$S/canary-sealed" ]; then install -o root -g tdbuild -m 640 "$S/canary-sealed" /etc/trina-demo/canary-sealed; gone canary-sealed; say "canary list in place"; fi
+# the canary reads its list only when no one else can (600): tdbuild's, in root's folder (tdbuild cannot replace it)
+if [ -f "$S/canary-sealed" ]; then install -o tdbuild -g tdbuild -m 600 "$S/canary-sealed" /etc/trina-demo/canary-sealed; gone canary-sealed; say "canary list in place"; fi
+if [ -f /etc/trina-demo/canary-sealed ] && [ ! -L /etc/trina-demo/canary-sealed ]; then chown tdbuild:tdbuild /etc/trina-demo/canary-sealed; chmod 600 /etc/trina-demo/canary-sealed; fi
 if [ -f "$S/tunnel-creds.json" ]; then
   TID=$(cat "$S/tunnel-id") HOST=$(cat "$S/tunnel-hostname")
   printf '%s' "$TID" | grep -qE '^[0-9a-f-]{36}$' || die "tunnel-id is not a tunnel id"
