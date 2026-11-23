@@ -90,7 +90,7 @@ describe('a share card in a shared chat (QA of #403)', () => {
   test('pressed late with "Always allow": the file the asker named is shared, and Always allow is kept for good', async () => {
     put('users/alice/QA-late/ledger-1.txt', 'ledger')
     const chatId = await sharedChat()
-    const w = await askAndWait(chatId, `share ledger-1.txt with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/QA-late/ledger-1.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
+    const w = await askAndWait(chatId, `send ledger-1.txt to Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/QA-late/ledger-1.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
     expect(w.card.options!.map((o) => o.value)).toEqual(['share', ALWAYS_VALUE, 'no'])
     expect(db().query("SELECT COUNT(*) n FROM file_shares WHERE path = 'users/alice/QA-late/ledger-1.txt'").get()).toEqual({ n: 0 })
     // past the old wait: still open
@@ -112,9 +112,9 @@ describe('Always allow pressed on a waiting card', () => {
   const always = () => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_files'").get() as { n: number }).n
   const waitingShare = async (name: string) => {
     put(`users/alice/QA-late/${name}`, 'x')
-    // (a shared chat: the explicit ask never skips the card there)
+    // (a send word is no ask to share a file: the card shows, docs/decisions/20261123-do-then-undo.md)
     const chatId = await sharedChat()
-    const w = await askAndWait(chatId, `share ${name} with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
+    const w = await askAndWait(chatId, `send ${name} to Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
     return { chatId, w }
   }
   test('kept even when the run ends before its card (the file is gone now): the person\'s choice for that kind', async () => {

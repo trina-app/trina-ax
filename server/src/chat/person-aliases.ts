@@ -3,7 +3,7 @@
 // the teammate whose profile title holds the word (user_profiles.title), else for an owner word the team's owner, else
 // for a lead word the project's creator (in a project chat) or the one owner or admin. Exactly one match counts as the
 // person's own naming of that teammate (rooms/reader.ts findPeople returns them, with how). Several or none: the AI asks
-// once; the person's answer is kept as an alias (person_aliases, migration 445) and used before asking next time, in
+// once; the person's answer is kept as an alias (person_aliases, migration 446) and used before asking next time, in
 // every chat, until the person deletes it in Settings › Allowed for Trina (kind person_alias).
 //
 // Learning the answer, from the person alone (security review: never the AI's pick or guess): their pick on a shared
@@ -35,6 +35,9 @@ export function titleKey(ref: string): string | null {
   v = v.replace(/\s+/g, '')
   return TITLE_WORDS.has(v) ? v : null
 }
+/** Words that mean whoever is above the person, with no rank of their own: the project's creator or the one owner or
+ * admin may be meant (rooms/reader.ts resolvedByTitle) */
+export const GENERIC_LEAD = new Set(['상사', '사수', 'manager', 'boss', 'supervisor', '上司', '领导', 'jefe', 'jefa', 'atasan', 'bos'])
 export const isOwnerTitle = (key: string): boolean => OWNER_SET.has(key)
 
 const MULTI: Record<string, string> = { teamlead: 'team[\\s-]*lead', teamleader: 'team[\\s-]*leader', headofteam: 'head\\s+of\\s+(the\\s+)?team' }

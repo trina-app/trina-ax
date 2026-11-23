@@ -40,7 +40,7 @@
   nowhere (no connection, no pinned recipient, no save folder), with only addresses they typed and no random-looking
   part, in a turn they watch, in their own chat (not shared), after no room read, whose words do not say to send, post or
   share, is made without its card ("tomorrow" needs a time). Its runs send, post and share nothing whatever the
-  person's Always says (`schedules.quiet`, migration 445). Its step shows the next run with Pause and Delete. Anything
+  person's Always says (`schedules.quiet`, migration 446). Its step shows the next run with Pause and Delete. Anything
   else keeps the card.
 - **Rule: connector tiers.** Read: no card (as before). Create: a tool the service marks `destructiveHint: false`, whose
   name starts with a create verb with no other change, message, share or money word, no recipient in its schema or call,
@@ -56,4 +56,4 @@
 - **Left out:** one card per answer for every kind, team default allows, a first-run allow screen, auto mode, an admin
   "ask every time" switch for the create tier, holding phone notices for the undo window.
 - **Version impact:** minor (new behaviour, no API removed; `Step.scheduled`, `AnswerShareConfirm.direct`, the alias
-  allowance and migration 445 are additive).
+  allowance and migration 446 are additive).

@@ -22,7 +22,7 @@ import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
 import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
-import { aliasOf, isOwnerTitle, learnAlias, notePending, titleKey, titlesIn } from '../chat/person-aliases'
+import { aliasOf, GENERIC_LEAD, isOwnerTitle, learnAlias, notePending, titleKey, titlesIn } from '../chat/person-aliases'
 import { findForm, isStatusEmoji, searchForms } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
@@ -205,7 +205,7 @@ export type TitleHow = 'alias' | 'title' | 'owner' | 'creator' | 'staff'
 /** How post_to_room names a teammate found by findPeople (`room: "person:<id>"`), for the candidates it gives back */
 export const PERSON_REF = 'person:'
 /** For the descriptions of the tools that send or share to a person: a title is given as the user said it */
-export const TITLE_REF_LINE = ' A title or role the user calls someone by ("팀장님", "my manager", "대표님") can be given as it is: the server finds that teammate in the team\'s directory and the names the user taught it, and when it cannot tell it lists who could be meant (ask the user once; their answer is remembered).'
+export const TITLE_REF_LINE = ' A title or role the user calls someone by ("\uD300\uC7A5\uB2D8", "my manager", "\uB300\uD45C\uB2D8") can be given as it is: the server finds that teammate in the team\'s directory and the names the user taught it, and when it cannot tell it lists who could be meant (ask the user once; their answer is remembered).'
 
 /** The active people of this team but me that I may reach (the same people the app's new 1:1 chat may open). */
 function reachablePeople(db: Database, userId: string) {
@@ -237,7 +237,7 @@ export function resolvedByTitle(db: Database, userId: string, ref: string, o: { 
   let titled: typeof people = []
   try {
     const rows = db.query("SELECT user_id, title FROM user_profiles WHERE title <> ''").all() as { user_id: string; title: string }[]
-    const has = new Set(rows.filter((r) => titlesIn(`${r.title}님`).includes(key) || r.title.normalize('NFC').toLowerCase().replace(/\s+/g, '') === key).map((r) => r.user_id))
+    const has = new Set(rows.filter((r) => titlesIn(`${r.title}\uB2D8`).includes(key) || r.title.normalize('NFC').toLowerCase().replace(/\s+/g, '') === key).map((r) => r.user_id))
     titled = people.filter((p) => has.has(p.id))
   } catch { titled = [] }
   // a profile title is the person's own words: it names them alone only for an owner or admin (whose title the team set
@@ -258,7 +258,7 @@ export function resolvedByTitle(db: Database, userId: string, ref: string, o: { 
 }
 /** Words that mean whoever is above the person, with no rank of their own: the project's creator or the one owner or
  * admin may be meant */
-const GENERIC_LEAD = new Set(['상사', '사수', 'manager', 'boss', 'supervisor', '上司', '领导', 'jefe', 'jefa', 'atasan', 'bos'])
+// (GENERIC_LEAD: chat/person-aliases.ts, with the other title words)
 const isGuestRow = (db: Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
 
 /**
