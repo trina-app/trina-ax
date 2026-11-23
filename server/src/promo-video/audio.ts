@@ -7,6 +7,7 @@
 import path from 'node:path'
 import { REPO_ROOT } from '../app-config'
 import { STARTS, type VideoDoc } from './layout'
+import { PROMO_FONT_FILE } from './template'
 
 export const AUDIO_DIR = path.join(REPO_ROOT, 'resources', 'promo-video', 'audio')
 
@@ -32,6 +33,16 @@ export const SOUNDS: Sound[] = [
   { name: 'impact', kind: 'sfx', duration: 2.3, peak: 0.506 },
   { name: 'chime', kind: 'sfx', duration: 1.4, peak: 0.097 },
 ]
+
+/** What an MP4 render reads from the version folder, relative to it: the font and every sound. A Linux bundle must carry
+ * them (scripts/build-bundle.ts linuxBundleFiles: the build stops without one), and render.ts offers the MP4 only when
+ * all are there. */
+export const PROMO_RENDER_FILES: readonly string[] = [
+  `resources/promo-video/fonts/${PROMO_FONT_FILE}`,
+  ...SOUNDS.map((s) => `resources/promo-video/audio/${s.name}.m4a`),
+]
+/** Goes with the sounds in a bundle: each file's source and licence. */
+export const PROMO_AUDIO_SOURCES = 'resources/promo-video/audio/SOURCES.md'
 const byName = new Map(SOUNDS.map((s) => [s.name, s]))
 
 export interface AudioCue { id: string; file: string; start: number; volume: number }

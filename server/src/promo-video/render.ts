@@ -11,7 +11,7 @@
 // Anywhere else the info says why (mp4.why), and the panel says so instead of the button.
 // The render is built from the checked slots in promo_videos (never from the artifact's HTML, which `artifact update`
 // could change): the pictures are copied out of the team folder with the chat owner's own permissions at render time,
-// the font and the sounds from the repository. One render at a time on the server; a finished MP4 is kept next to the data and given
+// the font and the sounds from the version folder. One render at a time on the server; a finished MP4 is kept next to the data and given
 // again until the video changes. It goes when its chat is purged (chat/forget.ts → forgetPromoVideos).
 // The CLI runs in a process group of its own; at the time limit, and when the server shuts down, that group and the
 // group of every process under it (Chrome starts in its own) are killed by process id, never by a name pattern.
@@ -32,7 +32,7 @@ import { chatFor } from '../chat/shared'
 import { getChatRuntime } from '../chat/runtime'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
-import { AUDIO_DIR, audioCues, soundDuration } from './audio'
+import { AUDIO_DIR, audioCues, PROMO_RENDER_FILES, soundDuration } from './audio'
 import { DURATION, type VideoDoc } from './layout'
 import { chatFileOf, pictureExt, teamPathOf } from './spec'
 import { chatFilesOf } from '../chat/chat-files'
@@ -78,11 +78,13 @@ const real = (p: string) => { try { return fs.realpathSync(p) } catch { return n
 
 /** The tools of a render on this server, or why there is none. Read for every info answer (an install or a removal
  * shows without a restart); `platform` and `env` for the tests. */
-export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; isolation?: IsolationKind; uid?: number; ffmpeg?: readonly string[] } = {}): { tools: RenderTools } | { why: Mp4Why } {
+export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; isolation?: IsolationKind; uid?: number; ffmpeg?: readonly string[]; root?: string } = {}): { tools: RenderTools } | { why: Mp4Why } {
   // a public demo renders no video, whichever route asks (the share of an answer to a room starts one: chat/answer-share.ts)
   if (isFreeRoam(ctx.config)) return { why: 'unsupported' }
   const platform = o.platform ?? process.platform, env = o.env ?? process.env
-  if (!fs.existsSync(PROMO_FONT_PATH) || !fs.existsSync(AUDIO_DIR)) return { why: 'unsupported' }
+  // the font and every sound, from the version folder (a Linux bundle carries them: PROMO_RENDER_FILES)
+  const root = o.root ?? REPO_ROOT
+  if (!PROMO_RENDER_FILES.every((f) => fs.existsSync(path.join(root, f)))) return { why: 'unsupported' }
   if (platform === 'darwin') {
     // a development Mac only: the CLI runs without isolation there, as the developer
     if (ctx.config.mode !== 'dev' || ctx.config.office || ctx.config.deployment === 'hosted') return { why: 'unsupported' }
@@ -251,7 +253,7 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
       work: { ...d.work, picture: pic(d.work.picture) },
       proof: { ...d.proof, picture: pic(d.proof.picture) },
     }
-    // the sounds this video uses, from the repository
+    // the sounds this video uses, from the version folder
     const cues = audioCues(doc)
     fs.mkdirSync(path.join(work, 'audio'))
     for (const name of new Set(cues.map((c) => c.file))) fs.copyFileSync(path.join(AUDIO_DIR, `${name}.m4a`), path.join(work, 'audio', `${name}.m4a`))

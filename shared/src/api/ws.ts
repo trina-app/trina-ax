@@ -161,6 +161,10 @@ export const ConfirmDetail = z.object({
    * it, behind one "자세히" (docs/decisions/20261122-connector-always-allow.md). A client that does not know this shows
    * the detail as before. */
   hidden: z.literal(true).optional(),
+  /** `text` is the JSON of a connected service's call, written by the server, and never code that runs: the card may show
+   * it as plain lines with the JSON behind "자세히" (web lib/cardPayload.ts). Nothing else folds by its shape: a file's
+   * content, a scheduled task's instruction or a message stay as sent. A client that does not know this shows the text. */
+  callJson: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
