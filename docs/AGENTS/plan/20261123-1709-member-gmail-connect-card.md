@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 17:09
 - Branch: `fix/member-gmail-connect-card`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (connect_service), web/src/components/chat (the card). Why: the chat is where people ask, and
   non-developers do better with a button than with a path to follow.
 - Version impact: patch, a fix that gives members the card the changelog implied (no API break: no new card field).
@@ -48,4 +48,4 @@ endpoint, and `done` checks the role again. The tool result never carries a team
 
 ## Result
 
-(filled in at the end)
+Case (b), built as planned. Server: `googleAppOwnCard`, the member card without `teamOffer`, `googleAppNow` (the state read after the card closes, and a connected app that is not answering is said). Web: "Connect my {name}", and on a phone the on-computer line with "I've connected it" (this also replaces the phone admin's link to a page that cannot sign in). Six languages, the user docs in six languages, CONNECTIONS, INTEGRATIONS, ASKS.
