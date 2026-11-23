@@ -75,6 +75,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/chat/schedule-cover.ts": { n: {"readersOf": 1, "missingReaders": 1, "users/": 2, "import:readersOf": 1, "import:missingReaders": 1}, why: "readersOf from ai-grants; users/ lines: the own-folder provenance of a run's reads (shares are view only)" },
   "server/src/chat/schedule-scope.ts": { n: {"readersOf": 3, "missingReaders": 1, "access": 2, "users/": 4, "import:readersOf": 1, "import:missingReaders": 1}, why: "readersOf from ai-grants; a users/ save folder is never recorded (decided at the write, M3); access lines: the person's own write check; users/ lines: labels" },
   "server/src/chat/schedule-templates.ts": { n: {"privateToMe": 1, "users/": 1, "import:privateToMe": 1}, why: "a template's output folder must be privateToMe" },
+  "server/src/tools/edit-office.ts": { n: {"users/": 1}, why: "insert_picture only narrows: a picture outside users/<me>/ asks a card first (someone else's or the company's signature or seal); a folder share is view only, so a file in users/<me>/ is the person's own; counts nobody" },
   "server/src/chat/share-places.ts": { n: {"access": 1, "users/": 1}, why: "card labels" },
   "server/src/chat/shared-answers.ts": { n: {"viewersOf": 1, "import:viewersOf": 1}, why: "viewersOf" },
   "server/src/chat/shared.ts": { n: {"access": 5}, why: "who sees a project's shared chats: projects are never shared" },
