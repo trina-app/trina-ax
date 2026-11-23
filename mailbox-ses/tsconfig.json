@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["src", "../mailbox/src", "../shared/src/cloud-protocol/mail-in.ts"],
+  "exclude": ["../mailbox/src/worker.ts", "../mailbox/src/dev.ts"]
+}

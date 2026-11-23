@@ -40,3 +40,10 @@
   `tests/unit/mailbox-gateway.test.ts`, `tests/unit/mailbox-api.test.ts`, `web/test/unit/room-apps-email.test.tsx`, the
   room apps permission cases.
 - Version impact: **minor** (a new feature behind a switch, add-only migration 445, optional API fields).
+
+## Change 2026-11-23: the mail service runs on Amazon SES
+
+Dion and the owner chose Amazon SES receiving on `in.trina.app` (account engine-trina, us-east-1) instead of Cloudflare
+Email Routing, which takes a catch-all only on an apex domain. The contract and the team server are unchanged. One
+difference for senders: SES accepts every address of the domain, so a mail to an unknown or replaced address, or over
+10 MiB, is dropped without a bounce (no 550/552). Plan section "Change 2026-11-23"; code `mailbox-ses/`.

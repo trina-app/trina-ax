@@ -1,110 +1,127 @@
 # Runbook: put the room email mailbox into service
 
 - For: the owner or the operator of the hosting service.
-- Status: **not done**. The code in `mailbox/` and the team server support are built and tested locally only. Nobody
-  has changed Cloudflare, DNS, MX records or a production service for this feature.
-- Plan: [docs/AGENTS/plan/20261123-0421-room-email.md](../AGENTS/plan/20261123-0421-room-email.md). Contract:
-  [shared/src/cloud-protocol/mail-in.ts](../../shared/src/cloud-protocol/mail-in.ts). Code: [mailbox/](../../mailbox/README.md).
+- Plan: [docs/AGENTS/plan/20261123-0421-room-email.md](../AGENTS/plan/20261123-0421-room-email.md), section "Change
+  2026-11-23" (Amazon SES on `in.trina.app`, not Cloudflare Email Routing). Contract:
+  [shared/src/cloud-protocol/mail-in.ts](../../shared/src/cloud-protocol/mail-in.ts). Code:
+  [mailbox-ses/](../../mailbox-ses/README.md) (AWS) on top of [mailbox/](../../mailbox/README.md) (gateway, API, store).
+- The hosting service's side: trina-cloud `POST https://cp.trina.app/internal/mail-in/team` and its runbook
+  `docs/runbooks/room-email-lookup.md`.
+- Status (2026-11-23): steps 1 to 3 done in account engine-trina (896568317806), us-east-1. Steps 4 to 6: see the PR.
 
 Do the steps in this order. Each step says how to check it. Stop if a check fails.
 
-## 1. Choose the mail domain
+## What runs where
 
-1. Decide which domain the room addresses use (`<random>@<mail domain>`).
-2. **Check this first:** an earlier plan found that Cloudflare Email Routing allows a catch-all rule only on an
-   apex domain, not on a subdomain, and allows at most 200 routing rules per domain. If that is still true, the plan's
-   `in.trina.app` cannot work, and you need a **separate apex domain** only for mail in (for example
-   `trina-mail.<tld>`). Read the current Cloudflare Email Routing documentation (subdomains, catch-all, limits) and
-   decide.
-3. Keep the product domain's own mail as it is. Do not change the MX records of `trina.app`: its mail goes to another
-   provider today.
-4. If you buy a new domain, add it to the hosting service's Cloudflare account.
+| part | where | name |
+|---|---|---|
+| MX of the mail domain | Cloudflare zone `trina.app` | `MX in.trina.app → 10 inbound-smtp.us-east-1.amazonaws.com` |
+| receiving | SES us-east-1 | active rule set `room-email`, rule `room-email-in` (recipient `in.trina.app`) |
+| raw mail (in clear, minutes only) | S3 | `room-email-raw-<account>-us-east-1/raw/` |
+| gateway | Lambda | `room-email-gateway` |
+| queue (sealed only) | DynamoDB | `room-email-mailbox` |
+| team server API | Lambda function URL | `room-email-api` (`MYCEL_MAIL_IN_URL` = its https origin) |
+| team lookup | control plane | `POST https://cp.trina.app/internal/mail-in/team` (bearer token in SSM `/room-email/cp-lookup-token` and CP credential `mail_in_lookup_token`) |
 
-Check: the domain is in the Cloudflare account and has no other mail use.
+Never change the MX records of `trina.app` itself: its mail goes to Daum.
 
-## 2. Turn on Email Routing for the mail domain
+## 1. Deploy the AWS parts
 
-1. In the Cloudflare dashboard, open the mail domain, then **Email › Email Routing**, and turn it on.
-2. Cloudflare adds its MX records. Keep them as Cloudflare gives them.
-3. Add or set these DNS records on the mail domain:
-   - SPF: `TXT @ "v=spf1 -all"` (nothing sends mail from this domain).
-   - DMARC: `TXT _dmarc "v=DMARC1; p=reject"` (nobody can send mail as this domain).
-   - No DKIM key: the domain never sends.
+1. Make the lookup token and put it in SSM: [mailbox-ses/README.md](../../mailbox-ses/README.md) "First deploy" steps
+   1 and 2. Keep `token.txt` (0600) for step 4.
+2. `AWS_PROFILE=engine-trina mailbox-ses/deploy.sh`. It refuses another account, a missing SSM parameter, and another
+   active receipt rule set (one per region: add the rule to that set by hand, or decide first).
 
-Check: `dig +short MX <mail domain>` shows Cloudflare's MX hosts; the SPF and DMARC records are as above.
+Check: `curl -s -X POST https://<api host>/api/mail-in/v1/status -d '{"v":1}'` answers 401 `unauthorized`.
 
-## 3. Deploy the Worker and the Durable Object
+## 2. Verify the domain in SES
 
-1. Make sure the account has the **Workers Paid** plan (CPU time for sealing mail of up to 10 MiB, and Durable
-   Objects).
-2. Copy `mailbox/` into the hosting service's repository, with `mailbox/wrangler.example.toml` as its `wrangler.toml`.
-   Fill in every placeholder: the Worker name, the compatibility date, `MAIL_DOMAIN`, the `TEAMS` service binding.
-3. Build the `TEAMS` binding in the hosting service: `POST /internal/mail-in/team {"key": "<base64 SPKI Ed25519>"}`
-   answers `{"teamId": "<id>"}` for the relay team key of a hosted team or an enabled registered server, else 404.
-   This is the same identity the Slack and Drive brokers use.
-4. Keep the `Mailbox` Durable Object binding and its `new_sqlite_classes` migration.
-5. Give the API a route on a host of the hosting service, path `/api/mail-in/v1/*`.
-6. Before the first deploy, run a test with the Workers test runner that seals with WebCrypto (`webMailCrypto`) and
-   opens with `node:crypto` (`nodeOpenSealed`): the repository tests cannot do this, because Bun has no X25519 in
-   WebCrypto.
-7. Deploy.
+1. `aws sesv2 create-email-identity --email-identity in.trina.app --tags Key=purpose,Value=room-email` (Easy DKIM).
+   SES receiving needs a verified domain. The domain never sends.
+2. Add the three DKIM CNAMEs it gives (`<token>._domainkey.in.trina.app → <token>.dkim.amazonses.com`, not proxied).
 
-Check: `POST https://<api host>/api/mail-in/v1/status` without a signature answers 401 `unauthorized`.
+Check: `aws sesv2 get-email-identity --email-identity in.trina.app` shows `DkimAttributes.Status` `SUCCESS`.
 
-## 4. Connect Email Routing to the Worker
+## 3. DNS records of the mail domain
 
-1. In **Email Routing › Routing rules**, set the **catch-all** rule to **Send to a Worker** and pick the mailbox
-   Worker.
-2. Do not add per-address rules. Addresses are made by team servers at any time; the Worker checks them.
+With the hosting service's Cloudflare DNS token, on the CP host, from a 0600 curl config file (never in an argument):
 
-Check: send a mail from any account to `test@<mail domain>`. It bounces with `550 5.1.1 No such address`.
+- `MX in.trina.app` → `inbound-smtp.us-east-1.amazonaws.com`, priority 10.
+- `TXT in.trina.app` → `"v=spf1 -all"` (nothing sends mail from this domain).
+- `TXT _dmarc.in.trina.app` → `"v=DMARC1; p=reject"`.
 
-## 5. Point team servers at the mailbox
+`*.trina.app` has a wildcard record for team addresses. A team cannot be named `in` (shorter than 3 characters), so
+the explicit records for `in.trina.app` hide nothing.
 
-1. Set `MYCEL_MAIL_IN_URL=https://<api host>` (an https origin, no path) and `MYCEL_MAIL_IN_DOMAIN=<mail domain>` (the
-   domain of the addresses, the same as the mailbox's) on hosted team servers, through the same place as the other
-   hosting service variables (the control plane's environment for team servers). A team server needs both, else Email
-   says "Email needs this server to be connected to the Trina service."
-2. Restart or update the team servers so they read it.
-3. The feature stays **off** for every team until an owner or admin turns on **Let rooms get email** in
-   Admin › Team settings.
+Check: `dig +short MX in.trina.app` shows only the SES host; `dig +short MX trina.app` still shows Daum.
 
-Check: on a test team, turn the switch on, add **Email** in a room, and see the address shown with **Copy** enabled
-(the state goes from "Setting up the address" to ready).
+## 4. The control plane's team lookup
+
+trina-cloud `docs/runbooks/room-email-lookup.md`: the credential `mail_in_lookup_token` (the same value as SSM), the
+unit's `LoadCredential=` line, a CP deploy (back up the database first).
+
+Check: a signed `status` call with the relay team key of a served team answers 200 (not `not_hosted`).
+
+## 5. Point a team server at the mailbox
+
+1. On the team server (a hosted tenant: its `/etc/default/mycel`, the server unit's environment file) set
+   `MYCEL_MAIL_IN_URL=https://<api host>` (an https origin, no path) and `MYCEL_MAIL_IN_DOMAIN=in.trina.app`. Then
+   restart the server. The server needs a release with email into rooms (trina-ax #436).
+2. The variables are per server: a team without them has no Email, whatever the mailbox does.
+3. The feature stays **off** until an owner or admin turns on **Let rooms get email** in Admin › Team settings.
+
+Check: turn the switch on, add **Email** in a room, and see the address with **Copy** enabled.
 
 ## 6. Smoke test with real mail
 
 Use a test team and a test room only.
 
 1. Copy the room's address.
-2. In a Gmail account: **Settings › See all settings › Forwarding and POP/IMAP › Add a forwarding address**, paste
-   the address. Gmail sends a confirmation mail to it.
-3. Check: the room's Email app settings show the Gmail confirmation with its code, for the room's managers only. The
-   code is not in the room's timeline.
-4. Confirm the forwarding in Gmail with the code. Make a filter (for example `from:<a test sender>`) with **Forward
-   it to** the address.
-5. Send a test mail that matches the filter. Check: a card shows in the room with the sender marked unverified, the
-   subject, the text and the names of attachments (not kept in v1).
-6. Repeat with Outlook.com, Microsoft 365 (an IT admin may need to allow forwarding to outside addresses), Naver and
-   Daum. Send a Korean and a Japanese mail to check the character sets.
-7. Press **Get a new address**. Send to the old address. Check: it bounces with 550.
-8. Send a mail larger than 10 MiB. Check: it bounces with 552.
-9. Record the results in the plan's phase 0 section: what the sender sees when the Worker fails, and whether the
-   Worker sees Cloudflare's `Authentication-Results` header.
+2. In Gmail: **Settings › See all settings › Forwarding and POP/IMAP › Add a forwarding address**, paste the address.
+   Gmail sends a confirmation mail to it.
+3. Check: the room's Email app settings show the Gmail confirmation with its code, for the room's managers only.
+4. Confirm the forwarding in Gmail with the code. Make a filter with **Forward it to** the address.
+5. Send a test mail that matches the filter. Check: a card in the room (sender unverified, subject, text, names of
+   attachments). In the API log, the item's `auth` comes from SES (`Authentication-Results: amazonses.com`).
+6. Press **Get a new address**. Send to the old address. Check: **no card**, the sender gets **no bounce**, and the
+   gateway log has `mail_refused` with reason `unknown`.
+7. Send a mail larger than 10 MiB (SES takes up to 40 MB). Check: no card, no bounce, `mail_refused` reason `too_big`.
+8. Check the S3 bucket's `raw/` prefix is empty a minute later.
+
+Logs: `aws logs tail /aws/lambda/room-email-gateway --since 1h` (event names, a hash prefix and a reason only; never
+an address or a mail).
 
 ## 7. Monitoring and cost
 
-1. Set a Cloudflare billing notification for Workers and Durable Objects usage, sent to the owner.
-2. Watch the Worker's logs: they have event names (`mail_queued`, `mail_refused`, `mail_sync`), a hash prefix and a
-   reason only. They never have an address or a mail. Do not turn on logging of `message.to` anywhere.
-3. Note: the Cloudflare dashboard's Email Routing activity log shows each mail's sender, recipient and subject to the
-   people who can open the account. Keep that account's access small.
+1. AWS Budgets: an alert on the `purpose=room-email` tag (activate it as a cost allocation tag first), sent to the owner.
+2. Cost per month (us-east-1, 2026-11 prices, no free tier): a team server that is awake holds one API call open all
+   the time: about 104,000 calls × 25 s × 0.25 GB ≈ 650,000 GB-s ≈ USD 8.70 per awake team per month (arm64). A
+   sleeping team costs nothing. DynamoDB reads of the held poll ≈ USD 0.50 per team. SES receiving USD 0.10 per 1,000
+   mails plus USD 0.09 per 1,000 incoming 256 KB chunks. S3, logs, SSM: cents. With many teams, move the API onto a
+   long-running host (the control plane) and keep SES, S3 and the gateway.
+3. Raw mail is in clear in S3 only between SES and the gateway (seconds). Keep access to the bucket small.
+
+## Unknown and replaced addresses
+
+SES accepts every address of `in.trina.app` before any code runs, so the gateway cannot refuse at SMTP time (no 550
+or 552). It drops the mail and logs the reason. It sends no bounce: a bounce goes to the envelope sender, which spam
+forges (backscatter). A sender to a replaced address sees nothing; the room gets nothing. This is the same for a
+removed address, a full queue (452 in the reference) and a limit (451 in the reference).
 
 ## Roll back
 
-1. In **Email Routing › Routing rules**, set the catch-all rule to **Drop** or turn it off. Mail to every room
-   address then stops at Cloudflare.
-2. Unset `MYCEL_MAIL_IN_URL` and `MYCEL_MAIL_IN_DOMAIN` on team servers. The Email apps show "not available" and nothing is posted.
-3. Sealed items in the Durable Object expire within 24 hours. To delete them at once, delete the Durable Object's
-   data.
-4. The DNS records can stay; remove the MX records only if the domain gets another use.
+Each step can be done alone. Fastest first.
+
+1. **Stop mail at once:** `aws ses set-active-receipt-rule-set --region us-east-1` (no name = no active set). SES then
+   refuses every recipient of `in.trina.app` at SMTP time (550). To start again:
+   `aws ses set-active-receipt-rule-set --rule-set-name room-email --region us-east-1`.
+2. **Turn a team off:** remove `MYCEL_MAIL_IN_URL` and `MYCEL_MAIL_IN_DOMAIN` from its `/etc/default/mycel` and restart
+   it. Its Email apps show "not available" and nothing is posted.
+3. **Stop the team API:** make the CP credential `mail_in_lookup_token` empty and restart the CP. Every API call then
+   answers `not_hosted`.
+4. **Remove everything:** step 1, then `aws cloudformation delete-stack --stack-name room-email` (the S3 bucket must be
+   empty first: `aws s3 rm s3://room-email-raw-<account>-us-east-1 --recursive`). Delete
+   `room-email-artifacts-<account>-us-east-1`, the SSM parameter, and the SES identity `in.trina.app`. Delete the six
+   DNS records of `in.trina.app` (comment `purpose=room-email`). Sealed items in DynamoDB go with the table.
+5. Nothing here touches `trina.app`'s own MX, the relays or team data. A rollback of the CP release is the usual
+   `releases/<previous>` switch; the route has no migration.
