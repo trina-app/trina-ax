@@ -141,6 +141,23 @@ describe('share_folder: who, which folder, and no card for what the person asked
     expect(await h.api('alice').call(API.deleteAiAllowance, { params: { id: 'alias:상사' } }).then(() => 'ok', () => 'refused')).toBe('refused')
   })
 
+  test('a title found only by a guess (the project\'s creator) asks once on the card; the yes keeps the alias and the next ask is silent (security review of batch 5)', async () => {
+    const p = await h.api('dana').call(API.createProject, { body: { name: 'Guess Lead', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+    const chat = (await h.api('bob').call(API.createChat, { body: { projectId: p.id, private: true } })).id
+    expect(aliasOf(h.ctx.db, 'bob', '상사님')).toBeNull()
+    const dir = folder('bob', 'Guess')
+    const first = await turn('bob', `${dir} 폴더 상사님한테 공유해줘\n${sf({ folder: dir, add: ['상사님'] })}`, { chat, answer: 'yes' })
+    expect(first.card).not.toBeNull()
+    expect(peopleOn('bob', dir)).toEqual(['dana'])
+    expect(aliasOf(h.ctx.db, 'bob', '상사님')).toBe('dana')
+    // the second ask by that title: no question, no card
+    const dir2 = folder('bob', 'Guess2')
+    const second = await turn('bob', `${dir2} 폴더 상사님한테 공유해줘\n${sf({ folder: dir2, add: ['상사님'] })}`, { chat })
+    expect(cardsTo('bob', second.turnId)).toBe(0)
+    expect(peopleOn('bob', dir2)).toEqual(['dana'])
+    h.ctx.db.query("DELETE FROM person_aliases WHERE user_id = 'bob'").run()
+  })
+
   test('no folder given: the one this chat used, shared with no card, the result says it was picked; none at all: asked', async () => {
     const dir = folder('bob', 'Used')
     const chat = (await h.api('bob').call(API.createChat, { body: {} })).id

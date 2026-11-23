@@ -57,6 +57,9 @@ import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
+import { quietRun } from './explicit-send'
+import { askerMessageId } from './asked-in'
+import { askerText, guestInShared, namedInFull, namesGroup, othersWordsIn, ownWords as asked } from './shared-actions'
 
 export const PROJECT_MEMBERS_TOOL = 'change_project_members'
 
@@ -294,7 +297,7 @@ const panel = (L: Locale, name = '…') => `the project's page ("${say('where', 
 const ownChat = 'the user can ask in a chat of their own (a new AI chat)'
 
 /** What change_project_members needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules are tested alone. */
-export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'othersWords'>> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'askPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'othersWords' | 'tainted' | 'guestAmong' | 'askedIn'>> & Partial<Pick<TurnExec, 'alwaysPlace'>>
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
@@ -307,6 +310,9 @@ export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' 
   // the person's own Always for members changes holds in their scheduled run, a shared chat and a chat others wrote in
   // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); who may manage the project and every name
   // are checked as always (run() below: mayManageProject, accessEditable, the plan)
+  // a task made without its card (schedules.quiet) adds nobody to a project, whatever the person's Always (it opens the
+  // project to people: explicit-send.ts quietRun; security review of batch 5). Checked before the Always below.
+  if (exec.spec.clientKind === 'schedule' && quietRun(exec.rt.db, exec.spec.turnId)) return no('quiet schedule', { kind: 'mode', mode: 'a scheduled task made without its card (it never shares anything)' }, `${ownChat}, or change them on ${panel(L)}`)
   const always = alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on'
   if (exec.spec.clientKind === 'schedule' && !always) return no('scheduled run', cardReason('unattended'), `${cardNext('unattended', 'in a chat of their own')}, or change them on ${panel(L)}`)
   if (exec.shared && !always) return no('shared chat', { kind: 'mode', mode: 'a shared project chat', why: 'everyone in the project reads and writes it' }, `${ownChat}, or change them on ${panel(L)}`)
@@ -448,6 +454,16 @@ export function projectMembersTool(exec: MembersExec): Tool {
     const planned = planFor(user, r, input.add, input.remove)
     if ('text' in planned) return refused(planned.reason, planned.text, r.id, planned.audit ?? {})
     const p = planned.plan
+
+    const usernameOf = (id: string) => { const u = db.query('SELECT username FROM users WHERE id = ?').get(id) as { username: string | null } | null; return u?.username ? [u.username] : [] }
+    // ---- under Always, where someone else could have asked: the asker's own message names everyone ----
+    // (a shared chat with a guest among its people, strict as share_folder and share_with_person; a scheduled run that
+    // took in other people's words: security review of batch 5). Without Always the card names them, with the red mark.
+    if (alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on' && (guestInShared(exec) || (spec.clientKind === 'schedule' && (othersWordsIn(exec) || !!exec.tainted)))) {
+      const mine = asked(askerText(db, askerMessageId(exec)))
+      const unnamed = [...p.adds, ...p.removes].filter((x) => !(x.subjectType === 'group' ? namesGroup(mine, x.name) : namedInFull(mine, [x.name, ...(x.aliases ?? []), ...usernameOf(x.subjectId)])))
+      if (unnamed.length) return refused('not_named', refusal({ done: NONE, why: { kind: 'mode', mode: 'a chat or run that holds other people\'s words (a guest in this shared chat, or what a scheduled run read)', why: 'one of them could ask for the change' }, also: `Not named in the user's own message: ${unnamed.slice(0, 10).map((x) => `'${ai(x.name)}'`).join(', ')}`, next: `the user names them in a new message of their own, or changes them on ${panel(L, r.name)}` }), r.id)
+    }
 
     // ---- the card ----
     // the one rule of "this chat has read rooms" (chat/read-rooms.ts: rooms_seen, a side chat, a quote on the branch)

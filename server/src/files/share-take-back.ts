@@ -8,8 +8,9 @@
 //   - each recorded grant is taken off only while it is still the one this share wrote (the same person gave it at
 //     the same time); a person who could open file A before a share of A and B keeps A;
 //   - every removal goes through FileShares.change / put (the owner's right to take people off, quietly);
-//   - a folder the share made: its sharing stops, each copy still byte for byte what was copied goes to the trash, and
-//     the folders it made go while empty. A file saved there since stays, and so does its folder.
+//   - a folder the share made: the grants it wrote go, each copy still byte for byte what was copied goes to the trash,
+//     and the folders it made go while empty; its sharing stops whole only when the folder went. A file saved there
+//     since stays, and so do its folder and anyone added to it by hand.
 // A record of someone else, a used, expired or unknown one all answer 404.
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -73,11 +74,11 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
     const ours: Subject[] = gs.filter((g) => !!db.query('SELECT 1 FROM file_share_grants WHERE share_id = ? AND subject_type = ? AND subject_id = ? AND granted_by = ? AND granted_at = ?').get(shareId, g.subjectType, g.subjectId, userId, g.at))
       .map((g) => ({ subjectType: g.subjectType, subjectId: g.subjectId }))
     skipped += gs.length - ours.length
-    if (!ours.length && shareId !== folderShare) continue
+    if (!ours.length) continue
     try {
-      // (a folder this share made: everyone off it, also someone added by hand since, as the folder goes too)
-      if (shareId === folderShare) shares.put(userId, s.path, [], [], L, 'ai', { stop: true })
-      else shares.change(userId, s.path, [], ours, L, 'ai', { quiet: true })
+      // only the grants this share wrote, also on a folder it made: someone added by hand since keeps theirs while the
+      // folder stays (a file saved there since keeps it); the share stops whole below only when the folder is gone
+      shares.change(userId, s.path, [], ours, L, 'ai', { quiet: true })
       removed += ours.length
     } catch (e) {
       // the folder's sharing could not be stopped: nothing of it is deleted and the record can be pressed again (the
@@ -103,6 +104,9 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
     }
     for (const d of [...(f.made ?? [])].filter(mine).reverse()) svc.removeEmptyFolder(userId, d)
     folderGone = !!f.path && mine(f.path) && !fs.existsSync(path.join(ctx.files.fx.root, ...f.path.split('/')))
+    // the folder went: its sharing stops whole (nothing is left to open; a folder made again there later is not shared)
+    const fs0 = folderShare ? shares.row(folderShare) : null
+    if (folderGone && fs0 && fs0.state === 'live') { try { shares.put(userId, fs0.path, [], [], L, 'ai', { stop: true }) } catch { /* already gone with the folder */ } }
   }
   audit(db, { actor: userId, action: 'file.share', target: rec.takeBack[0] ? `file-share:${rec.takeBack[0].shareId}` : null, detail: { personal: true, takeBack: true, removed, skipped, ...(rec.folder ? { folderRemoved: folderGone } : {}) } })
   if (removed) shares.changedSoon()

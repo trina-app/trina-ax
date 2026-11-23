@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { contentTool, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
+import { contentTool, notePaths, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
 import { historyBlock, historyWindow } from '../../server/src/chat/prompt'
 import type { StoredStep } from '../../server/src/chat/store'
 import { BROWSER_TOOL_NAMES } from '../../server/src/realtime/browser-tools'
@@ -248,5 +248,13 @@ describe('a fresh session gets its own earlier steps', () => {
     // shared once (made private again since): unknown, so left out
     h.ctx.db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'chat.share', ?, '{}', ?)").run(chat.id, new Date().toISOString())
     expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toBeUndefined()
+  })
+})
+
+describe('another person\'s note: the paths its words name (security review of batch 5)', () => {
+  test('quoted values and words with a "/" count; web addresses and chat places do not', () => {
+    expect(notePaths({ i: 'path="shared/quote.pdf" to_folder="users/alice/drafts"', o: 'Saved users/alice/drafts/quote v2.pdf.' }).sort())
+      .toEqual(['shared/quote.pdf', 'users/alice/drafts', 'users/alice/drafts/quote'].sort())
+    expect(notePaths({ i: 'url="https://example.com/a/b"', o: 'chat:files/x.pdf done' })).toEqual([])
   })
 })

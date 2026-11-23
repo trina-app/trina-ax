@@ -110,6 +110,24 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, ...a.path!.split('/')))).toBe(true)
   })
 
+  test('취소 when the folder stays (a file saved there since): only the share\'s own grant goes, a person added by hand keeps it', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const a = await upload(c.id, 'plan.txt', 'the plan')
+    const before = folders()
+    const r = await turn(`share this folder with Bob Lee\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id, [a.id])
+    const shared = r.steps.find((s) => s.tool === 'share_folder')!.shared!
+    expect(shared.madeFolder).toBe(true)
+    const made = folders().filter((x) => !before.includes(x))
+    const rel = `users/alice/${made[0]}`
+    // since: a file of her own saved there, and Carol added by hand (the Share dialog)
+    put(`${rel}/mine.txt`, 'kept')
+    fileSharesOf(h.ctx).change('alice', rel, [user('carol')], [], 'en', 'dialog')
+    expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, ...rel.split('/'), 'mine.txt'))).toBe(true)
+    expect(canOpen('bob', 'alice', rel)).toBe(false)
+    expect(canOpen('carol', 'alice', rel)).toBe(true)
+  })
+
   test('a recipient the message does not name: nothing is made, the old answer', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const a = await upload(c.id, 'memo.txt', 'memo')

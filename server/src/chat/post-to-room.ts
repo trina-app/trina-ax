@@ -57,7 +57,7 @@ import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
 import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
-import { keepPick, saysTitle, titleNames } from './person-aliases'
+import { guessedTitle, keepPick, saysTitle, titleNames } from './person-aliases'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
@@ -293,6 +293,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
          * members' names; the AI writes where everyone in the chat reads) */
         let refAi = ''
         let byTitle: { ref: string } | undefined
+        /** the teammate a title found (byTitle), for keeping a guessed one as the person's alias after their yes */
+        let titled: Teammate | undefined
         if (a.data.room !== undefined) {
           const ref = a.data.room
           refAi = neutralizeTags(oneLine(ref, 120))
@@ -304,7 +306,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           // (a title or role, "팀장님": the team directory or the person's own alias, chat/person-aliases.ts; one match
           // counts as naming that person, docs/decisions/20261123-do-then-undo.md)
           const p = findPeople(db, spec.userId, ref, { projectId: projectOf(db, spec.chatId), chatId: spec.chatId, learn: true })
-          if (p && 'one' in p && p.one.via) byTitle = p.one.via
+          if (p && 'one' in p && p.one.via) { byTitle = p.one.via; titled = p.one }
           const people = p ? ('one' in p ? [p.one] : p.many) : []
           const roomsListed = f ? ('many' in f ? f.many : [f.one]) : []
           const listed = new Set(roomsListed.map((r) => r.room.id))
@@ -774,7 +776,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         }
         // (why it asks, and what "Always allow" covers: the small line under the buttons, so the question stays one line)
         if (explicit) byWords = true
-        const reply = explicit ? yes : byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => exec.waitForPerson({
+        let shown = false
+        const reply = explicit ? yes : byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => (shown = true, exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question,
           options: opts, multiple: false, allowText: false, ...(whyLine || more.note ? { note: [whyLine, more.note ?? ''].filter(Boolean).join(' ') } : {}),
           details: [
@@ -794,8 +797,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
           ],
           ...(opts.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
+        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
+        // a title that found its teammate only by a guess (the project's creator, the one owner or admin): the person's
+        // yes on the card that sends to them keeps it as their alias, so the next ask by that title asks nothing
+        if (shown && (v === 'send' || v === 'send_files') && titled && guessedTitle((titled.via as { how?: string } | undefined)?.how)
+          && (pendingTo?.id === titled.id || (!!roomId && roomId === titled.dmRoomId))) { try { keepPick(db, spec.userId, titled.via!.ref, titled.id) } catch { /* only a convenience */ } }
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)
           return v === 'no'

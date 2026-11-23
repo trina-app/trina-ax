@@ -38,7 +38,7 @@ import { fileSharesOf } from '../files/shares'
 import { HttpError } from '../http/errors'
 import { isStaff } from '../policy/access'
 import { findPeople, PERSON_REF, TITLE_REF_LINE, type Teammate } from '../rooms/reader'
-import { isTeamRef, keepPick, saysTeam, saysTitle } from './person-aliases'
+import { guessedTitle, isTeamRef, keepPick, saysTeam, saysTitle } from './person-aliases'
 import { Audiences } from './shared'
 import { tr } from './i18n'
 import { placeWords } from './place-words'
@@ -330,13 +330,14 @@ export function shareFolderTool(exec: TurnExec): Tool {
               : stop ? tr('folderStopAskAll', L, { name: oneLine(name, 60) }) : tr('folderStopAsk', L, { name: oneLine(name, 60), who: oneLine(one ? one.name : whoLine, 80) }),
             adding ? tr('folderShareLater', L) : '',
           ].filter(Boolean).join('\n\n')
-          const ask = (options: { label: string; value: string }[], more: { buttons?: true; note?: string }) => exec.waitForPerson({
+          let shown = false
+          const ask = (options: { label: string; value: string }[], more: { buttons?: true; note?: string }) => (shown = true, exec.waitForPerson({
             kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false, options, ...more,
             details: [{ label: tr('folderShareFolder', L), text: folderPlace, noSize: true }],
             // the same rows as the result card: the card that asks turns into the card that says what was done
             share: { op, files: [row()], ...cardPeople(db, who as CardSubject[]), ...(seenLine ? { why: seenLine } : {}) },
             expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-          } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+          } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
           // a scheduled run (here only under the person's Always) where it does not count for this add (a guest in this
           // shared chat and the task's message did not ask): nobody can answer the card, so say so now (code review)
           if (spec.clientKind === 'schedule' && !(alwaysOk && alwaysOn)) return no(SCHEDULED_NO, 'refused: scheduled run (card needed)')
@@ -349,6 +350,12 @@ export function shareFolderTool(exec: TurnExec): Tool {
             return ans === 'no'
               ? no(adding ? 'The user chose not to share the folder, so nothing was shared. Do not share it another way unless the user asks again.' : 'The user chose to keep sharing, so nothing was changed.', 'not done: the user said no')
               : no(`Nothing was changed: the card got no answer in time. This is not a no. Do not ask again in this answer whether to go ahead, in words or with another card; ${TIMEOUT_NEXT}. If they then say yes, call share_folder again.`, 'not done: no answer')
+          }
+          // a title that found its teammate only by a guess (the project's creator, the one owner or admin): the person's
+          // yes on the card that named them keeps it as their alias, so the next ask by that title asks nothing
+          if (adding && shown) for (const w of who) {
+            const via = w.subjectType === 'user' ? how.get(keyOf(w))?.via : undefined
+            if (via && guessedTitle(via.how)) { try { keepPick(db, spec.userId, via.ref, w.subjectId) } catch { /* only a convenience */ } }
           }
         }
 

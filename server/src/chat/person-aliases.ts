@@ -143,11 +143,16 @@ export function isTeamRef(ref: string): boolean {
 
 /** The person's own words use the title a teammate was found by (Teammate.via): that counts as naming them, as a name in
  * full does (the explicit-ask rules of the tools that send or share). */
-export function saysTitle(said: string, via: { ref: string } | undefined): boolean {
-  if (!via) return false
+export function saysTitle(said: string, via: { ref: string; how?: string } | undefined): boolean {
+  if (!via || guessedTitle(via.how)) return false
   const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
   return titlesIn(own).includes(via.ref)
 }
+
+/** A title found its teammate only by a guess (rooms/reader.ts resolvedByTitle: the project's creator, the one owner or
+ * admin), not by the person's alias, a profile title or the owner role: it never counts as the person naming them, so
+ * the card asks once; their yes keeps it as their alias (security review of batch 5). */
+export const guessedTitle = (how: string | undefined): boolean => how === 'creator' || how === 'staff'
 
 /** A pick card answered for a title (several could be meant): kept as the person's alias, so it is not asked again. */
 export function keepPick(db: Database, userId: string, ref: string, pickedId: string): string | null {
@@ -173,12 +178,12 @@ export function saysTeam(said: string): boolean {
 /** The person's own words call exactly this teammate by a title (QA F5 shared1-sh2: "이거 팀장님한테 보내줘" again, and
  * the AI passed the teammate's name it learned the first time): a title in their words that resolves to one teammate,
  * and that teammate is `targetId`. `resolve`: rooms/reader.ts resolvedByTitle (passed in: no import cycle). */
-export function titleNames(said: string, targetId: string, resolve: (ref: string) => { one: { id: string } } | { many: unknown[] } | null): boolean {
+export function titleNames(said: string, targetId: string, resolve: (ref: string) => { one: { id: string; via?: { how?: string } } } | { many: unknown[] } | null): boolean {
   const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
   const t = own.normalize('NFC').toLowerCase()
   // (as the recipient only: "<title>(님)께/한테/에게/더러", or "to (my) <title>"; never "팀장님 보고서 민수한테")
   const asRecipient = (k: string) => /^[a-z]+$/.test(k)
     ? new RegExp(`\\bto\\s+(?:my\\s+|our\\s+|the\\s+)?${k}(?![a-z])`).test(t)
     : new RegExp(`${k}\\s?(?:\uB2D8|\uC528)?\\s?(?:\uAED8|\uD55C\uD14C|\uC5D0\uAC8C|\uB354\uB7EC)`, 'u').test(t)
-  return titlesIn(own).some((k) => { if (!asRecipient(k)) return false; const r = resolve(k); return !!r && 'one' in r && r.one.id === targetId })
+  return titlesIn(own).some((k) => { if (!asRecipient(k)) return false; const r = resolve(k); return !!r && 'one' in r && r.one.id === targetId && !guessedTitle(r.one.via?.how) })
 }

@@ -63,7 +63,8 @@ import { groupSubject, matchName, shownName, type Subject } from './project-memb
 import { neutralizeTags } from './prompt'
 import { readRooms, withoutQuoteLines } from './read-rooms'
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
-import { actionOff, askerText, attachedPaths, namedInFull, namesFolder, namesGroup, othersWordsIn } from './shared-actions'
+import { actionOff, askerText, attachedPaths, guestInShared, namedInFull, namesFolder, namesGroup, othersWordsIn } from './shared-actions'
+import { quietRun } from './explicit-send'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 
@@ -124,7 +125,7 @@ const SCREEN = 'Admin › Folder permissions, or Share on the folder in Files'
 const NOT_FOUND = refusal({ done: NONE, why: { kind: 'failed', what: 'no team folder of that name was found, or the user cannot open it (the same answer for both, on purpose)' }, next: 'check the folder\'s path with list, or ask the user which folder they mean' })
 
 type FolderExec = Pick<TurnExec, 'spec' | 'rt' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'files' | 'roomsSeen' | 'askPerson' | 'openRequests' | 'livePrincipal' | 'patchToolStep'>
-  & Partial<Pick<TurnExec, 'othersWords' | 'tainted' | 'alwaysPlace' | 'sharedAudience'>>
+  & Partial<Pick<TurnExec, 'othersWords' | 'tainted' | 'alwaysPlace' | 'sharedAudience' | 'guestAmong'>>
 
 /** Why change_folder_access is not offered in this turn (and refused when reached anyway), or null: the person's own
  * chat with them there. */
@@ -135,6 +136,9 @@ export function folderAccessOff(exec: Pick<FolderExec, 'spec' | 'rt' | 'shared' 
   // the person's own Always for folder access holds in their scheduled run, a shared chat and a chat others wrote in
   // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); every check of who may change what stays
   // (an owner or admin, the folder as they see it, the person or group named: run() below)
+  // a task made without its card (schedules.quiet) changes nobody's access, whatever the person's Always (it opens
+  // content to people: explicit-send.ts quietRun; security review of batch 5). Checked before the Always below.
+  if (exec.spec.clientKind === 'schedule' && quietRun(exec.rt.db, exec.spec.turnId)) return no('quiet schedule', 'a scheduled task made without its card (it never shares anything)', `${own}, or change it on ${SCREEN}`)
   const always = alwaysHere(exec.alwaysPlace?.(), 'folder_access') === 'on'
   if (off === 'schedule' && !always) return no('scheduled run', 'a scheduled run (nobody is there to answer the card)', `${own}, or change it on ${SCREEN}`)
   if (off === 'confidential' || confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', 'a confidential chat (safe operations)', `the user can change it on ${SCREEN}`)
@@ -534,8 +538,8 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
   }
 
   /** The person or group a change names (one match, or the candidates), and after outside content the admin's own message
-   * naming the folder and them (M8, M9); not for an admin who chose "Always allow" for this card (Rule A, #1143: their
-   * choice is final; the tool is never offered in a chat with other members' messages, folderAccessOff). */
+   * naming the folder and them (M8, M9). Under the admin's own "Always allow" (Rule A, #1143) only where someone else could
+   * have asked: a shared chat with a guest, or a scheduled run with other people's words (security review of batch 5). */
   function whoOf(path: string, who: FolderChange['who'], L: Locale): { subject: Subject } | No {
     const m = matchName(who.name, everyone(), who.id ? { id: who.id } : {})
     if ('none' in m) return { reason: 'name_not_found', text: refusal({ done: NONE, why: { kind: 'failed', what: `nobody on the team and no group is called '${ai(who.name)}'` }, next: 'ask the user who they mean' }) }
@@ -545,7 +549,12 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     }
     const subject = m.one
     const alwaysOn = alwaysHere(exec.alwaysPlace?.(), 'folder_access') === 'on'
-    if (!alwaysOn && (othersWordsIn(exec) || !!exec.tainted)) {
+    // under Always the person's own message still has to name them where someone else could have asked for it: a shared
+    // chat with a guest among its people (strict, as share_folder and share_with_person), and a scheduled run that
+    // took in other people's words (nobody is there to see it). A person they named needs no card (Rule A).
+    const outside = othersWordsIn(exec) || !!exec.tainted
+    const mustName = guestInShared(exec) || (outside && (!alwaysOn || spec.clientKind === 'schedule'))
+    if (mustName) {
       const said = withoutQuoteLines(askerText(db, askerMessageId(exec)))
       const username = subject.subjectType === 'user' ? (db.query('SELECT username FROM users WHERE id = ?').get(subject.subjectId) as { username: string | null } | null)?.username ?? null : null
       if (!namesFolder(said, path, { place: placeWords(db, path, L, spec.userId), attached: attachedPaths(db, askerMessageId(exec)) }) || !(subject.subjectType === 'group' ? namesGroup(said, subject.name) : namedInFull(said, [subject.name, ...(subject.aliases ?? []), ...(username ? [username] : [])])))
