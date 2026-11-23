@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 00:03
 - Branch: `fix/one-always-allow`
-- Status: in progress (plan review done: must-fix items folded in)
+- Status: done
 - Where: server (chat cards, connections, url-gate), shared (allowance type), web (Settings, ask card), docs. Why: the
   owner's decision of 2026-11-23 (docs/REPOSITORY-RULES.md: product rules live with the code that enforces them)
 - Version impact: patch (fewer cards and one remembered choice; one data-only migration that drops per-chat rows)
@@ -95,4 +95,8 @@ fallback of #404/#403/#413, #412's late-Always guest guard).
 
 ## Result
 
-(at the end)
+PR #424. Built as planned, with the plan review's changes (ALL_TOOLS never a write rule; the guest + steerable
+scheduled refusal kept but for the maker's own Always; a tool's Always holds in private chats too; a `row` flag for the
+four buttons). Code review: the shared connection card's note is capped at 300 characters, and the connector-wide line
+says its results show in shared chats too. Real check on a private QA copy (claude-code): 12 asks before, 2 after, for
+the same Aside-like and Bright Data-like flows in new shared chats and chats with a guest; a revoke brought the card back.
