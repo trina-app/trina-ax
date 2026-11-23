@@ -35,17 +35,25 @@ export const OPENROUTER_STT_PROVIDERS: readonly string[] = ['deepinfra', 'groq']
 /** ElevenLabs Scribe (`elevenlabs/*`): ElevenLabs is its one provider on OpenRouter, a zero data retention endpoint
  * (OpenRouter's ZDR list, 2026-11-23) */
 export const ELEVENLABS_STT_PROVIDERS: readonly string[] = ['elevenlabs']
-/** the providers a model's sound may go to: its own provider for ElevenLabs, else whisper's */
-export const speechProviders = (model: string): readonly string[] =>
-  (model.startsWith('elevenlabs/') ? ELEVENLABS_STT_PROVIDERS : OPENROUTER_STT_PROVIDERS)
-/** The request's `provider` object for `model`: its providers in their order, the next one when one is down (fallbacks
- * on), none outside the list (`only`), zero data retention and no data collection. ElevenLabs gets
- * `tag_audio_events: false` (its own option, forwarded only to ElevenLabs): Scribe writes "(laughter)" and
- * "(background noise)" into the text by default, and voice input would put them in the message box. */
+/** open whisper on OpenRouter ("openai/whisper-large-v3-turbo", "openai/whisper-large-v3"): DeepInfra and Groq serve
+ * it. Not "openai/whisper-1" (only OpenAI serves it). */
+const isWhisper = (model: string) => /^openai\/whisper-large-v3(?:-turbo)?$/.test(model)
+/** The providers a model's sound may go to: whisper's (DeepInfra, Groq), ElevenLabs for `elevenlabs/*`, and null for
+ * any other model (its own providers: OpenRouter picks among them). A list that holds none of the model's providers
+ * leaves OpenRouter no endpoint: it answers 404 ("OpenRouter refused the request (HTTP 404)", measured 2026-11-23 with
+ * `elevenlabs/scribe-v2` and whisper's list). */
+export const speechProviders = (model: string): readonly string[] | null =>
+  (model.startsWith('elevenlabs/') ? ELEVENLABS_STT_PROVIDERS : isWhisper(model) ? OPENROUTER_STT_PROVIDERS : null)
+/** The request's `provider` object for `model`: zero data retention and no data collection always; for a model with a
+ * list (speechProviders), its providers in their order, the next one when one is down (fallbacks on), none outside
+ * the list (`only`). ElevenLabs gets `tag_audio_events: false` (its own option, forwarded only to ElevenLabs): Scribe
+ * writes "(laughter)" and "(background noise)" into the text by default, and voice input would put them in the
+ * message box. */
 export const openRouterRouting = (model: string) => {
   const list = speechProviders(model)
   return {
-    zdr: true, data_collection: 'deny', order: [...list], only: [...list], allow_fallbacks: true,
+    zdr: true, data_collection: 'deny',
+    ...(list ? { order: [...list], only: [...list], allow_fallbacks: true } : {}),
     ...(list === ELEVENLABS_STT_PROVIDERS ? { options: { elevenlabs: { tag_audio_events: false } } } : {}),
   }
 }
@@ -99,6 +107,17 @@ const PROVIDER_DOWN_TWICE = () => fail(
   '음성 인식 서비스(OpenRouter)가 두 번 보내도 답하지 않았어요. 잠시 뒤 다시 해 주세요.',
   'The speech service (OpenRouter) did not answer, twice. Please try again later.',
   'Layanan suara (OpenRouter) tidak menjawab, dua kali. Coba lagi nanti.', "音声サービス（OpenRouter）が2回とも応答しませんでした。後で再試行してください。", "El servicio de voz (OpenRouter) no respondió, dos veces. Vuelva a intentarlo más tarde.", "语音服务（OpenRouter）两次都没有回应。请稍后重试。")
+/** 404: OpenRouter has no endpoint for the model under the request's rules: the model does not exist, or none of its
+ * providers keeps no data (zero data retention: `openai/gpt-transcribe` and `google/gemini-3.5-transcribe` have no
+ * ZDR endpoint, OpenRouter's ZDR list 2026-11-23). The sound never goes to a provider that keeps it. */
+export const NO_ZDR_MODEL = () => fail(
+  'OpenRouter에 이 음성 모델을 데이터 보관 없이(제로 데이터 보존) 처리하는 곳이 없어요. 관리자가 관리 › 팀 설정 › 음성 입력에서 다른 모델(예: elevenlabs/scribe-v2)을 골라 주세요.',
+  'OpenRouter has no provider that runs this speech model without keeping the data (zero data retention), or the model does not exist. An admin can pick another model in Admin › Team settings › Voice input, for example elevenlabs/scribe-v2.',
+  'OpenRouter tidak punya penyedia yang menjalankan model suara ini tanpa menyimpan data (zero data retention), atau modelnya tidak ada. Admin dapat memilih model lain di Admin › Pengaturan tim › Input suara, misalnya elevenlabs/scribe-v2.',
+  'OpenRouter には、この音声モデルをデータを保存せずに（ゼロデータ保持で）処理するプロバイダーがないか、モデルが存在しません。管理者が「管理 › チーム設定 › 音声入力」で別のモデル（例: elevenlabs/scribe-v2）を選んでください。',
+  'OpenRouter no tiene ningún proveedor que ejecute este modelo de voz sin guardar los datos (retención de datos cero), o el modelo no existe. Un administrador puede elegir otro modelo en Administración › Configuración del equipo › Entrada de voz, por ejemplo elevenlabs/scribe-v2.',
+  'OpenRouter 上没有能以零数据保留方式运行这个语音模型的服务商，或者这个模型不存在。管理员可以在“管理 › 团队设置 › 语音输入”中换一个模型，例如 elevenlabs/scribe-v2。',
+  'bad_request', 'no_zdr_model')
 const REFUSED = (status: number) => fail(
   `OpenRouter가 요청을 거절했어요(HTTP ${status}).`,
   `OpenRouter refused the request (HTTP ${status}).`,
@@ -108,6 +127,7 @@ const REFUSED = (status: number) => fail(
 export function openRouterFailure(status: number) {
   if (status === 401 || status === 403) return BAD_KEY()
   if (status === 402) return NO_CREDITS()
+  if (status === 404) return NO_ZDR_MODEL()
   if (status === 429) return RATE_LIMITED()
   if (status >= 500) return PROVIDER_DOWN()
   return REFUSED(status)
@@ -328,10 +348,10 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
  * now (the caller's checks for new sound), asked before that second try; false keeps the first failure.
  */
 export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model: string, audio: Uint8Array, format: string,
-  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean; hintOnly?: boolean }): Promise<OpenRouterAnswer> {
+  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean; hintOnly?: boolean; plain?: boolean }): Promise<OpenRouterAnswer> {
   if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
-  const verbose = !PLAIN_JSON_MODELS.has(model)
+  const verbose = !o.plain && !PLAIN_JSON_MODELS.has(model)
   const body = JSON.stringify({
     model,
     input_audio: { data: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'), format },
@@ -341,14 +361,16 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
   })
   const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null, again: o.again })
   if (!res.ok) {
-    // a 400 that names the answer format: only then is the model one without structured answers (a 400 for a bad
-    // sound or a refused language must not take whisper's scores away for good). At most 4 KB of the error is read.
-    const why = verbose && res.status === 400 ? await errorText(res) : ''
+    // A model without structured answers refuses verbose_json (400; OpenRouter names gpt-4o-transcribe): the same
+    // request once more as json, and json for that model from then on once that one is answered. Whisper gives
+    // verbose_json, so for it only a 400 that names the answer format does this (a 400 for a bad sound or a refused
+    // language keeps whisper's scores). At most 4 KB of the error is read.
+    const why = verbose && res.status === 400 && isWhisper(model) ? await errorText(res) : ''
     await res.body?.cancel().catch(() => {})
-    // a model without structured answers refuses verbose_json (400): the same request once more as json, remembered
-    if (verbose && res.status === 400 && /verbose_json|response_format/i.test(why)) {
+    if (verbose && res.status === 400 && (!isWhisper(model) || /verbose_json|response_format/i.test(why))) {
+      const r = await sendToOpenRouter(cfg, key, model, audio, format, { ...o, plain: true })
       PLAIN_JSON_MODELS.add(model)
-      return sendToOpenRouter(cfg, key, model, audio, format, o)
+      return r
     }
     // `hintOnly`: the language was only a hint; a provider that refuses the field (400) gets the sound without it
     if (o.hintOnly && lang && res.status === 400) return { ...await sendToOpenRouter(cfg, key, model, audio, format, { ...o, language: undefined, hintOnly: false }), hinted: false }

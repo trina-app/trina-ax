@@ -189,11 +189,12 @@ describe('voice input with the hosting key', () => {
     const bad = await voice()
     expect(bad.error!.message).toContain('did not answer, twice')
     expect(hits.length).toBe(2)
-    // a refusal that is not the provider's failure is not sent again
+    // a refusal that is not the provider's failure is not tried again by postAudio: Scribe (the hosted model) gets it
+    // once more only as json (a model without structured answers refuses verbose_json with a 400), then it fails
     hits.length = 0
     reply = () => Response.json({}, { status: 400 })
     await voice()
-    expect(hits.length).toBe(1)
+    expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json', 'json'])
     expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(2.5)
   })
   test("a Groq answer (language as a name, 10-second billing in usage) is read the same; the sound's own seconds count", async () => {

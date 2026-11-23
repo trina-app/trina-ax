@@ -135,14 +135,19 @@ describe('OpenRouter transcription', () => {
     expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
     expect(ELEVENLABS_STT_PROVIDERS).toEqual(['elevenlabs'])
     expect(speechProviders('openai/whisper-large-v3-turbo')).toEqual(['deepinfra', 'groq'])
-    expect(speechProviders('openai/whisper-1')).toEqual(['deepinfra', 'groq'])
+    expect(speechProviders('openai/whisper-large-v3')).toEqual(['deepinfra', 'groq'])
     expect(speechProviders('elevenlabs/scribe-v2')).toEqual(['elevenlabs'])
+    // any other model: its own providers (whisper's list would leave OpenRouter no endpoint: 404)
+    for (const m of ['openai/gpt-transcribe', 'google/gemini-3.5-transcribe', 'openai/whisper-1', 'openai/gpt-4o-transcribe']) {
+      expect(speechProviders(m)).toBe(null)
+      expect(openRouterRouting(m)).toEqual({ zdr: true, data_collection: 'deny' })
+    }
     const w = 'openai/whisper-large-v3-turbo'
     expect(openRouterRouting(w)).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
     expect(openRouterRouting('elevenlabs/scribe-v2')).toEqual({ zdr: true, data_collection: 'deny', order: ['elevenlabs'], only: ['elevenlabs'], allow_fallbacks: true, options: { elevenlabs: { tag_audio_events: false } } })
     // a fresh copy each time: nobody can change the next request's list through it
-    openRouterRouting(w).only.push('openai')
-    openRouterRouting(w).order.push('openai')
+    openRouterRouting(w).only!.push('openai')
+    openRouterRouting(w).order!.push('openai')
     expect(openRouterRouting(w).only).toEqual(['deepinfra', 'groq'])
     expect(openRouterRouting(w).order).toEqual(['deepinfra', 'groq'])
     expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
@@ -165,17 +170,51 @@ describe('OpenRouter transcription', () => {
       expect(hits.map((h) => h.body.response_format)).toEqual(['json'])
     } finally { resetPlainJsonModelsForTests() }
   })
-  test('a 400 that does not name the answer format keeps verbose_json (one request, the usual failure)', async () => {
+  test('whisper: a 400 that does not name the answer format keeps verbose_json (one request, the usual failure)', async () => {
     resetPlainJsonModelsForTests()
-    reply = () => Response.json({ error: { message: 'invalid audio' } }, { status: 400 })
-    const job = await run(wav())
-    expect(job.status).toBe('failed')
-    expect(job.error!.message).toContain('HTTP 400')
-    expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
-    hits.length = 0
-    reply = () => Response.json({ text: 'Hello team.' })
-    await run(wav())
-    expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
+    updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' })
+    try {
+      reply = () => Response.json({ error: { message: 'invalid audio' } }, { status: 400 })
+      const job = await run(wav())
+      expect(job.status).toBe('failed')
+      expect(job.error!.message).toContain('HTTP 400')
+      expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
+      hits.length = 0
+      reply = () => Response.json({ text: 'Hello team.' })
+      await run(wav())
+      expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+  })
+  test('another model: any 400 to verbose_json goes once more as json; json is kept only after an answer', async () => {
+    resetPlainJsonModelsForTests()
+    updateTeamSettings(A.ctx.db, { speechModel: 'openai/gpt-transcribe' })
+    try {
+      // a bad sound: both fail, nothing remembered
+      reply = () => Response.json({ error: { message: 'invalid audio' } }, { status: 400 })
+      expect((await run(wav())).status).toBe('failed')
+      expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json', 'json'])
+      expect(hits[0]!.body.provider).toEqual({ zdr: true, data_collection: 'deny' })
+      hits.length = 0
+      // a model without structured answers, whatever its error says
+      reply = (b) => (b?.response_format === 'verbose_json' ? Response.json({ error: { message: 'Provider returned error' } }, { status: 400 }) : Response.json({ text: 'Hello team.' }))
+      const job = await run(wav())
+      expect(job.status, JSON.stringify(job.error)).toBe('done')
+      expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json', 'json'])
+      hits.length = 0
+      await run(wav())
+      expect(hits.map((h) => h.body.response_format)).toEqual(['json'])
+    } finally { resetPlainJsonModelsForTests(); updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+  })
+  test('404 (no zero-data-retention endpoint for the model, or no such model): a clear failure naming another model, no second try', async () => {
+    updateTeamSettings(A.ctx.db, { speechModel: 'google/gemini-3.5-transcribe' })
+    try {
+      reply = () => Response.json({ error: { message: 'No endpoints found matching your data policy' } }, { status: 404 })
+      const job = await run(wav())
+      expect(job.status).toBe('failed')
+      expect(job.error!.message).toContain('zero data retention')
+      expect(job.error!.message).toContain('elevenlabs/scribe-v2')
+      expect(hits.length).toBe(1)
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
   })
   test('a Scribe answer without whisper scores: the text is kept and nothing is sent twice', async () => {
     reply = () => Response.json({ text: '안녕하세요. 회의를 시작합니다.', language: 'kor', duration: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
