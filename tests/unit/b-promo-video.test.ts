@@ -11,6 +11,7 @@ import path from 'node:path'
 import { API, PROMO_ARTIFACT_KEY, PromoVideoInput } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { makePng } from '../lib/images'
 import { charWidth, fitSize, textWidth, wrapLines } from '../../server/src/promo-video/metrics'
 import { contrast } from '../../server/src/promo-video/colors'
 import { fittingFamilies, paletteFor, usableBrand } from '../../server/src/promo-video/palette'
@@ -364,22 +365,26 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
   // in as it is: the chat's people see it already (docs/decisions/20261123-ab4-asks-left.md)
   test('a photo attached in a shared chat goes into the video as the chat\'s file: no team copy; the chat\'s people may play and get it, nobody else', async () => {
     const chat = await h.api('dana').call(API.createChat, { body: {} })
-    h.ctx.db.query("UPDATE chats SET people_shared_at = datetime('now') WHERE id = ?").run(chat.id)
-    h.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'alice', 'dana', datetime('now'))").run(chat.id)
+    await send('dana', chat.id, fake({ say: 'hello' }))
+    const subjects = [{ subjectType: 'user' as const, subjectId: 'alice' }]
+    let sh = await h.api('dana').call(API.putChatAudience, { params: { id: chat.id }, body: { subjects } })
+    if (sh.status === 'confirm') sh = await h.api('dana').call(API.putChatAudience, { params: { id: chat.id }, body: { subjects, confirmKey: sh.confirmKey } })
+    expect(sh.status).toBe('saved')
     const form = new FormData()
     form.set('chatId', chat.id)
-    form.set('file', new File([new Uint8Array(png(1600, 1200))], '제품사진.png'))
-    const up = await (await h.req('dana', '/api/uploads', { method: 'POST', body: form })).json() as { id: string; source: string; name: string }
-    expect(up.source).toBe('chat')
+    form.set('file', new File([makePng(1600, 1200)], '제품사진.png'))
+    const res = await h.req('dana', '/api/uploads', { method: 'POST', body: form })
+    const up = await res.json() as { id: string; source: string; name: string }
+    expect([res.status, up.source]).toEqual([201, 'chat'])
     const place = `chat:files/${up.id}/${up.name}`
-    const before = fs.readdirSync(path.join(h.team, 'shared'), { recursive: true }).length
     const r = await h.api('dana').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'promo_video', args: slots({ promise: { headline: ['See where the power', '*goes*'], picture: place } }), sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [up.id] } })
     await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
     expect((h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(r.assistantMessage.id) as { content: string }).content).toContain('Made the promo video')
     const art = h.ctx.db.query('SELECT id, content FROM artifacts WHERE chat_id = ?').get(chat.id) as { id: string; content: string }
     // the page names the chat file by its place (the app fetches it for whoever looks); nothing was copied to a team folder
     expect(art.content).toContain(`src="chat:files/${up.id}/`)
-    expect(fs.readdirSync(path.join(h.team, 'shared'), { recursive: true }).length).toBe(before)
+    const named = (dir: string): string[] => { let out: string[] = []; let es: fs.Dirent[] = []; try { es = fs.readdirSync(dir, { withFileTypes: true }) } catch { return out } for (const e of es) { const p = path.join(dir, e.name); if (e.isDirectory()) out = out.concat(named(p)); else if (e.name.normalize('NFC') === '제품사진.png') out.push(p) } return out }
+    expect(named(path.join(h.team, 'shared'))).toEqual([])
     // alice sees the chat: her player and the video's info; erin does not
     expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(200)
     expect((await h.req('alice', `/api/chats/${chat.id}/files/${up.id}`)).status).toBe(200)
@@ -399,7 +404,7 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const form = new FormData()
     form.set('chatId', chat.id)
-    form.set('file', new File([new Uint8Array(png(1600, 1200))], 'photo.png'))
+    form.set('file', new File([makePng(1600, 1200)], 'photo.png'))
     const up = await (await h.req('dana', '/api/uploads', { method: 'POST', body: form })).json() as { id: string; path: string }
     expect(up.path.startsWith('users/dana/.attachments/')).toBe(true)
     const ok = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots({ promise: { headline: ['See where the power', '*goes*'], picture: up.path } }), sayResult: true }))
