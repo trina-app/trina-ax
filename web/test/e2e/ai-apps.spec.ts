@@ -70,6 +70,33 @@ test('Claude Code: the exact command to copy, then /mcp; Codex: add, then login;
   await expect(other.getByTestId('ai-app-limit')).toContainText('ChatGPT')
 })
 
+test('Copy prompt: Claude Code, Codex and other apps copy a ready prompt with the real command or address; Claude ends with a first ask', async ({ page }) => {
+  await reset(page)
+  await connector(page)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  const copied = () => page.evaluate(() => navigator.clipboard.readText())
+  for (const [id, title, holds] of [
+    ['claude-code', 'Claude Code 연결', [`claude mcp add --transport http trina-ax ${RESOURCE}`, '/mcp']],
+    ['codex', 'Codex 연결', [`codex mcp add trina-ax --url ${RESOURCE}`, 'codex mcp login trina-ax']],
+    ['other', '다른 앱 연결', [RESOURCE, 'Streamable HTTP']],
+  ] as const) {
+    await page.getByTestId(`ai-app-connect-${id}`).click()
+    const dialog = page.getByRole('dialog', { name: title })
+    await dialog.getByTestId('ai-app-prompt-copy').click()
+    await expect(dialog.getByTestId('ai-app-prompt-copy')).toHaveText('복사됨')
+    const text = await copied()
+    for (const h of holds) expect(text).toContain(h)
+    await dialog.getByTestId('ai-app-done').click()
+  }
+  await page.getByTestId('ai-app-connect-claude').click()
+  const claude = page.getByRole('dialog', { name: 'Claude 연결' })
+  await expect(claude.getByTestId('ai-app-prompt')).toHaveCount(0)
+  await claude.getByTestId('ai-app-try-copy').click()
+  expect(await copied()).toContain('팀 폴더 목록')
+})
+
 test('the dialog says Connected when the app appears, and the list then shows it with Disconnect', async ({ page }) => {
   await reset(page)
   const state = await connector(page)

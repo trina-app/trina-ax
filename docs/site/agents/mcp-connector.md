@@ -26,7 +26,7 @@ The connector is off until the server has a public HTTPS address for it. Use one
 Open **Settings › Trina AX MCP**. It shows the connection address, which ends in `/mcp`.
 
 #### Add it to Claude
-Choose **Connect** next to Claude, Claude Code, Codex or Other apps for the exact steps with Copy. In Claude, add a custom connector (Claude's own Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex (the CLI, the IDE extension and the Codex app use the same setup), run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
+Choose **Connect** next to Claude, Claude Code, Codex or Other apps for the exact steps with Copy. For Claude Code, Codex and Other apps the dialog also has **Copy prompt**: paste it into the app and it runs the steps itself, tells you how to sign in, and checks by listing your team folder. For Claude, the dialog ends with a first ask to try once connected. In Claude, add a custom connector (Claude's own Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex (the CLI, the IDE extension and the Codex app use the same setup), run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request, tick what else Claude may do, and choose **Allow**.
