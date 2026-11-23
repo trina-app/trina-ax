@@ -113,7 +113,8 @@ describe('a project chat', () => {
     expect(row.chatThread?.mention).toBeUndefined()
   })
 
-  test('a mention is pushed whatever "Replies in threads I\'m part of" says (off by default: a thread rings only on a mention)', async () => {
+  test('a mention is pushed whatever "Replies in threads I\'m part of" says (on by default; off, a thread rings only on a mention)', async () => {
+    savePreferences(db(), 'bob', { roomThreadReplies: false })
     await reply('alice', chatId, root, '@Bob Lee push?', ['bob'])
     const n = notice('bob', root)!
     const row = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((i) => i.id === n.id)!
@@ -121,8 +122,7 @@ describe('a project chat', () => {
     const due = Date.now() + 60_000
     expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true)
     savePreferences(db(), 'bob', { roomThreadReplies: true })
-    try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true) }
-    finally { savePreferences(db(), 'bob', { roomThreadReplies: false }) }
+    expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true)
   })
 
   // the owner 11-22: the 프로젝트 list showed "1" and nothing else did; the app icon's number counts it too (push-badge.ts)
@@ -217,9 +217,10 @@ describe('a chat shared with people', () => {
     expect((db().query('SELECT last_read_id FROM chat_thread_follows WHERE root_id = ? AND user_id = ?').get(root, 'bob') as { last_read_id: string }).last_read_id).toBe(r.id)
   })
 
-  test('a plain reply is a Threads row, not a Mentions one; it rings nothing by default (a thread rings only on a mention)', async () => {
-    // the same two-person chat, another answer (a share less: the sharing budget)
+  test('a plain reply is a Threads row, not a Mentions one; with "Replies in threads I\'m part of" off it rings nothing (only a mention)', async () => {
+    // the same two-person chat, another answer (a share less: the sharing budget); the switch is on by default, off here
     const c = twoPeople
+    savePreferences(db(), 'bob', { roomThreadReplies: false })
     const root = await answered(c, 'alice', 'plain reply answer')
     await reply('bob', c, root, 'first from bob')
     const r = await reply('alice', c, root, 'thanks')

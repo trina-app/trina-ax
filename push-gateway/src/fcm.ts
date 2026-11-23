@@ -2,9 +2,9 @@
 // is exchanged for an OAuth access token at the account's token_uri, cached until 60 s before it expires.
 //
 // `data` is flat strings { notificationId, code, path?, device? } and never has a key named "body" (expo-notifications on
-// Android would read a JSON "body" as its own format) or "tag" (expo-notifications 58 uses data["tag"] as the
-// notification's identifier, so a per-device tag would make every push replace the previous one). The request's `tag`
-// (the team's device id) therefore travels as `device`. `badge` is not sent: Android launchers count the notifications in
+// Android would read a JSON "body" as its own format). expo-notifications 58 uses data["tag"] as the notification's
+// identifier, so a per-device tag would make every push replace the previous one: the request's `tag` (the team's
+// device id) travels as `device`, and data["tag"] is the notice id (as android.notification.tag). `badge` is not sent: Android launchers count the notifications in
 // the tray and add up their `notification_count`, so the total on every push would show 1+2+3 = 6 for three pushes.
 // Each notification counts as one there; the open app sets its own number (badge-v1).
 //
@@ -43,13 +43,20 @@ export const labelCode = (code: string) => code.startsWith('room.') || code === 
 
 /** The FCM v1 `message` for one send. */
 export function fcmMessage(msg: PushGatewaySend, alert: { title: string; body: string }): Record<string, unknown> {
+  // a sync (contract "Sync"): data-only, never a title or a line, NORMAL priority (it shows nothing, so it must not ask
+  // for a high-priority wake), no collapse key (each one's ids count); the app takes the listed notices off its tray
+  if (msg.sync === true) {
+    return { token: msg.token, data: { ...appData(msg), ...(msg.clear?.length ? { clear: msg.clear.join(',') } : {}) }, android: { priority: 'NORMAL', ttl: `${msg.ttlSeconds ?? 0}s` } }
+  }
   const android = { priority: 'HIGH', ttl: `${msg.ttlSeconds ?? 0}s`, collapse_key: msg.notificationId }
   if (msg.label === true && labelCode(msg.code)) {
     // tag: the notice id, so even expo-notifications' own path (an app from before the label, or the app's fallback)
     // gives a resend of the same notice the same notification id and replaces it, as the notification block's tag did
     return { token: msg.token, data: { ...appData(msg), title: alert.title, message: alert.body, channelId: 'default', tag: msg.notificationId }, android }
   }
-  return { token: msg.token, notification: alert, data: appData(msg), android: { ...android, notification: { channel_id: 'default', tag: msg.notificationId } } }
+  // data.tag = the notice id too: expo-notifications names a notification it shows while the app is open by it (else by
+  // the FCM message id), so a sync (the app's Sync.kt) finds it by the notice id as it finds the system's own
+  return { token: msg.token, notification: alert, data: { ...appData(msg), tag: msg.notificationId }, android: { ...android, notification: { channel_id: 'default', tag: msg.notificationId } } }
 }
 
 export interface FcmConfig { projectId: string; clientEmail: string; privateKeyPem: string; tokenUri: string }

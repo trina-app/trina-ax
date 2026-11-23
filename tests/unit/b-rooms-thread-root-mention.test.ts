@@ -3,7 +3,7 @@
 // threads and marks the root for them, without a mention in the reply. "@everyone" in the root makes nobody follow; a
 // person mentioned in the root who is not in the room now, or cannot see the root, is not added. Room threads have no
 // unfollow (no route, no flag), so adding them again on each reply overrides no choice. The push follows "Replies in
-// threads I'm part of", off by default since 2026-11-22 (docs/decisions/20261122-project-chat-notices-threads-mention-only.md).
+// threads I'm part of", on by default as in Slack (docs/decisions/20261123-thread-replies-default-on.md).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { noticeWanted } from '../../server/src/rooms/alerts'
@@ -48,9 +48,10 @@ test('a person mentioned in the root follows its thread from the first reply: ea
   const r1 = await reply(mia.client, g.id, root.id, 'pricing is done')
   // the root's author (mia, also the replier: read up to her reply) and nora (mentioned in the root, from the root on)
   expect(followers(root.id)).toEqual([{ user_id: mia.id, last_read_seq: r1.seq }, { user_id: nora.id, last_read_seq: root.seq }].sort((a, b) => a.user_id.localeCompare(b.user_id)))
-  // nora: a row in Mentions & threads, quiet ("Replies in threads I'm part of" is off by default: a quiet notice is never
-  // pushed, rung or told, Notifications.roomNotice)
-  expect(threadNotices(g.id, nora.id).map((n) => [n.event_type, n.quiet, n.source_id])).toEqual([['room.dm', 1, r1.id]])
+  // nora: a row in Mentions & threads that rings ("Replies in threads I'm part of" is on by default: pushed, as in Slack)
+  const first = threadNotices(g.id, nora.id)
+  expect(first.map((n) => [n.event_type, n.quiet, n.source_id])).toEqual([['room.dm', 0, r1.id]])
+  expect(noticeWanted(h.ctx.db, first[0]!.id)).toBe(true)
   const inbox = await nora.client.call('GET', '/api/notifications?only=rooms')
   expect(inbox.items.map((x: any) => x.room?.message)).toContain(r1.id)
   // the root is marked for her, and the room counts the thread
@@ -59,19 +60,16 @@ test('a person mentioned in the root follows its thread from the first reply: ea
   // otto, not mentioned anywhere, is not added and hears nothing
   expect(threadNotices(g.id, otto.id)).toEqual([])
   expect(await roomOf(otto.client, g.id)).toMatchObject({ threadsUnread: 0 })
-  // more replies: still hers (one quiet row per unread run), the follow is not added twice
+  // more replies: each one a notice of its own (the owner's six replies were six notices), the follow not added twice
   await reply(mia.client, g.id, root.id, 'deck is done')
   await reply(mia.client, g.id, root.id, 'invoice is sent')
   expect(followers(root.id).filter((f) => f.user_id === nora.id)).toHaveLength(1)
-  expect(threadNotices(g.id, nora.id).length).toBeGreaterThanOrEqual(1)
-  expect(threadNotices(g.id, nora.id).every((n) => n.quiet === 1)).toBe(true)
-  // with the switch on, a reply rings her (a notice that may be pushed)
+  expect(threadNotices(g.id, nora.id).map((n) => n.quiet)).toEqual([0, 0, 0])
+  // with the switch off, a reply is still her row in Mentions & threads, quiet (never pushed, rung or told)
   await nora.client.call('POST', `/api/rooms/${g.id}/messages/${root.id}/thread/read`, { seq: 999 })
-  await nora.client.call('PATCH', '/api/notification-preferences', { roomThreadReplies: true })
+  await nora.client.call('PATCH', '/api/notification-preferences', { roomThreadReplies: false })
   const r4 = await reply(mia.client, g.id, root.id, 'one more thing')
-  const rung = threadNotices(g.id, nora.id)
-  expect(rung.map((n) => [n.event_type, n.quiet, n.source_id])).toEqual([['room.dm', 0, r4.id]])
-  expect(noticeWanted(h.ctx.db, rung[0]!.id)).toBe(true)
+  expect(threadNotices(g.id, nora.id).map((n) => [n.event_type, n.quiet, n.source_id])).toEqual([['room.dm', 1, r4.id]])
   // reading the thread clears it; replying keeps her place at her reply
   await nora.client.call('POST', `/api/rooms/${g.id}/messages/${root.id}/thread/read`, { seq: 999 })
   const own = await reply(nora.client, g.id, root.id, 'thanks')

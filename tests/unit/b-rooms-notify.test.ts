@@ -69,7 +69,7 @@ test('preferences: the room default, thread replies and quiet hours; strict; the
   expect(got).toEqual({
     scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true,
     // replies in threads: off by default since 2026-11-22 (a thread rings only on a mention, migration 437)
-    roomMessages: true, roomLevel: 'direct', roomThreadReplies: false, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
+    roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
     chatAnswers: true, phoneWhen: 'away', chatShares: true, fileShares: true,
   })
   // the message preview (default on) is saved like the rest
@@ -118,7 +118,7 @@ test('migration 255: someone who had turned room messages off is 받지 않음; 
 test('a room\'s own level: PATCH notifyLevel (members only, strict), muted in step, what the list and the events say', async () => {
   const { owner, ada, nora, otto, hub, rooms, dm, team, chat, level } = await setup()
   const list = await nora.client.call('GET', '/api/rooms')
-  expect(list.alerts).toEqual({ threadReplies: false, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String), messagePreview: true })
+  expect(list.alerts).toEqual({ threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String), messagePreview: true })
   const of = (id: string) => list.items.find((r: any) => r.id === id)
   expect(of(dm.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })
   expect(of(chat.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })
@@ -216,7 +216,7 @@ test('notices: replies in threads I follow (and the switch for them), mentions i
   await reply(mia.client, team.id, root.id, 'first reply')
   expect(quiet(team.id)).toEqual(['room.dm:0'])
   await readThread(team.id, root.id)
-  // the switch off (its default since 2026-11-22): a followed reply is still a row in Mentions & threads, quiet (never
+  // the switch off (on by default since 2026-11-23): a followed reply is still a row in Mentions & threads, quiet (never
   // pushed or rung); a mention in a reply rings
   await prefs(nora.client, { roomThreadReplies: false })
   await reply(mia.client, team.id, root.id, 'second reply')

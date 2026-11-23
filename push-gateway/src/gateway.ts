@@ -7,11 +7,11 @@
 import {
   PUSH_GATEWAY_ERRORS, PUSH_GATEWAY_HEALTH_PATH, PUSH_GATEWAY_MAX_BODY_BYTES, PUSH_GATEWAY_MAX_SKEW_MS,
   PUSH_GATEWAY_SEND_PATH, parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewaySigningString,
-  type PushGatewayErrorCode, type PushPlatform,
+  type PushGatewayErrorCode, type PushGatewaySend, type PushPlatform,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
-import { createApns, type ApnsConfig } from './apns.ts'
+import { apnsPayload, createApns, type ApnsConfig } from './apns.ts'
 import { importTeamKey, sha256Hex, verifyEd25519, type Bytes, type FetchLike } from './crypto.ts'
-import { createFcm, parseServiceAccount, type CredentialAlarm, type SendOutcome } from './fcm.ts'
+import { createFcm, fcmMessage, parseServiceAccount, type CredentialAlarm, type SendOutcome } from './fcm.ts'
 import type { GatewayState } from './state.ts'
 import { DEFAULT_APP_TITLE, alertBody } from './text.ts'
 
@@ -50,6 +50,16 @@ export interface GatewayDeps {
   alarm?: CredentialAlarm
   /** a send that threw (answered 500 internal): the error itself, for the error report; never logged */
   failed?(e: unknown): void
+}
+
+/** APNs' payload limit and FCM's data limit, in bytes */
+export const PROVIDER_MAX_BYTES = 4096
+/** The bytes the provider would get for this send: the APNs payload, or the FCM message's data (the token is not part
+ * of FCM's limit). */
+export function providerBytes(msg: PushGatewaySend, alert: { title: string; body: string }): number {
+  const enc = new TextEncoder()
+  if (msg.platform === 'ios') return enc.encode(JSON.stringify(apnsPayload(msg, alert))).byteLength
+  return enc.encode(JSON.stringify((fcmMessage(msg, alert) as { data?: unknown }).data ?? {})).byteLength
 }
 
 const HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
@@ -151,6 +161,9 @@ export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
     const provider = msg.platform === 'ios' ? apns : fcm
     if (!provider) return fail('not_configured')
     if (msg.platform === 'ios' && msg.environment === 'sandbox' && !apnsCfg?.sandbox) return fail('unsupported_environment')
+    // what the provider gets must fit its limit (APNs payload, FCM data: 4096 bytes); a long Android token with many
+    // sync ids could pass the body limit and still not
+    if (providerBytes(msg, { title, body: alertBody(msg.code, msg.locale) }) > PROVIDER_MAX_BYTES) return fail('body_too_large')
 
     const tokenId = await sha256Hex(msg.token)
     const dedupeId = `${tokenId}:${msg.notificationId}`
@@ -161,7 +174,8 @@ export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
       return answer(200, { ok: true })
     }
     if (k.kind === 'limited') return fail('rate_limited', { 'retry-after': String(k.retryAfterSec) })
-    const t = await deps.state.admitPair(await sha256Hex(`${team.keyId}:${tokenId}`), now)
+    // a sync counts in its own, smaller (key, token) bucket: syncs never use up the phone's real pushes
+    const t = await deps.state.admitPair(await sha256Hex(`${team.keyId}:${tokenId}${msg.sync ? ':sync' : ''}`), now, msg.sync === true)
     if (t.kind === 'limited') {
       await deps.state.release(team.keyId, dedupeId)
       return fail('rate_limited', { 'retry-after': String(t.retryAfterSec) })

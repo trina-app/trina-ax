@@ -24,7 +24,7 @@ export function preferencesOf(row: Row | null): Preferences {
   const quietHours: QuietHours = row ? { on: !!row.quiet_on, start: hhmm(row.quiet_start), end: hhmm(row.quiet_end), weekends: !!row.quiet_weekends } : { ...QUIET_HOURS_DEFAULT }
   return {
     scheduleSuccess: row ? !!row.schedule_success : true, scheduleFailure: row ? !!row.schedule_failure : true, connectionReconnect: row ? !!row.connection_reconnect : true, skillSuggestions: row ? !!row.skill_suggestions : true,
-    roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : false, messagePreview: row ? !!row.message_preview : true, quietHours,
+    roomMessages: level !== 'none', roomLevel: level, roomThreadReplies: row ? !!row.room_thread_replies : true, messagePreview: row ? !!row.message_preview : true, quietHours,
     chatAnswers: row ? !!row.chat_answers : true, phoneWhen: row?.phone_when === 'always' ? 'always' : 'away', chatShares: row ? !!row.chat_shares : true,
     fileShares: row ? !!row.file_shares : true,
   }
