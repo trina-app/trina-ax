@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 07:05
 - Branch: `fix/phone-badge-sync`
-- Status: in progress
+- Status: done
 - Where: `server/src/notifications/`, `shared/src/cloud-protocol/push-gateway.ts`, `push-gateway/`, `mobile/`. Why: the
   phone push path is core (docs/REPOSITORY-RULES.md: phone work goes to the core first).
 - Version impact: patch. A bug fix: notifications already read elsewhere leave the phone; one new table, nothing removed.
@@ -42,7 +42,7 @@ In (changed after the independent plan review, see "Review" below):
    notice). Ids and a number only, unique notification id, 24 h TTL.
    Android syncs go only to an app that registered with `sync: true` (new capability push-sync-v1, sent by the page with
    the token): an older Android app would list an empty notification for a sync while it is open.
-   Migration `446_b_push_phone_sync.sql`: `push_subscriptions.sync_ok`, `push_phone_ledger`, `push_phone_sync`.
+   Migration `448_b_push_phone_sync.sql`: `push_subscriptions.sync_ok`, `push_phone_ledger`, `push_phone_sync`.
 2. Gateway contract: optional `sync: true` with `clear` (ids) and the code `phone.sync`. `phone.sync` without `sync`, `clear`
    without `sync`, and `sync` with `path`, `label` or an Android `badge` are refused, so a sync can never become a visible
    notification. A gateway from before it refuses the key; the team server then sends no sync there for an hour and
@@ -98,7 +98,7 @@ docs/decisions/20261121-android-push-who-where.md (the Android messaging service
 - Privacy: a sync carries notice ids and a number only, as every push already does.
 - Battery / provider rules: no alert, priority 5 (APNs) / NORMAL (FCM), at most one per 30 s per phone.
 - Gateway budget: syncs have their own per-phone bucket.
-- Migration number: 446 (highest on dev: 445).
+- Migration number: 448 (highest on dev: 445; 446 and 447 are taken by open PRs #428, #435, #440).
 
 ## Tests
 
@@ -108,4 +108,9 @@ if one can be built here.
 
 ## Result
 
-(filled in at the end)
+Built as in Scope (after the review). Migration is 448 (446/447 are used by open PRs). Tests: new
+`tests/unit/push-read-sync.test.ts` (one sync per burst, whole set, ids only, iPhone number, retry, old Android app
+gets none, deleted notice, transport never resends without `sync`), sync cases in `push-gateway.test.ts`,
+`mobile-badge.test.ts`, `mobile-push-label-android.test.ts`, `web/test/unit/mobile.test.ts`.
+Not done here: a real-phone check. A sync reaches a phone only through the deployed gateway (FCM/APNs keys live there),
+so it waits for the gateway redeploy and a new Android build (QA TC-8150 to TC-8155).
