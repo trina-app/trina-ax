@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 06:00
 - Branch: `feat/mcp-copy-prompt`
-- Status: in progress
+- Status: done
 - Where: web (Settings › Trina AX MCP, `components/integrations/AiAppConnect.tsx`, i18n). Why: the page explained too little for people who are not developers (docs/REPOSITORY-RULES.md)
 - Version impact: patch, new wording and a copy button, no API or data change
 
@@ -53,4 +53,8 @@ page says to set up on a computer), so no phone change.
 
 ## Result
 
-Filled in at the end.
+Built as planned: lead text, Copy prompt (primary button with a one-line hint above the steps) in the Claude Code,
+Codex and Other apps dialogs, and a "Try this" line with Copy after the Claude steps (`CopyLine prose`). The commands
+moved to `connectorCommands`, which both the steps and the prompts use. Korean prompts avoid a particle after the
+product name (`Trina AX` cannot be told by the particle helper). Tests: `web/test/unit/ai-app-prompt.test.ts`, one case
+in `web/test/e2e/ai-apps.spec.ts`.
