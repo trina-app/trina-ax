@@ -902,14 +902,6 @@ describe.skipIf(skip)('gate: a bad newest snapshot', () => {
       expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
     } finally { await g.stop() }
   })
-  test('an older snapshot of the same commit stands in', async () => {
-    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], before: setup('b'.repeat(40)) })
-    try {
-      // after the failed start of the bad one, the pool waits out its 15 s backoff
-      await until(async () => (await g.health()).pool.warm === 1, 25_000, 'warm from the older one')
-      expect(g.log()).not.toContain('from another commit')
-    } finally { await g.stop() }
-  }, 40_000)
 })
 
 describe.skipIf(skip)('gate: snapshots of another version', () => {

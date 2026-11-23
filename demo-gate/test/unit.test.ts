@@ -13,7 +13,7 @@ import {
 import { WORDMARK_DARK, WORDMARK_LIGHT } from '../src/brand.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
 import { LINUX_BUN, LINUX_COMMAND, LINUX_COMMAND_V1, LINUX_INSTANCES_DIR, LINUX_TDSCOPE, linuxCommandProblems, migrateLinuxCommand } from '../src/linux-command.ts'
-import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
+import { Pool, asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
 import { GateStats, KEEP_DAYS, durationBucket } from '../src/stats.ts'
@@ -448,6 +448,44 @@ describe('start limits', () => {
       expect(s.dailyTokens(t)).toBe(500)
       expect(s.dailyTokens(t + 24 * 3600_000)).toBe(0)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('which snapshot a bad newest one falls back to', () => {
+  const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-pick-'))
+  const pool = (dir: string) => {
+    const cfg = parseConfig({
+      stateDir: path.join(dir, 'state'), turnstile: { siteKey: 'k', secretFile: 'ts' }, ai: { credentialFile: 'cred' },
+      pool: { snapshotsDir: path.join(dir, 'snap'), instancesDir: '/tmp/tdg-p', codeVersion: '1.0.0', locales: ['en'], allowSameUser: true, command: ['node', 'x.ts', '--config', '{config}'] },
+    }, dir)
+    fs.mkdirSync(cfg.stateDir, { recursive: true })
+    return new Pool(cfg, createLog(() => {}), () => 'http://127.0.0.1:1', () => false)
+  }
+  const put = (dir: string, name: string, at: number, git: string | null, codeVersion = '1.0.0') => {
+    const d = path.join(dir, 'snap', 'en', name)
+    fs.mkdirSync(path.join(d, 'base'), { recursive: true })
+    fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ codeVersion, locale: 'en', createdAt: new Date(at).toISOString(), demoFile: 'demo.json', git }))
+    return d
+  }
+  const bad = (p: Pool, d: string) => (p as unknown as { badSnapshots: Set<string> }).badSnapshots.add(d)
+  const A = 'a'.repeat(40), B = 'b'.repeat(40)
+  test('the newest of its version, whatever commit', () => {
+    const d = root(); put(d, 'old', 1000, A); put(d, 'new', 2000, B); put(d, 'other', 3000, A, '2.0.0')
+    expect(pool(d).currentSnapshot('en')?.name).toBe('new')
+  })
+  test('a bad newest: an older one of the same commit stands in', () => {
+    const d = root(); put(d, 'old', 1000, B); const n = put(d, 'new', 2000, B); const p = pool(d); bad(p, n)
+    expect(p.currentSnapshot('en')?.name).toBe('old')
+  })
+  test('a bad newest: never one of another commit, nor one without a commit', () => {
+    for (const other of [A, null]) {
+      const d = root(); put(d, 'old', 1000, other); const n = put(d, 'new', 2000, B); const p = pool(d); bad(p, n)
+      expect(p.currentSnapshot('en')).toBeNull()
+    }
+  })
+  test('snapshots of older builds (no commit) still stand in for each other', () => {
+    const d = root(); put(d, 'old', 1000, null); const n = put(d, 'new', 2000, null); const p = pool(d); bad(p, n)
+    expect(p.currentSnapshot('en')?.name).toBe('old')
   })
 })
 
