@@ -161,12 +161,14 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
     }
   }
-  // edit_office's replacement pictures (tools/edit-office.ts replace_picture.image): team files whose bytes go into the
+  // edit_office's pictures (tools/edit-office.ts replace_picture.image, insert_picture.image): files whose bytes go into the
   // document, weighed by a shared chat's read card like the document itself (S-028 plan review)
   if (tool === 'edit_office' && Array.isArray(a.changes)) {
     for (const c of a.changes as unknown[]) {
-      const img = c && typeof c === 'object' ? (c as { replace_picture?: { image?: unknown } }).replace_picture?.image : undefined
-      if (typeof img === 'string') out.push({ key: 'replace_picture.image', value: img })
+      for (const k of ['replace_picture', 'insert_picture'] as const) {
+        const img = c && typeof c === 'object' ? (c as Record<string, { image?: unknown } | undefined>)[k]?.image : undefined
+        if (typeof img === 'string') out.push({ key: `${k}.image`, value: img })
+      }
     }
   }
   // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)

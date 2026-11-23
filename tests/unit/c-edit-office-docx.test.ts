@@ -4,6 +4,7 @@
 // outside the edit are kept byte for byte; what cannot be changed exactly is refused with the reason. The files are
 // made the way people's files are made: pandoc's Word writer, then saved again by LibreOffice when it is installed.
 import fs from 'node:fs'
+import zlib from 'node:zlib'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -213,5 +214,121 @@ describe('edit_office: Word documents', () => {
     const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ find: 'Supply', replace: 'Service' }] }, [before])))
     const sneaky = withPart(out.blobs[0]!, 'word/document.xml', (x) => x.replace('Paid on the 25th', 'Paid never'))
     expect(() => officeVerifyRequest(frame({ kind: 'docx', changed: out.json.changed, added: [], notes: out.json.notes }, [before, sneaky]))).toThrow(/changed, but no change named it/)
+  })
+})
+
+// insert_picture (plan docs/AGENTS/plan/20261123-0840-docx-insert-picture.md, QA TC-8170..8175): a signature or a seal
+// put at a label of a Word form. The pictures here are made in the test (the tool's own re-encoding is in
+// c-edit-office-tool.test.ts); fake names only.
+const FORM = [
+  '# Supply Contract', '',
+  'Signed on 23 November 2026.', '',
+  'Buyer: Example Trading Co. (seal)', '',
+  'Seller: Hong Gildong (seal)', '',
+  'Signature:', '',
+  '| Item | Value |', '|------|-------|', '| Name | Hong Gildong |', '| Sign | |', '',
+].join('\n')
+function png(w: number, h: number): Uint8Array {
+  const raw = Buffer.concat(Array.from({ length: h }, () => Buffer.from([0, ...Array.from({ length: w }, () => [200, 20, 20]).flat()])))
+  const chunk = (t: string, d: Buffer) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td) >>> 0); return Buffer.concat([len, td, crc]) }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2
+  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
+}
+function runPics(b: Uint8Array, changes: unknown[], images: Uint8Array[]): { file: Uint8Array; report: EditReport } {
+  const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes }, [b, ...images])))
+  const file = out.blobs[0]!
+  officeVerifyRequest(frame({ kind: 'docx', changed: out.json.changed, added: out.json.added, notes: out.json.notes }, [b, file]))
+  return { file, report: out.json }
+}
+const ids = (xml: string) => [...xml.matchAll(/<wp:docPr id="(\d+)"/g)].map((m) => Number(m[1]))
+
+describe('edit_office: insert_picture (a signature or seal in a Word form)', () => {
+  withPandoc('over, after and next_to: the pictures are there, the text is not changed, only the parts a picture needs change', () => {
+    const before = viaOffice(docx(FORM))
+    const seal = png(40, 40), sign = png(90, 30)
+    const { file, report } = runPics(before, [
+      { insert_picture: { image: 0, over: '(seal)', occurrence: 1, width_mm: 15 } },
+      { insert_picture: { image: 0, over: '(seal)', occurrence: 2, width_mm: 15 } },
+      { insert_picture: { image: 1, after: 'Signature:', height_mm: 10 } },
+      { insert_picture: { image: 1, next_to: 'Sign', occurrence: 3 } },
+    ], [seal, sign])
+    expect(texts(file)).toEqual(texts(before))
+    // one media part per picture (the seal is used twice), the relationships, maybe the content types; nothing else
+    const media = report.added.filter((n) => /^word\/media\/image\d+\.png$/.test(n))
+    expect(media.length).toBe(2)
+    expect(changedParts(before, file).filter((n) => !media.includes(n))).toEqual(expect.arrayContaining(['word/_rels/document.xml.rels', 'word/document.xml']))
+    expect(changedParts(before, file).every((n) => media.includes(n) || ['word/_rels/document.xml.rels', 'word/document.xml', '[Content_Types].xml'].includes(n))).toBe(true)
+    const doc = part(file, 'word/document.xml')!
+    // two floating seals behind the text, two inline pictures; sizes in EMU (1 mm = 36000), shape kept
+    expect(doc.match(/<wp:anchor\b[^>]*behindDoc="1"/g)?.length).toBe(2)
+    expect(doc.match(/<wp:inline\b/g)?.length).toBe(2)
+    expect(doc).toContain('<wp:extent cx="540000" cy="540000"/>')
+    expect(doc).toContain('<wp:extent cx="1080000" cy="360000"/>')
+    expect(doc).toContain('<wp:extent cx="720000" cy="240000"/>')
+    expect(doc).toMatch(/<wp:positionH relativeFrom="character"><wp:posOffset>-?\d+<\/wp:posOffset><\/wp:positionH><wp:positionV relativeFrom="line">/)
+    // ids: four new ones, each once, above the document's own
+    const old = ids(part(before, 'word/document.xml')!)
+    const neu = ids(doc).filter((n) => !old.includes(n))
+    expect(neu.length).toBe(4)
+    expect(new Set(neu).size).toBe(4)
+    expect(Math.min(...neu)).toBeGreaterThan(Math.max(0, ...old))
+    // every new r:embed names an image relationship to an added part with a content type
+    const rels = part(file, 'word/_rels/document.xml.rels')!
+    for (const id of new Set([...doc.matchAll(/r:embed="([^"]+)"/g)].map((m) => m[1]!))) expect(rels).toMatch(new RegExp(`Id="${id}" Type="[^"]+/image" Target="media/image\\d+\\.png"`))
+    expect(part(file, '[Content_Types].xml')!).toMatch(/Extension="png"/i)
+    // the sign row's cell holds the picture
+    expect(doc).toMatch(/<w:t[^>]*>Sign<\/w:t>[\s\S]*?<\/w:tc><w:tc>[\s\S]*?<wp:inline/)
+    expect(report.notes.map((n) => n.where)).toEqual([
+      'picture over "(seal)", behind the text (15 x 15 mm)', 'picture over "(seal)", behind the text (15 x 15 mm)',
+      'picture after "Signature:" (30 x 10 mm)', expect.stringMatching(/^picture in the cell right of "Sign" \(/),
+    ])
+    if (soffice) opensInOffice(file, 'docx')
+  })
+
+  withPandoc('a label inside a run: the text element is split, the paragraph reads the same; the default size is 20 mm', () => {
+    const before = docx(FORM)
+    const { file, report } = runPics(before, [{ insert_picture: { image: 0, after: 'Buyer:' } }], [png(30, 60)])
+    expect(texts(file)).toEqual(texts(before))
+    expect(report.notes[0]!.where).toBe('picture after "Buyer:" (10 x 20 mm)')
+    expect(part(file, 'word/document.xml')!).toMatch(/Buyer:<\/w:t><w:drawing>[\s\S]*?<\/w:drawing><w:t xml:space="preserve"> Example/)
+  })
+
+  withPandoc('a document whose root does not name the drawing namespaces: they are declared on the picture', () => {
+    const before = withPart(docx(FORM), 'word/document.xml', (x) => x.replace(/\sxmlns:(wp|a|pic)="[^"]*"/g, ''))
+    expect(part(before, 'word/document.xml')!).not.toContain('xmlns:wp=')
+    const { file } = runPics(before, [{ insert_picture: { image: 0, over: '(seal)', occurrence: 2 } }], [png(10, 10)])
+    expect(part(file, 'word/document.xml')!).toContain('<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"')
+  })
+
+  withPandoc('refused with the reason, nothing saved: no label, two places, no place given, not a table, no cell to the right, not a picture, a size out of range', () => {
+    const before = docx(FORM)
+    const pic = [png(10, 10)]
+    const no = (c: Record<string, unknown>, images = pic) => () => runPics(before, [{ insert_picture: { image: 0, ...c } }], images)
+    expect(no({ over: '(stamp)' })).toThrow(/is not in the text of any one paragraph/)
+    expect(no({ over: '(seal)' })).toThrow(/is in 2 places/)
+    expect(no({})).toThrow(/give one of after, over or next_to/)
+    expect(no({ over: '(seal)', after: 'Buyer:' })).toThrow(/give one of after, over or next_to/)
+    expect(no({ next_to: 'Signature:' })).toThrow(/is not in a table cell/)
+    expect(no({ next_to: 'Hong Gildong', occurrence: 2 })).toThrow(/no cell to the right/)
+    expect(no({ after: 'Buyer:' }, [new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0, 0])])).toThrow(/not a PNG or JPEG/)
+    expect(no({ after: 'Buyer:' }, [new TextEncoder().encode('<script>x</script>')])).toThrow(/not a PNG or JPEG/)
+    expect(no({ after: 'Buyer:', width_mm: 0.2 })).toThrow(/from 1 to 300/)
+    expect(no({ after: 'Buyer:', height_mm: 300 }, [png(400, 10)])).toThrow(/give a smaller size/)
+  })
+
+  withPandoc('the label in a tracked change is refused', () => {
+    const before = withPart(docx(FORM), 'word/document.xml', (x) => x.replace(/(<w:r>(?:(?!<w:r>)[\s\S])*?Buyer:[\s\S]*?<\/w:r>)/, '<w:ins w:id="90" w:author="A" w:date="2026-11-23T00:00:00Z">$1</w:ins>'))
+    expect(() => runPics(before, [{ insert_picture: { image: 0, after: 'Buyer:' } }], [png(10, 10)])).toThrow(/tracked change/)
+  })
+
+  withPandoc('the read-back: a new picture id used twice, or a new picture pointing at no added image, is refused', () => {
+    const before = docx(FORM)
+    const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ insert_picture: { image: 0, over: '(seal)', occurrence: 1 } }, { insert_picture: { image: 0, over: '(seal)', occurrence: 2 } }] }, [before, png(10, 10)])))
+    const verify = (b: Uint8Array) => () => officeVerifyRequest(frame({ kind: 'docx', changed: out.json.changed, added: out.json.added, notes: out.json.notes }, [before, b]))
+    expect(verify(out.blobs[0]!)).not.toThrow()
+    const twice = withPart(out.blobs[0]!, 'word/document.xml', (x) => { const [a, b] = ids(x).slice(-2); return x.replace(`<wp:docPr id="${b}"`, `<wp:docPr id="${a}"`) })
+    expect(verify(twice)).toThrow(/picture id \d+ is used twice/)
+    const elsewhere = withPart(out.blobs[0]!, 'word/document.xml', (x) => x.replace(/r:embed="[^"]+"/, 'r:embed="rId999"'))
+    expect(verify(elsewhere)).toThrow(/not a picture added here/)
   })
 })

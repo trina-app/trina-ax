@@ -546,6 +546,43 @@ type ParaLister = (pkg: Pkg) => string[]
 const listers: Partial<Record<OfficeKind, ParaLister>> = {}
 export function registerLister(kind: OfficeKind, f: ParaLister) { listers[kind] = f }
 
+/** every wp:docPr id (a drawing's id in a Word document) of the XML parts directly in `dir` (body, headers, footers,
+ * notes, comments) */
+export function docPrIds(pkg: Pkg, dir: string): number[] {
+  const out: number[] = []
+  for (const n of pkg.names()) {
+    if (!n.startsWith(dir) || !/^[^/]+\.xml$/.test(n.slice(dir.length))) continue
+    const x = pkg.text(n)
+    if (x === null || !x.includes('docPr')) continue
+    for (const m of x.matchAll(/<[A-Za-z_][\w.-]*:docPr\b[^>]*?\sid\s*=\s*["'](\d+)["']/g)) out.push(Number(m[1]))
+  }
+  return out
+}
+const counted = <T>(xs: T[]) => { const m = new Map<T, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return m }
+
+/** A .docx with new pictures (edit_office insert_picture): every new wp:docPr id is used once in the whole document, and
+ * every new r:embed of the main part names an internal image relationship whose target is a part this edit added and
+ * that has a content type. The paragraph read-back cannot see pictures, so this is what vouches for them. */
+function assertNewPictures(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
+  const bad = (why: string): never => refuse(`the changed file did not pass the checks (${why})`)
+  const main = mainPart(neu, 'word/document.xml')
+  const dir = main.slice(0, main.lastIndexOf('/') + 1)
+  const before = counted(docPrIds(oldPkg, dir))
+  for (const [id, n] of counted(docPrIds(neu, dir))) if (n > (before.get(id) ?? 0) && n !== 1) bad(`a picture id ${id} is used twice`)
+  const embeds = (x: string) => counted([...x.matchAll(/\s[A-Za-z_][\w.-]*:embed\s*=\s*["']([^"']*)["']/g)].map((m) => m[1]!))
+  const oldE = embeds(oldPkg.need(main))
+  const rels = readRels(neu, main)?.rels ?? []
+  const ct = neu.need('[Content_Types].xml')
+  const added = new Set(r.added)
+  for (const [id, n] of embeds(neu.need(main))) {
+    if (n <= (oldE.get(id) ?? 0)) continue
+    const rel = rels.find((x) => x.id === id)
+    if (!rel || rel.external || rel.type !== 'image' || !added.has(rel.target)) bad(`a new picture points at ${JSON.stringify(id.slice(0, 40))}, which is not a picture added here`)
+    const ext = rel!.target.split('.').pop()!.toLowerCase()
+    if (!new RegExp(`Extension="${ext}"`, 'i').test(ct) && !ct.includes(`PartName="/${rel!.target}"`)) bad(`${rel!.target} has no content type`)
+  }
+}
+
 export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newBytes: Uint8Array): void {
   const neu = new Pkg(newBytes, r.kind)
   for (const name of [...r.changed, ...r.added]) {
@@ -568,6 +605,7 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     }
     return
   }
+  if (r.kind === 'docx' && r.added.some((n) => /\/media\//.test(n))) assertNewPictures(new Pkg(oldBytes, r.kind), neu, r)
   const lister = listers[r.kind]!
   const a = lister(new Pkg(oldBytes, r.kind)), b = lister(neu)
   const diff = listDiff(a, b)

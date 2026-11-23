@@ -8,6 +8,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
+import { which } from '../../server/src/config'
+import { readZip } from '../../server/src/files/zip-write'
 import * as XLSX from '../../server/node_modules/xlsx'
 import ExcelJS from '../../server/node_modules/exceljs'
 import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
@@ -408,6 +411,38 @@ describe('edit_office on a chat file', () => {
     const no = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: p, changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
     expect(no.content).toMatch(/read .* first|changed after you read it/)
     expect(versionsOf(chat, up.id)).toBe(2)
+  })
+})
+
+describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () => {
+  const pandoc = which('pandoc')
+  function png(w: number, h: number): Uint8Array {
+    const raw = Buffer.concat(Array.from({ length: h }, () => Buffer.from([0, ...Array.from({ length: w }, () => [200, 20, 20]).flat()])))
+    const chunk = (t: string, d: Buffer) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td) >>> 0); return Buffer.concat([len, td, crc]) }
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
+  }
+  async function send(chat: string, name: string, bytes: Uint8Array) {
+    const form = new FormData()
+    form.set('chatId', chat)
+    form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
+    return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
+  }
+  ;(pandoc ? test : test.skip)('the seal sent in the chat goes onto the form sent in the chat: a new version with the picture, the text as it was', async () => {
+    const r0 = Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSeller: Hong Gildong (seal)\n') })
+    const chat = await sharedChat()
+    const doc = await send(chat, 'form.docx', new Uint8Array(r0.stdout))
+    const seal = await send(chat, 'seal.png', png(30, 30))
+    await run('alice', chat, `the form and my seal\n${fake({ say: 'ok' })}`, [doc.id, seal.id])
+    const p = chatFilePath(doc.id, 'form.docx')
+    const r = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_office', args: { file_path: p, changes: [{ insert_picture: { image: chatFilePath(seal.id, 'seal.png'), over: '(seal)', width_mm: 15 } }] }, sayResult: true }))
+    expect(r.cards).toHaveLength(0)
+    expect(r.content).toContain('saved as version 2')
+    expect(r.content).toContain('picture over "(seal)", behind the text (15 x 15 mm)')
+    const got = new Uint8Array(await (await h.req('erin', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())
+    const z = readZip(got)
+    expect(z.filter((e) => /^word\/media\/image\d+\.png$/.test(e.name)).length).toBe(1)
+    expect(new TextDecoder().decode(z.find((e) => e.name === 'word/document.xml')!.data)).toMatch(/Seller: Hong Gildong <\/w:t><w:drawing>[\s\S]*<\/w:drawing><w:t xml:space="preserve">\(seal\)<\/w:t>/)
   })
 })
 

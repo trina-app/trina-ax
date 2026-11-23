@@ -194,9 +194,9 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-// (edit_office's replacement pictures are only read: never weighed as places an in-place edit writes to)
+// (edit_office's pictures, replaced or inserted, are only read: never weighed as places an in-place edit writes to)
 const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
-  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image'),
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image' && n.key !== 'insert_picture.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -841,9 +841,9 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   }
   // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
   if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
-  // edit_office (tools/edit-office.ts): the file itself, or a new file made from it; a replacement picture's bytes too
+  // edit_office (tools/edit-office.ts): the file itself, or a new file made from it; a replaced or inserted picture's bytes too
   if (name === 'edit_office' && typeof a.file_path === 'string') {
-    const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const img = (c as { replace_picture?: { image?: unknown } })?.replace_picture?.image; return typeof img === 'string' ? [img] : [] }) : []
+    const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const x = c as { replace_picture?: { image?: unknown }; insert_picture?: { image?: unknown } }; const img = x?.replace_picture?.image ?? x?.insert_picture?.image; return typeof img === 'string' ? [img] : [] }) : []
     return typeof a.output === 'string' ? { target: editOfficeOutput(a.output, a.file_path), extra: [a.file_path, ...pics] } : { target: a.file_path, extra: pics }
   }
   // edit_pdf (tools/pdf-tools.ts) on a file of this chat without output: a new version of it, carrying what it inserts
@@ -1798,6 +1798,8 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
     // new file made from it
     if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
+    // edit_office's pictures may be files of this chat (tools/edit-office.ts picture: read through the place's open)
+    if (name === 'edit_office' && (key === 'replace_picture.image' || key === 'insert_picture.image') && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
