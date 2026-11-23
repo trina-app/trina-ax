@@ -38,40 +38,59 @@ start when `pool.runAs` is missing or is its own uid (`allowSameUser: true` is f
 ## Hosting on Linux
 
 [`gate.example.linux.json`](gate.example.linux.json) and [`linux/`](linux/) set the gate up on an amd64 Linux host
-(built on Ubuntu 26.04, 28 GB of memory: 30 visitors at once). Everything is the demo's own: five system users, one
-nft table, a few units and one sudoers file; no other service, user or firewall table is changed.
+(built on Ubuntu 26.04, 28 GB of memory: 30 visitors at once) that also runs other services. Everything is the
+demo's own: five system users, one nft table, a few units and one sudoers file; no other service, user or firewall
+table is changed.
 
 | user | runs | may reach (nft `inet trina_demo`, by socket uid) |
 |---|---|---|
 | `tdgate` | the gate (`trina-demo-gate.service`) | 127.0.0.1:19200–19399 (instances), the DNS stub 127.0.0.53, Anthropic's API ranges :443, Turnstile siteverify :443 |
-| `tdrun` | the instances (through sudo, in the gate's cgroup) | 127.0.0.1:19191 (the gate's model upstream) and 19200–19399; nothing else, no DNS |
+| `tdrun` | the instances (through sudo, each in its own bwrap, in the gate's cgroup) | 127.0.0.1:19191 (the gate's model upstream) and 19200–19399; nothing else, no DNS |
 | `tdtunnel` | cloudflared (`trina-demo-tunnel.service`) | 127.0.0.1:19190, the DNS stub, the Cloudflare edge :443/:7844 |
-| `tdbuild` | the nightly snapshot builder | loopback only |
+| `tdbuild` | the nightly snapshot builder | nothing: its unit has a network namespace of its own (`PrivateNetwork=yes`, loopback only) |
 | `tdcred` | the Claude Code login the gate uses | not restricted (it runs Claude Code only) |
 
 Answers on allowed connections pass (`ct state established`); everything else from these users is rejected, the LAN,
 Tailscale (100.64/10) and every local service (Postgres and others) included. Each instance takes three ports of
 `pool.portRange` (its listener, its model proxy and the proxy's internal server, `engine.proxyInnerPort`), so the
-instance user needs no ephemeral loopback ports (the Mac pf rules still allow them).
+instance user needs no ephemeral loopback ports (the Mac pf rules still allow them). Backstop if the table were ever
+flushed: the gate and tunnel units carry `IPAddressDeny=any` with an `IPAddressAllow` list (loopback; Anthropic and
+the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within a minute.
 
 - **Instances on XFS with reflink.** `/srv/tdg` is an XFS file system on a loop image (`/var/lib/trina-demo/tdg.xfs`,
-  60 GB, sparse, in fstab) made with `-m reflink=1`. The snapshots (`/srv/tdg/.snapshots`) and the builder's output
-  (`/srv/tdg/.build`) are on it too: `cp --reflink=always -R` (`pool.cloneCommand`) clones a snapshot without copying
-  it, and a new snapshot moves in by rename. The sweeper only removes 8-hex folders there.
-- **Memory.** The instances stay in the gate unit's cgroup: `MemoryHigh=16G`, `MemoryMax=18G` hold all of them
-  together. Each instance runs under `choom -n 800` (`pool.command`), so when memory runs out the kernel ends an
-  instance, not the gate or another service.
-- **The unit.** `ProtectHome=yes` (no instance sees `/home` or `/root`), `ProtectSystem=full`, `PrivateTmp=yes`. Not
-  `NoNewPrivileges` (the gate uses sudo), and not `ProtectKernelTunables`, `ProtectProc` or `ProtectControlGroups`:
-  they mount over `/proc` and `/sys`, and the converters' bwrap then cannot mount its own `/proc`.
-- **bwrap.** The converters' isolation (`server/src/tools/isolate.ts`) needs bwrap to make user namespaces. Ubuntu
-  24.04+ restricts them (`kernel.apparmor_restrict_unprivileged_userns=1`); its AppArmor profile for `/usr/bin/bwrap`
-  (`bwrap-userns-restrict`, or a host's own replacement) allows bwrap and nothing else. `install.sh` checks bwrap as
-  `tdrun` and stops when it fails; never turn the restriction off system-wide for the demo.
+  60 GB, allocated with fallocate after a free-space check, in fstab with `nofail,discard`) made with
+  `-m reflink=1`. The mount, `.snapshots/` and `.build/` are root's; the instances are in `/srv/tdg/i`
+  (`pool.instancesDir`, tdrun's, 751); each language's snapshots in `.snapshots/<locale>` (tdgate:tdrun, setgid).
+  `cp --reflink=always -R` (`pool.cloneCommand`) clones a snapshot without copying it. The sweeper only removes
+  8-hex folders.
+- **Snapshots.** `tdsnap-rebuild` builds as `tdbuild` in its own folder; root never changes, removes or follows
+  anything in a folder another user can write: the snapshot leaves as a tar stream made by `tdbuild`, root checks it
+  (plain files and folders, every name under the snapshot's `YYYYMMDD-HHMMSS` name) and `tdgate` unpacks it.
+- **Each instance in its own bwrap** (`pool.command`): `--die-with-parent --unshare-pid --unshare-ipc --ro-bind / /
+  --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc`. It sees
+  no other instance, no snapshot, none of the host's sockets in `/run`, and writes only its own folder. No
+  `--new-session` (the gate keeps the instance's process group) and no network namespace (it reaches the gate on
+  loopback). The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
+  overflow uid; `MYCEL_SANDBOX_ROOT_UNMAPPED=1` (`pool.env`) lets the HTML-to-PDF browser check count that uid as root
+  (`server/src/files/html-pdf.ts` `rootOwnerUids`, only when `/` itself shows as that uid).
+- **Memory and CPU.** The instances stay in the gate unit's cgroup: `MemoryHigh=12G`, `MemoryMax=14G` hold all of them
+  together; `CPUWeight=50`, `IOWeight=50` put them behind the box's other services. Each instance runs under
+  `choom -n 800`, so when memory runs out the kernel ends an instance, not the gate or another service.
+- **The gate unit.** `ProtectSystem=strict` (writes only `/var/demo-gate`, `/srv/tdg`, `/run/sudo`),
+  `ProtectHome=yes`, `PrivateTmp=yes`, `PrivateDevices=yes`, `InaccessiblePaths=` for the host's Postgres, Docker,
+  containerd and Tailscale sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders),
+  `ProtectKernelModules`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `LockPersonality`,
+  `RestrictRealtime`, `RestrictSUIDSGID`, `SystemCallArchitectures=native`. Not `NoNewPrivileges` (the gate uses sudo),
+  and not `ProtectKernelTunables`, `ProtectKernelLogs` or `ProtectProc`: they mount over parts of `/proc`, and the
+  kernel then refuses the new `/proc` each instance's bwrap mounts.
+- **bwrap and AppArmor.** Ubuntu 24.04+ restricts user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`);
+  its AppArmor profile for `/usr/bin/bwrap` (`bwrap-userns-restrict`, or a host's own replacement) allows bwrap and
+  nothing else. `install.sh` checks the instance sandbox with a nested bwrap as `tdrun` and stops when it fails;
+  never turn the restriction off system-wide for the demo.
 - **The engine has no OS sandbox of its own on Linux.** A dev-mode server (every instance) runs Claude Code under
-  macOS's `engine.sb` only (`server/src/context.ts` `devEngineSandbox`). On Linux the instances rely on Claude Code's
-  tool lockdown (no Bash, no file tools: `server/src/engine/claude.ts`), the nft table and the unit's protections; all
-  instances are one user.
+  macOS's `engine.sb` only (`server/src/context.ts` `devEngineSandbox`). On Linux the engine relies on Claude Code's
+  tool lockdown (no Bash, no file tools: `server/src/engine/claude.ts`), the instance's bwrap, the nft table and the
+  unit's protections.
 - **Credential.** A person signs in once as `tdcred` (`sudo -u tdcred -H /opt/trina-demo/claude/bin/claude`, then
   `/login`). `trina-demo-credsync.timer` copies the access token into the gate's credential file every 5 minutes
   through `tdgate-set-credential` (the one command `tdcred` may run as `tdgate`), and lets Claude Code renew the login
@@ -90,24 +109,24 @@ sh STAGE/app/demo-gate/linux/stage.sh STAGE                  # no root: pinned d
 sudo sh STAGE/app/demo-gate/linux/install.sh --stage STAGE --origin https://demo.example --site-key <turnstile site key>
 ```
 
-`install.sh` is idempotent (run it again after a new stage to update the app; `gate.json` is kept, its
-`pool.codeVersion` follows the app). It installs only missing packages (`xfsprogs`, `libheif-examples`), puts the
-programs in `/opt/trina-demo`, the state in `/var/demo-gate` (700), checks reflink and bwrap as `tdrun`, builds the
-first snapshots and starts the gate and the tunnel. Until the `tdcred` login the credential is a placeholder and every
-AI answer is "busy".
+`install.sh` copies the stage to a folder of root's first and reads only that copy; it checks the downloads against
+`pins.env` (and `scripts/system/packages.json` for chrome-headless-shell) and unpacks them itself. It is idempotent
+(run it again after a new stage to update the app; `gate.json` is kept, its `pool.codeVersion` follows the app). It
+installs only missing packages (`xfsprogs`, `libheif-examples`), loads the nft table and runs `tdfw-check` before any
+unit starts, checks reflink and the instance sandbox as `tdrun`, builds the first snapshots, starts the gate and the
+tunnel and runs `tdfw-check` again (on a failure it stops both). Until the `tdcred` login the credential is a
+placeholder and every AI answer is "busy".
 
 | unit | |
 |---|---|
 | `trina-demo-gate.service` | the gate (ExecStartPre loads the nft table as root: never a gate without it) |
 | `trina-demo-tunnel.service` | cloudflared, `/var/demo-tunnel/config.yml` |
-| `trina-demo-nft.timer` | `tdnft-load` every 10 minutes: the table when it is missing or changed, Turnstile's addresses |
+| `trina-demo-nft.timer` | `tdnft-load` every minute: the table when it is missing or changed, Turnstile's addresses |
 | `trina-demo-snapshots.timer` | `tdsnap-rebuild` at 05:00: build, canary scan, move in (`TD_LOCALES="en ko"` for some) |
 | `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes |
 
 `tdfw-check` (root) checks the table from each user (the internet, the LAN, Tailscale, Postgres on loopback, DNS, and
-what each may reach); `install.sh` runs it last and stops on a failure.
-
-## Run
+what each may reach).
 
 ## Run
 

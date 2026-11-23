@@ -1,5 +1,7 @@
 #!/bin/sh
-# Check the demo's egress table from each role user (root; install.sh runs it, and by hand after any firewall change).
+# Check the demo's egress table from each role user (root; install.sh runs it before any unit starts and again after
+# the gate and the tunnel started, and by hand after any firewall change). The snapshot builder (tdbuild) is not in the
+# table: its unit has a network namespace of its own (PrivateNetwork).
 # "open" = a TCP/TLS connection got an answer (any HTTP status); "closed" = refused, rejected or timed out. Needs curl.
 # The loopback checks of the gate's ports answer only while the gate runs (otherwise they are skipped).
 set -u
@@ -21,7 +23,7 @@ gw=$(ip -4 route show default | awk '{print $3; exit}')
 ts=$(ip -4 -o addr show 2>/dev/null | awk '$4 ~ /^100\./ {sub(/\/.*/, "", $4); print $4; exit}')
 gate_up=0; curl -s -o /dev/null -m 3 http://127.0.0.1:19190/__demo/health && gate_up=1
 
-for u in tdrun tdgate tdtunnel tdbuild; do
+for u in tdrun tdgate tdtunnel; do
   want $u closed https://example.com/ "the internet (example.com)"
   want $u closed http://127.0.0.1:5432/ "Postgres on loopback (5432)"
   [ -n "$gw" ] && want $u closed "http://$gw/" "the LAN gateway ($gw)"
@@ -29,7 +31,6 @@ for u in tdrun tdgate tdtunnel tdbuild; do
   want $u closed http://100.100.100.100/ "Tailscale's service address"
 done
 dns tdrun closed
-dns tdbuild closed
 dns tdgate open
 dns tdtunnel open
 want tdrun closed https://api.anthropic.com/ "Anthropic's API"

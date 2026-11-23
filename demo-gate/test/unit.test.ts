@@ -497,10 +497,22 @@ describe('config', () => {
   })
   test('the example configs load; the Linux one clones by reflink, runs instances under choom and takes 30', () => {
     const dir = path.join(import.meta.dir, '..')
-    for (const f of ['gate.example.json', 'gate.example.linux.json']) expect(() => parseConfig(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')), dir)).not.toThrow()
-    const l = parseConfig(JSON.parse(fs.readFileSync(path.join(dir, 'gate.example.linux.json'), 'utf8')), dir)
-    expect(l.pool).toMatchObject({ instancesDir: '/srv/tdg', cloneCommand: ['cp', '--reflink=always', '-R'], maxLive: 30, portRange: [19200, 19399] })
+    // the Linux example names the instance user by placeholder (install.sh writes its ids)
+    const read = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8').replace('"<tdrun uid>"', '964').replace('"<tdrun gid>"', '964'))
+    expect(fs.readFileSync(path.join(dir, 'gate.example.linux.json'), 'utf8')).toContain('"<tdrun uid>"')
+    for (const f of ['gate.example.json', 'gate.example.linux.json']) expect(() => parseConfig(read(f), dir)).not.toThrow()
+    const l = parseConfig(read('gate.example.linux.json'), dir)
+    expect(l.pool).toMatchObject({ instancesDir: '/srv/tdg/i', snapshotsDir: '/srv/tdg/.snapshots', cloneCommand: ['cp', '--reflink=always', '-R'], maxLive: 30, portRange: [19200, 19399] })
     expect(l.pool.command.slice(0, 4)).toEqual(['/usr/bin/choom', '-n', '800', '--'])
+    // each instance in its own bwrap: own pid and IPC namespaces, the instances' file system hidden but for its own
+    // folder, no --new-session (the gate keeps its process group)
+    const bw = l.pool.command.slice(4, l.pool.command.indexOf('--', 5) + 1)
+    expect(bw[0]).toBe('/usr/bin/bwrap')
+    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
+    expect(bw).not.toContain('--new-session')
+    expect(bw).not.toContain('--unshare-net')
+    // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so
+    expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('1')
     expect(l.pool.path.split(':')[0]).toBe('/opt/trina-demo/claude/bin')
     expect(l.limits.maxStreams).toBe(12)
     // three ports per instance: 30 live and 2 warm for each of the six languages fit the range

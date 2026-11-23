@@ -4,6 +4,7 @@
 - Branch: `feat/demo-gate-linux`
 - Status: done
 - Where: demo-gate/ (example config, README, `linux/` hosting files), server/src/proxy (model proxy inner port),
+  server/src/files/html-pdf.ts (browser owner check inside the instance bwrap, behind an env flag),
   server/src/app-config.ts. Why: the gate and its hosting files live with the gate; the inner port is the server's own
   listener (see docs/REPOSITORY-RULES.md)
 - Version impact: none. demo-gate is a private operator tool; the server's new `engine.proxyInnerPort` is optional and
@@ -72,5 +73,18 @@ snapshot build plus canary, the HTML-to-PDF prints under bwrap, the nft table lo
 and a same-user gate (allowSameUser) with that snapshot: two warm instances in about 1.1 s each, a start signs the
 visitor in as Mina, PAUSE closes and reopens, and a chat turn goes engine → instance model proxy (inner port fixed in
 the range) → gate upstream → Anthropic (401 with a placeholder credential, answered "The demo is busy").
+
+Security review fixes (same PR): `/srv/tdg` root's with the instances in `/srv/tdg/i`; `tdsnap-rebuild` never acts as
+root in a folder another user can write (the snapshot leaves as a checked tar stream, tdgate unpacks it); the snapshot
+unit has its own network namespace (no nft chain for the builder); `nofail,discard` in fstab, fallocate after a
+free-space check; `tdfw-check` before any unit starts and again after (stops the gate and tunnel on a failure);
+install.sh reads only a root-owned copy of the stage and unpacks the checked downloads itself; each instance in its
+own bwrap (`pool.command`); the gate unit hardened (ProtectSystem=strict, PrivateDevices, InaccessiblePaths for the
+host's other services and CI runners, IPAddressDeny/Allow backstop, MemoryMax 14G, lower CPU and IO weight); the nft
+refresh every minute. Inside the instance bwrap root is not mapped, so the HTML-to-PDF browser check would refuse the
+root-owned browser: `MYCEL_SANDBOX_ROOT_UNMAPPED=1` makes `rootOwnerUids` (server/src/files/html-pdf.ts) count the
+overflow uid as root when "/" itself shows as that uid. Checked on the host as an unprivileged user: the same-user gate
+with the bwrap command (warm, start, a chat turn to Anthropic answered "busy", the instances ended with the gate) and
+the HTML-to-PDF prints nested inside the instance bwrap.
 
 PR: https://github.com/trina-app/trina-ax/pull/446

@@ -1,9 +1,9 @@
 [Unit]
-Description=Trina demo egress table check, every 10 minutes
+Description=Trina demo egress table check, every minute
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=10min
+OnUnitActiveSec=1min
 
 [Install]
 WantedBy=timers.target

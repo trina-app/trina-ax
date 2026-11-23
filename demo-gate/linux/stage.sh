@@ -9,6 +9,7 @@ STAGE=${1:?usage: stage.sh STAGE_DIR}
 case "$STAGE" in /*) ;; *) echo "stage.sh: STAGE_DIR must be absolute" >&2; exit 2 ;; esac
 [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ] || { echo "stage.sh: amd64 Linux only" >&2; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=demo-gate/linux/pins.env
 . "$HERE/pins.env"
 APP=$STAGE/app
 [ -f "$APP/package.json" ] && [ -f "$APP/demo-gate/linux/pins.env" ] || { echo "stage.sh: no app source in $APP" >&2; exit 2; }
@@ -27,6 +28,7 @@ fetch() {
   mv "$f.part" "$f"
 }
 CH_V=$(python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["artifacts"]["chrome-headless-shell"];p=a["platforms"]["linux-amd64"];print(a["version"],p["url"],p["sha256"],p["dir"])' "$APP/scripts/system/packages.json")
+# shellcheck disable=SC2086
 set -- $CH_V; CH_VERSION=$1 CH_URL=$2 CH_SHA=$3 CH_DIR=$4
 
 fetch node.tar.xz "$NODE_URL" "$NODE_SHA256"

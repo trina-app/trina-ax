@@ -1,5 +1,5 @@
 #!/bin/sh
-# Load the Trina demo nft table and refill its Turnstile sets (root; trina-demo-nft.timer every 10 minutes, and
+# Load the Trina demo nft table and refill its Turnstile sets (root; trina-demo-nft.timer every minute, and
 # ExecStartPre of the gate and tunnel units, so neither starts without the table). Only table inet trina_demo is
 # touched. The table is loaded again when it is missing or the file changed.
 set -u
@@ -8,6 +8,7 @@ F=/opt/trina-demo/etc/trina-demo.nft
 T="inet trina_demo"
 STAMP=/run/trina-demo-nft.sha256
 want=$(sha256sum "$F" | cut -c1-64) || exit 1
+# shellcheck disable=SC2086
 if ! nft list table $T >/dev/null 2>&1 || [ "$want" != "$(cat "$STAMP" 2>/dev/null)" ]; then
   nft -f "$F" || { echo "tdnft-load: loading $F failed" >&2; exit 1; }
   echo "$want" > "$STAMP"

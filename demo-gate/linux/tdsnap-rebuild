@@ -1,36 +1,62 @@
 #!/bin/sh
-# Nightly rebuild of the free-roam snapshots (root; trina-demo-snapshots.timer). The builder runs as tdbuild (the nft
-# table allows it loopback only), the canary's file scan runs on each new snapshot, and only a clean snapshot is moved
-# into the gate's folder. Build output and snapshots are on the instances' XFS file system (/srv/tdg), so the move is
-# a rename and the gate's clone is a reflink. The gate's sweeper removes older snapshots.
+# Nightly rebuild of the free-roam snapshots (root; trina-demo-snapshots.service, which has no network but its own
+# loopback). The builder runs as tdbuild in its own work folder; the canary's file scan runs on each new snapshot;
+# only a clean snapshot moves in. Root never changes, removes or follows anything in a folder another user can write:
+# the snapshot leaves the work folder as a tar stream made by tdbuild, root keeps it in its own folder and checks it
+# (plain files and folders only, all under the snapshot's name), and tdgate unpacks it into the gate's snapshot folder
+# of that language (setgid tdrun: the instance user can read it, through its group). The gate's sweeper removes older
+# snapshots.
 #   TD_LOCALES="en ko" tdsnap-rebuild      only some languages (default: all six)
 set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
-U=tdbuild
-APP=/opt/trina-demo/app
+umask 077
 BUN=/opt/trina-demo/bin/bun
-OUT=/srv/tdg/.build
-SNAP=/srv/tdg/.snapshots
+W=/srv/tdg/.build/w          # tdbuild's (700)
+R=/srv/tdg/.build/root       # root's (700)
+SNAP=/srv/tdg/.snapshots     # root's (755); SNAP/<locale> tdgate:tdrun 2750
 SEALED=/etc/trina-demo/canary-sealed
 HOMEDIR=/var/demo-build
+NAME='^[0-9]{8}-[0-9]{6}$'
 LOCALES=${TD_LOCALES:-en ko ja zh es id}
 log(){ echo "$(date -u +%FT%TZ) $*"; }
+as_builder() { runuser -u tdbuild -- env -i HOME=$HOMEDIR TMPDIR=$W/tmp PATH=/opt/trina-demo/bin:/usr/bin:/bin LANG=C.UTF-8 /bin/sh -c 'cd /opt/trina-demo/app && exec "$@"' sh "$@"; }
+as_gate() { runuser -u tdgate -- "$@"; }
 mountpoint -q /srv/tdg || { log "/srv/tdg is not mounted: nothing built"; exit 1; }
 [ -r "$SEALED" ] || { log "$SEALED missing: nothing built (the canary needs it)"; exit 1; }
-install -d -o $U -g $U -m 700 "$OUT" "$OUT/tmp"
-as_builder() { runuser -u $U -- env -i HOME=$HOMEDIR TMPDIR=$OUT/tmp PATH=/opt/trina-demo/bin:/usr/bin:/bin LANG=C.UTF-8 /bin/sh -c 'cd /opt/trina-demo/app && exec "$@"' sh "$@"; }
+install -d -o root -g root -m 755 /srv/tdg/.build "$SNAP"
+install -d -o root -g root -m 700 "$R"
+install -d -o tdbuild -g tdbuild -m 700 "$W"
+as_builder mkdir -p "$W/tmp"
 rc=0
 for l in $LOCALES; do
-  rm -rf "${OUT:?}/$l"
-  if ! as_builder "$BUN" scripts/demo/free-roam/build-snapshot.ts --content steepling --locale "$l" --out "$OUT" >"$OUT/build-$l.log" 2>&1; then
-    log "$l: build failed (see $OUT/build-$l.log)"; rc=1; continue
+  case "$l" in en|ko|ja|zh|es|id) ;; *) log "$l: not a demo language"; rc=1; continue ;; esac
+  as_builder rm -rf -- "$W/$l"
+  if ! as_builder "$BUN" scripts/demo/free-roam/build-snapshot.ts --content steepling --locale "$l" --out "$W" >"$R/build-$l.log" 2>&1; then
+    log "$l: build failed (see $R/build-$l.log)"; rc=1; continue
   fi
-  n=$(ls "$OUT/$l" 2>/dev/null | tail -1)
+  n=$(as_builder ls -1 -- "$W/$l" 2>/dev/null | grep -E "$NAME" | sort | tail -1)
   [ -n "$n" ] || { log "$l: no snapshot written"; rc=1; continue; }
-  if ! as_builder "$BUN" scripts/demo/free-roam/canary.ts --sealed "$SEALED" --snapshot "$OUT/$l/$n" >"$OUT/canary-$l.log" 2>&1; then
-    log "$l: canary found a sealed string, snapshot $n NOT used (see $OUT/canary-$l.log)"; rc=1; continue
+  if ! as_builder "$BUN" scripts/demo/free-roam/canary.ts --sealed "$SEALED" --snapshot "$W/$l/$n" >"$R/canary-$l.log" 2>&1; then
+    log "$l: canary found a sealed string, snapshot $n NOT used (see $R/canary-$l.log)"; rc=1; continue
   fi
-  install -d -o tdgate -g tdrun -m 750 "$SNAP/$l"
-  chown -R tdgate:tdrun "$OUT/$l/$n" && chmod -R g+rX,g-w,o-rwx "$OUT/$l/$n" && mv "$OUT/$l/$n" "$SNAP/$l/$n" && log "$l: snapshot $n in place"
+  t=$(mktemp "$R/snap-$l.XXXXXX.tar")
+  if ! as_builder tar -C "$W/$l" -cf - -- "$n" > "$t"; then log "$l: packing $n failed"; rm -f "$t"; rc=1; continue; fi
+  as_builder rm -rf -- "$W/$l"
+  # plain files and folders only, every name under "$n/", no ".." anywhere
+  bad=$(tar -tvf "$t" | awk '$1 !~ /^[-d]/' | head -3)
+  [ -z "$bad" ] || { log "$l: snapshot $n NOT used: it holds links or special files"; rm -f "$t"; rc=1; continue; }
+  bad=$(tar -tf "$t" | grep -v -E "^$n(/|\$)" ; tar -tf "$t" | grep -E '(^|/)\.\.(/|$)')
+  [ -z "$bad" ] || { log "$l: snapshot $n NOT used: a name outside the snapshot"; rm -f "$t"; rc=1; continue; }
+  install -d -o tdgate -g tdrun -m 2750 "$SNAP/$l"
+  in=$SNAP/$l/.incoming
+  if as_gate rm -rf -- "$in" && as_gate mkdir -m 2750 -- "$in" \
+     && as_gate tar -C "$in" -xf - --no-same-owner --no-same-permissions < "$t" \
+     && as_gate chmod -R g+rX,g-w,o-rwx -- "$in/$n" \
+     && as_gate mv -T -- "$in/$n" "$SNAP/$l/$n" && as_gate rmdir -- "$in"; then
+    log "$l: snapshot $n in place"
+  else
+    log "$l: moving snapshot $n in failed"; rc=1
+  fi
+  rm -f "$t"
 done
 exit $rc

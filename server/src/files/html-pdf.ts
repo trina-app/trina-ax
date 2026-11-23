@@ -167,13 +167,29 @@ const SHARED_DIRS = new Set(['/', '/bin', '/sbin', '/usr', '/usr/bin', '/usr/sbi
   '/opt/homebrew/lib', '/opt/homebrew/libexec', '/opt/homebrew/opt', '/opt/homebrew/Cellar', '/private/tmp', '/tmp', '/var/tmp', '/Applications',
   '/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu'])
 /**
+ * The uids that stand for root in the ownership check: 0, and the kernel's overflow uid when the server is told it runs
+ * in a user namespace that does not map root (MYCEL_SANDBOX_ROOT_UNMAPPED=1: the free-roam demo's per-instance bwrap,
+ * demo-gate/linux) and "/" (root's on every host) is seen here as owned by that uid. There every file of root shows as
+ * the overflow uid (and so would a file of any other unmapped account: the operator who sets the variable vouches that
+ * the browser's folders are root's on the host). Not set, or "/" seen as root's: 0 only.
+ */
+export function rootOwnerUids(env: NodeJS.ProcessEnv = process.env, read: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'), ownerOfRoot: () => number = () => fs.statSync('/').uid): number[] {
+  if (env.MYCEL_SANDBOX_ROOT_UNMAPPED !== '1') return [0]
+  try {
+    const overflow = Number(read('/proc/sys/kernel/overflowuid').trim())
+    if (!Number.isInteger(overflow) || overflow <= 0) return [0]
+    return ownerOfRoot() === overflow ? [0, overflow] : [0]
+  } catch { return [0] }
+}
+
+/**
  * A browser the server may run: its binary and every folder from it up to the root (through its own folder,
  * browserHome: an app bundle's Contents/MacOS and Contents included) are owned by root or the server's account and
  * nobody else can write them, and its own folder is not a shared one such as /usr/bin. Anyone who could change those
  * files could run code as the server account inside the isolation, and the macOS profile lets the browser exec every
  * file of its folder.
  */
-export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1): boolean {
+export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1, rootUids: readonly number[] = rootOwnerUids()): boolean {
   try {
     const real = fs.realpathSync(bin)
     const home = browserHome(real)
@@ -182,7 +198,7 @@ export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1): boo
     // not theirs there; the browser's own folder and those inside it never
     const owned = (p: string, sticky = false) => {
       const st = fs.statSync(p)
-      return (st.uid === 0 || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000)))
+      return (rootUids.includes(st.uid) || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000)))
     }
     if (!owned(real)) return false
     const inside = (d: string) => d === home || d.startsWith(home + '/')

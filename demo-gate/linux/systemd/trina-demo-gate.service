@@ -1,6 +1,8 @@
-# The free-roam demo gate (demo-gate/) as tdgate. Its instances are started through sudo as tdrun and stay in this
-# unit's cgroup, so MemoryHigh/MemoryMax hold the gate and every instance together; each instance runs under
-# `choom -n 800` (pool.command), so the kernel ends an instance before the gate or anything else on the machine.
+# The free-roam demo gate (demo-gate/) as tdgate. Its instances are started through sudo as tdrun, each in its own
+# bwrap (pool.command: own pid and IPC namespace, the file system read-only but for its own folder, no other
+# instance, no /run, /tmp or /dev of the host), and stay in this unit's cgroup: MemoryHigh/MemoryMax and the IP
+# allow list below hold the gate and every instance together. Each instance runs under `choom -n 800`, so the kernel
+# ends an instance before the gate or anything else on the machine.
 [Unit]
 Description=Trina free-roam demo gate
 After=network-online.target trina-demo-nft.service
@@ -14,20 +16,44 @@ WorkingDirectory=/var/demo-gate
 Environment=HOME=/var/demo-gate/state PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # the egress table first (as root): never a gate without it
 ExecStartPre=+/opt/trina-demo/bin/tdnft-load
+# sudo's own run folder, which ProtectSystem=strict would otherwise leave read-only and maybe missing
+ExecStartPre=+/usr/bin/install -d -m 0711 /run/sudo
+ExecStartPre=+/usr/bin/install -d -m 0700 /run/sudo/ts
 ExecStart=/opt/trina-demo/node/bin/node --disable-warning=ExperimentalWarning /opt/trina-demo/app/demo-gate/src/main.ts --config /var/demo-gate/gate.json
 UMask=0077
 Restart=always
 RestartSec=30
-MemoryHigh=16G
-MemoryMax=18G
+MemoryHigh=12G
+MemoryMax=14G
 TasksMax=12000
 OOMScoreAdjust=-100
-# Not NoNewPrivileges (sudo), not ProtectKernelTunables/ProtectProc/ProtectControlGroups (they mount over /proc and
-# /sys, and the converters' bwrap then cannot mount its own /proc). /home and /root are hidden from the gate and
-# from every instance.
+CPUWeight=50
+IOWeight=50
+
+# A backstop for the nft table (if it were flushed): this cgroup reaches only loopback, Anthropic's API ranges and
+# the Cloudflare ranges Turnstile answers from. nft stays the precise rule (per user, per port).
+IPAddressDeny=any
+IPAddressAllow=localhost 160.79.104.0/23 2607:6bc0::/48 104.16.0.0/12 2606:4700::/32
+
+# File system: read-only but for the gate's state and the instances; /home, /root and the box's other services'
+# sockets and data hidden (install.sh adds a drop-in with this host's CI runner folders).
+ProtectSystem=strict
+ReadWritePaths=/var/demo-gate /srv/tdg /run/sudo
 ProtectHome=yes
-ProtectSystem=full
 PrivateTmp=yes
+PrivateDevices=yes
+InaccessiblePaths=-/run/postgresql -/run/tailscale -/run/docker.sock -/var/run/docker.sock -/run/containerd -/var/lib/postgresql -/var/lib/docker -/var/lib/containerd -/var/lib/tailscale
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+# Not NoNewPrivileges (the gate uses sudo). Not ProtectKernelTunables, ProtectKernelLogs or ProtectProc: they mount
+# over parts of /proc, and the kernel then refuses the new /proc that each instance's bwrap and the converters'
+# nested bwrap mount (the same reason bwrap fails in a container with masked /proc paths).
 
 [Install]
 WantedBy=multi-user.target
