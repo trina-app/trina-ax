@@ -163,7 +163,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
             // ...and the files this person's answers made in the chat's own place (chat:files), when the chat holds only
             // their own work (QA b5 F5: "이 견적서" made as chat:files/견적서.docx, then "이 폴더 팀원들한테 공유해줘"
             // asked which folder twice)
-            const madeFiles = adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen ? chatMadeFiles(exec) : []
+            const madeFiles = !chatFiles.length && adding && !guestInShared(exec) && !exec.askedIn && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !exec.otherAuthors && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen ? chatMadeFiles(exec) : []
             if (chatFiles.length || madeFiles.length) { try { made = await makeChatFolder(exec, chatFiles, madeFiles) } catch (e) { rt.log.warn('a folder for the chat files could not be made', { err: e }) } }
             if (!made) return no('Nothing was shared: the user did not say which folder, and this chat used none of their folders. Ask the user which folder to share, by its name.', 'refused: no folder to guess')
             g = made.path
@@ -318,7 +318,8 @@ export function shareFolderTool(exec: TurnExec): Tool {
         // has its undo. Never in a run nobody watches, from Slack, a waiting call run again, or with a guest here
         const referred = (w: Who) => {
           const h = how.get(keyOf(w))
-          if (h?.team) return saysTeam(said)
+          // (a word for the whole team goes without a card only in a chat that took in nobody else's words)
+          if (h?.team) return saysTeam(said) && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen
           if (h?.via && saysTitle(said, h.via)) return true
           return w.subjectType === 'group' ? namesRecipient(said, w.name, { names: [w.name], person: false }) : namedInFull(said, recipientWords(db, w))
         }
@@ -398,7 +399,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
           const guessNote = made ? ` The user's files were only in this chat, so the server made the folder "${nameAi}" in the user's own files, put copies of them in it and shared that; say so in one short sentence (that you made the folder, by its name, and shared it) and that the card has Undo, which deletes it again.` : guessed ? ` The user did not name the folder: the server took "${nameAi}", the folder this chat used; say so (that you shared that folder, by its name) and that the card has Undo and Manage access to change it.` : ''
           const whyNoCard = explicitAdd && !alwaysOn ? ' It went without a confirmation card because the user\'s own message asked for it; the card under your answer has Undo.' : ''
           return {
-            ...text(JSON.stringify({ status: 'shared', folder: exec.shared && !guessed ? 'the folder the user named' : nameAi, with: exec.shared ? 'the people the user named' : neutralizeTags(whoLine), ...(found.length ? { found_by: found.join('; ') + '. Name them as the user called them, e.g. the name, then the word the user used in brackets.' } : {}), ...(team ? { team } : {}), note: `Shared, view only, files added later included.${guessNote}${whyNoCard} ${alwaysOn ? `${RAN_UNDER_ALWAYS} ` : ''}${CARD_SAYS_IT}` })),
+            ...text(JSON.stringify({ status: 'shared', folder: exec.shared && !guessed ? 'the folder the user named' : nameAi, with: exec.shared ? ([...how.values()].some((h) => h.team) ? 'the people the user\'s word for the team covers here (the card names them)' : 'the people the user named') : neutralizeTags(whoLine), ...(found.length ? { found_by: found.join('; ') + '. Name them as the user called them, e.g. the name, then the word the user used in brackets.' } : {}), ...(team ? { team } : {}), note: `Shared, view only, files added later included.${guessNote}${whyNoCard} ${alwaysOn ? `${RAN_UNDER_ALWAYS} ` : ''}${CARD_SAYS_IT}` })),
             summary: `share_folder -> shared with ${who.length}`,
           }
         }
@@ -425,18 +426,22 @@ export function shareFolderTool(exec: TurnExec): Tool {
   }
 }
 
-/** The person's own files that are only in this chat: what they attached to their messages here, still in their own
- * .attachments folder (a shared chat's uploads live elsewhere and are not taken). At most 20, the latest first. */
+/** The person's own files that are only in this chat, on this branch: what this message attached; with none, what the
+ * one earlier message that attached anything did. Several earlier messages with files: nothing, the AI asks which (an old
+ * private file never goes along with the one meant; security review). Their own .attachments only (a shared chat's uploads
+ * live elsewhere and are not taken). At most 20. */
 function chatOnlyFiles(exec: TurnExec): string[] {
   const db = exec.rt.db, userId = exec.spec.userId
   const mine = `users/${userId}/.attachments/`
-  const rows = db.query("SELECT m.attachments a FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user' AND (m.author_id = ? OR (m.author_id IS NULL AND c.user_id = ?)) ORDER BY m.created_at DESC LIMIT 50").all(exec.spec.chatId, userId, userId) as { a: string }[]
-  const out: string[] = []
-  for (const r of rows) {
-    try { for (const x of JSON.parse(r.a) as { path?: unknown }[]) if (typeof x?.path === 'string' && x.path.startsWith(mine) && !x.path.slice(mine.length).includes('..') && !out.includes(x.path)) out.push(x.path) } catch {}
-    if (out.length >= 20) break
-  }
-  return out.slice(0, 20)
+  const rows = db.query(`WITH RECURSIVE up(id, parent_id, depth) AS (SELECT id, parent_id, 0 FROM messages WHERE id = ?1
+      UNION ALL SELECT x.id, x.parent_id, up.depth + 1 FROM messages x JOIN up ON x.id = up.parent_id WHERE up.depth < 2000)
+    SELECT m.attachments a, up.depth d FROM up JOIN messages m ON m.id = up.id JOIN chats c ON c.id = m.chat_id
+    WHERE m.chat_id = ?2 AND m.role = 'user' AND (m.author_id = ?3 OR (m.author_id IS NULL AND c.user_id = ?3)) AND json_valid(m.attachments) AND json_array_length(m.attachments) > 0 ORDER BY up.depth`).all(exec.spec.userMessageId, exec.spec.chatId, userId) as { a: string; d: number }[]
+  const paths = (a: string) => { try { return [...new Set((JSON.parse(a) as { path?: unknown }[]).flatMap((x) => (typeof x?.path === 'string' && x.path.startsWith(mine) && !x.path.slice(mine.length).includes('..') ? [x.path] : [])))] } catch { return [] } }
+  const lists = rows.map((r) => ({ d: r.d, files: paths(r.a) })).filter((r) => r.files.length)
+  if (!lists.length) return []
+  if (lists[0]!.d === 0) return lists[0]!.files.slice(0, 20)
+  return lists.length === 1 ? lists[0]!.files.slice(0, 20) : []
 }
 
 /** The files the AI made in this chat's own place (chat:files/…: a document made in a shared chat) in the person's

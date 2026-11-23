@@ -163,16 +163,18 @@ export function keepPick(db: Database, userId: string, ref: string, pickedId: st
   return key
 }
 
-/** The person's own words say "팀원들", "my team" …: a word of TEAM_WORDS as a word of the text (a Korean particle after
- * it left out), never a part of another word ("팀" in "팀장"). */
+/** The team word stands as who it goes to in the person's own words ("팀원들한테", "with my team", "a mi equipo",
+ * "チームメンバーに", "给团队成员"), in its plural or "my team" form. A word that only names something ("우리 팀 자료 폴더"), a
+ * singular before a name ("팀원 민수") or one they leave out ("팀원들 말고", "not my team") is no recipient: another
+ * person's words could otherwise widen a share to everyone here (security review). */
+const TEAM_AS_RECIPIENT = new RegExp([
+  '(?:\\uD300\\uC6D0(?:\\uB4E4|\\uBD84\\uB4E4)|\\uC6B0\\uB9AC\\s?\\uD300|\\uD300\\s?\\uC0AC\\uB78C\\uB4E4|\\uD300\\s?\\uC804\\uCCB4|\\uB3D9\\uB8CC\\uB4E4)\\s?(?:\\uAED8|\\uD55C\\uD14C|\\uC5D0\\uAC8C|\\uB354\\uB7EC)(?!\\s?(?:\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uB294|\\uC740))',
+  "(?<!\\b(?:not|except|but|without)\\s)\\b(?:with|to)\\s+(?:my team|our team|my teammates|our teammates|teammates|team members|everyone on the team)\\b",
+  '\\b(?:con|a)\\s+(?:mi equipo|mis compa\\u00F1eros)\\b', '\\b(?:dengan|ke|kepada)\\s+(?:tim saya|anggota tim)\\b',
+  '\\u30C1\\u30FC\\u30E0(?:\\u30E1\\u30F3\\u30D0\\u30FC|\\u306E\\u307F\\u3093\\u306A)\\u306B', '[\\u7ED9\\u5411]\\u56E2\\u961F\\u6210\\u5458',
+].join('|'), 'iu')
 export function saysTeam(said: string): boolean {
-  const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC').toLowerCase()
-  const words = own.split(/[\s,.!?;:·()"'“”‘’「」]+/u).filter(Boolean)
-  for (let i = 0; i < words.length; i++) {
-    if (isTeamRef(words[i]!) || isTeamRef(words[i]!.replace(/(한테|에게|께|들한테|들에게|이랑|하고|과|와|을|를|은|는|이|가)$/u, ''))) return true
-    if (i + 1 < words.length && isTeamRef(`${words[i]}${words[i + 1]}`)) return true
-  }
-  return false
+  return TEAM_AS_RECIPIENT.test(said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC'))
 }
 
 /** The person's own words call exactly this teammate by a title (QA F5 shared1-sh2: "이거 팀장님한테 보내줘" again, and
