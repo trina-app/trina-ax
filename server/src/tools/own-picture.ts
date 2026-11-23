@@ -1,6 +1,6 @@
-// A picture that goes into a document and is not the asker's own (a signature or seal another member sent in the chat,
-// or a team file outside their own folder) goes in only after their yes on a card, never on the AI's choice; with
-// nobody to ask (a call outside a chat) it is refused. Used by edit_hwp's image change.
+// A picture the asker did not upload themselves (files/own-upload.ts: where a file lies proves nothing) goes into a
+// document only after their yes on a card, which names every such picture in full; with nobody to ask (a call outside a
+// chat) it is refused. Used by edit_hwp's image change.
 import type { Locale } from '@mycel/shared/api'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
@@ -11,18 +11,10 @@ import { askConfirm } from './url-gate'
 
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 const PICTURE_TEXT = {
-  ask: t('AI가 그림 {pics}을(를) {doc}에 넣으려고 해요. 이 서명이나 도장이 맞나요?', 'The AI wants to put {pics} into {doc}. Is this the right signature or seal to use?', 'AI ingin menaruh {pics} ke {doc}. Apakah ini tanda tangan atau stempel yang benar?', 'AIが{pics}を{doc}に入れようとしています。この署名または印で合っていますか？', 'La IA quiere poner {pics} en {doc}. ¿Es la firma o el sello correcto?', 'AI 想把{pics}放进{doc}。这是要用的签名或印章吗？'),
+  ask: t('AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요?', 'The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan Anda sendiri yang mengunggahnya. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身がアップロードした画像ではありません。入れますか？', 'La IA quiere poner {pics} en {doc}. No subiste tú esta imagen. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这张图片不是你自己上传的。要放进去吗？'),
   yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
   no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
 }
-
-/**
- * Whether a picture is the asker's own: the one place that decides it, so #448's shared helper is a one-line swap here.
- * Until then nothing counts as own. Where a file lies or whose row it is does not show who put it there: the AI can copy
- * someone's seal into the asker's folder, and a chat file the AI attached carries the asker's id. So every picture gets
- * the card (fails closed).
- */
-export const ownPicture = { is: (_ctx: AppContext, _place: string, _userId: string): boolean => false }
 
 /** Asks the card for `pictures` (each named in full; none: nothing happens); anything but yes refuses, nothing saved. */
 export async function confirmNotOwnPictures(ctx: AppContext, c: ToolCtx, pictures: readonly string[], doc: string): Promise<void> {

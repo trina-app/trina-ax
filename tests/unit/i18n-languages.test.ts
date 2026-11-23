@@ -106,6 +106,7 @@ describe('server and relay texts', () => {
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
+  'server/src/tools/edit-office.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a Word document (ko next to en/id/ja/es)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },
   'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },

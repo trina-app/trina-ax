@@ -13,7 +13,8 @@ import { which } from '../../server/src/config'
 import { outsideContentTool } from '../../server/src/chat/team-content-tools'
 import { EDIT_OFFICE_DESCRIPTION, editOffice, editOfficeOutput, editOfficeText, officePartsMismatch, PICTURES_TOTAL_MAX, countPictureBytes } from '../../server/src/tools/edit-office'
 import type { ToolCtx } from '../../server/src/files/service'
-import { sha256 } from '../../server/src/files/store'
+import { fileEvent, sha256 } from '../../server/src/files/store'
+import { BY_PERSON } from '../../server/src/files/own-upload'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -47,6 +48,7 @@ describe('edit_office: the tool', () => {
   test('told to the AI; a team-content tool; outputs keep the format', () => {
     expect(EDIT_OFFICE_DESCRIPTION).toContain('stays exactly as it was')
     expect(EDIT_OFFICE_DESCRIPTION).toContain('use make_file only for a new file')
+    expect(EDIT_OFFICE_DESCRIPTION).toContain('When someone asks to sign or stamp a Word document, use insert_picture')
     expect(outsideContentTool('edit_office')).toBe(false)
     expect(editOfficeOutput('out/new', 'a/b.xlsx')).toBe('out/new.xlsx')
     expect(editOfficeOutput('out/new.pptx', 'a/b.pptx')).toBe('out/new.pptx')
@@ -192,6 +194,37 @@ describe('edit_office: the security review\'s cases', () => {
     write('users/alice/note.txt', 'hello')
     await expect(editOffice(A.ctx, ctxRead('users/alice/deck.pptx'), pic('users/alice/note.txt') as any)).rejects.toThrow(/not a PNG, JPEG or WebP/)
     await expect(editOffice(A.ctx, ctxRead('users/alice/deck.pptx'), pic('groups/finance/secret-chart.png') as any)).rejects.toThrow(/not found or no access/)
+  })
+
+  withPandoc('insert_picture into a Word form (QA TC-8170, TC-8173): the picture re-encoded by the helper, named once, a source of the result; not for a workbook', async () => {
+    write('users/alice/form.docx', docx('# Form\n\nBuyer: Example Trading Co. (seal)\n'))
+    write('users/alice/seal.png', png(30, 30, [200, 0, 0]))
+    fileEvent(A.ctx.db, { turnId: null, userId: 'alice', path: 'users/alice/seal.png', action: 'upload', sha256: sha256(png(30, 30, [200, 0, 0])), detail: BY_PERSON })
+    const r = await editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'users/alice/seal.png', over: '(seal)', width_mm: 15 } }] } as any)
+    const z = readZip(new Uint8Array(fs.readFileSync(file(r.path))))
+    const media = z.filter((e) => /^word\/media\/image\d+\.png$/.test(e.name))
+    expect(media.length).toBe(1)
+    expect(Buffer.from(media[0]!.data).equals(Buffer.from(png(30, 30, [200, 0, 0])))).toBe(false)
+    expect(editOfficeText(r)).toContain('picture over "(seal)", behind the text (15 x 15 mm)')
+    expect(r.report.added).toEqual([media[0]!.name])
+    await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'groups/finance/secret-chart.png', over: '(seal)' } }] } as any)).rejects.toThrow(/not found or no access/)
+    await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'chat:work/seal.png', over: '(seal)' } }] } as any)).rejects.toThrow(/team file or a file of this chat/)
+    // a picture outside the person's own folder (someone else's or the company's seal) needs their yes: no card here, refused
+    write('shared/brand/ceo-seal.png', png(30, 30, [200, 0, 0]))
+    await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)).rejects.toThrow(/Nothing was saved[\s\S]*ceo-seal\.png|ceo-seal\.png[\s\S]*Nothing was saved/)
+    const asked: string[] = []
+    const yes = ctxRead('users/alice/form.docx'); yes.person = { locale: 'en', confirm: async (q: string) => { asked.push(q); return true }, turnUrls: () => [] } as any
+    await editOffice(A.ctx, yes, { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)
+    expect(asked[0]).toContain("The AI wants to put 'ceo-seal.png' into 'form.docx'. You did not upload this picture yourself")
+    write('users/alice/b.xlsx', await workbook())
+    await expect(editOffice(A.ctx, ctxRead('users/alice/b.xlsx'), { file_path: 'users/alice/b.xlsx', changes: [{ insert_picture: { image: 'users/alice/seal.png', after: 'Rent' } }] } as any)).rejects.toThrow(/insert_picture is for Word documents \(a picture cannot be added to a workbook here\)/)
+    // the server's part check lets the relationships and content types change only for a call that adds pictures
+    const before = docx('# Form\n\nBuyer: Example Trading Co. (seal)\n')
+    const rels = writeZip(readZip(before).map((e) => (e.name === 'word/_rels/document.xml.rels' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data) + ' ') } : e)))
+    const rep = { changed: ['word/_rels/document.xml.rels'], added: [], removed: [] }
+    expect(officePartsMismatch('docx', before, rels, rep)).toContain('not changed here')
+    expect(officePartsMismatch('docx', before, rels, rep, true)).toBeNull()
+    expect(officePartsMismatch('docx', before, writeZip([...readZip(before), { name: 'word/media/image9.gif', data: new Uint8Array([1]) }]), { changed: [], added: ['word/media/image9.gif'], removed: [] }, true)).toContain('not added here')
   })
 
   withPandoc('the same picture named by many changes is read once; the pictures of one call are bounded together', async () => {

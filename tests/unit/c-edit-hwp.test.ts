@@ -12,7 +12,6 @@ import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { componentC } from '../../server/src/team-files/component'
 import { HwpError } from '../../server/src/files/hwp-engine'
-import { ownPicture } from '../../server/src/tools/own-picture'
 import { namedPaths } from '../../server/src/rooms/ai-tools'
 import { widenOf } from '../../server/src/chat/tools'
 import type { HwpLayout } from '../../server/src/files/hwp-picture'
@@ -328,9 +327,9 @@ describe('a signature or seal picture', () => {
       put(rel, doc)
       const call = turn('alice')
       const before = (await call('read', { file_path: rel })).text
-      const was = ownPicture.is
-      ownPicture.is = () => true // (the card has its own tests)
-      const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/도장.png', at: '(인)' }, { image: 'users/alice/도장.png', cell: { next_to: '성명' }, width_mm: 20 }] })).finally(() => { ownPicture.is = was })
+      // the person's own upload of this picture: no card (the card has its own tests)
+      A.ctx.db.query("INSERT INTO file_events (turn_id, user_id, action, path, size, sha256, detail) VALUES (NULL, 'alice', 'upload', ?, ?, ?, ?)").run('users/alice/도장.png', SEAL.length, sha256hex(SEAL), JSON.stringify({ byPerson: true }))
+      const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/도장.png', at: '(인)' }, { image: 'users/alice/도장.png', cell: { next_to: '성명' }, width_mm: 20 }] }))
       expect(r.isError, r.text).toBe(false)
       expect(r.text).toContain(`Saved a new version of ${rel}`)
       expect(r.text).toMatch(/- change 1: a picture on page 1, 15 x 15 mm/)
@@ -372,7 +371,7 @@ describe('a signature or seal picture', () => {
     expect(versions(rel)).toEqual([])
   })
 
-  test('a picture in the asker\'s own folder is not taken as theirs by where it lies (the AI could have copied it there)', async () => {
+  test('a picture in the asker\'s own folder that they did not upload is not theirs (the AI could have copied it there)', async () => {
     const rel = 'users/alice/서명양식-5.hwpx'
     put(rel, employmentForm({ cache: true }))
     put('users/alice/copied-seal.png', SEAL)

@@ -36,8 +36,9 @@
   the first. hwp_render is that renderer, so the tool result does not treat it as proof of the spot. The renderer's
   LAYOUT_OVERFLOW note no longer blocks a preview. Hangul desktop itself was not available; the forms it saved were opened
   in Hancom Docs.
-- **Whose picture:** every picture gets a neutral card naming each one in full, and with nobody to ask it is refused
-  (tools/own-picture.ts), until #448's upload-origin helper lands; `ownPicture.is` is the one place to swap.
+- **Whose picture:** a picture goes in without a card only when the person uploaded those very bytes themselves
+  (files/own-upload.ts, from #448, on the hash of what was just read). Anything else gets a card naming every such picture
+  in full; with nobody to ask it is refused (tools/own-picture.ts).
 - **Security:** the picture is a team file the person may read (authorize, as stamp_pdf), or a file of this chat through its
   own open; at most 10 MB each, 20 MB per call as read and as re-encoded, 10 per call, PNG or JPEG by its bytes, at most
   8000 px a side, not quarantined, and a source of the result even

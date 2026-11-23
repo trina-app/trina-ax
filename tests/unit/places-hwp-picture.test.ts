@@ -98,10 +98,10 @@ describe('the seal is a file of the chat', () => {
     return { chat, doc, seal, p: chatFilePath(doc.id, 'form.hwp') }
   }
 
-  test('the form is a chat file: text and a seal make a new version after the picture card; the other member opens it', async () => {
+  test('the form is a chat file: text and the sender\'s own uploaded seal make a new version with no picture card; the other member opens it', async () => {
     const { chat, doc, seal, p } = await chatWithForm()
     const r = await withLayout(async () => FILLED, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }, { image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
-    expect(r.cards.filter((c) => /right signature or seal/.test(c.question ?? ''))).toHaveLength(1)
+    expect(r.cards.filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(0)
     expect(r.content).toContain('saved as version 2')
     expect(versions(doc.id)).toBe(2)
     const got = new Uint8Array(await (await h.req('bob', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())
@@ -114,12 +114,12 @@ describe('the seal is a file of the chat', () => {
     const bobs = await send(chat, 'bob-seal.png', SEAL, 'bob')
     await turn('bob', chat, `my seal\n${fake({ say: 'ok' })}`, { attachmentIds: [bobs.id] })
     const call = fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ image: chatFilePath(bobs.id, 'bob-seal.png'), at: '(인)' }] }, sayResult: true })
-    const no = await withLayout(async () => LAYOUT, () => turn('alice', chat, call, { no: /right signature or seal/ }))
-    expect(no.cards.filter((c) => /right signature or seal/.test(c.question ?? ''))).toHaveLength(1)
+    const no = await withLayout(async () => LAYOUT, () => turn('alice', chat, call, { no: /did not upload this picture/ }))
+    expect(no.cards.filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
     expect(no.content).toContain('Nothing was saved')
     expect(versions(doc.id)).toBe(1)
     const yes = await withLayout(async () => LAYOUT, () => turn('alice', chat, call))
-    expect(yes.cards.filter((c) => /right signature or seal/.test(c.question ?? ''))).toHaveLength(1)
+    expect(yes.cards.filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
     expect(yes.content).toContain('saved as version 2')
   })
 
@@ -129,10 +129,24 @@ describe('the seal is a file of the chat', () => {
     const team = Array.from({ length: 6 }, (_, k) => `shared/seals/seal-${k}.png`)
     for (const t of team) fs.writeFileSync(path.join(h.team, t), Buffer.concat([SEAL]))
     const changes = [{ image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }, ...team.map((image) => ({ image, at: '(인)' }))]
-    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes }, sayResult: true }), { no: /right signature or seal/ }))
-    const card = r.cards.find((c) => /right signature or seal/.test(c.question ?? ''))!
+    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes }, sayResult: true }), { no: /did not upload this picture/ }))
+    const card = r.cards.find((c) => /did not upload this picture/.test(c.question ?? ''))!
     expect(card.question).toContain("'seal.png'")
     for (const t of team) expect(card.question).toContain(t)
+    expect(versions(doc.id)).toBe(1)
+  })
+
+  test('another member\'s AI writes a new version of the person\'s seal: stamping it asks; no means nothing saved', async () => {
+    const { chat, doc, seal, p } = await chatWithForm()
+    const sealPath = chatFilePath(seal.id, 'seal.png')
+    fs.mkdirSync(path.join(h.team, 'shared/brand'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'shared/brand/bobs-picture.png'), SEAL)
+    const bob = await turn('bob', chat, fake({ tool: 'read', args: { file_path: sealPath } }, { tool: 'resize_images', args: { paths: ['shared/brand/bobs-picture.png'], width: 16, output: sealPath }, sayResult: true }))
+    expect(bob.content).not.toContain('Not done')
+    expect(versions(seal.id)).toBe(2)
+    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ image: sealPath, at: '(인)' }] }, sayResult: true }), { no: /did not upload this picture/ }))
+    expect(r.cards.filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
+    expect(r.content).toContain('Nothing was saved')
     expect(versions(doc.id)).toBe(1)
   })
 

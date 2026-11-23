@@ -44,7 +44,8 @@ import { imageKind } from '../files/pdf-stamp'
 import { parsePlace } from '@mycel/shared/places'
 import { authorizeOutput, readPlaceFile, versionText, type ChatVersionMade } from '../files/place-output'
 import { chatSource, reencodePicture } from './edit-office'
-import { confirmNotOwnPictures, ownPicture } from './own-picture'
+import { confirmNotOwnPictures } from './own-picture'
+import { isOwnUpload } from '../files/own-upload'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof EditHwpInput>
@@ -189,19 +190,19 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
   try {
     for (const i of which) {
       const ch = changes[i] as Extract<HwpChange, { image: string }>
-      let rel: string, load: () => Uint8Array
+      let rel: string, label: string, load: () => Uint8Array
       if (parsePlace(ch.image)) {
         if (parsePlace(ch.image)!.kind !== 'chatFiles') throw new ToolError(`change ${i + 1}: a picture is a team file or a file of this chat (chat:files/<file_id>/<name>); copy it there first`, 'bad_place')
         // the chat's own visibility and quarantine checks (the place's one safe open)
         const f = await readPlaceFile(ctx, c, ch.image, PICTURE_LIMITS.imageBytes, work)
         rel = f.place
-        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.set(rel, f.name)
+        label = f.name
         load = () => readRegular(f.local, PICTURE_LIMITS.imageBytes).bytes
       } else {
         const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
         if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
         rel = img.rel
-        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.set(rel, rel)
+        label = rel
         load = () => {
           if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
           return readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
@@ -211,6 +212,9 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
       if (known) { known.changes.push(i); continue }
       const raw = load()
       ctx.files.quarantine.assertBytes(raw)
+      // the person's own upload of the very bytes just read goes in; anything else after their yes on the card
+      const at = parsePlace(rel)
+      if (!isOwnUpload(ctx.db, c.user.id, at ? { chatFile: at.kind === 'chatFiles' ? at.id ?? '' : '', sha256: sha256(raw) } : { team: rel, sha256: sha256(raw) })) notOwn.set(rel, label)
       const kind = imageKind(raw)
       if (!kind) throw new ToolError(`'${rel}' is not a PNG or JPG picture; use a .png or .jpg file (a PNG keeps a transparent background)`)
       if ((readBytes += raw.length) > PICTURE_LIMITS.totalBytes) throw tooMany()

@@ -6,7 +6,8 @@
 // - read first: the file must be the version the AI read in this chat (this answer or, unchanged, an earlier one: #1285) (else: read it again);
 // - without `output`, a new version of the same file (the old bytes in its history), a conflict copy if someone saved
 //   it meanwhile; with `output`, a new file, and the document is its source (make_file's wider-audience check). A
-//   replacement picture is a source too, in place as well;
+//   replacement or inserted picture (replace_picture, insert_picture: a team file, or a file of this chat read through
+//   its place) is a source too, in place as well;
 // - not under skills/ (a skill is Markdown, not an Office file; no skill-save card covers this tool);
 // - checked before anything is placed, not on the worker's word: the zip's parts outside the edit keep their
 //   compressed bytes (read here from the central directory without expanding anything), only parts of the kinds an
@@ -34,6 +35,11 @@ import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from './isolate'
+import { askConfirm } from './url-gate'
+import { isOwnUpload } from '../files/own-upload'
+import { teamDefaultLocale } from '../admin/settings'
+import { cardReason, refusal } from '../policy/refusal'
+import type { Locale } from '@mycel/shared/api'
 import { cellValue, confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
 import { editOfficeOutput } from './make-file-path'
@@ -61,7 +67,17 @@ export const EditOfficeInput = z.strictObject({
     z.strictObject({ shape_text: z.strictObject({ slide: z.number().int().min(1), shape: z.union([text(200).min(1), z.number().int().min(1)]).describe('"title", "subtitle", "body", the shape\'s name, or its number among the slide\'s text shapes'), text: text(20_000).describe('One paragraph per line') }).describe('PowerPoint: set the whole text of one shape') }),
     z.strictObject({ duplicate_slide: z.strictObject({ slide: z.number().int().min(1), after: z.number().int().min(0).optional().describe('Put the copy after this slide (0 = first; default: right after the slide)') }) }),
     z.strictObject({ add_slide: z.strictObject({ layout: text(200).min(1).describe('A layout name of the deck, e.g. "Title and Content"'), after: z.number().int().min(0).optional().describe('Default: at the end'), title: text(5000).optional(), body: text(20_000).optional().describe('One paragraph per line') }) }),
-    z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture in the team folder') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
+    z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture: a team path, or a chat file chat:files/<file_id>/<name>') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
+    z.strictObject({ insert_picture: z.strictObject({
+      image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture (a signature, a seal, a logo): a team path, or a chat file chat:files/<file_id>/<name>'),
+      over: text(5000).min(1).optional().describe('Floats the picture behind this text, centred on it: a seal or signature over "(seal)" or "(signature)" on a form'),
+      after: text(5000).min(1).optional().describe('Puts the picture in the line right after this text'),
+      next_to: text(5000).min(1).optional().describe('Puts the picture into the table cell right of the cell holding this text (a form row "Signature | ")'),
+      occurrence: occ.occurrence,
+      width_mm: z.number().min(1).max(300).optional().describe('Width in mm; the picture keeps its shape (a seal is usually 15-20, a signature 30-40)'),
+      height_mm: z.number().min(1).max(300).optional().describe('Height in mm; with width_mm, the picture fits inside both. Neither: 20 mm wide, at most 20 mm high'),
+      behind_text: z.boolean().optional().describe('after / next_to: float behind the text instead of taking room in the line'),
+    }).describe('Word: put a new picture at a label (give exactly one of over, after, next_to: exact text of one paragraph of the body, as read shows it)') }),
   ])).min(1).max(OFFICE_EDIT_LIMITS.changes).describe('Applied together, each to the file as you read it (slide, table and row numbers as read; never the result of another change in the same call)'),
   output: z.string().min(1).max(1000).optional().describe('Save as a new file (same format) instead of a new version of file_path'),
 })
@@ -71,15 +87,29 @@ export const EDIT_OFFICE_DESCRIPTION =
   'Change an existing Word (.docx), Excel (.xlsx) or PowerPoint (.pptx) file in place: everything you do not change (styles, fonts, pictures, charts, ' +
   'comments, tracked changes, other sheets and slides) stays exactly as it was. Use it whenever the person wants an existing Office file changed; ' +
   'use make_file only for a new file or when they ask to rebuild one. Read the file in this chat first. ' +
-  'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows. ' +
+  'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows, ' +
+  'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(seal)" next to a name; ' +
+  'after puts it in the line after the text; next_to puts it into the table cell right of the label). When someone asks to sign or stamp a Word document, use insert_picture, never a rebuilt document, ' +
+  'with the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use. ' +
+  'Pictures are not added to Excel workbooks here. ' +
   'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row); rows are never inserted in the middle. ' +
   'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +
   'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture. ' +
+  'Pictures (insert_picture, replace_picture) are PNG, JPEG or WebP files in the team folder or this chat. ' +
   'Slide, table and row numbers are as you read them, never after another change in the same call. When a change cannot be made exactly, ' +
   'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
   'Without `output` the result is a new version of the same file (the previous one stays in its history). ' +
   'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version, opened from the same file in the chat, and the earlier version stays (read with versions: true). ' +
   'Every call that changes a file saves it: never call it just to try something out. It cannot change speaker notes, charts, tables in a deck, comments or anything not listed here: say so in plain words ("I can\'t add speaker notes to this deck here"), never naming this tool, instead of calling it.'
+
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
+/** the card before a picture that is not the asker's own goes into a document (a signature or seal someone else sent,
+ * or one outside their own folder): independent review of #448 */
+const PICTURE_TEXT = {
+  ask: t('AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요?', 'The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan Anda sendiri yang mengunggahnya. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身がアップロードした画像ではありません。入れますか？', 'La IA quiere poner {pics} en {doc}. No subiste tú esta imagen. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这张图片不是你自己上传的。要放进去吗？'),
+  yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
+  no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
+}
 
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
@@ -121,9 +151,18 @@ const MAY: Record<OfficeKind, { changed: RegExp; added: RegExp | null; removed: 
   pptx: { changed: /^(ppt\/(presentation\.xml|_rels\/presentation\.xml\.rels|slides\/slide\d+\.xml|slides\/_rels\/slide\d+\.xml\.rels)|\[Content_Types\]\.xml)$/, added: /^ppt\/(slides\/slide\d+\.xml|slides\/_rels\/slide\d+\.xml\.rels|media\/image\d+\.(png|jpeg|gif))$/, removed: null },
 }
 
+/** a .docx call with insert_picture may also change the document's relationships and the content types and add pictures
+ * (the relationships part is added when the document had none) */
+const DOCX_PICTURES = {
+  changed: /^(word\/[^/]+\.xml|word\/_rels\/document\.xml\.rels|\[Content_Types\]\.xml)$/,
+  added: /^word\/(media\/image\d+\.(png|jpeg)|_rels\/document\.xml\.rels)$/,
+  removed: null,
+}
+
 /** Why the new zip is not the old one with only the reported parts changed, or null. Reads only the two central
- * directories and compares compressed bytes: nothing is expanded in this process. */
-export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Array, r: Pick<EditReport, 'changed' | 'added' | 'removed'>): string | null {
+ * directories and compares compressed bytes: nothing is expanded in this process. `pictures`: the call puts new
+ * pictures into a .docx (DOCX_PICTURES). */
+export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Array, r: Pick<EditReport, 'changed' | 'added' | 'removed'>, pictures = false): string | null {
   let ea: ReturnType<typeof readCentral>, eb: ReturnType<typeof readCentral>
   try { ea = readCentral(a); eb = readCentral(b) } catch (e) { return e instanceof ZipProblem ? `the zip: ${e.why}` : 'the zip' }
   const name = (e: (typeof ea)[number]) => new TextDecoder().decode(e.nameBytes)
@@ -131,7 +170,7 @@ export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Arr
   // two entries with one name: readers disagree about which one is the part
   if (A.size !== ea.length) return 'the original has two parts with one name'
   if (B.size !== eb.length) return 'the result has two parts with one name'
-  const may = MAY[kind]
+  const may = kind === 'docx' && pictures ? DOCX_PICTURES : MAY[kind]
   for (const n of r.changed) if (!may.changed.test(n) || !A.has(n) || !B.has(n)) return `a part that is not changed here: ${n}`
   for (const n of r.added) if (!may.added?.test(n) || A.has(n) || !B.has(n)) return `a part that is not added here: ${n}`
   for (const n of r.removed) if (!may.removed?.test(n) || !A.has(n) || B.has(n)) return `a part that is not removed here: ${n}`
@@ -208,34 +247,80 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   const imageIndex = new Map<string, number>()
   const imageBytes = { read: 0, made: 0 }
   const changes: unknown[] = []
+  /** a picture's index among the call's re-encoded pictures: a team file (read access as the person), or a file of this
+   * chat (read through its place's one safe open); each sized, quarantine-checked and re-encoded before the worker */
+  const picWork: string[] = []
+  /** inserted pictures that are not the asker's own upload (files/own-upload.ts) */
+  const notMine = new Set<string>()
+  const ownPic = new Map<string, boolean>()
+  const picture = async (p: string, i: number, insert = false): Promise<number> => {
+    let rel: string, raw: Uint8Array
+    const place = parsePlace(p)
+    if (place) {
+      if (place.kind !== 'chatFiles') throw new ToolError(`change ${i + 1}: a picture is a team file or a file of this chat (chat:files/<file_id>/<name>); copy it there first`, 'bad_place')
+      const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+      picWork.push(work)
+      const f = await readPlaceFile(ctx, c, p, OFFICE_EDIT_LIMITS.imageBytes, work)
+      rel = f.place
+      const known = imageIndex.get(rel)
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(f.name); return known }
+      if (!PICTURE_EXT.has(ext(f.name))) throw new ToolError(`change ${i + 1}: '${f.name}' is not a PNG, JPEG or WebP picture; give one of those`)
+      countPictureBytes(imageBytes, 'read', f.size, i)
+      raw = readRegular(f.local, OFFICE_EDIT_LIMITS.imageBytes).bytes
+      fs.rmSync(f.local, { force: true })
+      // judged on the very bytes that go into the document (the place path names the chain, its read is the newest version)
+      const at = parsePlace(rel)
+      ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { chatFile: at?.kind === 'chatFiles' ? at.id ?? '' : '', sha256: sha256(raw) }))
+      if (insert && !ownPic.get(rel)) notMine.add(f.name)
+    } else {
+      const img = authorize(fx, files.rules(), c.user, p, 'read')
+      if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
+      rel = img.rel
+      const known = imageIndex.get(rel)
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(rel); return known }
+      if (!PICTURE_EXT.has(ext(rel))) throw new ToolError(`change ${i + 1}: '${rel}' is not a PNG, JPEG or WebP picture; give one of those`)
+      const size = checkRegular(img.abs).size
+      if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
+      countPictureBytes(imageBytes, 'read', size, i)
+      raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
+      // judged on the very bytes that go into the document
+      ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { team: rel, sha256: sha256(raw) }))
+      if (insert && !ownPic.get(rel)) notMine.add(rel)
+    }
+    ctx.files.quarantine.assertBytes(raw)
+    const made = await reencodePicture(ctx, raw, rel, i, c.signal)
+    countPictureBytes(imageBytes, 'made', made.length, i)
+    images.push(made)
+    imagePaths.push(rel)
+    imageIndex.set(rel, images.length - 1)
+    return images.length - 1
+  }
+  try {
   for (const [i, ch] of a.changes.entries()) changes.push(await (async () => {
     const x = ch as Record<string, any>
     if (kind !== 'xlsx' && (x.cell || x.append_rows)) throw new ToolError(`change ${i + 1}: cell and append_rows are for Excel workbooks`)
-    if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents`)
+    if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows || x.insert_picture)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents${x.insert_picture && kind === 'xlsx' ? ' (a picture cannot be added to a workbook here)' : ''}`)
     if (kind !== 'pptx' && (x.shape_text || x.duplicate_slide || x.add_slide || x.replace_picture || x.slide !== undefined)) throw new ToolError(`change ${i + 1}: ${x.slide !== undefined ? 'slide' : Object.keys(x)[0]} is for PowerPoint decks`)
     if (kind === 'xlsx' && typeof x.find === 'string') throw new ToolError(`change ${i + 1}: in a workbook, set cells with cell (find and replace is for Word and PowerPoint)`)
     if (x.cell) return { cell: { ...x.cell, value: excelValue(x.cell.value, i) } }
     if (x.append_rows) return { append_rows: { ...x.append_rows, rows: x.append_rows.rows.map((r: unknown[]) => r.map((v) => excelValue(v, i))) } }
-    if (x.replace_picture) {
-      const img = authorize(fx, files.rules(), c.user, x.replace_picture.image, 'read')
-      if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
-      const known = imageIndex.get(img.rel)
-      if (known !== undefined) return { replace_picture: { ...x.replace_picture, image: known } }
-      if (!PICTURE_EXT.has(ext(img.rel))) throw new ToolError(`change ${i + 1}: '${img.rel}' is not a PNG, JPEG or WebP picture; give one of those`)
-      const size = checkRegular(img.abs).size
-      if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
-      countPictureBytes(imageBytes, 'read', size, i)
-      const raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
-      ctx.files.quarantine.assertBytes(raw)
-      const made = await reencodePicture(ctx, raw, img.rel, i, c.signal)
-      countPictureBytes(imageBytes, 'made', made.length, i)
-      images.push(made)
-      imagePaths.push(img.rel)
-      imageIndex.set(img.rel, images.length - 1)
-      return { replace_picture: { ...x.replace_picture, image: images.length - 1 } }
+    for (const key of ['replace_picture', 'insert_picture'] as const) {
+      if (!x[key]) continue
+      return { [key]: { ...x[key], image: await picture(String(x[key].image), i, key === 'insert_picture') } }
     }
     return x
   })())
+  } finally { for (const w of picWork) fs.rmSync(w, { recursive: true, force: true }) }
+  // a signature or seal that is not the asker's own goes in only after their yes on a card (never on the AI's choice)
+  if (notMine.size) {
+    const L = c.person?.locale ?? teamDefaultLocale(ctx.db)
+    const pics = [...notMine].slice(0, 5).map((n) => `'${n.split('/').pop()}'`).join(', ')
+    const end = c.person ? await askConfirm(c.person, PICTURE_TEXT.ask[L].replace('{pics}', pics).replace('{doc}', `'${src.rel.split('/').pop()}'`), PICTURE_TEXT.yes[L], PICTURE_TEXT.no[L]) : 'unattended'
+    if (end !== 'yes') throw new ToolError(refusal({
+      done: 'Nothing was saved.', why: cardReason(end === 'declined' || end === 'timeout' || end === 'ended' ? end : 'unattended', { run: c.person ? undefined : 'a call outside a chat' }),
+      next: 'use the person\'s own signature or seal, or ask them which picture to use', names: [...notMine],
+    }))
+  }
   // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
   // the worker runs, in place too, as comment_docx does
   await confirmSources(ctx, files, c, out.rel, out.segs, [...(inPlace ? [] : [src.rel]), ...imagePaths])
@@ -248,7 +333,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     file = r.blobs[0]!
     if (!file || !Array.isArray(report.notes) || !Array.isArray(report.changed) || !Array.isArray(report.added) || !Array.isArray(report.removed)) throw new Error('bad')
   } catch { throw new ToolError('the Office editor gave a damaged answer; nothing was saved') }
-  const parts = officePartsMismatch(kind, bytes, file, report)
+  const parts = officePartsMismatch(kind, bytes, file, report, a.changes.some((ch) => 'insert_picture' in ch))
   if (parts) throw new ToolError(`the changed file did not read back as expected (${parts}); nothing was saved`)
   try {
     await officeWorkerWrite(OFFICE_VERIFY_MODE, frame({ kind, changed: report.changed, added: report.added, notes: report.notes, cells: report.cells ?? [] }, [bytes, file]), c.signal)
