@@ -32,6 +32,9 @@ export interface Instance {
   /** the model proxy's internal port (engine.proxyInnerPort): fixed, so a host firewall can allow the instance user
    * pool.portRange on loopback and nothing else (demo-gate/linux/trina-demo.nft) */
   innerPort: number
+  /** the key that signs a visitor in on this instance (POST /api/demo/persona). Only in the gate's memory: the instance's
+   * demo file holds its SHA-256, so no code on any instance can sign in to another one */
+  gateKey: string
   /** the path secret in the instance's model upstream address (/i/<id>.<secret>) */
   secret: string
   state: InstanceState
@@ -56,7 +59,7 @@ export interface Instance {
   sockets?: number
 }
 
-export interface Manifest { codeVersion: string; locale: Locale; createdAt: string; config: string; demoFile: string }
+export interface Manifest { codeVersion: string; locale: Locale; createdAt: string; config: string; demoFile: string; git: string | null }
 interface Snapshot { name: string; dir: string; base: string; manifest: Manifest; createdMs: number }
 
 export type TakeRefusal = 'paused' | 'full' | 'no_warm' | 'ip_live'
@@ -232,20 +235,32 @@ export class Pool {
         if (typeof m.codeVersion !== 'string' || m.locale !== locale || Number.isNaN(createdMs) || typeof m.demoFile !== 'string' || !m.demoFile) continue
         const base = path.join(dir, 'base')
         if (!fs.statSync(base).isDirectory()) continue
-        out.push({ name, dir, base, createdMs, manifest: { codeVersion: m.codeVersion, locale, createdAt: String(m.createdAt), config: typeof m.config === 'string' ? m.config : 'config/server.json', demoFile: m.demoFile } })
+        out.push({ name, dir, base, createdMs, manifest: { codeVersion: m.codeVersion, locale, createdAt: String(m.createdAt), config: typeof m.config === 'string' ? m.config : 'config/server.json', demoFile: m.demoFile, git: typeof m.git === 'string' ? m.git : null } })
       } catch {}
     }
     return out.sort((a, b) => b.createdMs - a.createdMs)
   }
-  /** the newest good snapshot of the configured code version; others are refused (logged once each) */
+  /** the newest good snapshot of the configured code version; others are refused (logged once each). One version can be
+   * built from many commits: when the newest is bad, only an older one of the same commit may stand in for it */
   currentSnapshot(locale: Locale): Snapshot | null {
+    let newest: Snapshot | null = null
     for (const s of this.snapshots(locale)) {
-      if (this.badSnapshots.has(s.dir)) continue
-      if (s.manifest.codeVersion === this.cfg.pool.codeVersion) return s
-      if (!this.refusedSnapshots.has(s.dir)) {
-        this.refusedSnapshots.add(s.dir)
-        this.log.warn('snapshot refused: other code version', { snapshot: s.name, locale, snapshotVersion: s.manifest.codeVersion, codeVersion: this.cfg.pool.codeVersion })
+      if (s.manifest.codeVersion !== this.cfg.pool.codeVersion) {
+        if (!this.badSnapshots.has(s.dir) && !this.refusedSnapshots.has(s.dir)) {
+          this.refusedSnapshots.add(s.dir)
+          this.log.warn('snapshot refused: other code version', { snapshot: s.name, locale, snapshotVersion: s.manifest.codeVersion, codeVersion: this.cfg.pool.codeVersion })
+        }
+        continue
       }
+      newest ??= s
+      if (s.manifest.git !== newest.manifest.git) {
+        if (!this.refusedSnapshots.has(s.dir)) {
+          this.refusedSnapshots.add(s.dir)
+          this.log.error('snapshot refused: the newest is bad and this one is from another commit', { snapshot: s.name, locale })
+        }
+        return null
+      }
+      if (!this.badSnapshots.has(s.dir)) return s
     }
     return null
   }
@@ -377,7 +392,7 @@ export class Pool {
   private async create(locale: Locale, snap: Snapshot): Promise<void> {
     const id = newId()
     const dir = path.join(this.cfg.pool.instancesDir, id)
-    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, innerPort: 0, secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
+    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, innerPort: 0, gateKey: newSecret(), secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
     this.instances.set(id, inst)
     try {
       ;[inst.port, inst.proxyPort, inst.innerPort] = await this.allocPorts()
@@ -395,6 +410,8 @@ export class Pool {
       // the server refuses a group-readable key file (credentials/vault.ts key_unsafe; Gmail then reads "sign in again")
       this.runAs(['/bin/sh', '-c', 'chmod -R go-rwx "$0" && mkdir -p "$0/tmp"', dir])
       this.runAs(['/bin/sh', '-c', 'umask 077 && cat > "$0" && chmod 600 "$0"', configFile], { input: config })
+      const demoJson = { ...JSON.parse(fs.readFileSync(snapDemo, 'utf8')) as Record<string, unknown>, gateKeySha256: crypto.createHash('sha256').update(inst.gateKey).digest('hex') }
+      this.runAs(['/bin/sh', '-c', 'umask 077 && cat > "$0" && chmod 600 "$0"', demoFile], { input: JSON.stringify(demoJson, null, 2) + '\n' })
       const sub = (s: string) => s.replaceAll('{dir}', dir).replaceAll('{config}', configFile).replaceAll('{port}', String(inst.port)).replaceAll('{proxyPort}', String(inst.proxyPort))
       const argv = this.cfg.pool.command.map(sub)
       const env = this.instanceEnv(dir, configFile, demoFile)
@@ -449,6 +466,19 @@ export class Pool {
       this.log.error('snapshot refused: not a fenced free-roam demo', { snapshot: snap.name, locale: inst.locale, kind: typeof info?.kind === 'string' ? info.kind.slice(0, 20) : null, builder: info?.builder === true, cap: !!cap })
       throw new Error('the instance is not a fenced free-roam demo')
     }
+    // and it must refuse a sign-in without this instance's key (an older server would let any local process in)
+    const open = await fetch(`http://127.0.0.1:${inst.port}/api/demo/persona`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: this.cfg.publicOrigin, 'x-mycel-csrf': '1', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ key: this.cfg.pool.personaKey }), redirect: 'manual', signal: AbortSignal.timeout(10_000),
+    })
+    await open.body?.cancel().catch(() => {})
+    if (open.ok) {
+      this.badSnapshots.add(snap.dir)
+      this.log.error('snapshot refused: the instance does not check the gate key', { snapshot: snap.name, locale: inst.locale, status: open.status })
+      throw new Error('the instance does not check the gate key')
+    }
+    // any other answer says nothing about the snapshot: this start failed, and the pool tries again
+    if (open.status !== 401) throw new Error(`the sign-in check answered ${open.status}`)
     return Math.round(cap * this.cfg.limits.instanceCapMargin)
   }
 
@@ -530,6 +560,8 @@ export class Pool {
       if (!cur) continue
       for (const s of this.snapshots(locale)) {
         if (s.createdMs >= cur.createdMs) continue
+        // another version's snapshots are a rollback's (tddeploy prunes them at the next proved deploy)
+        if (s.manifest.codeVersion !== cur.manifest.codeVersion) continue
         let mtime = 0
         try { mtime = fs.statSync(s.dir).mtimeMs } catch {}
         if (now - mtime < OLD_SNAPSHOT_MIN_AGE_MS) continue

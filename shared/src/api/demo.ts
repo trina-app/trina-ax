@@ -97,10 +97,19 @@ export const DemoFile = z.object({
   uploadFileMax: z.number().int().min(1).max(50 * 1024 * 1024).optional(),
   /** freeRoam: all uploads of the instance together (bytes; default DEMO_UPLOAD_TOTAL_MAX) */
   uploadTotalMax: z.number().int().min(1).max(1024 * 1024 * 1024).optional(),
+  /** freeRoam, written by demo-gate into each instance's own copy (never in a snapshot): the SHA-256 (hex) of a random
+   * key only the gate holds. POST /api/demo/persona needs that key in DEMO_GATE_KEY_HEADER, so code running on one
+   * instance cannot sign in to another instance's port; a free-roam demo without a hash signs nobody in. Only the hash is
+   * here: this file gives no way in. */
+  gateKeySha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 }).strict()
-  .refine((d) => d.kind === 'freeRoam' || (d.limitTokens === undefined && d.signupUrl === undefined && d.uploadFileMax === undefined && d.uploadTotalMax === undefined), 'limitTokens, signupUrl and the upload limits are for kind "freeRoam" only')
+  .refine((d) => d.kind === 'freeRoam' || (d.limitTokens === undefined && d.signupUrl === undefined && d.uploadFileMax === undefined && d.uploadTotalMax === undefined && d.gateKeySha256 === undefined), 'limitTokens, signupUrl, the upload limits and gateKeySha256 are for kind "freeRoam" only')
   .refine((d) => d.kind !== 'freeRoam' || d.personas.length === 1, 'a freeRoam demo has exactly one persona')
 export type DemoFile = z.infer<typeof DemoFile>
+
+/** the header demo-gate signs a visitor in with (DemoFile.gateKeySha256; demo-gate/src/public.ts names it too: no shared
+ * imports there) */
+export const DEMO_GATE_KEY_HEADER = 'x-mycel-demo-gate'
 
 /** freeRoam's demo limit when the demo file names none (weighted tokens, see DemoFile.limitTokens) */
 export const DEMO_LIMIT_DEFAULT = 300_000

@@ -226,7 +226,7 @@ export function createPublic(d: PublicDeps) {
     try {
       const r = await fetch(`http://127.0.0.1:${inst.port}/api/demo/persona`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', origin: cfg.publicOrigin, 'x-mycel-csrf': '1', 'sec-fetch-site': 'same-origin' },
+        headers: { 'content-type': 'application/json', origin: cfg.publicOrigin, 'x-mycel-csrf': '1', 'sec-fetch-site': 'same-origin', 'x-mycel-demo-gate': inst.gateKey },
         body: JSON.stringify({ key: cfg.pool.personaKey }), redirect: 'manual', signal: AbortSignal.timeout(15_000),
       })
       await r.body?.cancel().catch(() => {})

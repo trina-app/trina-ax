@@ -8,8 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   DUMMY_CREDENTIAL, FAKE_CREDENTIAL, NODE, SSE, fakeTurnstile, fakeUpstream, get, startGate, startVisit, until, visitor, warm, wsEcho,
-  type Gate,
-} from './harness.ts'
+  type Gate, writeSnapshot } from './harness.ts'
 
 // each test starts real gate and instance processes (clone, config, health and fence checks): 5 s is too short on a
 // loaded machine
@@ -816,6 +815,44 @@ describe.skipIf(skip)('gate: pool', () => {
     } finally { await g.stop() }
   })
 
+  test('each instance has its own sign-in key: only its hash on the instance, nothing without the key', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { warmPerLocale: 2 } })
+    try {
+      await until(async () => (await g.health()).pool.warm === 2, 8000, 'two warm')
+      const h = await g.health()
+      const [a, b] = h.instances.map((i: { id: string }) => i.id) as [string, string]
+      const hashOf = (id: string) => (JSON.parse(fs.readFileSync(path.join(g.instancesDir, id, 'demo.json'), 'utf8')) as { gateKeySha256: string }).gateKeySha256
+      expect(hashOf(a)).toMatch(/^[0-9a-f]{64}$/)
+      expect(hashOf(a)).not.toBe(hashOf(b))
+      // the snapshot itself never holds one
+      const snap = fs.readFileSync(path.join(path.dirname(g.instancesDir), 'snap', 'en', 'snap-1', 'base', 'demo.json'), 'utf8')
+      expect(snap).not.toContain('gateKeySha256')
+      const v = visitor()
+      expect((await startVisit(g, v)).status).toBe(303) // the gate's own sign-in has the key
+      const e = await (await get(g, v, '/echo')).json() as { dir: string; config: unknown; env: Record<string, string> }
+      expect(JSON.stringify(e.config) + JSON.stringify(e.env)).not.toContain('gate-key')
+      expect(Object.keys(e.env).filter((k) => /GATE_KEY/.test(k))).toEqual([])
+      // a visitor's header never reaches the persona route: the path is refused at the gate
+      expect((await get(g, v, '/api/demo/persona', { method: 'POST', headers: { origin: 'https://demo.trina.app', 'content-type': 'application/json', 'x-mycel-demo-gate': 'x' }, body: '{"key":"newHire"}' })).status).toBe(404)
+    } finally { await g.stop() }
+  })
+
+  test('an instance that signs in without the key is refused, and its snapshot marked bad', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], files: { 'no-gate-key-check': '' } })
+    try {
+      await until(() => g.log().includes('snapshot refused: the instance does not check the gate key'), 8000, 'refused')
+      expect((await g.health()).pool.warm).toBe(0)
+    } finally { await g.stop() }
+  })
+
+  test('a sign-in check that answers something else is a failed start, not a bad snapshot', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], files: { 'gate-key-check-500': '' } })
+    try {
+      await until(() => g.log().includes('the sign-in check answered 500'), 8000, 'failed start')
+      expect(g.log()).not.toContain('snapshot refused')
+    } finally { await g.stop() }
+  })
+
   test('a snapshot of another code version is refused', async () => {
     const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], codeVersion: '1.0.0', snapshotVersion: '0.9.0' })
     try {
@@ -844,6 +881,51 @@ describe.skipIf(skip)('gate: pool', () => {
     try {
       await until(() => !fs.existsSync(path.join(g.instancesDir, 'abcdef12')), 5000, 'orphan removed')
       await until(() => !fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-0')), 5000, 'old snapshot removed')
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: a bad newest snapshot', () => {
+  const setup = (older: string) => ({ snapshotsDir }: { snapshotsDir: string }) => {
+    const manifest = (name: string) => path.join(snapshotsDir, 'en', name, 'manifest.json')
+    writeSnapshot(snapshotsDir, 'en', '9.9.9', 'snap-new', new Date(Date.now() + 60_000).toISOString(), { demo: { kind: 'scripted' } })
+    for (const [name, git] of [['snap-new', 'b'.repeat(40)], ['snap-1', older]] as const) fs.writeFileSync(manifest(name), JSON.stringify({ ...JSON.parse(fs.readFileSync(manifest(name), 'utf8')), git }))
+  }
+  test('never falls back to a snapshot of the same version from another commit', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], before: setup('a'.repeat(40)) })
+    try {
+      await until(() => g.log().includes('the newest is bad and this one is from another commit'), 8000, 'refused')
+      await Bun.sleep(500)
+      expect((await g.health()).pool.warm).toBe(0)
+      expect(fs.readdirSync(g.instancesDir)).toEqual([])
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: snapshots of another version', () => {
+  test('the sweeper keeps them, older or newer, for a fast rollback; an older one of its own version goes', async () => {
+    const put = (dir: string, name: string, codeVersion: string, ageMs: number) => {
+      const d = path.join(dir, 'en', name)
+      fs.mkdirSync(path.join(d, 'base'), { recursive: true })
+      fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ codeVersion, locale: 'en', createdAt: new Date(Date.now() + ageMs * -1).toISOString(), demoFile: 'demo.json' }))
+      const t = new Date(Date.now() - 2 * 3600_000)
+      fs.utimesSync(d, t, t)
+    }
+    const g = await startGate({
+      upstream: upstream.url, turnstile: turnstile.url, locales: ['en'],
+      before: ({ snapshotsDir }) => {
+        put(snapshotsDir, 'own-older', '9.9.9', 2 * 86400_000)
+        put(snapshotsDir, 'other-older', '9.9.8', 2 * 86400_000)
+        put(snapshotsDir, 'other-newer', '10.0.0', -3600_000)
+      },
+    })
+    try {
+      await until(() => !fs.existsSync(path.join(g.root, 'snap', 'en', 'own-older')), 5000, 'own older snapshot removed')
+      await Bun.sleep(800) // more sweeps
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'other-older'))).toBe(true)
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'other-newer'))).toBe(true)
       expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
     } finally { await g.stop() }
   })

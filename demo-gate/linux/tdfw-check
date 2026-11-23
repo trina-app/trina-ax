@@ -8,7 +8,7 @@ set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 fail=0
 probe() { # USER URL -> 0 when something answered
-  runuser -u "$1" -- curl -s -o /dev/null -m 6 --connect-timeout 4 "$2" >/dev/null 2>&1
+  runuser -u "$1" -- curl -k -s -o /dev/null -m 6 --connect-timeout 4 "$2" >/dev/null 2>&1
   rc=$?; [ $rc = 0 ] || [ $rc = 22 ] || [ $rc = 35 ] || [ $rc = 52 ] || [ $rc = 56 ]
 }
 want() { # USER open|closed URL WHAT
@@ -24,7 +24,10 @@ ts=$(ip -4 -o addr show 2>/dev/null | awk '$4 ~ /^100\./ {sub(/\/.*/, "", $4); p
 gate_up=0; curl -s -o /dev/null -m 3 http://127.0.0.1:19190/__demo/health && gate_up=1
 
 for u in tdrun tdgate tdtunnel; do
-  want $u closed https://example.com/ "the internet (example.com)"
+  # not a Cloudflare-hosted site (example.com is one now): the tunnel may reach the whole Cloudflare edge by design
+  want $u closed https://www.google.com/ "the internet (www.google.com, not on Cloudflare)"
+  want $u closed https://8.8.8.8/ "the internet by address (8.8.8.8)"
+  want $u closed "https://[2001:4860:4860::8888]/" "the internet over IPv6 (2001:4860:4860::8888)"
   want $u closed http://127.0.0.1:5432/ "Postgres on loopback (5432)"
   [ -n "$gw" ] && want $u closed "http://$gw/" "the LAN gateway ($gw)"
   [ -n "$ts" ] && want $u closed "http://$ts:22/" "this host's Tailscale address"

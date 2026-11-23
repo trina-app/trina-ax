@@ -66,11 +66,13 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
 - **Snapshots.** `tdsnap-rebuild` builds as `tdbuild` in its own folder; root never changes, removes or follows
   anything in a folder another user can write: the snapshot leaves as a tar stream made by `tdbuild`, root checks it
   (plain files and folders, every name under the snapshot's `YYYYMMDD-HHMMSS` name) and `tdgate` unpacks it.
-- **Each instance in its own bwrap** (`pool.command`): `--die-with-parent --unshare-pid --unshare-ipc --ro-bind / /
+- **Each instance in its own bwrap** (`pool.command`): `--die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / /
   --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc`. It sees
   no other instance, no snapshot, none of the host's sockets in `/run`, and writes only its own folder. No
   `--new-session` (the gate keeps the instance's process group) and no network namespace (it reaches the gate on
-  loopback). The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
+  loopback). Inside it `tdscope` puts the server in a Landlock domain (ABI 6, Linux 6.12+; it refuses to run without)
+  that scopes abstract unix sockets, which belong to the shared network namespace: the instance reaches only its own.
+  The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
   overflow uid; `MYCEL_SANDBOX_ROOT_UNMAPPED=/opt/trina-demo` (`pool.env`) lets the HTML-to-PDF browser check count
   that uid as root for the explicit `MYCEL_HTML_PDF_BROWSER` inside that folder only, never for a fallback browser, and
   only when `/` itself shows as that uid (`server/src/files/html-pdf.ts` `rootOwnerUids`).
@@ -79,13 +81,13 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   `choom -n 800`, so when memory runs out the kernel ends an instance, not the gate or another service.
 - **The gate unit.** `ProtectSystem=strict` (writes only `/var/demo-gate`, `/srv/tdg`, `/run/sudo`),
   `ProtectHome=yes`, `PrivateTmp=yes`, `InaccessiblePaths=` for the host's Postgres, Docker, containerd and Tailscale
-  sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders), `ProtectControlGroups`,
-  `ProtectHostname`. The gate starts every instance through sudo, so the unit must keep `NoNewPrivileges` off: for a
+  sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders), `ProtectControlGroups`.
+  The gate starts every instance through sudo, so the unit must keep `NoNewPrivileges` off: for a
   unit that is not root, systemd turns it on with any of `PrivateDevices`, `ProtectKernelModules`,
   `ProtectKernelTunables`, `ProtectKernelLogs`, `ProtectClock`, `LockPersonality`, `RestrictRealtime`,
   `RestrictSUIDSGID`, `RestrictNamespaces`, `RestrictAddressFamilies`, `MemoryDenyWriteExecute`, `SystemCallFilter`
-  or `SystemCallArchitectures`, and none of those is set (`ProtectProc` is left out too: it mounts over `/proc`, and
-  the kernel then refuses the new `/proc` each instance's bwrap mounts). `install.sh` checks sudo inside a transient
+  or `SystemCallArchitectures`, and none of those is set. `ProtectProc` and `ProtectHostname` are left out too: they
+  mount over parts of `/proc`, and the kernel then refuses the new `/proc` each instance's bwrap mounts. `install.sh` checks sudo inside a transient
   unit with the gate unit's properties before it starts the gate, and that the gate warms an instance after.
 - **bwrap and AppArmor.** Ubuntu 24.04+ restricts user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`);
   its AppArmor profile for `/usr/bin/bwrap` (`bwrap-userns-restrict`, or a host's own replacement) allows bwrap and
@@ -95,10 +97,16 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   macOS's `engine.sb` only (`server/src/context.ts` `devEngineSandbox`). On Linux the engine relies on Claude Code's
   tool lockdown (no Bash, no file tools: `server/src/engine/claude.ts`), the instance's bwrap, the nft table and the
   unit's protections.
+- **Sign-in key.** Every instance listens on loopback and the instance user may reach the instance port range, so
+  `POST /api/demo/persona` needs a key per instance. The gate makes it, keeps it in memory and writes only its SHA-256
+  to the clone's demo file (`gateKeySha256`); a free-roam instance without that hash signs nobody in, and before an
+  instance is warm the gate checks it refuses a sign-in without the key.
 - **Credential.** A person signs in once as `tdcred` (`sudo -u tdcred -H /opt/trina-demo/claude/bin/claude`, then
   `/login`). `trina-demo-credsync.timer` copies the access token into the gate's credential file every 5 minutes
   through `tdgate-set-credential` (the one command `tdcred` may run as `tdgate`), and lets Claude Code renew the login
-  when less than 20 minutes are left. Never copy a token from another machine.
+  when less than 20 minutes are left. `install.sh` turns that timer on only when this login exists. Or use a long-lived
+  token from `claude setup-token`, piped on stdin to `sudo -u tdgate /opt/trina-demo/bin/tdgate-set-credential`, with
+  the timer left off.
 - **Tunnel.** One named tunnel per host, created for it, with one connector. **Never add a second connector to a tunnel
   that serves the live hostname from another machine**: Cloudflare spreads requests over connectors, and a visitor's
   next request would reach a gate that does not know their instance ("session ended"). To move the live hostname,
@@ -127,10 +135,43 @@ placeholder and every AI answer is "busy".
 | `trina-demo-tunnel.service` | cloudflared, `/var/demo-tunnel/config.yml` |
 | `trina-demo-nft.timer` | `tdnft-load` every minute: the table when it is missing or changed, Turnstile's addresses |
 | `trina-demo-snapshots.timer` | `tdsnap-rebuild` at 05:00: build, canary scan, move in (`TD_LOCALES="en ko"` for some) |
-| `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes |
+| `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes (only with a `tdcred` login) |
 
 `tdfw-check` (root) checks the table from each user (the internet, the LAN, Tailscale, Postgres on loopback, DNS, and
 what each may reach).
+
+### Deploy and rollback
+
+Two scripts hold the order, so nobody retypes it. A gate restart ends every live session (visitor routing is in memory):
+`tddeploy` refuses while visitors are live unless given `--drop-live`.
+
+```sh
+# on the operator's machine, in a checkout: the source, .git-head and the app build (no root, nothing running changes)
+sh demo-gate/linux/stage-remote.sh <ssh host> <commit on origin/dev>
+# on the host, as root
+sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy prebuild --stage /var/tmp/trina-demo-stage --expect <full commit>
+sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy deploy --stage /var/tmp/trina-demo-stage --expect <full commit>
+sh /var/lib/trina-demo/tddeploy rollback --expect <good commit>      # back to the kept version
+sh /var/lib/trina-demo/tddeploy status
+```
+
+- **Deploy:** tunnel and gate stopped and disabled, `install.sh --no-start` (it migrates the one older `pool.command`
+  with a backup in `/var/lib/trina-demo/gate-backups` and refuses any command but the exact template), gate started,
+  every instance warm, `tdfw-check`, tunnel started, both enabled. A failure leaves both stopped and disabled, also
+  after a reboot.
+- **Snapshots:** the gate uses only snapshots of its own code version. `tddeploy prebuild` builds the next version's
+  while the site stays up (from a root copy, `/opt/trina-demo/app-next`; refused from 03:45 to 06:00 and when the running
+  gate is on that version, since it would use them at once), so a deploy only swaps. Without it, `deploy` and `rollback`
+  build what is missing with the site off. One version can be built from many commits, so a prebuild and a version
+  deploy or rollback count a snapshot only when its `manifest.git` is that commit (a stage's `.git-head`; a version
+  whose builder records none, its unstamped ones), and a prebuild first removes that version's snapshots of other
+  commits. When the newest snapshot is bad, the gate falls back only to an older one of the same commit. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
+  deploy keeps this version and the newest of the rollback copy's version, and removes the rest. One build runs at a
+  time (a lock, one unit `trina-demo-snapshots-deploy`), and an install stops a build a lost connection left behind.
+- **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` checks free space while the site is up,
+  keeps the running app and its `gate.json` there once, and removes any other copy. A retry of a failed deploy keeps that copy; only a version a deploy proved replaces it at the next deploy.
+- **Rollback:** refuses a copy whose `.git-head` is not the expected commit, then tunnel off, gate off, app and
+  `gate.json` (tdgate, 600) restored, gate started, every instance warm, `tdfw-check`, tunnel started, both enabled.
 
 ## Run
 

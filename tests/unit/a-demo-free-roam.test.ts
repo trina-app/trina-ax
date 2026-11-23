@@ -4,10 +4,11 @@
 // a development server, refuse whatever its fences list whoever asks, never mark its stand-in AI connection, and count
 // the demo limit with cache reads and cache writes at 0.1, refusing sends at the limit with reason demo_limit.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoFile, type Endpoint } from '../../shared/src/api'
+import { API, DEMO_GATE_KEY_HEADER, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, DemoFile, type Endpoint } from '../../shared/src/api'
 import { cookieFor, FREE_ROAM_SESSION_COOKIE, readToken, sessionCookie } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
@@ -24,6 +25,7 @@ import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_TOKEN_RE, verifySecret } from '../../server/src/credentials/validate'
 import { markInvalid, markNeedsReconnect, markNoCredit } from '../../server/src/credentials/store'
+import { gateKeyOk } from '../../server/src/routes/demo'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { ask, startHarness, type Harness as BHarness, type TestSocket } from '../lib/b-harness'
 import { makeEnv } from '../lib/env'
@@ -33,7 +35,8 @@ setDefaultTimeout(60_000)
 
 const PW = 'demo public words 42'
 const SCRIPTED: DemoFile = { company: 'Steepling', password: PW, personas: [{ key: 'newHire', username: 'mina', intro: 'First day at Steepling', questions: [] }] }
-const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
+const GATE_KEY = 'the-gate-key-of-this-test'
+const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update(GATE_KEY).digest('hex'), limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a-demo-free-roam-'))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
@@ -106,9 +109,44 @@ describe('a free-roam demo server', () => {
     ;(h.ctx.config as { demo?: DemoFile }).demo = FREE
     startFreeRoam(h.ctx)
     mina = h.client()
-    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' })
+    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' }, { [DEMO_GATE_KEY_HEADER]: GATE_KEY })
   })
   afterAll(async () => { setDemoLimit(h.ctx.db, null); await h.close() })
+
+  test('with the gate key in the demo file only the gate signs in: no key, a wrong key and another instance\'s key are refused', async () => {
+    const hash = (k: string) => crypto.createHash('sha256').update(k).digest('hex')
+    const KEY = 'this-instance-gate-key', OTHER = 'another-instance-gate-key'
+    const config = h.ctx.config as { demo?: DemoFile }
+    config.demo = { ...FREE, gateKeySha256: hash(KEY) }
+    try {
+      const sw = (key?: string) => { const c = h.client(); return c.try('POST', API.demoSwitch.path, { key: 'newHire' }, key === undefined ? {} : { [DEMO_GATE_KEY_HEADER]: key }) }
+      for (const bad of [undefined, '', 'wrong', OTHER, hash(KEY)]) {
+        const r = await sw(bad)
+        expect(r.status).toBe(401)
+        expect(r.headers.getSetCookie()).toEqual([])
+      }
+      const good = await sw(KEY)
+      expect(good.status).toBe(200)
+      expect(good.headers.getSetCookie().join()).toContain('__Host-sid=')
+      // neither the key nor its hash in what a page or the API reads
+      const info = JSON.stringify(await mina.call('GET', API.demoInfo.path))
+      expect(info).not.toContain(hash(KEY)); expect(info).not.toContain(KEY); expect(info).not.toContain('gateKey')
+    } finally { config.demo = FREE }
+  })
+
+  test('the gate key: the guided demo and the builder need none, a free-roam instance without a hash signs nobody in', () => {
+    expect(gateKeyOk({}, undefined)).toBe(true)
+    expect(gateKeyOk({ kind: 'scripted' }, undefined)).toBe(true)
+    expect(gateKeyOk({ kind: 'freeRoam', builder: true }, undefined)).toBe(true)
+    // a free-roam instance without a hash signs nobody in, whatever it is shown
+    expect(gateKeyOk({ kind: 'freeRoam' }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam' }, 'anything')).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: 'a'.repeat(64) }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update('k').digest('hex') }, 'k')).toBe(true)
+    expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'a'.repeat(64) }).success).toBe(true)
+    expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'short' }).success).toBe(false)
+    expect(DemoFile.safeParse({ ...SCRIPTED, gateKeySha256: 'a'.repeat(64) }).success).toBe(false)
+  })
 
   test('the visitor signs in as the demo person (Mina) through the switch, and sees no development server', async () => {
     const me = await mina.call('GET', API.me.path)

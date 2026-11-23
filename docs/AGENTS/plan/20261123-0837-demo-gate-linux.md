@@ -92,6 +92,42 @@ LockPersonality, RestrictRealtime, RestrictSUIDSGID or SystemCallArchitectures, 
 root; install.sh checks sudo plus the instance sandbox in a transient unit with the gate unit's properties before the
 start, and that the gate warms an instance after (else it stops the units). The overflow uid counts as root only for
 the explicit MYCEL_HTML_PDF_BROWSER inside the folder MYCEL_SANDBOX_ROOT_UNMAPPED names (/opt/trina-demo). Secrets
-must be plain files; I/O logging of sudo is off for tdgate.
+must be plain files. Ubuntu 26.04's sudo is sudo-rs: the sudoers file sets only `Defaults:tdgate !use_pty` (sudo-rs
+refuses requiretty and log_output; it never asks for a tty and has no I/O logging); install.sh stops if a sudo.ws host
+logs I/O. The first install run also found that install.sh read its hosting files from the stage copy after moving
+the app out of it (fixed), that systemd-run takes no `localhost` in IPAddressAllow (spelled out), and that
+ProtectHostname breaks the instance bwrap's /proc (it mounts /proc/sys/kernel/hostname read-only; removed).
+
+The real install also found: the canary needs its list 600 (now tdbuild's), example.com is on Cloudflare (tdfw-check
+probes off it), and the credential timer stays off on a host with a long-lived token.
+
+Review of the live host: any code running as the instance user could sign in to another instance through
+`POST /api/demo/persona`. The gate now makes a key per instance, keeps it in memory and writes only its SHA-256 to the
+clone's demo file (`gateKeySha256`); the server compares in constant time, and the gate refuses an instance that signs
+in without the key. Each instance also gets its own UTS namespace and `tdscope`, a Landlock domain scoping abstract
+unix sockets (without it an instance could connect to the desktop's X11 socket).
+
+Second review: the key check fails closed (a free-roam instance without a hash signs nobody in; only the guided demo and
+the builder's own server have no key; the snapshot check uses a throwaway key). install.sh migrates an older
+`pool.command` with a backup, refuses one without the whole sandbox, and stops the units before it changes the app.
+
+Third review: install.sh disables the gate and tunnel before any change and enables them only after every check, and
+refuses links in the folders role users own. The instance command must equal one exact template. `tddeploy` (deploy,
+rollback, status) and `stage-remote.sh` hold the order, and the first app is kept for rollback; a retry never replaces
+it. The failure paths were rehearsed in a throwaway fake root with stubbed systemd.
+
+`tddeploy` also builds the snapshots a version change needs, for a deploy and for a rollback: the gate refuses other
+versions and sweeps older snapshots.
+
+Fourth review: `.git-head` only after a stage built; one build at a time with a lock and a named unit an install can
+stop; an unknown live count refuses; `tddeploy prebuild` makes the next version's snapshots with the site up. The gate's
+sweeper leaves other versions alone and a proved deploy prunes them.
+
+Fifth review: snapshots name their commit in a `git archive` tree too (`.git-head`), and a prebuild or a version change
+counts only those of the commit being deployed, so one pool is never built from two commits.
+
+Sixth review: `stage-remote.sh` takes only a commit on origin/dev (a fetch by id can bring a fork's); a deploy and a
+rollback take only snapshots of their own commit (a version whose builder records none: its unstamped ones); the gate
+never falls back from a bad newest snapshot to another commit's.
 
 PR: https://github.com/trina-app/trina-ax/pull/446
