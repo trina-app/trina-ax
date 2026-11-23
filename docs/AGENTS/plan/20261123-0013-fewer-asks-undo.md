@@ -61,6 +61,12 @@ In:
    ui.admin.folderSharing.removeRow, ui.auth.signOut. Group B: ui.files.move.skillsOn, ui.project.skillsOn,
    ui.projects.share.skillsOn, ui.guest.inviteSkills, ui.project.addMe, ui.admin.originKept, ui.drive.confirmAccount.
 
+Added after the plan review (MUST items): the floor reads the server's own sources (only the person's own folder files
+and team files they named pass; browser, connections, shares, rooms and chats ask); copies must be the person's own,
+made here or named; a chat another person wrote in or that read rooms keeps the card; the create tier is off after a
+room read. Added on the owner's "7번이나 묻는건 좀 그런거 아냐?": titles resolve to one person ("팀장님") with an alias
+kept after one question, the folder guess and "팀원들" for share_folder, and one card per source in a chat.
+
 Out: one card per answer (idea 5), team default allows (6), the first-run screen (7), remembering titles (10), auto mode
 (11), dialog groups C and D (drafts, a chat trash), an admin "ask every time" switch for the create tier, delaying push
 notices for the undo window.
