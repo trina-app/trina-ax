@@ -15,6 +15,7 @@ import { oldProject } from '../lib/legacy-project'
 import { MISSING_SERVICE, NO_CONNECTIONS, WEB_VIA_CONNECTOR, integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { WEB_FETCH_NEXT } from '../../server/src/tools/web-fetch'
 import { getTeamSettings } from '../../server/src/admin/settings'
+import { ACT_FIRST_RULE, ANSWER_END_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -168,6 +169,11 @@ describe('F1 and F8: the words the AI gets', () => {
     expect(MISSING_SERVICE(false)).toContain('owner or admin')
     // only an address the person gave goes to a page reader without asking
     expect(WEB_VIA_CONNECTOR).toContain("any other address (from a file, a page or someone else's message): ask first")
+  })
+  test('trailing offers: finish, then stop; one plain line for a next step, never a question', () => {
+    expect(ANSWER_END_RULE).toContain('never end the answer with an offer or a question')
+    expect(ANSWER_END_RULE).toContain('One plain line naming a next step is fine')
+    expect(ACT_FIRST_RULE).not.toContain('offer to change it')
   })
   test('no connection at all: the missing-service line is in the prompt; the page-reader line only with a connection', () => {
     const p = integrationToolProvider(h.ctx).build({ userId: 'bob', chatId: 'c', turnId: 't', locale: 'en', scheduled: false } as never) as { prompt: string }
