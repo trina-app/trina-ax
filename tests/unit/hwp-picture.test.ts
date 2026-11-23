@@ -18,8 +18,8 @@ import { parsePagination, parseRenderTree, placePicture, sanitizeImage, type Cle
 import { pictureInput } from '../../server/src/files/hwp-changes'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
-import { employmentForm } from '../lib/hwpx'
-import { hwpDoc, hwpEmploymentForm, hwpStreams, para, sectionDef, sectionRecords, table } from '../lib/hwp'
+import { employmentForm, hwpxDoc, para as hwpxPara } from '../lib/hwpx'
+import { defaultScript, hwpDoc, hwpEmploymentForm, hwpStreams, para, sectionDef, sectionRecords, table } from '../lib/hwp'
 import { emptyScript } from '../../server/src/files/hwpx-write'
 
 const FIX = path.join(import.meta.dir, '../fixtures/hwp')
@@ -196,6 +196,9 @@ describe('.hwp', () => {
   })
 })
 
+/** real code a comment-stripping check took for an empty script (review of #450) */
+const ATTACKS = ['/* // */ globalThis.PWN=1; /*\n*/', '// x globalThis.PWN=2;']
+
 describe('placing and checking, more cases', () => {
   const two = { ...EMPLOYMENT, pages: [{ ...EMPLOYMENT.pages[0]!, lines: [{ ...EMPLOYMENT.pages[0]!.lines[2]!, text: '갑 김가나 (인) 을 이다라 (인)', runs: [{ x: 200, w: 300, text: '갑 김가나 (인) 을 이다라 (인)' }] }] }] }
   const twoSeals: HwpChange[] = [{ image: 's.png', at: '(인)', occurrence: 1 }, { image: 's.png', at: '(인)', occurrence: 2 }]
@@ -276,6 +279,15 @@ describe('placing and checking, more cases', () => {
     expect(emptyScript(head, 'function OnDocument_New(){ Run("x") }')).toBe(false)
     expect(emptyScript(head + 'Run();', empty)).toBe(false)
     expect(emptyScript(head, 'function a(){}b()')).toBe(false)
+    for (const code of ATTACKS) {
+      expect(emptyScript(head, code)).toBe(false)
+      expect(emptyScript(code, empty)).toBe(false)
+      const inHwp = hwpEmploymentForm({ extra: { 'Scripts/DefaultJScript': zlib.deflateRawSync(defaultScript(code)) } })
+      expect(() => editHwp(inHwp, [{ find: '{{대표자}}', replace: '김예시' }])).toThrow(/scripts/)
+      const part = (t: string) => new Uint8Array(Buffer.from(t, 'utf16le'))
+      const inHwpx = hwpxDoc([hwpxPara('본문')], { extra: { 'Scripts/headerScripts': part(head), 'Scripts/sourceScripts': part(code) } })
+      expect(() => editHwpx(inHwpx, [{ find: '본문', replace: '바뀐 글' }])).toThrow(/scripts/)
+    }
   })
 })
 

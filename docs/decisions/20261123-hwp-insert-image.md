@@ -21,6 +21,11 @@
   - Any paragraph without a cache (Hancom Docs web saves none): Hangul wraps by itself and can differ from the renderer by
     a line (measured: 5 mm), so the picture is placed from the top of the label's paragraph, or of the paragraph after its
     table.
+- **Fill and stamp in one call:** text and row changes are made first, the layout is read again from that result, and the
+  pictures are placed from it, so a row added above a label or a fill that wraps does not leave the seal on the wrong row.
+  A filled paragraph has no stored layout any more, so such a call uses the paragraph anchor.
+- **Scripts:** only the exact templates Hangul and Hancom write pass (the header, handlers with an empty body or the one
+  line `//todo :`). Comments are not stripped: a comment-stripping check let real code through.
 - **Layer:** behind body text, in front in a table by default: filled cells hid or cut off a picture behind the text.
 - **Measured in Hancom Docs:** forms Hancom saved: vertical 0.0 to 0.5 mm, horizontal 1.1 to 1.7 mm left of "(인)". Two
   public government forms saved by Hangul: on the label's line, nothing moved, 1.3 and 2.8 mm left of the centre of the
@@ -31,9 +36,8 @@
   the first. hwp_render is that renderer, so the tool result does not treat it as proof of the spot. The renderer's
   LAYOUT_OVERFLOW note no longer blocks a preview. Hangul desktop itself was not available; the forms it saved were opened
   in Hancom Docs.
-- **Whose picture:** one that is not the asker's own needs their yes on a card; with nobody to ask it is refused
-  (tools/own-picture.ts). Where a file lies does not show who put it there (the AI can copy a seal into the asker's folder),
-  so until #448's shared origin helper lands every picture gets the card; `ownPicture.is` is the one place to swap.
+- **Whose picture:** every picture gets a neutral card naming each one in full, and with nobody to ask it is refused
+  (tools/own-picture.ts), until #448's upload-origin helper lands; `ownPicture.is` is the one place to swap.
 - **Security:** the picture is a team file the person may read (authorize, as stamp_pdf), or a file of this chat through its
   own open; at most 10 MB each, 20 MB per call as read and as re-encoded, 10 per call, PNG or JPEG by its bytes, at most
   8000 px a side, not quarantined, and a source of the result even

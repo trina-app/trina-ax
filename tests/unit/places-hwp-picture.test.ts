@@ -12,6 +12,8 @@ import { hwpPluginOn } from '../lib/hwp-plugin'
 import { componentC } from '../../server/src/team-files/component'
 import { localHwpAssets, NativeHwpEngine } from '../../server/src/files/hwp-engine'
 import { hwpEmploymentForm } from '../lib/hwp'
+import { editHwp } from '../../server/src/files/hwp-edit'
+import { editHwpx } from '../../server/src/files/hwpx-edit'
 import type { HwpLayout } from '../../server/src/files/hwp-picture'
 import { hwpText } from '../../server/src/files/hwp'
 import { readCfb } from '../../server/src/files/cfb'
@@ -82,6 +84,9 @@ describe('the seal is a file of the chat', () => {
 
   const LAYOUT: HwpLayout = { pages: [{ w: 793.7, h: 1122.5, section: 0, continued: [], tables: [], cells: [], starts: [{ para: 0, table: false, preview: '' }],
     lines: [{ x: 113, y: 400, w: 566, h: 13, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)', runs: [{ x: 200, w: 330, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)' }], para: '0:5', cell: -1 }] }] }
+  // the layout after the call's text change (the picture is placed from it)
+  const FILLED: HwpLayout = JSON.parse(JSON.stringify(LAYOUT).replaceAll('{{대표자}}', '김예시'))
+  FILLED.pages[0]!.starts.push({ para: 5, table: false, preview: '' })
   const versions = (id: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM chat_files WHERE id = ? OR root_id = ?').get(id, id) as { n: number }).n
   const chatWithForm = async () => {
     const chat = await newChat()
@@ -95,7 +100,7 @@ describe('the seal is a file of the chat', () => {
 
   test('the form is a chat file: text and a seal make a new version after the picture card; the other member opens it', async () => {
     const { chat, doc, seal, p } = await chatWithForm()
-    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }, { image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
+    const r = await withLayout(async () => FILLED, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }, { image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
     expect(r.cards.filter((c) => /right signature or seal/.test(c.question ?? ''))).toHaveLength(1)
     expect(r.content).toContain('saved as version 2')
     expect(versions(doc.id)).toBe(2)
@@ -116,6 +121,19 @@ describe('the seal is a file of the chat', () => {
     const yes = await withLayout(async () => LAYOUT, () => turn('alice', chat, call))
     expect(yes.cards.filter((c) => /right signature or seal/.test(c.question ?? ''))).toHaveLength(1)
     expect(yes.content).toContain('saved as version 2')
+  })
+
+  test('the card names every picture', async () => {
+    const { chat, doc, seal, p } = await chatWithForm()
+    fs.mkdirSync(path.join(h.team, 'shared/seals'), { recursive: true })
+    const team = Array.from({ length: 6 }, (_, k) => `shared/seals/seal-${k}.png`)
+    for (const t of team) fs.writeFileSync(path.join(h.team, t), Buffer.concat([SEAL]))
+    const changes = [{ image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }, ...team.map((image) => ({ image, at: '(인)' }))]
+    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes }, sayResult: true }), { no: /right signature or seal/ }))
+    const card = r.cards.find((c) => /right signature or seal/.test(c.question ?? ''))!
+    expect(card.question).toContain("'seal.png'")
+    for (const t of team) expect(card.question).toContain(t)
+    expect(versions(doc.id)).toBe(1)
   })
 
   test('a member who cannot see the form (uploaded, not sent) cannot change it, and it stays as it was', async () => {
@@ -139,6 +157,43 @@ const RHWP = fs.existsSync(localHwpAssets().bin)
     ['sign-form-hancom.hwpx', [{ at: '(인)', occurrence: 1 }, { at: '(인)', occurrence: 2 }, { cell: { next_to: '서명' }, width_mm: 25 }]],
     ['contract-hancom.hwp', [{ at: '(인)', occurrence: 1 }, { at: '(인)', occurrence: 2 }]],
   ]
+  // the picture is placed from the document as the call's other changes left it
+  const spotOf = (text: string) => { const m = /a picture on page \d+, ([\d.]+) x ([\d.]+) mm, ([\d.]+) mm from the left and ([\d.]+) mm from the top/.exec(text)!; return { h: Number(m[2]), y: Number(m[4]) } }
+  const MM = 25.4 / 96
+  for (const ext of ['hwp', 'hwpx'] as const) {
+    test(`.${ext}: rows added above the label cell in the same call: the signature is on that cell's new row`, async () => {
+      const rel = `users/alice/rows-before-seal.${ext}`
+      const form = fs.readFileSync(path.join(FIX, `sign-form.${ext}`))
+      fs.writeFileSync(path.join(h.team, rel), form)
+      fs.writeFileSync(path.join(h.team, 'users/alice/my-seal.png'), SEAL)
+      const rows = { add_rows: { table_with: '멘토', after_row: 1, rows: [['추가 1', '값'], ['추가 2', '값'], ['추가 3', '값']] } }
+      const chat = await newChat()
+      const out = await withLayout((b, x) => engine!.layout(b, x), () => run(chat, fake({ tool: 'read', args: { file_path: rel } }, { tool: 'edit_hwp', args: { file_path: rel, changes: [rows, { image: 'users/alice/my-seal.png', cell: { next_to: '작성일' }, width_mm: 15 }] }, sayResult: true })))
+      const filled = ext === 'hwp' ? editHwp(new Uint8Array(form), [rows]) : editHwpx(new Uint8Array(form), [rows])
+      const pg = (await engine!.layout(Buffer.from(filled.file), ext)).pages[0]!
+      const label = pg.lines.find((l) => l.text === '작성일')!, cell = pg.cells[label.cell]!
+      const right = pg.cells.find((c) => c.table === cell.table && c.row === cell.row && c.col === cell.col + 1)!
+      const s = spotOf(out)
+      expect(Math.abs(s.y + s.h / 2 - (right.y + right.h / 2) * MM)).toBeLessThan(0.5)
+      const before = (await engine!.layout(form, ext)).pages[0]!.lines.find((l) => l.text === '작성일')!
+      expect(label.y).toBeGreaterThan(before.y + 20) // the rows did move the label
+    })
+    test(`.${ext}: a text fill that wraps to an extra line above the seal mark in the same call: the seal is on the mark`, async () => {
+      const rel = `users/alice/wrap-before-seal.${ext}`
+      const form = fs.readFileSync(path.join(FIX, `sign-form.${ext}`))
+      fs.writeFileSync(path.join(h.team, rel), form)
+      fs.writeFileSync(path.join(h.team, 'users/alice/my-seal.png'), SEAL)
+      const fill = { find: '끝.', replace: '이 협약의 내용은 갑과 을이 함께 확인하였으며 다음 해 말까지 효력을 가지고 필요한 경우 서로 협의하여 바꿀 수 있다. '.repeat(3) }
+      const chat = await newChat()
+      const out = await withLayout((b, x) => engine!.layout(b, x), () => run(chat, fake({ tool: 'read', args: { file_path: rel } }, { tool: 'edit_hwp', args: { file_path: rel, changes: [fill, { image: 'users/alice/my-seal.png', at: '(인)' }] }, sayResult: true })))
+      const filled = ext === 'hwp' ? editHwp(new Uint8Array(form), [fill]) : editHwpx(new Uint8Array(form), [fill])
+      const line = (await engine!.layout(Buffer.from(filled.file), ext)).pages[0]!.lines.find((l) => l.text.includes('(인)'))!
+      const s = spotOf(out)
+      expect(Math.abs(s.y + s.h / 2 - (line.y + line.h / 2) * MM)).toBeLessThan(0.5)
+      const before = (await engine!.layout(form, ext)).pages[0]!.lines.find((l) => l.text.includes('(인)'))!
+      expect(line.y).toBeGreaterThan(before.y + 20)
+    })
+  }
   for (const [name, places] of cases) test(name, async () => {
     const rel = `users/alice/${name}`
     fs.copyFileSync(path.join(FIX, name), path.join(h.team, rel))
