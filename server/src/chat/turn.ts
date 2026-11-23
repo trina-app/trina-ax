@@ -4411,7 +4411,13 @@ export class TurnExec {
     const ownShared = this.shared?.kind === 'people' && (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id === this.spec.userId
     // (never a skill of theirs: its words become the AI's instructions here, a card of its own; never a copy of their
     // files into the chat's own places, which puts them in front of everyone there as files: NO_OWN_SKIP)
-    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
+      const before = missing.length
+      missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+      // (recorded as the person's yes would be: the people who see the chat now are covered for it, so the engine's session
+      // goes on as after the card's yes)
+      if (!missing.length && before) return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
+    }
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
     if (!missing.length) return this.noteSharedReads(sources, audience) ? null : refuse('failed')
