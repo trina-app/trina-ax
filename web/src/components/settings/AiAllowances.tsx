@@ -37,6 +37,8 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
   const [items, setItems] = useState<AiAllowance[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  // the one shared notice (docs/decisions/20261123-shared-connector-warning-once.md): "공유 채팅 안내 확인함 · Falcon"
+  const warnedLabel = (where: string) => (where ? `${t('allowances.connectorWarned')} · ${where}` : t('allowances.connectorWarned'))
   const load = () => api.call(API.listAiAllowances).then((r) => { setItems(r.items); setError(null) }, (e) => setError(errorText(e, locale, t('error.network'))))
   useEffect(() => {
     void load()
@@ -103,7 +105,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
@@ -116,7 +118,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                       <span className="px-1.5 text-faint" aria-hidden>·</span>
                       {/* the shared chat card's Always: the connection's answers, not one tool; "<connector> 전체 항상 허용":
                           every tool (docs/decisions/20261123-one-always-allow.md) */}
-                      <span>{a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}</span>
+                      <span>{a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}</span>
                     </p>
                   ) : a.kind === 'connector_send' ? (
                     // a connection's send card answered "Always allow": "Gmail · 묻지 않고 보내기"

@@ -1166,6 +1166,11 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
     attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, askerSpec(exec), paths),
     othersWords: () => othersWordsIn(exec),
+    // (read live: a teammate's message written after the turn began counts too; a check that fails counts as yes)
+    othersInChat: () => {
+      if (exec.otherAuthors || readRooms(exec) || exec.othersWords) return true
+      try { return !!exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId) } catch { return true }
+    },
     // (never while a waiting call runs again: that run reaches the card its press is checked against)
     explicitPlace: (dir, paths) => exec.askedIn ? false : paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),

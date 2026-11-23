@@ -7,11 +7,13 @@
 // and the person's Always holds there too; migration 446 removes the per-chat rows and keeps the permanent ones.
 import fs from 'node:fs'
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type AiAllowance, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { warnedIn } from '../lib/shared-warned'
+import { WARNED_PREFIX } from '../../server/src/integrations/connections/tool-allow'
 import { CONFIRMED } from '../lib/schedule-card'
 import { FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
@@ -47,6 +49,9 @@ beforeAll(async () => {
   expect(team.status).toBe('connected')
   teamId = team.id
 })
+// every person has seen the one notice in the project (docs/decisions/20261123-shared-connector-warning-once.md): the
+// cards here are the tools' own
+beforeEach(() => { if (h && projectId) warnedIn(h.ctx.db, `p:${projectId}`) })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); svc?.stop(); await h?.close() })
 
 const db = () => h.ctx.db
@@ -78,8 +83,8 @@ async function askCards(user: string, chatId: string, content: string, pick: (ca
 const last = (c: Card) => c.options.at(-1)!.value
 const callsOf = (n: string) => svc.calls.filter((c) => c.name === n).length
 const via = (name: string, args: Record<string, unknown> = {}) => fake({ tool: name, args, sayResult: true })
-const grants = (user: string) => (db().query('SELECT tool FROM connector_tool_allow WHERE user_id = ? ORDER BY tool').all(user) as { tool: string }[]).map((r) => r.tool)
-const clear = () => db().query('DELETE FROM connector_tool_allow').run()
+const grants = (user: string) => (db().query('SELECT tool FROM connector_tool_allow WHERE user_id = ? ORDER BY tool').all(user) as { tool: string }[]).map((r) => r.tool).filter((t) => !t.startsWith(WARNED_PREFIX))
+const clear = () => { db().query('DELETE FROM connector_tool_allow').run(); warnedIn(db(), `p:${projectId}`) }
 const allowances = async (user = 'alice') => (await h.api(user).call(API.listAiAllowances)).items as AiAllowance[]
 const farTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + 12 * 3_600_000))
 /** run a task of alice's in `chatId` now, as at its time; the run's turn id once its answer is done */
@@ -155,7 +160,7 @@ describe('"Bright Data 전체 항상 허용" on the first connector card', () =>
     expect(toolOk(run, T('get_profile_update'))).toBe(1)
     expect(callsOf('get_profile_update')).toBe(p + 2)
     // Settings › Allowed for Trina: one entry for the connection
-    const rows = (await allowances()).filter((a) => a.kind === 'connector_tool')
+    const rows = (await allowances()).filter((a) => a.kind === 'connector_tool' && a.warned === undefined)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ kind: 'connector_tool', connection: 'Bright Data', all: true })
     // removed there: the card again, in a new chat and nothing in the scheduled run
@@ -178,6 +183,7 @@ describe('"Bright Data 전체 항상 허용" on the first connector card', () =>
     clear()
     await askCards('alice', (await newShared()).id, via(T('get_post')), () => 'all')
     db().query("UPDATE connector_tool_allow SET url = 'https://elsewhere.example.com/mcp'").run()
+    warnedIn(db(), `p:${projectId}`)
     expect((await askCards('alice', (await newShared()).id, via(T('get_profile_update')), last)).cards.length).toBe(1)
     expect(grants('alice')).toEqual([])
     await askCards('alice', (await newShared()).id, via(T('get_post')), () => 'all')
@@ -197,6 +203,8 @@ describe('"Bright Data 전체 항상 허용" on the first connector card', () =>
     setAccess(db(), teamId, { everyone: false, groups: [], users: ['bob'] })
     expect(grants('alice')).toEqual([])
     setAccess(db(), teamId, { everyone: true, groups: [], users: [] })
+    // (a lost access took the notice too: seen again here, the tool's own card is the subject)
+    warnedIn(db(), `p:${projectId}`)
     expect((await askCards('alice', (await newShared()).id, via(T('get_profile_update')), last)).cards.length).toBe(1)
   })
 })

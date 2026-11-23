@@ -173,6 +173,9 @@ export interface TurnPerson {
   attachAsks?(paths: readonly string[]): boolean
   /** the chat holds other people's words (chat/shared-actions.ts othersWordsIn): the explicit-ask skip never applies */
   othersWords?(): boolean
+  /** another person's words are in this chat: their messages, a room read, content someone else wrote (TurnExec.otherAuthors,
+   * readRooms, TurnExec.othersWords). Unlike othersWords, a shared chat nobody else wrote in is not: the create tier */
+  othersInChat?(): boolean
   /** the person's own message of this turn asked to save, move or copy into the team folder `dir` and named it, with
    * nobody else's words in the chat (chat/explicit-place.ts explicitPlaceAsk): a card that only says more people will see
    * it there is skipped. With `paths` (a move or a copy), the files must be the asker's too (named, attached or made in
