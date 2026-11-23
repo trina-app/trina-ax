@@ -6,9 +6,10 @@
 import { ToolError } from '../policy/errors'
 import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit } from './hwpx-check'
 import {
-  HU_PER_PX, labelX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
+  HU_PER_PX, aimOf, labelX, partX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
   type PictureSpot,
 } from './hwp-picture'
+import { pickSignMark, placedOn } from './sign-slots'
 
 export const HWP_CHANGE_LIMITS = {
   changes: 100,
@@ -250,24 +251,35 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     let cellIdx = -1, lineKey = ''
     let p: P, page: number, target: { x: number; y: number; w: number; h: number }, where: string
     if (c.at !== undefined) {
-      const find = c.at
-      const hits = this.textHits(find, i)
-      if (hits.length > 1 && c.occurrence === undefined) {
-        const list = hits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + find.length + 20), 70)}`).join('; ')
-        refuseChange(i, `${clip(find)} appears ${hits.length} times (${list}${hits.length > 5 ? '; …' : ''}). Give occurrence (1-${hits.length})`)
+      const label = c.at
+      const labelHits = this.textHits(label, i)
+      // over: a label that holds a sign mark means that mark (sign-slots.ts); several marks are never guessed
+      const signed = (c.place ?? 'over') === 'over' ? pickSignMark(label, c.occurrence, labelHits.length) : { mark: null, occurrence: c.occurrence }
+      if ('ask' in signed) return refuseChange(i, signed.ask)
+      const mark = signed.mark
+      if (labelHits.length > 1 && signed.occurrence === undefined) {
+        const list = labelHits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + label.length + 20), 70)}`).join('; ')
+        refuseChange(i, `${clip(label)} appears ${labelHits.length} times (${list}${labelHits.length > 5 ? '; …' : ''}). Give occurrence (1-${labelHits.length})`)
       }
-      const k = (c.occurrence ?? 1) - 1
-      const h = hits[k] ?? refuseChange(i, `${clip(find)} appears ${hits.length} time${hits.length > 1 ? 's' : ''}, so there is no occurrence ${k + 1}`)
+      const labelK = (signed.occurrence ?? 1) - 1
+      const chosen = labelHits[labelK] ?? refuseChange(i, `${clip(label)} appears ${labelHits.length} time${labelHits.length > 1 ? 's' : ''}, so there is no occurrence ${labelK + 1}`)
+      // from here the place is the mark itself, so a whole line that wraps on the page still finds it
+      const find = mark ? label.slice(mark.from, mark.to) : label
+      const hits = mark ? this.textHits(find, i) : labelHits
+      const k = mark ? hits.findIndex((x) => x.p === chosen.p && x.at === chosen.at + mark.from) : labelK
+      const h = hits[k] ?? refuseChange(i, `${clip(find)} could not be found in ${clip(label)}; give the text of the mark`)
       const laid = layoutTextHits(layout, find)
       if (laid.length !== hits.length) unmatched(clip(find), hits.length, laid.length)
       const L = laid[k]!
       const pg = layout.pages[L.page]!, line = pg.lines[L.line]!
       if (!strip(h.p.text).includes(strip(line.text))) refuseChange(i, `${clip(find)} could not be matched with its line on page ${L.page + 1} (${clip(line.text, 60)}); give a longer text`)
-      const [x0, x1] = labelX(line, L.at, [...find].length)
+      const [m0, m1] = labelX(line, L.at, [...find].length)
+      // a "signature or seal" mark: the seal word only
+      const [x0, x1] = mark ? partX(m0, m1, find, mark.aimFrom - mark.from, mark.aimTo - mark.from) : [m0, m1]
       target = { x: x0, y: line.y, w: Math.max(0, x1 - x0), h: line.h }
       cellIdx = line.cell; lineKey = line.para
       p = h.p; page = L.page
-      where = `${this.where(p)}, ${c.place ?? 'over'} ${clip(find, 40)}`
+      where = `${this.where(p)}, ${c.place ?? 'over'} ${mark ? placedOn(label, mark) : clip(find, 40)}`
     } else {
       const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
       const cell = f.cell, k = f.labels!.indexOf(f.label!)
@@ -334,7 +346,9 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
     if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
     const part = this.pictureAt(p, spot, img, c.layer ?? (inTable ? 'front' : 'behind'), i)
-    this.pictures.push(spotNote(i, spot, where, part))
+    // over a text: what the landing is checked against; only an anchor the renderer draws as Hangul does can be a miss
+    const aim = place === 'over' ? { aim: aimOf(target, cached && fromPara === undefined && !p.cell) } : {}
+    this.pictures.push({ ...spotNote(i, spot, where, part), ...aim })
   }
 
   /** refuses a fill of p when another change already changes its text */

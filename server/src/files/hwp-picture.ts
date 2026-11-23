@@ -125,7 +125,7 @@ export interface LCell { table: number; row: number; col: number; x: number; y: 
 export interface LStart { para: number; table: boolean; preview: string }
 /** a table as drawn (its id is LCell.table) */
 export interface LTable { x: number; y: number; w: number; h: number }
-export interface LPage { w: number; h: number; lines: LLine[]; cells: LCell[]; tables: LTable[]; section: number; starts: LStart[]; continued: number[] }
+export interface LPage { w: number; h: number; lines: LLine[]; cells: LCell[]; tables: LTable[]; section: number; starts: LStart[]; continued: number[]; /** pictures the renderer drew */ images?: { x: number; y: number; w: number; h: number }[] }
 export interface HwpLayout { pages: LPage[] }
 
 export const LAYOUT_LIMITS = { pages: 200, lines: 20_000, runs: 100_000, cells: 20_000, chars: 400_000, depth: 64, nodes: 400_000 }
@@ -176,6 +176,7 @@ export function parseRenderTree(tree: unknown): LPage {
       if (page.lines.push(line) > L.lines) bad()
       return
     }
+    if (type === 'Image') (page.images ??= []).push(box(n))
     let inCell = cell, inContainer = container, inTable = table
     if (type === 'Table') { inTable = ++tables; inContainer = ++containers; if (page.tables.push(box(n)) > L.cells) bad() }
     if (type === 'Cell') {
@@ -256,6 +257,12 @@ export function labelX(line: LLine, k: number, n: number): [number, number] {
   }
   return [charX2(line, k), charX2(line, k + n)]
 }
+/** the part `from`..`to` (string indexes) of a measured text's box [x0, x1], by the characters' shares */
+export function partX(x0: number, x1: number, text: string, from: number, to: number): [number, number] {
+  const share = (s: string) => units(s).reduce((a, b) => a + b, 0)
+  const all = share(text) || 1
+  return [x0 + ((x1 - x0) * share(text.slice(0, from))) / all, x0 + ((x1 - x0) * share(text.slice(0, to))) / all]
+}
 function charX2(line: LLine, k: number): number {
   let at = 0
   for (const r of line.runs) {
@@ -334,8 +341,37 @@ export function placePicture(page: LPage, pageIndex: number, target: { x: number
   return { page: pageIndex, box: { x: hu(x), y: hu(y), w: Math.max(1, hu(w)), h: Math.max(1, hu(h)) } }
 }
 
+export const aimOf = (t: { x: number; y: number; w: number; h: number }, exact: boolean) => ({ xMm: round1((t.x + t.w / 2) * MM_PER_PX), yMm: round1((t.y + t.h / 2) * MM_PER_PX), exact })
+
+/** Where a picture really landed, from the layout of the saved file. */
+export type HwpLanding = { change: number; state: 'checked'; mm: number } | { change: number; state: 'missed'; mm: number | null } | { change: number; state: 'not-checked' }
+/** Each aimed picture against the pictures that are new in `after`: the nearest on its page, its centre to the aim, the
+ * larger of the two axes. An anchor the renderer does not draw as Hangul does is reported as not checked, never as a miss. */
+export function landings(before: HwpLayout, after: HwpLayout, notes: readonly HwpPictureNote[], toleranceMm: number): HwpLanding[] {
+  const same = (a: { x: number; y: number; w: number; h: number }, b: typeof a) => Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5 && Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5
+  return notes.flatMap((n): HwpLanding[] => {
+    if (!n.aim) return []
+    if (!n.aim.exact) return [{ change: n.change, state: 'not-checked' }]
+    const old = before.pages[n.page - 1]?.images ?? []
+    const fresh = (after.pages[n.page - 1]?.images ?? []).filter((b) => !old.some((o) => same(o, b)))
+    const off = fresh.map((b) => Math.max(Math.abs((b.x + b.w / 2) * MM_PER_PX - n.aim!.xMm), Math.abs((b.y + b.h / 2) * MM_PER_PX - n.aim!.yMm)))
+    if (!off.length) {
+      // on another page it is a miss; drawn nowhere, the renderer shows nothing to measure
+      const elsewhere = after.pages.some((pg, i) => i !== n.page - 1 && (pg.images ?? []).some((b) => !(before.pages[i]?.images ?? []).some((o) => same(o, b))))
+      return [elsewhere ? { change: n.change, state: 'missed', mm: null } : { change: n.change, state: 'not-checked' }]
+    }
+    const mm = round1(Math.min(...off))
+    return [mm <= toleranceMm ? { change: n.change, state: 'checked', mm } : { change: n.change, state: 'missed', mm }]
+  })
+}
+
 /** A picture's place for the AI, in mm from the page's top-left. */
-export interface HwpPictureNote { change: number; page: number; xMm: number; yMm: number; widthMm: number; heightMm: number; where: string; part: string; fromParagraph?: boolean }
+export interface HwpPictureNote {
+  change: number; page: number; xMm: number; yMm: number; widthMm: number; heightMm: number; where: string; part: string; fromParagraph?: boolean
+  /** a picture over a text: the centre of what it is aimed at, in mm on the page; `exact`: the renderer draws this
+   * anchor where Hangul does (a stored layout and a body paragraph), so a measured miss is a real one */
+  aim?: { xMm: number; yMm: number; exact: boolean }
+}
 export const spotNote = (change: number, s: PictureSpot, where: string, part: string): HwpPictureNote => ({
   change, page: s.page + 1, xMm: round1(s.box.x / HU_PER_MM), yMm: round1(s.box.y / HU_PER_MM), widthMm: round1(s.box.w / HU_PER_MM), heightMm: round1(s.box.h / HU_PER_MM), where, part,
   ...(s.fromPara !== undefined ? { fromParagraph: true } : {}),

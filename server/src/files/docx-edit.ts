@@ -22,6 +22,7 @@ import {
   type XNode, xmlTree,
 } from './office-edit'
 import { imageInfo } from './pptx-edit'
+import { pickSignMark, placedOn } from './sign-slots'
 
 export type DocxChange =
   | { find: string; replace: string; occurrence?: number; all?: boolean }
@@ -140,12 +141,12 @@ function runPt(run: XNode | null, fallback: number): number {
   const v = sz ? Number(attrOf(sz.head, 'w:val')) : NaN
   return Number.isFinite(v) && v >= 2 && v <= 3276 ? v / 2 : fallback
 }
-/** an estimate of the text's width in EMU at `pt` (no layout engine here): wide (Hangul, CJK, full-width) characters 1 em, others half */
+/** an estimate of the text's width in EMU at `pt` (no layout engine here): wide (Hangul, CJK, full-width) characters 1 em, brackets and spaces about a third, others about half */
 export function textWidthEmu(text: string, pt: number): number {
   let em = 0
   for (const ch of text) {
     const c = ch.codePointAt(0)!
-    em += (c >= 0x1100 && c <= 0x11ff) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe4f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) ? 1 : 0.55
+    em += (c >= 0x1100 && c <= 0x11ff) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe4f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) ? 1 : c === 0x28 || c === 0x29 ? 0.35 : c === 0x20 ? 0.3 : 0.55
   }
   return Math.round(em * pt * EMU_PT)
 }
@@ -227,7 +228,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
   let nextId = 0
   let freeIds: Set<number> | null = null
   /** where each picture goes in a paragraph's text, checked against text edits of the same call at the end */
-  const picAt: { change: number; para?: Para; from?: number; to?: number }[] = []
+  const picAt: { change: number; para?: Para; from?: number; to?: number; at?: number; drawing?: string; splice?: Splice }[] = []
   const media = new Map<number, { rid: string; w: number; h: number }>()
   const rootHead = (() => { const r = tree.kids.find((k) => !k.name.startsWith('?')); return r ? r.head : '' })()
   const defaultPt = (() => {
@@ -264,8 +265,42 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     picAt.push({ change: i })
     return { rid: m.rid, id, cx, cy, ns: nsDecls(rootHead, where), size }
   }
-  /** a floating picture's offset from the top of its line: centred on a line of the text's size */
-  const lineDy = (pt: number, cy: number) => Math.round((pt * 1.2 * EMU_PT) / 2 - cy / 2)
+  /** a floating picture's offset from the top of its line: centred on the line's text */
+  const lineDy = (pt: number, cy: number, para?: Para) => {
+    const L = linePt(para, pt)
+    // in a line taller than its text the text sits low (the baseline at about 80% of the line, measured in LibreOffice)
+    const middle = L > pt * 1.2 ? L * 0.8 - pt * 0.3 : L / 2
+    return Math.round(middle * EMU_PT - cy / 2)
+  }
+  const stylesXml = (pkg.has(`${dir}styles.xml`) ? pkg.text(`${dir}styles.xml`) : null) ?? ''
+  const spacingOf = (x: string): { line: number; rule: string } | null => {
+    const m = /<w:spacing\b[^>]*>/.exec(/<w:pPr\b[\s\S]*?<\/w:pPr>/.exec(x)?.[0] ?? '')
+    const line = m ? Number(attrOf(m[0].replace(/\/?>$/, ''), 'w:line')) : NaN
+    return m && Number.isFinite(line) && line > 0 ? { line, rule: attrOf(m[0].replace(/\/?>$/, ''), 'w:lineRule') ?? 'auto' } : null
+  }
+  /** the line's height in points: the paragraph's own spacing, else its style's (and what that is based on), else the
+   * document's default; a line of single spacing is 1.2 times the text */
+  const linePt = (para: Para | undefined, pt: number): number => {
+    let sp: { line: number; rule: string } | null = null
+    if (para) {
+      const pPr = kid(para.node, 'w:pPr')
+      const own = pPr ? slice(xml, pPr) : ''
+      sp = spacingOf(own)
+      let id = own ? /<w:pStyle\b[^>]*w:val="([^"]+)"/.exec(own)?.[1] : undefined
+      for (let n = 0; !sp && id && n < 8; n++) {
+        const key: string = id
+        const st = [...stylesXml.matchAll(/<w:style\b[^>]*>[\s\S]*?<\/w:style>/g)].map((m) => m[0]).find((x) => attrOf(/<w:style\b[^>]*/.exec(x)![0], 'w:styleId') === key)
+        if (!st) break
+        sp = spacingOf(st)
+        id = /<w:basedOn\b[^>]*w:val="([^"]+)"/.exec(st)?.[1]
+      }
+    }
+    sp ??= spacingOf(/<w:docDefaults\b[\s\S]*?<\/w:docDefaults>/.exec(stylesXml)?.[0] ?? '')
+    if (!sp) return pt * 1.2
+    if (sp.rule === 'exact') return sp.line / 20
+    if (sp.rule === 'atLeast') return Math.max(sp.line / 20, pt * 1.2)
+    return pt * 1.2 * (sp.line / 240)
+  }
 
   changes.forEach((raw, i) => {
     const c = raw as Record<string, any>
@@ -369,16 +404,27 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       const q = JSON.stringify(label.length > 60 ? label.slice(0, 60) + '…' : label)
       const hits = matchesOf(body.filter((p) => !p.box), label)
       // one picture per change: "all" is not offered here
-      if (hits.length > 1 && x.occurrence === undefined) refuse(`${where}: ${q} is in ${hits.length} places of the body; give occurrence (1 to ${hits.length}) or longer text`)
-      const hit = pick(hits, x, i, ' of the body (pictures go into the body, not headers, footers or text boxes)', label)[0]!
+      // over: a label that holds a sign mark means that mark (files/sign-slots.ts); several marks are never guessed
+      const signed = x.over !== undefined && hits.length ? pickSignMark(label, x.occurrence, hits.length) : null
+      if (signed && 'ask' in signed) return refuse(`${where}: ${signed.ask}`)
+      const at1 = signed ? { ...x, occurrence: signed.occurrence } : x
+      if (hits.length > 1 && at1.occurrence === undefined) refuse(`${where}: ${q} is in ${hits.length} places of the body; give occurrence (1 to ${hits.length}) or longer text`)
+      const hit = pick(hits, at1, i, ' of the body (pictures go into the body, not headers, footers or text boxes)', label)[0]!
       if (x.over !== undefined) {
-        // behind the text, centred on the label: anchored at its first character
+        // behind the text, centred on the mark (or the label without one): anchored at its first character
+        const mark = signed?.mark ?? null
+        const aimAt = hit.at + (mark?.aimFrom ?? 0)
+        const aim = mark ? label.slice(mark.aimFrom, mark.aimTo) : label
+        const atPiece = pieceAt(hit.para, aimAt)
+        if (atPiece?.run && kid(atPiece.run, 'w:rPr') && kid(kid(atPiece.run, 'w:rPr')!, 'w:vanish')) refuse(`${where}: that mark is hidden text, which nobody sees on the page; give a mark that shows`)
         const d = picture(i, x)
-        const pt = runPt(pieceAt(hit.para, hit.at)?.run ?? null, defaultPt)
-        d.float = { dx: Math.round(textWidthEmu(label, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy) }
-        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at, to: hit.at + label.length })
-        splices.get(main)!.push(splitAt(hit.para, hit.at, false, drawingXml(d), where, i))
-        notes.push({ change: i, where: `picture over ${q}, behind the text (${d.size})` })
+        const pt = runPt(atPiece?.run ?? null, defaultPt)
+        d.float = { dx: Math.round(textWidthEmu(aim, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy, hit.para) }
+        const drawing = drawingXml(d)
+        const splice = splitAt(hit.para, aimAt, false, drawing, where, i)
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at + (mark?.from ?? 0), to: hit.at + (mark?.to ?? label.length), at: aimAt, drawing, splice })
+        splices.get(main)!.push(splice)
+        notes.push({ change: i, where: `picture over ${placedOn(label, mark)}, behind the text (${d.size}), tied to that text; its place on the page was not rendered` })
         return
       }
       if (x.after !== undefined) {
@@ -428,9 +474,25 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     const e = (textEdits.get(p.para) ?? []).find((x) => x.at <= p.to! && p.from! <= x.at + x.len)
     if (e) refuse(`changes ${Math.min(e.change, p.change) + 1} and ${Math.max(e.change, p.change) + 1} touch the same text; put the picture in a separate call`)
   }
+  // a seal inside a run whose text a fill of the same call also changes ("Name: ____ (seal)" in one w:t): the two rewrite
+  // the same element, so the picture goes in with the new text, at a stand-in character that marks its place
+  const standIn = new Map<Para, { at: number; len: number; text: string; change: number }[]>()
+  const drawn = new Map<string, string>()
+  for (const p of picAt) {
+    if (!p.para || !p.splice || p.splice.to === p.splice.from || !textEdits.has(p.para)) continue
+    const piece = pieceAt(p.para, p.at!)!
+    if (!textEdits.get(p.para)!.some((e) => e.at < piece.at + piece.text.length && e.at + e.len > piece.at)) continue
+    if (/[\u{F0000}-\u{F00FF}]/u.test(p.para.text)) continue
+    const mark = String.fromCodePoint(0xf0000 + drawn.size)
+    drawn.set(mark, p.drawing!)
+    const list = splices.get(main)!
+    list.splice(list.indexOf(p.splice), 1)
+    standIn.set(p.para, [...(standIn.get(p.para) ?? []), { at: p.at!, len: 0, text: mark, change: p.change }])
+  }
+  const withDrawings = (head: string, text: string) => text.split(/([\u{F0000}-\u{F00FF}])/u).map((t) => drawn.get(t) ?? (t ? wText(head, t) : '')).join('')
   for (const [para, edits] of textEdits) {
     const pxml = xmls.get(para.part)!
-    splices.get(para.part)!.push(...textSplices(pxml, para, edits, (piece, text) => wText(piece.node.head, text)))
+    splices.get(para.part)!.push(...textSplices(pxml, para, [...edits, ...(standIn.get(para) ?? [])], (piece, text) => withDrawings(piece.node.head, text)))
     let after = para.text
     for (const e of [...edits].sort((a, b) => b.at - a.at)) after = after.slice(0, e.at) + e.text + after.slice(e.at + e.len)
     // one paragraph, one before and after (the read-back counts them); the other changes in it point at the first
