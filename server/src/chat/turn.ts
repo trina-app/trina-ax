@@ -4563,13 +4563,12 @@ export class TurnExec {
     // A save into the person's own folder in their own project chat (QA b5 F10: the AI's working copy of a quote in
     // their folder asked "AI가 내 개인 폴더에 파일을 저장하려고 해요" twice): the card guards only that the others see the
     // name it saves under (and so whether one was there), which is less than the read above lets them see; the
-    // person's earlier file stays as a version. Only in a chat nobody else wrote in and that read no room (their words
-    // could pick the name; security review of this change). A teammate's project file read here does not stop it: in a
-    // project chat that is the usual case, and what such words could choose is only the name of a file in the person's
-    // own folder, shown to the project's people, who see what a read of that folder brings here anyway
-    if (this.shared?.kind === 'project' && (!kind.save || (!this.othersWrote && !readRooms(this))) && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
+    // person's earlier file stays as a version. Only in a chat that took in nobody else's words (a message, a room, a
+    // teammate's file: they could pick what is overwritten), and never in a folder of theirs that is shared (security review)
+    if (this.shared?.kind === 'project' && (!kind.save || (!this.othersWrote && !this.othersWords && !readRooms(this))) && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
       const before = missing.length
-      missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+      // (a save into a folder of theirs that is shared keeps its card: others read what it changes)
+      missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via && !(kind.save && m.source.share)))
       // (recorded as the person's yes would be: the people who see the chat now are covered for it, so the engine's session
       // goes on as after the card's yes)
       if (!missing.length && before) return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')

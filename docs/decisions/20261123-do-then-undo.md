@@ -61,10 +61,10 @@
   folder only: never the browser, a connection or a share) where everyone who can see it sees the chat and no guest
   does, in a chat nobody else wrote in and that read no room: no card. Versions and the trash keep it undoable.
 - **Rule: project saves, own folder (2026-11-23, F10).** In the person's own project chat the own-folder skip of reads
-  covers the save card too (the AI's working file in their folder), only while nobody else wrote in the chat. A chat
+  covers the save card too (the AI's working file in their private folder), only in a chat that took in nobody else's words and never in a folder they share. A chat
   shared with people keeps it (the floor).
 - **Rule: "this folder" for a file the AI made (2026-11-23, F5).** The files the person's latest answer that made any
-  carries in the chat's own place (chat:files), each wholly theirs, in a chat that holds only their own work, count as
+  carries in the chat's own place (chat:files), each wholly theirs, in a chat that holds only their own work and whose read scope holds nothing else, on this branch, count as
   the chat's files: the same folder of copies as for attachments, on the same clear ask, with the same Undo.
 - **Rule: dialogs.** 15 screen confirm dialogs became an Undo toast or a notice (ASKS.md lists the 11 removed and the
   partial ones). The Google account check after a Drive sign-in stays: it keeps a sign-in someone else started out of

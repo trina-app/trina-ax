@@ -20,6 +20,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../../server/src/rooms/ai-tools'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { pluginsOf } from '../../server/src/plugins/manager'
+import { fileSharesOf } from '../../server/src/files/shares'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -106,15 +107,34 @@ describe('the save card', () => {
     })
   }
 
-  test('project: in her own project chat a save into her own folder that is there asks nothing (QA b5 F10)', async () => {
+  test('project: in her own project chat a save over her own private file asks nothing; after someone else\'s file, or in a folder she shares, the card stays', async () => {
+    const tag = crypto.randomUUID().slice(0, 6), file = `users/alice/own-${tag}.md`, dir = `users/alice/shared-${tag}`, inShare = `${dir}/price.md`
+    const put = (rel: string, body: string) => { const abs = path.join(h.ctx.files.fx.root, ...rel.split('/')); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body) }
+    const content = (rel: string) => fs.readFileSync(path.join(h.ctx.files.fx.root, ...rel.split('/')), 'utf8')
+    put(file, 'old\n'); put(inShare, '100\n')
+    const save = (rel: string, body: string) => fake({ tool: 'read', args: { file_path: rel } }, { tool: 'write', args: { file_path: rel, content: body } }, { say: 'done' })
+    const cards = (turnId: string) => ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === turnId).length
     const chat = await projectChat()
-    const n = audits(chat).length
-    const bobFrom = ws.bob!.frames.length
-    const started = await send('alice', chat, 'save the attachment in my folder\n' + fake({ tool: 'save_connector_file', args: { file: 'mcp-file:nope', save_as: 'users/alice/' }, sayResult: true }))
-    await doneOf('alice', started.assistantMessage.id)
-    expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
-    expect(audits(chat).slice(n).some((a) => a.decision === 'declined')).toBe(false)
-    expect(ws.bob!.frames.slice(bobFrom).some((f) => f.type === 'turn.request')).toBe(false)
+    const first = await send('alice', chat, `save it\n${save(file, 'new\n')}`)
+    await doneOf('alice', first.assistantMessage.id)
+    expect(cards(first.turnId)).toBe(0)
+    expect(content(file)).toBe('new\n')
+    // a folder of hers that is shared: others read what the save changes
+    fileSharesOf(h.ctx).put('alice', dir, [{ subjectType: 'user', subjectId: 'erin' }], [], 'en', 'dialog')
+    const chat2 = await projectChat()
+    const shared = await send('alice', chat2, `save it\n${save(inShare, '999\n')}`)
+    const c = await cardOf('alice', shared.turnId)
+    await answer('alice', shared.turnId, c.requestId, 'skip')
+    await doneOf('alice', shared.assistantMessage.id)
+    expect(content(inShare)).toBe('100\n')
+    // someone else's words in the chat: the card is back
+    const chat3 = await projectChat()
+    db().query('UPDATE chats SET others_words = 1 WHERE id = ?').run(chat3)
+    const after = await send('alice', chat3, `save it\n${save(file, 'planted\n')}`)
+    const c3 = await cardOf('alice', after.turnId)
+    await answer('alice', after.turnId, c3.requestId, 'skip')
+    await doneOf('alice', after.assistantMessage.id)
+    expect(content(file)).toBe('new\n')
   })
 
   test('a new file in her own folder raises no card (save_connector_file and save_url alike)', async () => {

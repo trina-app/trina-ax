@@ -13,6 +13,7 @@ import { fileSharesOf } from '../../server/src/files/shares'
 import { takeBackShares } from '../../server/src/files/share-take-back'
 import { undoShares } from '../../server/src/files/share-undo'
 import { createTierOk } from '../../server/src/integrations/connections/tools'
+import { addSources } from '../../server/src/chat/read-scope'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -174,6 +175,15 @@ describe('"share this folder" with a file the AI made in the chat (chat:files)',
     expect(fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!))).toEqual(['quote-f5.docx'])
     expect(canOpen('bob', 'alice', `users/alice/${made[0]}`)).toBe(true)
     expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
+    expect(folders()).toEqual(before)
+  })
+  test('nothing is made when the chat took in a team file by a tool the marks do not see (a department\'s PDF merged into the chat)', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'scope-f5.docx')
+    addSources(h.ctx.db, c, [{ type: 'folder', id: 'f-finance' }])
+    const before = folders()
+    const r = await share(c)
+    expect(r.content).toContain('did not say which folder')
     expect(folders()).toEqual(before)
   })
   test('nothing is made where someone else wrote in the chat, or the chat took in someone else\'s words before', async () => {
