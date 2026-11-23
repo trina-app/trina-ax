@@ -40,7 +40,7 @@ import { useNoticeUnread } from '../../store/inbox'
 import { useCachedRead } from '../../store/listCache'
 import { isAdmin, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { IconButton, Spinner, confirmDialog, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
+import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
 import { PresenceDot } from '../Presence'
 import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
@@ -281,11 +281,9 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
   // a free-roam demo: no sign-out (QA TC-5623; AccountMenu.tsx says why)
   const freeRoam = useFreeRoam()
-  // signing out asks first (a tap at the end of a long list is easily made by mistake); the sheet says what it does
-  // (its body was empty: QA TC-5623)
-  const signOut = async () => {
-    if (await confirmDialog({ title: t('settings.logoutConfirm'), body: t('settings.logoutBody'), confirm: t('auth.logout'), danger: true })) void logout()
-  }
+  // signing out goes at once, as the account menu's does: signing back in undoes it and nothing is lost
+  // (docs/decisions/20261123-do-then-undo.md)
+  const signOut = () => void logout()
   return (
     <nav ref={navRef} aria-label={t('tabs.me')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
       <PhoneTeamGroup />

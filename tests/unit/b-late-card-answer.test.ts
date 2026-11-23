@@ -90,7 +90,7 @@ describe('a share card in a shared chat (QA of #403)', () => {
   test('pressed late with "Always allow": the file the asker named is shared, and Always allow is kept for good', async () => {
     put('users/alice/QA-late/ledger-1.txt', 'ledger')
     const chatId = await sharedChat()
-    const w = await askAndWait(chatId, `share ledger-1.txt with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/QA-late/ledger-1.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
+    const w = await askAndWait(chatId, `send ledger-1.txt to Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: ['users/alice/QA-late/ledger-1.txt'], people: ['Bob Lee'] }, sayResult: true })}`)
     expect(w.card.options!.map((o) => o.value)).toEqual(['share', ALWAYS_VALUE, 'no'])
     expect(db().query("SELECT COUNT(*) n FROM file_shares WHERE path = 'users/alice/QA-late/ledger-1.txt'").get()).toEqual({ n: 0 })
     // past the old wait: still open
@@ -112,9 +112,9 @@ describe('Always allow pressed on a waiting card', () => {
   const always = () => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_files'").get() as { n: number }).n
   const waitingShare = async (name: string) => {
     put(`users/alice/QA-late/${name}`, 'x')
-    // (a shared chat: the explicit ask never skips the card there)
+    // (a send word is no ask to share a file: the card shows, docs/decisions/20261123-do-then-undo.md)
     const chatId = await sharedChat()
-    const w = await askAndWait(chatId, `share ${name} with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
+    const w = await askAndWait(chatId, `send ${name} to Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
     return { chatId, w }
   }
   test('kept even when the run ends before its card (the file is gone now): the person\'s choice for that kind', async () => {
@@ -128,8 +128,9 @@ describe('Always allow pressed on a waiting card', () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
   })
 
-  // review of #412: a ✦ side chat is not a shared chat, but a guest in its room is among the people (TurnExec.guestAmong)
-  test('not kept in a side chat whose room has a guest', async () => {
+  // one Always (docs/decisions/20261123-one-always-allow.md, replacing #412's guest guard): a guest in the room of a ✦
+  // side chat does not stop the person's Always from being kept
+  test('kept in a side chat whose room has a guest too', async () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
     put('users/alice/QA-late/side-guest.txt', 'x')
     const chatId = await ownChat()
@@ -143,7 +144,7 @@ describe('Always allow pressed on a waiting card', () => {
     try {
       expect((await post(w.turnId, w.card.requestId, ALWAYS_VALUE)).status).toBe(204)
       await nextTurn(chatId, w.answerId)
-      expect(always()).toBe(0)
+      expect(always()).toBe(1)
     } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
   })
 
@@ -210,6 +211,29 @@ describe('a room post card', () => {
     expect(next.done.status).toBe('done')
     expect(count()).toBe(1)
     expect(cardsOf(next.turnId)).toEqual([])
+  })
+
+  // QA of #414 (qa.trina.app): the answer read b4-note.txt and sent b4-sum.pdf to a teammate; the first card said
+  // "(my files)", the run after the press "(1 file in my files)" (the same source, now counted from the answer's saved
+  // list), and the card was asked again with "Something changed". The same post to the same person with the same file
+  // takes the press
+  test('a source counted file by file after the press is the same card: the press sends it, no second card', async () => {
+    put('users/alice/QA-late/note.txt', 'alpha 3, beta 5\n')
+    put('users/alice/QA-late/sum.pdf', '%PDF-1.4 sum\n')
+    const chatId = await ownChat()
+    const dmHas = () => (db().query("SELECT COUNT(*) n FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE r.kind = 'dm' AND m.author_id = 'alice' AND m.body LIKE '%sum of the note%'").get() as { n: number }).n
+    const text = 'The sum of the note is 8: [sum.pdf](/files/view?path=users%2Falice%2FQA-late%2Fsum.pdf)'
+    // (the recipient not named in the person's own words, so the post card shows: a named one from their own folder
+    // goes without a card since docs/decisions/20261123-do-then-undo.md)
+    const w = await askAndWait(chatId, `Send the sum to my teammate\n${fake({ tool: 'read', args: { file_path: 'users/alice/QA-late/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
+    expect(w.card.question).toContain("can't see some of the sources")
+    expect(dmHas()).toBe(0)
+    await Bun.sleep(1800)
+    expect((await post(w.turnId, w.card.requestId, w.card.options![0]!.value)).status).toBe(204)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(cardsOf(next.turnId)).toEqual([])
+    expect(dmHas()).toBe(1)
   })
 })
 
@@ -293,6 +317,28 @@ describe('the rules, alone', () => {
     expect(sameCard(base, q(`${why}\n\nShare 1 file with Bob?\n\nThey can view it.`))).toBe(false)
     expect(sameCard(base, q(`${why}\n\nPractice mode: nothing really goes out.\n\nShare 1 file with Carol?\n\nThey can view it.`))).toBe(false)
     expect(sameCard(base, q(`${why}\n\nPractice mode: nothing really goes out.\n\nShare 1 file with Bob?`))).toBe(false)
+  })
+
+  test('the same card: a source place with or without its file count is the same; another place or another number of people is not', () => {
+    // the two cards of the QA run of #414 (qa.trina.app), word for word
+    const card = (line: string): Extract<TurnRequest, { kind: 'ask_user' }> => ({ kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: `QA Admin님과의 1:1 대화(2명)에 보낼까요?\n\nQA Admin 님은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.\n${line}`, options: [{ label: '보내기', value: 'send_files' }, { label: '보내지 않기', value: 'no' }] })
+    const pressed = card('1명은 이 내용의 일부 출처(내 파일)를 볼 수 없어요.')
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(내 파일의 파일 1개)를 볼 수 없어요.'))).toBe(true)
+    expect(sameCard(card('1명은 이 내용의 일부 출처(내 파일의 파일 2개)를 볼 수 없어요.'), pressed)).toBe(true)
+    expect(sameCard(pressed, card('2명은 이 내용의 일부 출처(내 파일의 파일 1개)를 볼 수 없어요.'))).toBe(false)
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(내 파일의 파일 1개, 부서 › 영업)를 볼 수 없어요.'))).toBe(false)
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(부서 › 영업의 파일 1개)를 볼 수 없어요.'))).toBe(false)
+    // every language (English puts the count first)
+    const en = (places: string): TurnRequest => ({ ...pressed, question: `Send to Bob Lee in a new 1:1 chat?\n\n1 person there can't see some of the sources of this (${places}).` })
+    expect(sameCard(en('My folder, Teams › Sales'), en('1 file in My folder, 3 files in Teams › Sales'))).toBe(true)
+    expect(sameCard(en('My folder'), en('1 file in Teams › Sales'))).toBe(false)
+    const ja = (places: string): TurnRequest => ({ ...pressed, question: `送りますか？\n\n1人はこの内容の一部の出典（${places}）を見られません。` })
+    expect(sameCard(ja('自分のフォルダー'), ja('自分のフォルダーのファイル2件'))).toBe(true)
+    expect(sameCard(ja('自分のフォルダー'), ja('チーム › 営業のファイル1件'))).toBe(false)
+    const es = (places: string): TurnRequest => ({ ...pressed, question: `¿Enviar?\n\n1 persona no puede ver parte de las fuentes de esto (${places}).` })
+    expect(sameCard(es('Mi carpeta'), es('1 archivo en Mi carpeta'))).toBe(true)
+    expect(sameCard(es('Mi carpeta'), es('2 archivos en Mi carpeta'))).toBe(true)
+    expect(sameCard(es('Mi carpeta'), es('2 archivos en Ventas'))).toBe(false)
   })
 
   test('the connected-service tools that never wait are the provider\'s own names', () => {

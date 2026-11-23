@@ -23,7 +23,7 @@ import { isOnce, storedTiming } from './schedule-timing'
 import { Audiences, chatFor } from './shared'
 import { templatePrompt, templateTitle, validateTemplateFolders } from './schedule-templates'
 import { egressOf } from '../tools/egress'
-import { cardScope, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
+import { cardScope, runOpensUnderAllSites, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
 import { scopeColumns } from './schedule-scope'
 import { ToolError } from '../policy/errors'
 
@@ -83,7 +83,7 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
   // a task made in a shared chat: the card says its runs post there, and to how many people now
   const sharedWith = sharedAudienceOf(ctx, rt, s)
-  const card = scheduleCard({ ...input, ...timing }, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends),
+  const card = scheduleCard({ ...input, ...timing }, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, allSites: runOpensUnderAllSites(ctx, s.chat_id ?? null, userId), project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends),
     ...(sharedWith !== null ? { sharedWith } : {}) })
   const options = scheduleOptions(L, writable.length > 0 || scope.sends.length > 0, 'edit')
   // what the answer approves: the task as it will be, the connections offered, the save folder, its places and the pinned

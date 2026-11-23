@@ -508,13 +508,11 @@ describe('the read card', () => {
     expect(forBob).not.toContain('campaign-brief')
   })
 
-  test("the person's own folder asks; a search without a path stays in the project folder; with a wider path it asks", async () => {
+  test("the person's own folder asks nothing in their project chat; a search without a path stays in the project folder; with a wider path it asks", async () => {
     const chat = await newShared()
-    const own = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }), 'skip')
-    expect((own.card as { question: string }).question).toContain('your personal folder')
-    // bob (the owner and admins are not members, so they are not counted)
-    expect((own.card as { question: string }).question).toContain("1 of the 2 people who see this chat can't open it")
-    expect(own.done.content).not.toContain('Draft Q4 campaign report')
+    // (docs/decisions/20261123-do-then-undo.md, the owner: her own folder in her own project chat, no card)
+    const own = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }))
+    expect(own.done.status).toBe('done')
     // no path: the project folder only (everyone who sees the chat reads it): no card, nothing from marketing
     const cards = () => audits('chat.shared_read', chat.id).length
     const before = cards()
@@ -590,9 +588,10 @@ describe('the read card', () => {
 
   test('an attached team file some people cannot read asks before the turn uses it', async () => {
     const chat = await newShared()
-    const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: 'users/alice/todo.md' } })
+    // (a group folder bob cannot open: her own folder asks nothing here since docs/decisions/20261123-do-then-undo.md)
+    const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: BRIEF } })
     const r = await askWithCard('alice', chat.id, 'see the file\n' + fake({ echo: 'message' }), 'skip', [att.id])
-    expect(r.done.content).not.toContain('users/alice/todo.md')
+    expect(r.done.content).not.toContain(BRIEF)
     expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not everyone who sees this chat can open that place')
     // bob sees the attachment blanked (he cannot open it)
     const forBob = await messages('bob', chat.id)
@@ -679,9 +678,108 @@ describe('engine sessions', () => {
     fs.writeFileSync(path.join(dir, '.tmp', 'alice-left-this'), 'x')
     expect((await ask('bob', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
     expect(fs.existsSync(path.join(dir, '.tmp', 'alice-left-this'))).toBe(false)
-    // the stash is bob's now: alice starts fresh too
-    expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
+    // each person keeps their own session (docs/decisions/20261123-shared-chat-own-session.md): alice's goes on after
+    // bob's turn, with what bob wrote since in front of her message
+    const back = await ask('alice', chat.id, fake({ echo: 'resume' }))
+    expect(back.done.content).toBe('resumed=true')
     expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+    expect((await ask('bob', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+  })
+
+  test("another person's session never reaches a turn: bob's engine gets neither alice's session nor what it holds; alice's own goes on with what bob wrote since", async () => {
+    const chat = await newShared()
+    await ask('alice', chat.id, 'ALICE-ONE\n' + fake({ say: 'alice answer' }))
+    // alice's session holds something her answer never showed (as a tool result would: the fake engine keeps only text)
+    const blob = (db().query("SELECT engine_session_blob AS f FROM turns WHERE chat_id = ? AND user_id = 'alice' AND engine_session_blob IS NOT NULL ORDER BY rowid DESC LIMIT 1").get(chat.id) as { f: string }).f
+    fs.appendFileSync(blob, JSON.stringify({ role: 'user', text: 'PRIVATE-SESSION-CANARY only alice read this' }) + '\n')
+    const bobHist = await ask('bob', chat.id, 'BOB-ASKS\n' + fake({ echo: 'history' }))
+    expect(bobHist.done.content).toBe('(no history)')
+    const bobMsg = await ask('bob', chat.id, fake({ echo: 'message' }))
+    const bobSys = await ask('bob', chat.id, fake({ echo: 'system' }))
+    for (const r of [bobHist, bobMsg, bobSys]) expect(r.done.content).not.toContain('PRIVATE-SESSION-CANARY')
+    // bob's own session holds none of it either
+    const bobBlob = (db().query("SELECT engine_session_blob AS f FROM turns WHERE chat_id = ? AND user_id = 'bob' AND engine_session_blob IS NOT NULL ORDER BY rowid DESC LIMIT 1").get(chat.id) as { f: string }).f
+    expect(bobBlob).not.toBe(blob)
+    expect(fs.readFileSync(bobBlob, 'utf8')).not.toContain('PRIVATE-SESSION-CANARY')
+    // alice's own session is kept beside bob's and goes on: it has her canary, and bob's words come with her message
+    expect(fs.existsSync(blob)).toBe(true)
+    const aliceHist = await ask('alice', chat.id, fake({ echo: 'history' }))
+    expect(aliceHist.done.content).toContain('PRIVATE-SESSION-CANARY')
+    const aliceMsg = await ask('alice', chat.id, 'ALICE-AGAIN\n' + fake({ echo: 'message' }))
+    // (her previous turn was the last message: nothing in between now)
+    expect(aliceMsg.done.content).not.toContain('<since_your_last_answer>')
+    await ask('bob', chat.id, 'BOB-TWO\n' + fake({ say: 'bob answer two' }))
+    const since = await ask('alice', chat.id, fake({ echo: 'message' }))
+    expect(since.done.content).toContain('<since_your_last_answer>')
+    expect(since.done.content).toContain('BOB-TWO')
+    expect(since.done.content).toContain('bob answer two')
+    // the answers of bob's turns show none of alice's session (her own answers are hers to show: the card's rule)
+    const bobTurns = new Set((db().query("SELECT message_id AS id FROM turns WHERE chat_id = ? AND user_id = 'bob'").all(chat.id) as { id: string }[]).map((r) => r.id))
+    const bobAnswers = (await messages('bob', chat.id)).filter((m) => bobTurns.has(m.id))
+    expect(bobAnswers.length).toBe(4)
+    expect(JSON.stringify(bobAnswers)).not.toContain('PRIVATE-SESSION-CANARY')
+    // her access shrank: her sessions of the chat are gone, bob's turn wrote the last answer
+    resetEngineSessions(h.ctx, 'alice')
+    expect(fs.existsSync(blob)).toBe(false)
+    expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
+  })
+
+  test("the owner's case: a read of the asker's own folder after the card's yes, then every later turn resumes; bob's answers never show it", async () => {
+    const chat = await newShared()
+    // (her own folder, in a chat she made that nobody else wrote in: no card since docs/decisions/20261123-do-then-undo.md,
+    // the read kept as the card's yes would keep it, so the session goes on the same way)
+    const read = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'read your file' }))
+    expect(read.done.content).toBe('read your file')
+    for (let i = 0; i < 3; i++) expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+    // bob writes in between: his turn is fresh (never her session), hers goes on
+    const bob = await ask('bob', chat.id, fake({ echo: 'message' }))
+    expect(bob.done.content).not.toContain('Draft Q4 campaign report')
+    expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+  })
+
+  test("another person's answers come with their steps: what alice's AI made and where, never her private read; carol goes on with the file", async () => {
+    const recs = (t: string) => [...t.matchAll(/<steps_record>\n([\s\S]*?)\n<\/steps_record>/g)].map((m) => m[1]).join('\n')
+    const chat = await newShared()
+    const file = 'projects/falcon/QUOTE-견적서.md'
+    await ask('alice', chat.id, 'make the quote\n' + fake({ tool: 'write', args: { file_path: file, content: '# Quote\nTotal: 100\n' } }, { say: 'Made the quote.' }))
+    // her own folder (no card since docs/decisions/20261123-do-then-undo.md, kept as the card's yes would): bob may not open it
+    await ask('alice', chat.id, 'check my note\n' + fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Checked your note.' }))
+    // bob's first turn in the chat (a fresh session): alice's steps, the file and its folder, under her answer
+    const bob = await ask('bob', chat.id, 'which file?\n' + fake({ echo: 'system' }))
+    const r = recs(bob.done.content)
+    expect(r).toContain(`file_path="${file}"`)
+    expect(r).toContain('write')
+    // never her private read: not the path, not what it held
+    expect(r).not.toContain('users/alice')
+    expect(bob.done.content).not.toContain('Draft Q4 campaign report')
+    // bob's own session goes on; what alice does next comes in the since block with its steps
+    const file2 = 'projects/falcon/QUOTE-2.md'
+    await ask('alice', chat.id, 'one more\n' + fake({ tool: 'write', args: { file_path: file2, content: 'Total: 7\n' } }, { say: 'Made another.' }))
+    const since = await ask('bob', chat.id, fake({ echo: 'message' }))
+    expect(since.done.content).toContain('<since_your_last_answer>')
+    expect(recs(since.done.content)).toContain(`file_path="${file2}"`)
+    // carol (a member who may write) goes on with alice's file by the path the record gave
+    await asMember('carol', 'write', async () => {
+      ws.carol ??= await h.ws('carol')
+      const c = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'change the total\n' + fake({ tool: 'read', args: { file_path: file } }, { tool: 'edit', args: { file_path: file, old_string: 'Total: 100', new_string: 'Total: 250' } }, { say: 'Changed.' }), clientMessageId: cm(), attachmentIds: [] } })
+      const card = await ws.carol!.next('turn.request', (f) => f.data.turnId === c.turnId, 15_000)
+      // (the chat read alice's own folder: saving into the project asks first, as before)
+      await h.api('carol').call(API.answerTurn, { params: { id: c.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } })
+      await ws.carol!.next('message.done', (f) => f.data.messageId === c.assistantMessage.id, 30_000)
+    })
+    expect(fs.readFileSync(path.join(h.team, ...file.split('/')), 'utf8')).toContain('Total: 250')
+  })
+
+  test("a resumed session's answer carries what the session holds: a connected service's result (k) stays hidden from people who join later", async () => {
+    const chat = await newShared()
+    const first = await ask('alice', chat.id, fake({ say: 'used a service' }))
+    const folder = (db().query("SELECT id FROM folders WHERE path = 'projects/falcon'").get() as { id: string }).id
+    const k = { c: ['alice', 'bob'], s: [{ type: 'folder', id: folder }], k: 1 }
+    db().query('UPDATE shared_answer_reads SET reads = ? WHERE message_id = ?').run(JSON.stringify([k]), first.started.assistantMessage.id)
+    const next = await ask('alice', chat.id, fake({ echo: 'resume' }))
+    expect(next.done.content).toBe('resumed=true')
+    const rec = JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(next.started.assistantMessage.id) as { reads: string }).reads)
+    expect(rec).toContainEqual(expect.objectContaining({ c: ['alice', 'bob'], k: 1 }))
   })
 
   test('a folder that cannot be emptied: the turn does not start (fails closed)', async () => {
@@ -811,21 +909,32 @@ describe('review fixes', () => {
     expect(fs.existsSync(path.join(dir, '.home', 'left-behind'))).toBe(false)
   })
 
-  test('a session is not resumed once someone who joined the project could not see what it read', async () => {
+  test('a session that read with no card what someone who joined since may not open starts fresh; one a card\'s yes covered goes on', async () => {
     const p = await oldProject(h, 'alice', { name: 'Campaigns', folderPath: 'groups/marketing/campaigns', instructions: '' })
     await h.api('alice').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
-    const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
+    const chats = [await h.api('alice').call(API.createChat, { body: { projectId: p.id } }), await h.api('alice').call(API.createChat, { body: { projectId: p.id } })]
     // everyone who sees the project reads marketing now: no card
-    const first = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF } }, { say: 'read it' }))
-    expect(first.done.content).toBe('read it')
-    expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+    for (const chat of chats) {
+      const first = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: BRIEF } }, { say: 'read it' }))
+      expect(first.done.content).toBe('read it')
+      expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
+    }
     // bob joins the project (a rule on its folder) but cannot read groups/marketing, which the session holds
     // the project's folder row (a rule-less project marker) gets rules: marketing writes as above, bob reads
     const folderId = (db().query("SELECT id FROM folders WHERE path = 'groups/marketing/campaigns'").get() as { id: string }).id
     db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'marketing', 'write'), (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), folderId, crypto.randomUUID(), folderId)
     try {
-      expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared?.audience).toBe(5)
-      expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
+      expect((await h.api('bob').call(API.getChat, { params: { id: chats[0]!.id } })).shared?.audience).toBe(5)
+      // the session holds the brief, read with no card while everyone could open it: a fresh session, as before (the
+      // read card asks when the AI reads it again). Another person's card's yes for the same place never covers it
+      const bobs = await ask('bob', chats[0]!.id, fake({ say: 'bob here' }))
+      const own = (db().query("SELECT reads FROM shared_answer_reads WHERE message_id = (SELECT message_id FROM turns WHERE chat_id = ? ORDER BY rowid LIMIT 1)").get(chats[0]!.id) as { reads: string }).reads
+      db().query('UPDATE shared_answer_reads SET reads = ? WHERE message_id = ?').run(JSON.stringify(JSON.parse(own).map((g: object) => ({ ...g, y: 1 }))), bobs.started.assistantMessage.id)
+      expect((await ask('alice', chats[0]!.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
+      // a read a card's yes covered (y) stays with the session: the card said it stays for people added later too
+      const brief = (db().query("SELECT reads FROM shared_answer_reads WHERE message_id = (SELECT message_id FROM turns WHERE chat_id = ? ORDER BY rowid LIMIT 1)").get(chats[1]!.id) as { reads: string }).reads
+      db().query('UPDATE shared_answer_reads SET reads = ? WHERE chat_id = ?').run(JSON.stringify(JSON.parse(brief).map((g: object) => ({ ...g, y: 1 }))), chats[1]!.id)
+      expect((await ask('alice', chats[1]!.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
     } finally {
       db().query('DELETE FROM folder_rules WHERE folder_id = ?').run(folderId)
     }

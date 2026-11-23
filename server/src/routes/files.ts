@@ -11,6 +11,7 @@ import { componentC } from '../team-files/component'
 import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
 import { folderSharesOf } from '../files/folder-shares'
 import { undoShares } from '../files/share-undo'
+import { takeBackShares } from '../files/share-take-back'
 import { streamChecked } from '../team-files/stream-checked'
 import { shareFixesOf } from '../files/share-fixes'
 import { contentDisposition, streamFile } from '../team-files/download'
@@ -219,6 +220,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.fileLink, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.linkFor(auth.user.id, body.path)))
     kit.handle(API.fileShares, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.view(auth.user.id, query.path, c.get('locale'))))
     kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.put(auth.user.id, body.path, body.add, body.remove, c.get('locale'), 'dialog', { stop: body.stop, resume: body.resume }).view))
+    kit.handle(API.takeBackFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => takeBackShares(ctx, auth.user.id, body.id, c.get('locale'))))
     kit.handle(API.undoFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => undoShares(ctx, auth.user.id, body.id, c.get('locale'))))
     kit.handle(API.shareCards, ({ c, body, auth }) => mapErrors(c.get('locale'), () => ({ items: shares.cards(auth.user.id, body.ids, c.get('locale')) })))
     kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))

@@ -120,25 +120,29 @@ describe("Aside's repl: one card with Always allow, in every chat", () => {
     expect(repls()).toBe(n + 2)
   })
 
-  test('a chat shared with bob: Always on the shared card and on the repl card, then no card in another shared chat', async () => {
+  test('a chat shared with bob: the one notice and Always on the repl card; another shared chat shows only its own notice', async () => {
     const n = repls()
-    const a = await ask(await sharedWithBob(), REPL('in A'), always)
-    // the shared card (who will see it, said once, plainly) and the repl card, each with Always allow
+    const pick = (c: Card) => (c.options.some((o) => o.value === 'always') ? 'always' : c.options[0]!.value)
+    const a = await ask(await sharedWithBob(), REPL('in A'), pick)
+    // the one notice of this shared chat (docs/decisions/20261123-shared-connector-warning-once.md) and the repl card
     expect(a.cards.length).toBe(2)
-    expect(a.cards[0]!.question).toBe('What the AI gets from Aside will show to the 2 people in this chat.')
+    expect(a.cards[0]!.question).toBe('Other people in this chat can also see what the AI gets from Aside.')
     expect(a.cards[0]!.question).not.toContain('을(를)')
     expect(a.cards[0]!.buttons).toBe(true)
+    expect(a.cards[0]!.options.map((o) => o.value)).toEqual(['once'])
     expect(a.cards[1]!.question).toBe('Run a task in Aside · the AI calls it: in A')
     expect(repls()).toBe(n + 1)
+    // another chat shared with bob (in no project): its own notice once, the repl's Always holds
     const b = await ask(await sharedWithBob(), REPL('in B'), deny)
-    expect(b.cards).toEqual([])
+    expect(b.cards.map((c) => c.question)).toEqual(['Other people in this chat can also see what the AI gets from Aside.'])
     expect(repls()).toBe(n + 2)
-    // Settings › Allowed for Trina lists both; removing the repl one asks again
+    // Settings › Allowed for Trina lists the repl's Always and the two notices; removing the repl one asks again
     const items = (await h.api('alice').call(API.listAiAllowances)).items.filter((x) => x.kind === 'connector_tool')
-    expect(items.map((x) => (x.kind === 'connector_tool' ? [x.connection, x.tool, !!x.shared] : null)).sort()).toEqual([['Aside', '', true], ['Aside', 'Repl', false]].sort())
+    expect(items.map((x) => (x.kind === 'connector_tool' ? [x.connection, x.tool, !!x.shared, x.warned !== undefined] : null)).sort()).toEqual([['Aside', '', true, true], ['Aside', '', true, true], ['Aside', 'Repl', false, false]].sort())
     await h.api('alice').call(API.deleteAiAllowance, { params: { id: items.find((x) => x.kind === 'connector_tool' && !x.shared)!.id } })
     const c = await ask(await sharedWithBob(), REPL('in C'), deny)
-    expect(c.cards.length).toBe(1)
+    // its notice (a new chat), then the repl card again: no is pressed, nothing runs
+    expect(c.cards.length).toBe(2)
     expect(repls()).toBe(n + 2)
   })
 })

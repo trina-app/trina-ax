@@ -82,7 +82,7 @@ describe('comment_docx in a shared project chat', () => {
     expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toBe(false)
   })
 
-  withPandoc('a contract only the asker can open: the read card first; "no" comments nothing, "yes" saves the copy', async () => {
+  withPandoc('a contract in the asker\'s own folder, in their project chat: no read card, the commented copy is saved', async () => {
     put('users/alice/draft-acme.docx', docx(CONTRACT))
     const before = fs.readFileSync(abs('users/alice/draft-acme.docx'))
     const call = fake(
@@ -90,12 +90,9 @@ describe('comment_docx in a shared project chat', () => {
       { tool: 'comment_docx', args: { file_path: 'users/alice/draft-acme.docx', comments, output: 'users/alice/draft-acme (reviewed).docx' }, sayResult: true },
     )
     const chat = await newShared()
-    const no = await turn('alice', chat, call, ['skip'])
-    expect(no.cards.length).toBeGreaterThanOrEqual(1)
-    expect(no.cards[0]!.options?.map((o) => o.value)).toContain('share')
-    expect(fs.existsSync(abs('users/alice/draft-acme (reviewed).docx'))).toBe(false)
-    expect(fs.readFileSync(abs('users/alice/draft-acme.docx')).equals(before)).toBe(true)
+    // (docs/decisions/20261123-do-then-undo.md, the owner: the asker's own folder in their project chat asks nothing)
     const yes = await turn('alice', chat, call, ['share'])
+    expect(yes.cards.filter((c) => c.options?.some((o) => o.value === 'share'))).toEqual([])
     expect(yes.content).toContain('Saved users/alice/draft-acme (reviewed).docx with the comments')
     expect(commentsIn('users/alice/draft-acme (reviewed).docx')).toContain('Please check the payment date.')
     expect(fs.readFileSync(abs('users/alice/draft-acme.docx')).equals(before)).toBe(true)

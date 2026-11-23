@@ -36,7 +36,7 @@ import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, pressParent, recordAnswer } from '../chat/open-questions'
+import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, pressParent, recordAnswer, turnOfQuestion } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
@@ -1007,7 +1007,8 @@ export const chatsRoutes: RouteModule = {
       if (!cardAnswerOk(q.request, value)) fail('validation', tr('answerNotOption', locale))
       const r = recordAnswer(ctx.db, requestId, value)
       if (r.state === 'closed') fail('conflict', tr('requestClosed', locale))
-      if (r.state === 'waiting') { rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } }); return }
+      // (the other waiting cards an "Always allow" answered with it close too: chat/open-questions.ts alwaysAlso)
+      if (r.state === 'waiting') { for (const id of [requestId, ...r.also]) rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId: turnOfQuestion(ctx.db, id) ?? turnId, requestId: id, reason: 'answered' } }); return }
       // the answer that asked is still ending: kept in the database, the card closes when the next turn starts
       // (ChatRuntime.startAnsweredTurns: at that answer's end, a quarantined slot's release, or after a restart)
       if (asking) return

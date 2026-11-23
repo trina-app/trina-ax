@@ -14,6 +14,7 @@
 //   their own latest message names the recipient (namedByAsker / namesRecipient); several matches are picked on a card
 //   only the asker gets (askerPicks), never listed to the AI (it writes where everyone in the chat reads); and a
 //   refusal carries no server words (which could name a room or a person) into that transcript.
+import { quietRun } from './explicit-send'
 import type { Database } from 'bun:sqlite'
 import { sha256Regular } from '../files/store'
 import fs from 'node:fs'
@@ -34,6 +35,8 @@ type ScheduleKind = 'post_to_room' | 'post_files' | 'share_files' | 'share_folde
 export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: ScheduleKind | readonly ScheduleKind[] | null): ActionOff | null {
   const kinds = scheduleKind === null ? [] : typeof scheduleKind === 'string' ? [scheduleKind] : scheduleKind
   if (exec.spec.clientKind === 'schedule' && !kinds.some((k) => alwaysHere(exec.alwaysPlace?.(), k) === 'on')) return 'schedule'
+  // a task made without its card sends nothing, whatever the person's Always (docs/decisions/20261123-do-then-undo.md)
+  if (exec.spec.clientKind === 'schedule' && quietRun(exec.rt.db, exec.spec.turnId)) return 'schedule'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.spec.clientKind === 'slack') return 'slack'
   if (exec.restricted || exec.templateRun) return 'restricted'
@@ -137,7 +140,8 @@ const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|
  * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까", and a request word that goes on as something else
  * ("공유해줘서 고마워요", "공유해줘야 하나요", "공유해줘도 되나", "공유해 달라고 했던") name nobody to share with */
 const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)(?!\\s?(?:\\uC11C|\\uC57C|\\uB3C4|\\uACE0|\\uB77C|\\uC694\\s?\\?))`
-const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
+// (the Korean room or channel word may stand apart from the name: "<name> room-to", QA F5 2026-11-23)
+const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\s?\\uBC29\\uC73C\\uB85C|\\s?\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\s?\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
   const e = escapeRe(n)
@@ -388,6 +392,11 @@ function folderAboveChanged(db: Database, rel: string, sinceId: number): boolean
 const CHAT_MADE_TOOLS = ['write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf'] as const
 /** detail keys that say a row put an older file, or another place's bytes as they were, at the path */
 const RELOCATED = ['copiedFrom', 'movedFrom', 'movedTo', 'conflictCopyOf', 'conflictOf', 'originalPath', 'copy', 'via', 'url', 'trashId', 'folder'] as const
+/** a row that handed a file over from the chat's own work folder (save_work_file or copy_files of chat:work/…,
+ * chat/places-copy.ts workToTeam: detail `from: 'work folder'`), never as a copy next to another file */
+const handoverSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
+  AND COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN ('save_work_file', 'copy_files') AND json_extract(${alias}.detail, '$.from') = 'work folder'
+  AND json_extract(${alias}.detail, '$.conflictCopyOf') IS NULL`
 const chatWritingSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
   AND COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN (${CHAT_MADE_TOOLS.map((t) => `'${t}'`).join(', ')})
   AND ${RELOCATED.map((k) => `json_extract(${alias}.detail, '$.${k}') IS NULL`).join(' AND ')}`
@@ -428,15 +437,14 @@ export function handedOverInChat(db: Database, chatId: string, userId: string, r
     const mine = `SELECT id FROM turns WHERE chat_id = ? AND user_id = ?`
     const last = db.query("SELECT id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number } | null
     if (!last) return false
-    const made = db.query(`SELECT e.id FROM file_events e WHERE e.id = ? AND e.user_id = ? AND e.turn_id IN (${mine}) AND e.detail IS NOT NULL AND json_valid(e.detail)
-      AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('save_work_file', 'copy_files') AND json_extract(e.detail, '$.from') = 'work folder'
-      AND json_extract(e.detail, '$.conflictCopyOf') IS NULL`).get(last.id, userId, chatId, userId) as { id: number } | null
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.id = ? AND e.user_id = ? AND e.turn_id IN (${mine}) AND ${handoverSql('e')}`).get(last.id, userId, chatId, userId) as { id: number } | null
     if (!made) return false
     const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
     if (prev && prev.action !== 'delete') return false
-    // anything since but the chat's own writes (madeInChat's rule): not the chat's file any more
+    // anything since but the chat's own writes (madeInChat's rule) or another hand-over of its own (the same file made
+    // again by its commands and copied over it: QA of batch 4 r110): not the chat's file any more
     if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ? AND p.id > ? AND p.action <> 'rejected'
-      AND NOT (p.action = 'update' AND p.user_id = ? AND p.turn_id IN (${mine}) AND ${chatWritingSql('p')}) LIMIT 1`).get(rel, made.id, userId, chatId, userId)) return false
+      AND NOT (p.action = 'update' AND p.user_id = ? AND p.turn_id IN (${mine}) AND (${chatWritingSql('p')} OR ${handoverSql('p')})) LIMIT 1`).get(rel, made.id, userId, chatId, userId)) return false
     return !folderAboveChanged(db, rel, made.id)
   } catch { return false }
 }
@@ -486,11 +494,67 @@ export const POST_ASK = re([`\\uC62C\\uB824${ASK_END}`, `\\uBCF4\\uB0B4${ASK_END
 export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB9CC\\uB4E4\\uC5B4|\\uC62E\\uACA8|\\uB2EC\\uC544)${ASK_END}`,
   `(\\uC218\\uC815|\\uCD94\\uAC00|\\uC791\\uC131|\\uC5C5\\uB370\\uC774\\uD2B8|\\uBCC0\\uACBD|\\uB4F1\\uB85D)\\s?\\uD574${ASK_END}`,
   '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
+/** a scheduled task in the person's words: when it runs (every day, every week, every N, tomorrow, weekdays, in each
+ * language) or the word itself (schedule, reservation, jadwal). tools/schedules.ts: a task the person asked for in their
+ * own words is made without its card (docs/decisions/20261123-do-then-undo.md) */
+export const SCHEDULE_ASK = re(['\\uB9E4\\uC77C', '\\uB9E4\\uC8FC', '\\uB9E4\\uB2EC', '\\uB9E4\\uC6D4', '\\uB9E4\\uB144', '\\uD3C9\\uC77C', '\\uB9C8\\uB2E4', '\\uB0B4\\uC77C', '\\uBAA8\\uB808', '\\uC608\\uC57D', '\\u6BCE\\u65E5', '\\u6BCE\\u9031', '\\u6BCE\\u6708', '\\u6BCE\\u671D', '\\u660E\\u65E5', '\\u5B9A\\u671F', '\\u6BCF\\u5929', '\\u6BCF\\u5468', '\\u6BCF\\u6708', '\\u660E\\u5929', '\\u5B9A\\u65F6', '\\b(every|daily|weekly|monthly|hourly|tomorrow|schedule|remind me|setiap|besok|jadwal|cada|ma\\u00F1ana|todos los|programa)\\b'])
 /** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
 const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
 
 /** The person's words say "don't" (a narrowing action that needs no request verb reads this alone: chat/stop-sharing.ts). */
 export const saysDont = (said: string): boolean => ASK_NOT.test(said)
+
+/** Any word about sharing, sending, showing, posting or telling others, in the six app languages: far wider than the
+ * request forms above (no request ending, no target), so a side chat's "the user never asked" gate (unaskedSideShare)
+ * fails open: a message with any of these keeps today's card. Korean, Japanese and Chinese as escapes. */
+const SHARE_TALK = re([
+  // ko: 공유, 보내, 보낼, 올려, 올리, 올릴, 전달, 보여, 볼 수, 알려, 알리, 공지, 넘겨, 뿌려; 답장, 답해, 답글, 댓글, 전해, 링크
+  '\\uACF5\\uC720', '\\uBCF4\\uB0B4', '\\uBCF4\\uB0BC', '\\uC62C\\uB824', '\\uC62C\\uB9AC', '\\uC62C\\uB9B4', '\\uC804\\uB2EC', '\\uBCF4\\uC5EC', '\\uBCFC\\s?\\uC218', '\\uC54C\\uB824', '\\uC54C\\uB9AC', '\\uACF5\\uC9C0', '\\uB118\\uACA8', '\\uBFCC\\uB824',
+  '\\uB2F5\\uC7A5', '\\uB2F5\\uD574', '\\uB2F5\\uAE00', '\\uB313\\uAE00', '\\uC804\\uD574', '\\uB9C1\\uD06C',
+  // 게시, 권한, 초대, 한테 줘 / 에게 줘 / 께 드려
+  '\\uC2A4\\uB808\\uB4DC\\uC5D0', '\\uBC29\\uC5D0', '\\uAC8C\\uC2DC', '\\uAD8C\\uD55C', '\\uCD08\\uB300', '(\\uD55C\\uD14C|\\uC5D0\\uAC8C)\\s?(\\uC918|\\uC8FC)', '\\uAED8\\s?\\uB4DC\\uB824',
+  // en
+  '\\b(share|sharing|shared|send|sending|sent|post|posting|forward|announce|publish|notify|reply|respond|link)\\b', '\\bshow\\b(?!\\s+me\\b)', '\\b(give|invite|access|dm|email|e-mail|mail)\\b', '\\b(put|drop|paste)\\b[^\\n]{0,40}\\b(channel|room|thread|chat|group)\\b', '\\b(to|for|in|into|on)\\s+(the|this|that)\\s+(thread|room|channel|group chat)\\b', '\\b(tell|answer|update)\\s+(them|him|her|everyone|everybody|the\\s+(room|team|group|channel))\\b', '\\blet\\b[^\\n]{0,40}\\b(see|view|open|know|have)\\b',
+  // id
+  '\\b(bagi|bagikan|berbagi|kirim|kirimkan|tunjukkan|teruskan|unggah|posting|umumkan|beri\\s?tahu|kasih\\s?tahu|balas|balaskan|tautan)\\b',
+  // ja: 共有, 送, 見せ, 投稿, 転送, 伝え, 知らせ, 返信, リンク
+  '\\u5171\\u6709', '\\u9001', '\\u898B\\u305B', '\\u6295\\u7A3F', '\\u8EE2\\u9001', '\\u4F1D\\u3048', '\\u77E5\\u3089\\u305B', '\\u8FD4\\u4FE1', '\\u30EA\\u30F3\\u30AF', '\\u30B7\\u30A7\\u30A2', '\\u30A2\\u30C3\\u30D7',
+  // es
+  '\\b(compart\\w*|comp\\u00E1rt\\w*|envi\\w*|env\\u00ED\\w*|mand\\w*|public\\w*|muestr\\w*|mostr\\w*|reenv\\w*|avis\\w*|dile|dales|cu\\u00E9ntale\\w*|respond\\w*|contest\\w*|enlace|p\\u00E1sa\\w*|pasa\\w*|pon\\w*\\s+en|invit\\w*|acceso)\\b',
+  // zh: 分享, 共享, 发送, 发给, 发到, 转发, 告诉, 发布, 通知, 给…看, 回复, 链接
+  '\\u5206\\u4EAB', '\\u5171\\u4EAB', '\\u53D1\\u9001', '\\u53D1\\u7ED9', '\\u53D1\\u5230', '\\u8F6C\\u53D1', '\\u544A\\u8BC9', '\\u53D1\\u5E03', '\\u901A\\u77E5', '\\u7ED9[^\\n]{0,12}\\u770B', '\\u56DE\\u590D', '\\u94FE\\u63A5', '\\u53D1',
+])
+
+/** The asker's own words (quoted lines left out) say anything about sharing, sending, showing or posting (SHARE_TALK). */
+export const talksOfSharing = (said: string): boolean => SHARE_TALK.test(withoutQuoteLines(said))
+
+/**
+ * A ✦ side chat's share or post the person never asked for (docs/decisions/20261123-fewer-asks-b5.md; QA of batch 4:
+ * "방문-메모.txt 만들어줘" ended with a card to share the file with the room's 4 people). In a side chat a share_with_person,
+ * share_folder or post_to_room whose asker's own message (the asking turn's while a waiting call runs again) says
+ * nothing about sharing, sending, showing or posting is refused before any card: the words for the AI, or null to go on.
+ * Never a scheduled run or Slack (their own rules), never with the person's "Always allow" for that kind on (Rule A);
+ * any sharing word at all keeps today's card.
+ */
+export function unaskedSideShare(exec: Pick<TurnExec, 'rt' | 'spec'> & Partial<Pick<TurnExec, 'askedIn' | 'alwaysPlace'>>, what: 'shared' | 'posted', always: readonly Parameters<typeof alwaysHere>[1][]): string | null {
+  try {
+    const { db } = exec.rt
+    if (exec.spec.clientKind === 'schedule' || exec.spec.clientKind === 'slack') return null
+    // the person's own "Always allow" for this kind is final (Rule A): no guard on top of it; this only stops a card
+    // nobody asked for
+    const place = exec.alwaysPlace?.()
+    if (always.some((k) => alwaysHere(place, k) === 'on')) return null
+    const side = db.query('SELECT side_room_id FROM chats WHERE id = ?').get(exec.spec.chatId) as { side_room_id: string | null } | null
+    if (!side?.side_room_id) return null
+    const asker = exec.askedIn?.userMessageId ?? exec.spec.userMessageId
+    if (talksOfSharing(askerText(db, asker))) return null
+    // ...or the person's message before it in this chat ("share it" → the AI's question "which file?" → a button's words)
+    const before = db.query(`SELECT q.content FROM messages m JOIN messages a ON a.id = m.parent_id JOIN messages q ON q.id = a.parent_id
+      WHERE m.id = ? AND q.role = 'user' AND q.chat_id = m.chat_id`).get(asker) as { content: string | null } | null
+    if (before?.content && talksOfSharing(before.content)) return null
+    return `Nothing was ${what}: the user did not ask to share, send or post anything in their message, and in this side chat nothing goes to the room or its people unless they ask. Do not share, send or post it, and do not offer to: answer what they asked (say where a file you made is). They can ask you to share it, or send your answer with the button under it.`
+  } catch { return null }
+}
 
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {

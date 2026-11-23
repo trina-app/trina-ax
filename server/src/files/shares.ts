@@ -645,7 +645,7 @@ export class FileShares {
     if (o.resume) throw new HttpError('validation')
     return this.change(userId, rel0, add, remove, L, via, o)
   }
-  change(userId: string, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[]; removed: Subject[]; share: ShareRow } {
+  change(userId: string, rel0: string, add: readonly Subject[], remove0: readonly Subject[], L: Locale, via: Via = 'dialog', o: { quiet?: boolean; tokenTaken?: boolean; stop?: boolean; stepId?: string | null } = {}): { view: FileSharesView; added: string[]; removed: Subject[]; share: ShareRow; inserted: Subject[]; at: string } {
     const me = this.principal(userId)
     if (!me || me.role === 'guest') throw new HttpError('not_found')
     if (o.stop && add.length) throw new HttpError('validation')
@@ -697,7 +697,8 @@ export class FileShares {
     }
     const named = new Set(fresh.filter((s) => s.subjectType === 'user').map((s) => s.subjectId))
     if (!o.quiet) for (const id of added) this.notify(id, 'file.shared', share.id, true, named.has(id))
-    return { view: { ...this.view(userId, r.rel, L), ...(undo ? { undo } : {}) }, added, removed: gone.map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId })), share: this.row(share.id)! }
+    // `inserted`: the grants this call wrote (never one that was there already), dated `at`: what a take-back may remove
+    return { view: { ...this.view(userId, r.rel, L), ...(undo ? { undo } : {}) }, added, removed: gone.map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId })), share: this.row(share.id)!, inserted: fresh.map((s) => ({ subjectType: s.subjectType, subjectId: s.subjectId })), at }
   }
 
   /**

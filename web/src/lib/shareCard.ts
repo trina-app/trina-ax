@@ -43,6 +43,8 @@ export function shareHeadline(t: T, locale: Locale, s: StepShared, restored = fa
     const had = whoWords(t, locale, s.already)
     return s.files.length === 1 ? t('shareCard.already.one', { who: had, file: s.files[0]!.name, n: s.already.length }) : t('shareCard.already.many', { who: had, n: s.files.length, people: s.already.length })
   }
+  // a folder share_folder made from files that were only in the chat: "<folder>를 만들고 공유했어요"
+  if (s.madeFolder && s.op === 'share' && s.files.length === 1 && !restored) return t('shareCard.madeFolder', { file: s.files[0]!.name, who })
   if (restored) return s.files.length === 1 ? t('shareCard.restored.one', { file: s.files[0]!.name, who }) : t('shareCard.restored.many', { n: s.files.length, who })
   return s.files.length === 1 ? t(`shareCard.done.${s.op}.one`, { file: s.files[0]!.name, who }) : t(`shareCard.done.${s.op}.many`, { n: s.files.length, who, names: fileNames(t, locale, s.files) })
 }

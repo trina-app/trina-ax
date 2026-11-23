@@ -357,10 +357,10 @@ describe('share_with_person: a file or person that came from looking_at', () => 
     await look(bob1, 'bob', W1, { screen: 'file', filePath: 'users/bob/photo-5.png' })
     const r = await turn('bob', `share this with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
     expect(r.card!.question).toContain('Tess Yoon')
-    // with the file named the card still shows: after looking_at the chat holds other people's words, where the explicit
-    // ask never skips the card
-    const named = await turn('bob', `share photo-5.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`, { answer: 'no' })
-    expect(named.cards).toBe(1)
+    // with the file named in my own words it goes (docs/decisions/20261123-do-then-undo.md: content others wrote no longer
+    // stops the explicit ask; my own file and the person are both in my words, and the share card has Undo)
+    const named = await turn('bob', `share photo-5.png with Tess Yoon\n${LOOK}\n${share({ paths: ['users/bob/photo-5.png'], people: ['Tess Yoon'] })}`)
+    expect(named.cards).toBe(0)
   })
 
   test('a person from looking_at (the 1:1 chat on the screen): "share photo-6.png with them" asks without "Always allow", goes with it', async () => {

@@ -338,10 +338,48 @@ export function globLabel(verb: string, pattern: unknown, folder: unknown): stri
   const last = segs.length > fixed.length ? segs.at(-1)! : ''
   // "*.xlsx", "*.{png,jpg}": the kinds; else the name's own letters ("*배너*" -> 배너)
   const exts = /^\*+\.(?:\{([\w,]+)\}|(\w+))$/.exec(last)
+  // ("*{견적,단가}*": the names it looks for, a comma and a space between them)
   const what = exts ? (exts[1] ?? exts[2]!).split(',').filter(Boolean).slice(0, 3).map((e) => `.${e}`).join(', ')
-    : last.replace(/[*?[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()
+    : last.replace(/[*?[\]{}]/g, ' ').replace(/\s*,\s*/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim()
   const quoted = what && !exts ? `"${clip(what, 40)}"` : what
-  return [verb, place ? clip(place, 60) : '', quoted].filter(Boolean).join(' · ')
+  // the place last, as every other path line ("파일 찾기 \"단가표\" · 전사 공유"), so the screen says it in words
+  // (stepPlace; QA TC-b4s: "· shared ·" and "· groups/마케팅 ·" in the middle of the line stayed raw)
+  return [quoted ? `${verb} ${quoted}` : verb, place ? clip(place, 60) : ''].filter(Boolean).join(' · ')
+}
+
+/** A search pattern in words (QA TC-b4s: "A형.{0,40}(원|단가|가격)"): a regular expression's alternatives as "a, b", its
+ * wildcards, anchors, escapes and repeat counts left out; a plain text as it is. */
+export function searchPatternWords(pattern: unknown): string {
+  const p = String(pattern ?? '')
+  if (!/[|\\.^$*+?()[\]{}]/.test(p)) return p
+  const s = p
+    .replace(/\[(?:\\.|[^\]\\])*\][*+?]?(?:\{\d*,?\d*\})?/g, ' ')
+    .replace(/\\[pP]\{[^}]*\}/g, ' ')
+    .replace(/\\[bBsSdDwWnrt]/g, ' ')
+    .replace(/\\(.)/g, '$1')
+    .replace(/\.(?:[*+?]|\{\d*,?\d*\})\??/g, ' ')
+    .replace(/\{\d*,?\d*\}\??/g, '')
+    .replace(/\(\?[a-z]+\)/gi, ' ')
+    .replace(/\(\?[:=!<]+/g, '(')
+    .replace(/[\^$]/g, ' ')
+    .replace(/[*+?]+/g, ' ')
+    .replace(/\s*\|\s*/g, ', ')
+    .replace(/\(\s*,?\s*/g, ' (').replace(/\s*,?\s*\)/g, ')')
+    .replace(/\.(?=\s|$|\))/g, ' ')
+    .replace(/\(\)/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+    .trim()
+  // (a pattern of wildcards alone says nothing in words: '')
+  return s
+}
+
+/** A page's key as a step may show it: a key in people's words ("송년회 안내", "event") as it is; a developer's slug
+ * ("year-end-party", "sales_top3", "oct-sales-dashboard") is no word for a person, so nothing (the verb alone). */
+export function pageKeyWords(key: unknown): string {
+  const k = typeof key === 'string' ? key.trim() : ''
+  // (words joined by - _ or .: one plain word, "event", reads as itself)
+  return !k || /^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/i.test(k) ? '' : k
 }
 
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
@@ -356,7 +394,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   switch (tool) {
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
     case 'glob': return globLabel(verb!, a.pattern, a.path)
-    case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'grep': { const q = searchPatternWords(a.pattern); return `${verb}${q ? ` "${clip(q, 60)}"` : ''}${a.path ? ` · ${clip(a.path, 50)}` : ''}` }
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))
       if (!k && /\.pptx$/i.test(String(a.file_path ?? '').trim()) && (a.pages !== undefined || a.as_images === true)) {
@@ -401,7 +439,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     }
     case 'artifact': {
       const act = a.action === 'read' || a.action === 'restore' ? ARTIFACT_ACTION_VERB[a.action][locale] : a.action === 'update' || a.action === 'rewrite' ? ARTIFACT_ACTION_VERB.edit[locale] : verb
-      return `${act} · ${clip(a.title ?? a.key, 80)}${a.action === 'restore' && typeof a.version === 'number' ? ` · v${a.version}` : ''}`
+      // the page by its title, never its key when that is a developer's slug ("year-end-party": QA TC-b3s-8, TC-b4s);
+      // the server fills the title of a page named only by its key (chat/turn.ts artifactTitled)
+      const name = typeof a.title === 'string' && a.title.trim() ? a.title : pageKeyWords(a.key)
+      return `${act}${name ? ` · ${clip(name, 80)}` : ''}${a.action === 'restore' && typeof a.version === 'number' ? ` · v${a.version}` : ''}`
     }
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
@@ -599,6 +640,12 @@ export const STEP_PLACE = {
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta", "我的文件夹"),
   /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
   shared: TOP_FOLDER_LABELS.shared,
+  /** groups/, projects/, skills/ alone, and projects/<name>/…: the file screen's names (QA TC-b4s: "폴더 보기 · groups") */
+  groups: TOP_FOLDER_LABELS.groups,
+  projects: TOP_FOLDER_LABELS.projects,
+  skills: TOP_FOLDER_LABELS.skills,
+  /** "/": the whole team folder, as the file screen's root says it (web files.root) */
+  root: t('팀 폴더', 'Team folder', 'Folder tim', 'チームフォルダー', 'Carpeta del equipo', '团队文件夹'),
 } satisfies Record<string, T>
 
 const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
@@ -618,11 +665,16 @@ export function placeName(path: string, locale: Locale): string | null {
     if (place.kind === 'work') return [STEP_PLACE.work[locale] ?? STEP_PLACE.work.en, ...(place.rel ? place.rel.split('/') : [])].join(' › ')
     return null
   }
+  // the whole team folder ("/", a search with no folder named as one)
+  if (/^\s*\/+\s*$/.test(path)) return STEP_PLACE.root[locale] ?? STEP_PLACE.root.en
   const segs = path.normalize('NFC').replace(/^\/+|\/+$/g, '').split('/')
   if (segs.some((s) => !s)) return null
   const say = (key: keyof typeof STEP_PLACE, from: number, vars: Record<string, string> = {}) =>
     [fill(STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, vars), ...segs.slice(from)].join(' › ')
   const [top, a, b, c] = segs
+  if (top === 'groups' && !a) return say('groups', 1)
+  if (top === 'projects') return say('projects', 1)
+  if (top === 'skills') return say('skills', 1)
   if (top === 'groups' && a) {
     if (b && BRAND_NAMES.has(b)) return c && IMAGES_NAMES.has(c) ? say('brandImages', 4) : say('brand', 3)
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
@@ -722,7 +774,8 @@ function toolPlace(step: { tool?: string }, label: string, locale: Locale): { la
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
   // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
-  if (named && parsePlace(path)) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
+  // (nor for the whole team folder: "/" tells nothing more)
+  if (named && (parsePlace(path) || /^\s*\/+\s*$/.test(path))) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
   if (named) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path }
   // a chat place the line names some other way (cut short, or after "->"): in words all the same
   const worded = chatPlaceWords(label, locale)

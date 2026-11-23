@@ -11,7 +11,6 @@ import type { MessageKey } from '../i18n'
 import type { Locale } from '@mycel/shared/api'
 import { toast } from '../store/ui'
 import { fileSharesChanged } from '../store/live'
-import { confirmDialog } from './ui'
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string
 
@@ -62,18 +61,3 @@ export function removedToast(t: T, locale: Locale, text: string, undo: FileShare
   toast({ level: 'success', text, ...(undo && ms > 0 ? { ms, action: { label: t('common.undo'), run: () => void undoShare(t, locale, undo.id, onUndone) } } : {}) })
 }
 
-/** Stop sharing's one question: who loses it, and what stays shared on its own (files and folders inside). */
-export function confirmStop(t: T, locale: Locale, name: string, shares: FileShares): Promise<boolean> {
-  const own = shares.ownShares && shares.ownShares.files + shares.ownShares.folders > 0 ? shares.ownShares : null
-  return confirmDialog({
-    title: t('fileShare.stopTitle', { name }),
-    body: (
-      <div className="space-y-2 text-sm break-keep" data-testid="file-share-stop-body">
-        {shares.people.length > 0 && <p>{t('fileShare.stopLoses', { people: peopleText(t, shares.people) })}</p>}
-        {own && <p data-testid="file-share-stop-kept">{t('fileShare.stopKeeps', { names: keptText(t, locale, own) })}</p>}
-      </div>
-    ),
-    confirm: t('fileShare.stop'),
-    danger: true,
-  })
-}

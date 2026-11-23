@@ -24,6 +24,7 @@ export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
   node: ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-amd64'],
   cpython: ['darwin-arm64', 'darwin-amd64'],
   srt: ['any'],
+  hyperframes: ['any'],
 }
 
 export interface PackageSpec { min?: string; on?: string[]; when?: (typeof WHENS)[number] }

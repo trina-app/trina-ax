@@ -44,7 +44,7 @@ type Confirm = Extract<ShareAnswerToRoomResult, { status: 'confirm' }>
 
 /** The switches a new "confirm" starts with: the files that may go, on, the first ROOM_FILES_MAX; asked again, my own
  * choice stays for the files that are still there. */
-function startAttach(files: readonly AnswerShareFile[], before?: { files: readonly AnswerShareFile[]; on: ReadonlySet<string> }): Set<string> {
+export function startAttach(files: readonly AnswerShareFile[], before?: { files: readonly AnswerShareFile[]; on: ReadonlySet<string> }): Set<string> {
   const may = files.filter((f) => f.attach === 'yes' && f.path).map((f) => f.path!)
   const known = new Set(before?.files.filter((f) => f.attach === 'yes' && f.path).map((f) => f.path!) ?? [])
   return new Set(may.filter((p) => (known.has(p) ? before!.on.has(p) : true)).slice(0, ROOM_FILES_MAX))
@@ -115,7 +115,11 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
     setBusy(true)
     try {
       // the first press only asks: one confirm with what goes and who sees it, whatever is attached (QA TC-f2-c04)
-      const r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? { preview: true }), clientMessageId: sendId.current.id })
+      let r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? { preview: true }), clientMessageId: sendId.current.id })
+      // nothing in it needs my look (the server's `direct`: docs/decisions/20261123-do-then-undo.md): it goes at once with
+      // the files offered, and the toast offers Undo instead of the confirm step
+      const direct = !yes && r.status === 'confirm' && !!r.direct
+      if (direct && r.status === 'confirm') r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), confirmKey: r.confirmKey, attach: [...startAttach(r.files)], clientMessageId: sendId.current.id })
       if (r.status === 'confirm') {
         confirm.asked(r, !!yes, { room: to })
         setBusy(false)
@@ -123,7 +127,10 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
       }
       onClose()
       const files = r.message.files.length
-      toast({ level: 'success', text: files ? t('shareRoom.sentFiles', { room: label(to), n: files }) : t('shareRoom.sent', { room: label(to) }), action: { label: t('shareRoom.open'), run: () => navigateTo(`/rooms/${to.id}`) } })
+      const sentId = r.message.id
+      const text = files ? t('shareRoom.sentFiles', { room: label(to), n: files }) : t('shareRoom.sent', { room: label(to) })
+      if (direct) toast({ level: 'success', text, ms: 10_000, action: { label: t('postedCard.undo'), run: () => void useRooms.getState().remove(to.id, sentId).then(() => toast({ level: 'info', text: t('postedCard.undone') }), (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
+      else toast({ level: 'success', text, action: { label: t('shareRoom.open'), run: () => navigateTo(`/rooms/${to.id}`) } })
       // the video's MP4 was not ready: it went as its page (review of #363)
       if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })
     } catch (e) {

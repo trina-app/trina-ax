@@ -13,7 +13,11 @@ export interface ToolResult extends ToolOutput {
   /** pictures this call saved that the chat shows under its step by itself (Step.images), so the AI never retypes their
    * paths as Markdown (a mistyped one showed the 1080x1080 banner twice and the story size never, 11-22). Chat turns only */
   stepImages?: StepImage[]
+  /** a scheduled task this call made: its step shows it with Pause and Delete (Step.scheduled). Chat turns only */
+  stepScheduled?: StepScheduled
 }
+/** Step.scheduled as a tool gives it (shared/src/api/entities.ts) */
+export interface StepScheduled { id: string; title: string; nextRunAt: string | null; quiet?: true }
 /** a saved team picture shown under a step: its path, alt text and the words under it ("1080x1920") */
 export interface StepImage { path: string; alt?: string; label?: string }
 

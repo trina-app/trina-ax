@@ -98,6 +98,8 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   // everyone; a share card's files read as `gone` for everyone but alice, with nothing about her file; the path-link
   // lookup answers everyone, null for alice's file (she opens it through her folder, nobody through a share)
   undoFileShares: { build: (c) => c.post('/api/files/shares/undo', { id: 'AAAAAAAAAAAAAAAAAAAAAA' }), scope: 'nobody' },
+  // a take-back id nobody holds: 404 for everyone (a record is only ever its sharer's, once)
+  takeBackFileShares: { build: (c) => c.post('/api/files/shares/take-back', { id: 'AAAAAAAAAAAAAAAAAAAAAA' }), scope: 'nobody' },
   runShareFix: { build: (c) => c.post(`/api/share-fixes/${crypto.randomUUID()}/run`, {}), scope: 'nobody' },
   sharedFolderList: { build: (c) => c.get('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/list'), scope: 'nobody' },
   sharedFolderEntry: { build: (c) => c.get('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/entry?sub=a.md'), scope: 'nobody' },

@@ -18,7 +18,8 @@ import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { aiName } from '../lib/tabs'
-import { Button, Field, Modal, confirmDialog, inputCls } from './ui'
+import { Button, Field, Modal, inputCls } from './ui'
+import { toast } from '../store/ui'
 import { AccessSummary, MembersField, ParticipantPicker, participantKey, useAccessCount, useParticipantOptions } from './ProjectParticipants'
 
 export function ProjectForm({ project, onClose, onSaved }: {
@@ -93,8 +94,11 @@ export function ProjectForm({ project, onClose, onSaved }: {
       // the chosen projects/<name> holds skills: they switch on in this project's chats once the person says yes
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
+        // nothing to choose there (the person saved it): said in one line with their names, and it goes ahead
+        // (docs/decisions/20261123-do-then-undo.md)
         setBusy(false)
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('common.save') })) await save(true)
+        toast({ level: 'info', text: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }) })
+        await save(true)
         return
       }
       // someone else saved first: their version is shown, the next Save is the person's choice over it

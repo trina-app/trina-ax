@@ -111,11 +111,25 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // one argument object for the check, the left-out lookup and the call (a call sent without arguments got a new {} at
     // each, so the search ran without the places its check had hidden)
     const args = params?.arguments ?? {}
+    // a file tool whose card may wait after the answer ends (chat/tools.ts fileCallLater: write, edit, make_file's own
+    // checks); never a file of an edit_files batch (`owner`: one file of the batch must not wait while the rest go on)
+    const fileRun = (): Promise<CallResult> => fileCall(name, args, params?.arguments, caller, callCtx, registry, audit, withNote)
+    if (!owner && extra?.fileCallLater) return extra.fileCallLater(name, args, caller, fileRun, (text) => withNote({ result: { content: [{ type: 'text', text }] } }))
+    return fileRun()
+  }
+
+  /** The file-tool part of callTool: the turn's checks and cards (beforeFileTool), the call, its audit row and note. */
+  async function fileCall(name: string, args: any, given: unknown, caller: { files: ToolCtx['files'] }, callCtx: ToolCtx, registry: ReturnType<typeof toolRegistry> | null,
+    audit: { run: (turnId: string | null, userId: string, tool: string, summary: string, ok: number) => unknown }, withNote: (r: CallResult) => CallResult): Promise<CallResult> {
+    // (the arguments as the call gave them: afterFileTool reads these)
+    const params = { arguments: given }
     const refusal = extra?.beforeFileTool ? await extra.beforeFileTool(name, args, caller).catch(() => ({ refusal: 'The save could not be checked, so nothing was written. Try again.', summary: `${name} -> not written (the check failed)` })) : null
     if (refusal) {
       // a wider-audience refusal: the audit line says how its card ended (a scheduled run asked nobody)
       const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> ${((e) => (e === 'failed' ? 'the check failed' : cardEndShort(e)))(endOfText(refusal))} (wider audience)` } : refusal
-      audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
+      // a card kept with the call to run again with the person's answer (fileCallLater): said so, not as a refusal
+      const waits = !!extra?.callWaiting?.()
+      audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), (waits ? `${name} -> waits for the user's card (runs again with their answer)` : r.summary).slice(0, 1000), 0)
       return withNote(failed(r.refusal))
     }
     // a shared chat's search or listing that leaves out what some of its people cannot open (chat/turn.ts

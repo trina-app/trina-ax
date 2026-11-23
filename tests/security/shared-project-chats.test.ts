@@ -221,7 +221,9 @@ describe('realtime', () => {
   test("erin's socket never carries the shared chat; bob's carries alice's answer as he sees it, never her cards", async () => {
     await idle()
     const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length, dana: ws.dana!.frames.length }
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: `live ${CANARY}` }), clientMessageId: cm(), attachmentIds: [] } })
+    // (a group folder bob cannot open: her own folder in her own project chat asks nothing since
+    // docs/decisions/20261123-do-then-undo.md, so the card here is the group folder's)
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan.md' } }, { say: `live ${CANARY}` }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === r.turnId, 15_000)
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
@@ -243,7 +245,7 @@ describe('realtime', () => {
     expect(done?.data.message.content).toBeTruthy()
     expect(live).toBe(done!.data.message.content)
     expect(bob.some((f) => f.type === 'chat.updated' && f.data.chatId === chatId)).toBe(true)
-    expect(JSON.stringify(bob).includes('todo.md')).toBe(false)
+    expect(JSON.stringify(bob).includes('launch-plan.md')).toBe(false)
   })
 })
 

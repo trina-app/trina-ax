@@ -19,59 +19,32 @@ async function rowMenu(page: Page, name: string, item: string | RegExp) {
 const deletes = async (page: Page) => ((await (await page.request.post('/__test/log')).json()) as string[])
   .filter((line) => line === 'DELETE /api/files')
 
+// The trash asks nothing first (docs/decisions/20261123-do-then-undo.md): the row goes, the toast's Undo brings it back
 for (const openWith of ['keyboard', 'mouse'] as const) {
-  for (const dismissWith of ['Escape', 'Cancel'] as const) {
-    test(`trash confirmation returns to its exact row action button (${openWith}, ${dismissWith})`, async ({ page }) => {
-      const t = DICTS.en
-      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-      await signIn(page, { username: 'bob', password: 'bob password 1' })
-      await page.goto('/files?path=marketing')
-      // Different rows and repeated opens must not restore the first or a stale trigger.
-      for (const name of ['notes.txt', 'data.csv', 'notes.txt']) {
-        const trigger = row(page, name).getByTestId('file-menu')
-        if (openWith === 'keyboard') {
-          await trigger.focus()
-          await page.keyboard.press('Enter')
-          await page.getByRole('menuitem', { name: t['files.moveToTrash'], exact: true }).focus()
-          await page.keyboard.press('Enter')
-        } else {
-          await rowMenu(page, name, t['files.moveToTrash'])
-        }
-        const dialog = page.getByRole('dialog')
-        await expect(dialog).toBeVisible()
-        await expect(page.getByRole('menu')).toHaveCount(0)
-        if (dismissWith === 'Escape') await page.keyboard.press('Escape')
-        else await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
-        await expect(dialog).toHaveCount(0)
-        await expect(trigger).toBeFocused()
-        await expect(row(page, name)).toBeVisible()
-        expect(await deletes(page)).toEqual([])
-      }
-    })
-  }
+  test(`trash goes at once from the row menu, with Undo (${openWith})`, async ({ page }) => {
+    const t = DICTS.en
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    await page.goto('/files?path=marketing')
+    const trigger = row(page, 'notes.txt').getByTestId('file-menu')
+    if (openWith === 'keyboard') {
+      await trigger.focus()
+      await page.keyboard.press('Enter')
+      await page.getByRole('menuitem', { name: t['files.moveToTrash'], exact: true }).focus()
+      await page.keyboard.press('Enter')
+    } else {
+      await rowMenu(page, 'notes.txt', t['files.moveToTrash'])
+    }
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(row(page, 'notes.txt')).toHaveCount(0)
+    expect(await deletes(page)).toEqual(['DELETE /api/files'])
+    await page.getByRole('button', { name: t['common.undo'] }).click()
+    await expect(row(page, 'notes.txt')).toBeVisible()
+    expect(errors).toEqual([])
+  })
 }
-
-test('confirming trash removes the row and leaves subsequent dialogs usable', async ({ page }) => {
-  const t = DICTS.en
-  const errors: string[] = []
-  page.on('pageerror', (error) => errors.push(error.message))
-  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-  await signIn(page)
-  await page.goto('/files?path=marketing')
-  const trigger = await row(page, 'notes.txt').getByTestId('file-menu').elementHandle()
-  await rowMenu(page, 'notes.txt', t['files.moveToTrash'])
-  await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(row(page, 'notes.txt')).toHaveCount(0)
-  expect(await trigger!.evaluate((el) => el.isConnected)).toBe(false)
-  expect(await deletes(page)).toEqual(['DELETE /api/files'])
-  await rowMenu(page, 'data.csv', t['files.moveToTrash'])
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(row(page, 'data.csv').getByTestId('file-menu')).toBeFocused()
-  expect(await deletes(page)).toHaveLength(1)
-  expect(errors).toEqual([])
-})
 
 for (const dismissWith of ['Escape', 'Cancel'] as const) {
   test(`bulk trash cancellation retains selection and restores the selection bar (${dismissWith})`, async ({ page }) => {
@@ -236,8 +209,8 @@ test('upload small and chunked files, new folder, rename, trash and restore', as
   await page.getByTestId('dialog-confirm').click()
   await expect(row(page, 'renamed.txt')).toBeVisible()
 
+  // (no question first: docs/decisions/20261123-do-then-undo.md)
   await rowMenu(page, 'renamed.txt', '휴지통으로')
-  await page.getByTestId('dialog-confirm').click()
   await expect(row(page, 'renamed.txt')).toHaveCount(0)
   await openFilesPlace(page, 'trash')
   // the name and the folder it was in, not the storage path (QA TC-1040)
@@ -301,14 +274,11 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       await page.getByTestId('files-input').setInputFiles(names.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('retention test') })))
       for (const name of names) await expect(row(page, name)).toBeVisible()
 
+      // (no question first: docs/decisions/20261123-do-then-undo.md; the trash says how long it keeps them)
       await rowMenu(page, names[0]!, t['files.moveToTrash'])
-      await expect(page.getByRole('dialog')).toContainText(t['files.deleteBody'])
-      await page.getByTestId('dialog-confirm').click()
       await expect(row(page, names[0]!)).toHaveCount(0)
       for (const name of names.slice(1)) await row(page, name).getByTestId('file-check').click()
       await page.getByTestId('bulk-delete').click()
-      await expect(page.getByRole('dialog')).toContainText(t['files.deleteBody'])
-      await page.getByTestId('dialog-confirm').click()
       for (const name of names) await expect(row(page, name)).toHaveCount(0)
 
       await openFilesPlace(page, 'trash')
@@ -727,11 +697,10 @@ test('move several files: one question for all that would become private, one to
   await picker.getByRole('button', { name: '개인' }).click()
   await picker.getByRole('button', { name: '내 파일' }).click()
   await picker.getByTestId('folder-pick').click()
-  // Bob can read marketing and not Olga's own folder: asked once for the three, with the single move's words
-  const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
-  await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
-  await ask.getByTestId('dialog-confirm').click()
+  // Bob can read marketing and not Olga's own folder: no question (no files shared by link there), the toast's Undo
+  // would move them back (docs/decisions/20261123-do-then-undo.md)
   await expect(page.getByText(/^3개를 내 파일(\(으\))?로 옮겼어요\.$/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '실행 취소' })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)
@@ -756,7 +725,6 @@ test('move several files: one question for all that would become private, one to
   await page.goto('/files?path=docs')
   for (const name of ['notes.txt', 'data.csv']) await check(page, name).click()
   await bar(page).getByRole('button', { name: '휴지통으로' }).click()
-  await page.getByRole('dialog', { name: '2개를 휴지통으로 옮길까요?' }).getByTestId('dialog-confirm').click()
   await expect(page.getByText('2개를 휴지통으로 옮겼어요.')).toBeVisible()
   await expect(row(page, 'notes.txt')).toHaveCount(0)
   await page.getByRole('button', { name: '실행 취소' }).click()
