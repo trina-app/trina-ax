@@ -275,3 +275,11 @@ test('end to end with the reference mailbox (mailbox/src/dev.ts over loopback HT
     expect((await send(r2.address, mail({ subject: 'new' }))).accepted).toBe(true)
   } finally { mailInOf(h.ctx).stop(); box.stop() }
 })
+
+test('a team that wakes with 40 queued mails posts all 40 (no burst limit on mail)', async () => {
+  const { fake, add, messages, until } = await setup()
+  const { local } = await add()
+  for (let i = 0; i < 40; i++) fake.send(local, mail({ subject: `Order ${i}` }))
+  await until(async () => (await messages()).length === 40)
+  expect((await messages()).length).toBe(40)
+})

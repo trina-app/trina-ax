@@ -198,8 +198,9 @@ export class MailIn {
     }
     const switches = apps.switches(row)
     if (!switches.mail || (parsed.autoReply && !switches.auto_replies)) { apps.count(row, 'skipped', day); return 'skipped' }
-    // the app's burst limit and the day's caps, as for a Webhook URL (a mail is not sent again: dropped and counted)
-    if (apps.limits.appWait(row.id) !== null) { apps.dropped(row, day); return 'dropped' }
+    // no burst limit here: the gateway limits each address per hour and day, and a team that wakes pulls its queued mail
+    // 20 at a time (a Webhook URL's burst of 30 would drop the rest for good). The day's caps apply as for every app:
+    // past them a mail is counted as skipped and not posted (the pause line and notice say so; it is not sent again)
     if (apps.capCheck(row)) { apps.count(row, 'skipped', day); return 'skipped' }
     apps.sawEvent(row, parsed.event.switch)
     const ev = { ...parsed.event, alsoDelivery: `item:${item.id}` }
