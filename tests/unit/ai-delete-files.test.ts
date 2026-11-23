@@ -649,12 +649,13 @@ describe('refused up front, before any card', () => {
     // a chat that read rooms asks on the card (below); only a scheduled run, which shows no card, is refused for it
     expect(mode({ roomsSeen: true })).toBeNull()
     expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' } })).toBe('scheduled')
-    // a scheduled run with the person's own "Always allow" for deletes still cannot show the card a room read needs
+    // a scheduled run with the person's own "Always allow" for deletes: it holds after a room read too (Rule A, decision 1
+    // of docs/decisions/20261123-ask-registry-findings.md)
     h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'delete_files', ?)").run(new Date().toISOString())
     try {
       const place = () => ({ db: h.ctx.db, userId: 'alice', chatId: 'no-such-chat', turnId: TURN, locale: 'en' as const, clientKind: 'schedule' })
       expect(mode({ spec: { ...base.spec, clientKind: 'schedule' }, alwaysPlace: place })).toBeNull()
-      expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' }, alwaysPlace: place })).toBe('roomsSeen')
+      expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' }, alwaysPlace: place })).toBeNull()
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
     expect(mode({ fromSlack: true })).toBe('slack')
     const locked = (await h.api('alice').call(API.createChat, { body: {} })).id
