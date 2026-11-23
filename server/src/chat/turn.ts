@@ -390,6 +390,9 @@ export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit',
 /** the tracked call of the async context a card is raised in (TurnExec.callNow) */
 const CALL_NOW = new AsyncLocalStorage<{ name: string; args: unknown; deferred: string | null }>()
 
+/** Tools whose shared read card stays for the person's own folder in their own chat: copies into the chat's places */
+const NO_OWN_SKIP: ReadonlySet<string> = new Set(['copy_files', 'make_zip', 'move_files', 'save_work_file'])
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -4406,8 +4409,9 @@ export class TurnExec {
     // (only their folder's files, never what their browser or a connection showed; never with a guest among the people)
     // (and a chat of their own they shared with people: the owner's "내 채팅", QA F5 new-sh)
     const ownShared = this.shared?.kind === 'people' && (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id === this.spec.userId
-    // (never a skill of theirs: its words become the AI's instructions here, a card of its own)
-    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && tool !== 'skill' && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+    // (never a skill of theirs: its words become the AI's instructions here, a card of its own; never a copy of their
+    // files into the chat's own places, which puts them in front of everyone there as files: NO_OWN_SKIP)
+    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
     if (!missing.length) return this.noteSharedReads(sources, audience) ? null : refuse('failed')
