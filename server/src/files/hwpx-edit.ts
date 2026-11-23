@@ -36,7 +36,7 @@ import { ToolError } from '../policy/errors'
 import { hwpxOutline, hwpxText } from './hwp'
 import {
   decodeHwpEditRequest, decodeVerifyInput, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX,
-  hwpxReadLines, applyLineEdits, type HwpChange, type HwpEditReport,
+  hwpxReadLines, applyLineEdits, type HwpChange, type HwpEditReport, type HwpImageChange,
 } from './hwpx-check'
 import { asChanges, pictureInput, type PictureInput, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
 import { NS_ATTRS } from './hwpx-template'
@@ -419,6 +419,10 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     this.tops ??= this.doc.sections.map((_, si) => this.doc.paras.filter((q) => q.sec === si && q.el.parent?.local === 'sec'))
     return this.tops[section]?.[index] ?? null
   }
+  protected inHeaderOrFooter(t: Table): boolean {
+    for (let up = t.el.parent; up; up = up.parent) if (up.local === 'header' || up.local === 'footer') return true
+    return false
+  }
   protected hasLayoutCache(p: Para): boolean { return !!p.lineseg }
   protected topIndex(p: Para): number {
     this.topParagraph(0, 0)
@@ -733,7 +737,7 @@ function cfbParts(bytes: Uint8Array): Map<string, Uint8Array> {
 
 /** Changes the text of a .hwpx; the new file and what the read-back needs. ToolError for a change or a document it
  * refuses, and then nothing is written. */
-export function editHwpx(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput): { file: Uint8Array; report: HwpEditReport } {
+export function editHwpx(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput, targets?: HwpImageChange[]): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWPX_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWPX_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
   const pkg = openPackage(bytes)
@@ -745,7 +749,10 @@ export function editHwpx(bytes: Uint8Array, changes: HwpChange[], extra?: Pictur
   if (differs) refuseDoc(`its text could not be mapped exactly (${differs})`)
   const ed = new Editor(doc, pkg)
   if (extra) { ed.layout = extra.layout; ed.images = extra.images }
+  // pictures of this call are resolved here, on the document as read, before its other changes
+  const pending = targets?.length ? ed.resolveTargets(targets, changes.length) : null
   changes.forEach((c, i) => ed.apply(c, i))
+  const carried = pending ? ed.carryTargets(pending) : undefined
   // the expected text: each changed paragraph's new text, the new rows' paragraphs where they go; each line edit names
   // the changes it comes from, for the server's read-back
   const lineEdits = ed.lineEdits()
@@ -801,7 +808,7 @@ export function editHwpx(bytes: Uint8Array, changes: HwpChange[], extra?: Pictur
   const after = hwpxReadLines(hwpxText(file))
   const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
   if (diff) throw new ToolError(`the changed document did not read back as expected (${diff}); nothing was saved`)
-  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after), ...(ed.pictures.length ? { pictures: ed.pictures } : {}) } }
+  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after), ...(carried ? { targets: carried } : {}), ...(ed.pictures.length ? { pictures: ed.pictures } : {}) } }
 }
 
 /** The office worker's `hwpx-verify` mode: a file the editor made goes through every check of a document to change
@@ -851,6 +858,6 @@ function picturesOnly(was: Package, now: Package) {
 export function hwpxEditRequest(input: Uint8Array): Uint8Array {
   let req: ReturnType<typeof decodeHwpEditRequest>
   try { req = decodeHwpEditRequest(input) } catch { throw new ToolError('the .hwpx editor got a damaged request') }
-  const { file, report } = editHwpx(req.doc, asChanges(req.changes, '.hwpx'), pictureInput(req, '.hwpx'))
+  const { file, report } = editHwpx(req.doc, asChanges(req.changes, '.hwpx'), pictureInput(req, '.hwpx'), req.targets === undefined ? undefined : asChanges(req.targets, '.hwpx') as HwpImageChange[])
   return encodeHwpEditResult(report, file)
 }

@@ -279,7 +279,8 @@ describe('edit_office: insert_picture (a signature or seal in a Word form)', () 
     // the sign row's cell holds the picture
     expect(doc).toMatch(/<w:t[^>]*>Sign<\/w:t>[\s\S]*?<\/w:tc><w:tc>[\s\S]*?<wp:inline/)
     expect(report.notes.map((n) => n.where)).toEqual([
-      'picture over "(seal)", behind the text (15 x 15 mm)', 'picture over "(seal)", behind the text (15 x 15 mm)',
+      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text; its place on the page was not rendered',
+      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text; its place on the page was not rendered',
       'picture after "Signature:" (30 x 10 mm)', expect.stringMatching(/^picture in the cell right of "Sign" \(/),
     ])
     if (soffice) opensInOffice(file, 'docx')

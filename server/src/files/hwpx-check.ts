@@ -143,8 +143,18 @@ export type HwpChange =
   | { cell: { next_to?: string; direction?: 'right' | 'below'; occurrence?: number; table?: number; row?: number; col?: number }; value: string }
   | { add_rows: { table?: number; table_with?: string; after_row?: number; copy_row?: number; rows: string[][] } }
   | HwpImageChange
+/** A picture's target, resolved on the document as the AI read it and carried through the same call's other changes, so
+ * that numbering cannot shift onto another signer. `tables`: how many tables the document has after those changes. */
+export interface PictureRef {
+  tables: number
+  text?: { sec: number; top: number; cell?: { table: number; row: number; col: number; para: number }; at: number; find: string; label: string; mark: { from: number; to: number; aimFrom: number; aimTo: number } | null; expected: string }
+  cell?: { label: { table: number; row: number; col: number }; target: { table: number; row: number; col: number } }
+}
+
 /** An image change: `image` is the picture's path in the team folder (the server reads it; the worker gets its bytes). */
 export interface HwpImageChange {
+  /** set by the server only (the tool's input has no such field): the exact place, resolved on the document as read */
+  ref?: PictureRef
   image: string; at?: string; place?: 'over' | 'after' | 'before'; cell?: { next_to: string; direction?: 'right' | 'below' }
   occurrence?: number; width_mm?: number; height_mm?: number; layer?: 'behind' | 'front'
 }
@@ -168,7 +178,7 @@ export function hwpOutputPath(output: string, source: string): string {
 export interface LineEdit { at: number; remove: number; insert: string[]; changes: number[] }
 /** The worker's report on a change it made: which change, where (for the AI), the text before and after. */
 export interface HwpEditNote { change: number; where: string; before: string; after: string; /** other changes in the same paragraph */ also?: number[] }
-export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[]; pictures?: HwpPictureNote[] }
+export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[]; pictures?: HwpPictureNote[]; /** where each asked-for picture's target is after this edit (a text edit that came first) */ targets?: PictureRef[] }
 
 /** What an edit with image changes sends along: the page layout and each image change's picture (by change index). */
 export interface HwpEditExtra { layout: HwpLayout; images: { changes: number[]; bytes: Uint8Array }[] }
@@ -176,17 +186,19 @@ export interface HwpEditExtra { layout: HwpLayout; images: { changes: number[]; 
  * images the JSON is the changes and the bytes the document; with images it is { changes, layout, images: [[[change, ...],
  * length], ...] } (each picture once, with the changes that use it) and the bytes are the pictures in that order, then
  * the document. */
-export function encodeHwpEditRequest(changes: HwpChange[], doc: Uint8Array, extra?: HwpEditExtra): Uint8Array {
+export function encodeHwpEditRequest(changes: HwpChange[], doc: Uint8Array, extra?: HwpEditExtra, targets?: HwpImageChange[]): Uint8Array {
+  // the text changes of a call with pictures: the pictures' targets go along, resolved on this document as read
+  if (targets?.length) return encodeHwpxRequest(JSON.stringify({ changes, targets, layout: null, images: [] }), doc)
   if (!extra?.images.length) return encodeHwpxRequest(JSON.stringify(changes), doc)
   const json = JSON.stringify({ changes, layout: extra.layout, images: extra.images.map((x) => [x.changes, x.bytes.length]) })
   return encodeHwpxRequest(json, new Uint8Array(Buffer.concat([...extra.images.map((x) => Buffer.from(x.bytes)), Buffer.from(doc)])))
 }
-export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array; layout: unknown; images: Map<number, Uint8Array> } {
+export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array; layout: unknown; images: Map<number, Uint8Array>; targets?: unknown } {
   const r = decodeHwpxRequest(b)
   if (!r.template) throw new Error('bad request')
   const v = JSON.parse(r.astJson) as unknown
   if (Array.isArray(v)) return { changes: v, doc: r.template, layout: null, images: new Map() }
-  const o = v as { changes?: unknown; layout?: unknown; images?: unknown }
+  const o = v as { changes?: unknown; layout?: unknown; images?: unknown; targets?: unknown }
   if (!o || typeof o !== 'object' || !Array.isArray(o.images)) throw new Error('bad request')
   const images = new Map<number, Uint8Array>()
   let at = 0
@@ -196,7 +208,7 @@ export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Ui
     for (const c of x[0] as unknown[]) { if (!Number.isInteger(c) || images.has(c as number)) throw new Error('bad request'); images.set(c as number, bytes) }
     at += x[1]
   }
-  return { changes: o.changes, doc: r.template.subarray(at), layout: o.layout, images }
+  return { changes: o.changes, doc: r.template.subarray(at), layout: o.layout, images, targets: o.targets }
 }
 /** stdout of the worker's edit mode: the report's JSON framed the same way, then the new file */
 export const encodeHwpEditResult = (report: HwpEditReport, file: Uint8Array) => encodeHwpxRequest(JSON.stringify(report), file)
