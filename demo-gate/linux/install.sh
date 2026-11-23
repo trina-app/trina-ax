@@ -204,7 +204,11 @@ systemctl daemon-reload
 install -d -m 0711 /run/sudo; install -d -m 0700 /run/sudo/ts
 PROPS=$(grep -hE '^(ProtectSystem|ReadWritePaths|ProtectHome|PrivateTmp|PrivateDevices|InaccessiblePaths|Protect(Kernel[A-Za-z]*|Clock|ControlGroups|Hostname|Proc)|LockPersonality|Restrict[A-Za-z]*|SystemCall[A-Za-z]*|MemoryDenyWriteExecute|NoNewPrivileges|IPAddress(Deny|Allow))=' /etc/systemd/system/trina-demo-gate.service $D/10-runners.conf)
 set --
-while IFS= read -r line; do [ -n "$line" ] && set -- "$@" -p "$line"; done <<EOF
+# (systemd-run takes no "localhost" in IPAddressAllow, unit files do: the same addresses spelled out)
+while IFS= read -r line; do
+  case "$line" in IPAddressAllow=*) line=$(printf '%s' "$line" | sed -E 's#(=| )localhost( |$)#\1127.0.0.0/8 ::1/128\2#') ;; esac
+  [ -n "$line" ] && set -- "$@" -p "$line"
+done <<EOF
 $PROPS
 EOF
 runuser -u tdrun -- sh -c 'rm -rf /srv/tdg/i/.unit-check && mkdir -m 700 /srv/tdg/i/.unit-check'
