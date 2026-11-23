@@ -159,6 +159,9 @@ export interface ProxyOpts {
    * one request's limits); a failure forwards the request as it came */
   fitImages?: (body: unknown, signal: AbortSignal) => Promise<FitReport | null>
   port?: number
+  /** the internal Bun.serve's port on 127.0.0.1 (see below); absent or 0 = one the OS picks. A fixed one lets a host
+   * firewall allow the server's own user just its ports (demo-gate's Linux nft table) instead of every ephemeral port. */
+  innerPort?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
    * or a credential). Without it the reason is lost: the engine shows most refusals as an authentication failure.
@@ -568,11 +571,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   // reports a caller that hung up (no 'close'), so a stopped turn would keep the upstream request streaming; Bun.serve
   // aborts req.signal, and the pipe closes it when the engine's connection closes. Bun.serve alone cannot take a
   // CONNECT. The internal port answers only connections the front opened (it maps them back to the engine's port for
-  // the peer check), so reaching it directly gets a 403; pf and the sandbox do not let the engine reach it anyway.
+  // the peer check), so reaching it directly gets a 403; pf and the sandbox do not let the engine reach it anyway. Its
+  // port is the OS's choice unless `innerPort` names one (taken: the start fails like a taken front port).
   const MAX_HEAD = 16 * 1024
   const links = new Map<number, number>() // internal client port -> the engine's client port on the front
   const inner = Bun.serve({
-    hostname: '127.0.0.1', port: 0, reusePort: false,
+    hostname: '127.0.0.1', port: o.innerPort ?? 0, reusePort: false,
     // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
     idleTimeout: 0,
     maxRequestBodySize: PROXY_BODY_MAX,

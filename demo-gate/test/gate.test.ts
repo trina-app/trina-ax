@@ -172,6 +172,10 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(e.config.listen).toEqual({ host: '127.0.0.1', port: e.config.listen.port })
     expect(e.config.engine.proxyPort).toBeGreaterThan(1024)
     expect(e.config.engine.proxyPort).not.toBe(e.config.listen.port)
+    // the model proxy's internal server gets the third port of the range (the Linux firewall allows only the range)
+    const ports = [e.config.listen.port, e.config.engine.proxyPort, e.config.engine.proxyInnerPort]
+    expect(new Set(ports).size).toBe(3)
+    for (const p of ports) expect(p).toBeGreaterThan(1024)
     expect(e.config.engine.modelUpstream).toBeUndefined()
     expect(e.config.engine.modelUpstreams.anthropic).toMatch(new RegExp(`^${g.upstreamBase.replace(/[.]/g, '\\.')}/i/${id}\\.[A-Za-z0-9_-]{43}$`))
     expect(e.config.publicOrigins).toEqual(['https://demo.trina.app'])
