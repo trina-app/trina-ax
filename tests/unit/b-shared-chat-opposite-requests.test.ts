@@ -125,6 +125,10 @@ describe('the note and the rule as text', () => {
     expect(line).toContain('name both people and what each asked, and ask which to keep')
     expect(line).toContain('not on a card, so both of them see it')
     expect(line).toContain('If both are already done, say so and name each version.')
-    expect(line).toContain('No question when Bob Lee only changes their own earlier request, or when the requests do not touch the same thing')
+    expect(line).toContain('No question either when Bob Lee only changes their own earlier request, or when the requests do not touch the same thing')
+    // only while the other request is still open: a done one the asker asks to change is changed on the same file
+    // (docs/decisions/20261123-shared-chat-others-steps.md)
+    expect(line).toContain('and theirs is still open (not done yet)')
+    expect(line).toContain('No question when theirs is already done and Bob Lee now asks to change it')
   })
 })

@@ -1,7 +1,8 @@
-// "Allow this site in this conversation" on the address card (docs/DECISIONS.md "Allow a site for one conversation";
-// review follow-up of the link budget). Like Claude Code's "don't ask again for this domain", for one chat and one
-// person: later addresses on the same registrable domain (eTLD+1 by the Public Suffix List with its private section)
-// open without a card, outside the link budget. It never widens to another chat or person, and never covers what the
+// "Always allow this site" on the address card (docs/DECISIONS.md "Allow a site for one conversation", for good since
+// docs/decisions/20261122-always-allow-holds-everywhere.md B3, and only for good since 20261123-one-always-allow.md).
+// Like Claude Code's "don't ask again for this domain", for one person: later addresses on the same registrable domain
+// (eTLD+1 by the Public Suffix List with its private section) open without a card in every chat they ask in, outside
+// the link budget. It never widens to another person, and never covers what the
 // other rules guard: no name lookup before the decision, an office-network answer is still refused after the lookup,
 // an address with a long random-looking part still asks (highlighted), a long query or an unknown exit address still
 // asks, and a confidential chat never uses it. Sub-agents of the same answer share the chat's sites.
@@ -51,8 +52,12 @@ function person(answer: string | null, asked: Asked[] = [], o: { onAsk?: () => v
     async confirm(question, _a, _d, extra) { o.onAsk?.(); asked.push({ question, extra }); return answer === 'allow' },
     async choose(question, options, extra) { o.onAsk?.(); asked.push({ question, options, extra }); return answer },
     turnUrls: () => [],
+    // a turn the person asks from their app: their sites for good count and may be kept (chat/tools.ts turnPerson)
+    sitesForGood: () => true,
   }
 }
+/** a turn whose card nobody answers (every card is a no), the person's sites counting */
+const quiet = () => person(null)
 async function chatOf(user = 'alice', content = 'hello') {
   const chat = await h.api(user).call(API.createChat, { body: {} })
   h.ctx.db.query("INSERT INTO messages (id, chat_id, role, author_id, content, status) VALUES (?, ?, 'user', ?, ?, 'done')").run(uuidv7(), chat.id, user, content)
@@ -60,7 +65,8 @@ async function chatOf(user = 'alice', content = 'hello') {
 }
 const gate = (chat: string, url: string, p: TurnPerson | null, o: { user?: string | null; turn?: string; egressKnown?: boolean } = {}) =>
   gateUrl(h.ctx.db, chat, url, p, { turnId: o.turn ?? 't-site', userId: o.user === undefined ? 'alice' : o.user, ...(o.egressKnown === undefined ? {} : { egressKnown: o.egressKnown }) })
-const sites = (chat: string) => h.ctx.db.query('SELECT user_id, site FROM chat_allowed_sites WHERE chat_id = ? ORDER BY site').all(chat)
+/** the sites allowed for good from `chat` (user_allowed_sites keeps the chat it was chosen in) */
+const sites = (chat: string) => h.ctx.db.query('SELECT user_id, site FROM user_allowed_sites WHERE chat_id = ? ORDER BY site').all(chat)
 
 describe('the site of an address: registrable domain by the Public Suffix List (no dot-splitting, no DNS)', () => {
   test.each([
@@ -95,17 +101,19 @@ describe('the site of an address: registrable domain by the Public Suffix List (
 })
 
 describe('the card and the allowance', () => {
-  test('the card offers open once / allow this site / don\'t open; picking the site opens later addresses of it without a card', async () => {
+  test('the card offers open once / always allow this site / don\'t open; picking the site opens later addresses of it without a card', async () => {
     const chat = await chatOf()
     const asked: Asked[] = []
     expect(await gate(chat, 'https://www.example.co.kr/first', person('site', asked))).toBe('confirmed')
     expect(asked).toHaveLength(1)
     expect(asked[0]!.options!.map((o) => o.value)).toEqual(['allow', 'site', 'deny'])
-    expect(asked[0]!.options![1]!.label).toBe('Allow this site in this conversation (example.co.kr)')
-    expect(asked[0]!.question).toContain('other addresses on example.co.kr open without asking, in this chat only')
+    expect(asked[0]!.options![1]!.label).toBe('Always allow this site (example.co.kr)')
+    expect(asked[0]!.question).toContain('other addresses on example.co.kr open without asking in all your chats from now on')
     expect(sites(chat)).toEqual([{ user_id: 'alice', site: 'example.co.kr' }])
     const no = person(null, asked)
     for (const u of ['https://www.example.co.kr/second', 'https://m.example.co.kr/a/b', 'http://example.co.kr/']) expect(await gate(chat, u, no)).toBe('site')
+    // another chat of hers too: one Always
+    expect(await gate(await chatOf(), 'https://www.example.co.kr/third', no)).toBe('site')
     expect(asked).toHaveLength(1)
     // another site under the same public suffix is not this site
     await expect(gate(chat, 'https://other.co.kr/', no)).rejects.toThrow(/did not allow/)
@@ -115,13 +123,17 @@ describe('the card and the allowance', () => {
     expect(await gate(chat2, 'https://once.example/a', person('allow'))).toBe('confirmed')
     expect(sites(chat2)).toEqual([])
     await expect(gate(chat2, 'https://once.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    // where it cannot be kept for good (a Slack question, a draft): no site choice at all, never one for this chat
+    const slack: Asked[] = []
+    await gate(chat2, 'https://slack-turn.example/a', { ...person('allow', slack), sitesForGood: () => false })
+    expect(slack[0]!.options?.map((o) => o.value) ?? []).not.toContain('site')
   })
 
   test('github.io and other private suffixes: one person\'s pages are not another\'s site', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://alice.github.io/notes', person('site'))
-    expect(await gate(chat, 'https://docs.alice.github.io/x', null)).toBe('site')
-    await expect(gate(chat, 'https://mallory.github.io/x', null)).rejects.toThrow(/nobody can confirm/)
+    expect(await gate(chat, 'https://docs.alice.github.io/x', quiet())).toBe('site')
+    await expect(gate(chat, 'https://mallory.github.io/x', quiet())).rejects.toThrow(/did not allow/)
   })
 
   test('IDN: allowed from the Unicode address, it covers the punycode one (and the card names both)', async () => {
@@ -129,9 +141,9 @@ describe('the card and the allowance', () => {
     const asked: Asked[] = []
     await gate(chat, 'https://www.예시.한국/소개', person('site', asked))
     expect(asked[0]!.options![1]!.label).toContain('xn--vv4b11d.xn--3e0b707e (예시.한국)')
-    expect(await gate(chat, 'https://xn--vv4b11d.xn--3e0b707e/other', null)).toBe('site')
+    expect(await gate(chat, 'https://xn--vv4b11d.xn--3e0b707e/other', quiet())).toBe('site')
     // a Korean path is words, not a random-looking string
-    expect(await gate(chat, 'https://예시.한국/%ED%95%9C%EA%B5%AD%EC%96%B4/%EC%95%88%EB%82%B4', null)).toBe('site')
+    expect(await gate(chat, 'https://예시.한국/%ED%95%9C%EA%B5%AD%EC%96%B4/%EC%95%88%EB%82%B4', quiet())).toBe('site')
   })
 
   test('no site to allow: an IP address, a public suffix itself — then a plain yes / no card', async () => {
@@ -144,20 +156,23 @@ describe('the card and the allowance', () => {
     expect(sites(chat)).toEqual([])
   })
 
-  test('per chat (a turn whose sites are not for good: a guest there, a draft): another chat of the same person, and another person, still ask', async () => {
+  test('for good: another chat of the same person opens it; another person still asks and may allow their own', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://scoped.example/a', person('site'))
     const other = await chatOf()
-    await expect(gate(other, 'https://scoped.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    expect(await gate(other, 'https://scoped.example/b', quiet())).toBe('site')
     // another person in the same chat (a shared chat): alice's site is not theirs; they may allow their own there
     // (docs/decisions/20261122-always-allow-holds-everywhere.md: a site choice in any chat the person asks in)
-    await expect(gate(chat, 'https://scoped.example/b', null, { user: 'bob' })).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://scoped.example/b', quiet(), { user: 'bob' })).rejects.toThrow(/did not allow/)
     const asked: Asked[] = []
     await gate(chat, 'https://bobs.example/a', person('site', asked), { user: 'bob' })
     expect(asked[0]!.options!.map((x) => x.value)).toContain('site')
     expect(sites(chat)).toEqual([{ user_id: 'bob', site: 'bobs.example' }, { user_id: 'alice', site: 'scoped.example' }])
+    // a turn whose sites do not count (a Slack question, a draft): none is used there, and nothing is kept per chat
+    await expect(gate(other, 'https://scoped.example/c', { ...quiet(), sitesForGood: () => false })).rejects.toThrow(/did not allow/)
     // without a person id nothing is allowed by site
     await expect(gate(chat, 'https://scoped.example/c', null, { user: null })).rejects.toThrow(/nobody can confirm/)
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM chat_allowed_sites').get()).toEqual({ n: 0 })
   })
 
   test('a long random-looking part still asks, highlighted; an unknown exit address still asks; a long plain query is covered in a watched turn', async () => {
@@ -179,10 +194,10 @@ describe('the card and the allowance', () => {
     const long = 'https://leaky.example/q?d=' + 'a-b-'.repeat(60)
     expect(await gate(chat, long, person(null, asked))).toBe('site')
     expect(asked).toHaveLength(n)
-    await expect(gate(chat, long, null)).rejects.toThrow(/long query part/)
+    await expect(gate(chat, long, { ...quiet(), unattended: true })).rejects.toThrow(/long query part/)
     await expect(gate(chat, 'https://leaky.example/plain', person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
     expect(asked.at(-1)!.options).toBeUndefined()
-    expect(await gate(chat, 'https://leaky.example/plain', null)).toBe('site')
+    expect(await gate(chat, 'https://leaky.example/plain', quiet())).toBe('site')
   })
 
   test('a long name before the site still asks, highlighted, however it is cut (names have no case); a user name or password is never covered', async () => {
@@ -190,7 +205,7 @@ describe('the card and the allowance', () => {
     await gate(chat, 'https://names.example/start', person('site'))
     // short names before the site, as real sites have them, are the site
     for (const u of ['https://www.names.example/a', 'https://m.blog.names.example/a', 'https://us-east-1.docs.names.example/', 'https://names.example./b'])
-      expect(await gate(chat, u, null)).toBe('site')
+      expect(await gate(chat, u, quiet())).toBe('site')
     // data in the name: letters only (no digits, no case to tell it by), or cut into short labels / pieces
     for (const name of ['qwhsjdkeuqpzmxnvbalskdjf', 'a1b2c3d4e5.f6a7b8c9d0', 'a1b2c3d4-e5f6a7b8-c9d0', 'c2fsyxj5ltk4nzy1ndmy']) {
       const asked: Asked[] = []
@@ -220,7 +235,7 @@ describe('the card and the allowance', () => {
     const asked: Asked[] = []
     expect(await gate(chat, 'https://fresh.example/r/c2fsyxj5ltk4nzy1ndmy', person('allow', asked))).toBe('confirmed')
     expect(asked[0]!.options).toBeUndefined()
-    expect(asked[0]!.question).not.toContain('If you allow the site')
+    expect(asked[0]!.question).not.toContain('If you always allow the site')
     expect(sites(chat)).toEqual([])
     // the next plain address of the site offers it
     expect(await gate(chat, 'https://fresh.example/about', person('site', asked))).toBe('confirmed')
@@ -233,16 +248,16 @@ describe('the card and the allowance', () => {
     await gate(chat, 'https://wiki.example/start', person('site'))
     const learned = Array.from({ length: 12 }, (_, i) => `https://wiki.example/p${i}`)
     rememberUrls(h.ctx.db, chat, [...learned, ...Array.from({ length: 8 }, (_, i) => `https://elsewhere.example/p${i}`)])
-    for (const u of learned) expect(await gate(chat, u, null, { turn: 'b1' })).toBe('site')
+    for (const u of learned) expect(await gate(chat, u, quiet(), { turn: 'b1' })).toBe('site')
     expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL').get(chat)).toEqual({ n: 0 })
-    for (let i = 0; i < 8; i++) expect(await gate(chat, `https://elsewhere.example/p${i}`, null, { turn: 'b1' })).toBe('seen')
+    for (let i = 0; i < 8; i++) expect(await gate(chat, `https://elsewhere.example/p${i}`, quiet(), { turn: 'b1' })).toBe('seen')
   })
 
   test('a confidential chat: no site choice, and a site allowed before does not count', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://before.example/a', person('site'))
     h.ctx.db.query('INSERT OR IGNORE INTO safe_ops_chats (chat_id) VALUES (?)').run(chat)
-    await expect(gate(chat, 'https://before.example/b', null)).rejects.toThrow(/nobody can confirm/)
+    await expect(gate(chat, 'https://before.example/b', quiet())).rejects.toThrow(/did not allow/)
     const asked: Asked[] = []
     await gate(chat, 'https://new.example/a', person('allow', asked))
     expect(asked[0]!.options).toBeUndefined()
@@ -265,8 +280,8 @@ describe('the other rules still hold through web_fetch', () => {
     expect(r.text).toContain(`could not resolve ${host}`)
     expect(looked(host)).toBe(1)
     const sub = 'c.allowed.example'
-    // nobody to ask, yet it passed the address check (then the stub resolves nothing)
-    const again = await fetchAs(chat, `https://${sub}/b`, null)
+    // no card answered, yet it passed the address check (then the stub resolves nothing)
+    const again = await fetchAs(chat, `https://${sub}/b`, quiet())
     expect(again.text).toContain(`could not resolve ${sub}`)
     expect(looked(sub)).toBe(1)
   })
@@ -275,7 +290,7 @@ describe('the other rules still hold through web_fetch', () => {
     const chat = await chatOf()
     await gate(chat, 'https://www.office-site.example/', person('site'))
     answers.set('intranet.office-site.example', '10.20.30.40')
-    const r = await fetchAs(chat, 'https://intranet.office-site.example/admin', null)
+    const r = await fetchAs(chat, 'https://intranet.office-site.example/admin', quiet())
     expect(r.isError).toBe(true)
     expect(r.text).toMatch(/private|office|local/i)
     expect(looked('intranet.office-site.example')).toBe(1)

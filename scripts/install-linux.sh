@@ -47,7 +47,8 @@
 #                         tools (nothing is turned on: scripts/dev-env/srt/install-srt.sh does that) and the pinned
 #                         headless browser for HTML to PDF in /opt/trina/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER
 #                         in /etc/default/<id>) and the Google Workspace library for Gmail, Calendar, Docs and Sheets
-#                         (a Python venv in /opt/trina/python/workspace-mcp). Kept for repair / update; --no-minimal
+#                         (a Python venv in /opt/trina/python/workspace-mcp) and the promo video's MP4 (node and the
+#                         pinned HyperFrames CLI in /opt/trina/hyperframes). Kept for repair / update; --no-minimal
 #                         turns the default groups back on.
 #   --dev-env             turn on the dev environment on srt (scripts/dev-env/srt/install-srt.sh, run from root's copy
 #                         <base>/root/dev-env-srt/): the AI's commands run in a sandbox on this server. The default on a
@@ -510,6 +511,9 @@ if [ "$CMD" = check ]; then
       say "check: browser chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) -> $PK_OPT/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER in /etc/default/$ID)"
     fi
     for PY in $(pk_pythons "$PROFILE"); do say "check: python $PY $(pk_py "$PY" version) -> $PK_OPT/python/$PY (a venv; pip installs the list's wheels by sha256)"; done
+    if pk_artifacts "$PROFILE" | grep -qx hyperframes; then
+      say "check: video node $(pk_art node "linux-$ARCH" version) -> $PK_OPT/node, HyperFrames $(pk_art hyperframes any version) -> $PK_OPT/hyperframes (npm ci from the pinned lock)"
+    fi
   fi
   if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then say "check: preflight ok: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-400)"
   else
@@ -928,6 +932,7 @@ trap on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 PY_NOT_READY=" "
+VIDEO_READY=0
 if [ "$LIST_OK" = 1 ]; then
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
     say "browser: preparing chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) while the server runs"
@@ -941,6 +946,12 @@ if [ "$LIST_OK" = 1 ]; then
       # not in a subshell: pk_python_install below knows what this run built (PK_PY_PREPARED)
       pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "
     done
+  fi
+  # the promo video's node and HyperFrames CLI (the video group; a repair with an older packages.sh has no pk_video_*)
+  if pk_artifacts "$PROFILE" | grep -qx hyperframes && declare -F pk_video_prepare >/dev/null; then
+    say "video: preparing node and HyperFrames $(pk_art hyperframes any version) while the server runs"
+    # not in a subshell: pk_video_install below knows what this run built (PK_HF_PREPARED)
+    if pk_video_prepare "$PK_OPT/hyperframes" "linux-$ARCH"; then VIDEO_READY=1; else warn "the promo video's MP4 tools were not installed (see above)"; fi
   fi
 fi
 download() {  # url sha256 size out
@@ -1100,6 +1111,11 @@ rootfile 644 safe-fs.sh
 # the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
 # (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.
 for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done
+# the promo video's HyperFrames lock (the sync of the video group installs from root/hyperframes/)
+if [ -f "$KROOT/hyperframes/package-lock.json" ]; then
+  mk root root 755 "$BASE/root/hyperframes"
+  for f in hyperframes/package.json hyperframes/package-lock.json; do rootfile 644 "$f"; done
+fi
 # the dev environment's install files (root/dev-env-srt/, a kit since this change): root runs install-srt.sh and
 # uninstall-srt.sh from this root-owned copy only, never from app/ (the server account's)
 if [ -d "$KROOT/dev-env-srt" ]; then
@@ -1172,6 +1188,15 @@ if [ "$LIST_OK" = 1 ]; then
       SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }$PY not installed"
     fi
   done
+  # the promo video's MP4 (the video group): built in 6b, only switched here. The server finds node and the CLI in
+  # /opt/trina by itself; a failure only warns (the chat says the MP4 cannot be made here)
+  if pk_artifacts "$PROFILE" | grep -qx hyperframes && declare -F pk_video_install >/dev/null; then
+    if [ "$VIDEO_READY" = 1 ] && VIDEO=$(pk_video_install "$PK_OPT/hyperframes" "linux-$ARCH"); then say "video: HyperFrames $(pk_art hyperframes any version) ($VIDEO)"
+    else
+      warn "the promo video's MP4 stays off (see above); \`sudo $0 repair\` tries again"
+      SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }hyperframes not installed"
+    fi
+  fi
   pk_write_synced "$BASE/root/packages.synced" "$(pk_sha256 "$KROOT/packages.json")" "$SYNC_RESULT" "$SYNC_DETAIL" "$BROWSER_V" \
     || die "writing $BASE/root/packages.synced failed"
 fi

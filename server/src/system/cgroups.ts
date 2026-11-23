@@ -26,7 +26,12 @@ export interface ConverterCgroup {
  * Absent (null): the machine is too small for one print, and HTML printing is not offered. */
 export interface PrintCgroup { dir: string; helper: string; memoryMiB: number; parallel: number }
 
-export type CgroupState = { state: 'delegated'; conv: ConverterCgroup; print: PrintCgroup | null } | { state: 'off' | 'none'; reason: string }
+/** S/video: the promo video's MP4 (promo-video/render.ts, docs/decisions/20261123-linux-video-mp4.md), beside S/print. One
+ * render at a time on the server, in a leaf of its own below (S/video/<id>, VIDEO_ONE_MIB and VIDEO_ONE_PIDS, killed
+ * together). Absent (null): the machine is too small for one render, and the MP4 is not offered. */
+export interface VideoCgroup { dir: string; memoryMiB: number }
+
+export type CgroupState = { state: 'delegated'; conv: ConverterCgroup; print: PrintCgroup | null; video?: VideoCgroup | null } | { state: 'off' | 'none'; reason: string }
 
 let current: CgroupState = { state: 'off', reason: 'not set up' }
 
@@ -43,6 +48,33 @@ export function printCgroup(): PrintCgroup | null {
 /** Whether HTML printing fits here: 'free' (no cgroup limits: macOS, dev, no delegation), 'ok', or 'too_small'. */
 export function printCgroupState(): 'free' | 'ok' | 'too_small' {
   return current.state !== 'delegated' ? 'free' : current.print ? 'ok' : 'too_small'
+}
+
+/** The video cgroup: null off Linux production and where the machine cannot hold one render (videoCgroupState). */
+export function videoCgroup(): VideoCgroup | null {
+  return current.state === 'delegated' ? current.video ?? null : null
+}
+/** Whether the MP4 render fits here: 'free' (no cgroup limits: macOS, dev, no delegation), 'ok', or 'too_small'. */
+export function videoCgroupState(): 'free' | 'ok' | 'too_small' {
+  return current.state !== 'delegated' ? 'free' : current.video ? 'ok' : 'too_small'
+}
+
+/** One MP4 render (HyperFrames with one worker: node, chrome-headless-shell, ffmpeg), measured in a container's cgroup on
+ * Debian 13 arm64, 4 cores: memory.peak 1055–1076 MiB and 120 tasks with no limit; it finished in 82 s under a 1024 MiB
+ * limit (page cache given back) and failed under 768 MiB (the print's size). About 1.25 times the unlimited peak. */
+export const VIDEO_ONE_MIB = 1280
+export const VIDEO_ONE_PIDS = 256
+/** The plan's (or the machine's) memory at which one render is offered: a 4 GiB team VM, not the 2 GiB of the free plan. */
+export const VIDEO_MIN_MACHINE_MIB = 3584
+export function videoFits(planFile: string | undefined, machineMiB = Math.round(os.totalmem() / 1048576)): boolean {
+  let mem = machineMiB
+  if (planFile) {
+    try {
+      const p = JSON.parse(fs.readFileSync(planFile, 'utf8'))
+      if (Number.isInteger(p.memoryMiB) && p.memoryMiB >= 1024 && p.memoryMiB <= 262144) mem = p.memoryMiB
+    } catch { /* no plan (self-install): the machine's memory */ }
+  }
+  return mem >= VIDEO_MIN_MACHINE_MIB
 }
 
 /** One print, measured in its S/print leaf on Debian 13 (arm64, kernel 6.8, the real mycel-sandbox cgexec; memory.peak
@@ -173,7 +205,36 @@ function trySetup(o: SetupOptions): CgroupState {
       // a print cgroup left by an earlier start on a bigger plan: nothing runs there any more
       try { fs.rmdirSync(path.join(s, 'print')) } catch { /* none, or not empty */ }
     }
-    return { state: 'delegated', conv: { dir: conv, helper, memoryMiB: mib }, print }
+    // the promo video's MP4 beside print (VideoCgroup); none where one render does not fit
+    let video: VideoCgroup | null = null
+    const vdir = path.join(s, 'video')
+    // (its own try: a failure here leaves the converters and printing their limits, and only the MP4 off)
+    if (videoFits(o.planFile ?? process.env.MYCEL_PLAN_FILE, o.machineMiB)) {
+      try {
+        fs.mkdirSync(vdir, { recursive: true, mode: 0o755 })
+        const vset = (f: string, v: string, optional = false) => {
+          try { fs.writeFileSync(path.join(vdir, f), v) } catch (e) { if (!optional) throw e }
+        }
+        vset('memory.max', String(VIDEO_ONE_MIB * 1048576))
+        vset('memory.swap.max', '0', true)
+        vset('pids.max', String(VIDEO_ONE_PIDS))
+        // two cores at most, and half the weight of the others when the CPU is busy (a render never starves the server)
+        if (have.has('cpu')) { vset('cpu.max', `${Math.min(2, o.cpus ?? os.availableParallelism()) * 100000} 100000`, true); vset('cpu.weight', '50', true) }
+        fs.writeFileSync(path.join(vdir, 'cgroup.subtree_control'), ctrls)
+        for (const leaf of fs.readdirSync(vdir, { withFileTypes: true })) {
+          if (!leaf.isDirectory() || !leaf.name.startsWith('v-')) continue
+          try { fs.writeFileSync(path.join(vdir, leaf.name, 'cgroup.kill'), '1') } catch { /* an older kernel */ }
+          try { fs.rmdirSync(path.join(vdir, leaf.name)) } catch { /* still emptying: the next start */ }
+        }
+        video = { dir: vdir, memoryMiB: VIDEO_ONE_MIB }
+      } catch (e) {
+        o.log?.warn('the promo video cgroup was not made; the MP4 stays off', { err: (e as Error).message })
+        video = null
+      }
+    } else {
+      try { fs.rmdirSync(vdir) } catch { /* none, or not empty */ }
+    }
+    return { state: 'delegated', conv: { dir: conv, helper, memoryMiB: mib }, print, video }
   } catch (e) {
     return { state: 'none', reason: (e as Error).message }
   }
@@ -203,6 +264,20 @@ export function makePrintLeaf(): string | null {
   set('memory.max', String(PRINT_ONE_MIB * 1048576))
   set('memory.swap.max', '0', true)
   set('pids.max', String(PRINT_ONE_PIDS))
+  set('memory.oom.group', '1', true)
+  return dir
+}
+
+/** A leaf of S/video for one MP4 render (as makePrintLeaf, with the render's limits); null without cgroup limits. */
+export function makeVideoLeaf(): string | null {
+  const v = videoCgroup()
+  if (!v) return null
+  const dir = path.join(v.dir, `v-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+  fs.mkdirSync(dir, { mode: 0o755 })
+  const set = (f: string, val: string, optional = false) => { try { fs.writeFileSync(path.join(dir, f), val) } catch (e) { if (!optional) throw e } }
+  set('memory.max', String(VIDEO_ONE_MIB * 1048576))
+  set('memory.swap.max', '0', true)
+  set('pids.max', String(VIDEO_ONE_PIDS))
   set('memory.oom.group', '1', true)
   return dir
 }

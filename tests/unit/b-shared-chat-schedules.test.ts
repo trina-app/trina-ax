@@ -19,7 +19,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 setDefaultTimeout(60_000)
+// the fake engine's directives as JSON escapes: the person's own words are only what the test writes (a schedule asked
+// in the person's words is made without its card: docs/decisions/20261123-do-then-undo.md)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+const fakeQuiet = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 const BRIEF = 'groups/marketing/campaign-brief.md'
 const CANARY = 'Autumn Upgrade'
@@ -96,7 +100,7 @@ describe('a task made in a shared chat', () => {
   test('the card says the runs post here and how many see it; the task remembers the chat', async () => {
     chatId = (await newShared()).id
     const prompt = fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true })
-    const r = await askWithCard('alice', chatId, fake({ tool: 'schedule_create', args: { title: 'Brief check', prompt, repeat: 'weekly', weekdays: [1, 4], time: '09:00' }, sayResult: true }), 'create')
+    const r = await askWithCard('alice', chatId, fakeQuiet({ tool: 'schedule_create', args: { title: 'Brief check', prompt, repeat: 'weekly', weekdays: [1, 4], time: '09:00' }, sayResult: true }), 'create')
     expect(r.card.question).toContain('Each run posts the task\'s instruction and its result in this shared chat, which 2 people can see now.')
     expect(r.card.question).toContain('every Monday and Thursday at 09:00')
     expect(r.done.content).toContain('Its runs are turns in this shared chat, as this user: they read this chat')
@@ -164,7 +168,7 @@ describe('a task made in a shared chat', () => {
   })
 
   test('bob\'s turn is bob\'s: his schedule_create there makes his task, not alice\'s', async () => {
-    const r = await askWithCard('bob', chatId, fake({ tool: 'schedule_create', args: { title: 'Bob hourly', prompt: 'summarize this chat', repeat: 'interval', every_minutes: 60, time: '09:00' }, sayResult: true }), 'create')
+    const r = await askWithCard('bob', chatId, fakeQuiet({ tool: 'schedule_create', args: { title: 'Bob hourly', prompt: 'summarize this chat', repeat: 'interval', every_minutes: 60, time: '09:00' }, sayResult: true }), 'create')
     expect(r.card.question).toContain('1시간마다') // bob reads Korean
     expect(schedulesOf('bob').find((x) => x.title === 'Bob hourly')).toMatchObject({ chat_id: chatId })
     expect(schedulesOf('alice').some((x) => x.title === 'Bob hourly')).toBe(false)

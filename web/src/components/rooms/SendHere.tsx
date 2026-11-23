@@ -27,7 +27,7 @@ import { useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { useSideChats, type SendHereState } from '../../store/sideChats'
 import { RoomOptionLabel } from '../chat/RoomRefMenu'
-import { ShareConfirm, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
+import { ShareConfirm, startAttach, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
 import { MenuButton } from './MenuButton'
 
 export type SentHere = NonNullable<SendHereState['sent']>
@@ -82,7 +82,11 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
     patch({ sending: true, attempt, error: null })
     try {
       // the first press only asks: one confirm with what goes and who sees it, before anything is posted (QA TC-v2f-A3)
-      const r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? { preview: true }), clientMessageId: attempt.id })
+      let r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? { preview: true }), clientMessageId: attempt.id })
+      // nothing in it needs my look (the server's `direct`, docs/decisions/20261123-do-then-undo.md): it goes at once with
+      // the files offered, and a toast offers Undo instead of the confirm step
+      const direct = !yes && r.status === 'confirm' && !!r.direct
+      if (direct && r.status === 'confirm') r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), confirmKey: r.confirmKey, attach: [...startAttach(r.files)], clientMessageId: attempt.id })
       if (r.status === 'confirm') {
         patch({ sending: false })
         return confirm.asked(r, !!yes, { to })
@@ -94,6 +98,10 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
       // the video's MP4 was not ready: it went as its page (review of #363)
       if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })
       patch({ sent, sending: false, attempt: null })
+      if (direct) {
+        const id = r.message.id
+        toast({ level: 'success', text: t(sentKey(sent)), ms: 10_000, action: { label: t('postedCard.undo'), run: () => void useRooms.getState().remove(roomId, id).then(() => { patch({ sent: undefined }); toast({ level: 'info', text: t('postedCard.undone') }) }, (e) => toast({ level: 'error', text: errorText(e, locale, t('postedCard.undoFailed')) })) } })
+      }
     } catch (e) {
       // refused (4xx): nothing went, the next click is a new one; no answer or a server failure: it may have gone, so
       // trying the same again keeps the id (the server then gives the first message back)

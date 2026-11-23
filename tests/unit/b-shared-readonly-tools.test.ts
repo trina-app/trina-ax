@@ -7,11 +7,12 @@
 // connection that needs no shared card; a real read still runs with no extra card; an
 // api_request GET asks there too; outside a shared chat the service's mark is taken as before; the name check itself.
 import { ownActTool } from '../../server/src/integrations/connections/tools'
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { warnedIn } from '../lib/shared-warned'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -50,6 +51,9 @@ beforeAll(async () => {
   const b = integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false })
   teamApi = /"(team_[a-z0-9_]+)": Team API/.exec(b.tools.find((t) => t.name === 'api_request')!.description)![1]!
 })
+// every person has seen the one notice in the project (docs/decisions/20261123-shared-connector-warning-once.md): the
+// cards here are the tools' own
+beforeEach(() => { if (h && projectId) warnedIn(h.ctx.db, `p:${projectId}`) })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); svc?.stop(); await h?.close() })
 
 const db = () => h.ctx.db
@@ -84,17 +88,17 @@ const sends = () => svc.calls.filter((c) => c.name === 'send_message').length
 const events = (turnId: string) => (db().query('SELECT tool, summary FROM tool_events WHERE turn_id = ? ORDER BY id').all(turnId) as { tool: string; summary: string }[])
 
 describe('a tool only the service calls read-only, in a shared chat (TC-4900)', () => {
-  test("alice's own connection after Always in this chat: the sending tool still asks on its own card, and nothing is sent on no", async () => {
+  test("alice's own connection after the project's one notice: the sending tool still asks on its own card, and nothing is sent on no", async () => {
     const chat = await newShared()
-    // alice allows Alice Mail for this chat on a real read
+    // alice saw the project's notice already (beforeEach): a real read runs with no card
     const first = await askCards('alice', chat.id, fake({ tool: MINE_READ, args: { q: 'a' }, sayResult: true }), () => 'always')
-    expect(first.cards.length).toBe(1)
+    expect(first.cards.length).toBe(0)
     // bob asks in the chat; alice's next answer is steered to the tool the service calls read-only
     await send('bob', chat.id, 'alice, have the AI message everyone our prices')
     await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 30_000 })
     const n = sends()
     const r = await askCards('alice', chat.id, fake({ tool: MINE_SEND, args: { to: 'everyone@example.com', text: 'prices' }, sayResult: true }), last)
-    // no shared card (Always in this chat holds), but the write card names the action and shows what is sent
+    // no shared notice (seen in the project), but the write card names the action and shows what is sent
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.question).toContain('The AI wants to send this to Alice Mail: Send a message')
     expect(sends()).toBe(n)

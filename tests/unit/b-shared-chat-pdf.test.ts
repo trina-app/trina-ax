@@ -54,19 +54,18 @@ const clearAlways = () => h.ctx.db.query('DELETE FROM card_always_allow').run()
 
 describe('stamp_pdf in a shared chat', () => {
   const SEAL = pngRgbaOf(40, 40, (x, y) => ((x - 19.5) ** 2 + (y - 19.5) ** 2 < 18 ** 2 ? [200, 0, 0, 255] : [0, 0, 0, 0]))
-  test('a PDF only the asker can open: the read card first; "no" stamps nothing, "yes" saves the stamped copy', async () => {
+  // (docs/decisions/20261123-do-then-undo.md, the owner: the person's own folder read in their own project chat asks
+  // nothing: no read card, the stamped copy is saved next to the original)
+  test('a PDF in the asker\'s own folder, in their project chat: no read card, the stamped copy is saved', async () => {
     put('users/alice/quote-acme.pdf', makePagedPdf([['Quote for Acme'], ['Terms']]))
     put('users/alice/seal.png', SEAL)
     const call = fake({ tool: 'stamp_pdf', args: { file_path: 'users/alice/quote-acme.pdf', image: 'users/alice/seal.png' }, sayResult: true })
     const chat = await newShared()
-    const no = await turn('alice', chat, call, ['skip'])
-    expect(no.cards.length).toBe(1)
-    expect(fs.existsSync(abs('users/alice/quote-acme (stamped).pdf'))).toBe(false)
     const yes = await turn('alice', chat, call, ['share'])
-    expect(yes.cards.length).toBe(1)
+    expect(yes.cards.filter((c) => c.options?.some((o) => o.value === 'share'))).toEqual([])
     expect(yes.content).toContain('Saved users/alice/quote-acme (stamped).pdf; users/alice/quote-acme.pdf is unchanged.')
     expect(fs.existsSync(abs('users/alice/quote-acme (stamped).pdf'))).toBe(true)
-    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && (f.data.turnId === no.turnId || f.data.turnId === yes.turnId))).toBe(false)
+    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === yes.turnId)).toBe(false)
   })
 
   test('page written as text ("1") goes through the whole answer path (the engine, the MCP handler, the registry): stamped, not "Invalid input" (TC-5241)', async () => {
@@ -89,21 +88,21 @@ describe('stamp_pdf in a shared chat', () => {
     expect(fs.existsSync(abs('projects/falcon/quotes/quote-falcon (stamped).pdf'))).toBe(true)
   })
 
-  test('edit_pdf naming a private PDF inside its operations, and merge_pdfs with one in its list: the read card first', async () => {
+  test('edit_pdf naming my own PDF inside its operations, and merge_pdfs with one in its list: no read card in my project chat', async () => {
     put('projects/falcon/quotes/q1.pdf', makePagedPdf([['Q1']]))
     put('projects/falcon/quotes/q2.pdf', makePagedPdf([['Q2']]))
     put('users/alice/annex.pdf', makePagedPdf([['ANNEX']]))
     const chat = await newShared()
+    // (the asker's own folder in their project chat: no read card since docs/decisions/20261123-do-then-undo.md)
     const ins = await turn('alice', chat, fake({ tool: 'edit_pdf', args: { file_path: 'projects/falcon/quotes/q1.pdf', operations: [{ insert_pdf: { file: 'users/alice/annex.pdf', after: 'last' } }] }, sayResult: true }), ['skip'])
-    // the read card (its answers are share / skip), not the wider-audience card that would come after it
-    expect(ins.cards.map((c) => c.options?.map((o) => o.value).includes('share'))).toEqual([true])
-    expect(fs.readdirSync(abs('projects/falcon/quotes')).filter((n) => n.startsWith('q1 ('))).toEqual([])
+    expect(ins.cards.filter((c) => c.options?.some((o) => o.value === 'share'))).toEqual([])
     const merge = await turn('alice', chat, fake({ tool: 'merge_pdfs', args: { files: ['projects/falcon/quotes/q1.pdf', { path: 'users/alice/annex.pdf' }] }, sayResult: true }), ['skip'])
-    expect(merge.cards.map((c) => c.options?.map((o) => o.value).includes('share'))).toEqual([true])
+    expect(merge.cards.filter((c) => c.options?.some((o) => o.value === 'share'))).toEqual([])
     // the project's own files: no card
     const own = await turn('alice', chat, fake({ tool: 'merge_pdfs', args: { files: ['projects/falcon/quotes/q1.pdf', 'projects/falcon/quotes/q2.pdf'] }, sayResult: true }), ['skip'])
     expect(own.cards).toEqual([])
-    expect(own.content).toContain('Saved projects/falcon/quotes/q1 (merged).pdf (2 pages).')
+    // (the merge with my annex went first, so this one takes the next name)
+    expect(own.content).toContain('Saved projects/falcon/quotes/q1 (merged) (2).pdf (2 pages).')
     const pages = await turn('alice', chat, fake({ tool: 'edit_pdf', args: { file_path: 'projects/falcon/quotes/q1 (merged).pdf', operations: [{ page_numbers: {} }] }, sayResult: true }), ['skip'])
     expect(pages.cards).toEqual([])
     expect(pages.content).toContain('Saved projects/falcon/quotes/q1 (merged) (edited).pdf (2 pages).')

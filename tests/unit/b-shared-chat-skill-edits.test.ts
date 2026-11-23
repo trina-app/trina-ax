@@ -68,7 +68,7 @@ describe('changing a skill in a shared project chat', () => {
       expect(one.cards.length).toBe(1)
       const card = one.cards[0]!
       expect(card.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
-      expect(card.options?.find((o) => o.value === '__always')?.label).toMatch(/^(Always allow skill edits I ask for|내가 요청한 스킬 수정은 항상 허용)$/)
+      expect(card.options?.find((o) => o.value === '__always')?.label).toMatch(/^(Always allow skill saves|스킬 저장은 항상 허용)$/)
       expect(fs.readFileSync(abs(SKILL), 'utf8')).toContain('projects/falcon/quotes-2026')
       expect(one.content).toContain('People in this chat can see this change.')
       // bob sees the chat, never the card

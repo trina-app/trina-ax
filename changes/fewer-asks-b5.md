@@ -1,0 +1,4 @@
+- In a ✦ side chat, Trina no longer offers to share a file it made with the room's people unless you ask to share or send it.
+- Copying a file Trina made into your own folder, and reading it back, no longer asks "AI가 내 개인 폴더를 읽으려고 해요" in a shared chat.
+- A card to save a new file or change a file now waits until you answer, even long after the answer ended, and your late press saves it.
+- A late press on a post card is no longer asked again because the first card counted its sources differently.

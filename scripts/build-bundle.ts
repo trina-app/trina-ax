@@ -224,6 +224,10 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ...LINUX_DEV_ENV_SRT_FILES.map((f) => [`scripts/dev-env/srt/${f}`, `dev-env-srt/${f}`] as const),
   ['scripts/system/packages.json', 'dev-env-srt/system/packages.json'],
   ['scripts/system/packages.sh', 'dev-env-srt/system/packages.sh'],
+  // the promo video's HyperFrames CLI (the list's video group): packages.sh installs it with npm ci from this lock
+  // (pk_video_install; the sync reads <base>/root/hyperframes/), so a changed lock is a root change too
+  ['scripts/promo-video/hyperframes/package.json', 'hyperframes/package.json'],
+  ['scripts/promo-video/hyperframes/package-lock.json', 'hyperframes/package-lock.json'],
 ]
 /** executables among the root files (the rest are read: templates, sourced helpers, the catalog locker run by bun) */
 const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])

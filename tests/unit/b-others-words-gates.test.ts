@@ -121,17 +121,16 @@ describe('share_with_person with "Always allow" on, in my own chat', () => {
     expect(sharedRow('users/bob/ledger-5.txt')).not.toBeNull()
   })
 
-  test('without Always allow, after such a read the card always shows: the explicit ask does not skip it', async () => {
+  test('without Always allow, after such a read: the explicit ask of my own named file to a named person goes (do then undo)', async () => {
     dropAlways(h.ctx.db, 'bob', 'card:share_files')
     try {
       const first = await turn('bob', `read it\n${read('shared/alice-notes.md')}`)
-      // an explicit ask (docs/decisions/20261116-no-card-after-explicit-ask.md): the card, in a chat with other people's words
+      // since docs/decisions/20261123-do-then-undo.md content others wrote no longer stops the explicit ask: the file and
+      // the person are in my own words, the file is mine, and the share card offers Undo
       const explicit = await turn('bob', `share ledger-6.txt with tess\n${unnamed(6)}`, first.chatId)
-      expect(explicit.cards).toHaveLength(1)
-      // (the card offers "Always allow": the person's choice counts here)
-      expect(explicit.cards[0]!.options!.map((x) => x.value)).toEqual(['share', '__always', 'no'])
-      expect(sharedRow('users/bob/ledger-6.txt')).toBeNull()
-      // a send word, the file and the person in my words: still the card
+      expect(explicit.cards).toHaveLength(0)
+      expect(sharedRow('users/bob/ledger-6.txt')).not.toBeNull()
+      // a send word is no ask to share a file (SHARE_ASK): the card
       const named = await turn('bob', `send ledger-7.txt to tess\n${unnamed(7)}`, first.chatId)
       expect(named.cards).toHaveLength(1)
       expect(sharedRow('users/bob/ledger-7.txt')).toBeNull()
@@ -159,12 +158,13 @@ describe('post_to_room with "Always allow" on, in my own chat', () => {
     expect(JSON.parse(r.content).status).toBe('sent')
   })
 
-  test('without Always allow: after such a read the explicit ask keeps the card', async () => {
+  test('without Always allow: after reading a file the recipient can see too, the explicit ask goes (do then undo)', async () => {
     dropAlways(h.ctx.db, 'bob', 'card:post_to_room')
     try {
+      // (docs/decisions/20261123-do-then-undo.md: the floor is content the recipient could not see, and tess sees shared/)
       const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
-      expect(r.cards).toHaveLength(1)
-      expect(r.content).not.toContain('"status":"sent"')
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain('"status":"sent"')
     } finally { keepAlways(h.ctx.db, 'bob', 'post_to_room', null) }
   })
 })
@@ -273,7 +273,7 @@ describe('a scheduled run (nobody answers a card)', () => {
     const exec = {
       rt: h.rt(), files, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, othersWords,
       spec: { clientKind: 'schedule', userId: 'bob', chatId: t.chatId, locale: 'en', assistantId: null, userMessageId, turnId: t.turnId },
-      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {},
+      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, runningStepId: () => null,
       // (TurnExec.waitForPerson in a scheduled run: no answer, at once)
       waitForPerson: async () => null,
       alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: t.chatId, turnId: t.turnId, locale: 'en', clientKind: 'schedule' }),
@@ -309,7 +309,7 @@ describe('a chat other members wrote in that is no longer shared', () => {
     const exec = {
       rt: h.rt(), files, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: true, othersWords: true,
       spec: { clientKind: 'web', userId: 'bob', chatId: t.chatId, locale: 'en', assistantId: null, userMessageId, turnId: t.turnId },
-      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, noteReads: () => {},
+      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, noteReads: () => {}, runningStepId: () => null,
       waitForPerson: async () => { cards++; return null },
       alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: t.chatId, turnId: t.turnId, locale: 'en', clientKind: 'web' }),
     }

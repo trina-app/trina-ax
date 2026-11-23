@@ -310,7 +310,7 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     has('web/src/pages/OpenApp.tsx', 'openApp.download')
     has('web/src/pages/OpenApp.tsx', 'openApp.mac')
     has('web/src/pages/Files.tsx', 'folderAccess.menu')
-    has('web/src/components/FolderShareParts.tsx', 'fileShare.stop')
+    has('web/src/components/FileShareDialog.tsx', 'fileShare.stop')
     has('web/src/components/FolderShareParts.tsx', 'common.undo')
     // the map says a folder can be shared: folder sharing is always on (its rollout gate was removed on dev)
     // "Open the app" is on My files (Files.tsx)

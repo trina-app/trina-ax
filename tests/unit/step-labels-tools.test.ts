@@ -140,7 +140,9 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     }
     // with edit_files' "+N", in the person's own folder; a path not in words keeps its line (the why in the screen's language)
     expect(shown('edit_files', `Edit files · users/0192f/a.md +2 · ${STEP_TEXT.ownFolderStep.en}`, 'ko').label).toBe(`여러 파일 수정 · 내 폴더 › a.md +2 · ${STEP_TEXT.ownFolderStep.ko}`)
-    expect(shown('write', `Save · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.en}`, 'ko')).toEqual({ label: `파일 저장 · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.ko}` })
+    // a project's file: its top folder in words too (batch 5, QA TC-b4s)
+    expect(shown('write', `Save · projects/acme/a.md · ${STEP_TEXT.roomGrantStep.en}`, 'ko')).toEqual({ label: `파일 저장 · 프로젝트 › acme › a.md · ${STEP_TEXT.roomGrantStep.ko}`, path: 'projects/acme/a.md' })
+    expect(shown('write', `Save · elsewhere/a.md · ${STEP_TEXT.roomGrantStep.en}`, 'ko')).toEqual({ label: `파일 저장 · elsewhere/a.md · ${STEP_TEXT.roomGrantStep.ko}` })
     // a file whose own name looks like the why is still a path; a memory's own words are not the why
     expect(shown('write', 'Save · shared/allowed once in this answer', 'en').label).toBe('Save · Company-wide › allowed once in this answer')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: `Remembered: lunch · ${STEP_TEXT.roomOnceStep.en}` }, 'ko').label).toBe(`기억함: lunch · ${STEP_TEXT.roomOnceStep.en}`)
@@ -160,11 +162,14 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
 
   test('anything else stays as it is, without a path', () => {
     for (const [tool, label] of [
-      ['read', 'Read · marketing/plan.md'], ['read', 'Read · groups'], ['list', 'List · /'], ['save_url', 'Download file · https://acme.example/shared/a.pdf'],
+      ['read', 'Read · marketing/plan.md'], ['save_url', 'Download file · https://acme.example/shared/a.pdf'],
       ['skill', 'Use skill · shared/notes'], ['artifact', 'Artifact · groups/Acme/x'], ['read', 'Read'], ['read', 'Read · shared//a.md'],
     ] as const) expect(stepPlace({ tool }, label, 'en')).toEqual({ label })
     expect(stepPlace({}, 'Thinking', 'en')).toEqual({ label: 'Thinking' })
     expect(placeName('https://acme.example/a', 'en')).toBeNull()
+    // the top folders and the whole team folder are in words since batch 5 (QA TC-b4s: "폴더 보기 · groups")
+    expect(stepPlace({ tool: 'read' }, 'Read · groups', 'en')).toEqual({ label: 'Read · Groups', path: 'groups' })
+    expect(stepPlace({ tool: 'list' }, 'List · /', 'en')).toEqual({ label: 'List · Team folder' })
   })
 })
 

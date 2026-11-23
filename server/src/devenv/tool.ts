@@ -26,7 +26,7 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
 import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
-import { grantUserSite, siteAllowed } from './sites'
+import { grantUserSite, siteAllowed, userSitesFull } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
@@ -206,7 +206,8 @@ export interface BoxShellHost {
   /** the person's "Always allow" for this kind is on here (no card will show): the result says so */
   alwaysOn?(kind: 'dev_login'): boolean
   /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
-  askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
+  /** `o.listFull`: the person's own list is full, so the card offers no Always and says so */
+  askSite?(host: string, command: string, o?: { listFull?: boolean }): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
   unattended?: boolean
   /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
@@ -669,7 +670,8 @@ async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>,
       denied.add(host)
       return { notes, refusal: `Nobody can answer a site card in this run (a scheduled task, for example): ${host} is not on the allowed list, so the command did not run. Sites that the person allowed with "Always allow" work here; tell the person to allow ${host} in a chat first.`, summary: `site ${host} not allowed (no person to ask)` }
     }
-    const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300))) : null
+    const full = userSitesFull(ctx.db, h.userId)
+    const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300)), full ? { listFull: true } : undefined) : null
     if (decision === 'always') {
       if (grantUserSite(ctx.db, h.userId, host) === 'full') {
         once.add(host)

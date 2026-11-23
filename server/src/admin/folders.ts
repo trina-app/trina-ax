@@ -24,7 +24,7 @@ import { claimGuestProject, guestsAmong } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
-import { forgetLiveViewers, resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
+import { forgetLiveViewers, resetEngineSessions as resetChatSessions, SESSION_CHATS_OF, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
 import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
@@ -473,10 +473,8 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 export function chatsWithEngineSession(db: Database, userId: string): number {
-  // as chat/runtime.ts resetEngineSessions resets them: their own chats and the shared chats whose session they wrote
-  return (db.query(`SELECT COUNT(*) AS n FROM (SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
-    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
-    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL)`).get(userId, userId) as { n: number }).n
+  // as chat/runtime.ts resetEngineSessions resets them (SESSION_CHATS_OF)
+  return (db.query(`SELECT COUNT(*) AS n FROM (${SESSION_CHATS_OF})`).get(userId, userId, userId) as { n: number }).n
 }
 
 /**

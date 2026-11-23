@@ -54,6 +54,7 @@ import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { reserveSignInWindow, useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
+import { LocalProgramsHere } from '../components/integrations/LocalProgramsHere'
 import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
@@ -425,6 +426,8 @@ function ConnectorsHome() {
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
+            {/* the desktop app: the programs this computer confirmed, each with Remove (LocalProgramsHere.tsx) */}
+            {!q && !freeRoam && desk && <LocalProgramsHere items={list.data?.items ?? []} />}
             {!q && !freeRoam && <SlackAccount />}
             {cards.length > 0 && !freeRoam && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">

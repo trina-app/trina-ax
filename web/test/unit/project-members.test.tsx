@@ -25,6 +25,7 @@ import { ProjectMembersDialog } from '../../src/components/ProjectMembersDialog'
 import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-0000000000a1'
@@ -479,7 +480,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.unmount()
   })
 
-  test('a save that adds only me: the "Add me" confirm, not "Let more people see it?"; cancel saves nothing', async () => {
+  test('a save that adds only me: no question (a notice that members are told), not "Let more people see it?"', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'olga', name: 'Olga', role: 'owner' }, groups: [], team: { name: 'Acme', defaultLocale: 'en', projectCreators: 'members' }, server: { version: '0', dev: false } } } } as never)
     routes = {
       'GET /api/people': () => json(200, { people: [...PEOPLE.people, { id: 'olga', name: 'Olga' }] }),
@@ -495,18 +496,11 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.type('project-participants-search', 'olga')
     await m.click(await m.until(() => m.find('participant-add-user-olga'), 'me to add', 2000))
     await save(m)
-    const box = await m.until(() => m.find('project-add-me-confirm'), 'the Add me confirm', 2000)
-    expect(m.html()).toContain(en('projects.addMeTitle', { name: 'Acme launch' }))
-    expect(box.textContent).toBe(en('projects.addMeBody'))
-    expect(m.find('project-widen-confirm')).toBeNull()
-    expect(m.get('dialog-confirm').textContent).toBe(en('projects.addMe'))
-    await m.click(m.get('dialog-confirm').parentElement!.querySelector('button')!)
-    await m.settle(30)
-    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
-    await save(m)
-    await m.until(() => m.find('project-add-me-confirm'), 'asked again', 2000)
-    await m.click('dialog-confirm')
+    // nothing to choose: one line, and the save goes ahead (docs/decisions/20261123-do-then-undo.md)
     await m.until(() => saved, 'the save', 2000)
+    expect(m.find('project-add-me-confirm')).toBeNull()
+    expect(m.find('project-widen-confirm')).toBeNull()
+    expect(useUi.getState().toasts.some((x) => x.text === en('projects.addMeNotice', { name: 'Acme launch' }))).toBe(true)
     expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [{ subjectType: 'user', subjectId: 'sora' }, { subjectType: 'user', subjectId: 'olga' }], expectedHash: 'h1' })
     await m.unmount()
   })

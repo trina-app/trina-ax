@@ -28,14 +28,14 @@ import { useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { isGuestMe } from '../lib/guests'
 import { fileSharesChanged } from '../store/live'
-import { blockedKey, confirmStop, holdsText, removedToast } from './FolderShareParts'
+import { blockedKey, holdsText, keptText, removedToast } from './FolderShareParts'
 import { Avatar } from './Avatar'
 import { ListHeading, ListRow } from './list/List'
 import { ParticipantPicker, participantKey, useParticipantOptions, type ParticipantOption } from './ProjectParticipants'
 import { ShareCopyLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
 import { localLinkToast } from './LocalLinkNote'
 import { EveryoneLine, useWithEveryone } from './ShareEveryone'
-import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener } from './ui'
+import { Button, ErrorNote, IconButton, Modal, Skeleton, menuOpener } from './ui'
 
 const nameOfPath = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
@@ -147,14 +147,14 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
     }
   }
 
-  /** a removal or Stop took effect: the rows now, and Undo while the server offers it */
+  /** a removal or Stop took effect: the rows now, and Undo while the server offers it (10 minutes, files/share-undo.ts).
+   * Neither asks first: the Undo puts back exactly who had it (docs/decisions/20261123-do-then-undo.md) */
   const removed = (r: FileShares, text: string) => {
     setShares(r)
     fileSharesChanged.emit()
     removedToast(t, locale, text, r.undo, (back) => setShares(back))
   }
   const remove = async (row: FileShareRow) => {
-    if (!(await confirmDialog({ title: t('folderAccess.removeTitle', { name: row.name }), confirm: t('folderAccess.removeAccess'), danger: true }))) return
     setError(null)
     try {
       const r = await api.call(API.putFileShares, { body: { path, add: [], remove: [{ subjectType: row.subjectType, subjectId: row.subjectId }] } })
@@ -164,12 +164,14 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
     }
   }
   const stop = async () => {
-    if (!shares || busy || !(await confirmStop(t, locale, name, shares))) return
+    if (!shares || busy) return
     setBusy(true)
     setError(null)
     try {
       const r = await api.call(API.putFileShares, { body: { path, add: [], remove: [], stop: true } })
-      removed(r, t('fileShare.stopped', { name }))
+      // what stays shared on its own (files and folders inside) is said in the same toast, as the old question did
+      const own = shares.ownShares && shares.ownShares.files + shares.ownShares.folders > 0 ? shares.ownShares : null
+      removed(r, [t('fileShare.stopped', { name }), own ? t('fileShare.stopKeeps', { names: keptText(t, locale, own) }) : ''].filter(Boolean).join(' '))
     } catch (e) {
       setError(refusal(e, locale, t('chat.share.saveFailed')))
     } finally {
