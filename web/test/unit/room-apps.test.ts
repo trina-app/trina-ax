@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { DICTS } from '../../src/i18n'
 import { ROOM_APP_PRESET_NEEDS, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES, RoomAppPreset } from '@mycel/shared/api'
-import { appChip, appPlainText, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
+import { appChip, appPlainText, EMAIL, appStatus, HUBSPOT_ROWS, isPreset, kindOf, MAKE_BODY, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, STRIPE_EVENTS, switchesOf, TOSS_EVENTS, unescapeAppBody } from '../../src/lib/roomApps'
 import { mayManageApps } from '../../src/store/roomApps'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { pausedNoticeText, startsAtTime } from '../../src/components/rooms/apps/PausedNotice'
@@ -33,21 +33,23 @@ test('the apps screens use Slack\'s words in every language: "Webhook URL" with 
   }
 })
 
-test('presets: the picker\'s groups, Other last, no email row, the service of an app, the shared contracts', () => {
+test('presets: the picker\'s groups, Email and Other last, the service of an app, the shared contracts', () => {
   const picked = PICKER_GROUPS.flatMap((g) => g.items)
   expect(PICKER_GROUPS.map((g) => g.key)).toEqual(['forms', 'payments', 'work', 'developers'])
   expect(picked).toEqual(['google_forms', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'notion', 'zendesk', 'jira', 'hubspot', 'github', 'sentry'])
   // "Show more services": the regional ones, folded, the same for everyone
   expect(MORE_SERVICES).toEqual(['toss_payments', 'channel_talk', 'portone'])
-  // every preset this build knows is in a group or under "Show more services"; Other comes after them (the divider),
-  // Email not before P2
-  expect([...RoomAppPreset.options].sort()).toEqual([...picked, ...MORE_SERVICES].filter(isPreset).sort())
+  // every preset this build knows is in a group, under "Show more services", or Email (with Other in "Any other way",
+  // after the divider, only when the server says email can be added: plan 20261123-0421-room-email)
+  expect([...RoomAppPreset.options].sort()).toEqual([...picked, ...MORE_SERVICES, EMAIL].filter(isPreset).sort())
   expect(picked).not.toContain('other')
   expect(picked).not.toContain('email' as never)
   expect(serviceOf({ kind: 'other', preset: 'stripe' })).toBe('stripe')
   expect(serviceOf({ kind: 'other' })).toBe('other')
   // a preset a newer server knows and this build doesn't shows as a plain Other app
-  expect(serviceOf({ kind: 'other', preset: 'email' })).toBe('other')
+  expect(serviceOf({ kind: 'other', preset: 'fax' })).toBe('other')
+  expect(serviceOf({ kind: 'other', preset: 'email' })).toBe('email')
+  expect(signingOf('email')).toBe('none')
   expect(serviceOf({ kind: 'other', preset: 'toss_payments' })).toBe('toss_payments')
   expect(serviceOf({ kind: 'sentry', preset: 'stripe' })).toBe('sentry')
   expect(kindOf('zendesk')).toBe('other')
