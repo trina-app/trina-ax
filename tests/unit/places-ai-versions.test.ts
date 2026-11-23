@@ -441,6 +441,8 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
     // bob, with alice's seal: a card first (answered "skip" here), nothing saved
     const other = await run('bob', chat, stamp)
     expect(other.cards.some((c) => /did not upload|직접 올린/.test(c.question))).toBe(true)
+    // a chat file is named by its name on the card, never by its place path
+    expect(other.cards.some((c) => /did not upload|직접 올린/.test(c.question) && c.question.includes("'seal.png'") && !c.question.includes('chat:files'))).toBe(true)
     expect(other.content).toContain('Nothing was saved')
     expect(versionsOf(chat, doc.id)).toBe(1)
     // alice, with her own seal: no card

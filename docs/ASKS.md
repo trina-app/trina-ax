@@ -56,7 +56,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 
 | category | asks | with Always | ask every time | VIOLATION | OPEN |
 |---|---|---|---|---|---|
-| My files and folders (내 파일·폴더) | 13 | 12 | 1 | 0 | 1 |
+| My files and folders (내 파일·폴더) | 13 | 13 | 0 | 0 | 0 |
 | Sending and sharing (다른 사람에게 보내기·공유) | 19 | 9 | 10 | 0 | 0 |
 | Connectors (커넥터) | 16 | 6 | 10 | 0 | 0 |
 | Websites (웹사이트) | 8 | 5 | 3 | 0 | 0 |
@@ -68,7 +68,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Screen confirm dialogs (화면 확인창) | 98 | 4 | 94 | 0 | 0 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
 | System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 215 | 74 | 141 | 0 | 1 |
+| **all** | 215 | 75 | 140 | 0 | 0 |
 
 ## Registry
 
@@ -88,7 +88,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | `download.big` | `server/src/tools/save-url.ts:259` | `save_url` of a file over 1 GB. | The AI wants to download a large file. This file is {size}… / AI가 큰 파일을 받으려고 해요… (`large`, `largeUnknown`) | Download / Always allow / Stop | `card:big_download` | Settings › 트리나에게 허용한 것 | runs under Always (`TurnPerson.alwaysOn`), else skipped | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | other:disk | OK (fixed: decision 20261123-ask-registry-findings) |
 | `folder.access` | `server/src/chat/folder-access-tool.ts:298` | `change_folder_access`, one change (owner or admin). | Give {who} view access to {folder}? … Take {who} off {folder}? / '{who}'에게 {folder} 폴더 보기 권한을 줄까요? (`askAddView`, `askRemove` …) | Change / Always allow / Cancel (with file links: Change and remove file shares / Change, keep file shares) | `card:folder_access` | Settings › 트리나에게 허용한 것 | runs under Always (with the owner's or admin's own rights), else refused | a guest's turn is refused | shows-private-to-others | OK (decision 2: Always holds in the person's scheduled run and shared chats, offered there under Always; the who and folder checks stay; decision 20261123-ask-registry-findings) |
 | `folder.access.many` | `server/src/chat/folder-access-tool.ts:438` | `change_folder_access` with a list of changes. | Change who can open {folder}? / {folder} 폴더를 열 수 있는 사람을 바꿀까요? (`askManyOne`, `askMany`) | as `folder.access` | `card:folder_access` | Settings › 트리나에게 허용한 것 | runs under Always (with the owner's or admin's own rights), else refused | as `folder.access` | shows-private-to-others | OK (decision 2: Always holds in the person's scheduled run and shared chats, offered there under Always; the who and folder checks stay; decision 20261123-ask-registry-findings) |
-| `files.picture.notown` | `server/src/tools/own-picture.ts:25`, `server/src/tools/edit-office.ts:318` | `edit_hwp` image change or `edit_office` `insert_picture` with a signature or seal the person did not upload themselves (`isOwnUpload` on the sha256 of the bytes read). Skipped for their own upload of these exact bytes. | The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in? / AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요? | Put it in / Don't | none: a yes covers this call only, so an AI can never stamp someone else's seal unasked | n/a (nothing is remembered) | refused at once, nothing saved | the same card to the person whose turn it is | security | OPEN: this card offers no Always; the owner decides if it stays that way (recommended: yes, it puts another person's seal on a document) |
+| `files.picture.notown` | `server/src/tools/own-picture.ts:37` | `edit_hwp` image change or `edit_office` `insert_picture` with a signature or seal the person did not upload themselves (`isOwnUpload` on the sha256 of the bytes read). Skipped for their own upload of these exact bytes and for a picture they chose Always for. Lists every picture still to approve. | The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in? / AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요? | Put it in / Always allow / Don't | per person and exact picture (`picture:t:<team path>` or `picture:c:<chat file id>` in `card_always_allow`); covers exactly the pictures the card lists | Settings › 트리나에게 허용한 것, one row per picture | runs under Always for an approved picture; any other is refused at once, nothing saved | the same card to the person whose turn it is | security | OK: the owner, 2026-11-23, "클로드랑 동일한 기준 ㄱ": scoped to the approved picture as Claude Code scopes "don't ask again" ([decision](decisions/20261123-picture-always-allow.md)) |
 
 ### Sending and sharing (다른 사람에게 보내기·공유)
 
@@ -387,6 +387,7 @@ Every card kind the code knows, and the entries that use it. The test compares t
 | `allowance:site` | `site.web`, `site.office` |
 | `allowance:person_alias` | `post.room.pick`, `share.files.pick` |
 | `allowance:connector_send` | `conn.write` |
+| `allowance:picture` | `files.picture.notown` |
 | `waits:delete_files` | `files.delete` |
 | `waits:share_with_person` | `share.files` |
 | `waits:share_folder` | `share.folder`, `share.folder.stop` |
@@ -476,7 +477,6 @@ lines than the row fails the test; fewer passes.
 | `server/src/routes/slack.ts` | 1 | `slack.link` |
 | `server/src/skills/lean-card.ts` | 1 | `helper` |
 | `server/src/tools/connection-urls.ts` | 1 | `site.redirect` |
-| `server/src/tools/edit-office.ts` | 1 | `files.picture.notown` |
 | `server/src/tools/file-moves.ts` | 2 | `files.bulk.move`, `files.bulk.rename`, `files.move`, `files.copy` |
 | `server/src/tools/higgsfield.ts` | 2 | `video.make` |
 | `server/src/tools/make-file.ts` | 1 | `save.wider` |
@@ -572,6 +572,5 @@ item above is now OK. Remove an item here when its entry's Rule A changes to OK.
 
 ### Other findings (not Rule A)
 
-- `files.picture.notown` (added 2026-11-23, after the findings above): Rule A is OPEN. The card offers no Always; the owner decides if that stays.
 - `dev.login`: the card text is English only (hard-coded in `server/src/devenv/tool.ts`), no Korean.
 

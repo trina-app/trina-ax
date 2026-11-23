@@ -35,10 +35,8 @@ import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from './isolate'
-import { askConfirm } from './url-gate'
+import { confirmNotOwnPictures, pictureAlwaysKey } from './own-picture'
 import { isOwnUpload } from '../files/own-upload'
-import { teamDefaultLocale } from '../admin/settings'
-import { cardReason, refusal } from '../policy/refusal'
 import type { Locale } from '@mycel/shared/api'
 import { cellValue, confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
@@ -105,12 +103,6 @@ export const EDIT_OFFICE_DESCRIPTION =
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 /** the card before a picture that is not the asker's own goes into a document (a signature or seal someone else sent,
  * or one outside their own folder): independent review of #448 */
-const PICTURE_TEXT = {
-  ask: t('AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요?', 'The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan Anda sendiri yang mengunggahnya. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身がアップロードした画像ではありません。入れますか？', 'La IA quiere poner {pics} en {doc}. No subiste tú esta imagen. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这张图片不是你自己上传的。要放进去吗？'),
-  yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
-  no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
-}
-
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
 const PICTURE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp'])
@@ -250,8 +242,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   /** a picture's index among the call's re-encoded pictures: a team file (read access as the person), or a file of this
    * chat (read through its place's one safe open); each sized, quarantine-checked and re-encoded before the worker */
   const picWork: string[] = []
-  /** inserted pictures that are not the asker's own upload (files/own-upload.ts) */
-  const notMine = new Set<string>()
+  /** inserted pictures that are not the asker's own upload (files/own-upload.ts), each with the name its card shows:
+   * a team file's full path, a chat file's name */
+  const notMine = new Map<string, string>()
   const ownPic = new Map<string, boolean>()
   const picture = async (p: string, i: number, insert = false): Promise<number> => {
     let rel: string, raw: Uint8Array
@@ -263,7 +256,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       const f = await readPlaceFile(ctx, c, p, OFFICE_EDIT_LIMITS.imageBytes, work)
       rel = f.place
       const known = imageIndex.get(rel)
-      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(f.name); return known }
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.set(rel, f.name); return known }
       if (!PICTURE_EXT.has(ext(f.name))) throw new ToolError(`change ${i + 1}: '${f.name}' is not a PNG, JPEG or WebP picture; give one of those`)
       countPictureBytes(imageBytes, 'read', f.size, i)
       raw = readRegular(f.local, OFFICE_EDIT_LIMITS.imageBytes).bytes
@@ -271,13 +264,13 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       // judged on the very bytes that go into the document (the place path names the chain, its read is the newest version)
       const at = parsePlace(rel)
       ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { chatFile: at?.kind === 'chatFiles' ? at.id ?? '' : '', sha256: sha256(raw) }))
-      if (insert && !ownPic.get(rel)) notMine.add(f.name)
+      if (insert && !ownPic.get(rel)) notMine.set(rel, f.name)
     } else {
       const img = authorize(fx, files.rules(), c.user, p, 'read')
       if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
       rel = img.rel
       const known = imageIndex.get(rel)
-      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(rel); return known }
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.set(rel, rel); return known }
       if (!PICTURE_EXT.has(ext(rel))) throw new ToolError(`change ${i + 1}: '${rel}' is not a PNG, JPEG or WebP picture; give one of those`)
       const size = checkRegular(img.abs).size
       if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
@@ -285,7 +278,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
       // judged on the very bytes that go into the document
       ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { team: rel, sha256: sha256(raw) }))
-      if (insert && !ownPic.get(rel)) notMine.add(rel)
+      if (insert && !ownPic.get(rel)) notMine.set(rel, rel)
     }
     ctx.files.quarantine.assertBytes(raw)
     const made = await reencodePicture(ctx, raw, rel, i, c.signal)
@@ -312,15 +305,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   })())
   } finally { for (const w of picWork) fs.rmSync(w, { recursive: true, force: true }) }
   // a signature or seal that is not the asker's own goes in only after their yes on a card (never on the AI's choice)
-  if (notMine.size) {
-    const L = c.person?.locale ?? teamDefaultLocale(ctx.db)
-    const pics = [...notMine].slice(0, 5).map((n) => `'${n.split('/').pop()}'`).join(', ')
-    const end = c.person ? await askConfirm(c.person, PICTURE_TEXT.ask[L].replace('{pics}', pics).replace('{doc}', `'${src.rel.split('/').pop()}'`), PICTURE_TEXT.yes[L], PICTURE_TEXT.no[L]) : 'unattended'
-    if (end !== 'yes') throw new ToolError(refusal({
-      done: 'Nothing was saved.', why: cardReason(end === 'declined' || end === 'timeout' || end === 'ended' ? end : 'unattended', { run: c.person ? undefined : 'a call outside a chat' }),
-      next: 'use the person\'s own signature or seal, or ask them which picture to use', names: [...notMine],
-    }))
-  }
+  await confirmNotOwnPictures(ctx, c, [...notMine].map(([rel, name]) => ({ name, key: pictureAlwaysKey(rel) })), src.rel)
   // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
   // the worker runs, in place too, as comment_docx does
   await confirmSources(ctx, files, c, out.rel, out.segs, [...(inPlace ? [] : [src.rel]), ...imagePaths])

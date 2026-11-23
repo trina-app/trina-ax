@@ -215,7 +215,7 @@ describe('edit_office: the security review\'s cases', () => {
     const asked: string[] = []
     const yes = ctxRead('users/alice/form.docx'); yes.person = { locale: 'en', confirm: async (q: string) => { asked.push(q); return true }, turnUrls: () => [] } as any
     await editOffice(A.ctx, yes, { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)
-    expect(asked[0]).toContain("The AI wants to put 'ceo-seal.png' into 'form.docx'. You did not upload this picture yourself")
+    expect(asked[0]).toContain("The AI wants to put 'shared/brand/ceo-seal.png' into 'form.docx'. You did not upload this picture yourself")
     write('users/alice/b.xlsx', await workbook())
     await expect(editOffice(A.ctx, ctxRead('users/alice/b.xlsx'), { file_path: 'users/alice/b.xlsx', changes: [{ insert_picture: { image: 'users/alice/seal.png', after: 'Rent' } }] } as any)).rejects.toThrow(/insert_picture is for Word documents \(a picture cannot be added to a workbook here\)/)
     // the server's part check lets the relationships and content types change only for a call that adds pictures
@@ -225,6 +225,18 @@ describe('edit_office: the security review\'s cases', () => {
     expect(officePartsMismatch('docx', before, rels, rep)).toContain('not changed here')
     expect(officePartsMismatch('docx', before, rels, rep, true)).toBeNull()
     expect(officePartsMismatch('docx', before, writeZip([...readZip(before), { name: 'word/media/image9.gif', data: new Uint8Array([1]) }]), { changed: [], added: ['word/media/image9.gif'], removed: [] }, true)).toContain('not added here')
+  })
+
+  withPandoc('the picture card names every picture a yes covers, each with its full path, past the fifth too (TC-8263)', async () => {
+    const marks = [1, 2, 3, 4, 5, 6, 7]
+    write('users/alice/many.docx', docx(`# Form\n\n${marks.map((n) => `Signer ${n} (mark${n})`).join('\n\n')}\n`))
+    for (const n of marks) write(`shared/seals/team-${n}/seal.png`, png(20 + n, 20, [200, 0, 0]))
+    const changes = marks.map((n) => ({ insert_picture: { image: `shared/seals/team-${n}/seal.png`, over: `(mark${n})`, width_mm: 10 } }))
+    const asked: string[] = []
+    const yes = ctxRead('users/alice/many.docx'); yes.person = { locale: 'en', confirm: async (q: string) => { asked.push(q); return true }, turnUrls: () => [] } as any
+    await editOffice(A.ctx, yes, { file_path: 'users/alice/many.docx', changes } as any)
+    expect(asked.length).toBe(1)
+    for (const n of marks) expect(asked[0]).toContain(`'shared/seals/team-${n}/seal.png'`)
   })
 
   withPandoc('the same picture named by many changes is read once; the pictures of one call are bounded together', async () => {

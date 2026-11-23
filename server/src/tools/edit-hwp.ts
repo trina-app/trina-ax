@@ -44,7 +44,7 @@ import { imageKind } from '../files/pdf-stamp'
 import { parsePlace } from '@mycel/shared/places'
 import { authorizeOutput, readPlaceFile, versionText, type ChatVersionMade } from '../files/place-output'
 import { chatSource, reencodePicture } from './edit-office'
-import { confirmNotOwnPictures } from './own-picture'
+import { confirmNotOwnPictures, pictureAlwaysKey, type NotOwnPicture } from './own-picture'
 import { isOwnUpload } from '../files/own-upload'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
@@ -174,7 +174,7 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
 /** The image changes' pictures and the page layout, or null without image changes: each picture read with the person's
  * read access, at most PICTURE_LIMITS (one, all together, how many), a PNG or JPEG by its bytes, not quarantined; the
  * layout from the HWP renderer, which must run here. */
-async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[]): Promise<{ images: HwpEditExtra['images']; sources: string[]; notOwn: string[] } | null> {
+async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[]): Promise<{ images: HwpEditExtra['images']; sources: string[]; notOwn: NotOwnPicture[] } | null> {
   const which = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
   if (!which.length) return null
   if (which.length > PICTURE_LIMITS.images) throw new ToolError(`more than ${PICTURE_LIMITS.images} pictures in one call; nothing was saved`)
@@ -225,7 +225,7 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
       images.push(entry)
     }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
-  return { images, sources: [...seen.keys()], notOwn: [...notOwn.values()] }
+  return { images, sources: [...seen.keys()], notOwn: [...notOwn].map(([rel, name]) => ({ name, key: pictureAlwaysKey(rel) })) }
 }
 
 /** The page layout a picture is placed from; the HWP renderer must run here. */

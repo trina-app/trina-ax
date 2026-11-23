@@ -47,6 +47,24 @@ async function turn(user: string, chat: string, content: string, o: { attachment
   }
   throw new Error('turn did not end')
 }
+/** one turn of alice's; a picture card takes `answer`, or its last button (no); the picture cards it raised */
+async function turnAnswering(chat: string, content: string, answer?: string) {
+  const ws = sockets.alice!
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  const cards: Card[] = []
+  for (const end = Date.now() + 40_000; Date.now() < end; await Bun.sleep(25)) {
+    for (const x of ws.frames) {
+      if (x.type !== 'turn.request' || x.data.turnId !== r.turnId) continue
+      const q = x.data.request as unknown as Card
+      if (cards.some((c) => c.requestId === q.requestId)) continue
+      cards.push(q)
+      const pic = /did not upload this picture/.test(q.question ?? '')
+      await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: q.requestId, answer: (pic ? answer ?? q.options?.at(-1)?.value : q.options?.[0]?.value) ?? 'skip' } })
+    }
+    if (ws.frames.some((x) => x.type === 'message.done' && x.data.message.turnId === r.turnId)) return cards
+  }
+  throw new Error('turn did not end')
+}
 const run = async (chat: string, content: string, attachmentIds: string[] = []) => (await turn('alice', chat, content, { attachmentIds })).content
 async function send(chat: string, name: string, bytes: Uint8Array, user = 'alice') {
   const form = new FormData(); form.set('chatId', chat); form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
@@ -148,6 +166,25 @@ describe('the seal is a file of the chat', () => {
     expect(r.cards.filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
     expect(r.content).toContain('Nothing was saved')
     expect(versions(doc.id)).toBe(1)
+  })
+
+  test('Always on the card: no card for that picture in a later turn, a different picture still asks, taking it back brings the card', async () => {
+    const { chat, doc, p } = await chatWithForm()
+    fs.mkdirSync(path.join(h.team, 'shared/always'), { recursive: true })
+    for (const n of ['ceo', 'other']) fs.writeFileSync(path.join(h.team, `shared/always/${n}.png`), SEAL)
+    const call = (image: string) => fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ image, at: '(인)' }] }, sayResult: true })
+    const go = (image: string, answer?: string) => withLayout(async () => LAYOUT, () => turnAnswering(chat, call(image), answer))
+    expect((await go('shared/always/ceo.png', '__always')).filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
+    expect(versions(doc.id)).toBe(2)
+    expect((await go('shared/always/ceo.png')).filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(0)
+    expect(versions(doc.id)).toBe(3)
+    expect((await go('shared/always/other.png')).filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
+    expect(versions(doc.id)).toBe(3)
+    const items = (await h.api('alice').call(API.listAiAllowances)).items
+    const row = items.find((a) => a.kind === 'picture' && a.picture === 'shared/always/ceo.png')!
+    await h.api('alice').call(API.deleteAiAllowance, { params: { id: row.id } })
+    expect((await go('shared/always/ceo.png')).filter((c) => /did not upload this picture/.test(c.question ?? ''))).toHaveLength(1)
+    expect(versions(doc.id)).toBe(3)
   })
 
   test('a member who cannot see the form (uploaded, not sent) cannot change it, and it stays as it was', async () => {

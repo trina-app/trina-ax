@@ -46,7 +46,7 @@ import { tr } from './i18n'
 import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
-import { alwaysHere, teamAllowsAlways, withAlways } from './always-allow'
+import { alwaysHere, teamAllowsAlways, withAlways, withPictureAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
@@ -1140,7 +1140,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       return r.value
     }
     const options = [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }]
-    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask) : await ask(options, {})
+    const v = extra?.always ? await withAlways(exec.alwaysPlace?.(), extra.always, options, 'allow', ask)
+      : extra?.pictures?.length ? await withPictureAlways(exec.alwaysPlace?.(), extra.pictures, options, 'allow', ask)
+      : await ask(options, {})
     return v === 'allow' ? 'yes' : missing ?? 'declined'
   }
   return {
@@ -1157,6 +1159,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the person's own Always for a kind of card, as alwaysHere reads it here (their own scheduled run too, Rule A; the
     // guest limit kept there): a tool that would refuse an unattended run at once reads it first
     alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
+    pictureAlwaysOn: (key) => alwaysHere(exec.alwaysPlace?.(), key) === 'on',
     // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
