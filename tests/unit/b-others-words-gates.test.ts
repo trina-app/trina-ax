@@ -273,7 +273,7 @@ describe('a scheduled run (nobody answers a card)', () => {
     const exec = {
       rt: h.rt(), files, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, othersWords,
       spec: { clientKind: 'schedule', userId: 'bob', chatId: t.chatId, locale: 'en', assistantId: null, userMessageId, turnId: t.turnId },
-      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {},
+      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, runningStepId: () => null,
       // (TurnExec.waitForPerson in a scheduled run: no answer, at once)
       waitForPerson: async () => null,
       alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: t.chatId, turnId: t.turnId, locale: 'en', clientKind: 'schedule' }),
@@ -309,7 +309,7 @@ describe('a chat other members wrote in that is no longer shared', () => {
     const exec = {
       rt: h.rt(), files, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: true, othersWords: true,
       spec: { clientKind: 'web', userId: 'bob', chatId: t.chatId, locale: 'en', assistantId: null, userMessageId, turnId: t.turnId },
-      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, noteReads: () => {},
+      livePrincipal: () => h.ctx.files.principal('bob'), patchToolStep: () => {}, noteReads: () => {}, runningStepId: () => null,
       waitForPerson: async () => { cards++; return null },
       alwaysPlace: () => ({ db: h.ctx.db, userId: 'bob', chatId: t.chatId, turnId: t.turnId, locale: 'en', clientKind: 'web' }),
     }
