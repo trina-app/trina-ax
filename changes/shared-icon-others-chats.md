@@ -1,0 +1,1 @@
+- A chat someone else shared with you now shows the same people icon after its title as the chats you shared, next to their picture at the right.

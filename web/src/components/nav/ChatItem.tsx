@@ -2,7 +2,7 @@
 // panels/TrinaList.tsx, and the filtered history, nav/HistoryList.tsx), the lists' own ListRow (components/list/List.tsx:
 // the panels' sizes, a phone's sizes). In 최근 기록 a project's chat names its project in the row's trailing tag
 // (`projectTag`), right-aligned at the same edge on every row, cut after the title. A shared chat someone else wrote in
-// has their faces there in place of the people icon and of the tag (ChatFaces; the project is said after their names).
+// also has their faces at its end, and the people icon stays before the title (ChatFaces; the project is said after their names).
 import clsx from 'clsx'
 import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -35,8 +35,8 @@ import { chatSectionBlock, useSectionRowItems } from './SidebarSections'
 export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, sections = true }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean; sections?: boolean }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
-  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx), or the
-  // faces of the others who wrote in it at its end (docs/DECISIONS.md "Faces in every chat list")
+  // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx), whoever
+  // made it, and the faces of the others who wrote in it at its end (docs/DECISIONS.md "Faces in every chat list")
   const rights = sharedRights(chat, useMeStrict().user.id)
   // a mouse may drag the row onto one of my sections (nav/HistorySections.tsx) when it can go in one
   const drag = sections && !chatSectionBlock(chat) && !chat.deletedAt ? dragRow('chats', chat.id, true) : {}
@@ -84,10 +84,10 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
       onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
       rowClass="pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover"
       lead={
-        (chat.pinnedAt || (rights.shared && !faces) || onlyMine) && (
+        (chat.pinnedAt || rights.shared || onlyMine) && (
           <>
             {chat.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-            {rights.shared && !faces && <SharedIcon className="text-faint" />}
+            {rights.shared && <SharedIcon className="text-faint" />}
             {onlyMine && <PrivateIcon />}
           </>
         )
