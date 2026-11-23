@@ -115,30 +115,26 @@ describe('a new team', () => {
     expect(fs.readdirSync(path.join(root, 'shared')).filter((n) => Object.values(TEMPLATES_FOLDER).includes(n as never))).toEqual(['양식'])
   })
 
-  test('the instructions: what each top folder is for with its word, the templates line, 보관 in the team\'s language', async () => {
+  test('the instructions: what each top folder is for with its word, 보관 in the team\'s language', async () => {
     const { mia } = await team()
     const ko = buildTurnPrompt(h.ctx.files, input(mia.id, 'ko'))
-    for (const line of folderPurposeLines('ko', mia.id, 'shared/양식')) expect(ko).toContain(line)
+    for (const line of folderPurposeLines('ko', mia.id)) expect(ko).toContain(line)
     expect(ko).toContain('- shared/ ("전사 공유"): company-wide; by default everyone in the team can see it.')
     expect(ko).toContain('- groups/<name>/ ("부서"): one folder per department')
     expect(ko).toContain('- projects/<name>/ ("프로젝트"): one folder per project')
     expect(ko).toContain('- skills/ ("팀 스킬"): team skills and team rules that everyone\'s AI follows; admins and the people they let edit skills change them.')
     expect(ko).toContain(`- users/<id>/ ("개인"): each person's own folder. users/${mia.id} is this user's ("내 폴더")`)
-    expect(ko).toContain('Forms and templates are in shared/양식/. When you make that kind of document (a quote, a report, an application, a contract…), start there')
+    // (no line about the forms folder: with it the AI asked "which folder?" in 10 of 10 runs where it otherwise acts)
+    expect(ko).not.toContain('Forms and templates are in')
     expect(ko).toContain(filePlacementRule(true, '보관'))
     // an English-speaking person in this Korean team: the words of their screen, the team's folder names
     const en = buildTurnPrompt(h.ctx.files, input(mia.id, 'en'))
     expect(en).toContain('- shared/ ("Company-wide")')
     expect(en).toContain('("My folder")')
-    expect(en).toContain('Forms and templates are in shared/양식/.')
     expect(en).toContain('into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/)')
-    // a room session names the templates folder only when everyone there may read it
-    const room = { room: { name: 'sales', kind: 'team' as const, members: 3, asker: 'Mia' } }
-    expect(buildTurnPrompt(h.ctx.files, input(mia.id, 'ko', { ...room, roomReadable: (rel) => rel !== 'shared/양식' }))).not.toContain('Forms and templates are in')
-    expect(buildTurnPrompt(h.ctx.files, input(mia.id, 'ko', { ...room, roomReadable: () => true }))).toContain('Forms and templates are in shared/양식/.')
   })
 
-  test('the templates folder: any language\'s name, readable only; none, no line', async () => {
+  test('the templates folder: any language\'s name, readable only', async () => {
     const { owner, mia, root } = await team()
     const me = h.ctx.files.principal(mia.id)
     expect(templatesFolder(h.ctx.files, me)).toEqual({ path: 'shared/양식', locale: 'ko' })
@@ -149,8 +145,6 @@ describe('a new team', () => {
     await owner.call('POST', '/api/admin/folders', { path: 'shared/Templates', limited: true, rules: [] })
     expect(templatesFolder(h.ctx.files, me)).toBeNull()
     const hidden = buildTurnPrompt(h.ctx.files, input(mia.id, 'ko'))
-    expect(hidden).not.toContain('Forms and templates are in')
-    expect(folderPurposeLines('ko', mia.id, null).join('\n')).not.toContain('Forms and templates')
     // no templates folder to tell the team's language by: the archive folder follows the names there, for everyone alike
     expect(hidden).toContain(filePlacementRule(true, null))
     expect(buildTurnPrompt(h.ctx.files, input(mia.id, 'en'))).toContain(filePlacementRule(true, null))

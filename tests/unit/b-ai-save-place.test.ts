@@ -76,10 +76,8 @@ describe('the default place is My files', () => {
     // a file made from an existing one stays next to it (filePlacementRule, AI flow FL-15), and no "where?" question
     expect(rule).toContain('A file made from an existing file (a PDF of a deck, a resized picture, a copy in another format) goes next to it, as the rule on where files go says.')
     expect(rule).toContain('Do not ask where first.')
-    const shared = folderPurposeLines('en', 'alice', 'shared/Templates').find((l) => l.startsWith('- shared/'))!
+    const shared = folderPurposeLines('en', 'alice').find((l) => l.startsWith('- shared/'))!
     expect(shared).toContain('a new file goes here only when the user or the task names it')
-    const templates = folderPurposeLines('en', 'alice', 'shared/Templates').find((l) => l.startsWith('Forms and templates'))!
-    expect(templates).toContain("saving the new document in the user's own folder unless the user or the task names a place")
     // in a real turn's instructions
     const r = await run('alice', await newChat('alice'), fake({ echo: 'system' }))
     expect(r.content).toContain(rule)

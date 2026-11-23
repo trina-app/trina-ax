@@ -754,10 +754,9 @@ export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hi
  * What each top folder is for (docs/DECISIONS.md "Team folder basics"): one line each, with the name the screen shows
  * for it in the person's language (the person says "전사 공유에 올려줘" or "우리 부서 폴더"; the paths stay as they are on
  * disk). In personLines next to the folder lists, so a resumed session gets it too. No team data:
- * only the templates line names a folder, and only when it is there and the person (and, in a shared chat, everyone who sees it) can
- * read it.
+ * it names no folder of the team.
  */
-export function folderPurposeLines(locale: Locale, userId: string, templates: string | null): string[] {
+export function folderPurposeLines(locale: Locale, userId: string): string[] {
   const say = (k: keyof typeof TOP_FOLDER_LABELS) => JSON.stringify(TOP_FOLDER_LABELS[k][locale] ?? TOP_FOLDER_LABELS[k].en)
   return [
     'Team folders (the app shows them by the names in quotes; on disk and in your tools they keep these paths):',
@@ -766,8 +765,7 @@ export function folderPurposeLines(locale: Locale, userId: string, templates: st
     `- projects/<name>/ (${say('projects')}): one folder per project, seen by that project's people. Work of that project; people make new projects in the app.`,
     `- skills/ (${say('skills')}): team skills and team rules that everyone's AI follows; admins and the people they let edit skills change them.`,
     `- users/<id>/ (${say('users')}): each person's own folder. users/${userId} is this user's (${JSON.stringify(ownFolderLabel(locale))}); only they see it.`,
-    templates ? `Forms and templates are in ${templates}/. When you make that kind of document (a quote, a report, an application, a contract…), start there: list it and work from the template that fits, saving the new document in the user's own folder unless the user or the task names a place.` : '',
-  ].filter(Boolean)
+  ]
 }
 
 /** The team's forms and templates folder: shared/<양식, in any app language> that is there and that `user` may read
@@ -947,7 +945,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     `Writable folders: ${writable.join(', ') || '(none)'}`,
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
     // a guest: none of the team's folders (shared/, groups/, skills/) are theirs to be told about (guestSection)
-    ...(i.guest ? [] : folderPurposeLines(i.locale, i.user.id, templates?.path ?? null)),
+    ...(i.guest ? [] : folderPurposeLines(i.locale, i.user.id)),
     // others read a shared chat's answers: "내 폴더" there would be the reader's own folder (SOURCE_LINK_RULE)
     !subagent && !i.guest && i.shared ? sharedOwnFolderLine(roomLine(i.shared.asker), i.locale) : '',
     WRITE_ACCESS_RULE,
