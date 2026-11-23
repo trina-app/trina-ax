@@ -175,7 +175,7 @@ export async function checkPromoInput(ctx: AppContext, t: ToolCtx, a: PromoVideo
     if (!raw) return null
     const r = readPicture(ctx, t, raw, PICTURE_MIN_PX, what, problems, { attached: true })
     if (!r) return null
-    if (used.has(r.rel)) { problems.push(`${what}: "${raw}" is already used by another beat; use another picture or none`); return null }
+    if (used.has(r.rel)) { problems.push(`${what}: "${raw}" is already used by another beat; each picture goes into one beat only, so leave this beat's picture out (it is made with type and light) or use a different picture, never a copy of the same one`); return null }
     used.add(r.rel)
     return { src: r.src, width: r.width, height: r.height, focus: FOCUS[focus ?? 'center'] ?? 'center' }
   }

@@ -1801,6 +1801,7 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // promo_video's logo and pictures may be one of this chat's own files (AB4 F11: this refusal told the AI to copy the
     // attached photo into a team folder first, a 16-person card); the tool's own check reads it (promo-video/spec.ts)
     if (name === 'promo_video' && place?.kind === 'chatFiles' && (key === 'logo' || key.endsWith('.picture'))) continue
+    if (name === 'promo_video' && place?.kind === 'chatFiles') return `Not done (promo_video): ${value} is a file of this chat. A picture of it goes in as one beat's picture (promise.picture or work.picture) or the logo, exactly as this path; sources are only the files whose words go on screen. Never copy it into a team folder for the video.`
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
