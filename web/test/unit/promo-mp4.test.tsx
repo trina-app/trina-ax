@@ -49,6 +49,8 @@ describe('the MP4 button', () => {
       await m.settle(50)
       expect(m.find('promo-mp4')).toBeNull()
       expect(m.find('promo-mp4-unavailable')?.textContent).toBe(say(key))
+      // on a phone an info button says the same (its label)
+      expect(m.find('promo-mp4-unavailable-info')?.getAttribute('aria-label')).toBe(say(key))
       await m.unmount()
     }
   })

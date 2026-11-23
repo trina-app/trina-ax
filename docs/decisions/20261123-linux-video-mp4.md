@@ -19,17 +19,20 @@
 - **Isolation:** the CLI runs in the converters' isolation (`isolatedCommand`: bwrap, no network, the system read-only,
   only its work folder writable; HOME and TMPDIR there), the tree, node's folder and the browser's folder bound
   read-only, never as root (HyperFrames starts Chrome with `--no-sandbox`: bwrap is its sandbox, as for HTML to PDF).
-  node and the CLI must be root's or the server's and writable by nobody else (`trustedBrowser`), by their real paths.
+  node, the CLI tree and its entry file must be root's or the server's and writable by nobody else, by their real paths
+  (`trustedPath`); packages.sh installs the tree root's with `chmod -R go-w` and runs its version check as nobody.
   The page is built from the checked slots as before (no script; pictures copied with the chat owner's permissions).
 - **Limits:** one render at a time on the server (as before), `--workers 1`, 8 minutes on Linux (4 on a Mac). In
-  production a cgroup `S/video` beside `S/print` (`system/cgroups.ts`): 1280 MiB, 256 tasks, swap off, two cores, each
+  production a cgroup `S/video` beside `S/print` (`system/cgroups.ts`, in a try of its own so a failure there leaves the
+  other limits): 1280 MiB, 256 tasks, swap off, two cores at most and `cpu.weight` 50 (it yields when the CPU is busy), each
   render in a leaf of its own killed together (`memory.oom.group`, `cgroup.kill`), the CPU-time limit counted for every
   core. Measured in a Debian 13 arm64 container (4 cores): one worker 80–83 s, memory.peak 1055–1076 MiB, 120 tasks; it
   finished under a 1024 MiB limit and failed under the print's 768 MiB; two workers 54 s and 1739 MiB. `S/video` exists
   when the plan's (or the machine's) memory is 3584 MiB or more: a 4 GiB team VM yes, the free plan's 2 GiB no.
 - **Where it cannot:** the info says why (`mp4.why`: `not_installed` before the update installs the tools,
-  `too_small`, `unsupported` for an office or production Mac or a server without bwrap) and the panel shows one short
-  muted line in its place, in the six languages; the AI's result and `save_promo_video`'s refusal give the same reason.
+  `too_small`, `unsupported` for an office or production Mac, a server without bwrap, or the headless browser turned off
+  with `MYCEL_HTML_PDF_BROWSER=none`) and the panel shows one short muted line in its place (on a phone an info button
+  that says it), in the six languages; the AI's result and `save_promo_video`'s refusal give the same reason.
   Never a silent missing button.
 - **Install:** the one list (`scripts/system/packages.json`): group `video` (install `default`: every default install and
   the hosted image, not `--minimal`; xz-utils to unpack node) with the artifacts `node` (the srt group's pin) and

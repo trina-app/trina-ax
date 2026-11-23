@@ -208,22 +208,29 @@ function trySetup(o: SetupOptions): CgroupState {
     // the promo video's MP4 beside print (VideoCgroup); none where one render does not fit
     let video: VideoCgroup | null = null
     const vdir = path.join(s, 'video')
+    // (its own try: a failure here leaves the converters and printing their limits, and only the MP4 off)
     if (videoFits(o.planFile ?? process.env.MYCEL_PLAN_FILE, o.machineMiB)) {
-      fs.mkdirSync(vdir, { recursive: true, mode: 0o755 })
-      const vset = (f: string, v: string, optional = false) => {
-        try { fs.writeFileSync(path.join(vdir, f), v) } catch (e) { if (!optional) throw e }
+      try {
+        fs.mkdirSync(vdir, { recursive: true, mode: 0o755 })
+        const vset = (f: string, v: string, optional = false) => {
+          try { fs.writeFileSync(path.join(vdir, f), v) } catch (e) { if (!optional) throw e }
+        }
+        vset('memory.max', String(VIDEO_ONE_MIB * 1048576))
+        vset('memory.swap.max', '0', true)
+        vset('pids.max', String(VIDEO_ONE_PIDS))
+        // two cores at most, and half the weight of the others when the CPU is busy (a render never starves the server)
+        if (have.has('cpu')) { vset('cpu.max', `${Math.min(2, o.cpus ?? os.availableParallelism()) * 100000} 100000`, true); vset('cpu.weight', '50', true) }
+        fs.writeFileSync(path.join(vdir, 'cgroup.subtree_control'), ctrls)
+        for (const leaf of fs.readdirSync(vdir, { withFileTypes: true })) {
+          if (!leaf.isDirectory() || !leaf.name.startsWith('v-')) continue
+          try { fs.writeFileSync(path.join(vdir, leaf.name, 'cgroup.kill'), '1') } catch { /* an older kernel */ }
+          try { fs.rmdirSync(path.join(vdir, leaf.name)) } catch { /* still emptying: the next start */ }
+        }
+        video = { dir: vdir, memoryMiB: VIDEO_ONE_MIB }
+      } catch (e) {
+        o.log?.warn('the promo video cgroup was not made; the MP4 stays off', { err: (e as Error).message })
+        video = null
       }
-      vset('memory.max', String(VIDEO_ONE_MIB * 1048576))
-      vset('memory.swap.max', '0', true)
-      vset('pids.max', String(VIDEO_ONE_PIDS))
-      if (have.has('cpu')) vset('cpu.max', `${Math.min(2, o.cpus ?? os.availableParallelism()) * 100000} 100000`, true)
-      fs.writeFileSync(path.join(vdir, 'cgroup.subtree_control'), ctrls)
-      for (const leaf of fs.readdirSync(vdir, { withFileTypes: true })) {
-        if (!leaf.isDirectory() || !leaf.name.startsWith('v-')) continue
-        try { fs.writeFileSync(path.join(vdir, leaf.name, 'cgroup.kill'), '1') } catch { /* an older kernel */ }
-        try { fs.rmdirSync(path.join(vdir, leaf.name)) } catch { /* still emptying: the next start */ }
-      }
-      video = { dir: vdir, memoryMiB: VIDEO_ONE_MIB }
     } else {
       try { fs.rmdirSync(vdir) } catch { /* none, or not empty */ }
     }

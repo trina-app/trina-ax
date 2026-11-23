@@ -674,7 +674,7 @@ pk__python_install_locked() {
 # where the lock is: root/hyperframes/ in a bundle, scripts/promo-video/hyperframes/ in the repository
 pk__video_src() {
   local d
-  for d in ${PK_VIDEO_SRC:-} "$PK_HERE/hyperframes" "$PK_HERE/../promo-video/hyperframes"; do
+  for d in ${PK_VIDEO_SRC:+"$PK_VIDEO_SRC"} "$PK_HERE/hyperframes" "$PK_HERE/../promo-video/hyperframes"; do
     [ -f "$d/package-lock.json" ] && [ -f "$d/package.json" ] && { (cd "$d" && pwd); return 0; }
   done
   pk_err "no HyperFrames lock file next to packages.sh"; return 1
@@ -693,6 +693,8 @@ pk_node_install() {
     eval "exec $PK_LOCK_FD>\"\$PK_OPT/.node.lock\"" || return 1
     flock -w 900 "$PK_LOCK_FD" || { pk__unlock; pk_err "$PK_OPT/.node.lock is held by another install for 15 minutes"; return 1; }
   fi
+  # what a stopped run left (the sync's time limit, a reboot)
+  rm -rf "$PK_OPT"/.node.?????? 2>/dev/null || true
   if ! pk__node_runs "$dir"; then
     if [ -L "$dir" ]; then pk_err "$dir is a link"; rc=1
     elif ! tmp=$(mktemp -d "$PK_OPT/.node.XXXXXX"); then rc=1
@@ -723,12 +725,14 @@ pk__video_pin() {
     || { pk_err "$HF_SRC/package-lock.json does not pin the list's hyperframes $HF_V"; return 1; }
   HF_SHA=$(pk_sha256 "$HF_SRC/package-lock.json") HF_KEY="$HF_V-$(pk_sha256 "$HF_SRC/package-lock.json" | cut -c1-12)"
 }
-# pk__video_check DIR: the CLI of DIR answers the pin, with node from $PK_OPT/node, no network, no telemetry
+# pk__video_check DIR: the CLI of DIR answers the pin, with node from $PK_OPT/node, no network, no telemetry; as nobody
+# when root runs this (the new tree's code never runs as root)
 pk__video_check() {
-  local w out
+  local w out as=()
   [ -f "$1/node_modules/hyperframes/bin/hyperframes.mjs" ] && [ -x "$PK_OPT/node/bin/node" ] || return 1
   w=$(mktemp -d) || return 1
-  out=$(cd "$w" && pk__bounded 60 env -i PATH=/usr/bin:/bin HOME="$w" LANG=C.UTF-8 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 \
+  if [ "$(id -u)" = 0 ] && command -v setpriv >/dev/null 2>&1; then chmod 1777 "$w"; as=(setpriv --reuid=65534 --regid=65534 --clear-groups); fi
+  out=$(cd "$w" && pk__bounded 60 ${as[@]+"${as[@]}"} env -i PATH=/usr/bin:/bin HOME="$w" LANG=C.UTF-8 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 \
     HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_SKIP_SKILLS=1 "$PK_OPT/node/bin/node" "$1/node_modules/hyperframes/bin/hyperframes.mjs" --version 2>/dev/null | tail -n 1) || true
   rm -rf "$w"
   [ "$out" = "$HF_V" ]
@@ -754,15 +758,19 @@ pk__video_build_locked() {
   dir="$dest/$HF_KEY"
   # built by pk_video_prepare in this run: no second check
   if [[ "${PK_HF_PREPARED:-}" == *" $dir:$HF_SHA "* ]] && [ "$(cat "$dir/.sha256" 2>/dev/null || true)" = "$HF_SHA" ]; then return 0; fi
+  # what a stopped run left (the sync's time limit, a reboot)
+  rm -rf "$dest"/.new.?????? "$dest"/current.new.* 2>/dev/null || true
   if [ "$(cat "$dir/.sha256" 2>/dev/null || true)" != "$HF_SHA" ] || ! pk__video_check "$dir"; then
     [ ! -L "$dir" ] || { pk_err "$dir is a link"; return 1; }
     new=$(mktemp -d "$dest/.new.XXXXXX") || return 1
     cp "$HF_SRC/package.json" "$HF_SRC/package-lock.json" "$new/" || { rm -rf "$new"; return 1; }
     for k in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do [ -z "${!k:-}" ] || env+=("$k=${!k}"); done
     if ! (cd "$new" && pk__bounded "${PK_FETCH_BUDGET:-480}" env -i PATH="$PK_OPT/node/bin:/usr/bin:/bin" HOME="$new" LANG=C.UTF-8 \
-      ${env[@]+"${env[@]}"} npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --cache "$new/.npm" >/dev/null 2>&1); then
-      rm -rf "$new"; pk_err "hyperframes $HF_V: npm ci failed (the lock's packages from the npm registry)"; return 1
+      ${env[@]+"${env[@]}"} npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --cache "$new/.npm" >"$new/.npm.log" 2>&1); then
+      pk_err "hyperframes $HF_V: npm ci failed (the lock's packages from the npm registry): $(tail -n 5 "$new/.npm.log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+      rm -rf "$new"; return 1
     fi
+    rm -f "$new/.npm.log"
     rm -rf "$new/.npm"
     [ "$(id -u)" != 0 ] || chown -R 0:0 "$new"
     chmod -R a+rX,go-w "$new"

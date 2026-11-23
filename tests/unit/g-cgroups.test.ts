@@ -187,6 +187,17 @@ describe('the promo video\'s MP4 cgroup S/video (promo-video/render.ts)', () => 
     for (const [mem, want] of [[2048, false], [3072, false], [3584, true], [4096, true], [8192, true]] as const) expect(videoFits(undefined, mem)).toBe(want)
   })
 
+  test('S/video that cannot be made turns off only the MP4: the converters and printing keep their limits', () => {
+    const fx = fakeCgroupFs()
+    fs.writeFileSync(path.join(fx.s, 'video'), 'not a folder')
+    const r = setupServerCgroups({ mode: 'prod', platform: 'linux', cgroupFs: fx.root, selfCgroup: '0::/system.slice/mycel-server.service\n',
+      pid: 101, ppid: 100, uid: process.getuid!(), helper: fx.helper, machineMiB: 4096, cpus: 4 })
+    expect(r.state).toBe('delegated')
+    expect(converterCgroup()).not.toBeNull()
+    expect(printCgroupState()).toBe('ok')
+    expect(videoCgroupState()).toBe('too_small')
+  })
+
   test('off Linux production: free (no cgroup), no leaf', () => {
     setupServerCgroups({ mode: 'dev', platform: 'linux' })
     expect(videoCgroupState()).toBe('free')

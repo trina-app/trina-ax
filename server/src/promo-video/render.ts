@@ -19,7 +19,7 @@ import { componentC } from '../team-files/component'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { killTree } from '../system/kill-tree'
 import { killPrintLeaf, makeVideoLeaf, videoCgroupState } from '../system/cgroups'
-import { browserHome, findPdfBrowser, trustedBrowser } from '../files/html-pdf'
+import { browserHome, findPdfBrowser } from '../files/html-pdf'
 import { isolatedCommand, isolation, type IsolationKind } from '../tools/isolate'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -57,9 +57,22 @@ const cliIn = (dir: string) => path.join(dir, 'node_modules', 'hyperframes', 'bi
 /** What runs a render here: node, the CLI (real paths), the tree it is in, and on Linux the browser and the isolation. */
 export interface RenderTools { node: string; cli: string; dir: string; browser: string | null; isolated: boolean }
 export type Mp4Why = 'not_installed' | 'too_small' | 'unsupported'
-/** a file the server may run: it and every folder above it are root's or the server's, and nobody else can write them
- * (html-pdf.ts trustedBrowser: the CLI tree and node are root's in /opt/trina) */
-const trusted = (p: string) => { try { return fs.statSync(p).isFile() && trustedBrowser(p) } catch { return false } }
+/** A file or folder the server may run from: it (by its real path) and every folder above it are root's or the server's
+ * and nobody else can write them (a sticky /tmp above is fine), as html-pdf.ts trustedBrowser checks a browser. node and
+ * the CLI tree are root's in /opt/trina; packages.sh installs the tree with chmod -R go-w, so its own folder and the
+ * entry file are checked here, not every file under node_modules. */
+export function trustedPath(p: string, uid = process.getuid?.() ?? -1): boolean {
+  try {
+    const r = fs.realpathSync(p)
+    const ok = (q: string, sticky = false) => { const st = fs.statSync(q); return (st.uid === 0 || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000))) }
+    if (!ok(r)) return false
+    for (let d = path.dirname(r); ; d = path.dirname(d)) {
+      if (!ok(d, true)) return false
+      if (d === path.dirname(d)) return true
+    }
+  } catch { return false }
+}
+const trusted = (p: string) => { try { return fs.statSync(p).isFile() && trustedPath(p) } catch { return false } }
 const real = (p: string) => { try { return fs.realpathSync(p) } catch { return null } }
 
 /** The tools of a render on this server, or why there is none. Read for every info answer (an install or a removal
@@ -81,7 +94,9 @@ export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: Nod
   if (videoCgroupState() === 'too_small') return { why: 'too_small' }
   const node = real(env.MYCEL_HYPERFRAMES_NODE || LINUX_NODE), dir = real(env.MYCEL_HYPERFRAMES_DIR || hyperframesDir(platform))
   const cli = dir ? real(cliIn(dir)) : null
-  if (!node || !trusted(node) || !dir || !cli || !cli.startsWith(dir + '/') || !trusted(cli)) return { why: 'not_installed' }
+  if (!node || !trusted(node) || !dir || !trustedPath(dir) || !cli || !cli.startsWith(dir + '/') || !trusted(cli)) return { why: 'not_installed' }
+  // HTML to PDF's browser turned off by the administrator: the MP4 has none either
+  if (env.MYCEL_HTML_PDF_BROWSER === 'none') return { why: 'unsupported' }
   const browser = findPdfBrowser(env, 'linux')
   // ffmpeg from the media group (the CLI finds it on the isolation's PATH, /usr/bin:/bin)
   if (!browser || !(o.ffmpeg ?? ['/usr/bin/ffmpeg', '/bin/ffmpeg']).some((f) => fs.existsSync(f))) return { why: 'not_installed' }
@@ -97,7 +112,7 @@ export function mp4Available(ctx: Pick<AppContext, 'config'>): boolean {
 }
 /** The reason in the AI's words (promo_video's result, save_promo_video's refusal). */
 export function noFileReason(why: Mp4Why): string {
-  return why === 'not_installed' ? 'the video tools are not installed on this server yet; the next server update installs them'
+  return why === 'not_installed' ? 'the video tools are not installed on this server (yet)'
     : why === 'too_small' ? 'this server has too little memory to make a video file'
     : 'this kind of server does not make video files'
 }
@@ -228,7 +243,9 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     let ok = false
     try { const st = fs.lstatSync(made); ok = st.isFile() && st.size > 0 } catch { /* none */ }
     if (code !== 0 || !ok) return void fail(`hyperframes exit ${code}`)
-    fs.copyFileSync(made, part)
+    // (the CLI and everything it started have ended: moved, never followed; the same folder tree, one file system)
+    fs.renameSync(made, part)
+    if (!fs.lstatSync(part).isFile()) return void fail('the output is not a file')
     fs.renameSync(part, out)
     const saved = ctx.db.query("UPDATE promo_videos SET mp4_state = 'done', mp4_ms = ?, mp4_bytes = ?, rendered_at = ? WHERE artifact_id = ?")
       .run(Date.now() - started, fs.statSync(out).size, new Date().toISOString(), r.artifact_id)

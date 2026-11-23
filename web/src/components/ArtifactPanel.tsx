@@ -8,7 +8,7 @@
 // "intro-deck", "D2") pages through its slides in the frame; its header offers one [받기 ▾] (PowerPoint, and PDF where
 // the server can make it) and no "save to the team folder": the deck never becomes team material by accident.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, History, Loader2, Presentation, RotateCcw, Shapes, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, History, Info, Loader2, Presentation, RotateCcw, Shapes, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactSummary, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
@@ -389,10 +389,16 @@ export function PromoMp4Button({ id }: { id: string }) {
   if (!info) return null
   if (!info.mp4.available) {
     const why = info.mp4.why === 'not_installed' ? t('promo.mp4.notInstalled') : info.mp4.why === 'too_small' ? t('promo.mp4.tooSmall') : t('promo.mp4.unsupported')
+    // a phone: the line would push the title out, so an info button that says it (the tooltip, and a toast on a tap)
     return (
-      <span className="mr-2 max-w-56 truncate text-xs text-muted" title={why} data-testid="promo-mp4-unavailable">
-        {why}
-      </span>
+      <>
+        <span className="mr-2 hidden max-w-64 truncate text-xs text-muted sm:inline" title={why} data-testid="promo-mp4-unavailable">
+          {why}
+        </span>
+        <IconButton className="sm:hidden" label={why} onClick={() => toast({ level: 'info', text: why })} data-testid="promo-mp4-unavailable-info">
+          <Info size={16} />
+        </IconButton>
+      </>
     )
   }
   const press = async () => {

@@ -609,15 +609,19 @@ describe('where the MP4 is made (renderTools): a Linux team server with the list
     // the tools missing: before the update installs them
     expect(linux({ env: { ...env, MYCEL_HYPERFRAMES_DIR: path.join(root, 'none') } })).toEqual({ why: 'not_installed' })
     expect(linux({ env: { ...env, MYCEL_HYPERFRAMES_NODE: path.join(root, 'none') } })).toEqual({ why: 'not_installed' })
-    expect(linux({ env: { ...env, MYCEL_HTML_PDF_BROWSER: 'none' } })).toEqual({ why: 'not_installed' })
+    expect(linux({ env: { ...env, MYCEL_HTML_PDF_BROWSER: path.join(root, 'none') } })).toEqual({ why: 'not_installed' })
+    // the administrator turned the headless browser off (MYCEL_HTML_PDF_BROWSER=none): no MP4 either, and no promise
+    expect(linux({ env: { ...env, MYCEL_HTML_PDF_BROWSER: 'none' } })).toEqual({ why: 'unsupported' })
     expect(linux({ ffmpeg: [path.join(root, 'none')] })).toEqual({ why: 'not_installed' })
-    // a CLI anyone may change is never run
+    // a CLI, or the tree it is in, that anyone may change is never run
     fs.chmodSync(cliFile, 0o666)
     try { expect(linux()).toEqual({ why: 'not_installed' }) } finally { fs.chmodSync(cliFile, 0o644) }
+    fs.chmodSync(path.join(root, 'hf'), 0o777)
+    try { expect(linux()).toEqual({ why: 'not_installed' }) } finally { fs.chmodSync(path.join(root, 'hf'), 0o755) }
     // a production or office Mac: never (the CLI runs without isolation there)
     expect(renderTools(ctx(), { platform: 'darwin', env })).toEqual({ why: 'unsupported' })
     expect(renderTools(ctx({ mode: 'dev', deployment: 'self', office: true }), { platform: 'darwin', env })).toEqual({ why: 'unsupported' })
-    expect(noFileReason('not_installed')).toContain('next server update')
+    expect(noFileReason('not_installed')).toContain('not installed')
     expect(noFileReason('too_small')).toContain('memory')
   })
 })
