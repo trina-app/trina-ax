@@ -1,0 +1,11 @@
+{
+  "name": "@mycel/mailbox",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Reference mail gateway and mailbox for email into rooms (shared/src/cloud-protocol/mail-in.ts). Not deployed from this repository.",
+  "scripts": {
+    "dev": "bun src/dev.ts --port 19171"
+  }
+}

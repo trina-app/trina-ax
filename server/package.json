@@ -12,6 +12,7 @@
     "exceljs": "4.4.0",
     "hono": "4.13.13",
     "pdf-lib": "1.17.1",
+    "postal-mime": "4.2.0",
     "saxes": "6.0.0",
     "tldts": "7.0.30",
     "web-push": "3.6.7",

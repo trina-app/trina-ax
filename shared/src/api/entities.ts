@@ -1102,6 +1102,10 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** "Let rooms get email" (email into rooms, plan docs/AGENTS/plan/20261123-0421-room-email.md): rooms may add an Email
+   * app. Off by default; off removes every room's address at the mail service (mail to them is refused). Older servers
+   * omit it. */
+  roomEmail: z.boolean().optional(),
   /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
    * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
    * already made keep working until removed. The team owner and admins share team files either way. */

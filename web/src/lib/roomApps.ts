@@ -54,6 +54,8 @@ export const NOTHING_YET: Partial<Record<AppService, readonly (Readonly<Record<s
   toss_payments: [null, null],
   channel_talk: [{ chat: 'channelTypeChat' }, null],
   portone: [{ version: 'portoneVersion' }, { test: 'portoneTest' }],
+  // Email: the forwarding is confirmed, the filter or rule matches the mail
+  email: [null, null],
 }
 
 /** The side chat's chip in a room with apps (owner decision: one chip chosen by the apps there): "Summarise today's
@@ -92,6 +94,9 @@ export const PICKER_GROUPS: readonly { key: 'forms' | 'payments' | 'work' | 'dev
 /** "Show more services" (collapsed, under the groups): the regional services (plan P4: Toss Payments, Channel Talk,
  * PortOne). The same list for everyone, no language or country logic. */
 export const MORE_SERVICES: readonly AppService[] = ['toss_payments', 'channel_talk', 'portone']
+/** Email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): an Other app with preset 'email'. The picker
+ * shows it in "Any other way", before Other, only when the server says email can be added (RoomAppList.mail). */
+export const EMAIL: AppService = 'email'
 /** Form services: the side chat offers "Summarize today's responses" when only these posted. */
 export const FORM_SERVICES: readonly AppService[] = ['google_forms', 'typeform', 'tally', 'jotform']
 

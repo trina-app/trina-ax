@@ -85,7 +85,8 @@ function json(a: Arrival): unknown {
 
 export function parseArrival(a: Arrival): Parsed {
   if (a.kind === 'other' && a.preset) {
-    const p = PRESETS[a.preset]
+    // an Email app's mail never comes as an arrival (rooms/apps/mail reads it)
+    const p = a.preset === 'email' ? null : PRESETS[a.preset]
     return p ? p.parse(a) : { refuse: 'format' }
   }
   switch (a.kind) {

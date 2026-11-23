@@ -26,7 +26,7 @@ const SWITCHES: Record<Kind, Record<string, boolean>> = {
   other: { message: true },
 }
 const NAMES: Record<Kind, string> = { sentry: 'Sentry', github: 'GitHub', google_forms: 'Google Forms', other: 'Other app' }
-const PRESET_NAMES: Record<RoomAppPreset, string> = { notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk', jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne' }
+const PRESET_NAMES: Record<RoomAppPreset, string> = { notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk', jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne', email: 'Email' }
 
 /** An Other app set up as a preset (kind 'other' + preset), with the preset's switches and name. */
 export function mockPreset(preset: RoomAppPreset, o: Partial<MockApp> = {}): MockApp {

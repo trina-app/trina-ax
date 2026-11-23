@@ -30,7 +30,7 @@ export type RoomAppKind = z.infer<typeof RoomAppKind>
  * 401): the row's kind stays 'other' (an older build and an older phone app still read it as an Other app); the preset
  * names the reader, the switches, the signature scheme and the logo. Fixed when the app is added (a different service
  * is a new app), so a secret is never checked under another preset's scheme. The list grows in code. */
-export const RoomAppPreset = z.enum(['notion', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'zendesk', 'jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone'])
+export const RoomAppPreset = z.enum(['notion', 'typeform', 'tally', 'jotform', 'stripe', 'shopify', 'zendesk', 'jira', 'hubspot', 'toss_payments', 'channel_talk', 'portone', 'email'])
 export type RoomAppPreset = z.infer<typeof RoomAppPreset>
 /** A preset as a client reads it: one this build does not know (a newer server's) is dropped, so the app shows as a
  * plain Other app instead of the whole list or message failing to parse (the list grows: phase 4, then email). */
@@ -59,12 +59,16 @@ export const ROOM_APP_PRESET_SWITCHES = {
   toss_payments: [{ key: 'payment', on: true }, { key: 'cancelled', on: true }, { key: 'waiting', on: false }, { key: 'failed', on: false }],
   channel_talk: [{ key: 'new_chat', on: true }, { key: 'customer_message', on: true }, { key: 'manager_message', on: false }],
   portone: [{ key: 'payment', on: true }, { key: 'cancelled', on: true }, { key: 'failed', on: true }, { key: 'virtual_account', on: false }],
+  // Email (plan 20261123-0421-room-email): every mail, and out-of-office answers (off: they loop with forwarding rules)
+  email: [{ key: 'mail', on: true }, { key: 'auto_replies', on: false }],
 } as const satisfies Record<RoomAppPreset, readonly { key: string; on: boolean }[]>
 
 /** The vendors' own names, the name an app of the preset gets when it is added (a brand: not translated). */
 export const ROOM_APP_PRESET_NAMES: Record<RoomAppPreset, string> = {
   notion: 'Notion', typeform: 'Typeform', tally: 'Tally', jotform: 'Jotform', stripe: 'Stripe', shopify: 'Shopify', zendesk: 'Zendesk',
   jira: 'Jira', hubspot: 'HubSpot', toss_payments: 'Toss Payments', channel_talk: 'Channel Talk', portone: 'PortOne',
+  // not a brand: the server names a new Email app in the team's language (rooms/apps/text.ts nameEmail)
+  email: 'Email',
 }
 
 /** Whether the preset's service can sign what it sends, and who makes the secret: `none` (the Webhook URL's token
@@ -90,6 +94,8 @@ export const ROOM_APP_PRESET_SIGNING: Record<RoomAppPreset, { signing: 'none' } 
   channel_talk: { signing: 'paste' },
   // PortOne V2 signs by Standard Webhooks: the key in base64, "whsec_" before it or not ("웹훅 시크릿 발급")
   portone: { signing: 'paste', shape: /^(whsec_)?[A-Za-z0-9+/]{22,200}={0,2}$/ },
+  // mail has no signature Trina can check (forwarding breaks SPF; the sender is always unverified)
+  email: { signing: 'none' },
 }
 
 /** A named service an app can be set up as: a kind but Other, or a preset (the web's screens call it a "service"). */
@@ -228,6 +234,39 @@ export type RoomAppRef = z.infer<typeof RoomAppRef>
 export const RoomAppRefusal = z.enum(['signature', 'format', 'too_big', 'storage_full'])
 export type RoomAppRefusal = z.infer<typeof RoomAppRefusal>
 
+/** Email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): an Email app is an Other app with preset
+ * 'email' (older apps show it as an Other app). It has no Webhook URL: its address is `<random>@<mail domain>`, the
+ * mail service seals each mail to this server's key and this server pulls it (rooms/apps/mail/*). Its `address` in
+ * RoomAppCreated and RoomAppAddress is that email address.
+ * `state`: 'setting_up' until the mail service has the address (Copy waits), 'ready', 'unavailable' (the mail service
+ * cannot be reached or the team turned email off: mail to it is refused).
+ * `confirmation`: the last forwarding confirmation a mail provider sent here (Gmail sends one before a filter forwards),
+ * with its code when one was found: shown only to the people who manage the app (never in the room), kept 7 days. */
+export const RoomAppMailConfirmation = z.object({
+  provider: z.enum(['gmail', 'outlook', 'other']),
+  /** the account that asks to forward here, as the mail says it (unverified) */
+  from: z.string().max(320),
+  code: z.string().max(40).nullable(),
+  at: IsoTime,
+})
+export type RoomAppMailConfirmation = z.infer<typeof RoomAppMailConfirmation>
+export const RoomAppMail = z.object({
+  state: z.enum(['setting_up', 'ready', 'unavailable']),
+  confirmation: RoomAppMailConfirmation.optional(),
+})
+export type RoomAppMail = z.infer<typeof RoomAppMail>
+/** Whether Email can be added here: `reason` when not. 'not_connected': the server has no mail service (it is not
+ * connected to the hosting service, or the operator set none); 'off': an admin has not turned on "Let rooms get email"
+ * (Admin › Team settings, off by default). */
+export const RoomAppMailAvailability = z.object({
+  available: z.boolean(),
+  reason: z.enum(['not_connected', 'off']).optional(),
+})
+export type RoomAppMailAvailability = z.infer<typeof RoomAppMailAvailability>
+/** Mail limits a team server keeps (the mail service's own are in cloud-protocol/mail-in.ts). */
+export const ROOM_APP_MAIL_TEXT_MAX = 20_000
+export const ROOM_APP_MAIL_CONFIRMATION_DAYS = 7
+
 /** One app as the people who manage it see it: never its address or secret (getRoomAppAddress). */
 export const RoomApp = z.object({
   id: z.string(),
@@ -276,6 +315,9 @@ export const RoomApp = z.object({
   /** someone who was shown the address (or a secret Trina made) can no longer manage the app (left the room or the
    * team, or is no longer an admin in a team room): "Someone who left knows this address · Get a new address" */
   leaverKnows: z.literal(true).optional(),
+  /** an Email app (preset 'email'): its address's state at the mail service and the last forwarding confirmation.
+   * Older servers omit it; a shape this build does not know reads as none */
+  mail: RoomAppMail.optional().catch(undefined),
 })
 export type RoomApp = z.infer<typeof RoomApp>
 
@@ -285,10 +327,12 @@ export const RoomAppList = z.object({
   items: z.array(RoomApp),
   available: z.boolean(),
   max: z.number().int().positive(),
+  /** Email: whether it can be added here. Older servers omit it (no Email) */
+  mail: RoomAppMailAvailability.optional(),
 })
 export type RoomAppList = z.infer<typeof RoomAppList>
 
-/** The address to paste into the service (https://<team address>/in/<token>). */
+/** The address to paste into the service (https://<team address>/in/<token>; an Email app's: its email address). */
 export const RoomAppAddress = z.object({
   address: z.string(),
   /** a secret Trina made for this app ("Make it safer", GitHub's Secret field), when one is set */
@@ -403,7 +447,7 @@ export const ROOM_APPS = {
   listRoomApps: endpoint({ method: 'GET', path: '/api/rooms/:id/apps', auth: 'user', owner: 'B', response: RoomAppList,
     summary: `The apps posting in a room ("Apps posting here") and whether this server can be reached by them at all. ${WHO}` }),
   createRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps', auth: 'user', owner: 'B', status: 201, body: CreateRoomAppBody, response: RoomAppCreated,
-    summary: `Add an app (on the first "Copy address"): its secret address comes back. \`preset\` (only with kind other, 400 otherwise) sets it up as a named service (Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk); it is fixed from then on. ${WHO} At most ${ROOM_APPS_MAX} per room (409 room_apps_full), ${ROOM_APPS_PER_HOUR} added per person and hour (429); 409 no_public_address without an internet address; 400 when the name is a person's in this team. Audited.` }),
+    summary: `Add an app (on the first "Copy address"): its secret address comes back (preset email: an email address, 409 room_email_off while the team has email off, 409 mail_not_connected without a mail service). \`preset\` (only with kind other, 400 otherwise) sets it up as a named service (Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk); it is fixed from then on. ${WHO} At most ${ROOM_APPS_MAX} per room (409 room_apps_full), ${ROOM_APPS_PER_HOUR} added per person and hour (429); 409 no_public_address without an internet address; 400 when the name is a person's in this team. Audited.` }),
   getRoomAppAddress: endpoint({ method: 'GET', path: '/api/rooms/:id/apps/:appId/address', auth: 'user', owner: 'B', response: RoomAppAddress,
     summary: `Copy an app's address again (and a secret Trina made for it). ${WHO}` }),
   updateRoomApp: endpoint({ method: 'PATCH', path: '/api/rooms/:id/apps/:appId', auth: 'user', owner: 'B', body: UpdateRoomAppBody, response: RoomApp,
@@ -411,7 +455,7 @@ export const ROOM_APPS = {
   setRoomAppSecret: endpoint({ method: 'PUT', path: '/api/rooms/:id/apps/:appId/secret', auth: 'user', owner: 'B', body: SetRoomAppSecretBody, response: RoomAppSecretResult,
     summary: `"Make it safer" / "Signing secret (optional)": make a secret (GitHub, Typeform, Tally), save the service's own (Sentry's Client Secret; Stripe's, Shopify's, Zendesk's, Toss Payments' or PortOne's signing secret, Channel Talk's webhook token; checked by its shape; Zendesk's public test secret is refused), or take the secret away. 400 no_signing for a service that cannot sign (plain Other, Google Forms, Notion, Jotform, Jira, HubSpot). Once a secret is saved, unsigned or wrong requests are refused (401). ${WHO} Audited (never the secret).` }),
   rotateRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/rotate', auth: 'user', owner: 'B', response: RoomAppCreated,
-    summary: `"Get a new address": the old one stops working at once. ${WHO} Audited.` }),
+    summary: `"Get a new address": the old one stops working at once (an Email app: mail to the old address is refused from now on; 503 mail_unreachable when the mail service cannot be told, nothing changed). ${WHO} Audited.` }),
   resumeRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/resume', auth: 'user', owner: 'B', response: RoomApp,
     summary: `"Resume now" after the day's cap paused an app: as many messages again today, once a day (409 not_paused / already_resumed; the team's cap still applies). ${WHO} Audited.` }),
   exampleRoomApp: endpoint({ method: 'POST', path: '/api/rooms/:id/apps/:appId/example', auth: 'user', owner: 'B', status: 204, response: empty,
