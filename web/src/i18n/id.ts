@@ -3231,6 +3231,8 @@ export const id: Record<MessageKey, string> = {
   "ask.exactHide": "Sembunyikan isi persis yang dikirim",
   "ask.foldedShow": "Detail",
   "ask.foldedHide": "Sembunyikan detail",
+  "ask.batchMany": "{n} hal untuk dikonfirmasi",
+  "ask.batchOpen": "Buka",
   'notice.openHistory': 'Riwayat versi',
   'notice.openSkills': 'Buka skill tim',
   'notice.open': 'Buka',

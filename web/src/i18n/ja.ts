@@ -3190,6 +3190,8 @@ export const ja: Record<MessageKey, string> = {
   "ask.exactHide": "送信内容をたたむ",
   "ask.foldedShow": "詳細",
   "ask.foldedHide": "詳細をたたむ",
+  "ask.batchMany": "確認すること{n}件",
+  "ask.batchOpen": "開く",
   'notice.openHistory': "バージョン履歴",
   'notice.openSkills': "チームスキルを開く",
   'notice.open': "開く",

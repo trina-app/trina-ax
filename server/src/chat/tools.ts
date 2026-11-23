@@ -31,6 +31,7 @@ import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapRea
 import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
+import { skillBatch } from '../skills/lean-card'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
@@ -144,7 +145,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. Several skills: one call per skill, all together in the same reply, so the user answers them on one card. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** intro_deck's "read" step in a free-roam demo (demo/guard.ts freeRoamToolCallRefused) */
@@ -805,9 +806,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // each call in its own context: a card raised by another call running beside it is never kept with this one
     // (a test's stand-in turn without runAsCall: no tracking, the card waits inside the call)
     if (!exec.runAsCall) return once(name, args, caller)
-    if (!track) return exec.runAsCall(null, () => once(name, args, caller))
+    if (!track) return exec.runAsCall(null, () => once(name, args, caller), name)
     const call = { name, args, deferred: null as string | null }
-    const out = await exec.runAsCall(call, () => once(name, args, caller))
+    const out = await exec.runAsCall(call, () => once(name, args, caller), name)
     if (!call.deferred) return out
     exec.markCallWaiting(name)
     return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
@@ -1247,6 +1248,9 @@ export function copyCodeLine(plan: Pick<MovePlan, 'from' | 'to' | 'files'>, L: L
   return ''
 }
 
+/** the start of SKILL.md a move card shows (the rest opens from its file list) */
+const MOVE_CARD_TEXT = 12_000
+
 // ---------------- move_skill ----------------
 // One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
@@ -1372,9 +1376,11 @@ function moveSkillTool(exec: TurnExec): Tool {
       const cut = plan.text.length > MOVE_TEXT_MAX
       const details: ConfirmDetail[] = [
         ...(fields.length ? [{ label: skillText('moveWho', L), text: '', fields }] : []),
-        { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, MOVE_TEXT_MAX), ...(full ? {} : { collapsedAt: 600 }) },
+        // its start only (the card never carries a skill's whole text: owner 2026-11-23 "무거운것도 문제야"); every file opens
+        // on request from the list below
+        { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut || plan.text.length > MOVE_CARD_TEXT ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, Math.min(MOVE_TEXT_MAX, MOVE_CARD_TEXT)), ...(full ? {} : { collapsedAt: 600 }) },
         // where each file lands (a renamed copy: under its new name)
-        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true },
+        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true, open: plan.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size })) },
       ]
       const base = plan.source.split('/').pop()!
       const narrowHint = !copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? skillText('moveNarrowHint', L, { name: base }).slice(0, 300) : null
@@ -1384,6 +1390,10 @@ function moveSkillTool(exec: TurnExec): Tool {
         copy ? 'copy' : 'move', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
           options, details, ...more,
+          // in plain words first (the skill, what it does, who follows it), the rest behind "자세히"; several of one answer
+          // to the same place are one card (AskUserRequest.batch, skills/lean-card.ts)
+          batch: skillBatch({ tool: 'move_skill', to: plan.to, copy, name: plan.name, text: plan.text, followers: plan.afterPeople,
+            warn: [exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '', copyCodeLine(plan, L)] }, L),
           ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))

@@ -30,6 +30,9 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
+import { pressPlan, type CardLike } from '../../lib/cardBatch'
+import { openTeamFile } from '../../lib/sidePanel'
+import { formatSize } from '../../lib/format'
 
 /** a card's turn and id: where a folded detail's whole text is read (GET /api/turns/:id/requests/:requestId/details/:index) */
 type FullAt = { turnId: string; requestId: string }
@@ -330,6 +333,130 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
 
 interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
 
+/** the first paragraph of a card that reads differently since the press (server open-questions.ts CHANGED_MARK) */
+const CHANGED = '⁣'
+const changedLine = (q: string) => (q.startsWith(CHANGED) ? q.slice(1).split(/\n{2,}/)[0]!.trim() : null)
+
+/**
+ * Several server cards of one kind from one answer as ONE card (web lib/cardBatch.ts; AskUserRequest.batch), or one card
+ * that leads in plain words (`batch.item`: a skill to the team). It says what happens to how many, each item on a line
+ * (its name, a line about it, a warning it must not hide), the summary once, and one set of buttons; with two or more
+ * each item has a tick (an unticked one is sent its card's "no"). Lean items keep their question, paths, names and
+ * files behind one "자세히"; the others show their question and details as their own card would.
+ */
+export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] }) {
+  const t = useT()
+  const locale = useLocale()
+  const answer = useChats((s) => s.answer)
+  const name = useId()
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set(cards.map((c) => c.request.requestId)))
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const asks = cards.map((c) => c.request).filter((r): r is Extract<typeof r, { kind: 'ask_user' }> => r.kind === 'ask_user')
+  const seen = useRef(new Set(cards.map((c) => c.request.requestId)))
+  // a card that arrived after the first render is ticked too
+  useEffect(() => {
+    const fresh = asks.filter((r) => !seen.current.has(r.requestId)).map((r) => r.requestId)
+    if (!fresh.length) return
+    for (const id of fresh) seen.current.add(id)
+    setTicked((p) => new Set([...p, ...fresh]))
+  })
+  const first = asks[0]
+  if (!first) return null
+  const options = first.options ?? []
+  const n = asks.length
+  const lean = asks.every((r) => !!r.batch?.item)
+  const b = first.batch
+  const head = n === 1 ? (b?.one ?? first.question) : (b?.many ? b.many.split('{n}').join(String(n)) : t('ask.batchMany', { n }))
+  const summaries = [...new Set(asks.map((r) => (n > 1 ? r.batch?.summaryMany ?? r.batch?.summary : r.batch?.summary)).filter((x): x is string => !!x))]
+  const changed = asks.map((r) => changedLine(r.question)).find((x) => !!x) ?? null
+  const press = async (v: string) => {
+    setBusy(v)
+    setError(null)
+    try {
+      for (const a of pressPlan(cards, v, ticked)) {
+        // a card another press of the same answer closed (an "Always allow" answers its kind): nothing to send
+        if (!useChats.getState().requests[a.requestId]) continue
+        await answer(a.requestId, { kind: 'ask_user', answer: a.answer })
+      }
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+      setBusy(null)
+    }
+  }
+  const noValue = options.at(-1)?.value
+  const noneTicked = n > 1 && ![...ticked].some((id) => asks.some((r) => r.requestId === id))
+  const choice = (o: { label: string; value: string }): Choice => ({ label: o.label, value: o.value, testId: 'ask-choice', busy: busy === o.value, onClick: () => void press(o.value) })
+  return (
+    <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="batch" data-count={n}>
+      <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+        <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
+      </p>
+      {changed && <p className="mt-1 text-xs text-warn" data-testid="ask-batch-changed">{changed}</p>}
+      <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]" data-testid="ask-batch-head">{lean ? head : n === 1 ? <QuestionText r={first} /> : head}</p>
+      <ul className="mt-2 space-y-1.5" data-testid="ask-batch-items">
+        {asks.map((r) => {
+          const on = ticked.has(r.requestId)
+          const body = r.batch?.item ? (
+            <span className="min-w-0">
+              <span className="font-medium [overflow-wrap:anywhere]" data-testid="ask-batch-name">{r.batch.item}</span>
+              {r.batch.about && <span className="block text-xs text-muted [overflow-wrap:anywhere]" data-testid="ask-batch-about">{r.batch.about}</span>}
+              {r.batch.warn && <span className="block text-xs text-warn [overflow-wrap:anywhere]" data-testid="ask-batch-warn">{r.batch.warn}</span>}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1">
+              {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-${r.requestId}`} /> : <span className="block whitespace-pre-wrap [overflow-wrap:anywhere]"><QuestionText r={r} /></span>}
+              {r.preview && <span className="mt-1.5 block"><SkillPreview p={r.preview} /></span>}
+              {!r.share && r.details?.length ? <Details items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
+            </span>
+          )
+          return (
+            <li key={r.requestId} className="text-sm" data-testid="ask-batch-item">
+              {n > 1 ? (
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input type="checkbox" className="mt-1 accent-[var(--c-accent)]" checked={on} disabled={!!busy} onChange={() => setTicked((p) => { const x = new Set(p); if (x.has(r.requestId)) x.delete(r.requestId); else x.add(r.requestId); return x })} data-testid="ask-batch-tick" />
+                  {body}
+                </label>
+              ) : body}
+            </li>
+          )
+        })}
+      </ul>
+      {summaries.map((x) => <p key={x} className="mt-2 text-sm text-muted" data-testid="ask-batch-summary">{x}</p>)}
+      {lean && (
+        <div className="mt-2" data-testid="ask-details-hidden">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-1 text-left text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="ask-details-toggle">
+            {open ? t('ask.foldedHide') : t('ask.foldedShow')}
+          </button>
+          {open && (
+            <div className="mt-1 space-y-3" data-testid="ask-batch-details">
+              {asks.map((r) => (
+                <div key={r.requestId} className="border-l-2 border-line pl-3">
+                  {n > 1 && <p className="text-xs font-medium">{r.batch?.item}</p>}
+                  <p className="whitespace-pre-wrap text-xs text-muted [overflow-wrap:anywhere]">{r.question.replace(CHANGED, '')}</p>
+                  {r.details?.length ? <DetailsShown items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {options.length === 2 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
+          <Button size="sm" variant="ghost" disabled={!!busy} busy={busy === options[1]!.value} onClick={() => void press(options[1]!.value)} data-testid="ask-no">{options[1]!.label}</Button>
+          <Button size="sm" variant="primary" disabled={!!busy || noneTicked} busy={busy === options[0]!.value} onClick={() => void press(options[0]!.value)} data-testid="ask-yes">{options[0]!.label}</Button>
+        </div>
+      ) : (
+        <ChoiceRow className="mt-3" busy={!!busy} error={error}
+          choices={options.map((o) => ({ ...choice(o), ...(noneTicked && o.value !== noValue ? { onClick: () => {} } : {}) })) as [Choice, Choice, Choice]} />
+      )}
+      {first.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{first.note}</p>}
+    </div>
+  )
+}
+
 /** A server card's question, with the part the server marks (AskUserRequest.placeTip: the wider-audience card's file
  * name) showing the whole place on hover (docs/decisions/20261122-widening-card-wording.md). */
 function QuestionText({ r }: { r: { question: string; placeTip?: { text: string; title: string } } }) {
@@ -525,7 +652,7 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
                 </dl>
               </div>
             ) : null}
-            {d.text && (
+            {d.open?.length ? <OpenList d={d} /> : d.text && (
               <Folded d={d} plain>
               <Exact d={d} plain>
                 <div>
@@ -577,9 +704,32 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <Folded d={d}><Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact></Folded>}
+          {d.open?.length ? <OpenList d={d} /> : d.text && <Folded d={d}><Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact></Folded>}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** A detail's files by name and size, each opened on request in the file viewer (ConfirmDetail.open: a skill's files;
+ * the card never carries their whole text). */
+function OpenList({ d }: { d: ConfirmDetail }) {
+  const t = useT()
+  const locale = useLocale()
+  return (
+    <div>
+      <p className="text-xs text-faint">{d.label}</p>
+      <ul className="scroll-thin mt-1 max-h-64 space-y-0.5 overflow-auto border-l-2 border-line pl-3" data-testid="ask-detail-open">
+        {d.open!.map((f) => (
+          <li key={f.path} className="flex items-baseline gap-2 text-xs">
+            <button type="button" className="min-w-0 truncate text-left text-accent-text hover:underline" title={f.path} onClick={() => openTeamFile(f.path)} data-testid="ask-detail-open-file">
+              {f.path.split('/').at(-1)}
+            </button>
+            <span className="shrink-0 font-mono text-faint">{formatSize(f.size, locale)}</span>
+            <span className="sr-only">{t('ask.batchOpen')}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

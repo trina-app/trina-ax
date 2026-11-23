@@ -252,7 +252,7 @@ type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
 /** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
 /** `full`: the whole texts of the card's details it carries only the start of (chat/card-fold.ts), by detail index */
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number; full?: Map<number, string> }
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number; full?: Map<number, string>; always?: CardAlwaysKind | null }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -389,6 +389,14 @@ export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit',
 
 /** the tracked call of the async context a card is raised in (TurnExec.callNow) */
 const CALL_NOW = new AsyncLocalStorage<{ name: string; args: unknown; deferred: string | null }>()
+/** the tool of the async context a card is raised in, tracked or not: a server card's group key (AskUserRequest.batch) */
+const TOOL_NOW = new AsyncLocalStorage<string>()
+
+/** A server card raised inside a tool call, with the tool's name as its group key when it has none of its own. */
+export function batchKeyed(request: TurnRequest, tool: string | null): TurnRequest {
+  if (!tool || request.kind !== 'ask_user' || request.origin !== 'server' || request.batch) return request
+  return { ...request, batch: { key: `tool:${tool}` } }
+}
 
 export class TurnExec {
   content = ''
@@ -5397,7 +5405,10 @@ export class TurnExec {
    * another call must never be kept with this one); `deferred` names the card it left open */
   get callNow(): { name: string; args: unknown; deferred: string | null } | null { return CALL_NOW.getStore() ?? null }
   /** run `fn` as `call` (callNow inside it); null: as no tracked call */
-  runAsCall<T>(call: { name: string; args: unknown; deferred: string | null } | null, fn: () => Promise<T>): Promise<T> { return call ? CALL_NOW.run(call, fn) : CALL_NOW.exit(fn) }
+  runAsCall<T>(call: { name: string; args: unknown; deferred: string | null } | null, fn: () => Promise<T>, tool?: string): Promise<T> {
+    const inner = () => (call ? CALL_NOW.run(call, fn) : CALL_NOW.exit(fn))
+    return tool ? TOOL_NOW.run(tool, inner) : inner()
+  }
   /** the call the person's answer runs again (replayCalls): its cards take their answers at once, each once, in order
    * (`answers`: the earlier cards of the call and the card they pressed last) */
   private replaying: { answers: (PriorAnswer & { used: boolean })[]; changedSaid: boolean } | null = null
@@ -5506,6 +5517,9 @@ export class TurnExec {
     // a server card never shows a chat place as a raw path (chat:files/<id>/…, chat:work/…): its words, as a step's
     // (cardPlaceWords; QA re-smoke: an edit_pdf card in a shared chat named "chat:files/<uuid>/…")
     request = cardPlaceWords(request, this.spec.locale)
+    // a server card of a tool call groups with the same tool's cards of this answer (AskUserRequest.batch): one card, one
+    // press. A tool that says nothing of its own gets its name as the key; its items keep their whole question
+    request = batchKeyed(request, TOOL_NOW.getStore() ?? null)
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
     o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
@@ -5542,7 +5556,7 @@ export class TurnExec {
     const { request, full } = foldCardDetails(asked)
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now(), ...(full ? { full } : {}) })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now(), ...(full ? { full } : {}), always: this.alwaysOffer })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
       if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
@@ -5588,6 +5602,15 @@ export class TurnExec {
     // a connect_service card ends only with an outcome POST /api/turns/:id/connect made (/answer cannot name the kind)
     if (r.request.kind === 'connect_service' && value !== null && !ConnectOutcome.safeParse(value).success) return 'not_an_option'
     this.closeRequest(requestId, value, 'answered')
+    // "항상 허용하면 뒤에것들은 안해도 되어야지" (owner, 2026-11-23): Always on one card answers every other open card of
+    // the same kind of this answer with it, so their calls go on at once (each keeps the choice: withAlways)
+    const one = Array.isArray(value) && value.length === 1 ? value[0] : value
+    if ((one === ALWAYS_VALUE || one === ALWAYS_CHAT_VALUE) && r.always) {
+      for (const [id, x] of [...this.requests]) {
+        if (x.always !== r.always || x.request.kind !== 'ask_user' || !(x.request.options ?? []).some((o) => o.value === one)) continue
+        this.closeRequest(id, value, 'answered')
+      }
+    }
     return 'ok'
   }
 
