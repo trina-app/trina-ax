@@ -5,14 +5,12 @@
 // count: store/skillsWaiting.ts), then
 // the owner's setup row while it shows (onboarding/SetupRow.tsx, on every panel: docs/DECISIONS.md W5). Under them, in
 // its own scroll, the Trina list (panels/TrinaList.tsx: 답을 기다려요 · 고정 · 최근 기록; 삭제한 기록 is in 최근 기록's
-// "⋯", rarely needed). The header's filter button (status, last activity, group by, sort; Group by defaults to None,
-// the flat list: docs/DECISIONS.md "Trina history: Group by defaults to None") shows the whole history filtered instead
-// (nav/HistoryList.tsx, the chats this window has loaded and "더 보기"; "Group by: Project" by hand groups it with the
-// caps of "Trina history by project"), with one line that says what is filtered and a way back.
+// "⋯", rarely needed). The filter (status, last activity, group by, sort) is on the 트리나 기록 header, above the list it
+// controls (docs/decisions/20261123-history-filter-place.md); TrinaList shows the filtered history there.
 import { isGuestMe } from '../../lib/guests'
 import { useMe } from '../../store/session'
 import { useFreeRoam } from '../../store/demo'
-import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
+import { BookMarked, CalendarClock, Search } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { platform } from '../../lib/pwa'
@@ -21,20 +19,15 @@ import { aiName } from '../../lib/tabs'
 import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
-import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
+import { useRecentsView } from '../nav/HistoryList'
 import { CountPill } from '../CountPill'
-import { Tooltip } from '../Tooltip'
 import { TrinaList } from './TrinaList'
 import { SetupRow } from '../onboarding/SetupRow'
 import { AiMark } from '../rooms/AiFace'
-import { headBox } from '../list/List'
 import { PanelFrame, panelRow, panelRowActive } from './PanelFrame'
 
 const onMac = () => platform() === 'mac' || platform() === 'ios'
 const kbd = 'ml-auto hidden font-sans text-micro text-faint lg:inline'
-const noop = () => {}
-/** "Group by: Project" chosen by hand: five projects, three rows each (docs/DECISIONS.md "Trina history by project") */
-const GROUP_CAPS = { projects: 5, rows: 3 }
 
 export function TrinaPanel() {
   const t = useT()
@@ -46,13 +39,11 @@ export function TrinaPanel() {
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const peek = useChatPeek()
   const view = useRecentsView()
-  const filtered = view.changed.length > 0
   return (
     <PanelFrame
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
-      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} base={view.base} />}
       top={
         <>
           <button type="button" className={`${panelRow} font-medium`} onClick={() => navigate('/')} data-testid="new-chat">
@@ -81,21 +72,7 @@ export function TrinaPanel() {
         </>
       }
     >
-      {filtered ? (
-        <>
-          <div className={`${headBox} pr-1 pl-3 text-meta text-faint`} data-testid="recents-filter-label">
-            <span className="min-w-0 flex-1 truncate">{viewWords(view, t)}</span>
-            <Tooltip label={t('sidebar.filter.clear')}>
-              <button type="button" onClick={() => view.setView(view.base)} aria-label={t('sidebar.filter.clear')} className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
-                <X size={12} aria-hidden />
-              </button>
-            </Tooltip>
-          </div>
-          <HistoryList onNavigate={noop} peek={peek} viewState={view} caps={GROUP_CAPS} />
-        </>
-      ) : (
-        <TrinaList peek={peek} />
-      )}
+      <TrinaList peek={peek} viewState={view} />
       {peek.card}
     </PanelFrame>
   )

@@ -1,14 +1,14 @@
 // The phone 트리나 tab's drawer (below 768 px; ☰ in the top bar on Home, components/PhoneTopBar.tsx), as it was before
 // the navigation redesign (the owner, 2026-11-13: "the phone 트리나 tab must be identical to how it was before"; docs/
 // DECISIONS.md "Phones: Home like the AI apps, the history behind ☰"): the AI's name with the product's mark on top, then
-// 검색, 예약 작업 and 팀 스킬, then "트리나 기록" (it folds; the filter and sort menu beside it; the whole history by
-// date: 오늘, 어제 …, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
+// 검색, 예약 작업 and 팀 스킬, then "트리나 기록" (it folds; the filter and a "⋯" with New section on its header:
+// docs/decisions/20261123-history-filter-place.md; the whole history by date: 오늘, 어제 …, nav/HistoryList.tsx), and at the bottom my status and 삭제한 기록. It closes when a page opens and
 // on Back (lib/backCloses.ts), on Esc, and with a tap beside it.
 import { useMe } from '../../store/session'
 import { useFreeRoam } from '../../store/demo'
 import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
-import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
+import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
@@ -18,7 +18,7 @@ import { badgeText } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
-import { HistoryList, RecentsMenu, useHistorySections, useRecentsView, viewWords } from '../nav/HistoryList'
+import { HistoryFilterLine, HistoryHeadActions, HistoryList, useHistorySections, useRecentsView } from '../nav/HistoryList'
 import { ChatItem, useChatPeek } from '../nav/ChatItem'
 import { HistorySections } from '../nav/HistorySections'
 import { leftSectionToast } from '../nav/SidebarSections'
@@ -29,7 +29,6 @@ import { SetupRow } from '../onboarding/SetupRow'
 import { CountPill } from '../CountPill'
 import { ListRow } from '../list/List'
 import { openStatusDialog, useMyStatusWords } from '../StatusMessage'
-import { Tooltip } from '../Tooltip'
 
 /** whether the drawer is open (☰ opens it) */
 export const useTrinaDrawer = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }))
@@ -138,28 +137,17 @@ function DrawerBody({ close }: { close: () => void }) {
         {/* my sections, each a header of its own above 트리나 기록 (docs/decisions/20261122-trina-history-sections.md), in
             the same type as 트리나 기록's header (UX review 1: a section is the same level) */}
         <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />} filtered={filtered} className="mt-2 [&_h3]:text-sm [&_h3]:text-ink" />
-        <div className="flex items-center gap-1 pt-2 pr-1 pl-3" data-testid="recents-head">
-          <h2 className="shrink-0 text-sm font-semibold whitespace-nowrap text-ink">
-            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
+        <div className="flex items-center justify-between gap-1 pt-2 pr-1 pl-3" data-testid="recents-head">
+          <h2 className="min-w-0 truncate text-sm font-semibold whitespace-nowrap text-ink">
+            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggle} className="flex min-h-11 items-center gap-1 rounded hover:text-muted" data-testid="recents-toggle">
               {t('sidebar.aiChats', { name: aiName(t) })}
               <ChevronDown size={14} className={clsx('text-faint transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
             </button>
           </h2>
-          {filtered && (
-            <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
-              <span aria-hidden>·</span>
-              <span className="truncate">{viewWords(view, t)}</span>
-              <Tooltip label={t('sidebar.filter.clear')}>
-                <button type="button" onClick={() => view.setView(view.base)} aria-label={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
-                  <X size={11} aria-hidden />
-                </button>
-              </Tooltip>
-            </span>
-          )}
-          <span className="ml-auto">
-            <RecentsMenu view={view.view} onChange={view.setView} changed={filtered} base={view.base} />
-          </span>
+          <HistoryHeadActions state={view} folded={!recentsOpen} />
         </div>
+        {/* what is filtered stays in sight while the list is folded */}
+        {filtered && <HistoryFilterLine state={view} />}
         <div id={listId} hidden={!recentsOpen}>
           {recentsOpen && <HistoryList onNavigate={close} peek={peek} viewState={view} sections={view.view.group === 'project' ? undefined : sections} />}
         </div>

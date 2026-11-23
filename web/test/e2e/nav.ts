@@ -165,7 +165,7 @@ export async function showChats(page: Page) {
 /** The AI's history list (`showChats` first): the Trina list, its filtered view while a filter is on, or a phone
  * drawer's history. Chat rows
  * inside are `li` with a link to `/c/<id>`. */
-export const navChatList = (page: Page) => page.getByTestId('trina-list').or(page.getByTestId('recents-list'))
+export const navChatList = (page: Page) => page.getByTestId('recents-list').or(page.getByTestId('trina-list').filter({ hasNot: page.getByTestId('recents-list') }))
 
 /** One chat's row there, by its id or its title. */
 export const navChatRow = (page: Page, chat: { id: string } | { title: string | RegExp }) =>

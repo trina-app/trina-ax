@@ -203,10 +203,8 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
     `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
     `${t['sidebar.view.group']}${t['sidebar.group.date']}`,
     `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
-    // my sections of the history (docs/decisions/20261122-trina-history-sections.md)
-    t['sidebarSections.new'],
   ])
-  await expect(menu.getByRole('separator')).toHaveCount(2)
+  await expect(menu.getByRole('separator')).toHaveCount(1)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
   await page.keyboard.press('Escape')
   const choose = async (key: string, id: string) => {
