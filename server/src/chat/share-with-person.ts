@@ -16,14 +16,14 @@
 // message, named in it, or that the AI made in this turn (otherwise another member's message could point the AI at the
 // asker's files). The explicit-ask skip (no card when the person's own message asked for exactly this share) is our own
 // text match, so it never applies where other people's words are.
-import { keepPick, saysTitle } from './person-aliases'
+import { keepPick, saysTitle, titleNames } from './person-aliases'
 import { askerMessageId, madeHere } from './asked-in'
 import { ShareWithPersonInput } from '@mycel/shared'
 import { plainLabel, type Step, type ShareCardFile, type StepShared } from '@mycel/shared/api'
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
 import { Denied, ToolError } from '../policy/errors'
-import { findPeople, PERSON_REF, type Teammate } from '../rooms/reader'
+import { resolvedByTitle, findPeople, PERSON_REF, type Teammate } from '../rooms/reader'
 import { fileSharesOf, linkIdOf } from '../files/shares'
 import { isStaff } from '../policy/access'
 import { isGuestUser } from '../credentials/guest-ai'
@@ -304,7 +304,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 // (never while a waiting call runs again with the person's press, exec.askedIn: that run always reaches the card the
         // press is checked against, docs/decisions/20261122-late-card-answer-resumes.md)
         const explicit = !exec.askedIn && !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && asksFor(SHARE_ASK, said)
-          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }) || saysTitle(said, titles.get(w.subjectId)))
+          && who.every((w) => w.subjectType === 'group' ? namesGroup(said, w.name) : namedInFull(said, recipientWords(db, w), { peers: peersOf(w) }) || saysTitle(said, titles.get(w.subjectId)) || titleNames(said, w.subjectId, (k) => resolvedByTitle(db, spec.userId, k, { projectId: (db.query('SELECT project_id FROM chats WHERE id = ?').get(spec.chatId) as { project_id: string | null } | null)?.project_id ?? null })))
           && plan.every((f) => mine.has(f.path) || namesFileLoose(said, f.path))
         // the card offers "Always allow" on its first showing wherever the choice counts, and once on it is final (Rule A,
         // #1143): a target from the screen (fromLook) only stops the explicit-ask skip above, never the person's own choice

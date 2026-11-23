@@ -66,3 +66,20 @@ export function quietRun(db: import('bun:sqlite').Database, turnId: string | nul
     return !!r?.q
   } catch { return true }
 }
+
+/**
+ * A chat of the person's that never took in anything another person wrote, in any session (security review of
+ * 34deea9c0): its own marks (others_words, rooms_seen, room_outside), every turn of it with no outside content (a turn's
+ * mark survives a new session), no side chat of a room, no quoted room message on the answer's branch, nobody else wrote
+ * in it. Its answers are then the person's own work also where the read scope cannot list every source. Fails closed.
+ */
+export function ownWorkChat(db: import('bun:sqlite').Database, chatId: string, userId: string, answerId: string | null, quotes: (db: import('bun:sqlite').Database, answerId: string) => boolean): boolean {
+  try {
+    const ch = db.query('SELECT user_id, others_words, rooms_seen, room_outside, side_room_id FROM chats WHERE id = ?').get(chatId) as { user_id: string; others_words: number; rooms_seen: number | null; room_outside: number; side_room_id: string | null } | null
+    if (!ch || ch.user_id !== userId || ch.others_words || ch.rooms_seen || ch.room_outside || ch.side_room_id) return false
+    if (db.query('SELECT 1 FROM turns WHERE chat_id = ? AND outside_content <> 0 LIMIT 1').get(chatId)) return false
+    if (db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, userId)) return false
+    if (answerId && quotes(db, answerId)) return false
+    return true
+  } catch { return false }
+}

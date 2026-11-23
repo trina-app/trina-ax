@@ -13,6 +13,7 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
 import { createTool } from '../../server/src/integrations/connections/tools'
 import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
+import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import type { CountedSource } from '../../server/src/chat/answer-share'
 
 setDefaultTimeout(60_000)
@@ -68,6 +69,13 @@ describe('the create tier (connections/tools.ts createTool)', () => {
     expect(createTool({ google_app: 'docs' }, t('create_document'), {})).toBe(false)
     expect(createTool({ google_app: null }, t('create​_app'), {})).toBe(false)
     expect(createTool({ google_app: null }, t('create_app', { title: 'Create and publish app' }), {})).toBe(false)
+  })
+})
+
+describe('tools that never mark the chat as having used something from outside', () => {
+  test('a subset of the own-words tools, never a sub-agent, a skill or a new connection', () => {
+    for (const t of NO_OUTSIDE_TOOLS) expect([t, OWN_WORDS_TOOLS.has(t)]).toEqual([t, true])
+    for (const t of ['connect_service', 'skill', 'agent', 'Agent', 'Task', 'web_fetch', 'room_read', 'save_url', 'box_shell']) expect([t, NO_OUTSIDE_TOOLS.has(t)]).toEqual([t, false])
   })
 })
 
@@ -225,6 +233,11 @@ describe('the AI\'s work in my own chat is mine (the owner, 2026-11-23)', () => 
     const room = await turn('alice', `이거 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
     expect(room.card).toBeNull()
     expect(room.content).toContain('"status":"sent"')
+    // the same again (QA F5 shared1-sh2): still no card, and the chat is not marked as having read anything from outside
+    const again = await turn('alice', `이거 Carol Park한테 보내줘\n${post({ room: 'Carol Park', text: `Proposal again: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    expect(again.card).toBeNull()
+    // (a chat that only made a file and sent it read nothing from outside: chats.room_outside stays 0)
+    expect(h.ctx.db.query('SELECT rooms_seen, others_words, room_outside FROM chats WHERE id = ?').get(c)).toEqual({ rooms_seen: 0, others_words: 0, room_outside: 0 })
   })
 })
 
@@ -276,6 +289,18 @@ describe('a title names one person (chat/person-aliases.ts)', () => {
       expect((await messagesAs('carol', dm.id)).at(-1)!.body).toBe('회의 10시')
     } finally { h.ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run('carol') }
   })
+  test('"팀장님한테 보내줘" again, the AI giving the name it learned: still the person the title names, no card; another name asks', async () => {
+    title('carol', '팀장')
+    try {
+      const r = await turn('alice', `이거 팀장님한테 보내줘\n${post({ room: 'Carol Park', text: '회의 10시 (다시)' })}`)
+      expect(r.card).toBeNull()
+      expect(r.content).toContain('"status":"sent"')
+      // the title names carol, not erin: a post to erin on "팀장님" asks
+      const other = await turn('alice', `이거 팀장님한테 보내줘\n${post({ room: 'Erin Yoo', text: 'x' })}`, { answer: 'no' }).catch(() => null)
+      expect(other === null || other.card !== null).toBe(true)
+    } finally { h.ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run('carol') }
+  })
+
   test('two people with the title: nothing is sent to either without the person\'s pick', async () => {
     title('carol', '팀장'); title('dana', '팀장')
     try {

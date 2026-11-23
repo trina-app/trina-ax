@@ -162,7 +162,7 @@ import { demoFakesOf } from '../demo/fakes'
 import { bannerSourceFor } from '../tools/demo-banner'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, NO_OUTSIDE_TOOLS, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
 import { explicitPlaceAsk } from './explicit-place'
@@ -3134,7 +3134,7 @@ export class TurnExec {
     // sameAnswerTarget; a read of the work folder brings in what earlier commands fetched)
     const run = tool === 'box_shell'
     if (this.workRead(tool, input)) tool = 'box_shell'
-    if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside({ run })
+    if (!OWN_CHAT_TEAM_TOOLS.has(tool) && !NO_OUTSIDE_TOOLS.has(tool)) this.markOutside({ run })
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
@@ -4435,7 +4435,9 @@ export class TurnExec {
     // 2026-11-23, docs/decisions/20261123-do-then-undo.md: "개인 폴더 읽기 카드" in QA F10): no card. Never a share of it
     // (another person's), never a skill, never a save card
     // (only their folder's files, never what their browser or a connection showed; never with a guest among the people)
-    if (this.shared?.kind === 'project' && !kind.save && !skillUse && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+    // (and a chat of their own they shared with people: the owner's "내 채팅", QA F5 new-sh)
+    const ownShared = this.shared?.kind === 'people' && (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id === this.spec.userId
+    if ((this.shared?.kind === 'project' || ownShared) && !kind.save && !skillUse && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
     if (!missing.length) return this.noteSharedReads(sources, audience) ? null : refuse('failed')

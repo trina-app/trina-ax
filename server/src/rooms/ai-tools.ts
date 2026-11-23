@@ -280,6 +280,17 @@ export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule
  */
 export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'answer_comments', 'set_title', 'remember'])
 
+/** Tools that only make, change, send or list the person's own things and fetch nothing from outside the team (a subset
+ * of OWN_WORDS_TOOLS: never a sub-agent, a skill or a new connection): they never mark a chat as having used something
+ * from outside (chat/turn.ts noteRoomTool). Before 2026-11-23 a make_file or a post_to_room did, so a chat that only made
+ * a file and sent it read as "used something from outside" (chats.room_outside, QA F5: docs/decisions/20261123-do-then-undo.md) */
+export const NO_OUTSIDE_TOOLS: ReadonlySet<string> = new Set([
+  'edit_files', 'comment_docx', 'edit_office', 'ask_user', 'todo_write',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
+  'set_title', 'remember', 'forget', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
+  'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'rename_files', 'save_work_file',
+])
+
 /**
  * Tools that by themselves bring nothing another person wrote into a person's own chat (chat/turn.ts noteOthersTool;
  * docs/decisions/20261116-always-allow-more-cards.md "Content written by others"): the file tools (what they read is

@@ -56,10 +56,10 @@ import { askerMessageId, askerSpec, askingAnswerId, madeHere } from './asked-in'
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
-import { approvedSources, floorFree, inOwnFolder } from './explicit-send'
-import { keepPick, saysTitle } from './person-aliases'
+import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
+import { keepPick, saysTitle, titleNames } from './person-aliases'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
-import { readRooms } from './read-rooms'
+import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
@@ -71,7 +71,7 @@ import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentio
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
 import { redactorFor } from '../integrations/connections/redact'
-import { findPeople, findRoom, localTime, PERSON_REF, TITLE_REF_LINE, titleOf, type Teammate } from '../rooms/reader'
+import { findPeople, findRoom, localTime, PERSON_REF, resolvedByTitle, TITLE_REF_LINE, titleOf, type Teammate } from '../rooms/reader'
 import { roomsOf } from '../rooms/service'
 import { groupName, isOwnerOrAdmin, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyRoom } from '../rooms/history'
@@ -685,8 +685,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         })
         // (the place in the person's own words, whatever the chat read: the "after a room read" rule below is applied by
         // each use of it, as the explicit ask keeps it and one card per source does not)
+        // the one person a 1:1 post goes to (a new 1:1 chat, or the other member of the DM)
+        const personOf = () => pendingTo?.id ?? (mine?.room.kind === 'dm' ? (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').get(mine.room.id, spec.userId) as { user_id: string } | null)?.user_id ?? null : null)
         const placeSaid = a.data.room === undefined ? !!side && a.data.thread_id === undefined
-          : a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) || (r.person && saysTitle(said, byTitle)) })()
+          : a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) || (r.person && (saysTitle(said, byTitle) || (!!personOf() && titleNames(said, personOf()!, (k) => resolvedByTitle(db, spec.userId, k, { projectId: projectOf(db, spec.chatId) }))))) })()
         const place = placeSaid && (a.data.room === undefined || !readRooms(exec))
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
         // (chat/looking-at.ts): unless their own message names it, the explicit ask does not skip the card
@@ -724,7 +726,15 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a project chat: its own project folder is the person's work with their project, the owner's F10 "견적서")
         const projectFolder = (() => { const p = db.query('SELECT p.folder_path AS f FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(spec.chatId) as { f: string } | null; return p?.f ? p.f.replace(/\/+$/, '') : null })()
         const projectFolderId = projectFolder ? (db.query('SELECT id FROM folders WHERE path = ?').get(projectFolder) as { id: string } | null)?.id ?? null : null
-        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()
+        // a chat that never read anything another person wrote (no room or DM, no teammate's file, page or service: the
+        // chat's own marks, others_words and rooms_seen) holds only the person's own work: whatever its answers read is
+        // theirs, also where the server cannot list every source ("참고한 자료를 다 알 수 없어요", QA F5 new-sh/new-po)
+        const ownWorkOnly = !readRooms(exec) && !exec.othersWords && !exec.otherAuthors && ownWorkChat(db, spec.chatId, spec.userId, spec.assistantId ?? null, quotesOnBranch)
+          // (and every file that goes carries nothing someone else wrote: a file of mine made from a teammate's earlier)
+          && [...attached].every((rel) => { try { return exec.ownFileOutside(rel) === 0 } catch { return false } })
+        // (only where the server cannot list every source: a known one some there cannot see still takes the floor)
+        const notKnown = !pvNow || pvNow.unknown || pvNow.otherPlaces || pvNow.keys.length !== (pvNow.counted?.length ?? 0)
+        const explicitNew = wordsAsk && ((ownWorkOnly && notKnown) || (!!pvNow && (() => { try { return floorFree(pvNow!, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()))
         // after a room read (a DM or a private channel read in this chat: QA F5 #2 and #3 sent the same content
         // twice): the second post of the same sources to a place the person's own words name goes on the first card's yes
         // (one card per source; the person's "Always allow" covers the first too, Rule A)

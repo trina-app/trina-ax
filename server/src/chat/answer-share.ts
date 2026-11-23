@@ -53,7 +53,7 @@
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
-import { floorFree, inOwnFolder } from './explicit-send'
+import { floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { isGuestUser } from '../credentials/guest-ai'
 import { instructionFiles } from './prompt'
 import type { Database } from 'bun:sqlite'
@@ -88,7 +88,7 @@ import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
 import { ownPaste } from './own-paste'
-import { roomMessagesSeen } from './read-rooms'
+import { quotesOnBranch, roomMessagesSeen } from './read-rooms'
 import { alwaysOn } from './always-allow'
 import { fileSharesOf } from '../files/shares'
 
@@ -494,7 +494,7 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
   const peopleWithout = async (): Promise<number> => unablePeople({ audience, rows }, new Set(), await provenance(new Set()))
 
-  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts, userId, db: ctx.db }
+  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts, userId, db: ctx.db, chatId }
 }
 
 /** An artifact that goes with a shared answer as a file: the version the answer made (or the newest on its branch), the
@@ -936,7 +936,12 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   // Only on a first ask: one asked again (changed, or another choice of files) is always shown. Every file that would go
   // as a copy is the person's own (their folder), so nothing of a team folder rides along unseen
   // (never with a guest among the people who would see it: someone from outside the team, as post_to_room keeps)
-  const direct = !reason && !hidden && floorFree(prov, c.userId, () => false, new Set(), (id) => (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === c.userId) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
+  // (a chat of the person's own that never read anything another person wrote and nobody else wrote in: its answers are
+  // their own work, whatever the scope can list; post-to-room.ts ownWorkOnly)
+  const ownWork = ownWorkChat(c.db, c.chatId, c.userId, null, quotesOnBranch) && (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(c.chatId) as { user_id: string } | null)?.user_id === c.userId
+  // (only where the scope cannot say what it read: a known source some member cannot see still takes the floor)
+  const notKnown = prov.unknown || prov.otherPlaces || prov.keys.length !== (prov.counted?.length ?? 0)
+  const direct = !reason && !hidden && ((ownWork && notKnown) || floorFree(prov, c.userId, () => false, new Set(), (id) => (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === c.userId)) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
     && !c.audience.some((id) => isGuestUser(c.db, id))
   return {
     status: 'confirm', ...(direct ? { direct: true as const } : {}), people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
