@@ -474,14 +474,17 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     const e = (textEdits.get(p.para) ?? []).find((x) => x.at <= p.to! && p.from! <= x.at + x.len)
     if (e) refuse(`changes ${Math.min(e.change, p.change) + 1} and ${Math.max(e.change, p.change) + 1} touch the same text; put the picture in a separate call`)
   }
-  // a seal inside a run whose text a fill of the same call also changes ("Name: ____ (seal)" in one w:t): the two rewrite
-  // the same element, so the picture goes in with the new text, at a stand-in character that marks its place
+  // a seal inside a run whose text a fill of the same call also changes ("Name: ____ (seal)" in one w:t), or that holds a
+  // second seal: they rewrite the same element, so the picture goes in with the new text, at a stand-in character that marks its place
   const standIn = new Map<Para, { at: number; len: number; text: string; change: number }[]>()
   const drawn = new Map<string, string>()
   for (const p of picAt) {
-    if (!p.para || !p.splice || p.splice.to === p.splice.from || !textEdits.has(p.para)) continue
+    if (!p.para || !p.splice || p.splice.to === p.splice.from) continue
     const piece = pieceAt(p.para, p.at!)!
-    if (!textEdits.get(p.para)!.some((e) => e.at < piece.at + piece.text.length && e.at + e.len > piece.at)) continue
+    const filled = (textEdits.get(p.para) ?? []).some((e) => e.at < piece.at + piece.text.length && e.at + e.len > piece.at)
+    // two seals in one run (both signers of "A (seal)  B (seal)") rewrite the same element too
+    const shared = picAt.some((o) => o !== p && o.splice && o.splice.from === p.splice!.from && o.splice.to === p.splice!.to)
+    if (!filled && !shared) continue
     if (/[\u{F0000}-\u{F00FF}]/u.test(p.para.text)) continue
     const mark = String.fromCodePoint(0xf0000 + drawn.size)
     drawn.set(mark, p.drawing!)
@@ -498,6 +501,9 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     // one paragraph, one before and after (the read-back counts them); the other changes in it point at the first
     const w = `paragraph${label(para)}`
     edits.forEach((e, k) => notes.push(k === 0 ? { change: e.change, where: w, before: para.text, after: [after] } : { change: e.change, where: `${w}, the same paragraph as change ${edits[0]!.change + 1}` }))
+  }
+  for (const [para, marks] of standIn) {
+    if (!textEdits.has(para)) splices.get(para.part)!.push(...textSplices(xmls.get(para.part)!, para, marks, (piece, text) => withDrawings(piece.node.head, text)))
   }
   for (const [part, list] of splices) if (list.length) pkg.set(part, applySplices(xmls.get(part)!, list, part))
   notes.sort((a, b) => a.change - b.change)

@@ -114,6 +114,12 @@ describe('Word: the seal is tied to the mark', () => {
     expect(r).toContain('을: 홍길동 </w:t>')
     expect(anchoredOn(r)).toBe('(인)')
   })
+  test('both signers of one line stamped in one call: a seal on each mark', () => {
+    const xml = docXml(stampWord(wForm(wPara('갑: 김철수 (인)   을: 홍길동 (인)')), [pic('갑: 김철수 (인)'), pic('을: 홍길동 (인)')]).file)
+    expect(xml.match(/<wp:anchor/g)).toHaveLength(2)
+    expect(xml).toContain('갑: 김철수 </w:t>')
+    expect(xml.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '@').replace(/<[^>]+>/g, '')).toBe('갑: 김철수 @(인)   을: 홍길동 @(인)')
+  })
   test('a whole line with two marks is refused, and occurrence picks one', () => {
     const f = wForm(wPara('갑: 김철수 (인)   을: 홍길동 (인)'))
     expect(() => stampWord(f, [pic('갑: 김철수 (인)   을: 홍길동 (인)')])).toThrow('2 sign marks')
@@ -253,11 +259,8 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       near(off(r.after, r.before, r.note, '(서명 또는 인)', 0, '인'), r.note)
     })
     test('a long line that wraps', async () => {
-      // no stored layout: Hangul wraps it by itself, so the renderer's line is not proof and the tool reports "not checked"
-      const r = await stamp(ext, docOf(ext, LONG), LONG)
-      expect(r.note.aim!.exact).toBe(false)
-      expect(landings(r.before, r.after, [r.note], SEAL_TOLERANCE_MM)[0]!.state).toBe('not-checked')
-      expect(landings(r.before, r.after, [{ ...r.note, aim: { ...r.note.aim!, exact: true } }], SEAL_TOLERANCE_MM)[0]!.state).toBe('checked')
+      // no stored layout: Hangul wraps it by itself (in Hancom Docs the seal landed about 17 mm off), so it is refused
+      await expect(stamp(ext, docOf(ext, LONG), LONG)).rejects.toThrow('wraps')
     })
     test('a mark in a table cell', async () => {
       const r = await stamp(ext, docOf(ext, '신청인: 김가나', '박다라 (인)'), '박다라 (인)')

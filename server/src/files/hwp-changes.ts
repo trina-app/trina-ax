@@ -342,6 +342,14 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     } else if (top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
       refuseChange(i, 'the paragraph that holds the place continues on the next page, so the picture cannot be placed exactly; give a text in a paragraph that ends on its page')
     }
+    // No stored layout: Hangul wraps the paragraph by itself and can break its lines elsewhere than the renderer (seen in
+    // Hancom Docs: a mark on the fourth line, the seal about 17 mm off, in the table below). Only a mark on the paragraph's
+    // first line, clear of the line's end, has a place that holds; anything else is refused rather than placed by a guess
+    if (c.at !== undefined && !cached) {
+      const lines = pg.lines.filter((l) => l.para === lineKey)
+      const line = lines.find((l) => l.y <= target.y + 0.5 && l.y + l.h >= target.y - 0.5)
+      if (lines[0] !== line || target.x + target.w > line!.x + line!.w - line!.h * 2) refuseChange(i, `${clip(c.at, 40)} is on a line that wraps in a document with no stored layout, so Hangul may put it elsewhere and the picture would miss it. Nothing was placed; tell the person, or open the file in Hangul, save it there and try again, or put the picture into a table cell`)
+    }
     const place: ImagePlace = c.cell ? 'cell' : c.place ?? 'over'
     const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
     if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
