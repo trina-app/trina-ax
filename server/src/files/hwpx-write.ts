@@ -489,6 +489,17 @@ interface Template {
 export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.subarray(0, 8)).toString('hex') === 'd0cf11e0a1b11ae1'
 
 /**
+ * Hangul's default script template, which Hangul and Hancom Docs write into the documents they save: the header that
+ * names the document objects and event handlers with empty bodies (Hancom Docs adds one per check box, OnCheckBox1_Click
+ * ...). Comments and white space aside; any statement in it is a script.
+ */
+export function emptyScript(header: string, source: string): boolean {
+  const flat = (s: string) => s.replace(/\/\/[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '').replace(/\0+$/, '')
+  return ['', 'varDocuments=XHwpDocuments;varDocument=Documents.Active_XHwpDocument;'].includes(flat(header))
+    && /^(?:function[A-Za-z_][A-Za-z0-9_]{0,63}\(\)\{\}){0,200}$/.test(flat(source))
+}
+
+/**
  * The checks every .hwpx from outside gets, a template here or a document changed in place (files/hwpx-edit.ts): a
  * Hangul package (the application/hwp+zip mimetype), no scripts (Scripts/), no OLE objects (BinData/*.ole, compound
  * files in BinData, hp:ole anywhere in the XML; an equation's hp:script is its formula, not a program), no encryption
@@ -496,7 +507,13 @@ export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.
  */
 export function assertPlainPackage(parts: Map<string, Uint8Array>, text: (n: string) => string | null, bad: (why: string) => never) {
   const names = [...parts.keys()]
-  if (names.some((n) => /(^|\/)scripts(\/|$)/i.test(n))) bad('it contains scripts (Scripts/)')
+  // scripts: only Hangul's empty template (Scripts/headerScripts and Scripts/sourceScripts, UTF-16), as Hancom Docs saves it
+  const scripts = names.filter((n) => /(^|\/)scripts(\/|$)/i.test(n))
+  if (scripts.length) {
+    const u16 = (n: string) => { const b = parts.get(n); return b && b.length % 2 === 0 && b.length <= 64 * 1024 ? Buffer.from(b).toString('utf16le') : null }
+    const head = u16('Scripts/headerScripts'), src = u16('Scripts/sourceScripts')
+    if (scripts.some((n) => n !== 'Scripts/headerScripts' && n !== 'Scripts/sourceScripts') || head === null || src === null || !emptyScript(head, src)) bad('it contains scripts (Scripts/)')
+  }
   for (const [n, b] of parts) if (/^BinData\//i.test(n) && (/\.ole$/i.test(n) || isCompoundFile(b))) bad('it contains an embedded OLE object')
   const mimetype = text('mimetype')
   if (mimetype === null || mimetype.trim() !== 'application/hwp+zip') bad('it is not a Hangul document (no application/hwp+zip mimetype)')

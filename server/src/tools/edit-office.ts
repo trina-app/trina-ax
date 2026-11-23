@@ -97,10 +97,9 @@ export function countPictureBytes(total: { read: number; made: number }, kind: '
  * resize_images uses it: same size, details removed, upright; PNG and WebP become PNG, JPEG stays JPEG), so the deck
  * gets only pixels the helper made, never bytes that only start like a picture (security review of #1291).
  */
-async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, i: number, signal?: AbortSignal): Promise<Buffer> {
+export async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, i: number, signal?: AbortSignal, jpeg = /^jpe?g$/.test(ext(rel))): Promise<Buffer> {
   const helper = ctx.files.visionTools().normalizer
   if (!helper) throw new ToolError(`change ${i + 1}: pictures cannot be replaced on this server right now (its image helper is missing); nothing was saved`)
-  const jpeg = /^jpe?g$/.test(ext(rel))
   // details none (2) + format (1 JPEG, 2 PNG) * 4 + upright (16); the longest side 65535 never makes it smaller
   const r = await imageSlot(() => runIsolated({
     cmd: helper, args: ['resize', '65535', '0', '0', '0', String(2 + 4 * (jpeg ? 1 : 2) + 16)], stdin: bytes,

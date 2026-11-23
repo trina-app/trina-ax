@@ -174,7 +174,7 @@ export const EditHwpChange = z.union([
     }),
   }),
   z.strictObject({
-    image: relPath.describe('A picture in the team folder (a signature, a seal, a logo): PNG (transparent parts stay see-through) or JPG; chat attachments are in the .attachments folder'),
+    image: z.string().min(1).max(4096).describe('The person\'s own signature or seal, or the picture they name: a PNG (transparent parts stay see-through) or JPG in the team folder, or a file of this chat (chat:files/<file_id>/<name>)'),
     at: z.string().min(1).max(500).optional().describe('Text inside one paragraph the picture goes over or next to, e.g. the seal mark printed after the signer\'s name, or the name'),
     place: z.enum(['over', 'after', 'before']).optional().describe('With at: centred over the text (default), right after it or right before it'),
     cell: z.strictObject({

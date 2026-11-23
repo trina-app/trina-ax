@@ -6,7 +6,7 @@
 import { ToolError } from '../policy/errors'
 import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit } from './hwpx-check'
 import {
-  charX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
+  HU_PER_PX, labelX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
   type PictureSpot,
 } from './hwp-picture'
 
@@ -26,7 +26,7 @@ export const strip = (s: string) => s.replace(/\s+/g, '')
 export const cleanValue = (s: string) => cleanText(s.replace(/\r\n?/g, '\n'))
 
 /** A paragraph as the changes see it: its text as hwp.ts reads it, its heading level, the table cell it is directly in. */
-export interface CPara { i: number; text: string; heading: number; cell?: CCell }
+export interface CPara { i: number; sec: number; text: string; heading: number; cell?: CCell }
 export interface CCell { table: CTable; row: number; col: number; rowSpan: number; colSpan: number; height: number; paras: CPara[] }
 /** a table, numbered in reading order (`i`, 0-based), and the paragraph that holds it */
 export interface CTable { i: number; cells: CCell[]; para: CPara | null }
@@ -246,6 +246,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       `${what} ${model === 1 ? 'is' : 'are'} ${model} in the document's text but ${laid} on its pages as they are laid out ` +
       '(in a page header or footer, split over two lines, repeated on each page, or hidden), so the place cannot be found exactly; ' +
       (c.at !== undefined ? 'give a longer text that is on one line, or put the picture into a table cell' : 'give the label as at instead'))
+    /** the laid-out cell the place is in (-1: none) and the laid-out paragraph of the label's line */
+    let cellIdx = -1, lineKey = ''
     let p: P, page: number, target: { x: number; y: number; w: number; h: number }, where: string
     if (c.at !== undefined) {
       const find = c.at
@@ -261,8 +263,9 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       const L = laid[k]!
       const pg = layout.pages[L.page]!, line = pg.lines[L.line]!
       if (!strip(h.p.text).includes(strip(line.text))) refuseChange(i, `${clip(find)} could not be matched with its line on page ${L.page + 1} (${clip(line.text, 60)}); give a longer text`)
-      const x0 = charX(line, L.at), x1 = charX(line, L.at + [...find].length)
+      const [x0, x1] = labelX(line, L.at, [...find].length)
       target = { x: x0, y: line.y, w: Math.max(0, x1 - x0), h: line.h }
+      cellIdx = line.cell; lineKey = line.para
       p = h.p; page = L.page
       where = `${this.where(p)}, ${c.place ?? 'over'} ${clip(find, 40)}`
     } else {
@@ -275,29 +278,59 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       const ti = pg.cells.findIndex((x) => x.table === lc.table && x.row === cell.row && x.col === cell.col)
       if (ti < 0) refuseChange(i, `the cell ${c.cell!.direction === 'below' ? 'below' : 'right of'} ${clip(c.cell!.next_to)} is not on the same page as its label; put the picture over a text with at`)
       target = pg.cells[ti]!
+      cellIdx = ti
       if (!pg.lines.some((l) => l.cell === ti)) refuseChange(i, `the cell next to ${clip(c.cell!.next_to)} has no line to anchor a picture in`)
       p = (cell.paras[0] as P | undefined) ?? refuseChange(i, `the cell next to ${clip(c.cell!.next_to)} has no paragraph`)
       page = L.page
       where = `table ${cell.table.i + 1}, row ${cell.row + 1}, column ${cell.col + 1}`
     }
-    // The anchor: a body paragraph on that page, the picture's control at its end (so no text and no layout cache of the
-    // paragraph changes). The label's own paragraph when it is a body paragraph that ends on that page; else (a label
-    // or cell in a table: a picture anchored in a cell makes the cell grow around it) the first body paragraph that
-    // starts on the page.
+    // The anchor: a body paragraph, the picture's control at its end (so no text and no layout cache of the paragraph
+    // changes); a picture anchored in a cell would make the cell grow around it.
+    // - Every paragraph of the section has Hangul's layout cache: the renderer draws the page where Hangul laid it out,
+    //   so the picture is placed from the paper (and the preview shows it on the spot). The anchor is the label's own
+    //   paragraph when it is a body paragraph that ends on that page, else the first body paragraph that starts there.
+    // - Otherwise (Hancom Docs and other writers save no cache) Hangul lays the document out again with its own line
+    //   breaks, which can differ from the renderer's above the label: the picture is placed from the top of the label's
+    //   body paragraph (or of the table that holds the label or cell), which Hangul keeps next to the label whatever it
+    //   wraps above.
     const pg = layout.pages[page]!
     const top = this.topIndex(p)
     const next = layout.pages[page + 1]
-    if (p.cell || top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
+    const cached = this.paras.every((q) => q.sec !== p.sec || this.hasLayoutCache(q))
+    let fromPara: number | undefined
+    if (!cached) {
+      // the body paragraph of the label: itself, or the paragraph holding its table (a table in a table is refused)
+      const holder = p.cell ? p.cell.table.para as P | null : p
+      if (!holder || holder.cell) refuseChange(i, 'the place is in a table inside a table, which this document (saved without Hangul\'s layout) cannot place exactly; put the picture over a text with at')
+      const k = this.topIndex(holder)
+      if (k < 0 || !pg.starts.some((x) => x.para === k)) refuseChange(i, `the paragraph that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
+      let topY: number
+      if (p.cell) {
+        // Hangul measures from below a table that holds the place: the picture goes into the body paragraph after the
+        // table (when it starts on this page), from the top of that paragraph's first line; else into the table's own
+        // paragraph, from the table's bottom
+        const t = cellIdx >= 0 ? pg.tables[pg.cells[cellIdx]!.table - 1] : undefined
+        if (!t) refuseChange(i, 'the table that holds the place could not be found on the page')
+        const after = this.topParagraph(holder.sec, k + 1)
+        const line = after && !after.cell ? pg.lines.find((l) => l.cell < 0 && l.para.endsWith(`:${k + 1}`) && l.y >= t.y + t.h - 1) : undefined
+        if (after && line && pg.starts.some((x) => x.para === k + 1)) { p = after; topY = line.y }
+        else { p = holder; topY = t.y + t.h }
+      } else {
+        topY = pg.lines.find((l) => l.para === lineKey)!.y
+        p = holder
+      }
+      fromPara = topY
+    } else if (p.cell || top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
       const flat = (s: string) => s.replace(/\s+/g, '')
-      // (one with a layout cache first: a renderer lays a paragraph without one out again, a pixel apart at times)
       const fits = pg.starts.map((x) => ({ x, q: this.topParagraph(pg.section, x.para) })).filter(({ x, q }) => q && !q.cell &&
         (x.table ? this.tables.some((t) => t.para === q) : !flat(x.preview) || flat(q.text).startsWith(flat(x.preview).replace(/…$/, ''))))
-      const anchor = fits.find(({ q }) => this.hasLayoutCache(q!)) ?? fits[0]
+      const anchor = fits[0]
       if (!anchor) refuseChange(i, `page ${page + 1} has no paragraph that starts on it to hold the picture (a table or paragraph continued from the page before fills it); put the picture over a text outside the table with at`)
       p = anchor.q!
     }
     const place: ImagePlace = c.cell ? 'cell' : c.place ?? 'over'
     const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
+    if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
     const part = this.pictureAt(p, spot, img, c.layer ?? 'behind', i)
     this.pictures.push(spotNote(i, spot, where, part))
   }
@@ -464,13 +497,16 @@ export function pictureInput(req: { changes: unknown; layout: unknown; images: M
   const wanted = changes.flatMap((c, i) => (isImageChange(c) ? [i] : []))
   if (!wanted.length) { if (req.images.size) bad(); return undefined }
   if (wanted.length !== req.images.size || wanted.some((i) => !req.images.has(i))) bad()
-  const total = [...req.images.values()].reduce((n, b) => n + b.length, 0)
+  // each picture once, however many changes use it (the same bytes of the request)
+  const total = [...new Set(req.images.values())].reduce((n, b) => n + b.length, 0)
   if (total > PICTURE_LIMITS.totalBytes) bad()
   const images = new Map<number, CleanImage>()
+  const once = new Map<Uint8Array, CleanImage>()
   for (const i of wanted) {
     const b = req.images.get(i)!
-    if (b.length > PICTURE_LIMITS.imageBytes) bad()
-    images.set(i, sanitizeImage(b, (changes[i] as HwpImageChange).image))
+    let made = once.get(b)
+    if (!made) { made = sanitizeImage(b, (changes[i] as HwpImageChange).image); once.set(b, made) }
+    images.set(i, made)
   }
   return { layout: checkLayout(req.layout) ?? bad(), images }
 }

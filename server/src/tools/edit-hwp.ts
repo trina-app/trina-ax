@@ -41,6 +41,9 @@ import { componentC } from '../team-files/component'
 import { HwpError } from '../files/hwp-engine'
 import { PICTURE_LIMITS } from '../files/hwp-picture'
 import { imageKind } from '../files/pdf-stamp'
+import { parsePlace } from '@mycel/shared/places'
+import { readPlaceFile } from '../files/place-output'
+import { reencodePicture } from './edit-office'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof EditHwpInput>
@@ -74,8 +77,9 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   try { r = decodeHwpEditResult(answer) } catch { throw new ToolError(`the .${x} editor gave a damaged answer; nothing was saved`) }
   // what came back is not taken on the worker's word: the same parts but the changed sections (the containers), the
   // text as hwp.ts reads both files in their own worker runs, and every check of a document again in a fresh one
-  const added = (r.report.pictures ?? []).map((p) => p.part)
-  if (added.length !== (pictures?.extra.images.length ?? 0) || new Set(added).size !== added.length) throw new ToolError('the changed document did not read back as expected (its pictures are not the ones asked for); nothing was saved')
+  // each picture is one new part, however many places show it
+  const added = [...new Set((r.report.pictures ?? []).map((p) => p.part))]
+  if (added.length !== (pictures?.extra.images.length ?? 0)) throw new ToolError('the changed document did not read back as expected (its pictures are not the ones asked for); nothing was saved')
   const parts = binary ? hwpPartsMismatch(bytes, r.file, added) : hwpxPartsMismatch(bytes, r.file, added)
   if (parts) throw new ToolError(`the changed document did not read back as expected (${parts}); nothing was saved`)
   const old = hwpxReadLines(await officeWorkerText(x, bytes, c.signal))
@@ -111,7 +115,11 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
   const notes = r.report.notes.map((n) => `- ${n.also?.length ? 'changes' : 'change'} ${[n.change, ...(n.also ?? [])].map((c) => c + 1).join(', ')}, ${n.where}: ${n.before ? `${JSON.stringify(n.before)} -> ` : n.where.includes('after row') ? '' : 'was empty, now '}${JSON.stringify(n.after)}`)
   const left = r.report.placeholders.length ? `\nStill in the document: ${r.report.placeholders.join(', ')}.` : ''
   const pics = (r.report.pictures ?? []).map((p) => `- change ${p.change + 1}: a picture on page ${p.page}, ${p.widthMm} x ${p.heightMm} mm, ${p.xMm} mm from the left and ${p.yMm} mm from the top (${p.where})`)
-  const check = pics.length ? `\nPictures:\n${pics.join('\n')}\nCheck each before you answer: look at the page with hwp_render and see where the picture landed; if it is off, change the original again with other width_mm / place (or output a new file). The file's own small preview picture (shown by some file browsers) is not redrawn.` : ''
+  const loose = r.report.pictures?.some((p) => p.fromParagraph)
+  const check = pics.length ? `\nPictures:\n${pics.join('\n')}\n` + (loose
+    ? 'This document has no layout stored by Hangul, so each picture is tied to the paragraph or table of its label and Hangul keeps it there. hwp_render uses a different layout engine: it can draw the line after such a paragraph too high, over it, while the file is right. Do not change the file for that; tell the user to check the spot in Hangul.'
+    : 'They are placed from the layout Hangul stored in the document. hwp_render shows a close approximation, not Hangul itself: use it to catch a wrong page or label, and tell the user to check the exact spot in Hangul.') +
+    ' The file\'s own small preview picture (shown by some file browsers) is not redrawn.' : ''
   const body = notes.length ? `\n${notes.join('\n')}\nThe file was read back: the changed text is there and every other paragraph reads as before.` : '\nThe file was read back: every paragraph reads as before.'
   return `${where}${body} Layout in Hangul is not checked.${left}${check}`
 }
@@ -123,25 +131,46 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
   const which = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
   if (!which.length) return null
   if (which.length > PICTURE_LIMITS.images) throw new ToolError(`more than ${PICTURE_LIMITS.images} pictures in one call; nothing was saved`)
-  const read = new Map<string, Uint8Array>()
+  // each picture read and written again once, however many changes name it: decoded by the isolated image helper, so
+  // the document gets only pixels it made (upright, no details), and bounded as read and as made
+  const seen = new Map<string, HwpEditExtra['images'][number]>()
   const images: HwpEditExtra['images'] = []
-  let total = 0
-  for (const i of which) {
-    const ch = changes[i] as Extract<HwpChange, { image: string }>
-    const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
-    if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
-    let b = read.get(img.rel)
-    if (!b) {
-      if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
-      b = readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
-      ctx.files.quarantine.assertBytes(b)
-      if (!imageKind(b)) throw new ToolError(`'${img.rel}' is not a PNG or JPG picture; use a .png or .jpg file (a PNG keeps a transparent background)`)
-      total += b.length
-      if (total > PICTURE_LIMITS.totalBytes) throw new ToolError(`the pictures of one call are larger than ${PICTURE_LIMITS.totalBytes / 1024 / 1024} MB together; use smaller ones`)
-      read.set(img.rel, b)
+  let readBytes = 0, madeBytes = 0
+  const tooMany = () => new ToolError(`the pictures of one call are larger than ${PICTURE_LIMITS.totalBytes / 1024 / 1024} MB together; use smaller ones`)
+  const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  try {
+    for (const i of which) {
+      const ch = changes[i] as Extract<HwpChange, { image: string }>
+      let rel: string, load: () => Uint8Array
+      if (parsePlace(ch.image)) {
+        if (parsePlace(ch.image)!.kind !== 'chatFiles') throw new ToolError(`change ${i + 1}: a picture is a team file or a file of this chat (chat:files/<file_id>/<name>); copy it there first`, 'bad_place')
+        // the chat's own visibility and quarantine checks (the place's one safe open)
+        const f = await readPlaceFile(ctx, c, ch.image, PICTURE_LIMITS.imageBytes, work)
+        rel = f.place
+        load = () => readRegular(f.local, PICTURE_LIMITS.imageBytes).bytes
+      } else {
+        const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
+        if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
+        rel = img.rel
+        load = () => {
+          if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
+          return readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
+        }
+      }
+      const known = seen.get(rel)
+      if (known) { known.changes.push(i); continue }
+      const raw = load()
+      ctx.files.quarantine.assertBytes(raw)
+      const kind = imageKind(raw)
+      if (!kind) throw new ToolError(`'${rel}' is not a PNG or JPG picture; use a .png or .jpg file (a PNG keeps a transparent background)`)
+      if ((readBytes += raw.length) > PICTURE_LIMITS.totalBytes) throw tooMany()
+      const bytes = await reencodePicture(ctx, raw, rel, i, c.signal, kind === 'jpg')
+      if ((madeBytes += bytes.length) > PICTURE_LIMITS.totalBytes) throw tooMany()
+      const entry = { changes: [i], bytes: new Uint8Array(bytes) }
+      seen.set(rel, entry)
+      images.push(entry)
     }
-    images.push({ change: i, bytes: b })
-  }
+  } finally { fs.rmSync(work, { recursive: true, force: true }) }
   let layout
   try { layout = await componentC(ctx).hwp.layout(c.user.id, Buffer.from(doc), x, c.signal) } catch (e) {
     if (!(e instanceof HwpError)) throw e
@@ -150,5 +179,5 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
       : `the page layout of '${rel}' could not be read (${e.reason})`
     throw new ToolError(`${why}; nothing was saved`)
   }
-  return { extra: { layout, images }, sources: [...read.keys()] }
+  return { extra: { layout, images }, sources: [...seen.keys()] }
 }

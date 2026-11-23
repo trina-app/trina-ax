@@ -12,6 +12,8 @@ import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { componentC } from '../../server/src/team-files/component'
 import { HwpError } from '../../server/src/files/hwp-engine'
+import { namedPaths } from '../../server/src/rooms/ai-tools'
+import { widenOf } from '../../server/src/chat/tools'
 import type { HwpLayout } from '../../server/src/files/hwp-picture'
 
 setDefaultTimeout(60_000)
@@ -304,7 +306,7 @@ describe('a signature or seal picture', () => {
   const SEAL = fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp/seal.png'))
   /** the made-up employment forms' layout: the seal mark's line and the name cell with its label (no renderer here) */
   const layout: HwpLayout = { pages: [{
-    w: 793.7, h: 1122.5, section: 0, continued: [], starts: [{ para: 0, table: false, preview: '' }],
+    w: 793.7, h: 1122.5, section: 0, continued: [], tables: [{ x: 117, y: 198, w: 300, h: 60 }], starts: [{ para: 0, table: false, preview: '' }],
     cells: [{ table: 1, row: 0, col: 0, x: 117, y: 198, w: 100, h: 17 }, { table: 1, row: 0, col: 1, x: 217, y: 198, w: 200, h: 17 }],
     lines: [
       { x: 124, y: 200, w: 90, h: 13, text: '성명', runs: [{ x: 124, w: 26, text: '성명' }], para: '1:0', cell: 0 },
@@ -330,7 +332,8 @@ describe('a signature or seal picture', () => {
       expect(r.text).toContain(`Saved a new version of ${rel}`)
       expect(r.text).toMatch(/- change 1: a picture on page 1, 15 x 15 mm/)
       expect(r.text).toMatch(/- change 2: a picture on page 1, 20 x 20 mm/)
-      expect(r.text).toContain('look at the page with hwp_render')
+      expect(r.text).toMatch(/check the (exact )?spot in Hangul/)
+      expect(r.text).not.toContain('Check each before you answer')
       expect(versions(rel).map((v) => v.version)).toEqual([1])
       expect((await turn('alice')('read', { file_path: rel })).text.replace(/\d+ B|sha256[^\n]*/g, '')).toBe(before.replace(/\d+ B|sha256[^\n]*/g, ''))
     }
@@ -354,5 +357,21 @@ describe('a signature or seal picture', () => {
     expect(none.isError).toBe(true)
     expect(none.text).toContain('placing a picture needs the page layout from the HWP Preview renderer')
     expect(versions(rel)).toEqual([])
+  })
+
+  test('a file of this chat as the picture: used through the chat\'s own open; a place that is not one is refused', async () => {
+    const rel = 'users/alice/서명양식-3.hwpx'
+    put(rel, employmentForm({ cache: true }))
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const work = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'chat:work/seal.png', at: '(인)' }] }))
+    expect(work.isError).toBe(true)
+    expect(versions(rel)).toEqual([])
+  })
+
+  test('the picture is named for the shared chat\'s read card and wider-audience check, and is never a place written to', () => {
+    const args = { file_path: 'users/alice/a.hwp', changes: [{ find: 'a', replace: 'b' }, { image: 'groups/finance/seal.png', at: 'x' }] }
+    expect(namedPaths('edit_hwp', args)).toContainEqual({ key: 'change.image', value: 'groups/finance/seal.png' })
+    expect(widenOf('edit_hwp', args)).toEqual({ target: 'users/alice/a.hwp', extra: ['groups/finance/seal.png'] })
   })
 })

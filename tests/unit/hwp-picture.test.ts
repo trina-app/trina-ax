@@ -19,7 +19,8 @@ import { pictureInput } from '../../server/src/files/hwp-changes'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { employmentForm } from '../lib/hwpx'
-import { hwpEmploymentForm, hwpStreams } from '../lib/hwp'
+import { hwpDoc, hwpEmploymentForm, hwpStreams, para, sectionDef, sectionRecords } from '../lib/hwp'
+import { emptyScript } from '../../server/src/files/hwpx-write'
 
 const FIX = path.join(import.meta.dir, '../fixtures/hwp')
 const SEAL = new Uint8Array(fs.readFileSync(path.join(FIX, 'seal.png')))
@@ -28,7 +29,7 @@ const clean = (b: Uint8Array = SEAL) => sanitizeImage(b, 'seal.png')
 /** a one-page layout: lines (text, box), cells (table, row, col, box), the body paragraphs that start on it */
 function page(lines: { text: string; x?: number; y: number; cell?: number }[], cells: { table: number; row: number; col: number; x: number; y: number; w: number; h: number }[] = [], starts: { para: number; table?: boolean; preview?: string }[] = [{ para: 0 }]): LPage {
   return {
-    w: 793.7, h: 1122.5, section: 0, continued: [], cells,
+    w: 793.7, h: 1122.5, section: 0, continued: [], tables: [{ x: 117, y: 198, w: 300, h: 60 }], cells,
     starts: starts.map((s) => ({ para: s.para, table: !!s.table, preview: s.preview ?? '' })),
     lines: lines.map((l, k) => ({ x: l.x ?? 113.4, y: l.y, w: 566.9, h: 13.3, text: l.text, runs: [{ x: l.x ?? 113.4, w: l.text.length * 13.3, text: l.text }], para: `${l.cell ?? 0}:${k}`, cell: l.cell ?? -1 })),
   }
@@ -117,7 +118,7 @@ describe('.hwpx', () => {
     const before = employmentForm({ cache: true })
     const changes = [SEAL_OVER, SEAL_CELL]
     const r = editHwpx(before, changes, pictures(changes))
-    expect(r.report.pictures!.map((p) => [p.change, p.part, p.page])).toEqual([[0, 'BinData/image2.png', 1], [1, 'BinData/image3.png', 1]])
+    expect(r.report.pictures!.map((p) => [p.change, p.part, p.page])).toEqual([[0, 'BinData/image2.png', 1], [1, 'BinData/image2.png', 1]])
     expect(r.report.pictures![1]!.widthMm).toBe(20)
     expect(r.report.lineEdits).toEqual([])
     const parts = new Map(readZip(r.file).map((e) => [e.name, e.data]))
@@ -125,14 +126,14 @@ describe('.hwpx', () => {
     for (const [n, d] of old) if (!/section0\.xml|content\.hpf/.test(n)) expect(Buffer.from(parts.get(n)!).equals(Buffer.from(d))).toBe(true)
     expect(Buffer.from(parts.get('BinData/image2.png')!).equals(Buffer.from(SEAL))).toBe(true)
     const hpf = new TextDecoder().decode(parts.get('Contents/content.hpf'))
-    expect(hpf).toContain('<opf:item id="image2" href="BinData/image2.png" media-type="image/png" isEmbeded="1"/><opf:item id="image3" href="BinData/image3.png" media-type="image/png" isEmbeded="1"/></opf:manifest>')
+    expect(hpf).toContain('<opf:item id="image2" href="BinData/image2.png" media-type="image/png" isEmbeded="1"/></opf:manifest>')
     const sec = new TextDecoder().decode(parts.get('Contents/section0.xml'))
-    expect(sec.match(/binaryItemIDRef="image[23]"/g)!.sort()).toEqual(['binaryItemIDRef="image2"', 'binaryItemIDRef="image3"'])
+    expect(sec.match(/binaryItemIDRef="image2"/g)).toHaveLength(2) // one part, shown twice
     expect(sec).toContain('textWrap="BEHIND_TEXT"')
     expect(sec).toContain('vertRelTo="PAPER" horzRelTo="PAPER"')
     // the text reads as before; the server's checks pass and the fresh worker's comparison too
     expect(hwpxReadLines(hwpxText(r.file))).toEqual(hwpxReadLines(hwpxText(before)))
-    expect(hwpxPartsMismatch(before, r.file, ['BinData/image2.png', 'BinData/image3.png'])).toBeNull()
+    expect(hwpxPartsMismatch(before, r.file, ['BinData/image2.png'])).toBeNull()
     expect(hwpxPartsMismatch(before, r.file)).toMatch(/same parts/)
     expect(hwpEditMismatch(changes, hwpxReadLines(hwpxText(before)), hwpxReadLines(hwpxText(r.file)), r.report)).toBeNull()
     expect(new TextDecoder().decode(hwpxVerifyRequest(encodeVerifyPictures(before, r.file)))).toBe('ok')
@@ -153,11 +154,11 @@ describe('.hwp', () => {
     const before = hwpEmploymentForm()
     const changes = [SEAL_OVER, SEAL_CELL]
     const r = editHwp(before, changes, pictures(changes))
-    expect(r.report.pictures!.map((p) => [p.change, p.part])).toEqual([[0, 'BinData/BIN0001.png'], [1, 'BinData/BIN0002.png']])
+    expect(r.report.pictures!.map((p) => [p.change, p.part])).toEqual([[0, 'BinData/BIN0001.png'], [1, 'BinData/BIN0001.png']])
     const a = hwpStreams(before), b = hwpStreams(r.file)
     const x = (d: Buffer) => zlib.inflateRawSync(d)
     for (const [n, d] of a) if (!/^(DocInfo|BodyText\/Section0)$/.test(n)) expect(b.get(n)!.equals(d)).toBe(true)
-    expect([...b.keys()].filter((k) => !a.has(k)).sort()).toEqual(['BinData/BIN0001.png', 'BinData/BIN0002.png'])
+    expect([...b.keys()].filter((k) => !a.has(k)).sort()).toEqual(['BinData/BIN0001.png'])
     expect(x(b.get('BinData/BIN0001.png')!).equals(Buffer.from(SEAL))).toBe(true)
     expect(hwpText(r.file)).toBe(hwpText(before))
     // the label paragraph ends with the control, its layout cache kept; ID_MAPPINGS counts two pictures
@@ -165,12 +166,12 @@ describe('.hwp', () => {
     expect(m.paras.find((p) => p.text.includes("(인)"))!.header[5]! & (1 << 3)).toBe(1 << 3) // control mask bit 11 (byte 5 bit 3)
     const recs = (d: Buffer) => { const out: { tag: number; data: Buffer }[] = []; for (let i = 0; i < d.length;) { const h = d.readUInt32LE(i); let n = h >>> 20, o = i + 4; if (n === 0xfff) { n = d.readUInt32LE(i + 4); o += 4 } out.push({ tag: h & 0x3ff, data: d.subarray(o, o + n) }); i = o + n } return out }
     const was = recs(x(a.get('DocInfo')!)), now = recs(x(b.get('DocInfo')!))
-    expect(now.find((x) => x.tag === 17)!.data.readUInt32LE(0)).toBe(2)
-    expect(now.filter((x) => x.tag === 18).map((x) => [x.data.readUInt16LE(2), x.data.subarray(6).toString('utf16le')])).toEqual([[1, 'png'], [2, 'png']])
-    expect(now.length).toBe(was.length + 2)
+    expect(now.find((x) => x.tag === 17)!.data.readUInt32LE(0)).toBe(1)
+    expect(now.filter((x) => x.tag === 18).map((x) => [x.data.readUInt16LE(2), x.data.subarray(6).toString('utf16le')])).toEqual([[1, 'png']])
+    expect(now.length).toBe(was.length + 1)
     // right after ID_MAPPINGS, before the face names and shapes its counts list next
-    expect(now.map((r) => r.tag).slice(0, 4)).toEqual([...was.map((r) => r.tag).slice(0, 2), 18, 18])
-    expect(hwpPartsMismatch(before, r.file, ['BinData/BIN0001.png', 'BinData/BIN0002.png'])).toBeNull()
+    expect(now.map((r) => r.tag).slice(0, 4)).toEqual([...was.map((r) => r.tag).slice(0, 2), 18, was[2]!.tag])
+    expect(hwpPartsMismatch(before, r.file, ['BinData/BIN0001.png'])).toBeNull()
     expect(hwpPartsMismatch(before, r.file)).toMatch(/directory|DocInfo/)
     expect(new TextDecoder().decode(hwpVerifyRequest(encodeVerifyPictures(before, r.file)))).toBe('ok')
   })
@@ -195,6 +196,70 @@ describe('.hwp', () => {
   })
 })
 
+describe('placing and checking, more cases', () => {
+  const two = { ...EMPLOYMENT, pages: [{ ...EMPLOYMENT.pages[0]!, lines: [{ ...EMPLOYMENT.pages[0]!.lines[2]!, text: '갑 김가나 (인) 을 이다라 (인)', runs: [{ x: 200, w: 300, text: '갑 김가나 (인) 을 이다라 (인)' }] }] }] }
+  const twoSeals: HwpChange[] = [{ image: 's.png', at: '(인)', occurrence: 1 }, { image: 's.png', at: '(인)', occurrence: 2 }]
+
+  test('two seals in one paragraph: both controls and records go in', () => {
+    const doc = hwpDoc([Buffer.concat([para([[0, sectionDef()]]), para('갑 김가나 (인) 을 이다라 (인)', { last: true })])])
+    const r = editHwp(doc, twoSeals, { layout: two, images: new Map([[0, clean()], [1, clean()]]) })
+    expect(new Set(r.report.pictures!.map((p) => p.part)).size).toBe(2)
+    expect(sectionRecords(r.file).filter((x) => x.tag === 85)).toHaveLength(2)
+    expect(hwpText(r.file)).toBe(hwpText(doc))
+  })
+
+  test('a document that already has a picture: the id goes on, its storage is reused, the count follows', () => {
+    const before = hwpEmploymentForm({ pictures: [SEAL] })
+    const r = editHwp(before, [SEAL_OVER], pictures([SEAL_OVER]))
+    expect(r.report.pictures![0]!.part).toBe('BinData/BIN0002.png')
+    const c = readCfb(r.file)
+    expect(c.entries.filter((e) => e.type === 1 && e.path === 'BinData')).toHaveLength(1)
+    const di = zlib.inflateRawSync(c.streams.get('DocInfo')!.data)
+    let count = -1
+    for (let i = 0; i < di.length;) { const h = di.readUInt32LE(i); const n = h >>> 20; if ((h & 0x3ff) === 17) count = di.readUInt32LE(i + 4); i += 4 + n }
+    expect(count).toBe(2)
+    expect(sectionRecords(r.file).find((x) => x.tag === 85)!.data.readUInt16LE(71)).toBe(2)
+    expect(new TextDecoder().decode(hwpVerifyRequest(encodeVerifyPictures(before, r.file)))).toBe('ok')
+  })
+
+  test('the fresh worker refuses a new picture that shows an old entry (.hwp) or part (.hwpx)', () => {
+    const before = hwpEmploymentForm({ pictures: [SEAL] })
+    const r = editHwp(before, [SEAL_OVER], pictures([SEAL_OVER]))
+    const c = readCfb(r.file)
+    const raw = Buffer.from(zlib.inflateRawSync(c.streams.get('BodyText/Section0')!.data))
+    for (let i = 0; i < raw.length;) { const h = raw.readUInt32LE(i); const n = h >>> 20; if ((h & 0x3ff) === 85) raw.writeUInt16LE(1, i + 4 + 71); i += 4 + n }
+    const bad = writeCfb(c, new Map([['BodyText/Section0', new Uint8Array(zlib.deflateRawSync(raw))]]))
+    expect(() => hwpVerifyRequest(encodeVerifyPictures(before, bad))).toThrow(/does not show a new picture entry/)
+    const x0 = employmentForm({ cache: true })
+    const x = editHwpx(x0, [SEAL_OVER], pictures([SEAL_OVER]))
+    const entries = readZip(x.file)
+    const tampered = writeZip(entries.map((e) => (e.name === 'Contents/section0.xml' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('binaryItemIDRef="image2"', 'binaryItemIDRef="image1"')) } : e)))
+    expect(() => hwpxVerifyRequest(encodeVerifyPictures(x0, tampered))).toThrow(/does not show a new picture part/)
+  })
+
+  test('no layout stored by Hangul: the picture is placed from its paragraph; with one, from the paper', () => {
+    const bare = hwpDoc([Buffer.concat([para([[0, sectionDef()]], { lines: 0 }), para('대표이사 김가나 (인)', { lines: 0, last: true })])])
+    const layout: HwpLayout = { pages: [page([{ text: '대표이사 김가나 (인)', y: 400 }], [], [{ para: 0 }, { para: 1 }])] }
+    layout.pages[0]!.lines[0]!.para = '1:1'
+    const none = editHwp(bare, [SEAL_OVER], { layout, images: new Map([[0, clean()]]) })
+    expect(none.report.pictures![0]!.fromParagraph).toBe(true)
+    const gso = sectionRecords(none.file).find((x) => x.tag === 71 && x.data.toString('latin1', 0, 4) === ' osg')!
+    expect((gso.data.readUInt32LE(4) >>> 3) & 3).toBe(2) // vertical from the paragraph
+    expect(gso.data.readInt32LE(8)).toBeLessThan(0) // a seal taller than its line starts above it
+    const paper = editHwp(hwpEmploymentForm(), [SEAL_OVER], pictures([SEAL_OVER]))
+    expect(paper.report.pictures![0]!.fromParagraph).toBeUndefined()
+  })
+
+  test('Hangul\'s empty script template passes, with a handler per check box; a statement in a handler does not', () => {
+    const empty = 'function OnDocument_New()\r\n{\r\n\t//todo : \r\n}\r\nfunction OnCheckBox1_Click()\r\n{\r\n\t//todo : \r\n}\r\n'
+    const head = 'var Documents = XHwpDocuments;var Document = Documents.Active_XHwpDocument;'
+    expect(emptyScript(head, empty)).toBe(true)
+    expect(emptyScript(head, 'function OnDocument_New(){ Run("x") }')).toBe(false)
+    expect(emptyScript(head + 'Run();', empty)).toBe(false)
+    expect(emptyScript(head, 'function a(){}b()')).toBe(false)
+  })
+})
+
 describe('the container and the request', () => {
   test('a stream added to a compound file hangs from one empty pointer; the read-back allows exactly it', () => {
     const before = hwpEmploymentForm()
@@ -209,7 +274,7 @@ describe('the container and the request', () => {
 
   test('the worker request carries the layout and each image change\'s picture; the worker reads them again', () => {
     const changes: HwpChange[] = [{ find: 'a', replace: 'b' }, SEAL_OVER]
-    const req = decodeHwpEditRequest(encodeHwpEditRequest(changes, new Uint8Array([1, 2, 3]), { layout: EMPLOYMENT, images: [{ change: 1, bytes: SEAL }] }))
+    const req = decodeHwpEditRequest(encodeHwpEditRequest(changes, new Uint8Array([1, 2, 3]), { layout: EMPLOYMENT, images: [{ changes: [1], bytes: SEAL }] }))
     expect([...req.doc]).toEqual([1, 2, 3])
     expect(req.images.get(1)!.length).toBe(SEAL.length)
     const pi = pictureInput(req, '.hwp')!
@@ -247,6 +312,9 @@ else describe('laid out, stamped and drawn by the pinned renderer', () => {
     expect(Math.abs(px(sign!.yMm + sign!.heightMm / 2) - 435)).toBeLessThan(4)
     const a = await engine.render(before, ext, 1), b = await engine.render(Buffer.from(r.file), ext, 1)
     expect([a.meta.width, a.meta.height]).toEqual([b.meta.width, b.meta.height])
+    // a document without Hangul's layout everywhere is tied to its paragraphs: right in Hangul, while this renderer draws
+    // the line after such a paragraph too high, so only a fully cached one is compared pixel by pixel
+    if (seal!.fromParagraph) return
     const rows = diffRows(a.bytes, b.bytes)
     const top = Math.floor(px(Math.min(seal!.yMm, sign!.yMm))) - 1, bottom = Math.ceil(px(Math.max(seal!.yMm + seal!.heightMm, sign!.yMm + sign!.heightMm))) + 1
     expect(rows.length).toBeGreaterThan(0)

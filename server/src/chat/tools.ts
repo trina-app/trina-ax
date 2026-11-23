@@ -194,9 +194,10 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-// (edit_office's replacement pictures are only read: never weighed as places an in-place edit writes to)
+// (edit_office's replacement pictures and edit_hwp's pictures are only read: never weighed as places an in-place edit
+// writes to)
 const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
-  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image'),
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image' && n.key !== 'change.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -830,7 +831,9 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: [a.source, a.template].filter((x): x is string => typeof x === 'string') } : undefined
   if (name === 'edit_hwp') {
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
-    return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
+    // its pictures' bytes go into the result too (a new version of the document as well)
+    const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const img = (c as { image?: unknown })?.image; return typeof img === 'string' ? [img] : [] }) : []
+    return typeof target === 'string' ? { target, extra: [...(typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []), ...pics] } : undefined
   }
   // stamp_pdf (tools/stamp-pdf.ts) with an output: the stamped copy carries the PDF's and the picture's bytes; asked
   // here so that after a room read its room card and its wider-audience card are one card (the tool's own check then
@@ -1798,6 +1801,8 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
     // new file made from it
     if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
+    // edit_hwp's pictures may be files of this chat (tools/edit-hwp.ts: read through the place's open)
+    if (name === 'edit_hwp' && key === 'change.image' && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`

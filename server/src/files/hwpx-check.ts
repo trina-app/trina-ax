@@ -171,13 +171,14 @@ export interface HwpEditNote { change: number; where: string; before: string; af
 export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[]; pictures?: HwpPictureNote[] }
 
 /** What an edit with image changes sends along: the page layout and each image change's picture (by change index). */
-export interface HwpEditExtra { layout: HwpLayout; images: { change: number; bytes: Uint8Array }[] }
+export interface HwpEditExtra { layout: HwpLayout; images: { changes: number[]; bytes: Uint8Array }[] }
 /** stdin of the worker's edit mode: 4 bytes (big-endian) for the length of the JSON, the JSON, then the bytes. Without
- * images the JSON is the changes and the bytes the document; with images it is { changes, layout, images: [[change,
- * length], ...] } and the bytes are the images in that order, then the document. */
+ * images the JSON is the changes and the bytes the document; with images it is { changes, layout, images: [[[change, ...],
+ * length], ...] } (each picture once, with the changes that use it) and the bytes are the pictures in that order, then
+ * the document. */
 export function encodeHwpEditRequest(changes: HwpChange[], doc: Uint8Array, extra?: HwpEditExtra): Uint8Array {
   if (!extra?.images.length) return encodeHwpxRequest(JSON.stringify(changes), doc)
-  const json = JSON.stringify({ changes, layout: extra.layout, images: extra.images.map((x) => [x.change, x.bytes.length]) })
+  const json = JSON.stringify({ changes, layout: extra.layout, images: extra.images.map((x) => [x.changes, x.bytes.length]) })
   return encodeHwpxRequest(json, new Uint8Array(Buffer.concat([...extra.images.map((x) => Buffer.from(x.bytes)), Buffer.from(doc)])))
 }
 export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array; layout: unknown; images: Map<number, Uint8Array> } {
@@ -190,8 +191,9 @@ export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Ui
   const images = new Map<number, Uint8Array>()
   let at = 0
   for (const x of o.images as unknown[]) {
-    if (!Array.isArray(x) || !Number.isInteger(x[0]) || !Number.isInteger(x[1]) || x[1] < 0 || at + x[1] > r.template.length || images.has(x[0])) throw new Error('bad request')
-    images.set(x[0], r.template.subarray(at, at + x[1]))
+    if (!Array.isArray(x) || !Array.isArray(x[0]) || !x[0].length || !Number.isInteger(x[1]) || x[1] < 0 || at + x[1] > r.template.length) throw new Error('bad request')
+    const bytes = r.template.subarray(at, at + x[1])
+    for (const c of x[0] as unknown[]) { if (!Number.isInteger(c) || images.has(c as number)) throw new Error('bad request'); images.set(c as number, bytes) }
     at += x[1]
   }
   return { changes: o.changes, doc: r.template.subarray(at), layout: o.layout, images }

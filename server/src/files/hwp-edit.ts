@@ -57,6 +57,7 @@ import {
   type HwpChange, type HwpEditReport,
 } from './hwpx-check'
 import { badLinkTarget, isProgram, outside, PROGRAM_NAME } from './hwpx-edit'
+import { emptyScript } from './hwpx-write'
 import { isZip } from './zip-guard'
 import { crc32, PICTURE_LIMITS, sanitizeImage, type CleanImage, type PictureSpot } from './hwp-picture'
 
@@ -507,8 +508,8 @@ class Doc {
 /**
  * Hangul's default script, which every document it saves carries (Scripts/DefaultJScript): four WCHAR strings, each
  * after its DWORD length (header, source, pre and post script), then 0xFFFFFFFF. Only the empty one and the template
- * Hangul writes (var Documents = XHwpDocuments; ... function OnDocument_New() { //todo }) pass; any other code is a
- * script.
+ * Hangul and Hancom Docs write (var Documents = XHwpDocuments; ... empty handlers such as OnDocument_New() { //todo },
+ * hwpx-write.ts emptyScript) pass; any other code is a script.
  */
 function defaultScript(b: Uint8Array): boolean {
   const parts: string[] = []
@@ -524,9 +525,7 @@ function defaultScript(b: Uint8Array): boolean {
   const rest = b.subarray(at)
   if (rest.length && !(rest.length === 4 && u32(rest, 0) === 0xffffffff)) return false
   const flat = (s: string) => s.replace(/\/\/[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '').replace(/\0+$/, '')
-  const [head, source, pre, post] = parts.map(flat)
-  return ['', 'varDocuments=XHwpDocuments;varDocument=Documents.Active_XHwpDocument;'].includes(head!)
-    && ['', 'functionOnDocument_New(){}'].includes(source!) && pre === '' && post === ''
+  return emptyScript(parts[0]!, parts[1]!) && flat(parts[2]!) === '' && flat(parts[3]!) === ''
 }
 
 /** Why a paragraph's records do not agree with each other (counts in its header, its text and character shapes), or
@@ -600,11 +599,17 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     di.bins.forEach((r, k) => { const b = di.recs.body(r); if (b.length < 4 || u16(b, 2) !== k + 1) refuseChange(i, 'its pictures are not numbered 1, 2, 3, ... (BIN_DATA)') })
     this.checkPara(p, i)
     const recs = this.recs(p)
-    const id = di.bins.length + this.newBins.length + 1
-    if (id > 0xffff) refuseChange(i, 'the document has too many pictures')
-    const path = `BinData/BIN${id.toString(16).toUpperCase().padStart(4, '0')}.${image.kind}`
-    if ([...this.doc.cfb.streams.keys()].some((k) => k.toUpperCase() === path.toUpperCase())) refuseChange(i, `the document already has a stream ${path}`)
-    this.newBins.push({ id, path, image })
+    // one stream per picture, however many places show it
+    let bin = this.newBins.find((b) => b.image === image)
+    if (!bin) {
+      const id = di.bins.length + this.newBins.length + 1
+      if (id > 0xffff) refuseChange(i, 'the document has too many pictures')
+      const path = `BinData/BIN${id.toString(16).toUpperCase().padStart(4, '0')}.${image.kind}`
+      if ([...this.doc.cfb.streams.keys()].some((k) => k.toUpperCase() === path.toUpperCase())) refuseChange(i, `the document already has a stream ${path}`)
+      bin = { id, path, image }
+      this.newBins.push(bin)
+    }
+    const { id, path } = bin
     // the control at the end of the text (before the paragraph's end): every line of the layout cache still starts where
     // it did, so the cache stays
     const wpos = wOf(p, recs).length - 1
@@ -639,9 +644,11 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     const inst = ((crc32(image.bytes) ^ (bin << 16) ^ sec) >>> 1) || 1
     // attribute: floating (not a character), vertical and horizontal from the paper, other objects may overlap (bit
     // 14), width and height absolute (4 << 15, 2 << 18), behind (2) or in front of (3) the text (bits 21-23)
-    const attr = ((1 << 14) | (4 << 15) | (2 << 18) | ((layer === 'front' ? 3 : 2) << 21)) >>> 0
+    // (vertically from the anchor paragraph instead, bits 3-4 = 2, when the document has no layout cache)
+    const para = spot.fromPara !== undefined
+    const attr = ((para ? 2 << 3 : 0) | (1 << 14) | (4 << 15) | (2 << 18) | ((layer === 'front' ? 3 : 2) << 21)) >>> 0
     const ch = new Uint8Array(46)
-    put32(ch, 0, 0x67736f20); put32(ch, 4, attr); put32(ch, 8, y); put32(ch, 12, x); put32(ch, 16, w); put32(ch, 20, h)
+    put32(ch, 0, 0x67736f20); put32(ch, 4, attr); put32(ch, 8, para ? spot.fromPara! : y); put32(ch, 12, x); put32(ch, 16, w); put32(ch, 20, h)
     put32(ch, 24, this.zOrder(sec)); put32(ch, 36, inst) // margins 0; then "prevent page break" 0, description: none
     const ctrl = ch.subarray(0, 46)
     // SHAPE_COMPONENT: '$pic' twice, offset in a group, group level, local version 1, original and current size, flip,
@@ -890,6 +897,8 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
       const edits = x.edits.sort((a, b) => a.wfrom - b.wfrom || a.wto - b.wto)
       for (let k = 1; k < edits.length; k++) {
         const a = edits[k - 1]!, b = edits[k]!
+        // pictures' controls may go several at one place (two seals at the end of one paragraph)
+        if (a.raw && b.raw && a.wfrom === a.wto && b.wfrom === b.wto) continue
         if (b.wfrom < a.wto || (b.wfrom === a.wfrom && b.wto === a.wto)) refuseChange(Math.max(a.change, b.change), a.change !== b.change ? `it changes the same text as change ${Math.min(a.change, b.change) + 1}` : 'it changes the same text twice')
       }
       if (edits.length) {
@@ -1126,14 +1135,17 @@ function picturesOnly(was: Doc, now: Doc) {
     const path = `BinData/BIN${id.toString(16).toUpperCase().padStart(4, '0')}.${ext}`
     if (!streams.delete(path)) bad(`${path} is missing`)
     const raw = now.cfb.streams.get(path)!.data
-    const bytes = now.compressed ? zlib.inflateRawSync(raw, { maxOutputLength: PICTURE_LIMITS.imageBytes }) : raw
+    const bytes = now.compressed ? zlib.inflateRawSync(raw, { maxOutputLength: PICTURE_LIMITS.totalBytes }) : raw
     const clean = sanitizeImage(bytes, path)
     if (clean.kind !== ext || !Buffer.from(clean.bytes).equals(Buffer.from(bytes))) bad(`${path} is not a clean ${ext} picture`)
   })
   if (streams.size) bad(`${[...streams][0]} was added`)
-  // one more picture record in the body per new stream
-  const pics = (d: Doc) => d.sections.reduce((n, sec) => { let m = 0; for (let r = 0; r < sec.recs.n; r++) if (sec.recs.tag[r] === TAG.SHAPE_PICTURE) m++; return n + m }, 0)
-  if (pics(now) !== pics(was) + k) bad('the body does not have one picture per new picture stream')
+  // the body: every old picture record still there, and each added one shows a NEW entry; every new entry is shown
+  const pics = (d: Doc) => d.sections.flatMap((sec) => { const out: number[] = []; for (let r = 0; r < sec.recs.n; r++) if (sec.recs.tag[r] === TAG.SHAPE_PICTURE) out.push(sec.recs.size[r]! >= 73 ? u16(sec.recs.body(r), 71) : -1); return out })
+  const left = pics(now)
+  for (const id of pics(was)) { const at = left.indexOf(id); if (at < 0) bad('an old picture is gone from the body'); left.splice(at, 1) }
+  if (left.some((id) => id <= a.bins.length || id > b.bins.length)) bad('a new picture does not show a new picture entry')
+  for (let id = a.bins.length + 1; id <= b.bins.length; id++) if (!left.includes(id)) bad('a new picture entry is not shown in the body')
 }
 
 /** The office worker's `hwp-edit` mode: the framed request of hwpx-check.ts in, the framed report and file out. */

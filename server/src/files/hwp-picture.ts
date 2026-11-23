@@ -16,7 +16,7 @@ import { imageKind, imageSize, STAMP_IMAGE_MAX, STAMP_IMAGE_SIDE_MAX } from './p
 export const PICTURE_LIMITS = {
   /** image changes in one call */
   images: 10,
-  /** one image, and all of a call's images together */
+  /** one file as read; every picture of a call once, as read and as the image helper wrote it (the worker's limit) */
   imageBytes: STAMP_IMAGE_MAX,
   totalBytes: 20 * 1024 * 1024,
   /** the longest side in pixels */
@@ -123,7 +123,9 @@ export interface LCell { table: number; row: number; col: number; x: number; y: 
 /** a paragraph of the body that starts on a page (index among its section's body paragraphs), with the start of its
  * text as the renderer shows it, or that holds a table starting there */
 export interface LStart { para: number; table: boolean; preview: string }
-export interface LPage { w: number; h: number; lines: LLine[]; cells: LCell[]; section: number; starts: LStart[]; continued: number[] }
+/** a table as drawn (its id is LCell.table) */
+export interface LTable { x: number; y: number; w: number; h: number }
+export interface LPage { w: number; h: number; lines: LLine[]; cells: LCell[]; tables: LTable[]; section: number; starts: LStart[]; continued: number[] }
 export interface HwpLayout { pages: LPage[] }
 
 export const LAYOUT_LIMITS = { pages: 200, lines: 20_000, runs: 100_000, cells: 20_000, chars: 400_000, depth: 64, nodes: 400_000 }
@@ -150,7 +152,7 @@ export function parseRenderTree(tree: unknown): LPage {
   const root = obj(tree)
   if (root.type !== 'Page') bad()
   const pb = box(root)
-  const page: LPage = { w: pb.w, h: pb.h, lines: [], cells: [], section: 0, starts: [], continued: [] }
+  const page: LPage = { w: pb.w, h: pb.h, lines: [], cells: [], tables: [], section: 0, starts: [], continued: [] }
   let nodes = 0, chars = 0, runs = 0, tables = 0, containers = 0
   const walk = (v: unknown, depth: number, cell: number, container: number, table: number) => {
     if (++nodes > L.nodes || depth > L.depth) bad()
@@ -175,7 +177,7 @@ export function parseRenderTree(tree: unknown): LPage {
       return
     }
     let inCell = cell, inContainer = container, inTable = table
-    if (type === 'Table') { inTable = ++tables; inContainer = ++containers }
+    if (type === 'Table') { inTable = ++tables; inContainer = ++containers; if (page.tables.push(box(n)) > L.cells) bad() }
     if (type === 'Cell') {
       const b = box(n)
       const row = Number.isInteger(n.row) ? n.row as number : bad(), col = Number.isInteger(n.col) ? n.col as number : bad()
@@ -228,12 +230,33 @@ function units(s: string): number[] {
   return [...s].map((ch) => {
     const c = ch.codePointAt(0)!
     if (c === 0x20) return 0.5
+    if (c === 0x28 || c === 0x29) return 0.4
     return (c >= 0x1100 && c <= 0x11ff) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) ? 1 : 0.55
   })
 }
 /** The x of character `k` of a line's text (its left edge; k = text.length: the right edge of the last one), from
  * the runs' boxes, characters spread in each run by their share of its width. */
 export function charX(line: LLine, k: number): number {
+  return charX2(line, k)
+}
+/** a label's left and right edge on its line (px): exact at a run's edge (the renderer measured the run), else by the
+ * characters' shares; a label that ends (or starts) a run is measured back (forward) from that edge with its own
+ * characters at the line's text size, so a long run's estimate does not move it */
+export function labelX(line: LLine, k: number, n: number): [number, number] {
+  let at = 0
+  for (const r of line.runs) {
+    const len = [...r.text].length
+    if (k >= at && k + n <= at + len && len) {
+      const em = line.h, w = units([...r.text].slice(k - at, k - at + n).join('')).reduce((a, b) => a + b, 0) * em
+      if (k + n === at + len) return [r.x + r.w - w, r.x + r.w]
+      if (k === at) return [r.x, r.x + w]
+      break
+    }
+    at += len
+  }
+  return [charX2(line, k), charX2(line, k + n)]
+}
+function charX2(line: LLine, k: number): number {
   let at = 0
   for (const r of line.runs) {
     const n = [...r.text].length
@@ -274,6 +297,9 @@ export interface PictureSpot {
   /** 0-based page and the picture's box on it (HWPUNIT from the paper's top-left) */
   page: number
   box: { x: number; y: number; w: number; h: number }
+  /** set when the picture is placed vertically from its anchor paragraph's top (HWPUNIT, may be negative) instead of
+   * from the paper: a document without Hangul's layout cache, which Hangul lays out again its own way */
+  fromPara?: number
 }
 export interface PictureSize { width_mm?: number; height_mm?: number }
 
@@ -309,7 +335,8 @@ export function placePicture(page: LPage, pageIndex: number, target: { x: number
 }
 
 /** A picture's place for the AI, in mm from the page's top-left. */
-export interface HwpPictureNote { change: number; page: number; xMm: number; yMm: number; widthMm: number; heightMm: number; where: string; part: string }
+export interface HwpPictureNote { change: number; page: number; xMm: number; yMm: number; widthMm: number; heightMm: number; where: string; part: string; fromParagraph?: boolean }
 export const spotNote = (change: number, s: PictureSpot, where: string, part: string): HwpPictureNote => ({
   change, page: s.page + 1, xMm: round1(s.box.x / HU_PER_MM), yMm: round1(s.box.y / HU_PER_MM), widthMm: round1(s.box.w / HU_PER_MM), heightMm: round1(s.box.h / HU_PER_MM), where, part,
+  ...(s.fromPara !== undefined ? { fromParagraph: true } : {}),
 })

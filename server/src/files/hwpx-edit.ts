@@ -407,8 +407,9 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
   readonly dropCache = new Set<Para>()
   private freshIds = new Map<number, () => string>()
   /** the pictures' new parts (BinData/imageN.ext) and their manifest items, in order */
-  readonly newParts: { name: string; id: string; data: Uint8Array; kind: 'png' | 'jpg' }[] = []
+  readonly newParts: { name: string; id: string; data: Uint8Array; kind: 'png' | 'jpg'; image: CleanImage }[] = []
   private zOrders = new Map<number, number>()
+  private openedRuns = new Map<El, Edit>()
 
   constructor(private doc: Doc, private pkg: Package) { super(doc.paras, doc.tables) }
 
@@ -429,13 +430,17 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     if (p.el.name !== 'hp:p') refuseChange(i, 'the place is not in an ordinary paragraph')
     const tracked = p.segs.find((s) => s.kind === 'other' && TRACKED.has(s.el!.local))
     if (tracked) refuseChange(i, `the paragraph ${clip(p.text, 60)} has tracked changes; accept or reject them in Hangul first`)
-    const pic = this.picXml(p.sec, spot, image, layer, this.newPart(image, i))
+    const part = this.newParts.find((x) => x.image === image) ?? this.newPart(image, i)
+    const pic = this.picXml(p.sec, spot, image, layer, part.id)
     // at the end of the paragraph's last run: its text and layout cache stay as they are
     const runs = kidEls(p.el, 'hp:run')
     const run = runs[runs.length - 1] ?? refuseChange(i, `the paragraph ${clip(p.text, 60)} has no text run to hold a picture`)
-    if (run.self) this.edit(p, run.start, run.end, `${xml.slice(run.start, run.openEnd - 2).trimEnd()}>${pic}</hp:run>`, i)
+    // (an empty run written as <hp:run/> is opened once; more pictures in it go after the first)
+    const open = this.openedRuns.get(run)
+    if (open) open.text = open.text.replace(/<\/hp:run>$/, `${pic}</hp:run>`)
+    else if (run.self) { this.edit(p, run.start, run.end, `${xml.slice(run.start, run.openEnd - 2).trimEnd()}>${pic}</hp:run>`, i); this.openedRuns.set(run, this.edits[this.edits.length - 1]!) }
     else this.edit(p, run.closeStart, run.closeStart, pic, i)
-    return this.newParts[this.newParts.length - 1]!.name
+    return part.name
   }
 
   /** a new part for the picture: BinData/imageN with an id no manifest item and no part has */
@@ -448,8 +453,9 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     let n = 1
     while (ids.has(`image${n}`) || [...names].some((k) => k.startsWith(`bindata/image${n}.`))) n++
     const id = `image${n}`
-    this.newParts.push({ name: `BinData/${id}.${image.kind}`, id, data: image.bytes, kind: image.kind })
-    return id
+    const part = { name: `BinData/${id}.${image.kind}`, id, data: image.bytes, kind: image.kind, image }
+    this.newParts.push(part)
+    return part
   }
 
   /** Contents/content.hpf, the package's manifest (assertPlainPackage made sure it is there) */
@@ -475,7 +481,8 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
       `<hp:imgClip left="0" right="${dw}" top="0" bottom="${dh}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${dw}" dimheight="${dh}"/>` +
       `<hc:img binaryItemIDRef="${item}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>` +
       `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${h}" heightRelTo="ABSOLUTE" protect="0"/>` +
-      `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1" holdAnchorAndSO="0" vertRelTo="PAPER" horzRelTo="PAPER" vertAlign="TOP" horzAlign="LEFT" vertOffset="${spot.box.y}" horzOffset="${spot.box.x}"/>` +
+      // from the paper, or vertically from the anchor paragraph (an offset above it written as Hangul does: 32-bit unsigned)
+      `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1" holdAnchorAndSO="0" vertRelTo="${spot.fromPara === undefined ? 'PAPER' : 'PARA'}" horzRelTo="PAPER" vertAlign="TOP" horzAlign="LEFT" vertOffset="${(spot.fromPara ?? spot.box.y) >>> 0}" horzOffset="${spot.box.x}"/>` +
       '<hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:pic>'
   }
 
@@ -831,8 +838,13 @@ function picturesOnly(was: Package, now: Package) {
     if (e.name === hpf || /^Contents\/section\d+\.xml$/i.test(e.name)) continue
     if (!Buffer.from(now.parts.get(e.name)!).equals(Buffer.from(e.data))) bad(`${e.name} changed`)
   }
-  const pics = (p: Package) => [...p.parts.keys()].filter((n) => /^Contents\/section\d+\.xml$/i.test(n)).reduce((n, k) => n + (new TextDecoder().decode(p.parts.get(k)).match(/<hp:pic[\s>]/g)?.length ?? 0), 0)
-  if (pics(now) !== pics(was) + added.length) bad('the body does not have one picture per new picture part')
+  // the body: every old picture still there, and each added one shows a NEW part; every new part is shown
+  const refs = (p: Package) => [...p.parts.keys()].filter((n) => /^Contents\/section\d+\.xml$/i.test(n)).flatMap((k) => [...new TextDecoder().decode(p.parts.get(k)).matchAll(/<hp:pic[\s>][\s\S]*?<\/hp:pic>/g)].map((m) => /binaryItemIDRef="([^"]*)"/.exec(m[0])?.[1] ?? ''))
+  const left = refs(now)
+  for (const id of refs(was)) { const at = left.indexOf(id); if (at < 0) bad('an old picture is gone from the body'); left.splice(at, 1) }
+  const fresh = added.map((e) => /^BinData\/(image\d+)\./.exec(e.name)![1]!)
+  if (left.some((id) => !fresh.includes(id))) bad('a new picture does not show a new picture part')
+  if (fresh.some((id) => !left.includes(id))) bad('a new picture part is not shown in the body')
 }
 
 /** The office worker's `hwpx-edit` mode: the framed request of hwpx-check.ts in, the framed report and file out. */
