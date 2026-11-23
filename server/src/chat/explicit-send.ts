@@ -3,12 +3,12 @@
 // did not name (floor 2). Decided here once, from the server's own provenance of what goes (chat/answer-share.ts), for
 // the AI's post_to_room and for the app's "Send to a conversation" (the confirm's `direct`).
 //
-// Safe sources, and only these: files in the person's own personal folder (no share of it, never what came in through
-// the in-app browser or a connected service: those read as "my files" on the card, but they can be a mailbox or a
-// logged-in page), and a team-folder place when every file of it that counts is one the person named, attached or the
-// AI made in this answer. Anything else some recipient cannot see asks: a room, a 1:1 or group chat, a connected
-// service, a file shared with the person, the browser, a team folder file nobody named, anything not known (a room read
-// without saying which, an answer off the branch, a source with no place).
+// Safe sources (narrowed 2026-11-23 by the owner: the floor is ONLY content from someone else's private place the person
+// did not name): the person's own folder (a share of it too) and what their own browser or connection showed them; a
+// chat the person is in (the AI's work there is theirs); a team-folder place when every file of it that counts is one
+// the person named, made here or may share themselves. Anything else some recipient cannot see asks: a room, a 1:1 or
+// group chat of others, Slack, a team connection, a Drive file shared with them, another person's folder, a team file
+// they may not share, anything not known (a room read without saying which, an answer off the branch, no place).
 import type { CountedSource } from './answer-share'
 import { approvalsFor } from './card-approvals'
 
