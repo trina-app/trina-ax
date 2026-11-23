@@ -49,3 +49,7 @@ endpoint, and `done` checks the role again. The tool result never carries a team
 ## Result
 
 Case (b), built as planned. Server: `googleAppOwnCard`, the member card without `teamOffer`, `googleAppNow` (the state read after the card closes, and a connected app that is not answering is said). Web: "Connect my {name}", and on a phone the on-computer line with "I've connected it" (this also replaces the phone admin's link to a page that cannot sign in). Six languages, the user docs in six languages, CONNECTIONS, INTEGRATIONS, ASKS.
+
+After the security review: no Google app card on a Slack, scheduled or server-started turn for anyone (an owner or admin
+included), so the AI gets the app's real next step at once. A state that cannot be read again never says the tools are
+there. An admin's team connection that leaves them out is reported when the card then times out or gets Not now.

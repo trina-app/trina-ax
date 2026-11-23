@@ -1288,7 +1288,7 @@ describe('Google for the team from a chat (#253)', () => {
 
   test('Gmail: the card timed out: not connected is said, with the way; connected on its page meanwhile counts', async () => {
     const state: { own?: 'connected' } = {}
-    await withGmail(state, () => withCardTime(300, async () => {
+    await withGmail(state, () => withCardTime(1000, async () => {
       const t = await start('alice', { name: 'Gmail' })
       const none = resultOf(await doneOf(t.messageId))
       expect(none.skipped).toBe(true)
@@ -1323,6 +1323,87 @@ describe('Google for the team from a chat (#253)', () => {
       expect(m.content).toContain('the owner or an admin does it')
       expect(m.content).not.toContain('team@acme.example')
     })
+  })
+
+  // security review of #483: nobody is at a screen to press a card on these turns, whoever asks
+  for (const clientKind of ['slack', 'schedule'] as const) {
+    for (const who of ['alice', 'carol']) {
+      test(`Gmail on a ${clientKind} turn, ${who === 'alice' ? 'a member' : 'an admin'}: no card, and the app's real next step`, async () => {
+        await withGmail({}, async () => {
+          const chat = await h.api(who).call(API.createChat, { body: {} })
+          const started = h.rt().createTurn({
+            chat: h.rt().store.chatRow(chat.id)!, userId: who, locale: 'en', windowId: null, clientKind, engine: 'claude-code', model: null,
+            user: { parentId: null, content: fake({ tool: 'connect_service', args: { name: 'Gmail' }, sayResult: true }), attachments: [], clientMessageId: cm() },
+          })
+          const m = await doneOf(started.assistantMessage.id)
+          expect(cards(started.turnId)).toEqual([])
+          expect(m.content).toContain('Settings › Connectors › Gmail')
+          expect(m.content).toContain('press Connect and sign in with their Google account')
+          expect(m.content).not.toContain('"skipped"')
+          expect(m.content).not.toContain('scheduled run')
+        })
+      })
+    }
+  }
+
+  test('Gmail: its state cannot be read again after "I\'ve connected it": never "its tools are yours"', async () => {
+    const state: { own?: 'connected' } = {}
+    await withGmail(state, async () => {
+      const t = await start('alice', { name: 'Gmail' })
+      const card = await cardOf(t.turnId)
+      state.own = 'connected'
+      // the card's done reads it once; the tool's read after the card fails
+      const g = googleAppsOf(h.ctx), view = g.view.bind(g)
+      let reads = 0
+      g.view = (user, app) => { if (++reads > 1) throw new Error('read failed'); return view(user, app) }
+      expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'connected' })
+      const r = resultOf(await doneOf(t.messageId))
+      expect(r).toMatchObject({ connected: true, name: 'Gmail', status: 'connected' })
+      expect(r.note).toContain('could not be read again')
+      expect(r.note).not.toContain('Its tools are yours')
+    })
+  })
+
+  test('Gmail: an admin makes a team connection that leaves them out and the card times out: told it exists and how to join', async () => {
+    const state: { team?: 'connected' } = {}
+    await withGmail(state, () => withCardTime(1000, async () => {
+      const t = await start('carol', { name: 'Gmail' })
+      await cardOf(t.turnId)
+      state.team = 'connected'
+      const m = await doneOf(t.messageId)
+      const r = resultOf(m)
+      expect(r).toMatchObject({ connected: true, name: 'Gmail', status: 'connected for the team' })
+      expect(r.note).toContain('Admin › Connected apps')
+      expect(r.note).toContain('who may use it')
+      expect(m.content).not.toContain('team@acme.example')
+    }))
+  })
+
+  test('Gmail: the same team connection and Not now: skipped, and told it exists and how to join', async () => {
+    const state: { team?: 'connected' } = {}
+    await withGmail(state, async () => {
+      const t = await start('carol', { name: 'Gmail' })
+      const card = await cardOf(t.turnId)
+      state.team = 'connected'
+      await post('carol', t.turnId, { action: 'skip', requestId: card.requestId })
+      const r = resultOf(await doneOf(t.messageId))
+      expect(r.skipped).toBe(true)
+      expect(r.reason).toContain('pressed Not now')
+      expect(r.reason).toContain('connected for the team')
+    })
+  })
+
+  test('Gmail, a member: the card times out while a team connection leaves them out: nothing about it reaches the AI', async () => {
+    const state: { team?: 'connected' } = {}
+    await withGmail(state, () => withCardTime(1000, async () => {
+      const t = await start('alice', { name: 'Gmail' })
+      await cardOf(t.turnId)
+      state.team = 'connected'
+      const m = await doneOf(t.messageId)
+      expect(resultOf(m).skipped).toBe(true)
+      expect(m.content).not.toContain('connected for the team')
+      expect(m.content).not.toContain('team@acme.example')
+    }))
   })
 
   test('Gmail: the owner gets the same card as an admin', async () => {

@@ -123,10 +123,10 @@ function connectedResult(exec: TurnExec, out: { name: string; status: string; to
   return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
 }
 /** the card's Connect for the team made a team connection that the person who made it is not among the users of */
+const teamOnlyNote = (name: string, L: Locale) => `${name} is connected for the team, but this person is not among the people who may use it, so its tools are not theirs. Say so in one sentence: they can add themselves in ${SCREEN.adminMcp(L)} › ${name} (who may use it), or connect their own in ${SCREEN.connectors(L, name)}.`
 function teamOnlyResult(exec: TurnExec, name: string, L: Locale, label: string): ToolOut {
   exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', exec.spec.locale), ...relabel(st.label, label) }))
-  const note = `${name} is connected for the team, but this person is not among the people who may use it, so its tools are not theirs. Say so in one sentence: they can add themselves in ${SCREEN.adminMcp(L)} › ${name} (who may use it), or connect their own in ${SCREEN.connectors(L, name)}.`
-  return { content: json({ connected: true, name, status: 'connected for the team', note }), summary: `${CONNECT_TOOL} -> connected for the team` }
+  return { content: json({ connected: true, name, status: 'connected for the team', note: teamOnlyNote(name, L) }), summary: `${CONNECT_TOOL} -> connected for the team` }
 }
 /** the step's label set to the card's (a label that already starts with it keeps what was added after it) */
 const relabel = (current: string, label: string) => current === label || current.startsWith(`${label} · `) ? {} : { label }
@@ -205,8 +205,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // Gmail, Google Calendar, Docs and Sheets are built in: their own page, never an address (AI scenario CON-01.calendar)
   const gApp = target === 'service' && !a.data.connection && !a.data.template ? googleAppAsked(a.data.name, a.data.url) : null
-  /** an owner or admin gets a card for it (Connect for the team, or their own on its page), a member one with their own
-   * Connect where a person is at a screen to press it (not a scheduled, Slack or server-started turn); else the words */
+  /** where a person is at a screen to press it (not a scheduled, Slack or server-started turn), an owner or admin gets a
+   * card for it (Connect for the team, or their own on its page) and a member one with their own Connect; else the words,
+   * which hold the app's real next step */
   let gAppCard = false
   if (gApp) {
     let way: ReturnType<typeof googleAppWay>
@@ -214,7 +215,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
       const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
       const app = { name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }
       way = googleAppWay(app, isAdmin(viewer.role), L)
-      gAppCard = googleAppTeamCard(app, isAdmin(viewer.role)) || (!questionsWaitInCall(spec.clientKind) && googleAppOwnCard(app, viewer.role))
+      gAppCard = !questionsWaitInCall(spec.clientKind) && (googleAppTeamCard(app, isAdmin(viewer.role)) || googleAppOwnCard(app, viewer.role))
     } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
     if (!gAppCard) return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
   }
@@ -394,15 +395,22 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (o.success && o.data.outcome === 'connected' && 'googleApp' in o.data) {
     const name = APP_NAMES[o.data.googleApp]
     if (o.data.teamOnly) return teamOnlyResult(exec, name, L, shownLabel)
-    // connected, but its tools cannot be reached right now: said, never "its tools are yours"
+    // connected, but its tools cannot be reached right now, or its state cannot be read again: said, never "its tools are yours"
     const now = googleAppNow(exec, viewer, o.data.googleApp)
-    return connectedResult(exec, { name, status: 'connected', note: now?.down ? now.text : "Its tools are yours in this chat; if you do not have them now, from the person's next message." }, true, shownLabel)
+    const toolsNote = !now ? `${name} was connected when the card finished, but its state could not be read again just now. Do not say its tools are ready: if you do not have them, say so and offer to try again in a while.`
+      : now.down ? now.text : "Its tools are yours in this chat; if you do not have them now, from the person's next message."
+    return connectedResult(exec, { name, status: 'connected', note: toolsNote }, true, shownLabel)
   }
   // a Google app's card that closed without "I've connected it": the sign-in is on the app's page, so the person may have
   // finished it there. What the AI is told is the app's state now, whichever way the card closed (QA TC-8034)
   if (card.target === 'google_app' && card.googleApp) {
-    const now = googleAppNow(exec, viewer, card.googleApp)
+    const now = googleAppNow(exec, viewer, card.googleApp, !!card.teamOffer)
     const timedOut = !(o.success && o.data.outcome === 'skipped')
+    if (now?.teamOnly && timedOut) return teamOnlyResult(exec, card.name, L, shownLabel)
+    if (now?.teamOnly) {
+      exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', L), ...relabel(st.label, shownLabel) }))
+      return { content: json({ skipped: true, reason: `The person pressed Not now on the card. ${teamOnlyNote(card.name, L)}` }), summary: `${CONNECT_TOOL} -> skipped (connected for the team)` }
+    }
     if (now?.connected && timedOut) return connectedResult(exec, { name: card.name, status: 'connected', note: now.text }, true, shownLabel)
     if (now?.connected) {
       exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', L), ...relabel(st.label, shownLabel) }))
@@ -426,13 +434,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
-/** A Google app as it is for this person right now, in the words the AI is told (null: it could not be read). */
-function googleAppNow(exec: TurnExec, viewer: Viewer, id: GoogleAppId): { connected: boolean; down: boolean; text: string } | null {
+/** A Google app as it is for this person right now, in the words the AI is told (null: it could not be read).
+ * `teamOffer`: their card offered Connect for the team, so `teamOnly` says a team connection works that leaves them out;
+ * only for someone who is an owner or admin now, since the admin read names the team's account. */
+function googleAppNow(exec: TurnExec, viewer: Viewer, id: GoogleAppId, teamOffer = false): { connected: boolean; down: boolean; teamOnly: boolean; text: string } | null {
   try {
     const v = googleAppsOf(exec.rt.ctx).view(viewer.id, id)
     const role = activeUser(exec.rt.db, viewer.id)?.role ?? viewer.role
     const way = googleAppWay({ name: APP_NAMES[id], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(role), exec.spec.locale)
-    return { connected: way.connected, down: !!v.serviceDown, text: way.text }
+    const teamOnly = teamOffer && isAdmin(role) && !way.connected && v.status !== 'connected' && googleAppsOf(exec.rt.ctx).adminStatus(id).team?.status === 'connected'
+    return { connected: way.connected, down: !!v.serviceDown, teamOnly, text: way.text }
   } catch { return null }
 }
 
