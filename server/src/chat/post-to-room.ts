@@ -702,7 +702,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // with a guest when files go; a screen target; a vague place
         const said0 = askerMessageId(exec)
         const brought = attachedPaths(db, said0)
-        const namedRel = (rel: string) => brought.has(rel) || namesFileLoose(said, rel) || madeHere(db, exec, rel)
+        // (a file an answer of this chat made, by this person's turns: "이 견적서" after it was made, QA F10; what it was made
+        // from is still in the provenance, makerOf, so the floor reads its sources)
+        const madeInChat = (rel: string) => !!db.query("SELECT 1 FROM file_events e JOIN turns t ON t.id = e.turn_id WHERE t.chat_id = ? AND t.user_id = ? AND e.path = ? AND e.action IN ('create','update') LIMIT 1").get(spec.chatId, spec.userId, rel)
+        const namedRel = (rel: string) => brought.has(rel) || namesFileLoose(said, rel) || madeHere(db, exec, rel) || madeInChat(rel)
         const guestRoom = !!roomId && !!db.query('SELECT 1 FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? AND u.guest = 1 LIMIT 1').get(roomId)
         const wordsAsk = !exec.askedIn && !exec.otherAuthors && !readRooms(exec) && !strict && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !guestLine && asksFor(POST_ASK, said)
           && (plain ? theirText : true) && noteOk && mentionsSaid && place
