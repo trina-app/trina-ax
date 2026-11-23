@@ -227,7 +227,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
   let nextId = 0
   let freeIds: Set<number> | null = null
   /** where each picture goes in a paragraph's text, checked against text edits of the same call at the end */
-  const picAt: { change: number; para?: Para; pos?: number }[] = []
+  const picAt: { change: number; para?: Para; from?: number; to?: number }[] = []
   const media = new Map<number, { rid: string; w: number; h: number }>()
   const rootHead = (() => { const r = tree.kids.find((k) => !k.name.startsWith('?')); return r ? r.head : '' })()
   const defaultPt = (() => {
@@ -376,7 +376,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
         const d = picture(i, x)
         const pt = runPt(pieceAt(hit.para, hit.at)?.run ?? null, defaultPt)
         d.float = { dx: Math.round(textWidthEmu(label, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy) }
-        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, pos: hit.at })
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at, to: hit.at + label.length })
         splices.get(main)!.push(splitAt(hit.para, hit.at, false, drawingXml(d), where, i))
         notes.push({ change: i, where: `picture over ${q}, behind the text (${d.size})` })
         return
@@ -384,7 +384,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       if (x.after !== undefined) {
         const d = picture(i, x)
         if (x.behind_text) d.float = { dx: 0, dy: lineDy(runPt(pieceAt(hit.para, hit.at + label.length - 1)?.run ?? null, defaultPt), d.cy) }
-        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, pos: hit.at + label.length })
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at + label.length, to: hit.at + label.length })
         splices.get(main)!.push(splitAt(hit.para, hit.at + label.length, true, drawingXml(d), where, i))
         notes.push({ change: i, where: `picture after ${q}${x.behind_text ? ', behind the text' : ''} (${d.size})` })
         return
@@ -424,7 +424,8 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
   // a picture at text that a find/replace of the same call changes would land next to text that is gone
   for (const p of picAt) {
     if (!p.para) continue
-    const e = (textEdits.get(p.para) ?? []).find((x) => p.pos! >= x.at && p.pos! <= x.at + x.len)
+    // the whole label of `over` (it is centred on it), the point of `after`; touching edges count
+    const e = (textEdits.get(p.para) ?? []).find((x) => x.at <= p.to! && p.from! <= x.at + x.len)
     if (e) refuse(`changes ${Math.min(e.change, p.change) + 1} and ${Math.max(e.change, p.change) + 1} touch the same text; put the picture in a separate call`)
   }
   for (const [para, edits] of textEdits) {

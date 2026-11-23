@@ -35,6 +35,10 @@ import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from './isolate'
+import { askConfirm } from './url-gate'
+import { teamDefaultLocale } from '../admin/settings'
+import { cardReason, refusal } from '../policy/refusal'
+import type { Locale } from '@mycel/shared/api'
 import { cellValue, confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
 import { editOfficeOutput } from './make-file-path'
@@ -84,8 +88,8 @@ export const EDIT_OFFICE_DESCRIPTION =
   'use make_file only for a new file or when they ask to rebuild one. Read the file in this chat first. ' +
   'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows, ' +
   'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(seal)" next to a name; ' +
-  'after puts it in the line after the text; next_to puts it into the table cell right of the label). When someone asks to sign or stamp a Word document, use insert_picture with their signature or seal picture, ' +
-  'never a rebuilt document; ask for the picture only when none can be found in the team folder or this chat. ' +
+  'after puts it in the line after the text; next_to puts it into the table cell right of the label). When someone asks to sign or stamp a Word document, use insert_picture, never a rebuilt document, ' +
+  'with the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use. ' +
   'Pictures are not added to Excel workbooks here. ' +
   'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row); rows are never inserted in the middle. ' +
   'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +
@@ -96,6 +100,15 @@ export const EDIT_OFFICE_DESCRIPTION =
   'Without `output` the result is a new version of the same file (the previous one stays in its history). ' +
   'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version, opened from the same file in the chat, and the earlier version stays (read with versions: true). ' +
   'Every call that changes a file saves it: never call it just to try something out. It cannot change speaker notes, charts, tables in a deck, comments or anything not listed here: say so in plain words ("I can\'t add speaker notes to this deck here"), never naming this tool, instead of calling it.'
+
+const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
+/** the card before a picture that is not the asker's own goes into a document (a signature or seal someone else sent,
+ * or one outside their own folder): independent review of #448 */
+const PICTURE_TEXT = {
+  ask: t('AI가 내 것이 아닌 그림 {pics}을(를) {doc}에 넣으려고 해요. 넣을까요?', 'The AI wants to put {pics} into {doc}. It is not your own picture: someone else sent it, or it is outside your own folder. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan milik Anda: orang lain mengirimnya, atau ada di luar folder Anda. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身の画像ではありません（ほかの人が送ったか、あなたのフォルダーの外にあります）。入れますか？', 'La IA quiere poner {pics} en {doc}. No es una imagen tuya: la envió otra persona o está fuera de tu carpeta. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这不是你自己的图片：是别人发送的，或在你自己的文件夹之外。要放进去吗？'),
+  yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
+  no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
+}
 
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
@@ -237,7 +250,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   /** a picture's index among the call's re-encoded pictures: a team file (read access as the person), or a file of this
    * chat (read through its place's one safe open); each sized, quarantine-checked and re-encoded before the worker */
   const picWork: string[] = []
-  const picture = async (p: string, i: number): Promise<number> => {
+  /** inserted pictures that are not the asker's own: a chat file someone else sent, a team file outside users/<them>/ */
+  const notMine = new Set<string>()
+  const picture = async (p: string, i: number, insert = false): Promise<number> => {
     let rel: string, raw: Uint8Array
     const place = parsePlace(p)
     if (place) {
@@ -246,6 +261,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       picWork.push(work)
       const f = await readPlaceFile(ctx, c, p, OFFICE_EDIT_LIMITS.imageBytes, work)
       rel = f.place
+      const fid = parsePlace(rel)?.kind === 'chatFiles' ? (parsePlace(rel) as { id?: string }).id : undefined
+      const by = fid ? (ctx.db.query('SELECT user_id FROM chat_files WHERE id = ?').get(fid) as { user_id: string } | null)?.user_id : undefined
+      if (insert && by !== c.user.id) notMine.add(f.name)
       const known = imageIndex.get(rel)
       if (known !== undefined) return known
       if (!PICTURE_EXT.has(ext(f.name))) throw new ToolError(`change ${i + 1}: '${f.name}' is not a PNG, JPEG or WebP picture; give one of those`)
@@ -256,6 +274,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       const img = authorize(fx, files.rules(), c.user, p, 'read')
       if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
       rel = img.rel
+      if (insert && !(img.segs[0] === 'users' && img.segs[1] === c.user.id)) notMine.add(rel)
       const known = imageIndex.get(rel)
       if (known !== undefined) return known
       if (!PICTURE_EXT.has(ext(rel))) throw new ToolError(`change ${i + 1}: '${rel}' is not a PNG, JPEG or WebP picture; give one of those`)
@@ -283,11 +302,21 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     if (x.append_rows) return { append_rows: { ...x.append_rows, rows: x.append_rows.rows.map((r: unknown[]) => r.map((v) => excelValue(v, i))) } }
     for (const key of ['replace_picture', 'insert_picture'] as const) {
       if (!x[key]) continue
-      return { [key]: { ...x[key], image: await picture(String(x[key].image), i) } }
+      return { [key]: { ...x[key], image: await picture(String(x[key].image), i, key === 'insert_picture') } }
     }
     return x
   })())
   } finally { for (const w of picWork) fs.rmSync(w, { recursive: true, force: true }) }
+  // a signature or seal that is not the asker's own goes in only after their yes on a card (never on the AI's choice)
+  if (notMine.size) {
+    const L = c.person?.locale ?? teamDefaultLocale(ctx.db)
+    const pics = [...notMine].slice(0, 5).map((n) => `'${n.split('/').pop()}'`).join(', ')
+    const end = c.person ? await askConfirm(c.person, PICTURE_TEXT.ask[L].replace('{pics}', pics).replace('{doc}', `'${src.rel.split('/').pop()}'`), PICTURE_TEXT.yes[L], PICTURE_TEXT.no[L]) : 'unattended'
+    if (end !== 'yes') throw new ToolError(refusal({
+      done: 'Nothing was saved.', why: cardReason(end === 'declined' || end === 'timeout' || end === 'ended' ? end : 'unattended', { run: c.person ? undefined : 'a call outside a chat' }),
+      next: 'use the person\'s own signature or seal, or ask them which picture to use', names: [...notMine],
+    }))
+  }
   // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
   // the worker runs, in place too, as comment_docx does
   await confirmSources(ctx, files, c, out.rel, out.segs, [...(inPlace ? [] : [src.rel]), ...imagePaths])

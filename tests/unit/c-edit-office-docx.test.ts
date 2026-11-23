@@ -341,5 +341,8 @@ describe('edit_office: insert_picture (a signature or seal in a Word form)', () 
     expect(() => runPics(before, [{ find: 'Buyer:', replace: 'Client:' }, { insert_picture: { image: 0, after: 'Buyer:' } }], [png(10, 10)])).toThrow(/changes 1 and 2 touch the same text/)
     const { file } = runPics(before, [{ find: 'Signed on', replace: 'Made on' }, { insert_picture: { image: 0, over: '(seal)', occurrence: 2 } }], [png(10, 10)])
     expect(texts(file)).toContain('Made on 23 November 2026.')
+    // over: the whole label counts, not only where it starts
+    expect(() => runPics(before, [{ find: 'Gildong (seal', replace: 'Gil-dong (seal' }, { insert_picture: { image: 0, over: '(seal)', occurrence: 2 } }], [png(10, 10)])).toThrow(/touch the same text/)
+    expect(() => runPics(before, [{ find: 'seal)', replace: 'stamp)', occurrence: 2 }, { insert_picture: { image: 0, over: '(seal)', occurrence: 2 } }], [png(10, 10)])).toThrow(/touch the same text/)
   })
 })

@@ -207,6 +207,13 @@ describe('edit_office: the security review\'s cases', () => {
     expect(r.report.added).toEqual([media[0]!.name])
     await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'groups/finance/secret-chart.png', over: '(seal)' } }] } as any)).rejects.toThrow(/not found or no access/)
     await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'chat:work/seal.png', over: '(seal)' } }] } as any)).rejects.toThrow(/team file or a file of this chat/)
+    // a picture outside the person's own folder (someone else's or the company's seal) needs their yes: no card here, refused
+    write('shared/brand/ceo-seal.png', png(30, 30, [200, 0, 0]))
+    await expect(editOffice(A.ctx, ctxRead('users/alice/form.docx'), { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)).rejects.toThrow(/Nothing was saved[\s\S]*ceo-seal\.png|ceo-seal\.png[\s\S]*Nothing was saved/)
+    const asked: string[] = []
+    const yes = ctxRead('users/alice/form.docx'); yes.person = { locale: 'en', confirm: async (q: string) => { asked.push(q); return true }, turnUrls: () => [] } as any
+    await editOffice(A.ctx, yes, { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)
+    expect(asked[0]).toContain("The AI wants to put 'ceo-seal.png' into 'form.docx'. It is not your own picture")
     write('users/alice/b.xlsx', await workbook())
     await expect(editOffice(A.ctx, ctxRead('users/alice/b.xlsx'), { file_path: 'users/alice/b.xlsx', changes: [{ insert_picture: { image: 'users/alice/seal.png', after: 'Rent' } }] } as any)).rejects.toThrow(/insert_picture is for Word documents \(a picture cannot be added to a workbook here\)/)
     // the server's part check lets the relationships and content types change only for a call that adds pictures

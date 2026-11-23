@@ -63,7 +63,9 @@ async function share(user: string, chatId: string, subjects: Sub[]) {
   if (r.status === 'confirm') { const key = r.confirmKey; r = await patient(() => put(user, chatId, subjects, key)) }
   if (r.status !== 'saved') throw new Error('not saved')
 }
-type Card = { requestId: string; question: string }
+type Card = { requestId: string; question: string; origin?: string; options?: { label: string; value: string }[] }
+/** a card's answer: a server card takes only its buttons (its last one is the "no"), any other card "skip" */
+const noAnswer = (c: Card) => (c.origin === 'server' && c.options?.length ? c.options[c.options.length - 1]!.value : 'skip')
 async function run(user: string, chatId: string, content: string, attachmentIds: string[] = []) {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds } })
   const cards: Card[] = []
@@ -75,7 +77,7 @@ async function run(user: string, chatId: string, content: string, attachmentIds:
       const c = f.data.request as unknown as Card
       cards.push(c)
       expectNoRawPlace(c)
-      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: 'skip' } })
+      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: noAnswer(c) } })
       continue
     }
     const done = sock.frames.find((x) => x.type === 'message.done' && x.data.message.turnId === r.turnId)
@@ -428,14 +430,21 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
     form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
     return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
   }
-  ;(pandoc ? test : test.skip)('the seal sent in the chat goes onto the form sent in the chat: a new version with the picture, the text as it was', async () => {
+  ;(pandoc ? test : test.skip)('the seal sent in the chat goes onto the form sent in the chat: by its sender with no card (a new version, the text as it was); by another member only after a card (no answer: nothing saved)', async () => {
     const r0 = Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSeller: Hong Gildong (seal)\n') })
     const chat = await sharedChat()
     const doc = await send(chat, 'form.docx', new Uint8Array(r0.stdout))
     const seal = await send(chat, 'seal.png', png(30, 30))
     await run('alice', chat, `the form and my seal\n${fake({ say: 'ok' })}`, [doc.id, seal.id])
     const p = chatFilePath(doc.id, 'form.docx')
-    const r = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_office', args: { file_path: p, changes: [{ insert_picture: { image: chatFilePath(seal.id, 'seal.png'), over: '(seal)', width_mm: 15 } }] }, sayResult: true }))
+    const stamp = fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_office', args: { file_path: p, changes: [{ insert_picture: { image: chatFilePath(seal.id, 'seal.png'), over: '(seal)', width_mm: 15 } }] }, sayResult: true })
+    // bob, with alice's seal: a card first (answered "skip" here), nothing saved
+    const other = await run('bob', chat, stamp)
+    expect(other.cards.length).toBe(1)
+    expect(other.content).toContain('Nothing was saved')
+    expect(versionsOf(chat, doc.id)).toBe(1)
+    // alice, with her own seal: no card
+    const r = await run('alice', chat, stamp)
     expect(r.cards).toHaveLength(0)
     expect(r.content).toContain('saved as version 2')
     expect(r.content).toContain('picture over "(seal)", behind the text (15 x 15 mm)')
