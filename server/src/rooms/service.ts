@@ -11,8 +11,8 @@
 //
 // Threads and reactions (docs/DECISIONS.md "스레드와 반응"): send() with threadRootId writes a reply in the thread of a
 // message of the timeline; it takes a seq but stays out of the timeline (unless sent to the room too), moves my place in
-// the thread, not in the room, and makes me follow the thread (the root's author and people mentioned in it follow it
-// too). New replies notify the followers (room notices, as DM messages and mentions do) and mark the root for them;
+// the thread, not in the room, and makes me follow the thread (the root's author, the people @mentioned in the root and
+// those mentioned in the reply follow it too; "@everyone" makes nobody follow, docs/decisions/20261123-thread-follow-root-mention.md). New replies notify the followers (room notices, as DM messages and mentions do) and mark the root for them;
 // nobody else is notified and no badge goes up for them. Reactions (react: any one emoji, docs/DECISIONS.md "Any emoji as
 // a reaction") take from the sending budget and notify nobody; a message carries at most ROOM_REACTION_EMOJI_MAX
 // different emoji. Nobody is told who read what: room.read goes to the reader's own windows only.
@@ -861,8 +861,11 @@ export class Rooms {
   }
 
   /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author
-   * (for an AI answer: the person who asked it) follows it from its first reply on (everything after the root is new to
-   * them); people mentioned in it who see it follow it from this reply on. Only people in the room now. */
+   * (for an AI answer: the person who asked it) and the people @mentioned in the root follow it from its first reply on
+   * (everything after the root is new to them; docs/decisions/20261123-thread-follow-root-mention.md, as in Slack: never
+   * "@everyone" in the root); people mentioned in the reply who see it follow it from this reply on. Only people in the
+   * room now who see the root. There is no unfollow, so adding them again on each reply (INSERT OR IGNORE) changes
+   * nobody's choice. */
   follow(root: MessageRow, authorId: string | null, seq: number, mentioned: readonly string[] = []) {
     const db = this.db, now = nowIso()
     const ms = new Map(members(db, root.room_id).map((m) => [m.user_id, m]))
@@ -874,6 +877,7 @@ export class Rooms {
     }
     const owner = root.author_kind === 'ai' ? root.asked_by : root.author_id
     if (may(owner)) add.run(root.id, owner, root.room_id, root.seq, now)
+    for (const u of JSON.parse(root.mentions || '[]') as string[]) if (may(u)) add.run(root.id, u, root.room_id, root.seq, now)
     for (const u of mentioned) if (may(u)) add.run(root.id, u, root.room_id, seq - 1, now)
   }
 
