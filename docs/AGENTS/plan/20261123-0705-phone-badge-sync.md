@@ -30,41 +30,40 @@ remove the phone's delivered notifications for what was read and set the icon's 
 
 ## Scope
 
-In (changed after the independent plan review, see "Review" below):
+In (changed after the independent plan review and the code review of #442, see "Review" below):
 1. Server: every phone push that went (or whose answer never came) is written to a ledger per phone
-   (`push_phone_ledger`). A "read sync" step after each dispatch (at most every 5 s) finds the ledger's notices of the
-   push day that are now read on any device, no longer told (suppressed) or deleted, using each source's own "still to
-   tell" rule (so the owner's locked password check never counts as read). Each phone gets at most one silent sync
-   push: the **whole** set of such ids, newest first (at most 40, fitting the gateway body), so a sync lost while the
-   phone was offline costs nothing; an iPhone also gets its icon number now (`pushBadge`). It is sent only when the set
-   (Android) or the number (iPhone) changed since the last sync; at most one per phone per 30 s, 100 a day, 10 a round,
-   after the due pushes. An iPhone last sent a number above 0 is also checked every 15 s (a room read without a pushed
-   notice). Ids and a number only, unique notification id, 24 h TTL.
-   Android syncs go only to an app that registered with `sync: true` (new capability push-sync-v1, sent by the page with
-   the token): an older Android app would list an empty notification for a sync while it is open.
+   (`push_phone_ledger`). A "read sync" job (at most every 5 s, beside the real-push dispatch, never in its way: 3 at
+   a time, no new send after 20 s) finds the ledger's notices of the push day that are now read on any device, no
+   longer told (suppressed) or deleted, using each source's own "still to tell" rule (so the owner's locked password
+   check never counts as read).
+   - Android (an app that registered with `sync: true`, capability push-sync-v1; an older app would list an empty
+     notification while open): one silent sync with the **whole** set of such ids, newest first (at most 40, fitting the
+     gateway body), only when the set changed, 24 h TTL. A sync lost while the phone was offline costs nothing.
+   - iPhone: one silent sync with the icon number (`pushBadge`), only when it went **down** from the number last sent
+     (a higher one comes with the next real push), never the ids, TTL 0 (now or never: a sync never waits at Apple in a
+     real alert's place, nor lands after a newer push). The count is worked out again only after the person read
+     something (a cheap `read_mark` of read positions, seen chats and notices read).
+   - At most one per phone per 30 s and 100 a day. Ids and a number only, unique notification id.
    Migration `448_b_push_phone_sync.sql`: `push_subscriptions.sync_ok`, `push_phone_ledger`, `push_phone_sync`.
-2. Gateway contract: optional `sync: true` with `clear` (ids) and the code `phone.sync`. `phone.sync` without `sync`, `clear`
-   without `sync`, and `sync` with `path`, `label` or an Android `badge` are refused, so a sync can never become a visible
-   notification. A gateway from before it refuses the key; the team server then sends no sync there for an hour and
-   never resends it without `sync`.
+2. Gateway contract: optional `sync: true` with `clear` (Android only) and the code `phone.sync`. `phone.sync` without
+   `sync`, `clear` without `sync`, and `sync` with `path`, `label`, an Android `badge` or an iOS `clear` are refused, so
+   a sync can never become a visible notification. A gateway from before it refuses the key; the team server then sends
+   no sync there for an hour and never resends it without `sync`.
 3. Gateway: APNs `aps: { badge?, content-available: 1 }` (no alert, no sound), push type alert with a badge, background
-   without, priority 5, collapse id `phone.sync`. FCM data-only, NORMAL priority, no title or line. Syncs have their own
-   (key, token) bucket. Every FCM message now also has `data.tag` = the notice id, so a notification expo-notifications
+   without, priority 5, collapse id `phone.sync`, expiry always 0. FCM data-only, NORMAL priority, no title or line.
+   Syncs have their own, smaller (key, token) bucket: 4 a minute, 120 a day. What the provider would get must fit
+   4096 bytes (413). Every FCM message now also has `data.tag` = the notice id, so a notification expo-notifications
    showed while the app was open has the notice id as its tag too.
 4. Android app (`modules/push-label`): `LabelMessagingDelegate.onMessageReceived` handles `phone.sync` before
    expo-notifications: cancels the tray entries whose tag is a listed id and the group summaries left empty; shows
-   nothing.
-5. Both apps, foreground: the page's count 0 (sent on every return to the foreground) removes the delivered notifications
-   of the kinds that count covers (room notices, AI answers, chat messages, thread replies; on Android also the ones the
-   system drew without their data). File shares, access requests, schedule and owner notices stay. A sync arriving while
-   the iPhone app is open is never listed.
+   nothing. A sync arriving while the iPhone app is open is never listed.
 
 Out (later):
-- iPhone: removing delivered notifications while the app is closed (needs the remote-notification background mode and
-  a headless task; iOS wakes the app only when it chooses). The sync already carries `content-available` and the ids,
-  so a later app build can do it without a gateway or server change. Until then the iPhone's number is right at once
-  and its list is cleaned when the app is opened.
-- Per-room removal on open while some things are still unread.
+- iPhone: removing delivered notifications while the app is closed (needs the remote-notification background mode, a
+  headless task and the ids, which the contract then allows for iOS).
+- Clearing on opening the app. Dropped in review: the page resends its last (stale) count on return to the foreground
+  before it reconnects, and sends 0 at sign-in before its lists load, so a "clear on 0" would wipe a new notification.
+  Reads elsewhere already reach Android by id.
 
 ## Review
 
@@ -73,6 +72,11 @@ foreground would list an empty notification), whole-set syncs instead of "each i
 collapsed push), unique notification ids per sync, a ledger (delivery rows are deleted with their notice), the "still
 to tell" rule instead of `read_at`. SHOULD items taken: `data.tag` per notice on FCM, limit the iPhone count checks,
 clear only counted kinds on open, cap syncs per round after the pushes, a separate transport path, no empty sync.
+
+Code review of #442 (2026-11-23), all taken: no clear on the page's count 0 (stale count races); iPhone syncs expire at
+once (server ttl 0, forced in the gateway); iPhone syncs only for a lower number, the count worked out only after a
+read; syncs as their own job with a time budget and 3 at a time; no ids to iPhones; sync bucket 4/min and 120/day and
+the provider size check; tests for 410 on a sync, a sync and a real push on one transport, the daily limit.
 
 ## Steps
 
@@ -92,10 +96,10 @@ docs/decisions/20261121-android-push-who-where.md (the Android messaging service
 ## Risks
 
 - Deploy order: the server sends syncs only to a gateway that accepts them; before the gateway is redeployed nothing
-  changes. **Needs a push-gateway redeploy** for anything to happen, and **new app builds** for Android tray removal
-  (both platforms for the clear-on-open). The iPhone number fix works with today's iPhone app once server and gateway
+  changes. **Needs a push-gateway redeploy** for anything to happen, and **a new Android build** for tray removal.
+  The iPhone number fix works with today's iPhone app once server and gateway
   are updated.
-- Privacy: a sync carries notice ids and a number only, as every push already does.
+- Privacy: a sync carries notice ids (Android) or a number (iPhone) only, as every push already does.
 - Battery / provider rules: no alert, priority 5 (APNs) / NORMAL (FCM), at most one per 30 s per phone.
 - Gateway budget: syncs have their own per-phone bucket.
 - Migration number: 448 (highest on dev: 445; 446 and 447 are taken by open PRs #428, #435, #440).
@@ -113,4 +117,4 @@ Built as in Scope (after the review). Migration is 448 (446/447 are used by open
 gets none, deleted notice, transport never resends without `sync`), sync cases in `push-gateway.test.ts`,
 `mobile-badge.test.ts`, `mobile-push-label-android.test.ts`, `web/test/unit/mobile.test.ts`.
 Not done here: a real-phone check. A sync reaches a phone only through the deployed gateway (FCM/APNs keys live there),
-so it waits for the gateway redeploy and a new Android build (QA TC-8150 to TC-8155).
+so it waits for the gateway redeploy and a new Android build (QA TC-8150 to TC-8155; TC-8152 dropped with the clear on open).

@@ -25,8 +25,8 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
     its /64. These counters live in memory only.
   - per key: 120 a minute while the key is young (first seen less than 24 h ago), then 1200 a minute.
   - per (key, token) pair: 20 a minute and 200 a day (UTC), so one team server cannot use up a phone's budget for
-    other teams. Silent syncs (`sync: true`) count in a separate bucket of the same size, so they never use up the
-    real pushes'; they still count toward the per-key limit.
+    other teams. Silent syncs (`sync: true`) count in a separate, smaller bucket (4 a minute, 120 a day), so they
+    never use up the real pushes'; they still count toward the per-key limit.
   - dedupe: the same (key, token, notificationId) within 10 minutes is answered 200 without sending again. This is also
     the replay guard inside the ±5 minute timestamp window.
   - A refused or failed send is not remembered, so a retry sends.
@@ -55,12 +55,14 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   again; each notification counts as one there. A number only. A gateway from before the field answers `400 invalid_body` to a
   request that has it; the team server then sends the same push without it and tries the field again an hour later.
 - Silent sync (`sync: true`, code `phone.sync`; the team server sends it after the person read things on another
-  device): never an alert, a sound or a line. `clear` (at most 40 notice ids) lists the notices to take off the phone.
-  iOS: `{aps:{badge?, content-available:1}, body:{notificationId, code, device?, clear?}}`, push type `alert` with a
-  badge (else `background`), priority 5, collapse id `phone.sync`. Android: data-only `{notificationId, code, device?,
+  device): never an alert, a sound or a line. `clear` (Android only, at most 40 notice ids) lists the notices to take
+  off the tray. iOS: `{aps:{badge?, content-available:1}, body:{notificationId, code, device?}}`, push type `alert`
+  with a badge (else `background`), priority 5, collapse id `phone.sync`, expiry 0 (now or never: Apple keeps one
+  notification per app for an offline phone, and a sync must never take a real alert's place). Android: data-only `{notificationId, code, device?,
   clear: "id,id"}`, priority NORMAL, no `notification` block and no title or line, so an app from before it shows
   nothing in the background (the team server sends Android syncs only to apps that registered for them). `phone.sync`
-  without `sync`, and `sync` with `path`, `label` or (Android) `badge`, are refused. A gateway from before `sync` refuses
+  without `sync`, and `sync` with `path`, `label`, an Android `badge` or an iOS `clear`, are refused. What the provider
+  would get (the APNs payload, the FCM data) must fit 4096 bytes, else `413 body_too_large`. A gateway from before `sync` refuses
   it (`invalid_body`); the team server then sends none for an hour and never resends one without `sync`.
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider
   answers are never logged.

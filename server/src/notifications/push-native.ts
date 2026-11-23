@@ -105,12 +105,13 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
    * unknown code), and none to a gateway that refused one within the hour. */
   async function sync(url: string, device: NativeDevice, p: NativeSyncPayload, input: NativeSend): Promise<{ statusCode: number; error?: string }> {
     if ((noSync.get(url) ?? 0) > now()) return { statusCode: 400, error: SYNC_UNSUPPORTED }
+    // the ids for Android only (the iPhone app takes nothing off while closed); an iPhone's sync is now or never
     const clear = p.clear.filter((id) => /^[A-Za-z0-9_-]{1,100}$/.test(id)).slice(0, PUSH_SYNC_MAX_CLEAR)
     const send: PushGatewaySend = {
       v: 1, platform: device.platform, environment: device.environment, token: device.token, notificationId: p.notificationId,
       code: PUSH_SYNC_CODE, locale: p.locale, ...(p.tag && /^[A-Za-z0-9_-]{1,100}$/.test(p.tag) ? { tag: p.tag } : {}),
-      ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))), sync: true,
-      ...(validPushBadge(p.badge) && device.platform === 'ios' ? { badge: p.badge } : {}), ...(clear.length ? { clear } : {}),
+      ttlSeconds: device.platform === 'ios' ? 0 : Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))), sync: true,
+      ...(validPushBadge(p.badge) && device.platform === 'ios' ? { badge: p.badge } : {}), ...(clear.length && device.platform === 'android' ? { clear } : {}),
     }
     const r = await post(url, send, input)
     if (r.statusCode === 400 && r.error === 'invalid_body') noSync.set(url, now() + NO_BADGE_RETRY_MS)

@@ -20,7 +20,7 @@ import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
 import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_SYNC_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
-import { appBadge, clearReadDelivered, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
+import { appBadge, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { takesSync } from './src/badge'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
@@ -521,9 +521,8 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
       // signed out (or the session expired, or another person signed in): no names stay on the lock screen, and the
       // extension stops asking
       async signedOut() { forgetDelivered(); await labels?.forget().catch(() => {}) },
-      // badge-v1: the page's count on the app icon (src/badge.ts). 0 (it sends its count on every return to the
-      // foreground): what the count covers was all read, so those notifications leave the phone's list too
-      badge: n => { if (n === 0) clearReadDelivered(); return appBadge.show(n) },
+      // badge-v1: the page's count on the app icon (src/badge.ts)
+      badge: n => appBadge.show(n),
     }, look => {
       onAppearance(look)
       if (padRef.current.confirmed) return

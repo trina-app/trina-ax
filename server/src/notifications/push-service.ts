@@ -45,7 +45,7 @@ const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
 /** A phone follows reads made elsewhere (syncPhones): looked at every SYNC_EVERY_MS, an iPhone's number every
  * SYNC_BADGE_EVERY_MS; at most one silent sync per phone per SYNC_GAP_MS and SYNC_PER_DAY a UTC day, so a burst of reads
  * becomes one push. What was pushed to a phone is kept SYNC_KEEP_MS (a push's day and a margin). */
-export const SYNC_EVERY_MS=5_000,SYNC_BADGE_EVERY_MS=15_000,SYNC_GAP_MS=30_000,SYNC_PER_DAY=100,SYNC_PER_ROUND=10
+export const SYNC_EVERY_MS=5_000,SYNC_BADGE_EVERY_MS=15_000,SYNC_GAP_MS=30_000,SYNC_PER_DAY=100,SYNC_PARALLEL=3,SYNC_BUDGET_MS=20_000
 const SYNC_KEEP_MS=2*86400_000,SYNC_TTL_S=86400
 /** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
  * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
@@ -300,12 +300,14 @@ export class PushService {
     }
   }
   tick():Promise<void>{
-    if(this.work)return this.work
+    if(this.work)return Promise.all([this.work,this.syncWork]).then(()=>{})
     if(this.stopped)return Promise.resolve()
-    this.work=this.dispatch().catch(()=>{this.ctx.log.warn('push dispatch deferred')})
-      .then(()=>this.syncPhones()).catch(()=>{this.ctx.log.warn('phone sync deferred')}).finally(()=>{this.work=null})
-    return this.work
+    this.work=this.dispatch().catch(()=>{this.ctx.log.warn('push dispatch deferred')}).finally(()=>{this.work=null})
+    // syncs run beside the real pushes, never in their way (a slow gateway answer to a sync holds no notification)
+    this.syncWork??=this.syncPhones().catch(()=>{this.ctx.log.warn('phone sync deferred')}).finally(()=>{this.syncWork=null})
+    return Promise.all([this.work,this.syncWork]).then(()=>{})
   }
+  private syncWork:Promise<void>|null=null
   private syncedAt=-Infinity
   private badgeAt=-Infinity
   /** Per phone, the notices pushed to it within a push's day (push_phone_ledger) that are read now (on any device), no
@@ -323,58 +325,86 @@ export class PushService {
     }
     return new Map([...out].map(([sid,l])=>[sid,l.sort((x,y)=>y.at.localeCompare(x.at)||y.nid.localeCompare(x.nid)).map((r)=>r.nid)]))
   }
+  /** A cheap mark of what the person has read (room and thread positions, AI chats seen, notices read): it moves on
+   * every read, so an iPhone's count is worked out again only after one (pushBadge is not cheap). */
+  private readMark(userId:string):string{
+    const db=this.ctx.db,one=(sql:string)=>{try{return String((db.query(sql).get(userId) as {v:unknown}|null)?.v??'')}catch{return ''}}
+    return [
+      one('SELECT COALESCE(SUM(last_read_seq),0) v FROM room_members WHERE user_id=?'),
+      one('SELECT COALESCE(SUM(last_read_seq),0) v FROM room_thread_follows WHERE user_id=?'),
+      one('SELECT MAX(seen_at) v FROM chats WHERE user_id=?'),
+      ...[...new Set(SOURCES.map((src)=>src.inbox))].map((t)=>one(`SELECT MAX(read_at) v FROM ${t} WHERE user_id=?`)),
+    ].join('|')
+  }
   /** After reads on another device: a phone that may still show a notice now read gets one silent sync (no alert, no
-   * sound, no text; push-native.ts): every such id of the push day, newest first (the whole set each time, so a sync
-   * lost while the phone was offline costs nothing), and an iPhone's icon number now. Android (an app that said
-   * push-sync-v1) takes those off its tray; an iPhone sets its number (its app takes nothing off while closed yet). An
-   * iPhone whose number went down without a pushed notice being read (a room's messages read) gets one too. At most one
-   * per phone per SYNC_GAP_MS and SYNC_PER_DAY a day, SYNC_PER_ROUND a round, after the due pushes; only when the set
-   * or the number changed. Plan: docs/AGENTS/plan/20261123-0705-phone-badge-sync.md. */
+   * sound, no text; push-native.ts). Android (an app that said push-sync-v1): every such id of the push day, newest
+   * first (the whole set each time, so a sync lost while the phone was offline costs nothing), and it takes them off its
+   * tray; only when that set changed. iPhone: its icon number now, only when it went down (a later real push carries a
+   * higher one), never the ids (the app takes nothing off while closed yet), now or never (ttl 0: a sync never waits at
+   * Apple in a real alert's place). An iPhone last sent a number above 0 is looked at only after the person read
+   * something (readMark). At most one per phone per SYNC_GAP_MS and SYNC_PER_DAY a day; a round sends SYNC_PARALLEL at a
+   * time within SYNC_BUDGET_MS, apart from the real pushes (tick), so a slow gateway never holds a notification back.
+   * Plan: docs/AGENTS/plan/20261123-0705-phone-badge-sync.md. */
   async syncPhones(){
     const nowMs=this.o.now();if(this.stopped||nowMs-this.syncedAt<SYNC_EVERY_MS)return
     this.syncedAt=nowMs
     const native=this.o.native(),syncTransport=this.o.syncTransport;if(!native||!syncTransport)return
-    const key=nativeConfigKey(native),db=this.ctx.db,day=this.iso().slice(0,10)
+    const key=nativeConfigKey(native),db=this.ctx.db,day=this.iso().slice(0,10),started=performance.now()
     db.query('DELETE FROM push_phone_ledger WHERE sent_at<?').run(this.iso(nowMs-SYNC_KEEP_MS))
     const read=this.readOnPhones(key)
-    // an iPhone last sent a number above 0: is it lower now? (a few people's count, every SYNC_BADGE_EVERY_MS)
     if(nowMs-this.badgeAt>=SYNC_BADGE_EVERY_MS){this.badgeAt=nowMs;for(const r of db.query('SELECT subscription_id sid FROM push_phone_sync WHERE badge>0').all() as {sid:string}[])if(!read.has(r.sid))read.set(r.sid,[])}
-    let sends=0
+    type Job={sid:string;run:()=>Promise<void>}
+    const jobs:Job[]=[]
     for(const [sid,all] of read){
-      if(this.stopped||sends>=SYNC_PER_ROUND)return
       const sub=db.query("SELECT * FROM push_subscriptions WHERE id=? AND kind='native' AND config_key=?").get(sid,key) as (Subscription&{sync_ok:number})|null
       if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))continue
-      const st=db.query('SELECT badge,digest,synced_at,day,day_count FROM push_phone_sync WHERE subscription_id=?').get(sid) as {badge:number|null;digest:string|null;synced_at:string|null;day:string|null;day_count:number}|null
+      const st=db.query('SELECT badge,digest,read_mark,synced_at,day,day_count FROM push_phone_sync WHERE subscription_id=?').get(sid) as {badge:number|null;digest:string|null;read_mark:string|null;synced_at:string|null;day:string|null;day_count:number}|null
       if(st?.synced_at&&Date.parse(st.synced_at)+SYNC_GAP_MS>nowMs)continue
       if(st?.day===day&&st.day_count>=SYNC_PER_DAY)continue
+      const digestOf=(ids:string[])=>ids.length?crypto.createHash('sha256').update(ids.join(',')).digest('hex').slice(0,32):null
+      // an iPhone: nothing read since its last look and no pushed notice newly read: nothing to work out
+      const mark=this.readMark(sub.user_id)
+      const setChanged=all.length>0&&digestOf(all)!==st?.digest
+      if(st?.read_mark===mark&&!setChanged)continue
+      const remember=(o:{badge?:number|null;digest?:string|null;count?:boolean})=>db.query(`INSERT INTO push_phone_sync(subscription_id,badge,digest,read_mark,synced_at,day,day_count) VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge,digest=excluded.digest,read_mark=excluded.read_mark,synced_at=COALESCE(excluded.synced_at,push_phone_sync.synced_at),
+        day=COALESCE(excluded.day,push_phone_sync.day),day_count=CASE WHEN excluded.day IS NULL THEN push_phone_sync.day_count WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`)
+        .run(sid,o.badge===undefined?st?.badge??null:o.badge,o.digest===undefined?st?.digest??null:o.digest,mark,o.count?this.iso():null,o.count?day:null,o.count?1:0)
       let device:NativeDevice
       try{this.safeSecrets();device=this.vault.decrypt(`${sub.user_id}|${sub.session_id}|${sub.id}`,'native-push',sub.secret_enc,sub.key_version) as NativeDevice}catch{continue}
       const ios=device.platform==='ios'
       // Android: only an app that takes syncs (an older one would list an empty notification while open)
-      if(!ios&&sub.sync_ok!==1)continue
-      // the ids: as many as fit the gateway's body next to this token (ids are at most 100 characters)
-      const clear=all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103))))
-      const digest=clear.length?crypto.createHash('sha256').update(clear.join(',')).digest('hex').slice(0,32):null
+      if(!ios&&sub.sync_ok!==1){remember({digest:digestOf(all)});continue}
+      // Android's ids: as many as fit the gateway's body next to this token (ids are at most 100 characters)
+      const clear=ios?[]:all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103))))
+      const digest=digestOf(all)
       const badge=ios?this.o.badge(sub.user_id):null
-      // an iPhone's sync is for its number: only when it changed; Android's for its tray: only when the set changed
-      if(ios?badge===null||badge===st?.badge:!clear.length||digest===st?.digest)continue
-      const locale=getUser(db,sub.user_id)?.locale??teamDefaultLocale(db),abort=new AbortController(),wait=this.o.requestTimeoutMs??10_000,syncId=newId()
-      const timer=setTimeout(()=>abort.abort(),wait)
-      let status=0;sends++
-      try{
-        const beforeSend=()=>!abort.signal.aborted&&!this.stopped&&this.activeKeys().includes(key)&&this.session(sub.user_id,sub.session_id)&&this.enabled(sub.user_id)
-        status=(await bounded(syncTransport({device,payload:{notificationId:syncId,code:PUSH_SYNC_CODE,locale,tag:sub.id},sync:{notificationId:syncId,locale,tag:sub.id,clear,...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds:SYNC_TTL_S}),abort.signal,wait)).statusCode
-      }catch{status=0}finally{clearTimeout(timer);abort.abort()}
-      if(status===410){db.query('DELETE FROM push_subscriptions WHERE id=?').run(sid);continue}
-      const sent=status>=200&&status<300
-      // a failed one is tried again after SYNC_GAP_MS (its number and set stay the old ones)
-      db.query(`INSERT INTO push_phone_sync(subscription_id,badge,digest,synced_at,day,day_count) VALUES(?,?,?,?,?,1)
-        ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge,digest=excluded.digest,synced_at=excluded.synced_at,
-        day=excluded.day,day_count=CASE WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`)
-        .run(sid,sent?badge:st?.badge??null,sent?digest:st?.digest??null,this.iso(),day)
-      // counts only, never ids or what was read
-      this.ctx.log.info('phone read sync',{device:sid.slice(-6),platform:device.platform,listed:clear.length,...(badge!==null?{badge}:{}),status})
+      // an iPhone: only a lower number (a higher one comes with the next real push); Android: only a changed set
+      const go=ios?badge!==null&&st?.badge!=null&&badge<st.badge:clear.length>0&&digest!==st?.digest
+      if(!go){remember(ios?{digest}:{});continue}
+      jobs.push({sid,run:async()=>{
+        if(this.stopped||performance.now()-started>SYNC_BUDGET_MS)return
+        const locale=getUser(db,sub.user_id)?.locale??teamDefaultLocale(db),abort=new AbortController(),wait=this.o.requestTimeoutMs??10_000,syncId=newId()
+        const timer=setTimeout(()=>abort.abort(),wait)
+        let status=0
+        try{
+          const beforeSend=()=>!abort.signal.aborted&&!this.stopped&&this.activeKeys().includes(key)&&this.session(sub.user_id,sub.session_id)&&this.enabled(sub.user_id)
+          status=(await bounded(syncTransport({device,payload:{notificationId:syncId,code:PUSH_SYNC_CODE,locale,tag:sub.id},sync:{notificationId:syncId,locale,tag:sub.id,clear,...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds:ios?0:SYNC_TTL_S}),abort.signal,wait)).statusCode
+        }catch{status=0}finally{clearTimeout(timer);abort.abort()}
+        if(status===410){db.query('DELETE FROM push_subscriptions WHERE id=?').run(sid);return}
+        const sent=status>=200&&status<300
+        // a failed one is tried again after SYNC_GAP_MS (its number and set stay the old ones; its mark is cleared so
+        // the next round looks again)
+        if(sent)remember({badge,digest,count:true})
+        else db.query(`INSERT INTO push_phone_sync(subscription_id,synced_at,day,day_count) VALUES(?,?,?,1) ON CONFLICT(subscription_id) DO UPDATE SET read_mark=NULL,synced_at=excluded.synced_at,
+          day=excluded.day,day_count=CASE WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`).run(sid,this.iso(),day)
+        // counts only, never ids or what was read
+        this.ctx.log.info('phone read sync',{device:sid.slice(-6),platform:device.platform,listed:clear.length,...(badge!==null?{badge}:{}),status})
+      }})
     }
+    // SYNC_PARALLEL at a time, no new one after SYNC_BUDGET_MS
+    let next=0
+    await Promise.all(Array.from({length:Math.min(SYNC_PARALLEL,jobs.length)},async()=>{while(next<jobs.length){const j=jobs[next++]!;await j.run()}}))
   }
   private async dispatch(){
     const keys=this.activeKeys();if(!keys.length)return
@@ -462,7 +492,7 @@ export class PushService {
     }
   }
   start(){if(this.timer||this.stopped)return;this.timer=setInterval(()=>void this.tick(),1000);this.timer.unref?.();void this.tick()}
-  async stop(){this.stopped=true;if(this.timer)clearInterval(this.timer);this.timer=null;this.flight?.abort.abort();this.unlisten();await this.work}
+  async stop(){this.stopped=true;if(this.timer)clearInterval(this.timer);this.timer=null;this.flight?.abort.abort();this.unlisten();await this.work;await this.syncWork}
 }
 export function pushOf(ctx:AppContext){let s=services.get(ctx);if(!s){s=new PushService(ctx);services.set(ctx,s)}return s}
 export function installPush(ctx:AppContext){const s=pushOf(ctx);s.start();ctx.onClose(()=>s.stop())}

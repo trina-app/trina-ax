@@ -5,7 +5,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { roomsOf } from '../../server/src/rooms/service'
-import { PushService, SYNC_GAP_MS, SYNC_EVERY_MS } from '../../server/src/notifications/push-service'
+import { PushService, SYNC_GAP_MS, SYNC_EVERY_MS, SYNC_PER_DAY } from '../../server/src/notifications/push-service'
 import { createNativeTransport, SYNC_UNSUPPORTED, type NativeSend } from '../../server/src/notifications/push-native'
 import { parsePushGatewaySend, PUSH_SYNC_CODE } from '../../shared/src/cloud-protocol/push-gateway'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -38,7 +38,7 @@ async function setup(platform: 'ios' | 'android', o: { sync?: boolean } = {}) {
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   const send = (c: Client, body: string) => c.call('POST', `/api/rooms/${dm.id}/messages`, { body, clientMessageId: cm() })
   const tick = async (ms = SYNC_EVERY_MS) => { now += ms; await p!.tick() }
-  return { mia, nora, dm, send, tick, pushes, syncs, device, setAnswer: (n: number) => { syncAnswer = n }, advance: (ms: number) => { now += ms } }
+  return { mia, nora, dm, send, tick, pushes, syncs, device, setAnswer: (n: number) => { syncAnswer = n }, advance: (ms: number) => { now += ms }, today: () => new Date(now).toISOString().slice(0, 10) }
 }
 
 test('Android: notices read on the desktop leave the phone in one sync, ids only, no number, no text', async () => {
@@ -96,6 +96,9 @@ test('iPhone: the icon number follows reads; a failed sync is tried again; a num
   await tick()
   expect(syncs).toHaveLength(1)
   expect(syncs[0]!.sync!.badge).toBe(0)
+  // the number only, now or never: never the read ids
+  expect(syncs[0]!.sync!.clear).toEqual([])
+  expect(syncs[0]!.ttlSeconds).toBe(0)
   // the gateway failed: the same sync again after the gap
   setAnswer(200)
   await tick(SYNC_GAP_MS)
@@ -132,10 +135,11 @@ test('the transport sends a sync once, as a contract sync; a gateway that refuse
       config: { url: `http://127.0.0.1:${server.port}` }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 86400,
     })
     expect(await transport(input('ios'))).toEqual({ statusCode: 200 })
-    expect(parsePushGatewaySend(seen[0])).toEqual({ v: 1, platform: 'ios', environment: 'production', token: 'ab'.repeat(32), notificationId: 's-1', code: PUSH_SYNC_CODE, locale: 'en', tag: 'dev-1', ttlSeconds: 86400, sync: true, badge: 2, clear: ['n-1', 'n-2'] })
+    // an iPhone: the number alone, now or never (ttl 0), never the ids
+    expect(parsePushGatewaySend(seen[0])).toEqual({ v: 1, platform: 'ios', environment: 'production', token: 'ab'.repeat(32), notificationId: 's-1', code: PUSH_SYNC_CODE, locale: 'en', tag: 'dev-1', ttlSeconds: 0, sync: true, badge: 2 })
     // Android: no number
     await transport(input('android'))
-    expect(parsePushGatewaySend(seen[1])).toMatchObject({ platform: 'android', sync: true, clear: ['n-1', 'n-2'] })
+    expect(parsePushGatewaySend(seen[1])).toMatchObject({ platform: 'android', sync: true, clear: ['n-1', 'n-2'], ttlSeconds: 86400 })
     expect('badge' in seen[1]!).toBe(false)
     // an older gateway: refused once, nothing sent again (never without `sync`), and none for the hour
     strict = true; seen.length = 0
@@ -155,4 +159,91 @@ test('a pushed notice deleted since (its delivery row goes with it) leaves the p
   expect(syncs).toHaveLength(1)
   expect(syncs[0]!.sync!.clear).toEqual([gone!])
   expect(syncs[0]!.sync!.clear).not.toContain(kept!)
+})
+
+test('an iPhone gets a sync only when its number goes down, never for a higher one; nothing is worked out without a read', async () => {
+  const { mia, nora, dm, send, tick, pushes, syncs } = await setup('ios')
+  let asked = 0
+  const real = (p as any).o.badge
+  ;(p as any).o.badge = (id: string) => { asked++; return real(id) }
+  await send(mia.client, 'one'); await tick(1000)
+  expect(pushes.map((s) => s.payload.badge)).toEqual([1])
+  // its first look works the count out once; then, with no read, a round works out nothing, however often
+  await tick(SYNC_GAP_MS)
+  const before = asked
+  for (let i = 0; i < 4; i++) await tick(SYNC_GAP_MS)
+  expect(asked).toBe(before)
+  expect(syncs).toHaveLength(0)
+  // read on the computer: the number went down, one sync
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await tick(SYNC_GAP_MS)
+  expect(syncs.map((s) => s.sync!.badge)).toEqual([0])
+})
+
+test('the daily limit: a phone that had SYNC_PER_DAY syncs today gets none until the next day', async () => {
+  const { mia, nora, dm, send, tick, syncs, device, today } = await setup('android')
+  await send(mia.client, 'x'); await tick(1000)
+  h.ctx.db.query('INSERT INTO push_phone_sync(subscription_id,day,day_count) VALUES(?,?,?)').run(device.id, today(), SYNC_PER_DAY)
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await tick(); await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(0)
+  // the next UTC day (the count is per day)
+  h.ctx.db.query("UPDATE push_phone_sync SET day='2000-01-01' WHERE subscription_id=?").run(device.id)
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(1)
+})
+
+test('a sync answered 410 (the phone is gone) removes the device, as a real push does', async () => {
+  const { mia, nora, dm, send, tick, syncs, device, setAnswer } = await setup('android')
+  await send(mia.client, 'x'); await tick(1000)
+  setAnswer(410)
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await tick()
+  expect(syncs).toHaveLength(1)
+  expect(h.ctx.db.query('SELECT 1 FROM push_subscriptions WHERE id = ?').get(device.id)).toBeNull()
+})
+
+test('one transport for pushes and syncs: a sync the gateway has not answered never holds a real push back', async () => {
+  h = await harness('push-read-sync-together')
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const nora = await addMember(h, owner, { username: 'nora' })
+  let roomClock = Date.now()
+  roomsOf(h.ctx).clock = () => (roomClock += 2000)
+  let now = Date.now(), release = () => {}
+  const sent: NativeSend[] = []
+  const transport = async (i: NativeSend) => {
+    sent.push(i)
+    // a sync hangs until released (a slow gateway); a real push is answered at once
+    if (i.sync) await new Promise<void>((r) => { release = r })
+    return { statusCode: 200 }
+  }
+  p = new PushService(h.ctx, { config: () => null, native: () => ({ url: 'https://push.example.test' }), now: () => now, requestTimeoutMs: 60_000,
+    transport: async () => { throw new Error('no web push here') }, nativeTransport: transport, syncTransport: transport })
+  const sid = (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(nora.id) as { id: string }).id
+  p.registerDevice(nora.id, sid, { consent: true, platform: 'android', environment: 'production', token: `fcm:${'A'.repeat(140)}`, sync: true })
+  await new Promise((r) => setTimeout(r, 5))
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: 'first', clientMessageId: cm() })
+  now += 1000; await p.tick()
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  now += SYNC_EVERY_MS; const first = p.tick()
+  const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10)); return ok() }
+  expect(await until(() => sent.some((s) => s.sync))).toBe(true)
+  // the sync waits at the gateway; a new message is pushed meanwhile
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: 'second', clientMessageId: cm() })
+  now += 1000; void p.tick()
+  expect(await until(() => sent.filter((s) => !s.sync).length === 2)).toBe(true)
+  release(); await first
+})
+
+test('an iPhone whose number went up since its last push gets no sync (the next real push carries it)', async () => {
+  const { mia, send, tick, syncs, device } = await setup('ios')
+  await send(mia.client, 'one'); await tick(1000)
+  await send(mia.client, 'two'); await tick(1000)
+  // the phone was last told 1, the count is 2 now (as after a message that pushes nothing); a read elsewhere moves the mark
+  h.ctx.db.query('UPDATE push_phone_sync SET badge=1 WHERE subscription_id=?').run(device.id)
+  h.ctx.db.query("UPDATE push_phone_sync SET read_mark='old' WHERE subscription_id=?").run(device.id)
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(0)
 })

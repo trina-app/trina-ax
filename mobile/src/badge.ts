@@ -57,12 +57,3 @@ export const SYNC_CODE = 'phone.sync'
  * without it expo-notifications would list an empty notification while the app is open). */
 export const takesSync = (platform: string, androidService: boolean): boolean => platform === 'ios' || (platform === 'android' && androidService)
 
-/** The kinds the page's count covers (shared/src/api/attention.ts: rooms that want the person, AI chats, chat messages
- * and thread replies). When that count is 0 their notifications are all read and leave the phone's list; a file shared,
- * a request to open something, a scheduled task or the owner's notices are not in the count and stay. */
-export function readWhenCountIsZero(code: unknown, platform: string): boolean {
-  // Android: a notification the system drew from the push's own notification block while the app was closed carries no
-  // data here (expo-notifications rebuilds only its title and text), so its kind is unknown: it goes too
-  if (code === undefined || code === null) return platform === 'android'
-  return typeof code === 'string' && (code.startsWith('room.') || code === 'chat.answer_done' || code === 'chat.message' || code === 'chat.thread_reply')
-}

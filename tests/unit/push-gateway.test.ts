@@ -10,7 +10,7 @@ import {
   pushGatewaySigningString, validPushBadge, validPushPath, validPushToken,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { TEXT } from '../../server/src/notifications/text.ts'
-import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
+import { clientBucket, createGateway, PROVIDER_MAX_BYTES, providerBytes, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
 import { memoryState } from '../../push-gateway/src/state.ts'
 import { EVENT_TEXT, alertBody } from '../../push-gateway/src/text.ts'
 import { gatewayReportsFrom } from '../../push-gateway/src/report.ts'
@@ -651,48 +651,57 @@ describe('push gateway: FCM badge', () => {
 // A silent sync (contract "Sync", docs/AGENTS/plan/20261123-0705-phone-badge-sync.md): after reads on another device
 describe('push gateway: sync', () => {
   const sync = (o: Record<string, unknown> = {}) => body({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, ...o })
-  test('the contract: only with its own code, never with a path or a label, a number only for an iPhone, ids only', () => {
-    const ok = JSON.parse(sync({ badge: 3, clear: ['n1', 'n2'] }))
-    expect(parsePushGatewaySend(ok)).toMatchObject({ sync: true, badge: 3, clear: ['n1', 'n2'] })
-    for (const bad of [
-      { sync: false }, { sync: 'yes' }, { code: 'room.dm' }, { path: '/rooms/a' }, { clear: 'n1' }, { clear: ['bad id'] },
-      { clear: Array.from({ length: 41 }, (_, i) => `n${i}`) },
-    ]) expect(parsePushGatewaySend({ ...ok, ...bad })).toBeNull()
+  const androidSync = (o: Record<string, unknown> = {}) => android({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, ...o })
+  test('the contract: only with its own code, never with a path or a label; a number only for an iPhone, ids only for Android', () => {
+    const ok = JSON.parse(sync({ badge: 3 }))
+    expect(parsePushGatewaySend(ok)).toMatchObject({ sync: true, badge: 3 })
+    for (const bad of [{ sync: false }, { sync: 'yes' }, { code: 'room.dm' }, { path: '/rooms/a' }, { clear: ['n1'] }]) expect(parsePushGatewaySend({ ...ok, ...bad })).toBeNull()
     // its code without sync, or ids without sync: refused (it would show the fallback line)
     const plain = JSON.parse(body())
     expect(parsePushGatewaySend({ ...plain, code: PUSH_SYNC_CODE })).toBeNull()
     expect(parsePushGatewaySend({ ...plain, clear: ['n1'] })).toBeNull()
-    const a = JSON.parse(android({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true }))
-    expect(parsePushGatewaySend(a)).toMatchObject({ platform: 'android', sync: true })
-    expect(parsePushGatewaySend({ ...a, badge: 2 })).toBeNull()
-    expect(parsePushGatewaySend({ ...a, label: true })).toBeNull()
+    const a = JSON.parse(androidSync({ clear: ['n1', 'n2'] }))
+    expect(parsePushGatewaySend(a)).toMatchObject({ platform: 'android', sync: true, clear: ['n1', 'n2'] })
+    for (const bad of [{ badge: 2 }, { label: true }, { clear: 'n1' }, { clear: ['bad id'] }, { clear: Array.from({ length: 41 }, (_, i) => `n${i}`) }]) expect(parsePushGatewaySend({ ...a, ...bad })).toBeNull()
   })
 
-  test('APNs: no alert, no sound; the number and content-available, priority 5, collapsed; the ids in body', async () => {
+  test('APNs: no alert, no sound, no ids; the number and content-available, priority 5, collapsed, now or never', async () => {
     const h = harness()
-    await expectOk(await h.send(sync({ badge: 2, tag: 'dev-1', clear: ['n1', 'n2'], ttlSeconds: 86400 })))
+    await expectOk(await h.send(sync({ badge: 2, tag: 'dev-1', ttlSeconds: 86400 })))
     await expectOk(await h.send(sync({ notificationId: 's2' })))
     const [a, b] = h.apnsCalls()
-    expect(JSON.parse(a!.body)).toEqual({ aps: { badge: 2, 'content-available': 1 }, body: { notificationId: 's1', code: PUSH_SYNC_CODE, device: 'dev-1', clear: ['n1', 'n2'] } })
+    expect(JSON.parse(a!.body)).toEqual({ aps: { badge: 2, 'content-available': 1 }, body: { notificationId: 's1', code: PUSH_SYNC_CODE, device: 'dev-1' } })
     expect(a!.headers.get('apns-push-type')).toBe('alert')
     expect(a!.headers.get('apns-priority')).toBe('5')
     expect(a!.headers.get('apns-collapse-id')).toBe('phone.sync')
+    // expiry 0 even when the request asked for a day: a sync never waits at Apple in a real alert's place
+    expect(a!.headers.get('apns-expiration')).toBe('0')
     expect(JSON.parse(b!.body).aps).toEqual({ 'content-available': 1 })
     expect(b!.headers.get('apns-push-type')).toBe('background')
   })
 
   test('FCM: data-only, NORMAL priority, no title or line, ids joined', async () => {
     const h = harness()
-    await expectOk(await h.send(android({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, tag: 'dev-1', clear: ['n1', 'n2'], ttlSeconds: 600 })))
+    await expectOk(await h.send(androidSync({ tag: 'dev-1', clear: ['n1', 'n2'], ttlSeconds: 600 })))
     const m = JSON.parse(h.calls.find((c) => c.url.includes('fcm.googleapis.com'))!.body).message
     expect(m).toEqual({ token: ANDROID_TOKEN, data: { notificationId: 's1', code: PUSH_SYNC_CODE, device: 'dev-1', clear: 'n1,n2' }, android: { priority: 'NORMAL', ttl: '600s' } })
   })
 
-  test('syncs have their own per-phone limit: a full bucket of syncs leaves the real pushes theirs', async () => {
+  test('syncs have their own, smaller per-phone limit (4 a minute); a full sync bucket leaves the real pushes theirs', async () => {
     const h = harness()
-    for (let i = 0; i < 20; i++) await expectOk(await h.send(sync({ notificationId: `s${i}` })))
-    await expectError(await h.send(sync({ notificationId: 's20' })), 'rate_limited')
+    for (let i = 0; i < 4; i++) await expectOk(await h.send(sync({ notificationId: `s${i}` })))
+    await expectError(await h.send(sync({ notificationId: 's4' })), 'rate_limited')
     await expectOk(await h.send(body({ notificationId: 'real-1' })))
+    h.clock.t += 60_000
+    await expectOk(await h.send(sync({ notificationId: 's5' })))
+  })
+
+  test('what the provider would get must fit 4096 bytes: a long token with many ids is refused before anything is sent', async () => {
+    const h = harness()
+    const ids = Array.from({ length: 40 }, (_, i) => `${'x'.repeat(95)}${String(i).padStart(5, '0')}`)
+    await expectError(await h.send(android({ token: 'A'.repeat(3000), notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, clear: ids })), 'body_too_large')
+    expect(h.calls).toEqual([])
+    expect(providerBytes(JSON.parse(androidSync({ clear: ['n1'] })), { title: 't', body: 'b' })).toBeLessThan(PROVIDER_MAX_BYTES)
   })
 })
 
