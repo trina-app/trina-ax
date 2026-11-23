@@ -132,7 +132,7 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 
 /** a safety card's call result when the card waits after the answer ends */
-export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. End your answer now: write at most one short line, call no more tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
+export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. If the request needs more calls of this same tool, make them now, all together: their cards join this one, so the user answers once. Then end your answer: write at most one short line, call no other tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
 
 /** ask_user's result when its card waits after the answer ends (chat/open-questions.ts) */
 export const ASK_USER_LATER_NOTE = 'The card is open for the user and waits until they answer. End your answer now: write at most one short line, call no more tools, and do not answer the question yourself. Their answer comes as their next message in this chat; go on with the work from there.'

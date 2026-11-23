@@ -443,8 +443,14 @@ export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
     const x = { ...rest } as Record<string, unknown>
     if (Array.isArray(x.options)) x.options = (x.options as { value: string }[]).map((o) => o.value).filter((v) => v !== ALWAYS_VALUE).sort()
     delete x.note
-    // how the app groups the card with others of the same answer (AskUserRequest.batch): presentation only
-    delete x.batch
+    // how the app groups the card (AskUserRequest.batch) is presentation; what its plain words told the person is not (a
+    // skill now followed by 30 people, not the 3 the card said, is asked again)
+    if (x.batch && typeof x.batch === 'object') {
+      const { item, about, warn, summary, summaryMany } = x.batch as Record<string, unknown>
+      const said = Object.fromEntries(Object.entries({ item, about, warn, summary, summaryMany }).filter(([, v]) => v !== undefined))
+      if (Object.keys(said).length) x.batch = said
+      else delete x.batch
+    }
     if (x.share && typeof x.share === 'object') { const { why: _w, ...share } = x.share as Record<string, unknown>; x.share = share }
     const question = typeof x.question === 'string' ? x.question : null
     delete x.question

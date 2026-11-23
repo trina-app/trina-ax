@@ -4,12 +4,18 @@
 // ahead of the server's would otherwise lose the window). A card opened later counts from the saved end.
 import { useEffect, useRef, useState } from 'react'
 
+/** a step that ends within this long of the card appearing was seen live */
+const LIVE_MS = 120_000
+
 /** Seconds left to undo, rounded up; 0 when the time is over or `eligible` is false. */
 export function useUndoWindow(endedAt: string | null | undefined, ms: number, eligible = true): number {
+  const mounted = useRef(Date.now())
   const sawRunning = useRef(!endedAt)
   const deadline = useRef<number | null>(null)
-  if (endedAt && deadline.current === null) deadline.current = sawRunning.current ? Date.now() + ms : Date.parse(endedAt) + ms
-  const left = () => (!eligible ? 0 : deadline.current === null ? ms : Math.max(0, deadline.current - Date.now()))
+  // (a page asleep for a while that only now hears the end gets no fresh window: it counts from the saved end)
+  if (endedAt && deadline.current === null) deadline.current = sawRunning.current && Date.now() - mounted.current < LIVE_MS ? Date.now() + ms : Date.parse(endedAt) + ms
+  // never more than the window, whatever the device's clock says
+  const left = () => (!eligible ? 0 : deadline.current === null ? ms : Math.min(ms, Math.max(0, deadline.current - Date.now())))
   const [, tick] = useState(0)
   const remaining = left()
   useEffect(() => {

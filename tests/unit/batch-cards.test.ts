@@ -175,6 +175,16 @@ describe('skills written with write (the real engine: one call after the other, 
     expect(next.done.status).toBe('done')
     for (const n of names) expect(has(`skills/${n}/SKILL.md`)).toBe(true)
   })
+  test('a change to an existing skill keeps its whole card (the diff is not behind 자세히)', async () => {
+    put('skills/w-existing/SKILL.md', md('w-existing', 'Does existing for the team'))
+    const chatId = (await h.api('carol').call(API.createChat, { body: {} })).id as string
+    const r = await h.api('carol').call(API.sendMessage, { params: { id: chatId }, body: { content: `기존 스킬 고쳐줘\n${fake({ tool: 'read', args: { file_path: 'skills/w-existing/SKILL.md' } }, { tool: 'edit', args: { file_path: 'skills/w-existing/SKILL.md', old_string: 'steps', new_string: 'new steps' } })}`, clientMessageId: cm(), attachmentIds: [] } })
+    const f = await ws.next('turn.request', (x) => (x as { data: { turnId?: string } }).data.turnId === r.turnId, 30_000)
+    const q = (f as { data: { request: Ask } }).data.request
+    expect(q.preview?.kind).toBe('skill_write')
+    expect(q.batch?.item).toBeUndefined()
+    await ws.next('message.done', (x) => x.data.messageId === r.assistantMessage.id, 30_000)
+  })
   test('any other file-tool card carries its tool as the group key', async () => {
     const calls = ['w-rule-a', 'w-rule-b'].map((n) => ({ tool: 'write', args: { file_path: `skills/${n}.md`, content: `# ${n}\n` }, sayResult: true }))
     const w = await ask(`규칙 두 개 올려줘\n${fake(...calls)}`, 2)

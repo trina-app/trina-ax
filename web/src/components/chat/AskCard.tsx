@@ -404,8 +404,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
       }
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
-      setBusy(null)
-    }
+    } finally { setBusy(null) }
   }
   const noValue = options.at(-1)?.value
   const noneTicked = n > 1 && ![...ticked].some((id) => asks.some((r) => r.requestId === id))

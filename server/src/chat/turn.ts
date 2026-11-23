@@ -5373,14 +5373,16 @@ export class TurnExec {
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
     const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
-    // a skill that loads leads in plain words, its path and diff behind 자세히, and several of one answer to one place
-    // are one card (skills/lean-card.ts). A file that does not load or a name that is taken keeps its whole card
+    // a NEW skill that loads leads in plain words, its path and text behind 자세히, and several of one answer to one place
+    // are one card (skills/lean-card.ts). A change to an existing skill keeps its diff in view; a file that does not load,
+    // a taken name, files held for its card or warnings that would not fit whole keep the whole card
     const lean = (() => {
-      if (!skill || dead || problem) return null
+      if (!skill || r.exists || dead || problem || held?.size) return null
       try {
         const to = levelOfPath(this.rt.ctx, me, r.rel)
         if (!to) return null
-        const warn = [same?.text ?? '', held?.size ? tr('skillWithFiles', L, { n: String(held.size), names: [...held.keys()].map((k) => k.split('/').at(-1)!).join(', ') }) : '', need && wide ? tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : '']
+        const warn = [need && wide ? tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : '', same?.text ?? ''].filter(Boolean)
+        if ([...warn.join(' ')].length > 590) return null
         return skillBatch({ tool, to, copy: false, save: true, name: skill.name, text: after ?? undefined, followers: reachOf(this.rt.ctx, me, to, folder ?? r.rel).size, warn }, L)
       } catch { return null }
     })()

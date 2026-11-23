@@ -561,14 +561,16 @@ describe('deliveredArgs (QA TC-f3-05)', () => {
 
 describe('naming the answer\'s own language (0.16.0 gate)', () => {
   test('is not asking for another one', () => {
-    for (const m of ['홍보 영상을 mp4로 만들어 주세요. 자막은 한국어로요', '한글로 써 줘', '우리말로 풀어 줘', '반말로 답해 줘', '핵심 단어로 정리해 줘', '정말로 보내 줘'])
+    for (const m of ['홍보 영상을 mp4로 만들어 주세요. 자막은 한국어로요', '한글로 써 줘', '우리말로 풀어 줘', '반말로 답해 줘', '핵심 단어로 정리해 줘', '정말로 보내 줘', '자막이 깨졌어 한국어로 다시 넣어줘', '레이어로 나눠 줘', '소프트웨어로 처리해 줘', '시니어로 채용해 줘'])
       expect(narrationScript('ko', m), m).toBe('ko')
     expect(narrationScript('ja', '字幕は日本語で作って')).toBe('ja')
     expect(narrationScript('zh', '字幕用中文写')).toBe('zh')
+    for (const m of ['敬語で書いて', '専門用語で説明して', '標準語で']) expect(narrationScript('ja', m), m).toBe('ja')
   })
   test('another language named beside it still turns the rule off; English chats are unchanged', () => {
-    for (const m of ['한국어 말고 영어로 써 줘', '이 글을 영어로 번역해 줘', '자막은 일본어로 해 줘']) expect(narrationScript('ko', m), m).toBeNull()
+    for (const m of ['한국어 말고 영어로 써 줘', '이 글을 영어로 번역해 줘', '자막은 일본어로 해 줘', '한국어로 하나, 일본어 하나 써줘']) expect(narrationScript('ko', m), m).toBeNull()
     expect(narrationScript('ja', '英語で書いて')).toBeNull()
+    expect(narrationScript('zh', '用汉语和法语写')).toBeNull()
     expect(narrationScript('en', '자막은 한국어로')).toBeNull()
     expect(narrationScript('ko', 'Please write the subtitles in Korean for this video')).toBeNull()
   })

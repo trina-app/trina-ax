@@ -326,6 +326,9 @@ test('a post whose step is still running offers Undo at once; it counts down fro
     await m.settle(50)
     expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
   } finally { await m.unmount() }
+  // a device clock an hour behind never shows more than the window
+  const skew = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() + 3_600_000).toISOString()} />)
+  try { expect(skew.get('posted-card-undo').textContent).toBe('Undo 10') } finally { await skew.unmount() }
   const late = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 8_500).toISOString()} />)
   try {
     expect(late.get('posted-card-undo').textContent).toBe('Undo 2')
