@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 08:37
 - Branch: `feat/demo-gate-linux`
-- Status: in progress
+- Status: done
 - Where: demo-gate/ (example config, README, `linux/` hosting files), server/src/proxy (model proxy inner port),
   server/src/app-config.ts. Why: the gate and its hosting files live with the gate; the inner port is the server's own
   listener (see docs/REPOSITORY-RULES.md)
@@ -63,4 +63,14 @@ tests/unit/proxy.test.ts tests/unit/proxy-subscription.test.ts`.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus `tdfw-check` (the per-user firewall checks; install.sh runs it last and stops on a failure).
+Node 26 and bun are pinned in `demo-gate/linux/pins.env`, not in `scripts/system/packages.json`: that list is shipped
+to every Linux install and a change there is a root update; chrome-headless-shell comes from the list.
+
+Checked on an Ubuntu 26.04 host as an unprivileged user (no root yet): `stage.sh` (downloads, sha256, app build), a
+snapshot build plus canary, the HTML-to-PDF prints under bwrap, the nft table loading in a private network namespace,
+and a same-user gate (allowSameUser) with that snapshot: two warm instances in about 1.1 s each, a start signs the
+visitor in as Mina, PAUSE closes and reopens, and a chat turn goes engine → instance model proxy (inner port fixed in
+the range) → gate upstream → Anthropic (401 with a placeholder credential, answered "The demo is busy").
+
+PR: https://github.com/trina-app/trina-ax/pull/446
