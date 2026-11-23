@@ -892,7 +892,10 @@ describe('review fixes', () => {
     try {
       expect((await h.api('bob').call(API.getChat, { params: { id: chats[0]!.id } })).shared?.audience).toBe(5)
       // the session holds the brief, read with no card while everyone could open it: a fresh session, as before (the
-      // read card asks when the AI reads it again)
+      // read card asks when the AI reads it again). Another person's card's yes for the same place never covers it
+      const bobs = await ask('bob', chats[0]!.id, fake({ say: 'bob here' }))
+      const own = (db().query("SELECT reads FROM shared_answer_reads WHERE message_id = (SELECT message_id FROM turns WHERE chat_id = ? ORDER BY rowid LIMIT 1)").get(chats[0]!.id) as { reads: string }).reads
+      db().query('UPDATE shared_answer_reads SET reads = ? WHERE message_id = ?').run(JSON.stringify(JSON.parse(own).map((g: object) => ({ ...g, y: 1 }))), bobs.started.assistantMessage.id)
       expect((await ask('alice', chats[0]!.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=false')
       // a read a card's yes covered (y) stays with the session: the card said it stays for people added later too
       const brief = (db().query("SELECT reads FROM shared_answer_reads WHERE message_id = (SELECT message_id FROM turns WHERE chat_id = ? ORDER BY rowid LIMIT 1)").get(chats[1]!.id) as { reads: string }).reads

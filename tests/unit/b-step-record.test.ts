@@ -10,6 +10,7 @@ import { contentTool, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECO
 import { historyBlock, historyWindow } from '../../server/src/chat/prompt'
 import type { StoredStep } from '../../server/src/chat/store'
 import { BROWSER_TOOL_NAMES } from '../../server/src/realtime/browser-tools'
+import { resetEngineSessions } from '../../server/src/chat/runtime'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -183,7 +184,9 @@ describe('a fresh session gets its own earlier steps', () => {
     const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'ALICEPATTERN*', path: 'projects/falcon' } }, { say: 'Looked.' }))
     const b = await ask('bob', chat.id, 'my look\n' + fake({ tool: 'glob', args: { pattern: 'BOBPATTERN*', path: 'projects/falcon' } }, { say: 'Bob looked.' }))
     expect([a.done.status, b.done.status]).toEqual(['done', 'done'])
-    // bob wrote after alice: her next turn starts fresh (only her own session resumes)
+    // a fresh session (here: her sessions reset; each person's own session resumes otherwise,
+    // docs/decisions/20261123-shared-chat-own-session.md) gets the record of her own steps
+    resetEngineSessions(h.ctx, 'alice')
     const ra = await ask('alice', chat.id, 'what did you do?\n' + fake({ echo: 'system' }))
     // (their messages hold the words too: the record's own line is what counts)
     expect(records(ra.done.content)).toContain('args: pattern="ALICEPATTERN*" path="projects/falcon"')

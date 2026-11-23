@@ -172,7 +172,7 @@ import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, othersSessionFiles, ownSessionOn, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { mapCopyText } from './copy-paths'
-import { afterCutover, answerHiddenFrom, answerRecord, answerRecords, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
+import { afterCutover, answerHiddenFrom, answerRecord, hiddenAnswersCutover, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, SHARED_LATER, type ChatRow, type ProjectRow, type StoredStep } from './store'
@@ -1034,8 +1034,10 @@ export class TurnExec {
       let ok = true
       try {
         const rules = rt.files.rules()
-        const covered = new Set<string>()
-        for (const rec of answerRecords(rt.db, spec.chatId).values()) for (const g of rec.reads) if (g.y || g.k) for (const x of g.s) covered.add(sourceKey(x))
+        // a place counts as covered only when every group of the session's own answers that holds it is y or k (never
+        // another person's record: their card's yes covered what their answer read, not what this session read)
+        const plainKeys = new Set(held.filter((g) => !g.k && !g.y).flatMap((g) => g.s.map(sourceKey)))
+        const covered = new Set(held.filter((g) => g.k || g.y).flatMap((g) => g.s.map(sourceKey)).filter((k) => !plainKeys.has(k)))
         const rest = [...(readScope(rt.db, spec.chatId) ?? []), ...held.filter((g) => !g.k && !g.y).flatMap((g) => g.s)].filter((x) => !covered.has(sourceKey(x)))
         if (rest.length && missingReaders(rt.db, rules, rest, this.sharedAudience()).length) ok = false
         const all = held.flatMap((g) => g.s)
@@ -2674,6 +2676,13 @@ export class TurnExec {
     this.rt.outside.clear(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
     clearApprovals(this.rt.db, this.spec.chatId)
+    // a chat several people write in: the read scope that is gone now is what a resume checks (ownSessionOn), so every
+    // person's kept session goes with it (a new first message: every branch starts over)
+    if (this.shared || this.othersWrote) {
+      fs.rmSync(path.dirname(this.rt.sessionStash(this.spec.chatId, 'x')), { recursive: true, force: true })
+      this.rt.db.query('UPDATE turns SET engine_session_blob = NULL WHERE chat_id = ? AND engine_session_blob IS NOT NULL').run(this.spec.chatId)
+      this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
+    }
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
   /** the memory block's tokens for this turn's model (prompt.ts memoryTokensOf): auto memory's "full" check */
