@@ -36,7 +36,7 @@ afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.clo
 const abs = (rel: string) => path.join(h.team, ...rel.split('/'))
 const put = (rel: string, b: Uint8Array) => { fs.mkdirSync(path.dirname(abs(rel)), { recursive: true }); fs.writeFileSync(abs(rel), b) }
 const form = (rel: string) => put(rel, new Uint8Array(Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSigner (seal) and (mark)\n') }).stdout))
-const stamp = (doc: string, images: string[]) => fake({ tool: 'read', args: { file_path: doc } }, { tool: 'edit_office', args: { file_path: doc, changes: images.map((image) => ({ insert_picture: { image, over: '(seal)' } })) }, sayResult: true })
+const stamp = (doc: string, images: string[]) => fake({ tool: 'read', args: { file_path: doc } }, { tool: 'edit_office', args: { file_path: doc, changes: images.map((image, i) => ({ insert_picture: { image, over: i ? '(mark)' : '(seal)' } })) }, sayResult: true })
 const newChat = async (user = 'alice') => (await h.api(user).call(API.createChat, { body: {} })).id as string
 const pictures = async (user = 'alice') => ((await h.api(user).call(API.listAiAllowances)).items as AiAllowance[]).filter((a) => a.kind === 'picture')
 

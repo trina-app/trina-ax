@@ -18,10 +18,12 @@ import { fittingFamilies, paletteFor, usableBrand } from '../../server/src/promo
 import { DURATION, END_SETTLED, SETTLED, STARTS, fitDoc, segments, splitNumber, type VideoDoc } from '../../server/src/promo-video/layout'
 import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../server/src/promo-video/spec'
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
-import { AUDIO_DIR, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
+import { AUDIO_DIR, PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
-import { killTree, mp4Available, noFileReason, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 import { isolation } from '../../server/src/tools/isolate'
+import { REPO_ROOT } from '../../server/src/app-config'
+import { linuxBundleFiles } from '../../scripts/build-bundle'
 
 setDefaultTimeout(60_000)
 
@@ -660,6 +662,24 @@ describe('where the MP4 is made (renderTools): a Linux team server with the list
     const r = linux()
     expect('tools' in r && r.tools).toEqual({ node: fs.realpathSync(node), cli: fs.realpathSync(cliFile), dir: fs.realpathSync(path.join(root, 'hf')), browser: fs.realpathSync(browser), isolated: true })
     expect('tools' in renderTools(ctx({ mode: 'dev', deployment: 'self' }), { platform: 'linux', env, isolation: 'bwrap', uid: 1000, ffmpeg: [ffmpeg] })).toBe(true)
+  })
+
+  test('a built Linux bundle holds everything the MP4 needs from the version folder (a source checkout hid this)', () => {
+    const files = linuxBundleFiles({ arch: 'arm64', codexVersion: '0.0.0', whisper: false, systemd: [] })
+    expect(files).toEqual(expect.arrayContaining([...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES]))
+    expect(PROMO_RENDER_FILES).toContain(path.relative(REPO_ROOT, PROMO_FONT_PATH))
+    for (const s of SOUNDS) expect(PROMO_RENDER_FILES).toContain(path.relative(REPO_ROOT, path.join(AUDIO_DIR, `${s.name}.m4a`)))
+    // a version folder with only the bundle's resources/ files: the MP4 is offered
+    const bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-bundle-'))
+    try {
+      expect(linux({ root: bundle })).toEqual({ why: 'unsupported' })
+      const resources = files.filter((f) => f.startsWith('resources/promo-video/'))
+      for (const f of resources) { fs.mkdirSync(path.dirname(path.join(bundle, f)), { recursive: true }); fs.copyFileSync(path.join(REPO_ROOT, f), path.join(bundle, f)) }
+      expect('tools' in linux({ root: bundle })).toBe(true)
+      // one sound missing: not offered, rather than a render that fails
+      fs.rmSync(path.join(bundle, PROMO_RENDER_FILES.at(-1)!))
+      expect(linux({ root: bundle })).toEqual({ why: 'unsupported' })
+    } finally { fs.rmSync(bundle, { recursive: true, force: true }) }
   })
 
   test('why not, in the words the panel and the AI use', () => {

@@ -28,7 +28,7 @@ import type { AppContext } from '../context'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import {
   decodeHwpEditResult, encodeHwpEditRequest, isImageChange, type HwpEditExtra, HWP_EDIT_MAX, HWP_EDIT_MODE, HWP_VERIFY_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, hwpEditMismatch,
-  hwpOutputPath, hwpPartsMismatch, hwpxPartsMismatch, hwpxReadLines, encodeVerifyPictures, type HwpChange, type HwpEditReport,
+  hwpOutputPath, hwpPartsMismatch, hwpxPartsMismatch, hwpxReadLines, encodeVerifyPictures, type HwpChange, type HwpEditReport, type HwpImageChange,
 } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
@@ -39,7 +39,8 @@ import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
 import { componentC } from '../team-files/component'
 import { HwpError } from '../files/hwp-engine'
-import { PICTURE_LIMITS } from '../files/hwp-picture'
+import { landings, PICTURE_LIMITS, type HwpLanding, type HwpLayout } from '../files/hwp-picture'
+import { SEAL_TOLERANCE_MM } from '../files/sign-slots'
 import { imageKind } from '../files/pdf-stamp'
 import { parsePlace } from '@mycel/shared/places'
 import { authorizeOutput, readPlaceFile, versionText, type ChatVersionMade } from '../files/place-output'
@@ -49,7 +50,7 @@ import { isOwnUpload } from '../files/own-upload'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof EditHwpInput>
-export interface EditedHwp extends MadeFile { source: string; inPlace: boolean; report: HwpEditReport; chatVersion?: ChatVersionMade }
+export interface EditedHwp extends MadeFile { source: string; inPlace: boolean; report: HwpEditReport; chatVersion?: ChatVersionMade; /** where each aimed picture landed */ landed?: HwpLanding[] }
 
 export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input): Promise<EditedHwp> {
   const fx = files.fx
@@ -79,21 +80,28 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   const binary = x === 'hwp'
   const pictures = await picturesOf(ctx, files, c, changes)
   /** one worker run on `doc` of the changes at `which` (their numbers in errors stay the call's) */
-  const edit = async (which: number[], doc: Uint8Array, extra?: HwpEditExtra) => {
-    const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(which.map((i) => changes[i]!), doc, extra), c.signal).catch((e) => {
+  const edit = async (which: number[], doc: Uint8Array, extra?: HwpEditExtra, targets?: number[], list: HwpChange[] = which.map((i) => changes[i]!)) => {
+    // a refusal names the call's change: the changes in `which`, then the pictures whose targets went along
+    const numbers = [...which, ...(targets ?? [])]
+    const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(list, doc, extra, targets?.map((i) => changes[i] as HwpImageChange)), c.signal).catch((e) => {
       if (!(e instanceof ToolError)) throw e
-      throw new ToolError(e.message.replace(/^change (\d+):/, (_m, n: string) => `change ${(which[Number(n) - 1] ?? Number(n) - 1) + 1}:`), e.code)
+      throw new ToolError(e.message.replace(/^change (\d+):/, (_m, n: string) => `change ${(numbers[Number(n) - 1] ?? Number(n) - 1) + 1}:`), e.code)
     })
     try { return decodeHwpEditResult(answer) } catch { throw new ToolError(`the .${x} editor gave a damaged answer; nothing was saved`) }
   }
   let r: ReturnType<typeof decodeHwpEditResult>
+  /** the layout the pictures were placed from */
+  let placedFrom: HwpLayout | null = null
   if (!pictures) r = await edit(changes.map((_, i) => i), bytes)
   else {
     // Text and rows first, then the pictures, placed from the layout of the document as those changes left it: a row
     // added above a label or a fill that wraps moves the label
     const words = changes.flatMap((ch, i) => (isImageChange(ch) ? [] : [i]))
     const seals = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
-    const first = words.length ? await edit(words, bytes) : null
+    // each picture's target is fixed on the document as read and carried through the text and row changes
+    const first = words.length ? await edit(words, bytes, undefined, seals) : null
+    const refs = first?.report.targets
+    if (first && refs?.length !== seals.length) throw new ToolError('the pictures\' places could not be kept through the other changes; nothing was saved')
     const base = first?.file ?? bytes
     if (first) {
       const why = binary ? hwpPartsMismatch(bytes, base) : hwpxPartsMismatch(bytes, base)
@@ -104,7 +112,8 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
       }
     }
     const layout = await layoutOf(ctx, c, base, x, src.rel)
-    const second = await edit(seals, base, { layout, images: pictures.images.map((m) => ({ ...m, changes: m.changes.map((i) => seals.indexOf(i)) })) })
+    placedFrom = layout
+    const second = await edit(seals, base, { layout, images: pictures.images.map((m) => ({ ...m, changes: m.changes.map((i) => seals.indexOf(i)) })) }, undefined, seals.map((i, k) => (refs ? { ...(changes[i] as HwpImageChange), ref: refs[k]! } : changes[i]!)))
     // one report in the call's change numbers
     const w = (n: number) => words[n]!
     r = { file: second.file, report: {
@@ -132,6 +141,16 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     throw new ToolError(`the changed document did not pass the checks again (${e.message.slice(0, 300)}); nothing was saved`)
   }
 
+  // where each picture really landed, on the file about to be saved. A busy or failing renderer is "not checked", never
+  // a pass; a measured miss on an anchor the renderer draws as Hangul does saves nothing
+  let landed: HwpLanding[] = []
+  if (placedFrom && r.report.pictures?.some((p) => p.aim)) {
+    const after = await componentC(ctx).hwp.layout(c.user.id, Buffer.from(r.file), x, c.signal).catch((e) => { if (e instanceof HwpError) return null; throw e })
+    landed = after ? landings(placedFrom, after, r.report.pictures, SEAL_TOLERANCE_MM) : r.report.pictures.flatMap((p) => (p.aim ? [{ change: p.change, state: 'not-checked' as const }] : []))
+    const miss = landed.find((l) => l.state === 'missed')
+    if (miss?.state === 'missed') throw new ToolError(`change ${miss.change + 1}: the picture did not land on its place (${miss.mm === null ? 'it is not on that page' : `${miss.mm} mm off`}), so nothing was saved; give the mark's exact text or put the picture into a table cell`)
+  }
+
   // a new file carries the document's bytes: asked like make_file's sources; a new version stays where it was. The
   // pictures' bytes go where the document's readers see them, a new version too (as stamp_pdf)
   const sources = [...(inPlace ? [] : [src.rel]), ...(pictures?.sources ?? [])]
@@ -146,11 +165,17 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
       c.user = ctx.files.principal(c.user.id)
       c.beforePlace?.()
       const v = await c.places!.version(head.id, { bytes: r.file }, seen, c.files)
-      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report: r.report, chatVersion: v }
+      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report: r.report, chatVersion: v, landed }
     }
     const made = await placeProduced(ctx, files, c, out.segs, produced, 'edit_hwp')
-    return { ...made, source: src.rel, inPlace, report: r.report }
+    return { ...made, source: src.rel, inPlace, report: r.report, landed }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/** One picture's landing in the result, in what it does and does not show. */
+function landingText(l: HwpLanding | undefined): string {
+  if (!l) return ''
+  return l.state === 'checked' ? `; checked in the preview engine: ${l.mm} mm from the mark, which is not proof of the spot in Hangul` : '; its landing was not checked'
 }
 
 /** The tool result for the AI: where it went, what changed, what is left to fill. */
@@ -161,7 +186,7 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
   const notes = r.report.notes.map((n) => `- ${n.also?.length ? 'changes' : 'change'} ${[n.change, ...(n.also ?? [])].map((c) => c + 1).join(', ')}, ${n.where}: ${n.before ? `${JSON.stringify(n.before)} -> ` : n.where.includes('after row') ? '' : 'was empty, now '}${JSON.stringify(n.after)}`)
   const left = r.report.placeholders.length ? `\nStill in the document: ${r.report.placeholders.join(', ')}.` : ''
-  const pics = (r.report.pictures ?? []).map((p) => `- change ${p.change + 1}: a picture on page ${p.page}, ${p.widthMm} x ${p.heightMm} mm, ${p.xMm} mm from the left and ${p.yMm} mm from the top (${p.where})`)
+  const pics = (r.report.pictures ?? []).map((p) => `- change ${p.change + 1}: a picture on page ${p.page}, ${p.widthMm} x ${p.heightMm} mm, ${p.xMm} mm from the left and ${p.yMm} mm from the top (${p.where})${landingText(r.landed?.find((l) => l.change === p.change))}`)
   const loose = r.report.pictures?.some((p) => p.fromParagraph)
   const check = pics.length ? `\nPictures:\n${pics.join('\n')}\n` + (loose
     ? 'This document has no layout stored by Hangul, so each picture is tied to the paragraph or table of its label and Hangul keeps it there. hwp_render uses a different layout engine: it can draw the line after such a paragraph too high, over it, while the file is right. Do not change the file for that; tell the user to check the spot in Hangul.'

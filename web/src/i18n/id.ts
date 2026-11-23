@@ -3251,6 +3251,8 @@ export const id: Record<MessageKey, string> = {
   "ask.exactHide": "Sembunyikan isi persis yang dikirim",
   "ask.foldedShow": "Detail",
   "ask.foldedHide": "Sembunyikan detail",
+  "ask.payloadGoesTo": "Isinya:",
+  "ask.payloadMarks": "Nilai panjang di dalamnya (periksa):",
   "ask.batchMany": "{n} hal untuk dikonfirmasi",
   "ask.batchGathering": "Mengumpulkan permintaan lain dari jawaban ini…",
   "ask.batchOpen": "Buka",

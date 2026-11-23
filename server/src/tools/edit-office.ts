@@ -304,6 +304,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     return x
   })())
   } finally { for (const w of picWork) fs.rmSync(w, { recursive: true, force: true }) }
+  // the card comes before the worker's real run here: a target that cannot be resolved (several sign marks, a hidden
+  // mark) is refused first, so nobody approves a call that then fails. The result of this run is dropped
+  if (notMine.size) await officeWorkerWrite(OFFICE_EDIT_MODE, frame({ kind, changes }, [bytes, ...images]), c.signal)
   // a signature or seal that is not the asker's own goes in only after their yes on a card (never on the AI's choice)
   await confirmNotOwnPictures(ctx, c, [...notMine].map(([rel, name]) => ({ name, key: pictureAlwaysKey(rel) })), src.rel)
   // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
