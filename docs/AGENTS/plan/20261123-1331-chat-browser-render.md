@@ -14,7 +14,7 @@ chrome-headless-shell has no ProcessSingleton and works in the same run, but not
 
 ## Scope
 
-In: the run's environment names the pinned browser; the box_shell text says how to use it and what to offer if a render fails; one attack line that keeps the AF_UNIX block.
+In: the run's environment names the pinned browser; the box_shell text says how to use it and what to offer if a render fails; the proxy login for remote pages; the admin's off switch; a sweep of a killed browser's profile; attack cases with the real browser.
 Out: any change to seccomp, the network, the folders or the limits of a run; a converter-isolation render path.
 
 ## Steps
@@ -29,4 +29,4 @@ docs/decisions/20261123-chat-browser-render.md
 
 ## Result
 
-A real srt 0.0.81 run (Debian, arm64) rendered a 3.0 s MP4 with HyperFrames 0.9.85 using only the new environment, with `socket(AF_UNIX)` still refused. Puppeteer works from the variable; Playwright with `executablePath`. Attack suite: 136 attacks, 19 sub-agent cases and 8 work-folder cases held, including the new A16b. amd64 was not run with a browser.
+A real srt 0.0.81 run (Debian, arm64) rendered a 3.0 s MP4 with HyperFrames 0.9.85 and a remote image, using only the new environment, with `socket(AF_UNIX)` still refused. With the proxy login, Puppeteer and Playwright load an allowed page (200); a site off the list is 403. Attack suite on arm64: 143 attacks (A16b, BR1-BR7 with the real browser), 19 sub-agent and 8 work-folder cases held. amd64 is not verified here: bwrap cannot make its namespaces under Docker's emulation. CI's Linux attack job runs both architectures on the push to dev, not in the merge queue.
