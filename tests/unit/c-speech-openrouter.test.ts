@@ -1,5 +1,5 @@
 // Voice input through OpenRouter (docs/DECISIONS.md "Voice input through OpenRouter"): the transcription job picks the
-// team's speech provider; 'openrouter' sends the audio (base64 JSON, zero data retention requested, DeepInfra then Groq) to
+// team's speech provider; 'openrouter' sends the audio (base64 JSON, zero data retention requested, the model's providers) to
 // a fake OpenRouter here (never the real one) and maps its answers and failures. No ffmpeg in most of these tests: wav
 // goes as is. The answers of the long-recording language check are shaped like OpenRouter's recorded ones (plans
 // stt-hosted-2026-11-01 results/: verbose_json segments with avg_logprob).
@@ -9,7 +9,7 @@ import { componentC } from '../../server/src/team-files/component'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { OPENROUTER_MAX_BYTES, OPENROUTER_STT_PROVIDERS, openRouterRouting, parseOpenRouter } from '../../server/src/jobs/openrouter-stt'
+import { ELEVENLABS_STT_PROVIDERS, OPENROUTER_MAX_BYTES, OPENROUTER_STT_PROVIDERS, openRouterRouting, parseOpenRouter, resetPlainJsonModelsForTests, speechProviders } from '../../server/src/jobs/openrouter-stt'
 import { languageCode } from '../../server/src/jobs/speech-language'
 import { setSetting } from '../../server/src/admin/settings'
 import { makeCApp, type CApp } from '../lib/c-app'
@@ -113,24 +113,81 @@ describe('OpenRouter transcription', () => {
     expect(hits.length).toBe(1)
     const h = hits[0]!
     expect(h.auth).toBe(`Bearer ${KEY}`)
-    expect(h.body.model).toBe('openai/whisper-large-v3-turbo')
+    // the default model since 2026-11-23: ElevenLabs Scribe v2, only through ElevenLabs, without audio-event tags
+    expect(h.body.model).toBe('elevenlabs/scribe-v2')
     expect(h.body.input_audio.format).toBe('wav')
     expect(Buffer.from(h.body.input_audio.data, 'base64').equals(Buffer.from(bytes))).toBe(true)
     expect(h.body.language).toBe('ko')
     expect(h.body.response_format).toBe('verbose_json')
-    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
+    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['elevenlabs'], only: ['elevenlabs'], allow_fallbacks: true, options: { elevenlabs: { tag_audio_events: false } } })
   })
-  test('the providers the request asks for are one constant (DeepInfra first, Groq when it is down, no other)', () => {
+  test('whisper chosen in Team settings: DeepInfra then Groq, no ElevenLabs option', async () => {
+    updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' })
+    try {
+      reply = () => Response.json({ text: 'Hello team.', language: 'en', duration: 1, segments: [{ start: 0, end: 1, text: 'Hello team.' }] })
+      const job = await run(wav())
+      expect(job.status, JSON.stringify(job.error)).toBe('done')
+      expect(hits[0]!.body.model).toBe('openai/whisper-large-v3-turbo')
+      expect(hits[0]!.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+  })
+  test('the providers the request asks for are constants per model (whisper: DeepInfra first, Groq when it is down; Scribe: ElevenLabs)', () => {
     expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
-    expect(openRouterRouting()).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
+    expect(ELEVENLABS_STT_PROVIDERS).toEqual(['elevenlabs'])
+    expect(speechProviders('openai/whisper-large-v3-turbo')).toEqual(['deepinfra', 'groq'])
+    expect(speechProviders('openai/whisper-1')).toEqual(['deepinfra', 'groq'])
+    expect(speechProviders('elevenlabs/scribe-v2')).toEqual(['elevenlabs'])
+    const w = 'openai/whisper-large-v3-turbo'
+    expect(openRouterRouting(w)).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
+    expect(openRouterRouting('elevenlabs/scribe-v2')).toEqual({ zdr: true, data_collection: 'deny', order: ['elevenlabs'], only: ['elevenlabs'], allow_fallbacks: true, options: { elevenlabs: { tag_audio_events: false } } })
     // a fresh copy each time: nobody can change the next request's list through it
-    openRouterRouting().only.push('openai')
-    openRouterRouting().order.push('openai')
-    expect(openRouterRouting().only).toEqual(['deepinfra', 'groq'])
-    expect(openRouterRouting().order).toEqual(['deepinfra', 'groq'])
+    openRouterRouting(w).only.push('openai')
+    openRouterRouting(w).order.push('openai')
+    expect(openRouterRouting(w).only).toEqual(['deepinfra', 'groq'])
+    expect(openRouterRouting(w).order).toEqual(['deepinfra', 'groq'])
+    expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
+  })
+  test('a model that refuses verbose_json (400 naming it): the same request once more as json, and json from then on', async () => {
+    resetPlainJsonModelsForTests()
+    try {
+      reply = (b) => (b?.response_format === 'verbose_json'
+        ? Response.json({ error: { message: 'response_format verbose_json is not supported for this model' } }, { status: 400 })
+        : Response.json({ text: 'Hello team.' }))
+      const job = await run(wav(), 'voice.wav', { language: 'en' })
+      expect(job.status, JSON.stringify(job.error)).toBe('done')
+      expect((job.result as { text: string }).text).toBe('Hello team.')
+      expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json', 'json'])
+      // the language and the routing stay
+      expect(hits[1]!.body.language).toBe('en')
+      expect(hits[1]!.body.provider.only).toEqual(['elevenlabs'])
+      hits.length = 0
+      await run(wav())
+      expect(hits.map((h) => h.body.response_format)).toEqual(['json'])
+    } finally { resetPlainJsonModelsForTests() }
+  })
+  test('a 400 that does not name the answer format keeps verbose_json (one request, the usual failure)', async () => {
+    resetPlainJsonModelsForTests()
+    reply = () => Response.json({ error: { message: 'invalid audio' } }, { status: 400 })
+    const job = await run(wav())
+    expect(job.status).toBe('failed')
+    expect(job.error!.message).toContain('HTTP 400')
+    expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
+    hits.length = 0
+    reply = () => Response.json({ text: 'Hello team.' })
+    await run(wav())
+    expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
+  })
+  test('a Scribe answer without whisper scores: the text is kept and nothing is sent twice', async () => {
+    reply = () => Response.json({ text: '안녕하세요. 회의를 시작합니다.', language: 'kor', duration: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
+    const job = await run(wav())
+    expect(job.status, JSON.stringify(job.error)).toBe('done')
+    expect(job.result).toEqual({ text: '안녕하세요. 회의를 시작합니다.', language: 'ko', durationSec: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
+    expect(hits.length).toBe(1)
   })
   test('the answer\'s language as whisper\'s code: Groq\'s "Korean" / "English" are ko / en', async () => {
     expect(['Korean', 'English', 'japanese', ' Chinese ', 'ko', 'EN', 'haw', 'Cantonese', 'Mandarin'].map(languageCode)).toEqual(['ko', 'en', 'ja', 'zh', 'ko', 'en', 'haw', 'yue', 'zh'])
+    // ElevenLabs Scribe names it in ISO 639-3
+    expect(['kor', 'ENG', 'ind', 'jpn', 'cmn', 'yue', 'zsm'].map(languageCode)).toEqual(['ko', 'en', 'id', 'ja', 'zh', 'yue', 'ms'])
     expect([null, 5, '', 'Klingon', 'ko-KR'].map(languageCode)).toEqual([null, null, null, null, null])
     reply = () => Response.json({ text: 'Hello team.', language: 'English', duration: 1, segments: [{ start: 0, end: 1, text: 'Hello team.' }] })
     const job = await run(wav())
@@ -150,7 +207,7 @@ describe('OpenRouter transcription', () => {
       expect(hits[0]!.body.model).toBe('openai/whisper-1')
       expect(hits[0]!.body.input_audio.format).toBe('m4a')
       expect('language' in hits[0]!.body).toBe(false)
-    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
   })
   test('401 bad key, 402 no credits, 429 rate limited, 5xx provider down (tried twice): localized failures without the key', async () => {
     const cases: [number, string, number][] = [[401, 'refused the key', 1], [402, 'no credits', 1], [429, 'Too many requests', 1], [503, 'did not answer, twice', 2]]

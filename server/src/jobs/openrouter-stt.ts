@@ -24,18 +24,37 @@ const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
 /** audio larger than this (after conversion) is refused before it is sent */
 export const OPENROUTER_MAX_BYTES = 25 * 1024 * 1024
 export const OPENROUTER_TIMEOUT_MS = 60_000
-/** The providers OpenRouter may send the sound to, in the order it should try them: DeepInfra (US; $0.012 an hour of
- * sound, zero data retention, no training; plans stt-hosted-2026-11-01), then Groq when DeepInfra is down (the
+/** The providers OpenRouter may send whisper's sound to, in the order it should try them: DeepInfra (US; $0.012 an hour
+ * of sound, zero data retention, no training; plans stt-hosted-2026-11-01), then Groq when DeepInfra is down (the
  * founder; the hosted key's guardrail allows these two). OpenRouter's transcription endpoint does not apply `order` /
- * `only` / `allow_fallbacks` yet (its STT guide; measured: a provider that does not exist was answered by DeepInfra,
- * and 9 of 54 parallel requests went to Groq), so the key's own provider guardrail is what limits it today; the
- * request asks for it anyway, and is routed so the day the endpoint honours it. */
+ * `only` / `allow_fallbacks` (its STT reference: "Other routing preferences (`order`, `only`, `ignore`) are not applied
+ * to transcription requests"; measured: a provider that does not exist was answered by DeepInfra, and 9 of 54 parallel
+ * requests went to Groq), so the key's own provider guardrail is what limits it today; the request asks for it anyway,
+ * and is routed so the day the endpoint honours it. */
 export const OPENROUTER_STT_PROVIDERS: readonly string[] = ['deepinfra', 'groq']
-/** the request's `provider` object: the listed providers in their order, the next one when one is down (fallbacks on),
- * and none outside the list (`only`) */
-export const openRouterRouting = () => ({
-  zdr: true, data_collection: 'deny', order: [...OPENROUTER_STT_PROVIDERS], only: [...OPENROUTER_STT_PROVIDERS], allow_fallbacks: true,
-})
+/** ElevenLabs Scribe (`elevenlabs/*`): ElevenLabs is its one provider on OpenRouter, a zero data retention endpoint
+ * (OpenRouter's ZDR list, 2026-11-23) */
+export const ELEVENLABS_STT_PROVIDERS: readonly string[] = ['elevenlabs']
+/** the providers a model's sound may go to: its own provider for ElevenLabs, else whisper's */
+export const speechProviders = (model: string): readonly string[] =>
+  (model.startsWith('elevenlabs/') ? ELEVENLABS_STT_PROVIDERS : OPENROUTER_STT_PROVIDERS)
+/** The request's `provider` object for `model`: its providers in their order, the next one when one is down (fallbacks
+ * on), none outside the list (`only`), zero data retention and no data collection. ElevenLabs gets
+ * `tag_audio_events: false` (its own option, forwarded only to ElevenLabs): Scribe writes "(laughter)" and
+ * "(background noise)" into the text by default, and voice input would put them in the message box. */
+export const openRouterRouting = (model: string) => {
+  const list = speechProviders(model)
+  return {
+    zdr: true, data_collection: 'deny', order: [...list], only: [...list], allow_fallbacks: true,
+    ...(list === ELEVENLABS_STT_PROVIDERS ? { options: { elevenlabs: { tag_audio_events: false } } } : {}),
+  }
+}
+/** Models that refused `response_format: "verbose_json"` with a 400 (OpenRouter: "Providers that do not return
+ * structured output reject verbose_json with a 400"): they get `json` (text only, no segments or scores) until the
+ * server restarts, so each request after the first goes once. */
+const PLAIN_JSON_MODELS = new Set<string>()
+/** tests: forget the models that refused verbose_json */
+export function resetPlainJsonModelsForTests() { PLAIN_JSON_MODELS.clear() }
 
 export const SPEECH_OFF = () => fail(
   '음성 입력이 꺼져 있어요. 관리자가 관리 › 팀 설정에서 켤 수 있어요.',
@@ -111,7 +130,7 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const noSpeechLine = (s: OrSegment) => (num(s?.no_speech_prob) ?? 0) > NO_SPEECH_PROB && (num(s?.avg_logprob) ?? 0) < NO_SPEECH_LOGPROB
 
 /** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
- * code: Groq answers "Korean" where DeepInfra answers "ko". Every line is kept (a file read's transcript as before);
+ * code: Groq answers "Korean" where DeepInfra answers "ko" and ElevenLabs "kor". Every line is kept (a file read's transcript as before);
  * voice input pieces drop the no-speech ones (openRouterSpeech). */
 export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): NoSpeechAnswer {
   const text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
@@ -312,16 +331,25 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
   o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean; hintOnly?: boolean }): Promise<OpenRouterAnswer> {
   if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
+  const verbose = !PLAIN_JSON_MODELS.has(model)
   const body = JSON.stringify({
     model,
     input_audio: { data: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'), format },
     ...(lang ? { language: lang } : {}),
-    response_format: 'verbose_json',
-    provider: openRouterRouting(),
+    response_format: verbose ? 'verbose_json' : 'json',
+    provider: openRouterRouting(model),
   })
   const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null, again: o.again })
   if (!res.ok) {
+    // a 400 that names the answer format: only then is the model one without structured answers (a 400 for a bad
+    // sound or a refused language must not take whisper's scores away for good). At most 4 KB of the error is read.
+    const why = verbose && res.status === 400 ? await errorText(res) : ''
     await res.body?.cancel().catch(() => {})
+    // a model without structured answers refuses verbose_json (400): the same request once more as json, remembered
+    if (verbose && res.status === 400 && /verbose_json|response_format/i.test(why)) {
+      PLAIN_JSON_MODELS.add(model)
+      return sendToOpenRouter(cfg, key, model, audio, format, o)
+    }
     // `hintOnly`: the language was only a hint; a provider that refuses the field (400) gets the sound without it
     if (o.hintOnly && lang && res.status === 400) return { ...await sendToOpenRouter(cfg, key, model, audio, format, { ...o, language: undefined, hintOnly: false }), hinted: false }
     throw openRouterFailure(res.status)
@@ -332,6 +360,11 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
     throw PROVIDER_DOWN()
   }
   return { ...parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: o.seconds ?? null }), ...requestOf(res.headers) }
+}
+
+/** the start of an error answer's body (at most 4 KB, never the key: OpenRouter's own message), '' when unreadable */
+async function errorText(res: Response): Promise<string> {
+  try { return (await res.text()).slice(0, 4096) } catch { return '' }
 }
 
 // ---------------- which provider served a request ----------------

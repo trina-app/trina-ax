@@ -35,7 +35,7 @@ describe('speech provider setting', () => {
   test("default 'off' with the default model; voice input is off for everyone", async () => {
     const s = await owner.call('GET', '/api/admin/settings')
     expect(s.speechProvider).toBe('off')
-    expect(s.speechModel).toBe('openai/whisper-large-v3-turbo')
+    expect(s.speechModel).toBe('elevenlabs/scribe-v2')
     expect((await owner.call('GET', '/api/me')).team.voiceInput).toBe(false)
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
     expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
