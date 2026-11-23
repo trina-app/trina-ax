@@ -12,5 +12,8 @@
   browser pane tools win over both. A test fails while a registered tool is in neither list.
 - **Also:** `generate_video` (real credits) and `save_work_file` (the dev environment) are refused by name. A free-roam
   demo renders no promo video on any route: `shareAnswerToRoom` started one past the tool fence.
+- **Fakes required:** a free-roam demo file without `fakes` is refused at start (`readDemoFile`), because the connected
+  services' tools are open there only because they are the fakes. `promo_video_versions` is refused with the other promo
+  video tools.
 - **Why this shape:** closed by default costs one line per new demo tool; open by default costs a public incident.
 - **Version impact:** patch.

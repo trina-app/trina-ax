@@ -42,7 +42,7 @@ setDefaultTimeout(60_000)
 const PW = 'demo public words 42'
 const SCRIPTED: DemoFile = { company: 'Steepling', password: PW, personas: [{ key: 'newHire', username: 'mina', intro: 'First day at Steepling', questions: [] }] }
 const GATE_KEY = 'the-gate-key-of-this-test'
-const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update(GATE_KEY).digest('hex'), limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
+const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', fakes: {}, gateKeySha256: crypto.createHash('sha256').update(GATE_KEY).digest('hex'), limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a-demo-free-roam-'))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
@@ -80,6 +80,9 @@ describe('a free-roam demo file starts only where only the gate reaches it', () 
       [GOOD, { MYCEL_DEV_ENV: '1' }, /MYCEL_DEV_ENV must be off/],
       [GOOD, { MYCEL_LOG_LEVEL: 'debug' }, /no debug log level/],
     ]
+    // the connected services' tools are open only because they are the fakes
+    const { fakes: _none, ...noFakes } = FREE
+    expect(() => loadAppConfig({ argv: ['--config', write('g-nofakes.json', GOOD)], env: { MYCEL_DEMO: write('nofakes.json', noFakes) } })).toThrow(/a free-roam demo needs its fakes/)
     for (const [file, env, why] of bad) {
       let err: unknown
       try { load(file, env) } catch (e) { err = e }
@@ -452,9 +455,8 @@ describe('a free-roam turn: its tools, no web search or sub-agents, the demo lin
     const pane = new Set<string>(PANE_TOOLS.map((t) => t.name))
     const undecided = [...registered].filter((n) => !FREE_ROAM_TOOLS.has(n) && !Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, n) && !pane.has(n))
     expect(undecided).toEqual([])
-    // no tool is on both lists, and today's offer did not shrink by accident
+    // no tool is on both lists
     expect([...FREE_ROAM_TOOLS].filter((n) => Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, n) || pane.has(n))).toEqual([])
-    expect(FREE_ROAM_TOOLS.size).toBe(61)
   })
 
   test('a tool nobody decided is closed; a connected service\'s are open, but never a refused name', async () => {

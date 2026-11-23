@@ -50,6 +50,7 @@ the promo video tests.
 
 ## Result
 
-Built as planned. `FREE_ROAM_TOOLS` holds the 51 tools a real free-roam turn listed plus the 10 conditional ones.
-`generate_video` and `save_work_file` are refused by name. A test with the demo's fakes shows the fence takes away only
+Built as planned. `FREE_ROAM_TOOLS` holds the tools a real free-roam turn listed plus the 10 conditional ones.
+`generate_video`, `save_work_file` and `promo_video_versions` are refused by name, and a free-roam demo file without
+`fakes` is refused at start. A test with the demo's fakes shows the fence takes away only
 refused tools: Higgsfield's, Gmail's, Drive's and the banner tool stay offered, and the fake `generate_image` answers.

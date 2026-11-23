@@ -198,6 +198,7 @@ export const FREE_ROAM_REFUSED_TOOLS: Readonly<Record<string, string>> = {
   promo_video: 'heavy work (a video render)', save_promo_video: 'heavy work (an MP4 render)',
   box_shell: 'the dev environment', save_work_file: 'the dev environment (its work folder)',
   generate_video: 'heavy work, and it costs the team credits',
+  promo_video_versions: 'the promo video tools are off, so it has nothing to list',
 }
 /**
  * The turn tools a free-roam demo may offer: an allow-list, so a tool added later is closed here until someone decides
@@ -210,7 +211,7 @@ export const FREE_ROAM_TOOLS: ReadonlySet<string> = new Set([
   'artifact', 'ask_user', 'change_folder_access', 'change_project_members', 'comment_docx', 'copy_files', 'delete_files',
   'edit', 'edit_files', 'edit_office', 'edit_pdf', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list',
   'looking_at', 'make_file', 'make_zip', 'merge_pdfs', 'move_files', 'move_skill', 'my_folders', 'post_to_room',
-  'promo_video_versions', 'query_data', 'read', 'remember', 'rename_file', 'rename_files', 'resize_images', 'room_file',
+  'query_data', 'read', 'remember', 'rename_file', 'rename_files', 'resize_images', 'room_file',
   'room_read', 'rooms', 'save_connector_file', 'save_room_file', 'set_title', 'share_file', 'share_folder',
   'share_with_person', 'shared_with_me', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'stop_sharing', 'todo_write',
   'unzip_file', 'who_can_open', 'write',
