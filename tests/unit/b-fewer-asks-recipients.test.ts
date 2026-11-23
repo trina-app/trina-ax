@@ -1,7 +1,7 @@
 // Fewer asks about who and which folder (docs/decisions/20261123-do-then-undo.md; the owner, 2026-11-23: "7번이나 묻는건
 // 좀 그런거 아냐?"): a title that the team's directory resolves to one teammate names them; a title several could mean is
 // asked once and the answer kept as the person's alias (Settings › Allowed for Trina, kind person_alias); share_folder
-// without a folder takes the one this chat used; "팀원들" is the project's people, the one group, or the shared chat's
+// without a folder takes the one this chat used; "팀원들" is the shared chat's people, the project's, or the one group
 // people, never a guest; an add the person's own message asked for goes without the card, and an unnamed recipient
 // still asks.
 // The fixture team (b-harness): alice and erin in marketing, bob in finance, carol admin, dana owner; tess added.
@@ -196,6 +196,42 @@ describe('share_folder: who, which folder, and no card for what the person asked
     expect(cardsTo('bob', r.turnId)).toBe(0)
     const step = (await stepOf('bob', r.chatId, r.answerId))!
     expect(step.shared!.who.map((w) => w.subjectType)).toEqual(['group'])
+  })
+
+  // QA b5 F5: "팀원들" in a chat with 준호 (영업) went, with no card, to the asker's own group 마케팅
+  async function chatWith(user: string, other: string) {
+    const c = (await h.api(user).call(API.createChat, { body: {} })).id
+    const first = await turn(user, `hello\n${fake({ say: 'hi' })}`, { chat: c })
+    expect(first.content).toBe('hi')
+    const subjects = [{ subjectType: 'user' as const, subjectId: other }]
+    let r = await h.api(user).call(API.putChatAudience, { params: { id: c }, body: { subjects } }) as { status?: string; confirmKey?: string }
+    if (r.status === 'confirm') r = await h.api(user).call(API.putChatAudience, { params: { id: c }, body: { subjects, confirmKey: r.confirmKey! } }) as never
+    return c
+  }
+  test('a word for the whole team in a shared chat: the people of that chat, never the asker\'s group; the card names them', async () => {
+    const groups = (h.ctx.db.query('SELECT group_id g FROM group_members WHERE user_id = ?').all('bob') as { g: string }[]).map((x) => x.g)
+    expect(groups.length).toBe(1)
+    expect((h.ctx.db.query('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groups[0]!, 'tess'))).toBeNull()
+    for (const word of ['팀원들', 'my team']) {
+      const dir = folder('bob', `Chat ${word}`)
+      const chat = await chatWith('bob', 'tess')
+      const said = word === 'my team' ? `share "${dir.split('/').pop()}" with my team` : `"${dir.split('/').pop()}" 폴더 ${word}한테 공유해줘`
+      const r = await turn('bob', `${said}\n${sf({ folder: dir, add: [word] })}`, { chat })
+      expect(cardsTo('bob', r.turnId)).toBe(0)
+      expect(peopleOn('bob', dir)).toEqual(['tess'])
+      const step = (await stepOf('bob', chat, r.answerId))!
+      expect(step.shared!.who.map((w) => [w.subjectType, w.name])).toEqual([['user', 'Tess Yoon']])
+    }
+  })
+  test('outside a chat with people or a project, in several groups: nobody is picked, the AI asks', async () => {
+    const other = (h.ctx.db.query("SELECT id FROM groups WHERE id NOT IN (SELECT group_id FROM group_members WHERE user_id = 'bob') LIMIT 1").get() as { id: string }).id
+    h.ctx.db.query("INSERT INTO group_members (group_id, user_id) VALUES (?, 'bob')").run(other)
+    try {
+      const dir = folder('bob', 'Two groups')
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`)
+      expect(r.content).toContain('Ask the user who should get it')
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'bob'").run(other) }
   })
 
   test('the floor: a recipient the person did not name, or no ask to share, still shows the card', async () => {

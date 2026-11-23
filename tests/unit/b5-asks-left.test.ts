@@ -8,7 +8,7 @@ import { API, uuidv7, type TurnRequest, type PutChatAudienceResult } from '@myce
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { missingService } from '../../server/src/integrations/connections/tools'
-import { ANSWER_END_RULE } from '../../server/src/chat/prompt'
+import { ANSWER_END_RULE, CLEAR_TARGET_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -106,6 +106,7 @@ describe('the words the AI gets', () => {
     expect(missingService(false, false)).not.toContain('/settings/connectors')
   })
   test('an answer ends when the task is done', () => {
-    expect(ANSWER_END_RULE).toContain('do not end with an offer or a question')
+    expect(ANSWER_END_RULE).toContain('do not end with an offer, a question or an invitation')
+    expect(CLEAR_TARGET_RULE).toContain('try another connected tool that does the same job')
   })
 })

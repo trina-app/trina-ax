@@ -127,8 +127,8 @@ export function learnAlias(db: Database, userId: string, target: { id: string; n
 /** an ask to send or share in a message (then it is a new request, not an answer to "who is that?") */
 const SENDS = /보내|올려|전달|공유|send|post|share|forward|kirim|bagikan|送って|共有|发给|分享|env[ií]a|compart/iu
 
-/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the project's
- * people, the one group, or the shared chat's people: chat/share-folder.ts teamPeople). */
+/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the shared
+ * chat's people, the project's, or the one group: chat/share-folder.ts teamPeople). */
 // (plural or "my team" forms only: a bare "team" is a topic as often, "팀 회의록 폴더 민수한테 공유해줘": security review)
 const TEAM_WORDS = new Set(['팀원', '팀원들', '팀원분들', '우리팀', '팀사람들', '팀전체', '동료들', 'teammates', 'teammembers', 'myteam', 'ourteam', 'everyoneontheteam',
   'チームメンバー', 'チームのみんな', '团队成员', 'compañeros', 'miequipo', 'anggotatim', 'timsaya'].map((w) => w.normalize('NFC').toLowerCase()))
