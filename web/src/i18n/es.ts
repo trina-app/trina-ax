@@ -3209,6 +3209,7 @@ export const es: Record<MessageKey, string> = {
   "ask.foldedShow": "Detalles",
   "ask.foldedHide": "Ocultar detalles",
   "ask.batchMany": "{n, plural, one {# cosa} other {# cosas}} que confirmar",
+  "ask.batchGathering": "Reuniendo las demás confirmaciones de esta respuesta…",
   "ask.batchOpen": "Abrir",
   'notice.openHistory': "Historial de versiones",
   'notice.openSkills': "Abrir habilidades del equipo",

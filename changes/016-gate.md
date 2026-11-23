@@ -1,0 +1,3 @@
+- Several skills saved in one answer now ask on one card, in plain words, and one press saves them all.
+- After the AI posts or shares without asking, Undo shows at once with a countdown.
+- English working notes no longer appear in a Korean answer when the request mentions Korean (for example, "subtitles in Korean").

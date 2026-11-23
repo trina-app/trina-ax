@@ -3249,6 +3249,7 @@ export const ko = {
   "ask.foldedShow": "자세히",
   "ask.foldedHide": "접기",
   "ask.batchMany": "확인할 일 {n}개",
+  "ask.batchGathering": "이 답변의 나머지 확인을 모으는 중이에요…",
   "ask.batchOpen": "열기",
   'notice.openHistory': '버전 기록 보기',
   'notice.openSkills': '팀 스킬 열기',

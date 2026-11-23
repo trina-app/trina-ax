@@ -117,6 +117,8 @@ import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
 import { makeFileOutputPath } from '../tools/make-file-path'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
+import { skillBatch } from '../skills/lean-card'
+import { levelOfPath, reachOf } from '../skills/move'
 import { groupOfFolder, parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
 import { roomRefsForModel, roomRefsOf, type SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
@@ -5247,6 +5249,9 @@ export class TurnExec {
   /** a new skill's plain text files written before its SKILL.md in this turn, by the skill's folder: not saved, shown
    * on the SKILL.md card (QA MAN-052, docs/decisions/20261117-new-skill-files-on-card.md, chat/skill-held.ts) */
   private skillHeld?: Map<string, Map<string, HeldFile<WidenNeed>>> = new Map()
+  /** new skills' folders whose SKILL.md card waits after the answer: a file written after it gets its own card (holding it
+   * would ask for the SKILL.md again, on a second card that a replay could not honour) */
+  private skillWaiting?: Set<string> = new Set()
   /** new skills' folders whose SKILL.md the person said Save to in this turn: nothing more is held for them (a file
    * checked before the SKILL.md reached the disk would wait for a card that never comes; it gets its own card) */
   private skillSaved?: Set<string> = new Set()
@@ -5352,7 +5357,10 @@ export class TurnExec {
     // held, not saved, and shown on the SKILL.md card with the skill (QA MAN-052: two cards of raw text for one skill).
     // Never in a scheduled run (nobody sees a card there) or with "Always allow" for skill saves on (no card to show it)
     if (tool === 'write' && after !== null && !r.exists && folder && !manifest && this.spec.clientKind !== 'schedule' && alwaysHere(this.alwaysPlace(), 'skill_save') !== 'on'
-      && !this.skillSaved?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      && !this.skillSaved?.has(folder) && !this.skillWaiting?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      // a waiting card's call running again after the person's answer, and its SKILL.md was not saved: never hold it and
+      // ask for the skill the person may have declined
+      if (this.replaying) return { refusal: `Nothing was saved to '${r.rel}': the new skill it belongs to was not saved (its SKILL.md is not there). Do not write that skill again unless the user asks.`, summary: `${tool} -> not saved: its skill was not saved` }
       const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile<WidenNeed>>()
       if (held.has(r.rel) || held.size < HELD_MAX_FILES) {
         held.set(r.rel, heldFile(r.rel, after, need))
@@ -5371,8 +5379,21 @@ export class TurnExec {
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
     const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
+    // a NEW skill that loads leads in plain words, its path and text behind 자세히, and several of one answer to one place
+    // are one card (skills/lean-card.ts). A change to an existing skill keeps its diff in view; a file that does not load,
+    // a taken name, files held for its card or warnings that would not fit whole keep the whole card
+    const lean = (() => {
+      if (!skill || r.exists || dead || problem || held?.size) return null
+      try {
+        const to = levelOfPath(this.rt.ctx, me, r.rel)
+        if (!to) return null
+        const warn = [need && wide ? tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : '', same?.text ?? ''].filter(Boolean)
+        if ([...warn.join(' ')].length > 590) return null
+        return skillBatch({ tool, to, copy: false, save: true, name: skill.name, text: after ?? undefined, followers: reachOf(this.rt.ctx, me, to, folder ?? r.rel).size, warn }, L)
+      } catch { return null }
+    })()
     const { value: answer, missing } = await ask({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), ...(lean ? { batch: lean } : {}),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))
@@ -5381,6 +5402,7 @@ export class TurnExec {
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
+    if (this.callNow?.deferred && folder && manifest && !r.exists) (this.skillWaiting ??= new Set()).add(folder)
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
@@ -5620,6 +5642,9 @@ export class TurnExec {
     // (callNow is set only for a call of a tool whose cards may wait: chat/tools.ts cardLaterTool)
     if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !this.rt.safetyCardsWait) return false
     if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
+    // a new skill's card that also shows files held for it: what it approves lives in this answer (skillHeld), so its
+    // card waits inside the call and the AI's second write of those files follows the press
+    if (request.kind === 'ask_user' && request.preview?.kind === 'skill_write' && request.preview.files?.length) return false
     // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
     // inside the call as before (with its time limit)
     const r = this.redactor()

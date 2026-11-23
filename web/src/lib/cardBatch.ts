@@ -20,6 +20,10 @@ export const groupKey = (c: CardLike): string | null => {
   return JSON.stringify([c.messageId, r.batch.key, (r.options ?? []).map((o) => [o.value, o.label]), !!r.buttons, r.note ?? ''])
 }
 
+/** A kind whose cards arrive one call after another (saves: the engine runs them in order), so the first waits briefly
+ * for the rest while its answer runs. Not a delete, share or post: those stand alone. */
+export const gathers = (r: TurnRequest): boolean => groupable(r) && !('expiresAt' in r && r.expiresAt) && (r.batch.key.startsWith('skill:') || ['tool:write', 'tool:edit', 'tool:make_file'].includes(r.batch.key))
+
 /** The cards in order, each group where its first card was. */
 export function groupCards<T extends CardLike>(cards: readonly T[]): T[][] {
   const out: T[][] = []

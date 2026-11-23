@@ -7,7 +7,7 @@
 // Do then undo (docs/decisions/20261123-do-then-undo.md): a post that went without a card can be taken back. For
 // UNDO_MS after the step ended the card offers Undo (the room's own delete of my message: its text, files and notices go
 // for everyone), then Delete for as long as the message is there.
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useState } from 'react'
 import { API, type Step } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, errorText } from '../../lib/api'
@@ -19,6 +19,7 @@ import { ListRow } from '../list/List'
 import { ActionCard, ActionNote, ActionRows } from './ActionCard'
 import { FileKindIcon } from './TeamFilePicker'
 import { postPath, StepPostView } from './Steps'
+import { useUndoWindow } from './useUndoWindow'
 
 /** how long a just-sent post offers Undo before the button reads Delete */
 export const UNDO_MS = 10_000
@@ -26,15 +27,10 @@ export const UNDO_MS = 10_000
 export default function PostedCard({ posted, endedAt }: { posted: NonNullable<Step['posted']>; endedAt?: string | null }) {
   const t = useT()
   const locale = useLocale()
-  const [undoLeft, setUndoLeft] = useState(() => (endedAt ? Math.max(0, Date.parse(endedAt) + UNDO_MS - Date.now()) : 0))
+  const undoLeft = useUndoWindow(endedAt, UNDO_MS)
   const [busy, setBusy] = useState(false)
   const [gone, setGone] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    if (undoLeft <= 0) return
-    const id = setTimeout(() => setUndoLeft(0), undoLeft)
-    return () => clearTimeout(id)
-  }, [undoLeft])
   const takeBack = async () => {
     setBusy(true)
     setError(null)
@@ -54,7 +50,7 @@ export default function PostedCard({ posted, endedAt }: { posted: NonNullable<St
   const footer = gone ? undefined : (
     <>
       {error && <span role="alert" className="mr-auto text-xs break-keep text-danger" data-testid="posted-card-error">{error}</span>}
-      <Button size="sm" variant="ghost" busy={busy} onClick={() => void takeBack()} data-testid={undoLeft > 0 ? 'posted-card-undo' : 'posted-card-delete'}>{undoLeft > 0 ? t('postedCard.undo') : t('postedCard.delete')}</Button>
+      <Button size="sm" variant="ghost" busy={busy} onClick={() => void takeBack()} data-testid={undoLeft > 0 ? 'posted-card-undo' : 'posted-card-delete'}>{undoLeft > 0 ? `${t('postedCard.undo')} ${undoLeft}` : t('postedCard.delete')}</Button>
       <Button size="sm" variant="secondary" onClick={() => (viewPost ? viewPost(posted) : navigateTo(postPath(posted)))} aria-label={t('steps.postViewLabel')} data-testid="posted-card-view">{t('steps.postView')}</Button>
     </>
   )

@@ -24,6 +24,7 @@ import { ListRow } from '../list/List'
 import { Button } from '../ui'
 import { holdsText } from '../FolderShareParts'
 import { ActionCard, ActionNote, ActionRows } from './ActionCard'
+import { useUndoWindow } from './useUndoWindow'
 import { FileKindIcon } from './TeamFilePicker'
 
 /** The button of a refusal's next step (`Step.shared.next`), by its kind. Another module fills it:
@@ -103,13 +104,8 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
   const [listed, setListed] = useState(false)
   // a share just done: 취소 takes back exactly the grants it added, by the server's record of them (never access someone
   // had before), and a folder it made from the chat's files; for a few seconds. Manage access stays for later
-  const [undoLeft, setUndoLeft] = useState(() => (endedAt && shared.op === 'share' && shared.outcome === 'done' && shared.who.length && shared.takeBack ? Math.max(0, Date.parse(endedAt) + SHARE_UNDO_MS - Date.now()) : 0))
+  const undoLeft = useUndoWindow(endedAt, SHARE_UNDO_MS, shared.op === 'share' && shared.outcome === 'done' && !!shared.who.length && !!shared.takeBack)
   const [taken, setTaken] = useState(false)
-  useEffect(() => {
-    if (undoLeft <= 0) return
-    const id = setTimeout(() => setUndoLeft(0), undoLeft)
-    return () => clearTimeout(id)
-  }, [undoLeft])
   const restored = isRestored(shared, live)
   const mine = liveFiles(shared, live)
   const title = taken ? (shared.madeFolder && shared.files[0] ? t('shareCard.madeFolderTakenBack', { file: shared.files[0].name }) : t('shareCard.takenBack')) : shareHeadline(t, locale, shared, restored)
@@ -150,11 +146,10 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     setError(null)
     try {
       // the server takes off only the grants this share wrote (files/share-take-back.ts), never someone's earlier access
-      if (!shared.takeBack) { setUndoLeft(0); return }
+      if (!shared.takeBack) return
       await api.call(API.takeBackFileShares, { body: { id: shared.takeBack.id } })
       fileSharesChanged.emit()
       setTaken(true)
-      setUndoLeft(0)
     } catch (e) {
       setError(e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, t('shareCard.undoFailed')) : t('shareCard.undoFailed'))
     } finally {
@@ -169,7 +164,7 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     : !mine.length ? null
     : taken ? null
     : undoLeft > 0 && (!shared.files[0]?.folder || shared.madeFolder)
-      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{t('postedCard.undo')}</Button>
+      ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void takeBack()} data-testid="share-card-takeback">{`${t('postedCard.undo')} ${undoLeft}`}</Button>
     // (a folder's Undo is the server's only: past its time the button is Manage access)
     : stop && (undoId || !shared.files[0]?.folder)
       ? <Button size="sm" variant="secondary" busy={busy} onClick={() => void undo()} data-testid="share-card-undo">{t('shareCard.undo')}</Button>
