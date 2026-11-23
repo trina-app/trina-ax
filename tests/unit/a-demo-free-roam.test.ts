@@ -35,7 +35,8 @@ setDefaultTimeout(60_000)
 
 const PW = 'demo public words 42'
 const SCRIPTED: DemoFile = { company: 'Steepling', password: PW, personas: [{ key: 'newHire', username: 'mina', intro: 'First day at Steepling', questions: [] }] }
-const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
+const GATE_KEY = 'the-gate-key-of-this-test'
+const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update(GATE_KEY).digest('hex'), limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a-demo-free-roam-'))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
@@ -108,7 +109,7 @@ describe('a free-roam demo server', () => {
     ;(h.ctx.config as { demo?: DemoFile }).demo = FREE
     startFreeRoam(h.ctx)
     mina = h.client()
-    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' })
+    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' }, { [DEMO_GATE_KEY_HEADER]: GATE_KEY })
   })
   afterAll(async () => { setDemoLimit(h.ctx.db, null); await h.close() })
 
@@ -133,9 +134,15 @@ describe('a free-roam demo server', () => {
     } finally { config.demo = FREE }
   })
 
-  test('the gate key is for a free-roam demo only; without one the guided demo and the builder sign in as before', () => {
+  test('the gate key: the guided demo and the builder need none, a free-roam instance without a hash signs nobody in', () => {
     expect(gateKeyOk({}, undefined)).toBe(true)
-    expect(gateKeyOk({ gateKeySha256: 'a'.repeat(64) }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'scripted' }, undefined)).toBe(true)
+    expect(gateKeyOk({ kind: 'freeRoam', builder: true }, undefined)).toBe(true)
+    // a free-roam instance without a hash signs nobody in, whatever it is shown
+    expect(gateKeyOk({ kind: 'freeRoam' }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam' }, 'anything')).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: 'a'.repeat(64) }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update('k').digest('hex') }, 'k')).toBe(true)
     expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'a'.repeat(64) }).success).toBe(true)
     expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'short' }).success).toBe(false)
     expect(DemoFile.safeParse({ ...SCRIPTED, gateKeySha256: 'a'.repeat(64) }).success).toBe(false)

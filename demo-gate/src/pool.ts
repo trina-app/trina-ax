@@ -460,11 +460,13 @@ export class Pool {
       body: JSON.stringify({ key: this.cfg.pool.personaKey }), redirect: 'manual', signal: AbortSignal.timeout(10_000),
     })
     await open.body?.cancel().catch(() => {})
-    if (open.status !== 401) {
+    if (open.ok) {
       this.badSnapshots.add(snap.dir)
       this.log.error('snapshot refused: the instance does not check the gate key', { snapshot: snap.name, locale: inst.locale, status: open.status })
       throw new Error('the instance does not check the gate key')
     }
+    // any other answer says nothing about the snapshot: this start failed, and the pool tries again
+    if (open.status !== 401) throw new Error(`the sign-in check answered ${open.status}`)
     return Math.round(cap * this.cfg.limits.instanceCapMargin)
   }
 

@@ -7,7 +7,7 @@ import { Database } from 'bun:sqlite'
 import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ApiClient, CSRF_HEADER } from '../../shared/src/api'
+import { API, ApiClient, CSRF_HEADER, DEMO_GATE_KEY_HEADER } from '../../shared/src/api'
 import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, SNAPSHOT_MODEL, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
 import { LEAK_PROMPTS, PUBLIC_PAGES, askLeakPrompts, maskAllowed, readSealed, scan, scanPublicPages, sealedIn } from '../../scripts/demo/free-roam/canary'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
@@ -145,10 +145,13 @@ describe('the snapshot of Steepling (en)', () => {
   test('a clone boots and Mina signs in (the gate\'s way: only MYCEL_CONFIG and MYCEL_DEMO point at it)', async () => {
     const clone = path.join(tmp, 'clone')
     cloneBase(base(), clone)
-    await gateLikeConfig(clone)
+    const gateKey = await gateLikeConfig(clone)
     const inst = await startInstance(clone)
     try {
-      const r = await fetch(`${inst.url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin: inst.url, [CSRF_HEADER]: '1' }, body: JSON.stringify({ key: 'newHire' }) })
+      const sw = (h: Record<string, string>) => fetch(`${inst.url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin: inst.url, [CSRF_HEADER]: '1', ...h }, body: JSON.stringify({ key: 'newHire' }) })
+      expect((await sw({})).status).toBe(401)
+      expect((await sw({ [DEMO_GATE_KEY_HEADER]: 'another-key' })).status).toBe(401)
+      const r = await sw({ [DEMO_GATE_KEY_HEADER]: gateKey })
       expect(r.status).toBe(200)
       const cookie = r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ')
       const api = new ApiClient({ baseUrl: inst.url, fetch: ((u: string | URL | Request, init?: RequestInit) => fetch(u, { ...init, headers: { ...(init?.headers as Record<string, string>), cookie } })) as typeof fetch })

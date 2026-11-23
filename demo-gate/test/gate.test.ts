@@ -846,6 +846,14 @@ describe.skipIf(skip)('gate: pool', () => {
     } finally { await g.stop() }
   })
 
+  test('a sign-in check that answers something else is a failed start, not a bad snapshot', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], files: { 'gate-key-check-500': '' } })
+    try {
+      await until(() => g.log().includes('the sign-in check answered 500'), 8000, 'failed start')
+      expect(g.log()).not.toContain('snapshot refused')
+    } finally { await g.stop() }
+  })
+
   test('a snapshot of another code version is refused', async () => {
     const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], codeVersion: '1.0.0', snapshotVersion: '0.9.0' })
     try {

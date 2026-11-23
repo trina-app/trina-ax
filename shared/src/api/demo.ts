@@ -98,8 +98,9 @@ export const DemoFile = z.object({
   /** freeRoam: all uploads of the instance together (bytes; default DEMO_UPLOAD_TOTAL_MAX) */
   uploadTotalMax: z.number().int().min(1).max(1024 * 1024 * 1024).optional(),
   /** freeRoam, written by demo-gate into each instance's own copy (never in a snapshot): the SHA-256 (hex) of a random
-   * key only the gate holds. With it, POST /api/demo/persona needs that key in DEMO_GATE_KEY_HEADER, so code running on
-   * one instance cannot sign in to another instance's port. Only the hash is here: this file gives no way in. */
+   * key only the gate holds. POST /api/demo/persona needs that key in DEMO_GATE_KEY_HEADER, so code running on one
+   * instance cannot sign in to another instance's port; a free-roam demo without a hash signs nobody in. Only the hash is
+   * here: this file gives no way in. */
   gateKeySha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 }).strict()
   .refine((d) => d.kind === 'freeRoam' || (d.limitTokens === undefined && d.signupUrl === undefined && d.uploadFileMax === undefined && d.uploadTotalMax === undefined && d.gateKeySha256 === undefined), 'limitTokens, signupUrl, the upload limits and gateKeySha256 are for kind "freeRoam" only')

@@ -99,7 +99,8 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   unit's protections.
 - **Sign-in key.** Every instance listens on loopback and the instance user may reach the instance port range, so
   `POST /api/demo/persona` needs a key per instance. The gate makes it, keeps it in memory and writes only its SHA-256
-  to the clone's demo file (`gateKeySha256`); before an instance is warm the gate checks it refuses a sign-in without.
+  to the clone's demo file (`gateKeySha256`); a free-roam instance without that hash signs nobody in, and before an
+  instance is warm the gate checks it refuses a sign-in without the key.
 - **Credential.** A person signs in once as `tdcred` (`sudo -u tdcred -H /opt/trina-demo/claude/bin/claude`, then
   `/login`). `trina-demo-credsync.timer` copies the access token into the gate's credential file every 5 minutes
   through `tdgate-set-credential` (the one command `tdcred` may run as `tdgate`), and lets Claude Code renew the login
@@ -119,6 +120,10 @@ sh STAGE/app/demo-gate/linux/stage.sh STAGE                  # no root: pinned d
 # optional, mode 600: STAGE/secrets/{turnstile-secret, canary-sealed, tunnel-creds.json, tunnel-id, tunnel-hostname}
 sudo sh STAGE/app/demo-gate/linux/install.sh --stage STAGE --origin https://demo.example --site-key <turnstile site key>
 ```
+
+A deploy that keeps the site down for the shortest time: `install.sh ... --no-start` (stops the gate and tunnel, updates,
+migrates `pool.command` with a backup and refuses a command without the whole sandbox), `systemctl start
+trina-demo-gate`, wait for the warm count, `tdfw-check`, `systemctl start trina-demo-tunnel`.
 
 `install.sh` copies the stage to a folder of root's first and reads only that copy; it checks the downloads against
 `pins.env` (and `scripts/system/packages.json` for chrome-headless-shell) and unpacks them itself. It is idempotent

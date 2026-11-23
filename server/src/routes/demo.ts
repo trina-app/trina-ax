@@ -33,12 +33,13 @@ export function demoOf(ctx: AppContext): DemoFile | null {
   return d && ctx.config.mode === 'dev' && ctx.config.deployment !== 'hosted' && !ctx.config.office ? d : null
 }
 
-/** A free-roam instance behind demo-gate signs in only the gate: its demo file holds the hash of a key per instance, and
- * the caller must show that key. Every instance listens on loopback, so without this any code running as the instance
- * user could sign in to another visitor's instance. No hash (the guided demo, the snapshot builder's own check): open. */
-export function gateKeyOk(demo: Pick<DemoFile, 'gateKeySha256'>, key: string | undefined): boolean {
-  if (!demo.gateKeySha256) return true
-  if (!key) return false
+/** A free-roam instance signs in only its gate: its demo file holds the hash of a key per instance, and the caller must
+ * show that key. Every instance listens on loopback, so without this any code running as the instance user could sign
+ * in to another visitor's instance. Fails closed: a free-roam demo without a hash signs nobody in. Only the guided demo
+ * and the snapshot builder's own server (demo file `builder: true`) have no key. */
+export function gateKeyOk(demo: Pick<DemoFile, 'kind' | 'builder' | 'gateKeySha256'>, key: string | undefined): boolean {
+  if (demo.kind !== 'freeRoam' || demo.builder === true) return true
+  if (!demo.gateKeySha256 || !key) return false
   return crypto.timingSafeEqual(crypto.createHash('sha256').update(key).digest(), Buffer.from(demo.gateKeySha256, 'hex'))
 }
 

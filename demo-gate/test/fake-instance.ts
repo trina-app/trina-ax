@@ -18,6 +18,7 @@ const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (c) => { body += c })
     req.on('end', () => {
+      if (fs.existsSync('gate-key-check-500')) { res.writeHead(500); return res.end() }
       // the real server's check (server/src/routes/demo.ts gateKeyOk)
       let want = ''
       try { want = (JSON.parse(fs.readFileSync(process.env.MYCEL_DEMO!, 'utf8')) as { gateKeySha256?: string }).gateKeySha256 ?? '' } catch {}

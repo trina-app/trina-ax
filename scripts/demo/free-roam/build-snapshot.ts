@@ -19,7 +19,7 @@ import { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, ApiClient, ApiError, CSRF_HEADER } from '../../../shared/src/api'
+import { API, ApiClient, ApiError, CSRF_HEADER, DEMO_GATE_KEY_HEADER } from '../../../shared/src/api'
 import { writeFakesAt } from '../company/fakes'
 import { seedDemo } from '../seed'
 import { loadContent, type DemoContent } from '../company/content'
@@ -148,9 +148,10 @@ export function hygieneProblems(base: string): string[] {
   return problems
 }
 
-/** What the gate does to a clone's server.json before it starts it (demo-gate/src/pool.ts writeInstanceConfig): its
- * own listener and model proxy ports, the gate as the model upstream (a port nothing listens on here: no AI runs). */
-export async function gateLikeConfig(clone: string): Promise<void> {
+/** What the gate does to a clone before it starts it (demo-gate/src/pool.ts): the server.json with its own listener and
+ * model proxy ports and the gate as the model upstream (a port nothing listens on here: no AI runs), and the hash of a
+ * sign-in key in its demo file. Returns that throwaway key, for this clone's persona switch. */
+export async function gateLikeConfig(clone: string): Promise<string> {
   const file = baseLayout(clone).config
   const c = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, any>
   const [port, proxyPort, gate] = [await freePort(), await freePort(), await freePort()]
@@ -159,6 +160,11 @@ export async function gateLikeConfig(clone: string): Promise<void> {
   c.relay = { url: null, teamName: null, officialAvailable: false }
   c.update = { channel: 'stable', feedUrl: null, auto: false }
   fs.writeFileSync(file, JSON.stringify(c, null, 2), { mode: 0o600 })
+  const gateKey = crypto.randomBytes(32).toString('base64url')
+  const demoFile = baseLayout(clone).demo
+  const demo = JSON.parse(fs.readFileSync(demoFile, 'utf8')) as Record<string, unknown>
+  fs.writeFileSync(demoFile, JSON.stringify({ ...demo, gateKeySha256: crypto.createHash('sha256').update(gateKey).digest('hex') }, null, 2), { mode: 0o600 })
+  return gateKey
 }
 
 /** Boot a clone of the base folder, sign in as the new hire through the persona switch and check what the content
@@ -174,14 +180,14 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
   const tmp = shortTemp('frs')
   const clone = path.join(tmp, 'base')
   cloneBase(base, clone)
-  await gateLikeConfig(clone)
+  const gateKey = await gateLikeConfig(clone)
   const inst = await startInstance(clone)
   try {
     const c = content.company
     const hire = c.demo.personas.find((p) => p.key === 'newHire')
     if (!hire) throw new Error('the content has no newHire persona to sign in as')
     // the persona switch (the gate signs visitors in this way): a cookie session
-    const r = await fetch(`${inst.url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin: inst.url, [CSRF_HEADER]: '1' }, body: JSON.stringify({ key: 'newHire' }) })
+    const r = await fetch(`${inst.url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin: inst.url, [CSRF_HEADER]: '1', [DEMO_GATE_KEY_HEADER]: gateKey }, body: JSON.stringify({ key: 'newHire' }) })
     if (!r.ok) throw new Error(`the persona switch answered ${r.status}: ${await r.text()}`)
     const cookie = r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ')
     const api = new ApiClient({ baseUrl: inst.url, fetch: ((u: string | URL | Request, init?: RequestInit) => fetch(u, { ...init, headers: { ...(init?.headers as Record<string, string>), cookie, origin: inst.url, [CSRF_HEADER]: '1' } })) as typeof fetch })

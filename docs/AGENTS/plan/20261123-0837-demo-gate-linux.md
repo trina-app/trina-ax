@@ -107,4 +107,8 @@ clone's demo file (`gateKeySha256`); the server compares in constant time, and t
 in without the key. Each instance also gets its own UTS namespace and `tdscope`, a Landlock domain scoping abstract
 unix sockets (without it an instance could connect to the desktop's X11 socket).
 
+Second review: the key check fails closed (a free-roam instance without a hash signs nobody in; only the guided demo and
+the builder's own server have no key; the snapshot check uses a throwaway key). install.sh migrates an older
+`pool.command` with a backup, refuses one without the whole sandbox, and stops the units before it changes the app.
+
 PR: https://github.com/trina-app/trina-ax/pull/446

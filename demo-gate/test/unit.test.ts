@@ -12,6 +12,7 @@ import {
 } from '../src/model.ts'
 import { WORDMARK_DARK, WORDMARK_LIGHT } from '../src/brand.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
+import { LINUX_BUN, LINUX_TDSCOPE, linuxCommandProblems, migrateLinuxCommand } from '../src/linux-command.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
@@ -524,6 +525,18 @@ describe('config', () => {
     // at least three ports: one instance's listener, model proxy and the proxy's internal server
     expect(() => parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20001] } }, '/srv')).toThrow(ConfigError)
     expect(parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20002] } }, '/srv').pool.portRange).toEqual([20000, 20002])
+  })
+  test('the Linux instance command: an older one is migrated, one without the sandbox is refused', () => {
+    const now = (JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'gate.example.linux.json'), 'utf8')) as { pool: { command: string[] } }).pool.command
+    expect(linuxCommandProblems(now)).toEqual([])
+    expect(migrateLinuxCommand(now)).toEqual(now)
+    // what the first Linux gate.json holds: no UTS namespace, no tdscope
+    const old = now.filter((x) => x !== LINUX_TDSCOPE && x !== '--unshare-uts').filter((x, i, a) => x !== '--hostname' && a[i - 1] !== '--hostname')
+    expect(linuxCommandProblems(old).join()).toMatch(/--unshare-uts.*--hostname.*tdscope/)
+    expect(migrateLinuxCommand(old)).toEqual(now)
+    expect(linuxCommandProblems(['/usr/bin/choom', '-n', '800', '--', LINUX_BUN, 'main.ts', '--config', '{config}'])).toEqual(['no /usr/bin/bwrap ... -- in pool.command'])
+    const moved = [...now]; moved.splice(moved.indexOf(LINUX_TDSCOPE), 1); moved.splice(moved.indexOf(LINUX_BUN) + 1, 0, LINUX_TDSCOPE)
+    expect(linuxCommandProblems(migrateLinuxCommand(moved)).join()).toContain('not directly before')
   })
   test('how the gate runs things as the instance user', () => {
     const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')

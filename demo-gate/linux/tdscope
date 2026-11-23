@@ -4,7 +4,7 @@
 # with this scope the instance and what it starts can connect only to abstract sockets made inside its own domain, not
 # to the desktop's X11, udev's or another instance's. No file or network rule is added. Refuses to run without the scope.
 #   tdscope PROGRAM [ARGS...]
-import ctypes, os, struct, sys
+import ctypes, os, signal, struct, sys
 SYS_CREATE, SYS_RESTRICT = 444, 446      # the same numbers on x86-64 and arm64
 VERSION, SCOPE_ABSTRACT, NO_NEW_PRIVS = 1, 1, 38
 def die(msg):
@@ -17,10 +17,13 @@ call = lambda *a: libc.syscall(*[ctypes.c_long(x) if isinstance(x, int) else x f
 abi = call(SYS_CREATE, 0, 0, VERSION)
 if abi < 6: die(f'Landlock ABI 6 is needed for the abstract socket scope (this kernel: {abi})')
 if libc.prctl(NO_NEW_PRIVS, 1, 0, 0, 0) != 0: die('no_new_privs failed')
-attr = ctypes.create_string_buffer(struct.pack('=QQQ', 0, 0, SCOPE_ABSTRACT))   # handled fs, handled net, scoped
-fd = call(SYS_CREATE, attr, len(attr.raw), 0)
+ATTR_SIZE = 24                                   # struct landlock_ruleset_attr up to `scoped` (ABI 6)
+attr = ctypes.create_string_buffer(struct.pack('=QQQ', 0, 0, SCOPE_ABSTRACT), ATTR_SIZE)   # handled fs, handled net, scoped
+fd = call(SYS_CREATE, attr, ATTR_SIZE, 0)
 if fd < 0: die(f'landlock_create_ruleset: {os.strerror(ctypes.get_errno())}')
 if call(SYS_RESTRICT, int(fd), 0) != 0: die(f'landlock_restrict_self: {os.strerror(ctypes.get_errno())}')
 os.close(fd)
+# Python ignores these two at start, and an ignored signal stays ignored across exec
+for s in (signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
 try: os.execv(sys.argv[1], sys.argv[1:])
 except OSError as e: die(f'{sys.argv[1]}: {e.strerror}')

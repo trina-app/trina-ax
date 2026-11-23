@@ -3,6 +3,8 @@
 # after a new stage to update the app and the programs. It touches only its own users, folders, nft table, units and
 # sudoers file; it never changes another service, another user or another firewall table.
 #   sh STAGE/app/demo-gate/linux/install.sh --stage STAGE --origin https://demo-staging.trina.app --site-key KEY [--no-start]
+# It stops the gate and the tunnel before it changes the app. --no-start leaves both stopped after every check, for a
+# deploy that starts the gate, sees it warm and only then starts the tunnel.
 # STAGE is what stage.sh prepared (dl/ with the downloads, app/ built). It is copied to a folder of root's first and
 # only that copy is read; the downloads are checked against pins.env (and scripts/system/packages.json for
 # chrome-headless-shell) and unpacked here, never taken from the stage's unpacked tools/. Optional files in
@@ -102,6 +104,9 @@ install -d -o tdrun -g tdgate -m 751 $FS/i
 install -d -o root -g root -m 755 $FS/.snapshots $FS/.build
 for l in $LOCALES; do install -d -o tdgate -g tdrun -m 2750 "$FS/.snapshots/$l"; done
 
+# ---- nothing of the demo runs while its app and programs change ----
+systemctl stop trina-demo-tunnel.service trina-demo-gate.service 2>/dev/null || true
+
 # ---- programs, unpacked from the checked downloads, and the app ----
 fresh() { rm -rf "${1:?}.new"; install -d -o root -g root -m 755 "$1.new"; }
 swap() { rm -rf "${1:?}.old"; [ ! -e "$1" ] || mv "$1" "$1.old"; mv "$1.new" "$1"; rm -rf "$1.old"; }
@@ -129,7 +134,8 @@ visudo -cqf "$HERE/sudoers" || die "sudoers file does not check"
 install -m 440 -o root -g root "$HERE/sudoers" /etc/sudoers.d/trina-demo
 # the host's own sudo settings: I/O logging needs a pty (off for tdgate in our file); a log file only grows
 # (a host-wide setting is fine once this host's admin has turned both off for tdgate)
-if grep -hsE '^[[:space:]]*Defaults[[:space:]]+([^#]*[[:space:],])?(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -q . \
+# (also a scoped one: Defaults:ALL, Defaults@host, Defaults>user, Defaults!cmd)
+if grep -hsE '^[[:space:]]*Defaults([:@>!][^[:space:]]*)?[[:space:]]+([^#]*[[:space:],])?(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -q . \
    && ! { grep -hsE '^[[:space:]]*Defaults:tdgate[[:space:]][^#]*!log_output' /etc/sudoers /etc/sudoers.d/* | grep -q . \
           && grep -hsE '^[[:space:]]*Defaults:tdgate[[:space:]][^#]*!log_input' /etc/sudoers /etc/sudoers.d/* | grep -q .; }; then
   die "this host logs sudo input/output (log_output/log_input): add Defaults:tdgate !log_output, !log_input for sudo.ws, then run install.sh again"
@@ -191,6 +197,26 @@ else
 fi
 chown tdgate:tdgate $G/gate.json; chmod 600 $G/gate.json
 $O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e "import {parseConfig} from '$O/app/demo-gate/src/config.ts'; import fs from 'node:fs'; parseConfig(JSON.parse(fs.readFileSync('$G/gate.json','utf8')), '$G')" || die "gate.json does not parse"
+# an existing gate.json may hold an older instance command: migrated here (with a backup), and nothing starts unless the
+# whole sandbox is in it (a new gate with the old command would run without it and look healthy)
+# shellcheck disable=SC2016
+$O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e '
+  import fs from "node:fs"
+  import { linuxCommandProblems, migrateLinuxCommand } from "/opt/trina-demo/app/demo-gate/src/linux-command.ts"
+  const f = "/var/demo-gate/gate.json", c = JSON.parse(fs.readFileSync(f, "utf8"))
+  const next = migrateLinuxCommand(c.pool.command)
+  const bad = linuxCommandProblems(next)
+  if (bad.length) { console.error("install: pool.command in gate.json: " + bad.join("; ")); process.exit(1) }
+  if (JSON.stringify(next) !== JSON.stringify(c.pool.command)) {
+    const b = f + ".bak-command-" + new Date().toISOString().replace(/\D/g, "").slice(0, 14)
+    fs.copyFileSync(f, b, fs.constants.COPYFILE_EXCL); fs.chmodSync(b, 0o600)
+    c.pool.command = next
+    const t = f + ".new"; fs.writeFileSync(t, JSON.stringify(c, null, 2) + "\n", { mode: 0o600 }); fs.renameSync(t, f)
+    console.log("install: pool.command migrated (backup " + b + ")")
+  }
+' || die "pool.command does not have the instance sandbox: nothing was started"
+chown tdgate:tdgate $G/gate.json; chmod 600 $G/gate.json; for b in "$G"/gate.json.bak-command-*; do if [ -f "$b" ]; then chown tdgate:tdgate "$b"; fi; done
+$O/node/bin/node --disable-warning=ExperimentalWarning --input-type=module -e "import {parseConfig} from '$O/app/demo-gate/src/config.ts'; import fs from 'node:fs'; parseConfig(JSON.parse(fs.readFileSync('$G/gate.json','utf8')), '$G')" || die "gate.json does not parse after the command check"
 
 # ---- units; this host's CI runner folders hidden from the gate and its instances (a drop-in) ----
 for u in "$HERE"/systemd/*; do install -m 644 "$u" /etc/systemd/system/; done
@@ -229,7 +255,6 @@ runuser -u tdrun -- rm -rf /srv/tdg/i/.unit-check
 say "sudo and the instance sandbox work inside the gate unit's properties"
 
 # ---- the firewall, checked before anything of the demo runs ----
-systemctl stop trina-demo-gate.service trina-demo-tunnel.service 2>/dev/null || true
 systemctl enable --now trina-demo-nft.timer >/dev/null
 $O/bin/tdnft-load
 $O/bin/tdfw-check || die "the firewall checks failed: nothing of the demo was started"
