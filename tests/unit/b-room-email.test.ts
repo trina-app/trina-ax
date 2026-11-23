@@ -251,3 +251,27 @@ test('the seal binds the item id, the address hash and the time: a moved or chan
   // the same key next time (kept sealed in the vault)
   expect(sealKeyOf(h.ctx.db, credentialsOf(h.ctx).vault).sealKey).toBe(sealKey)
 })
+
+test('end to end with the reference mailbox (mailbox/src/dev.ts over loopback HTTP): the address, a mail as a card, a new address refused at SMTP', async () => {
+  const { startDevMailbox } = await import('../../mailbox/src/dev')
+  const box = startDevMailbox({ port: 0, domain: 'mail.localhost' })
+  try {
+    h = await harness('b-room-email-e2e', { publicOrigins: ['https://team.acme-corp.com'] })
+    const owner = await withOwner(h)
+    const all = ((await owner.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')!.id as string
+    const m = mailInOf(h.ctx)
+    m.deps = { env: { MYCEL_MAIL_IN_URL: box.url, MYCEL_MAIL_IN_DOMAIN: 'mail.localhost' }, retryMs: 10, waitMs: 200 }
+    await owner.call('PATCH', '/api/admin/settings', { roomEmail: true })
+    const r = await owner.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', preset: 'email' })
+    await m.sync()
+    const send = async (to: string, raw: string) => (await fetch(`${box.url}/dev/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to, from: 'shop@example.com', raw }) })).json() as Promise<any>
+    expect((await send(r.address, mail({ subject: 'Hello from the gateway' }))).accepted).toBe(true)
+    const cards = async () => ((await owner.call('GET', `/api/rooms/${all}/messages`)).items as any[]).filter((x) => x.appCard)
+    for (let i = 0; i < 300 && (await cards()).length === 0; i++) await settle(10)
+    expect((await cards()).map((x) => x.appCard.title)).toEqual(['Hello from the gateway'])
+    const r2 = await owner.call('POST', `/api/rooms/${all}/apps/${r.app.id}/rotate`)
+    await m.sync()
+    expect(await send(r.address, mail({ subject: 'old' }))).toMatchObject({ accepted: false, smtp: expect.stringContaining('550') })
+    expect((await send(r2.address, mail({ subject: 'new' }))).accepted).toBe(true)
+  } finally { mailInOf(h.ctx).stop(); box.stop() }
+})

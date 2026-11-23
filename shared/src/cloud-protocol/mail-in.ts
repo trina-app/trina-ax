@@ -6,7 +6,7 @@
 //
 // NO imports at all, erasable TypeScript only: the team server, the mailbox and the control plane load this file as it
 // is. The caller does the cryptography itself (node:crypto or WebCrypto): sha256, Ed25519, X25519, HKDF and AES-GCM,
-// exactly as written below; the test vectors are in vectors/mail-in.json.
+// exactly as written below; tests/unit/b-room-email.test.ts and tests/unit/mailbox-*.test.ts check both sides.
 //
 // Who holds what:
 //   - The team server makes each address: 26 random lowercase base32 characters (MAIL_IN_LOCAL_RE) @ the mail domain.

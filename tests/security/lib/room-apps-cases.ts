@@ -148,6 +148,9 @@ export const ROOM_APP_SPECS: Record<string, Spec> = {
       if (extra.status !== 400) throw new Error(`a body with an extra field was taken: ${extra.status}`)
       const person = await w.as[who].req('POST', all(w), { kind: 'other', name: 'ALICE' })
       if (person.status !== 400) throw new Error(`an app took a person's name: ${person.status}`)
+      // email into rooms is off by default (and this server has no mail service): an Email app is refused, 409
+      const email = await w.as[who].req('POST', all(w), { kind: 'other', preset: 'email' })
+      if (email.status !== 409 || !['room_email_off', 'mail_not_connected'].includes(email.json?.error?.params?.reason)) throw new Error(`an Email app was added while email is off: ${email.status}`)
       // remove the probe again (the room holds at most 10)
       await w.as[who].req('DELETE', `${all(w)}/${r.json.app.id}`)
     },
