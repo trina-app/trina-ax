@@ -674,7 +674,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
   // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
   if (sent.create && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
-    && !outsideSeen(ctx.db, b.chatId) && !tc.files.person?.othersWords?.() && !(sharedMode && guestShared(b))) return false
+    && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersWords?.() === false && !(sharedMode && guestShared(b))) return false
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다

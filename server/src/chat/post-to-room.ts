@@ -825,7 +825,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (v === 'send' && !explicit && !byChat && !byAlways && !pendingTo && roomId && exec.mayUseApprovals?.()) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
         // the sources it showed people who could not see them, sent on the card: a later post of them in this chat to a
         // place the person's words name needs no card again (explicit above)
-        if (!explicit && !byChat && !byAlways && pvNow?.counted?.length && !exec.otherAuthors) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'post_sources', target: '', detail: { keys: pvNow.counted.map((c) => c.key), people: [...first.check.audience] } })
+        if (!explicit && !byChat && !byAlways && pvNow?.counted?.length && !exec.otherAuthors && !exec.restricted) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'post_sources', target: '', detail: { keys: pvNow.counted.map((c) => c.key), people: [...first.check.audience] } })
         // the card said who would be able to open which file, and the person said yes on it: now that the post went, the
         // same people get view access to the same files (saved as the server's own let_view offer and run at once, so
         // every check of a tap applies: the person may still share it, only people still in the room who still cannot

@@ -614,17 +614,9 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const own = answer === 'create_write' ? scope.sends : []
       let s: ScheduleRow
       try {
-        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
+        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })), ...(quiet ? { quiet: true } : {}) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
-      // made without its card: its runs send, post and share nothing (schedules.quiet, chat/explicit-send.ts quietRun)
-      if (quiet) {
-        try { ctx.db.query('UPDATE schedules SET quiet = 1 WHERE id = ?').run(s.id) } catch (e) {
-          // not marked: the task goes again, so no unmarked task made without its card is left to run
-          rt.schedules.delete(t.user.id, s.id)
-          throw new ToolError(`the scheduled task could not be saved (${e instanceof Error ? e.message : 'error'}), so it was not created. Tell the user to try again.`)
-        }
-      }
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
