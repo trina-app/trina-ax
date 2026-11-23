@@ -28,7 +28,7 @@ import type { AppContext } from '../context'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import {
   decodeHwpEditResult, encodeHwpEditRequest, isImageChange, type HwpEditExtra, HWP_EDIT_MAX, HWP_EDIT_MODE, HWP_VERIFY_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, hwpEditMismatch,
-  hwpOutputPath, hwpPartsMismatch, hwpxPartsMismatch, hwpxReadLines, encodeVerifyPictures, type HwpChange, type HwpEditReport,
+  hwpOutputPath, hwpPartsMismatch, hwpxPartsMismatch, hwpxReadLines, encodeVerifyPictures, type HwpChange, type HwpEditReport, type HwpImageChange,
 } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
@@ -80,10 +80,12 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   const binary = x === 'hwp'
   const pictures = await picturesOf(ctx, files, c, changes)
   /** one worker run on `doc` of the changes at `which` (their numbers in errors stay the call's) */
-  const edit = async (which: number[], doc: Uint8Array, extra?: HwpEditExtra) => {
-    const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(which.map((i) => changes[i]!), doc, extra), c.signal).catch((e) => {
+  const edit = async (which: number[], doc: Uint8Array, extra?: HwpEditExtra, targets?: number[], list: HwpChange[] = which.map((i) => changes[i]!)) => {
+    // a refusal names the call's change: the changes in `which`, then the pictures whose targets went along
+    const numbers = [...which, ...(targets ?? [])]
+    const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(list, doc, extra, targets?.map((i) => changes[i] as HwpImageChange)), c.signal).catch((e) => {
       if (!(e instanceof ToolError)) throw e
-      throw new ToolError(e.message.replace(/^change (\d+):/, (_m, n: string) => `change ${(which[Number(n) - 1] ?? Number(n) - 1) + 1}:`), e.code)
+      throw new ToolError(e.message.replace(/^change (\d+):/, (_m, n: string) => `change ${(numbers[Number(n) - 1] ?? Number(n) - 1) + 1}:`), e.code)
     })
     try { return decodeHwpEditResult(answer) } catch { throw new ToolError(`the .${x} editor gave a damaged answer; nothing was saved`) }
   }
@@ -96,7 +98,10 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     // added above a label or a fill that wraps moves the label
     const words = changes.flatMap((ch, i) => (isImageChange(ch) ? [] : [i]))
     const seals = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
-    const first = words.length ? await edit(words, bytes) : null
+    // each picture's target is fixed on the document as read and carried through the text and row changes
+    const first = words.length ? await edit(words, bytes, undefined, seals) : null
+    const refs = first?.report.targets
+    if (first && refs?.length !== seals.length) throw new ToolError('the pictures\' places could not be kept through the other changes; nothing was saved')
     const base = first?.file ?? bytes
     if (first) {
       const why = binary ? hwpPartsMismatch(bytes, base) : hwpxPartsMismatch(bytes, base)
@@ -106,20 +111,9 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
         throw new ToolError(`the changed document did not pass the checks again (${e.message.slice(0, 300)}); nothing was saved`)
       }
     }
-    // a fill or added row that changes how many times a numbered label appears would move "occurrence" to another signer
-    if (first) {
-      const count = (lines: string[], t: string) => lines.reduce((n, l) => n + (l.split(t).length - 1), 0)
-      const was = hwpxReadLines(await officeWorkerText(x, bytes, c.signal)), now = hwpxReadLines(await officeWorkerText(x, base, c.signal))
-      for (const i of seals) {
-        const ch = changes[i] as { at?: string; occurrence?: number }
-        if (ch.at === undefined || ch.occurrence === undefined) continue
-        const a = count(was, ch.at), b = count(now, ch.at)
-        if (a > 0 && a !== b) throw new ToolError(`change ${i + 1}: the other changes of this call make ${JSON.stringify(ch.at.slice(0, 40))} appear ${b} times instead of ${a}, so occurrence ${ch.occurrence} may be another signer's; put the picture in a separate call; nothing was saved`)
-      }
-    }
     const layout = await layoutOf(ctx, c, base, x, src.rel)
     placedFrom = layout
-    const second = await edit(seals, base, { layout, images: pictures.images.map((m) => ({ ...m, changes: m.changes.map((i) => seals.indexOf(i)) })) })
+    const second = await edit(seals, base, { layout, images: pictures.images.map((m) => ({ ...m, changes: m.changes.map((i) => seals.indexOf(i)) })) }, undefined, seals.map((i, k) => (refs ? { ...(changes[i] as HwpImageChange), ref: refs[k]! } : changes[i]!)))
     // one report in the call's change numbers
     const w = (n: number) => words[n]!
     r = { file: second.file, report: {

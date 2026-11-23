@@ -4,7 +4,7 @@
 // the reason, and nothing is written. The formats only say how a change that was found goes into their bytes, what an
 // empty cell may hold, and which rows can be copied.
 import { ToolError } from '../policy/errors'
-import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit } from './hwpx-check'
+import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit, type PictureRef } from './hwpx-check'
 import {
   HU_PER_PX, aimOf, labelX, partX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type AimMark, type HwpLayout, type LHit, type LLine, type HwpPictureNote, type ImagePlace,
   type PictureSpot,
@@ -82,6 +82,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   readonly inserts = new Map<number, { change: number; depth: number; paras: { text: string; heading: number }[] }[]>()
   readonly notes: HwpEditNote[] = []
   private rowsAdded = new Set<T>()
+  /** rows this call adds to a table: after which row (1-based) and how many */
+  private rowsAfter = new Map<T, { after: number; count: number }>()
   /** paragraphs of cells a change filled */
   protected filled = new Set<P>()
   /** image changes: the page layout and each one's picture (by change index), set before apply; where each went */
@@ -135,6 +137,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   /** the body height of the pages of the table's section (pageBodyHeight), or null when the section does not say it
    * plainly (no page setup, or more than one) */
   protected abstract pageBody(t: T): number | null
+  /** the table is in a page header or footer: never drawn in the body the layout shows */
+  protected abstract inHeaderOrFooter(t: T): boolean
 
   apply(c: HwpChange, i: number) {
     if (isImageChange(c)) this.placeImage(c, i)
@@ -262,25 +266,11 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     let atLine: LLine | null = null, aimMark: AimMark | undefined
     let p: P, page: number, target: { x: number; y: number; w: number; h: number }, where: string
     if (c.at !== undefined) {
-      const label = c.at
-      const labelHits = this.textHits(label, i)
-      // over: a label that holds a sign mark means that mark (sign-slots.ts); several marks are never guessed
-      const signed = (c.place ?? 'over') === 'over' ? pickSignMark(label, c.occurrence, labelHits.length) : { mark: null, occurrence: c.occurrence }
-      if ('ask' in signed) return refuseChange(i, signed.ask)
-      const mark = signed.mark
-      if (labelHits.length > 1 && signed.occurrence === undefined) {
-        const list = labelHits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + label.length + 20), 70)}`).join('; ')
-        refuseChange(i, `${clip(label)} appears ${labelHits.length} times (${list}${labelHits.length > 5 ? '; …' : ''}). Give occurrence (1-${labelHits.length})`)
-      }
-      const labelK = (signed.occurrence ?? 1) - 1
-      const chosen = labelHits[labelK] ?? refuseChange(i, `${clip(label)} appears ${labelHits.length} time${labelHits.length > 1 ? 's' : ''}, so there is no occurrence ${labelK + 1}`)
-      const bare = bareMarkAsk(label, mark, chosen.p.text, c.occurrence)
-      if (bare) refuseChange(i, bare)
-      // from here the place is the mark itself, so a whole line that wraps on the page still finds it
-      const find = mark ? label.slice(mark.from, mark.to) : label
-      const hits = mark ? this.textHits(find, i) : labelHits
-      const k = mark ? hits.findIndex((x) => x.p === chosen.p && x.at === chosen.at + mark.from) : labelK
-      const h = hits[k] ?? refuseChange(i, `${clip(find)} could not be found in ${clip(label)}; give the text of the mark`)
+      // the place was resolved on the document as read when other changes of this call came first
+      const t = c.ref?.text ? this.placeFromRef(c.ref, i) : this.resolveText(c, i)
+      const { label, mark, find } = t
+      const hits = this.textHits(find, i)
+      const h = hits.find((x) => x.p === t.h.p && x.at === t.h.at) ?? refuseChange(i, `${clip(find)} could not be found at its place; give the text of the mark`)
       const laid = layoutTextHits(layout, find)
       if (laid.length !== hits.length) unmatched(clip(find), hits.length, laid.length)
       // paired by what surrounds it in its own paragraph, never by counting: the renderer's order is not the document's
@@ -300,7 +290,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       p = h.p; page = L.page
       where = `${this.placedWhere(p, pg, line)}, ${c.place ?? 'over'} ${mark ? placedOn(label, mark) : clip(find, 40)}`
     } else {
-      const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
+      const f = c.ref?.cell ? this.cellFromRef(c.ref, c.cell!.next_to, i) : this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
       const cell = f.cell
       const laid = layoutLabelCells(layout, strip(c.cell!.next_to))
       if (laid.length !== f.labels!.length) unmatched(`cells reading ${clip(c.cell!.next_to)}`, f.labels!.length, laid.length)
@@ -392,7 +382,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
    * of those is covered exactly, cell by cell with the same text: for each drawn table ("page:table"), the document's
    * tables it can be. Null when no reading exists or there are too many to go through: nothing is proved then. */
   private tableReadings(layout: HwpLayout, section: number): Map<string, Set<CTable>> | null {
-    const models = (this.tables as CTable[]).filter((t) => t.cells.some((c) => c.paras[0]?.sec === section)).map((t) => ({
+    const models = this.tables.filter((t) => !this.inHeaderOrFooter(t) && t.cells.some((c) => c.paras[0]?.sec === section)).map((t): { t: CTable; cells: Map<string, string> } => ({
       t, cells: new Map(t.cells.map((c) => [`${c.row}:${c.col}`, drawnText(c.paras.map((q) => q.text).join(''))])),
     }))
     const drawn: { key: string; cells: Map<string, string>; can: typeof models }[] = []
@@ -495,6 +485,87 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     return `${t.length === 1 ? `table ${t[0]!.i + 1}` : 'a table'}, row ${c.row + 1}, column ${c.col + 1}`
   }
 
+  // ---- a picture's target, fixed on the document as read
+  /** What a text target means, on this document as it is now: the label, its sign mark, and the exact place of the text
+   * the picture is aimed at. */
+  private resolveText(c: HwpImageChange, i: number) {
+    const label = c.at!
+    const labelHits = this.textHits(label, i)
+    // over: a label that holds a sign mark means that mark (sign-slots.ts); several marks are never guessed
+    const signed = (c.place ?? 'over') === 'over' ? pickSignMark(label, c.occurrence, labelHits.length) : { mark: null, occurrence: c.occurrence }
+    if ('ask' in signed) return refuseChange(i, signed.ask)
+    const mark = signed.mark
+    if (labelHits.length > 1 && signed.occurrence === undefined) {
+      const list = labelHits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + label.length + 20), 70)}`).join('; ')
+      refuseChange(i, `${clip(label)} appears ${labelHits.length} times (${list}${labelHits.length > 5 ? '; …' : ''}). Give occurrence (1-${labelHits.length})`)
+    }
+    const labelK = (signed.occurrence ?? 1) - 1
+    const chosen = labelHits[labelK] ?? refuseChange(i, `${clip(label)} appears ${labelHits.length} time${labelHits.length > 1 ? 's' : ''}, so there is no occurrence ${labelK + 1}`)
+    const bare = bareMarkAsk(label, mark, chosen.p.text, c.occurrence)
+    if (bare) refuseChange(i, bare)
+    // from here the place is the mark itself, so a whole line that wraps on the page still finds it
+    const find = mark ? label.slice(mark.from, mark.to) : label
+    return { label, mark, find, h: { p: chosen.p, at: chosen.at + (mark?.from ?? 0) }, labelAt: chosen.at }
+  }
+
+  /** The targets of a call's pictures on this document as read, before its other changes. */
+  resolveTargets(targets: HwpImageChange[], first: number) {
+    return targets.map((c, k) => {
+      const i = first + k
+      if ((c.at === undefined) === (c.cell === undefined)) refuseChange(i, 'give at (the text the picture goes over or next to) or cell (next to a label cell), one of them')
+      if (c.at !== undefined) return { i, text: this.resolveText(c, i) }
+      const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
+      return { i, cell: { label: f.label!, target: f.cell } }
+    })
+  }
+
+  /** The same targets after this call's text and row changes: the same paragraph or cell, wherever it moved. A target whose
+   * own text another change touches has no place to carry: refused. */
+  carryTargets(pending: ReturnType<ChangeEditor<P, C, T>['resolveTargets']>): PictureRef[] {
+    const fillFirst = 'another change of this call changes that text, so the place cannot be kept; make the other changes first, then put the picture in with a second call'
+    const row = (c: CCell) => { const r = this.rowsAfter.get(c.table as T); return r && c.row >= r.after ? c.row + r.count : c.row }
+    const at = (c: CCell) => ({ table: c.table.i, row: row(c), col: c.col })
+    return pending.map((x) => {
+      if (x.cell) {
+        for (const c of [x.cell.label, x.cell.target]) if (c.paras.some((q) => this.textEdits.has(q as P))) refuseChange(x.i, fillFirst)
+        return { tables: this.tables.length, cell: { label: at(x.cell.label), target: at(x.cell.target) } }
+      }
+      const t = x.text!, p = t.h.p as P
+      const start = t.labelAt, end = t.labelAt + t.label.length
+      const edits = this.textEdits.get(p) ?? []
+      if (edits.some((e) => e.from < end && e.to > start)) refuseChange(x.i, fillFirst)
+      const shift = edits.filter((e) => e.to <= start).reduce((n, e) => n + e.text.length - (e.to - e.from), 0)
+      const cell = p.cell ? { ...at(p.cell), para: p.cell.paras.indexOf(p) } : undefined
+      const top = p.cell ? -1 : this.topIndex(p)
+      if (!p.cell && top < 0) refuseChange(x.i, 'that text is not in the body of the document')
+      return { tables: this.tables.length, text: { sec: p.sec, top, ...(cell ? { cell } : {}), at: t.h.at + shift, find: t.find, label: t.label, mark: t.mark, expected: this.newText(p) } }
+    })
+  }
+
+  /** The carried text target in this document, proved to be the same place: else refused. */
+  private placeFromRef(ref: PictureRef, i: number) {
+    const lost = (): never => refuseChange(i, 'its place could not be kept through the other changes of this call; make them first, then put the picture in with a second call')
+    const r = ref.text!
+    if (ref.tables !== this.tables.length) lost()
+    const p = r.cell
+      ? ((this.tables[r.cell.table]?.cells as C[] | undefined)?.find((x) => x.row === r.cell!.row && x.col === r.cell!.col)?.paras[r.cell.para] as P | undefined)
+      : this.topParagraph(r.sec, r.top) ?? undefined
+    if (!p || p.sec !== r.sec || p.text !== r.expected || p.text.slice(r.at, r.at + r.find.length) !== r.find) return lost()
+    return { label: r.label, mark: r.mark, find: r.find, h: { p, at: r.at }, labelAt: r.at - (r.mark?.from ?? 0) }
+  }
+
+  /** The carried cell target in this document: the label cell, the cells that read like it, and the target. */
+  private cellFromRef(ref: PictureRef, nextTo: string, i: number): { cell: C; label: C; labels: C[] } {
+    const lost = (): never => refuseChange(i, 'its place could not be kept through the other changes of this call; make them first, then put the picture in with a second call')
+    if (ref.tables !== this.tables.length) lost()
+    const get = (a: { table: number; row: number; col: number }) => (this.tables[a.table]?.cells as C[] | undefined)?.find((x) => x.row === a.row && x.col === a.col)
+    const label = get(ref.cell!.label) ?? lost(), cell = get(ref.cell!.target) ?? lost()
+    const want = strip(nextTo)
+    if (strip(label.paras.map((q) => q.text).join('')) !== want) lost()
+    const labels = this.tables.flatMap((t) => t.cells as C[]).filter((x) => strip(x.paras.map((q) => q.text).join('')) === want)
+    return { cell, label, labels }
+  }
+
   /** refuses a fill of p when another change already changes its text */
   protected notChanged(p: P, i: number) {
     const other = this.textEdits.get(p)?.[0]
@@ -522,6 +593,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     this.checkTable(t, i)
     if (this.rowsAdded.has(t)) refuseChange(i, `rows are added to ${T} twice; put all of its new rows in one change`)
     this.rowsAdded.add(t)
+    this.rowsAfter.set(t, { after: a.after_row ?? this.tableRows(t).rows.length, count: a.rows.length })
     const { rows, declared, cols } = this.tableRows(t)
     const R = rows.length
     if (Number(declared) !== R) refuseChange(i, `${T} says it has ${declared} rows but has ${R}`)
@@ -698,6 +770,7 @@ export function asChanges(v: unknown, what: string): HwpChange[] {
     if (!c || typeof c !== 'object') bad()
     if ('image' in c) {
       if (!str(c.image) || !(c.at === undefined || str(c.at)) || !int(c.occurrence) || !mm(c.width_mm) || !mm(c.height_mm)) bad()
+      if (c.ref !== undefined && (!c.ref || typeof c.ref !== 'object' || !Number.isInteger(c.ref.tables) || !(c.ref.text || c.ref.cell))) bad()
       if (c.place !== undefined && !['over', 'after', 'before'].includes(c.place)) bad()
       if (c.layer !== undefined && !['behind', 'front'].includes(c.layer)) bad()
       if (c.cell !== undefined && (!c.cell || typeof c.cell !== 'object' || !str(c.cell.next_to) || (c.cell.direction !== undefined && !['right', 'below'].includes(c.cell.direction)))) bad()

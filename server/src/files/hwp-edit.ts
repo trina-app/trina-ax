@@ -54,7 +54,7 @@ import {
 } from './hwp-changes'
 import {
   applyLineEdits, decodeHwpEditRequest, decodeVerifyInput, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX, hwpxReadLines,
-  type HwpChange, type HwpEditReport,
+  type HwpChange, type HwpEditReport, type HwpImageChange,
 } from './hwpx-check'
 import { badLinkTarget, isProgram, outside, PROGRAM_NAME } from './hwpx-edit'
 import { emptyScript, scriptText } from './hwpx-write'
@@ -581,6 +581,16 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     this.tops ??= this.doc.sections.map((_, si) => this.doc.paras.filter((q) => q.sec === si && q.level === 0))
     return this.tops[section]?.[index] ?? null
   }
+  protected inHeaderOrFooter(t: Table): boolean {
+    const recs = this.doc.sections[t.sec]!.recs
+    let level = recs.level[t.ctrl]!
+    for (let j = t.ctrl - 1; j >= 0 && level > 0; j--) {
+      if (recs.level[j]! >= level) continue
+      level = recs.level[j]!
+      if (recs.tag[j] === TAG.CTRL_HEADER && recs.size[j]! >= 4 && ['head', 'foot'].includes(ctrlId(recs.bytes, recs.data[j]!))) return true
+    }
+    return false
+  }
   protected hasLayoutCache(p: Para): boolean { return p.lines.length > 0 }
   protected topIndex(p: Para): number {
     this.topParagraph(0, 0)
@@ -986,11 +996,11 @@ function openDoc(bytes: Uint8Array): Doc {
 
 /** Changes the text of a .hwp; the new file and what the read-back needs. ToolError for a change or a document it
  * refuses, and then nothing is written. */
-export function editHwp(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput): { file: Uint8Array; report: HwpEditReport } {
+export function editHwp(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput, targets?: HwpImageChange[]): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWP_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWP_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
   // the old document's model lives only inside writeChanges, so it can go before the new file is read back whole
-  const made = writeChanges(bytes, changes, extra)
+  const made = writeChanges(bytes, changes, extra, targets)
   // the new file passes every check again and its text is the old text with the changes, nothing else; and no
   // paragraph's records disagree that agreed before
   const now = openDoc(made.file)
@@ -999,7 +1009,7 @@ export function editHwp(bytes: Uint8Array, changes: HwpChange[], extra?: Picture
   const after = now.read
   const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
   if (diff) readBack(diff)
-  return { file: made.file, report: { lineEdits: made.lineEdits, notes: made.notes, placeholders: placeholdersIn(after), ...(made.pictures.length ? { pictures: made.pictures } : {}) } }
+  return { file: made.file, report: { lineEdits: made.lineEdits, notes: made.notes, placeholders: placeholdersIn(after), ...(made.targets ? { targets: made.targets } : {}), ...(made.pictures.length ? { pictures: made.pictures } : {}) } }
 }
 
 const readBack = (why: string): never => { throw new ToolError(`the changed document did not read back as expected (${why}); nothing was saved`) }
@@ -1008,12 +1018,15 @@ const readBack = (why: string): never => { throw new ToolError(`the changed docu
 const issuesOf = (d: Doc) => [...d.paras.map((p) => paraIssue(p, d.sections[p.sec]!.recs)).filter((x) => x !== null).sort(), '--', ...d.tables.map((t) => t.bad ?? 'whole')].join('\n')
 
 /** The changes applied and the new file written; its container checked against the old one. */
-function writeChanges(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput) {
+function writeChanges(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput, targets?: HwpImageChange[]) {
   const doc = openDoc(bytes)
   const before = doc.lines().lines
   const ed = new Editor(doc)
   if (extra) { ed.layout = extra.layout; ed.images = extra.images }
+  // pictures of this call are resolved here, on the document as read, before its other changes
+  const pending = targets?.length ? ed.resolveTargets(targets, changes.length) : null
   changes.forEach((c, i) => ed.apply(c, i))
+  const carried = pending ? ed.carryTargets(pending) : undefined
   const lineEdits = ed.lineEdits()
   ed.finish()
 
@@ -1075,7 +1088,7 @@ function writeChanges(bytes: Uint8Array, changes: HwpChange[], extra?: PictureIn
     const expanded = doc.compressed ? zlib.inflateRawSync(got, { maxOutputLength: HWP_EDIT_LIMITS.stream }) : got
     if (!Buffer.from(expanded).equals(Buffer.from(raw))) readBack(name)
   }
-  return { file, lineEdits, notes: ed.notes, before, issues: issuesOf(doc), pictures: ed.pictures }
+  return { file, lineEdits, notes: ed.notes, before, issues: issuesOf(doc), pictures: ed.pictures, targets: carried }
 }
 
 /** What the editor sees in a .hwp (tests and checks): each paragraph's text, heading, character shapes (position, id),
@@ -1151,6 +1164,6 @@ function picturesOnly(was: Doc, now: Doc) {
 export function hwpEditRequest(input: Uint8Array): Uint8Array {
   let req: ReturnType<typeof decodeHwpEditRequest>
   try { req = decodeHwpEditRequest(input) } catch { throw new ToolError('the .hwp editor got a damaged request') }
-  const { file, report } = editHwp(req.doc, asChanges(req.changes, '.hwp'), pictureInput(req, '.hwp'))
+  const { file, report } = editHwp(req.doc, asChanges(req.changes, '.hwp'), pictureInput(req, '.hwp'), req.targets === undefined ? undefined : asChanges(req.targets, '.hwp') as HwpImageChange[])
   return encodeHwpEditResult(report, file)
 }

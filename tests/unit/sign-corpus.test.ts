@@ -14,7 +14,7 @@ import { editHwp } from '../../server/src/files/hwp-edit'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
 import { labelX, landings, layoutTextHits, partX, sanitizeImage, type HwpLayout, type HwpPictureNote } from '../../server/src/files/hwp-picture'
 import { editHwpx } from '../../server/src/files/hwpx-edit'
-import type { HwpChange } from '../../server/src/files/hwpx-check'
+import type { HwpChange, HwpImageChange } from '../../server/src/files/hwpx-check'
 import { frame, officeEditRequest, unframe, type EditReport } from '../../server/src/files/office-edit'
 import { bareMarkAsk, pickSignMark, placedOn, SEAL_TOLERANCE_MM, signMarks } from '../../server/src/files/sign-slots'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
@@ -200,6 +200,20 @@ describe('Word: the seal is tied to the mark', () => {
     expect(anchoredOn(docXml(r.file))).toBe('(인)')
     expect(new TextDecoder().decode(readZip(r.file).find((e) => e.name === 'word/header1.xml')!.data)).not.toContain('w:drawing')
   })
+  test('occurrence means the document as read, also when the same call removes or adds marks', () => {
+    const f = wForm(wPara('갑: 김철수 (인)') + wPara('을: 홍길동 (인)') + wPara('끝.'))
+    const xml = docXml(stampWord(f, [{ find: '갑: 김철수 (인)', replace: '갑: 김철수' }, { find: '끝.', replace: '병: 박영희 (인)' }, pic('(인)', { occurrence: 2 })]).file)
+    expect(xml.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '@').replace(/<\/w:p>/g, '|').replace(/<[^>]+>/g, '')).toBe('갑: 김철수|을: 홍길동 @(인)|병: 박영희 (인)|')
+    expect(() => stampWord(f, [{ find: '갑: 김철수 (인)', replace: '갑: 김철수' }, pic('(인)', { occurrence: 1 })])).toThrow('touch the same text')
+  })
+  test('next_to: a label the same call changes is refused, and added rows do not move the picture', () => {
+    const cell = (t: string) => `<w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr>${wPara(t)}</w:tc>`
+    const f = wForm(`<w:tbl><w:tblPr><w:tblW w:w="6000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr>${cell('메모')}${cell('값')}</w:tr><w:tr>${cell('서명')}${cell(' ')}</w:tr></w:tbl>` + wPara('끝'))
+    expect(() => stampWord(f, [{ find: '서명', replace: '날인' }, { insert_picture: { image: 0, next_to: '서명', height_mm: 10 } }])).toThrow('touch the same text')
+    const xml = docXml(stampWord(f, [{ add_rows: { table: 1, after_row: 1, rows: [['서명 추가', '']] } }, { insert_picture: { image: 0, next_to: '서명', height_mm: 10 } }]).file)
+    const rows = xml.split('<w:tr>').slice(1)
+    expect(rows.findIndex((r) => r.includes('<wp:inline'))).toBe(rows.findIndex((r) => />서명</.test(r)))
+  })
   test('a hidden mark is refused; no mark: centred on the label as before', () => {
     const hidden = '<w:p><w:r><w:t xml:space="preserve">이름 </w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>(인)</w:t></w:r></w:p>'
     expect(() => stampWord(wForm(hidden), [pic('(인)')])).toThrow('hidden')
@@ -354,6 +368,96 @@ describe('Hangul: seal on the true target or refused, never on another', () => {
   }, 120_000)
 })
 
+describe('Hangul: same-call edits that add, remove and move marks never move a seal', () => {
+  const clean = sanitizeImage(SEAL, 'seal.png')
+  const rng = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+  type Item = { kind: 'line'; text: string } | { kind: 'table'; rows: string[][] }
+  const SEAL_TEXT = '홍길동 (인)'
+  const generate = (r: () => number): Item[] => {
+    const items: Item[] = []
+    for (let n = 0, m = 4 + Math.floor(r() * 4); n < m; n++) {
+      if (r() < 0.4) items.push({ kind: 'table', rows: Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => [`칸${n}-${k}`, r() < 0.6 ? SEAL_TEXT : `값${n}-${k}`]) })
+      else items.push({ kind: 'line', text: `줄${n} ${r() < 0.6 ? SEAL_TEXT : '내용'}` })
+    }
+    items.push({ kind: 'line', text: '끝줄' })
+    return items
+  }
+  const build = (ext: 'hwp' | 'hwpx', items: Item[]) => {
+    const spec = (rows: string[][]) => rows.map(([a, b]) => [{ text: a, width: 8000 }, { text: b, width: 30000 }])
+    if (ext === 'hwpx') return hwpxDoc([items.map((x, i) => (x.kind === 'line' ? hwpxPara(x.text, { cache: true, vert: i * 1000 }) : hwpxTable(spec(x.rows), { cache: true }))).join('')])
+    return hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]]), ...items.map((x, i) => (x.kind === 'line' ? hwpPara(x.text, { last: i === items.length - 1 }) : hwpTable(spec(x.rows))))])])
+  }
+  /** the items in their order on one page, and where each text is drawn */
+  const draw = (items: Item[]) => {
+    const pg: HwpLayout['pages'][number] = { w: 793.7, h: 2000, section: 0, continued: [], tables: [], cells: [], starts: [], lines: [] }
+    const at = new Map<string, number>()
+    let y = 120, id = 0
+    items.forEach((x, i) => {
+      const para = i + 1
+      if (x.kind === 'line') {
+        pg.lines.push({ x: 113.4, y, w: 566.9, h: 13.3, text: x.text, runs: [{ x: 113.4, w: x.text.length * 13.3, text: x.text }], para: `0:${para}`, cell: -1 })
+        pg.starts.push({ para, table: false, preview: '' })
+        at.set(`${i}:line`, y); y += 40
+        return
+      }
+      id++
+      pg.tables.push({ x: 113, y, w: 500, h: x.rows.length * 40 })
+      pg.starts.push({ para, table: true, preview: '' })
+      x.rows.forEach((row, n) => { row.forEach((text, col) => {
+        const cell = pg.cells.push({ table: id, row: n, col, x: 113 + col * 100, y: y + n * 40, w: col ? 400 : 100, h: 40 }) - 1
+        pg.lines.push({ x: 120 + col * 100, y: y + n * 40 + 3, w: 380, h: 13.3, text, runs: [{ x: 120 + col * 100, w: text.length * 13.3, text }], para: `${id * 100 + cell}:0`, cell })
+        at.set(`${i}:${n}:${col}`, y + n * 40 + 3)
+      }) })
+      y += x.rows.length * 40 + 8
+    })
+    return { layout: { pages: [pg] } as HwpLayout, at }
+  }
+  for (const ext of ['hwp', 'hwpx'] as const) test(`.${ext}: 300 documents with fills and added rows in the same call`, () => {
+    const run = (d: Uint8Array, c: HwpChange[], x?: { layout: HwpLayout; images: Map<number, typeof clean> }, t?: HwpImageChange[]) => (ext === 'hwp' ? editHwp(d, c, x, t) : editHwpx(d, c, x, t))
+    let placed = 0, refused = 0
+    for (let seed = 1; seed <= 300; seed++) {
+      const r = rng(seed), items = generate(r), doc = build(ext, items)
+      const where = items.flatMap((x, i) => (x.kind === 'line' ? (x.text.includes(SEAL_TEXT) ? [`${i}:line`] : []) : x.rows.flatMap((row, n) => (row[1] === SEAL_TEXT ? [`${i}:${n}:1`] : []))))
+      if (!where.length) continue
+      const after: Item[] = items.map((x) => (x.kind === 'line' ? { ...x } : { kind: 'table', rows: x.rows.map((q) => [...q]) }))
+      const words: HwpChange[] = []
+      const shift = new Map<number, { after: number; n: number }>()
+      const edited = new Set<number>()
+      items.forEach((x, i) => {
+        if (x.kind === 'line' && r() < 0.35) {
+          const text = x.text.includes(SEAL_TEXT) ? x.text.replace(SEAL_TEXT, '지움') : `${x.text} ${SEAL_TEXT}`
+          words.push({ find: x.text, replace: text }); (after[i] as { text: string }).text = text; edited.add(i)
+        } else if (x.kind === 'table' && r() < 0.5) {
+          const tableNo = items.slice(0, i + 1).filter((q) => q.kind === 'table').length
+          const a = 1 + Math.floor(r() * x.rows.length)
+          words.push({ add_rows: { table: tableNo, after_row: a, rows: [[`새칸${i}`, SEAL_TEXT]] } })
+          ;(after[i] as { rows: string[][] }).rows.splice(a, 0, [`새칸${i}`, SEAL_TEXT])
+          shift.set(i, { after: a, n: 1 })
+        }
+      })
+      if (!words.length) continue
+      const k = 1 + Math.floor(r() * where.length)
+      const ch = { image: 'seal.png', at: SEAL_TEXT, occurrence: k } as HwpImageChange
+      const target = where[k - 1]!
+      const [ti, tr] = target.split(':')
+      let got: HwpPictureNote, truthY: number
+      try {
+        const first = run(doc, words, undefined, [ch])
+        const { layout, at } = draw(after)
+        const s = shift.get(Number(ti))
+        const key = tr === 'line' ? target : `${ti}:${s && Number(tr) >= s.after ? Number(tr) + s.n : tr}:1`
+        truthY = at.get(key)!
+        got = run(first.file, [{ ...ch, ref: first.report.targets![0]! }], { layout, images: new Map([[0, clean]]) }).report.pictures![0]!
+      } catch { refused++; continue }
+      placed++
+      // a line the same call rewrote holds the seal only if its target text survived: it never does here
+      expect([`seed ${seed}`, tr === 'line' && edited.has(Number(ti))]).toEqual([`seed ${seed}`, false])
+      expect([`seed ${seed}`, Math.abs(got.yMm + got.heightMm / 2 - (truthY + 13.3 / 2) * MM_PER_PX) <= SEAL_TOLERANCE_MM]).toEqual([`seed ${seed}`, true])
+    }
+    expect(placed).toBeGreaterThan(30)
+  }, 120_000)
+})
+
 // ---------------------------------------------------------------- Hangul
 // The renderer's order and line boxes, set by hand: what real files show only with a floating table or tight line spacing.
 describe('Hangul: the mark is paired by its own paragraph, not by counting', () => {
@@ -433,6 +537,14 @@ describe('Hangul: the mark is paired by its own paragraph, not by counting', () 
       const rest = { ...one, tables: [one.tables[1]!], cells: one.cells.slice(4).map((c) => ({ ...c, table: 1, row: c.row })), lines: one.lines.slice(4).map((l) => ({ ...l, cell: l.cell - 4 })), starts: [] }
       expect(() => edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout: { pages: [first, rest] }, images: new Map([[0, clean()]]) })).toThrow('its own line')
     })
+    if (ext === 'hwpx') test('.hwpx: a table in the page header is never drawn in the body, so it does not block the proof', () => {
+      const row = [{ text: '성명', width: 8000 }, { text: '홍길동 (인)', width: 30000 }], note = [{ text: '비고', width: 8000 }, { text: '메모', width: 30000 }]
+      const inHeader = hwpxTable([[{ text: '머리표', width: 8000 }]], { cache: true, id: 1500000009 })
+      const head = hwpxPara([], { cache: true, vert: 0, raw: `<hp:run charPrIDRef="0"><hp:ctrl><hp:header id="1" applyPageType="BOTH"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${inHeader}</hp:subList></hp:header></hp:ctrl></hp:run>` })
+      const d = hwpxDoc([head + hwpxTable([row, note], { cache: true }) + hwpxPara('중간', { cache: true, vert: 6000 }) + hwpxTable([row], { cache: true }) + hwpxPara('끝', { cache: true, vert: 9000 })])
+      const r = editHwpx(d, [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 2 }], { layout: drawnTwo(), images: new Map([[0, clean()]]) })
+      expect(Math.abs(centre(r) - (302 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
     test(`.${ext}: two equal tables cannot be told apart: refused`, () => {
       const row = [{ text: '성명', width: 8000 }, { text: '홍길동 (인)', width: 30000 }]
       const same = ext === 'hwpx'
@@ -491,11 +603,13 @@ else describe('Hangul: the drawn seal is on the mark', () => {
   }
   const edit = (ext: Ext, doc: Uint8Array, ch: HwpChange[], extra?: { layout: HwpLayout; images: Map<number, ReturnType<typeof clean>> }) => (ext === 'hwp' ? editHwp(doc, ch, extra) : editHwpx(doc, ch, extra))
   /** the real order of edit_hwp: text first, then the layout, the picture, and the layout of the result */
-  const stamp = async (ext: Ext, doc: Uint8Array, at: string, more: { occurrence?: number; fill?: HwpChange } = {}) => {
-    const base = more.fill ? edit(ext, doc, [more.fill]).file : doc
-    const before = await engine.layout(Buffer.from(base), ext)
+  const stamp = async (ext: Ext, doc: Uint8Array, at: string, more: { occurrence?: number; fill?: HwpChange; fills?: HwpChange[] } = {}) => {
     const ch: HwpChange = { image: 'seal.png', at, ...(more.occurrence ? { occurrence: more.occurrence } : {}) }
-    const r = edit(ext, base, [ch], { layout: before, images: new Map([[0, clean()]]) })
+    const words = more.fills ?? (more.fill ? [more.fill] : [])
+    const first = words.length ? (ext === 'hwp' ? editHwp(doc, words, undefined, [ch as HwpImageChange]) : editHwpx(doc, words, undefined, [ch as HwpImageChange])) : null
+    const base = first?.file ?? doc
+    const before = await engine.layout(Buffer.from(base), ext)
+    const r = edit(ext, base, [first ? { ...ch, ref: first.report.targets![0]! } as HwpChange : ch], { layout: before, images: new Map([[0, clean()]]) })
     const after = await engine.layout(Buffer.from(r.file), ext)
     return { before, after, note: r.report.pictures![0]! as HwpPictureNote }
   }
@@ -561,9 +675,47 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       const r = await stamp(ext, docOf(ext, '신청인: 김가나', '박다라 (인)'), '박다라 (인)')
       onMark(r, '(인)', layoutTextHits(r.before, '(인)').findIndex((h) => r.before.pages[h.page]!.lines[h.line]!.text.includes('박다라')))
     })
-    test('after a fill', async () => {
-      const r = await stamp(ext, docOf(ext, '신청인: {{이름}} (인)'), '신청인: 홍길동입니다 (인)', { fill: { find: '{{이름}}', replace: '홍길동입니다' } })
+    test('after a fill in the same paragraph: on the mark; a label the fill changes is refused', async () => {
+      const r = await stamp(ext, docOf(ext, '신청인: {{이름}} (인)'), '(인)', { fill: { find: '{{이름}}', replace: '홍길동입니다' } })
       onMark(r, '(인)', 0)
+      await expect(stamp(ext, docOf(ext, '신청인: {{이름}} (인)'), '신청인: {{이름}} (인)', { fill: { find: '{{이름}}', replace: '홍길동입니다' } })).rejects.toThrow('second call')
+      await expect(stamp(ext, docOf(ext, '신청인: {{이름}} (인)'), '신청인: 홍길동입니다 (인)', { fill: { find: '{{이름}}', replace: '홍길동입니다' } })).rejects.toThrow('not in the document')
+    })
+    test('occurrence means the document as read: a fill that removes one mark and adds another does not move the seal', async () => {
+      const doc = docOf(ext, '갑: 김철수 (인)   을: 홍길동 (인)')
+      const r = await stamp(ext, doc, '(인)', { occurrence: 2, fills: [{ find: '갑: 김철수 (인)', replace: '갑: 김철수' }, { find: '끝.', replace: '병: 박영희 (인)' }] })
+      const line = r.before.pages[r.note.page - 1]!.lines.find((l) => l.text.includes('을: 홍길동'))!
+      expect(Math.abs(r.note.yMm + r.note.heightMm / 2 - (line.y + line.h / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      const hit = layoutTextHits(r.before, '을: 홍길동 (인)')[0]!
+      const [a, b] = labelX(line, hit.at + [...'을: 홍길동 '].length, 3)
+      expect(Math.abs(r.note.xMm + r.note.widthMm / 2 - ((a + b) / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
+    test('a removed mark and a new table row with a mark do not move the seal either', async () => {
+      const doc = docOf(ext, '갑: 김철수 (인)   을: 홍길동 (인)')
+      const r = await stamp(ext, doc, '(인)', { occurrence: 2, fills: [{ find: '갑: 김철수 (인)', replace: '갑: 김철수' }, { add_rows: { table: 1, after_row: 1, rows: [['추가', '(인)']] } }] })
+      const line = r.before.pages[r.note.page - 1]!.lines.find((l) => l.text.includes('을: 홍길동'))!
+      expect(Math.abs(r.note.yMm + r.note.heightMm / 2 - (line.y + line.h / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
+    test('a label cell keeps its place when the same call adds a row with the same label above it', async () => {
+      const form = new Uint8Array(fs.readFileSync(path.join(FIX, `sign-form.${ext}`)))
+      const ch = { image: 'seal.png', cell: { next_to: '서명' } } as HwpImageChange
+      const words: HwpChange[] = [{ add_rows: { table: 1, after_row: 1, rows: [['서명', '다른 사람']] } }]
+      const first = ext === 'hwp' ? editHwp(form, words, undefined, [ch]) : editHwpx(form, words, undefined, [ch])
+      expect(first.report.targets![0]!.cell!.label.row).toBe(2)
+      const layout = await engine.layout(Buffer.from(first.file), ext)
+      const r = edit(ext, first.file, [{ ...ch, ref: first.report.targets![0]! }], { layout, images: new Map([[0, clean()]]) })
+      const c = layout.pages[0]!.cells.find((x) => x.row === 2 && x.col === 1)!
+      expect(Math.abs(r.report.pictures![0]!.yMm + r.report.pictures![0]!.heightMm / 2 - (c.y + c.h / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(r.report.pictures![0]!.where).toContain('row 3, column 2')
+    })
+    test('a label cell or its target that the same call changes is refused', () => {
+      const form = new Uint8Array(fs.readFileSync(path.join(FIX, `sign-form.${ext}`)))
+      const ch = { image: 'seal.png', cell: { next_to: '서명' } } as HwpImageChange
+      for (const w of [{ find: '서명', replace: '날인' }, { cell: { next_to: '서명' }, value: '홍길동' }] as HwpChange[]) expect(() => (ext === 'hwp' ? editHwp(form, [w], undefined, [ch]) : editHwpx(form, [w], undefined, [ch]))).toThrow('second call')
+    })
+    test('a target whose mark the same call removes is refused', async () => {
+      const doc = docOf(ext, '갑: 김철수 (인)   을: 홍길동 (인)')
+      await expect(stamp(ext, doc, '(인)', { occurrence: 1, fills: [{ find: '갑: 김철수 (인)', replace: '갑: 김철수' }] })).rejects.toThrow('second call')
     })
     test('on a later page', async () => {
       const r = await stamp(ext, paged(ext), '신청인: 김가나 (인)')

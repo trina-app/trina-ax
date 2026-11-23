@@ -19,6 +19,10 @@
   drawn parts) must put the target in the same place. Nothing is chosen by counting or by dropping what does not fit.
   Equal tables, whole or split, are refused; a split table with no twin is placed. The result names a table only from
   the line the picture was placed on. A generated test (`sign-corpus`) asserts: on the true target or refused.
+- **Fill and stamp in one call:** the target is resolved on the document as read, before the call's other changes, and that
+  exact paragraph or cell is carried through them (offsets, added rows), so `occurrence` cannot shift to another signer. A
+  target whose own text the call changes is refused: fill first, then stamp in a second call. This replaces the rule above
+  in the older decision that labels are looked for in the filled text.
 - **No slot ids, no read note, no choice by a person's name.** Ids shift with fills and added rows, a note misses chat files
   and guests, and a name could put a seal on someone else's mark with no human check (independent plan review).
 - **What is checked, per format:**

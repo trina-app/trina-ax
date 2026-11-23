@@ -459,6 +459,8 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       const ps = slice(xml, p)
       if (TRACKED.test(ps)) refuse(`${where}: the cell right of ${q} holds a tracked change; accept or reject it in Word first`)
       const d = picture(i, x)
+      // the label names the place: a change of its text in this call is refused below, like a label of over or after
+      Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at, to: hit.at + label.length })
       // an inline picture wider than the cell's set width would be cut off: made smaller to fit, keeping its shape
       const tcW = tcPr ? kid(tcPr, 'w:tcW') : null
       const room = tcW && (attrOf(tcW.head, 'w:type') ?? 'dxa') === 'dxa' ? (Number(attrOf(tcW.head, 'w:w')) - 2 * 115) * 635 : NaN
