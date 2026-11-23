@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 06:59
 - Branch: `fix/thread-follow-root-mention`
-- Status: in progress
+- Status: done
 - Where: server/src/rooms (Team AX core). Why: who follows a room thread is decided in rooms/service.ts follow().
 - Version impact: patch (a bug fix: who follows a thread; no new setting, no migration)
 
@@ -48,4 +48,7 @@ thread (they never saw them). No migration, no i18n.
 
 ## Result
 
-(filled in at the end)
+Built as planned: follow() adds the root's mentioned people at root.seq. The Inbox (rooms/inbox.ts LISTED_SQL lists a
+followed thread's reply) shows the replies without a change there. Not changed: `roomThreadReplies` defaults to off on
+purpose (decision of 2026-11-22, migration 437, the web switch reads a missing value as off); every other field of
+preferencesOf matches its column default. Tests: tests/unit/b-rooms-thread-root-mention.test.ts (4).
