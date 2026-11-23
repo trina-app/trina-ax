@@ -785,7 +785,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const cut = foldTeam ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
   const folded = cut.some((f, i) => f !== shown.fields[i]) || base !== shown.fields
   const hide = plain && !teamCall
-  const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}) }]
+  const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}), ...(sent.runs ? {} : { callJson: true as const }) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
