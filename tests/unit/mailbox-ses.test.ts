@@ -33,7 +33,8 @@ function fakeDynamo(pageSize = 3) {
   const id = (k: any) => `${k.pk.S}\u0000${k.sk.S}`
   let biggest = 0
   const aws: Aws = {
-    async json(service, target, b) {
+    async json(service, target, body) {
+      const b = body as any
       expect(service).toBe('dynamodb')
       switch (target) {
         case 'GetItem': return rows.has(id(b.Key)) ? { Item: rows.get(id(b.Key))!.item } : {}
@@ -94,7 +95,7 @@ test('DynamoKv: partitions, expiry, get/put/delete, list in key order across pag
   const d = fakeDynamo(2)
   const kv = new DynamoKv(d.aws, 'tbl', () => 0)
   await kv.put('c:b', 2); await kv.put('c:a', 1); await kv.put('c:c', 3); await kv.put('n:x', 5000)
-  expect(await kv.get('c:a')).toBe(1)
+  expect(await kv.get<number>('c:a')).toBe(1)
   expect(await kv.get('c:zz')).toBeUndefined()
   expect([...(await kv.list({ prefix: 'c:' })).entries()]).toEqual([['c:a', 1], ['c:b', 2], ['c:c', 3]])
   expect(await kv.delete('c:b')).toBe(true)
