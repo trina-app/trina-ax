@@ -514,8 +514,10 @@ const TIME_CUE = new RegExp(['\\d', '\uC544\uCE68', '\uC800\uB141', '\uC624\uC80
 
 export function askedInOwnWords(ctx: AppContext, turnId: string | null | undefined, userId: string, person: TurnPerson, task: { prompt: string; title: string }, o: { sends: boolean; urls: readonly string[]; longQuery: number; sharedChat: ChatRow | null }): boolean {
   if (!turnId || person.unattended || !person.allSitesHere?.() || person.roomsSeen) return false
-  // only in the person's own chat (a shared chat's runs post there, for its people), never for a task that says to send
-  if (o.sends || o.longQuery || o.sharedChat || SENDS_IN_TASK.test(`${task.title}\n${task.prompt}`)) return false
+  // never for a task that says to send. In a shared chat its runs post their result there, to the people who are in it
+  // already and asked with the person (the owner, 2026-11-23: only a send to others outside asks); its runs still send,
+  // post and share nothing anywhere else (quiet), and a guest among the people keeps the card (below)
+  if (o.sends || o.longQuery || SENDS_IN_TASK.test(`${task.title}\n${task.prompt}`)) return false
   const m = ctx.db.query('SELECT m.content, m.auto_sent, t.chat_id FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null; chat_id: string } | null
   const said = ownWords(m?.content ?? '')
   // (a repeat word, or "tomorrow" with a time: a bare "tomorrow" in a message is no schedule)

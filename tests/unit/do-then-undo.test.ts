@@ -249,14 +249,16 @@ describe('a quiet task never sends (security review)', () => {
       expect((await messagesAs('erin', rooms.marketing)).length).toBe(before)
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_to_room') }
   })
-  test('a schedule asked for in a shared chat keeps its card', async () => {
+  test('a schedule asked for in a shared chat (no guest) is made too; its runs post only there', async () => {
     const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
     const hello = await turn('alice', 'hello', { chat: chatId })
     expect(hello.card).toBeNull()
     let sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }] } }) as { status?: string; confirmKey?: string }
     if (sh.status === 'confirm') sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }], confirmKey: sh.confirmKey! } }) as never
-    const r = await turn('alice', `매일 아침 9시에 정리해줘\n${create({ title: 'Shared one', prompt: 'summarize this chat' })}`, { chat: chatId, answer: 'deny' })
-    expect(r.card).not.toBeNull()
+    const r = await turn('alice', `매일 아침 9시에 정리해줘\n${create({ title: 'Shared one', prompt: 'summarize this chat' })}`, { chat: chatId })
+    expect(r.card).toBeNull()
+    const id = r.steps.find((x) => x.tool === 'schedule_create')!.scheduled!.id
+    expect((h.ctx.db.query('SELECT quiet, chat_id FROM schedules WHERE id = ?').get(id) as { quiet: number; chat_id: string })).toEqual({ quiet: 1, chat_id: chatId })
   })
 })
 

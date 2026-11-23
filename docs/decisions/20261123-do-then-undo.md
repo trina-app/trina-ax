@@ -42,7 +42,7 @@
   allowed on a card, also their schedule's) opens without the card. Private addresses stay refused after the lookup.
 - **Rule: schedules.** A task the person asked for in their own words (when it runs, or the word schedule) that sends
   nowhere (no connection, no pinned recipient, no save folder), with only addresses they typed and no random-looking
-  part, in a turn they watch, in their own chat (not shared), after no room read, whose words do not say to send, post or
+  part, in a turn they watch (also in a shared chat with no guest, whose runs post only there), after no room read, whose words do not say to send, post or
   share, is made without its card ("tomorrow" needs a time). Its runs send, post and share nothing whatever the
   person's Always says (`schedules.quiet`, migration 446). Its step shows the next run with Pause and Delete. Anything
   else keeps the card.
