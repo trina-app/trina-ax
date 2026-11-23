@@ -736,6 +736,39 @@ describe('engine sessions', () => {
     expect((await ask('alice', chat.id, fake({ echo: 'resume' }))).done.content).toBe('resumed=true')
   })
 
+  test("another person's answers come with their steps: what alice's AI made and where, never her private read; carol goes on with the file", async () => {
+    const recs = (t: string) => [...t.matchAll(/<steps_record>\n([\s\S]*?)\n<\/steps_record>/g)].map((m) => m[1]).join('\n')
+    const chat = await newShared()
+    const file = 'projects/falcon/QUOTE-견적서.md'
+    await ask('alice', chat.id, 'make the quote\n' + fake({ tool: 'write', args: { file_path: file, content: '# Quote\nTotal: 100\n' } }, { say: 'Made the quote.' }))
+    // her own folder after the card's yes: bob may not open it
+    await askWithCard('alice', chat.id, 'check my note\n' + fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Checked your note.' }), 'share')
+    // bob's first turn in the chat (a fresh session): alice's steps, the file and its folder, under her answer
+    const bob = await ask('bob', chat.id, 'which file?\n' + fake({ echo: 'system' }))
+    const r = recs(bob.done.content)
+    expect(r).toContain(`file_path="${file}"`)
+    expect(r).toContain('write')
+    // never her private read: not the path, not what it held
+    expect(r).not.toContain('users/alice')
+    expect(bob.done.content).not.toContain('Draft Q4 campaign report')
+    // bob's own session goes on; what alice does next comes in the since block with its steps
+    const file2 = 'projects/falcon/QUOTE-2.md'
+    await ask('alice', chat.id, 'one more\n' + fake({ tool: 'write', args: { file_path: file2, content: 'Total: 7\n' } }, { say: 'Made another.' }))
+    const since = await ask('bob', chat.id, fake({ echo: 'message' }))
+    expect(since.done.content).toContain('<since_your_last_answer>')
+    expect(recs(since.done.content)).toContain(`file_path="${file2}"`)
+    // carol (a member who may write) goes on with alice's file by the path the record gave
+    await asMember('carol', 'write', async () => {
+      ws.carol ??= await h.ws('carol')
+      const c = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'change the total\n' + fake({ tool: 'read', args: { file_path: file } }, { tool: 'edit', args: { file_path: file, old_string: 'Total: 100', new_string: 'Total: 250' } }, { say: 'Changed.' }), clientMessageId: cm(), attachmentIds: [] } })
+      const card = await ws.carol!.next('turn.request', (f) => f.data.turnId === c.turnId, 15_000)
+      // (the chat read alice's own folder: saving into the project asks first, as before)
+      await h.api('carol').call(API.answerTurn, { params: { id: c.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } })
+      await ws.carol!.next('message.done', (f) => f.data.messageId === c.assistantMessage.id, 30_000)
+    })
+    expect(fs.readFileSync(path.join(h.team, ...file.split('/')), 'utf8')).toContain('Total: 250')
+  })
+
   test("a resumed session's answer carries what the session holds: a connected service's result (k) stays hidden from people who join later", async () => {
     const chat = await newShared()
     const first = await ask('alice', chat.id, fake({ say: 'used a service' }))

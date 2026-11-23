@@ -190,10 +190,11 @@ describe('a fresh session gets its own earlier steps', () => {
     const ra = await ask('alice', chat.id, 'what did you do?\n' + fake({ echo: 'system' }))
     // (their messages hold the words too: the record's own line is what counts)
     expect(records(ra.done.content)).toContain('args: pattern="ALICEPATTERN*" path="projects/falcon"')
-    expect(records(ra.done.content)).not.toContain('BOBPATTERN')
+    // and bob's answers' steps too (docs/decisions/20261123-shared-chat-others-steps.md): a folder both may list
+    expect(records(ra.done.content)).toContain('args: pattern="BOBPATTERN*" path="projects/falcon"')
     const rb = await ask('bob', chat.id, 'what did you do?\n' + fake({ echo: 'system' }))
     expect(records(rb.done.content)).toContain('args: pattern="BOBPATTERN*" path="projects/falcon"')
-    expect(records(rb.done.content)).not.toContain('ALICEPATTERN')
+    expect(records(rb.done.content)).toContain('ALICEPATTERN')
     // an answer hidden from the asker gets no record, even their own; another person's never
     const items: RecordItem[] = [{ id: a.started.userMessage!.id, role: 'user', content: 'look around' }, { id: a.done.id, role: 'assistant', content: 'Looked.' }]
     const view = { asker: 'alice', several: true, canList: () => true }
