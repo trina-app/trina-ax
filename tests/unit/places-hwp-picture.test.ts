@@ -131,7 +131,7 @@ describe('the seal is a file of the chat', () => {
     const changes = [{ image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }, ...team.map((image) => ({ image, at: '(인)' }))]
     const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes }, sayResult: true }), { no: /did not upload this picture/ }))
     const card = r.cards.find((c) => /did not upload this picture/.test(c.question ?? ''))!
-    expect(card.question).toContain("'seal.png'")
+    expect(card.question).not.toContain("'seal.png'") // the person's own upload needs no asking
     for (const t of team) expect(card.question).toContain(t)
     expect(versions(doc.id)).toBe(1)
   })
