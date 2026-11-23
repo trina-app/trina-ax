@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient, CSRF_HEADER, DEMO_GATE_KEY_HEADER } from '../../shared/src/api'
-import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, SNAPSHOT_MODEL, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
+import { buildSnapshot, gateLikeConfig, gitHead, hygieneProblems, SIGN_IN_TABLES, SNAPSHOT_MODEL, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
 import { LEAK_PROMPTS, PUBLIC_PAGES, askLeakPrompts, maskAllowed, readSealed, scan, scanPublicPages, sealedIn } from '../../scripts/demo/free-roam/canary'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { HIGGSFIELD_PICTURE, steepling } from '../../scripts/demo/steepling/make'
@@ -162,6 +162,17 @@ describe('the snapshot of Steepling (en)', () => {
       expect(fs.existsSync(path.join(clone, 'data', 'app.db'))).toBe(true)
     } finally { await inst.stop() }
   }, 120_000)
+
+  test('a snapshot names its commit: from .git-head in a git archive tree, nothing from a malformed one', () => {
+    const tree = path.join(tmp, 'archive-tree')
+    fs.mkdirSync(tree, { recursive: true })
+    const sha = 'a1b2c3d4'.repeat(5)
+    fs.writeFileSync(path.join(tree, '.git-head'), sha + '\n')
+    expect(gitHead(tree)).toBe(sha)
+    fs.writeFileSync(path.join(tree, '.git-head'), 'not-a-commit\n')
+    const fallback = gitHead(tree) // the temp folder is in no repository
+    expect(fallback).toBeNull()
+  })
 
   test('the canary: a sealed string planted in a copy is found, the snapshot has none of a made-up account', () => {
     const sealed = path.join(tmp, 'sealed.txt')

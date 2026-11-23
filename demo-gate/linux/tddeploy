@@ -60,30 +60,47 @@ units_off() {
 }
 # this commit ran through every check (install.sh may keep it as the next rollback copy)
 proved() { install -d -o root -g root -m 700 "$RB"; printf '%s\n' "$1" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"; }
-# The gate uses only snapshots of its own code version, and its sweeper removes older ones after an hour, so a version
-# change (either way) needs them built before the gate starts. In the snapshot unit's sandbox: no network but loopback.
-missing_snapshots() { python3 -I -c 'import glob,json,sys
+# The gate uses the newest snapshot of its own code version, and its sweeper leaves other versions alone (the old gate's
+# removes those older than the one it uses, an hour after they were made), so a version change needs them built before
+# the gate starts. missing_snapshots [VERSION] [COMMIT]: the languages without one; with COMMIT, also those whose newest
+# snapshot of that version is from another commit (one version can be built from many commits).
+missing_snapshots() { python3 -I -c 'import datetime,glob,json,os,sys
 p=json.load(open("/var/demo-gate/gate.json"))["pool"]
-if len(sys.argv) > 1: p["codeVersion"] = sys.argv[1]
+ver=sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else p["codeVersion"]
+commit=sys.argv[2] if len(sys.argv) > 2 else ""
 def has(l):
+    found=[]
     for f in glob.glob("/srv/tdg/.snapshots/%s/*/manifest.json" % l):
         try:
-            if json.load(open(f)).get("codeVersion") == p["codeVersion"]: return True
+            m=json.load(open(f))
+            if m.get("codeVersion")!=ver: continue
+            at=datetime.datetime.fromisoformat(m["createdAt"].replace("Z","+00:00")).timestamp()
+            found.append((at,os.path.basename(os.path.dirname(f)),m.get("git")))
         except Exception: pass
-    return False
+    if not found: return False
+    return not commit or max(found)[2]==commit
 print(" ".join(l for l in p.get("locales",["en","ko"]) if not has(l)))' "$@"; }
+# the version of the rollback copy: empty without a copy, ? when its gate.json cannot be read
+rollback_version() {
+  n=$(cat "$RB/GOOD" 2>/dev/null || true)
+  [ -n "$n" ] || return 0
+  python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1]))["pool"]["codeVersion"] or "?")
+except Exception: print("?")' "$RB/$n/gate.json"
+}
 # one build unit, so that a build left behind by a lost connection can be found and stopped
 build_unit() { # PROGRAM LOCALES [TD_APP]
   systemd-run --quiet --wait --collect --unit="$BUILD" -p PrivateNetwork=yes -p PrivateTmp=yes -p ProtectHome=yes -p Nice=10 -p IOSchedulingClass=idle \
     --setenv="TD_LOCALES=$2" ${3:+--setenv="TD_APP=$3"} "$1"
 }
-ensure_snapshots() {
-  m=$(missing_snapshots)
+ensure_snapshots() { # [COMMIT]
+  c=${1:-}
+  m=$(missing_snapshots "" "$c")
   [ -n "$m" ] || { say "snapshots of this version are there"; return 0; }
   say "building snapshots for: $m (about a minute each; the site stays off)"
   stop_builds
   build_unit "$O/bin/tdsnap-rebuild" "$m" || say "the snapshot build reported failures"
-  m=$(missing_snapshots)
+  m=$(missing_snapshots "" "$c")
   [ -z "$m" ] || { units_off; die "no snapshot of this version for: $m. Both are off (/srv/tdg/.build/root/*.log)"; }
   say "snapshots built"
 }
@@ -113,9 +130,8 @@ bring_up() {
 prune_versions() {
   keep=$(python3 -I -c 'import json,sys
 print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])')
-  rv=$(python3 -I -c 'import json,sys
-try: print(json.load(open(sys.argv[1]))["pool"]["codeVersion"])
-except Exception: print("")' "$RB/$(cat "$RB/GOOD" 2>/dev/null)/gate.json")
+  rv=$(rollback_version)
+  case "$rv" in ""|"?") say "the rollback copy's version is not known: no old snapshot removed"; return 0 ;; esac
   python3 -I -c 'import glob,json,os,re,sys
 keep,rv=sys.argv[1:3]
 for d in sorted(glob.glob("/srv/tdg/.snapshots/*")):
@@ -133,6 +149,20 @@ for d in sorted(glob.glob("/srv/tdg/.snapshots/*")):
   done
 }
 
+# of VERSION, the snapshots of any other commit: only for a version nothing runs on and no rollback needs
+drop_other_commits() { # VERSION COMMIT
+  python3 -I -c 'import glob,json,os,re,sys
+ver,commit=sys.argv[1:3]
+for f in sorted(glob.glob("/srv/tdg/.snapshots/*/*/manifest.json")):
+    p=os.path.dirname(f)
+    if os.path.islink(p) or os.path.islink(os.path.dirname(p)) or not re.fullmatch(r"[0-9]{8}-[0-9]{6}",os.path.basename(p)): continue
+    try: m=json.load(open(f))
+    except Exception: continue
+    if m.get("codeVersion")==ver and m.get("git")!=commit: print(p)' "$1" "$2" | while IFS= read -r p; do
+    runuser -u tdgate -- rm -rf -- "$p" && say "removed ${p#/srv/tdg/.snapshots/}: $1 from another commit"
+  done
+}
+
 case "$CMD" in
   prebuild)
     [ -n "$STAGE" ] && [ -n "$EXPECT" ] || die "prebuild needs --stage and --expect"
@@ -146,6 +176,12 @@ case "$CMD" in
     systemctl is-active --quiet "$BUILD" && die "a snapshot build is already running ($BUILD)"
     systemctl reset-failed "$BUILD" >/dev/null 2>&1 || true
     if pgrep -u tdbuild >/dev/null 2>&1; then die "tdbuild still has processes"; fi
+    # room for the copy and the snapshots, before anything is written
+    want_mb=$(( $(du -sm "$STAGE/app" | awk '{print $1}') + 2048 ))
+    free_mb=$(df -Bm --output=avail "$O" | tail -1 | tr -dc 0-9)
+    [ "$free_mb" -ge "$want_mb" ] || die "only $free_mb MB free for the copy, $want_mb MB needed: nothing was changed"
+    fs_mb=$(df -Bm --output=avail /srv/tdg | tail -1 | tr -dc 0-9)
+    [ "$fs_mb" -ge 4096 ] || die "only $fs_mb MB free on /srv/tdg, snapshots need 4096 MB: nothing was changed"
     rm -rf "$O/app-next"; cp -a "$STAGE/app" "$O/app-next"
     chown -R root:root "$O/app-next"; chmod -R go-w "$O/app-next"; chmod -R a+rX "$O/app-next"
     [ "$(cat "$O/app-next/.git-head" 2>/dev/null)" = "$EXPECT" ] || { rm -rf "$O/app-next"; die "the copy is not at $EXPECT"; }
@@ -153,13 +189,21 @@ case "$CMD" in
     running=$(python3 -I -c 'import json;print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])')
     # of the running version, a new snapshot would go live on the old code at once
     if [ "$next" = "$running" ]; then rm -rf "$O/app-next"; die "the running gate is on $running too: its gate would use these at once. Deploy without a prebuild"; fi
-    m=$(missing_snapshots "$next")
-    if [ -z "$m" ]; then rm -rf "$O/app-next"; say "snapshots of $next are already there"; exit 0; fi
+    # one pool, one commit: what an earlier prebuild of another commit left goes first. Never the running version's (just
+    # refused above) nor the rollback copy's: then the newest wins, and these are built last.
+    rv=$(rollback_version)
+    case "$rv" in
+      "$next") say "the rollback copy is on $next too: its snapshots stay" ;;
+      "?") say "the rollback copy's version is not known: no snapshot removed" ;;
+      *) drop_other_commits "$next" "$EXPECT" ;;
+    esac
+    m=$(missing_snapshots "$next" "$EXPECT")
+    if [ -z "$m" ]; then rm -rf "$O/app-next"; say "snapshots of $next at $EXPECT are already there"; exit 0; fi
     say "building $next snapshots for: $m (the site stays up)"
     build_unit "$O/app-next/demo-gate/linux/tdsnap-rebuild" "$m" /opt/trina-demo/app-next || say "the snapshot build reported failures"
     rm -rf "$O/app-next"
-    m=$(missing_snapshots "$next")
-    [ -z "$m" ] || die "no snapshot of $next for: $m (/srv/tdg/.build/root/*.log). The site was not touched"
+    m=$(missing_snapshots "$next" "$EXPECT")
+    [ -z "$m" ] || die "no snapshot of $next at this commit for: $m (/srv/tdg/.build/root/*.log). The site was not touched"
     say "prebuilt $next. Deploy before the 05:00 nightly build: after it the running gate may remove them"
     ;;
   deploy)
@@ -170,10 +214,16 @@ case "$CMD" in
     install -d -o root -g root -m 755 /var/lib/trina-demo
     install -o root -g root -m 755 "$STAGE/app/demo-gate/linux/tddeploy" "$SELF"
     check_live
+    # the running snapshots serve only a proved app of this same version; any other case (a new version, or a retry after
+    # a failed run that already moved gate.json) takes only snapshots of this commit
+    want=$EXPECT
+    was=$(python3 -I -c 'import json;print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])' 2>/dev/null || true)
+    nextv=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$STAGE/app/server/package.json")
+    if [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$(cat "$RB/DEPLOYED" 2>/dev/null)" ] && [ -f "$RB/DEPLOYED" ] && [ "$was" = "$nextv" ]; then want=''; fi
     sh "$STAGE/app/demo-gate/linux/install.sh" --stage "$STAGE" --no-start </dev/null \
       || die "install failed: the gate and the tunnel are off. Fix it and run deploy again, or: sudo sh $SELF rollback --expect <good commit>"
     [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || { units_off; die "the installed app is not $EXPECT: both are off"; }
-    ensure_snapshots
+    ensure_snapshots "$want"
     bring_up
     proved "$EXPECT"
     prune_versions || say "could not remove every old snapshot (the site is up)"

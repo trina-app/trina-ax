@@ -50,10 +50,16 @@ export interface Manifest {
 export function codeVersion(): string {
   return process.env.MYCEL_BUILD_VERSION || (JSON.parse(fs.readFileSync(path.join(ROOT, 'server', 'package.json'), 'utf8')) as { version: string }).version
 }
-function gitHead(): string | null {
-  const r = Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: ROOT })
+/** The commit a snapshot is built from (manifest.git). A tree from `git archive` has no repository: the demo host's
+ * stage writes the full commit to `.git-head` once it built, and that file is what `tddeploy` matches snapshots by. */
+export function gitHead(root = ROOT): string | null {
+  try {
+    const stamped = fs.readFileSync(path.join(root, '.git-head'), 'utf8').trim()
+    if (/^[0-9a-f]{40}$/.test(stamped)) return stamped
+  } catch {}
+  const r = Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: root, stderr: 'ignore' })
   if (r.exitCode !== 0) return null
-  const dirty = Bun.spawnSync(['git', 'status', '--porcelain'], { cwd: ROOT }).stdout.toString().trim() ? '-dirty' : ''
+  const dirty = Bun.spawnSync(['git', 'status', '--porcelain'], { cwd: root }).stdout.toString().trim() ? '-dirty' : ''
   return r.stdout.toString().trim() + dirty
 }
 

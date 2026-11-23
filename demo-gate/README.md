@@ -162,7 +162,9 @@ sh /var/lib/trina-demo/tddeploy status
 - **Snapshots:** the gate uses only snapshots of its own code version. `tddeploy prebuild` builds the next version's
   while the site stays up (from a root copy, `/opt/trina-demo/app-next`; refused from 03:45 to 06:00 and when the running
   gate is on that version, since it would use them at once), so a deploy only swaps. Without it, `deploy` and `rollback`
-  build what is missing with the site off. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
+  build what is missing with the site off. One version can be built from many commits, so a prebuild and a version
+  change count a snapshot only when its `manifest.git` is the commit being deployed (a stage's `.git-head`), and a
+  prebuild first removes that version's snapshots of other commits. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
   deploy keeps this version and the newest of the rollback copy's version, and removes the rest. One build runs at a
   time (a lock, one unit `trina-demo-snapshots-deploy`), and an install stops a build a lost connection left behind.
 - **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` checks free space while the site is up,

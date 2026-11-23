@@ -123,4 +123,7 @@ Fourth review: `.git-head` only after a stage built; one build at a time with a 
 stop; an unknown live count refuses; `tddeploy prebuild` makes the next version's snapshots with the site up. The gate's
 sweeper leaves other versions alone and a proved deploy prunes them.
 
+Fifth review: snapshots name their commit in a `git archive` tree too (`.git-head`), and a prebuild or a version change
+counts only those of the commit being deployed, so one pool is never built from two commits.
+
 PR: https://github.com/trina-app/trina-ax/pull/446
