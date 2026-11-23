@@ -88,7 +88,7 @@ una cuenta de Google y le deja elegir sus carpetas; las personas que elija las u
 
 Desde un chat funciona igual: cuando un propietario o administrador pide a la IA que conecte Google Drive o Gmail (o
 Calendar, Docs o Sheets), su tarjeta también tiene **Conectar para el equipo**, que abre este mismo diálogo. Los
-miembros ven solo su propia conexión. A quien ya usa una cuenta compartida, o un Drive compartido con él, se le dice que
+miembros reciben una tarjeta con **Conectar mi Gmail**, que abre su propia página para conectarlo. A quien ya usa una cuenta compartida, o un Drive compartido con él, se le dice que
 está conectado, sin nada que conectar.
 
 ## Configurar las apps de Google (administradores de un servidor que gestiona usted mismo)

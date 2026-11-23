@@ -934,6 +934,7 @@ export const id: Record<MessageKey, string> = {
   "connect.teamConnect": "Hubungkan untuk tim",
   "connect.teamWay": "Hubungkan sekali untuk seluruh tim dengan satu akun Google bersama, atau hubungkan akunmu sendiri.",
   "connect.ownConnect": "Hubungkan akun saya",
+  "connect.ownConnectApp": "Hubungkan {name} saya",
   "connect.ownWhere": "Akunmu sendiri dihubungkan di halamannya di Pengaturan › Konektor. Kembali ke sini setelah selesai.",
   "connect.ownDone": "Sudah terhubung",
   'connect.access': "Siapa yang boleh memakainya",

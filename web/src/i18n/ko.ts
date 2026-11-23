@@ -933,6 +933,7 @@ export const ko = {
   "connect.teamConnect": "팀으로 연결",
   "connect.teamWay": "공유 Google 계정 하나로 팀 전체에 한 번에 연결하거나, 내 계정을 연결하세요.",
   "connect.ownConnect": "내 계정 연결",
+  "connect.ownConnectApp": "내 {name} 연결",
   "connect.ownWhere": "내 계정은 설정 › 커넥터의 해당 페이지에서 연결해요. 다 되면 여기로 돌아오세요.",
   "connect.ownDone": "연결했어요",
   'connect.access': "쓸 수 있는 사람",

@@ -16,8 +16,9 @@
 // service the person already uses is not connected twice: a working one is said, their own that needs a sign-in or a
 // new key gets a card for that same connection (`reconnect`).
 // Google for the team (#253, docs/CONNECTIONS.md): an owner's or admin's Google Drive card, and their card for Gmail,
-// Calendar, Docs or Sheets (google_app; a member gets words for these, connect-google-app.ts), carry `teamOffer`: the web
-// card opens Admin's dialog for the team's shared account. A team connection the person may use is "connected", no card.
+// Calendar, Docs or Sheets (google_app), carry `teamOffer`: the web card opens Admin's dialog for the team's shared
+// account. A member's google_app card has no `teamOffer`: only their own Connect, on the app's page (QA TC-8034). A team
+// connection the person may use is "connected", no card.
 import { z } from 'zod'
 import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, sameListedService, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
 import { GoogleAppId, IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
@@ -36,7 +37,8 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { googleAppsOf } from '../integrations/google-apps/service'
 import { APP_NAMES } from '../integrations/google-apps/catalog'
 import { driveAdminStatus } from '../integrations/google-drive/admin-setup'
-import { googleAppAsked, googleAppTeamCard, googleAppWay } from './connect-google-app'
+import { googleAppAsked, googleAppOwnCard, googleAppTeamCard, googleAppWay } from './connect-google-app'
+import { questionsWaitInCall } from './open-questions'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
@@ -203,7 +205,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // Gmail, Google Calendar, Docs and Sheets are built in: their own page, never an address (AI scenario CON-01.calendar)
   const gApp = target === 'service' && !a.data.connection && !a.data.template ? googleAppAsked(a.data.name, a.data.url) : null
-  /** an owner or admin gets a card for it (Connect for the team, or their own on its page); everyone else the words */
+  /** an owner or admin gets a card for it (Connect for the team, or their own on its page), a member one with their own
+   * Connect where a person is at a screen to press it (not a scheduled, Slack or server-started turn); else the words */
   let gAppCard = false
   if (gApp) {
     let way: ReturnType<typeof googleAppWay>
@@ -211,7 +214,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
       const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
       const app = { name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }
       way = googleAppWay(app, isAdmin(viewer.role), L)
-      gAppCard = googleAppTeamCard(app, isAdmin(viewer.role))
+      gAppCard = googleAppTeamCard(app, isAdmin(viewer.role)) || (!questionsWaitInCall(spec.clientKind) && googleAppOwnCard(app, viewer.role))
     } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
     if (!gAppCard) return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
   }
@@ -237,9 +240,10 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   let note: string | undefined
 
   if (gApp && gAppCard) {
-    // Gmail, Calendar, Docs or Sheets for an owner or admin (#253): the card offers the team's shared Google account
-    // (the dialog of Admin › Connected apps) and their own on the app's page, as the welcome tools step does
-    card = { kind: 'connect_service', requestId: uuidv7(), target: 'google_app', googleApp: gApp, name: APP_NAMES[gApp], scope: 'personal', teamOffer: true, ...(why ? { why } : {}), expiresAt: expiresAt() }
+    // Gmail, Calendar, Docs or Sheets. An owner or admin (#253): the card offers the team's shared Google account (the
+    // dialog of Admin › Connected apps) and their own on the app's page, as the welcome tools step does. A member: their
+    // own on its page only
+    card = { kind: 'connect_service', requestId: uuidv7(), target: 'google_app', googleApp: gApp, name: APP_NAMES[gApp], scope: 'personal', ...(isAdmin(viewer.role) ? { teamOffer: true } : {}), ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else if (a.data.connection) {
     // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
     const r = getRow(db, a.data.connection)
@@ -389,8 +393,26 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   }
   if (o.success && o.data.outcome === 'connected' && 'googleApp' in o.data) {
     const name = APP_NAMES[o.data.googleApp]
-    return o.data.teamOnly ? teamOnlyResult(exec, name, L, shownLabel)
-      : connectedResult(exec, { name, status: 'connected', note: "Its tools are yours in this chat; if you do not have them now, from the person's next message." }, true, shownLabel)
+    if (o.data.teamOnly) return teamOnlyResult(exec, name, L, shownLabel)
+    // connected, but its tools cannot be reached right now: said, never "its tools are yours"
+    const now = googleAppNow(exec, viewer, o.data.googleApp)
+    return connectedResult(exec, { name, status: 'connected', note: now?.down ? now.text : "Its tools are yours in this chat; if you do not have them now, from the person's next message." }, true, shownLabel)
+  }
+  // a Google app's card that closed without "I've connected it": the sign-in is on the app's page, so the person may have
+  // finished it there. What the AI is told is the app's state now, whichever way the card closed (QA TC-8034)
+  if (card.target === 'google_app' && card.googleApp) {
+    const now = googleAppNow(exec, viewer, card.googleApp)
+    const timedOut = !(o.success && o.data.outcome === 'skipped')
+    if (now?.connected && timedOut) return connectedResult(exec, { name: card.name, status: 'connected', note: now.text }, true, shownLabel)
+    if (now?.connected) {
+      exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', L), ...relabel(st.label, shownLabel) }))
+      return { content: json({ skipped: true, reason: `The person pressed Not now on the card. ${now.text} Do not use it for this request unless they ask.` }), summary: `${CONNECT_TOOL} -> skipped (connected)` }
+    }
+    if (timedOut) {
+      exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectNotConnected', L), ...relabel(st.label, shownLabel) }))
+      const reason = `The card closed with no answer (its time ran out, or the answer was stopped). ${now?.text ?? `Whether ${card.name} is connected could not be checked: do not say it is.`}`
+      return { content: json({ skipped: true, reason }), summary: `${CONNECT_TOOL} -> skipped (no answer)` }
+    }
   }
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
@@ -402,6 +424,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const reason = made ? `"${made.name}" ${kept.created ? 'was added but is not working yet' : 'is still not working'} (${stateOf(made)}); ${made.scope === 'team' ? `an admin can fix it in ${SCREEN.adminMcp(L)}` : `the person can fix it in ${SCREEN.connectors(L)}`}`
     : kept.changed ? 'the connection this card made was changed or removed in Settings › Connectors or Admin while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
+}
+
+/** A Google app as it is for this person right now, in the words the AI is told (null: it could not be read). */
+function googleAppNow(exec: TurnExec, viewer: Viewer, id: GoogleAppId): { connected: boolean; down: boolean; text: string } | null {
+  try {
+    const v = googleAppsOf(exec.rt.ctx).view(viewer.id, id)
+    const role = activeUser(exec.rt.db, viewer.id)?.role ?? viewer.role
+    const way = googleAppWay({ name: APP_NAMES[id], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(role), exec.spec.locale)
+    return { connected: way.connected, down: !!v.serviceDown, text: way.text }
+  } catch { return null }
 }
 
 /** POST /api/turns/:id/connect for the turn's owner (the route checked that): connect, done or skip on an open card. */
