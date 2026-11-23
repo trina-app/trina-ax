@@ -3,7 +3,7 @@
 import { expect, test } from 'bun:test'
 import type { TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
-import { foldsField, isPayload, payloadAddresses, payloadSummary } from '../../src/lib/cardPayload'
+import { destinations, foldsField, isPayload, payloadLines } from '../../src/lib/cardPayload'
 import { installDom, mount, removeDom } from './dom-host'
 
 type Ask = Extract<TurnRequest, { kind: 'ask_user' }>
@@ -13,31 +13,38 @@ const ask = (details: NonNullable<Ask['details']>): { turnId: string; messageId:
 })
 const big = JSON.stringify({ subject: '행사 안내', to: 'sora@example.com', body: 'x'.repeat(6900), hook: 'https://hooks.example.net/in' }, null, 2)
 
-test('the shape decides: JSON, markup and code are payloads, prose is not', () => {
-  for (const t of [big, '{"a":1}', '[1,2]', '<!doctype html><p>x</p>', '#!/bin/sh\necho hi', 'const a = { b: [1, 2] }; if (a.b[0] <= 2) { run($x); }\n'.repeat(4)]) expect(isPayload(t), t.slice(0, 30)).toBe(true)
-  for (const t of ['안녕하세요, 내일 회의는 3시입니다.', 'Hi team, the meeting moved to 3 pm. Please bring the notes. '.repeat(6), '']) expect(isPayload(t), t.slice(0, 30)).toBe(false)
+test('only sure machine text is a payload: a message with a table or a link, or a list of names, is not', () => {
+  for (const t of [big, '{"a":1}', '[{"a":1}]', '<!doctype html><p>x</p>', '#!/bin/sh\necho hi']) expect(isPayload(t), t.slice(0, 30)).toBe(true)
+  for (const t of ['안녕하세요, 내일 회의는 3시입니다.', '| 항목 | 금액 |\n|---|---|\n| A | 1,000 |\n자세한 건 [여기](https://example.com/a?b=1&c=2) 참고', '["홍길동","김철수"]', '']) expect(isPayload(t), t.slice(0, 30)).toBe(false)
+  expect(isPayload('{"to":"a@b.co","body":"xxx', true)).toBe(true)
 })
 
 test('a field that says who gets it never folds', () => {
   expect(foldsField({ value: JSON.stringify(Array.from({ length: 30 }, (_, i) => `person${i}@example.com`)) })).toBe(false)
-  expect(foldsField({ value: 'sora@example.com' })).toBe(false)
+  expect(foldsField({ value: Array.from({ length: 30 }, (_, i) => `010-1234-56${i}`).join('; ') })).toBe(false)
   expect(foldsField({ value: big })).toBe(true)
   expect(foldsField({ value: 'echo hi\n'.repeat(40), code: true })).toBe(true)
 })
 
-test('the summary and the addresses', () => {
-  expect(payloadSummary(big)).toBe('subject: 행사 안내 · to: sora@example.com · hook: https://hooks.example.net/in')
-  expect(payloadAddresses(big)).toEqual(['sora@example.com', 'hooks.example.net'])
-  expect(payloadAddresses(big, 'sora@example.com')).toEqual(['hooks.example.net'])
+test('every destination stays: nested, any scheme, IP, phone, escaped, and a host that only looks like a known one', () => {
+  const nested = JSON.stringify({ messages: [{ to: '+821012345678', channel: 'general', repo: 'acme/site', body: 'x'.repeat(500) + ' s3://bucket-a/k wss://w.example.net/x 10.0.0.7:8080' }] })
+  const l = payloadLines(nested)!.join('\n')
+  for (const x of ['+821012345678', 'general', 'acme/site', 'bucket-a', 'w.example.net', '10.0.0.7:8080']) expect(l, x).toContain(x)
+  expect(l).not.toContain('xxxx')
+  expect(payloadLines('{"u":"https:\\/\\/evil.example/a","v":"bob\\u0040evil.example"}')!.join('\n')).toContain('bob@evil.example')
+  expect(payloadLines('{"u":"https:\\/\\/evil.example/a"}')!.join('\n')).toContain('evil.example')
+  expect(payloadLines('{"a":"evil.example","b":"notevil.example.org"}', ['notevil.example.org'])!.join('\n')).toContain('evil.example')
+  expect(payloadLines(JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ to: `p${i}@example.com` }))))).toBeNull()
 })
 
-test('the address scan stays fast on a huge unbroken value', () => {
+test('the scan stays fast on a huge unbroken value', () => {
   const t0 = performance.now()
-  expect(payloadAddresses('x'.repeat(200_000))).toEqual([])
-  expect(performance.now() - t0).toBeLessThan(200)
+  expect(destinations('x'.repeat(200_000))).toEqual([])
+  expect(destinations('1'.repeat(200_000)).length).toBeLessThan(2)
+  expect(performance.now() - t0).toBeLessThan(500)
 })
 
-test('a 6,935-character JSON: closed by default with a plain line; where it goes and a random value stay; 자세히 opens it', async () => {
+test('a 6,935-character JSON: closed by default with plain lines; where it goes and a random value stay; 자세히 opens it', async () => {
   installDom()
   const mark = 'Zx81Qa7LmP02vKt9RbY4nW6sHc3JdE5u'
   const text = big.replace('행사 안내', mark)
@@ -46,12 +53,22 @@ test('a 6,935-character JSON: closed by default with a plain line; where it goes
     expect(m.find('ask-detail-text')).toBeNull()
     expect(m.html()).not.toContain('x'.repeat(100))
     expect(m.get('ask-detail-folded-label').textContent).toBe('보낼 내용')
-    expect(m.get('ask-payload-addresses').textContent).toContain('sora@example.com')
-    expect(m.get('ask-payload-addresses').textContent).toContain('hooks.example.net')
+    expect(m.get('ask-payload-lines').textContent).toContain('sora@example.com')
+    expect(m.get('ask-payload-lines').textContent).toContain('hooks.example.net')
     expect(m.get('ask-payload-marks').textContent).toContain(mark)
     await m.click('ask-detail-folded')
     expect(m.get('ask-detail-text').textContent).toContain('x'.repeat(100))
   } finally { await m.unmount(); removeDom() }
+})
+
+test('prose with a destination past the cut, and JSON with too many values to summarise, stay as they were', async () => {
+  installDom()
+  const prose = '내일 회의 안내입니다. '.repeat(60) + ' 회신: sora@example.com'
+  const a = await mount(<AskCard req={ask([{ label: '보낼 내용', text: prose }])} />)
+  try { expect(a.get('ask-detail-text').textContent).toContain('sora@example.com') } finally { await a.unmount() }
+  const many = JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ to: `p${i}@example.com` })))
+  const b = await mount(<AskCard req={ask([{ label: '보낼 내용', text: many }])} />)
+  try { expect(b.get('ask-detail-text').textContent).toContain('p79@example.com') } finally { await b.unmount(); removeDom() }
 })
 
 test('long prose shows its start; a short message and red alert lines stay open', async () => {

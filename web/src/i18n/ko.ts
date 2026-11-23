@@ -3248,7 +3248,7 @@ export const ko = {
   "ask.exactHide": "보내는 내용 그대로 접기",
   "ask.foldedShow": "자세히",
   "ask.foldedHide": "접기",
-  "ask.payloadGoesTo": "보내는 곳:",
+  "ask.payloadGoesTo": "이 안의 주요 내용:",
   "ask.payloadMarks": "안에 있는 긴 값 (확인해 주세요):",
   "ask.batchMany": "확인할 일 {n}개",
   "ask.batchGathering": "이 답변의 나머지 확인을 모으는 중이에요…",

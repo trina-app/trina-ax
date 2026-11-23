@@ -30,7 +30,7 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
-import { foldsField, isPayload, LONG_TEXT, LONG_TEXT_SHOWN, payloadAddresses, payloadSummary } from '../../lib/cardPayload'
+import { destinations, foldsField, isPayload, LONG_TEXT, LONG_TEXT_SHOWN, payloadLines } from '../../lib/cardPayload'
 import { gathers, joinLock, pressPlan, type CardLike } from '../../lib/cardBatch'
 import { openTeamFile } from '../../lib/sidePanel'
 import { formatSize } from '../../lib/format'
@@ -685,13 +685,15 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
   )
 }
 
-/** A detail as the card opens it (lib/cardPayload.ts): raw JSON, code or markup folded, long prose showing its start.
- * A list of names, a message formatted for reading and red alert lines stay as they are. */
+/** A detail as the card opens it (lib/cardPayload.ts): JSON or markup folded when its values and destinations can stay in
+ * view as plain lines, long prose showing its start when no destination or mark would go out of view. A list of names, a
+ * message formatted for reading and red alert lines stay as they are. */
 const byShape = (d: ConfirmDetail): ConfirmDetail => {
-  if (!d.text || d.markdown || d.alerts?.length || d.open?.length || d.noSize) return d
-  if (d.folded || d.exact) return d
-  if (isPayload(d.text)) return { ...d, folded: true }
-  return d.collapsedAt === undefined && d.text.length > LONG_TEXT ? { ...d, collapsedAt: LONG_TEXT_SHOWN } : d
+  if (!d.text || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact) return d
+  const known = (d.fields ?? []).map((f) => f.value)
+  if (d.folded) return d.marks?.length && payloadLines(d.text, known) === null ? { ...d, folded: undefined } : d
+  if (isPayload(d.text, !!d.fullChars)) return payloadLines(d.text, known) === null ? d : { ...d, folded: true }
+  return d.collapsedAt === undefined && d.text.length > LONG_TEXT && !d.marks?.length && !destinations(d.text).length ? { ...d, collapsedAt: LONG_TEXT_SHOWN } : d
 }
 
 function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
@@ -819,15 +821,20 @@ function CodeValue({ text, label, marks }: { text: string; label: string; marks?
   )
 }
 
-/** What stays in view of a folded payload: where it goes and its long random-looking parts (they can carry data). */
-function PayloadKeeps({ text, marks, known = '' }: { text: string; marks?: string[]; known?: string }) {
+/** What stays in view of a folded payload: its short values, every destination, and its long random-looking parts. */
+function PayloadKeeps({ text, marks, known }: { text: string; marks?: string[]; known?: string[] }) {
   const t = useT()
-  const addresses = payloadAddresses(text, known)
+  const lines = payloadLines(text, known) ?? destinations(text)
   const here = (marks ?? []).filter((m) => text.includes(m))
-  if (!addresses.length && !here.length) return null
+  if (!lines.length && !here.length) return null
   return (
     <div className="mt-1 space-y-1 text-xs" data-testid="ask-payload-keeps">
-      {addresses.length > 0 && <p className="[overflow-wrap:anywhere]" data-testid="ask-payload-addresses"><span className="text-faint">{t('ask.payloadGoesTo')} </span>{addresses.join(', ')}</p>}
+      {lines.length > 0 && (
+        <div data-testid="ask-payload-lines">
+          <p className="text-faint">{t('ask.payloadGoesTo')}</p>
+          <p className="scroll-thin max-h-24 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]" tabIndex={0}>{lines.join('\n')}</p>
+        </div>
+      )}
       {here.length > 0 && (
         <div data-testid="ask-payload-marks">
           <p className="text-faint">{t('ask.payloadMarks')}</p>
@@ -859,12 +866,10 @@ function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chi
   const t = useT()
   const [open, setOpen] = useState(false)
   if (!d.folded || d.markdown || d.alerts?.length) return <>{children}</>
-  const summary = d.fields?.length ? '' : payloadSummary(d.text)
-  const known = (d.fields ?? []).map((f) => f.value).join('\n')
+  const known = (d.fields ?? []).map((f) => f.value)
   return (
     <div className={plain ? undefined : clsx('border-t border-line', !open && 'px-3 pb-1.5')}>
       {plain && !open && <p className="text-xs text-faint" data-testid="ask-detail-folded-label">{d.label}</p>}
-      {!open && summary && <p className="truncate text-xs text-muted" title={summary} data-testid="ask-detail-summary">{summary}</p>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

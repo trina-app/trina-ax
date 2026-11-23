@@ -3251,7 +3251,7 @@ export const en: Record<MessageKey, string> = {
   "ask.exactHide": "Hide exactly what is sent",
   "ask.foldedShow": "Details",
   "ask.foldedHide": "Hide details",
-  "ask.payloadGoesTo": "Goes to:",
+  "ask.payloadGoesTo": "In it:",
   "ask.payloadMarks": "Long values inside (check these):",
   "ask.batchMany": "{n, plural, one {# thing} other {# things}} to confirm",
   "ask.batchGathering": "Gathering the rest of this answer's requests…",
