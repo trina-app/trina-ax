@@ -427,6 +427,9 @@ Every card kind the code knows, and the entries that use it. The test compares t
 | `waits:move_skill` | `skill.move`, `skill.copy` |
 | `waits:schedule_create` | `schedule.create` |
 | `waits:remember` | `memory.remember` |
+| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
+| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
+| `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
 
 ## Code index
 
