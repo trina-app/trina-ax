@@ -57,7 +57,7 @@ import {
   type HwpChange, type HwpEditReport,
 } from './hwpx-check'
 import { badLinkTarget, isProgram, outside, PROGRAM_NAME } from './hwpx-edit'
-import { emptyScript } from './hwpx-write'
+import { emptyScript, scriptText } from './hwpx-write'
 import { isZip } from './zip-guard'
 import { crc32, PICTURE_LIMITS, sanitizeImage, type CleanImage, type PictureSpot } from './hwp-picture'
 
@@ -524,8 +524,7 @@ function defaultScript(b: Uint8Array): boolean {
   }
   const rest = b.subarray(at)
   if (rest.length && !(rest.length === 4 && u32(rest, 0) === 0xffffffff)) return false
-  const flat = (s: string) => s.replace(/\/\/[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '').replace(/\0+$/, '')
-  return emptyScript(parts[0]!, parts[1]!) && flat(parts[2]!) === '' && flat(parts[3]!) === ''
+  return emptyScript(parts[0]!, parts[1]!) && scriptText(parts[2]!).trim() === '' && scriptText(parts[3]!).trim() === ''
 }
 
 /** Why a paragraph's records do not agree with each other (counts in its header, its text and character shapes), or

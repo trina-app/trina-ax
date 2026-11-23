@@ -488,15 +488,20 @@ interface Template {
 /** compound-file (OLE) bytes: an embedded object, or a .hwp inside the package */
 export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.subarray(0, 8)).toString('hex') === 'd0cf11e0a1b11ae1'
 
+/** Hangul's script header, exactly (white space aside), or none */
+const SCRIPT_HEADER = /^\s*(?:var\s+Documents\s*=\s*XHwpDocuments\s*;\s*var\s+Document\s*=\s*Documents\.Active_XHwpDocument\s*;\s*)?$/
+/** Event handlers with an empty body, or only the line "//todo :" that Hangul writes in one, ended by a line break. No
+ * other comment is taken: text after a comment mark can be code to a reader that sees the comment end elsewhere. */
+const SCRIPT_HANDLERS = /^\s*(?:function\s+On[A-Za-z0-9_]{1,63}\s*\(\s*\)\s*\{\s*(?:\/\/[ \t]*todo[ \t]*:?[ \t]*[\r\n]\s*)?\}\s*){0,200}$/
+/** A script part with the NULs Hangul leaves at its end taken off */
+export const scriptText = (s: string) => s.replace(/\0+$/, '')
 /**
  * Hangul's default script template, which Hangul and Hancom Docs write into the documents they save: the header that
  * names the document objects and event handlers with empty bodies (Hancom Docs adds one per check box, OnCheckBox1_Click
- * ...). Comments and white space aside; any statement in it is a script.
+ * ...). Only these exact shapes pass; anything else is a script.
  */
 export function emptyScript(header: string, source: string): boolean {
-  const flat = (s: string) => s.replace(/\/\/[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '').replace(/\0+$/, '')
-  return ['', 'varDocuments=XHwpDocuments;varDocument=Documents.Active_XHwpDocument;'].includes(flat(header))
-    && /^(?:function[A-Za-z_][A-Za-z0-9_]{0,63}\(\)\{\}){0,200}$/.test(flat(source))
+  return SCRIPT_HEADER.test(scriptText(header)) && SCRIPT_HANDLERS.test(scriptText(source))
 }
 
 /**

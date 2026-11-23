@@ -312,18 +312,17 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
         !(next && next.section === pg.section && next.continued.includes(x.para)) && (!flat(x.preview) || flat(q.text).startsWith(flat(x.preview).replace(/…$/, ''))))
       if (plain) p = plain.q!
     } else if (inTable) {
-      // no stored layout: placed from the body paragraph after the table, or below the table from its own paragraph
-      // (Hangul measures a table's own paragraph from below it), so it follows the table whatever Hangul wraps above
+      // no stored layout: placed from the body paragraph after the table, so it follows the table whatever Hangul wraps
+      // above; a table with no such paragraph on this page: in the cell
       const holder = p.cell!.table.para as P | null
       if (!holder || holder.cell) refuseChange(i, 'the place is in a table inside a table, which this document (saved without Hangul\'s layout) cannot place exactly; put the picture over a text with at')
       const k = this.topIndex(holder)
-      if (k < 0 || !pg.starts.some((x) => x.para === k)) refuseChange(i, `the table that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
       const t = cellIdx >= 0 ? pg.tables[pg.cells[cellIdx]!.table - 1] : undefined
       if (!t) refuseChange(i, 'the table that holds the place could not be found on the page')
-      const after = this.topParagraph(holder.sec, k + 1)
+      const after = k >= 0 && pg.starts.some((x) => x.para === k) ? this.topParagraph(holder.sec, k + 1) : null
       const line = after && !after.cell ? pg.lines.find((l) => l.cell < 0 && l.para.endsWith(`:${k + 1}`) && l.y >= t.y + t.h - 1) : undefined
       if (after && line && pg.starts.some((x) => x.para === k + 1)) { p = after; fromPara = line.y }
-      else { p = holder; fromPara = t.y + t.h }
+      // else it stays in the cell, from the paper: never the paragraph holding the table (it moved a page-filling form)
     } else if (!cached) {
       // a body paragraph without Hangul's layout: placed from its own top
       if (top < 0 || !pg.starts.some((x) => x.para === top)) refuseChange(i, `the paragraph that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)

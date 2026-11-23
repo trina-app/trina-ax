@@ -11,7 +11,7 @@ import { askConfirm } from './url-gate'
 
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 const PICTURE_TEXT = {
-  ask: t('AI가 내 것이 아닌 그림 {pics}을(를) {doc}에 넣으려고 해요. 넣을까요?', 'The AI wants to put {pics} into {doc}. It is not your own picture: someone else sent it, or it is outside your own folder. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan milik Anda: orang lain mengirimnya, atau ada di luar folder Anda. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身の画像ではありません（ほかの人が送ったか、あなたのフォルダーの外にあります）。入れますか？', 'La IA quiere poner {pics} en {doc}. No es una imagen tuya: la envió otra persona o está fuera de tu carpeta. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这不是你自己的图片：是别人发送的，或在你自己的文件夹之外。要放进去吗？'),
+  ask: t('AI가 그림 {pics}을(를) {doc}에 넣으려고 해요. 이 서명이나 도장이 맞나요?', 'The AI wants to put {pics} into {doc}. Is this the right signature or seal to use?', 'AI ingin menaruh {pics} ke {doc}. Apakah ini tanda tangan atau stempel yang benar?', 'AIが{pics}を{doc}に入れようとしています。この署名または印で合っていますか？', 'La IA quiere poner {pics} en {doc}. ¿Es la firma o el sello correcto?', 'AI 想把{pics}放进{doc}。这是要用的签名或印章吗？'),
   yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
   no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
 }
@@ -24,12 +24,13 @@ const PICTURE_TEXT = {
  */
 export const ownPicture = { is: (_ctx: AppContext, _place: string, _userId: string): boolean => false }
 
-/** Asks the card for `pictures` (none: nothing happens); anything but yes refuses the call, nothing saved. */
-export async function confirmNotOwnPictures(ctx: AppContext, c: ToolCtx, pictures: ReadonlySet<string>, doc: string): Promise<void> {
-  if (!pictures.size) return
+/** Asks the card for `pictures` (each named in full; none: nothing happens); anything but yes refuses, nothing saved. */
+export async function confirmNotOwnPictures(ctx: AppContext, c: ToolCtx, pictures: readonly string[], doc: string): Promise<void> {
+  if (!pictures.length) return
   const L = c.person?.locale ?? teamDefaultLocale(ctx.db)
-  const pics = [...pictures].slice(0, 5).map((n) => `'${n.split('/').pop()}'`).join(', ')
-  const end = c.person ? await askConfirm(c.person, PICTURE_TEXT.ask[L].replace('{pics}', pics).replace('{doc}', `'${doc.split('/').pop()}'`), PICTURE_TEXT.yes[L], PICTURE_TEXT.no[L]) : 'unattended'
+  const pics = pictures.map((n) => `'${n}'`).join(', ')
+  const name = `'${doc.split('/').pop()}'`
+  const end = c.person ? await askConfirm(c.person, PICTURE_TEXT.ask[L].replace('{pics}', () => pics).replace('{doc}', () => name), PICTURE_TEXT.yes[L], PICTURE_TEXT.no[L]) : 'unattended'
   if (end !== 'yes') throw new ToolError(refusal({
     done: 'Nothing was saved.', why: cardReason(end === 'declined' || end === 'timeout' || end === 'ended' ? end : 'unattended', { run: c.person ? undefined : 'a call outside a chat' }),
     next: 'use the person\'s own signature or seal, or ask them which picture to use', names: [...pictures],

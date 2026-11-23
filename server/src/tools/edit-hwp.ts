@@ -76,15 +76,48 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
 
   const changes = a.changes as HwpChange[]
   const binary = x === 'hwp'
-  const pictures = await picturesOf(ctx, files, c, changes, bytes, x, src.rel)
-  const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(changes, bytes, pictures?.extra), c.signal)
+  const pictures = await picturesOf(ctx, files, c, changes)
+  /** one worker run on `doc` of the changes at `which` (their numbers in errors stay the call's) */
+  const edit = async (which: number[], doc: Uint8Array, extra?: HwpEditExtra) => {
+    const answer = await officeWorkerWrite(binary ? HWP_EDIT_MODE : HWPX_EDIT_MODE, encodeHwpEditRequest(which.map((i) => changes[i]!), doc, extra), c.signal).catch((e) => {
+      if (!(e instanceof ToolError)) throw e
+      throw new ToolError(e.message.replace(/^change (\d+):/, (_m, n: string) => `change ${(which[Number(n) - 1] ?? Number(n) - 1) + 1}:`), e.code)
+    })
+    try { return decodeHwpEditResult(answer) } catch { throw new ToolError(`the .${x} editor gave a damaged answer; nothing was saved`) }
+  }
   let r: ReturnType<typeof decodeHwpEditResult>
-  try { r = decodeHwpEditResult(answer) } catch { throw new ToolError(`the .${x} editor gave a damaged answer; nothing was saved`) }
+  if (!pictures) r = await edit(changes.map((_, i) => i), bytes)
+  else {
+    // Text and rows first, then the pictures, placed from the layout of the document as those changes left it: a row
+    // added above a label or a fill that wraps moves the label
+    const words = changes.flatMap((ch, i) => (isImageChange(ch) ? [] : [i]))
+    const seals = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
+    const first = words.length ? await edit(words, bytes) : null
+    const base = first?.file ?? bytes
+    if (first) {
+      const why = binary ? hwpPartsMismatch(bytes, base) : hwpxPartsMismatch(bytes, base)
+      if (why) throw new ToolError(`the changed document did not read back as expected (${why}); nothing was saved`)
+      try { await officeWorkerWrite(binary ? HWP_VERIFY_MODE : HWPX_VERIFY_MODE, base, c.signal) } catch (e) {
+        if (!(e instanceof ToolError)) throw e
+        throw new ToolError(`the changed document did not pass the checks again (${e.message.slice(0, 300)}); nothing was saved`)
+      }
+    }
+    const layout = await layoutOf(ctx, c, base, x, src.rel)
+    const second = await edit(seals, base, { layout, images: pictures.images.map((m) => ({ ...m, changes: m.changes.map((i) => seals.indexOf(i)) })) })
+    // one report in the call's change numbers
+    const w = (n: number) => words[n]!
+    r = { file: second.file, report: {
+      lineEdits: (first?.report.lineEdits ?? []).map((e) => ({ ...e, changes: e.changes.map(w) })),
+      notes: (first?.report.notes ?? []).map((n) => ({ ...n, change: w(n.change), ...(n.also ? { also: n.also.map(w) } : {}) })),
+      placeholders: second.report.placeholders,
+      pictures: (second.report.pictures ?? []).map((p) => ({ ...p, change: seals[p.change]! })),
+    } }
+  }
   // what came back is not taken on the worker's word: the same parts but the changed sections (the containers), the
   // text as hwp.ts reads both files in their own worker runs, and every check of a document again in a fresh one
   // each picture is one new part, however many places show it
   const added = [...new Set((r.report.pictures ?? []).map((p) => p.part))]
-  if (added.length !== (pictures?.extra.images.length ?? 0)) throw new ToolError('the changed document did not read back as expected (its pictures are not the ones asked for); nothing was saved')
+  if (added.length !== (pictures?.images.length ?? 0)) throw new ToolError('the changed document did not read back as expected (its pictures are not the ones asked for); nothing was saved')
   const parts = binary ? hwpPartsMismatch(bytes, r.file, added) : hwpxPartsMismatch(bytes, r.file, added)
   if (parts) throw new ToolError(`the changed document did not read back as expected (${parts}); nothing was saved`)
   const old = hwpxReadLines(await officeWorkerText(x, bytes, c.signal))
@@ -140,7 +173,7 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
 /** The image changes' pictures and the page layout, or null without image changes: each picture read with the person's
  * read access, at most PICTURE_LIMITS (one, all together, how many), a PNG or JPEG by its bytes, not quarantined; the
  * layout from the HWP renderer, which must run here. */
-async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[], doc: Uint8Array, x: 'hwp' | 'hwpx', rel: string): Promise<{ extra: HwpEditExtra; sources: string[]; notOwn: Set<string> } | null> {
+async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[]): Promise<{ images: HwpEditExtra['images']; sources: string[]; notOwn: string[] } | null> {
   const which = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
   if (!which.length) return null
   if (which.length > PICTURE_LIMITS.images) throw new ToolError(`more than ${PICTURE_LIMITS.images} pictures in one call; nothing was saved`)
@@ -150,7 +183,7 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
   const images: HwpEditExtra['images'] = []
   let readBytes = 0, madeBytes = 0
   /** pictures that are not the asker's own: their yes on a card first */
-  const notOwn = new Set<string>()
+  const notOwn = new Map<string, string>()
   const tooMany = () => new ToolError(`the pictures of one call are larger than ${PICTURE_LIMITS.totalBytes / 1024 / 1024} MB together; use smaller ones`)
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
@@ -162,13 +195,13 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
         // the chat's own visibility and quarantine checks (the place's one safe open)
         const f = await readPlaceFile(ctx, c, ch.image, PICTURE_LIMITS.imageBytes, work)
         rel = f.place
-        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.add(f.name)
+        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.set(rel, f.name)
         load = () => readRegular(f.local, PICTURE_LIMITS.imageBytes).bytes
       } else {
         const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
         if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
         rel = img.rel
-        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.add(rel)
+        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.set(rel, rel)
         load = () => {
           if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
           return readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
@@ -188,13 +221,16 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
       images.push(entry)
     }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
-  let layout
-  try { layout = await componentC(ctx).hwp.layout(c.user.id, Buffer.from(doc), x, c.signal) } catch (e) {
+  return { images, sources: [...seen.keys()], notOwn: [...notOwn.values()] }
+}
+
+/** The page layout a picture is placed from; the HWP renderer must run here. */
+async function layoutOf(ctx: AppContext, c: ToolCtx, doc: Uint8Array, x: 'hwp' | 'hwpx', rel: string) {
+  try { return await componentC(ctx).hwp.layout(c.user.id, Buffer.from(doc), x, c.signal) } catch (e) {
     if (!(e instanceof HwpError)) throw e
     const why = e.reason === 'disabled' || e.reason === 'engine' || e.reason === 'isolation'
       ? 'placing a picture needs the page layout from the HWP Preview renderer, which cannot run on this server (text changes still work); the person can put the picture in with Hangul'
       : `the page layout of '${rel}' could not be read (${e.reason})`
     throw new ToolError(`${why}; nothing was saved`)
   }
-  return { extra: { layout, images }, sources: [...seen.keys()], notOwn }
 }
