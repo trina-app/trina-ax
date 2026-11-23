@@ -2,13 +2,15 @@
 
 - Date (UTC): 2026-11-23 09:53 (local 16:53)
 - Branch: `spike/antigravity-engine`
-- Status: spike done. Doc only. No product code changed. No production host touched.
+- Status: spike done; subscription section added 2026-11-23 on owner request. Doc only. No product code changed. No production host touched.
 - Question: can Google's Antigravity CLI (`agy`) run as a third Trina AX engine next to Claude Code and Codex, with
   the same lock-down (restricted tools, engine sandbox, model proxy, team tools through MCP)?
 
 ## Answer
 
-**Feasible, with conditions**, and one open check: all runs used a mock model, so one short run with a real
+**Feasible, with conditions, in API key mode only.** A Google subscription sign-in (Pro/Ultra) is **not
+recommended**: the Antigravity terms call it a breach (see [Google subscription sign-in](#google-subscription-sign-in-google-ai-pro--ultra)).
+One open check: all runs used a mock model, so one short run with a real
 Gemini API key (through a local proxy) must pass before the build starts. `agy` 1.5.15 ran headless in a non-TTY, inside a copy of the Trina Linux engine
 sandbox (bubblewrap + Landlock `required-scoped` + seccomp + `--net-proxy`), with a placeholder API key and all model
 traffic sent to a local stand-in for the model proxy. Team tools worked through the real `mycel-bridge`. The deny
@@ -264,9 +266,116 @@ About **15–20 developer days (3–4 weeks)** for Linux and macOS, plus one sec
 If the goal is only "Gemini models in Trina": configure the existing `api` engine with Google's OpenAI-compatible
 endpoint. That is a QA task of about 1–2 days, not a new engine.
 
+## Google subscription sign-in (Google AI Pro / Ultra)
+
+Owner request (2026-11-23): teams sign in with a Google subscription, like Trina's Claude and ChatGPT subscription
+engines, not with an API key. We checked this path with no real account: the `agy` binary (1.5.15), its log, one run
+with no login, one run with a made-up token, the docs, the terms, and the Google forum.
+
+**Short answer: do not build this.** The Antigravity terms name this use as a breach, Google has suspended paying
+subscribers for it, and the technical path is not proven. The team path that Google allows is an API key (AI Studio)
+or a Google Cloud account (Gemini Enterprise or pay-as-you-go).
+
+### 1. How `agy` keeps the account login
+
+| Item | What we found | Evidence |
+|---|---|---|
+| Sign-in | Google OAuth 2.0 with PKCE, `access_type=offline` (so a refresh token), client `1071006060591-tmhss…apps.googleusercontent.com`. Headless shows a URL; the person pastes back a code from `antigravity.google/oauth-callback`. | stderr of a run with no login |
+| Scopes | `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`, `aicode`, `openid` | the same URL |
+| Where | OS keyring (Keychain, Secret Service, Credential Manager) by default. In a container: file `~/.gemini/antigravity-cli/antigravity-oauth-token` ("Using file-based token storage because container environment detected"). Also `~/.config/antigravity/credential-user-scope` and `plugin-secrets.json`. | log + `strace openat` |
+| Model API | Cloud Code API (`cloudcode-pa.googleapis.com`: `loadCodeAssist`, `onboardUser`, `streamGenerateContent`), not the Gemini API. Refresh at `oauth2.googleapis.com/token`. Other calls with the same token: user info, people info, experiments, `play.googleapis.com/log`. | strings in the binary, log |
+| Endpoint override | `CLOUD_CODE_URL` works ("Overriding CloudCodeServerURL via CLOUD_CODE_URL"). | log |
+| No login, no TTY | The run does **not** stop at once (the docs say it does): it waits for the sign-in until the outer timeout (60 s here), then `status: ERROR`, "authentication failed or timed out". | run t0 |
+
+**Can a headless run in the sandbox use it?** Yes in principle: HOME is the chat folder, the container check picks the
+file store, and no keyring or D-Bus is needed. Not tested with a real login.
+
+**Can the model proxy keep the real token and give the engine a placeholder (like D9 for Codex)?** Possible, not
+proven:
+
+- For: `CLOUD_CODE_URL` sends the model calls to an address we choose, so the proxy can put the real `Authorization`
+  on them, as it does for Codex (`codexManagedArgs`, `credentials/codex-home.ts`). The refresh can stay in the server
+  (D10), with a placeholder refresh token like `teamax-no-refresh`.
+- Against: we wrote a token file with a placeholder access token and a far expiry. `agy` read it and refused it
+  ("keyringAuth: failed to get oauth params: unknown auth method"). The file format has more fields than an OAuth
+  token, and we can only learn them from one real sign-in. The proxy must also answer the Cloud Code setup calls
+  (`loadCodeAssist`, tier, project), and the user-info, experiments and refresh calls go to fixed Google hosts, which
+  the sandbox blocks. We do not know if a turn still works when they fail.
+- So the engine would depend on an undocumented file format and an internal API (Cloud Code `v1internal`). Each
+  `agy` update can break it. This is weaker than Claude (`setup-token`, documented) and Codex (`auth.json`, open
+  source).
+
+### 2. Terms
+
+- Antigravity Terms of Service (primary source, [antigravity.google/terms](https://antigravity.google/terms), read
+  2026-11-23): "Using third party software, tools, or services to access the Service (e.g. using OpenClaw with
+  Antigravity OAuth) is a breach of this Agreement. Such actions may be grounds for suspension or termination of your
+  Antigravity and/or Gemini CLI accounts." The same section forbids "using the Service in connection with products
+  not provided by us".
+- Official FAQ ([docs/faq](https://antigravity.google/docs/faq)): "Antigravity CLI headless mode (`agy -p`) is
+  intended for direct scripting and CI workflows. Wrapping `agy` inside third-party coding agents or applications, or
+  automating account rotation, is not supported under consumer plans." And: "To use a third-party coding agent with
+  Gemini, we recommend using a Gemini Enterprise or Google AI Studio API key."
+- Plans ([docs/plans](https://antigravity.google/docs/plans)): Pro and Ultra are for personal Google Accounts.
+  Workspace accounts do not include Antigravity plans.
+- Google AI Developers Forum: [#190447](https://discuss.ai.google.dev/t/can-a-third-party-desktop-app-run-the-official-antigravity-cli-with-the-user-s-own-google-ai-pro-ultra-subscription/190447)
+  (2026-10-19) asks our exact case (an app runs the unmodified `agy` with the user's own Pro/Ultra login, never
+  touches tokens). Reply: not permitted, and it "can trigger automated account bans". In
+  [#191689](https://discuss.ai.google.dev/t/paying-google-ai-pro-subscriber-allow-subscription-use-with-third-party-agents-like-openclaw/191689)
+  a forum moderator says an earlier "yes" (5–7 Oct) was replaced when the FAQ was updated in mid-October 2026. These
+  replies come from forum regulars, not a Google legal statement, but they match the terms and the FAQ.
+- Enforcement: reports of paying Pro and Ultra subscribers suspended for third-party tools, with no refund
+  ([WinBuzzer, 2026-02-23](https://winbuzzer.com/2026/02/23/google-bans-ai-subscribers-openclaw-no-refunds-xcxwbn/),
+  [Enterprise DNA, 2026-09-03](https://enterprisedna.co/resources/ai-pulse/ai-pulse-2026-09-03-google-suspends-paying-antigravity-subscribers-for-using-thi/)).
+  Secondary sources.
+- Trina makes it worse: a server runs `agy`, for many people of a team, with the proxy changing the traffic. This is
+  further from "direct scripting" than the forum cases. The risk falls on the customer's own Google account (Gmail,
+  Drive, and so on), not only on the Antigravity plan.
+
+This is the same type of decision as D22 (Anthropic does not allow third-party operators to broker consumer Claude
+credentials), but here the provider's own terms name the use as a breach.
+
+### 3. Quotas and limits (subscription)
+
+- Google publishes no numbers. Each model group (Gemini Flash, Gemini Pro, third-party models) has a five-hour limit
+  and a weekly limit. Ultra gets the highest, Pro high, free "a meaningful quota, refreshed weekly". Limits "correlate
+  with the amount of work done by the agent" and can change ([plans](https://antigravity.google/docs/plans),
+  [/usage](https://antigravity.google/docs/cli/commands/usage)).
+- Above the quota: Pro/Ultra can spend purchased AI credits (setting `useG1Credits` / "AI Credit Overages": Never or
+  Always), at Gemini Enterprise prices.
+- Headless use draws on the same quota as the person's own use of the app and the IDE. A team that shares one login
+  shares one five-hour budget.
+- On the limit (from the CLI changelog in the binary): when the quota is used up and credits cannot cover it, the CLI
+  now stops at once with an error (before: about 2.5 minutes of retries). It waits for a server retry delay only up to
+  30 seconds, and stops at once for a daily or longer quota. Errors such as `RESOURCE_EXHAUSTED` /
+  `MODEL_CAPACITY_EXHAUSTED` end the turn with `status: ERROR`. Trina would map this to `rate_limited` (D14/D15). The
+  remaining quota can be read with `agy -p "/usage"` (JSON with `--json`).
+
+### 4. A real-account test: what it needs, and the risks
+
+Only if the owner accepts the terms risk in writing. Needs from Dion:
+
+1. A **throwaway personal Google account** with Google AI Pro (not his main account, not a Workspace account, no
+   other data on it). A ban must cost nothing.
+2. One sign-in on a test box (a throwaway OrbStack container on this Mac or a Lightsail test VM, never a team server
+   or the control plane): `agy` prints a URL, he opens it, signs in, pastes back the code. About 5 minutes.
+3. Approval for 2–3 short prompts (quota only, no money).
+
+What the test answers: the file format (field names only, values never printed or copied off the box), whether
+`CLOUD_CODE_URL` + a placeholder token + a refresh held by the server works, whether a turn survives with the side
+calls blocked, and whether #318 (hang) shows. After the test: `/logout`, revoke the app at
+myaccount.google.com/permissions, delete the box.
+
+Risks of the test: the account can be suspended (the terms allow it); the token on the box is a full
+`cloud-platform`-scope Google credential (keep the box offline except Google, delete it after); a "pass" does not make
+the product use allowed.
+
 ## Recommendation
 
 1. Now: offer Gemini through the existing `api` engine. Measure if teams use it.
+   Do not offer a Google AI Pro/Ultra sign-in. For teams that want Google billing, the allowed path is an AI Studio
+   API key or a Google Cloud account (Gemini Enterprise or pay-as-you-go); a later spike can check `agy`'s
+   enterprise sign-in (ADC, `AGY_LLM_GATEWAY_*`) for that.
 2. Before any build: one real-key run (approved key, through a local proxy, cost of cents) to close check 1, and
    one macOS run under `engine.sb`.
 3. Build the `agy` engine only if teams need agy's own agent behaviour. Then build it under C1–C6 and start with
