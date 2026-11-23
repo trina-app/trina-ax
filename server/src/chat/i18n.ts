@@ -609,6 +609,22 @@ export const TEXT = {
     "AIが{service}から取得した内容は、ゲスト（チーム外の人）{g}人を含む、このチャットの{n}人に表示されます。",
     "Lo que la IA obtenga de {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
     'AI 从{service}获取的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
+  /** the one notice before a person's first use of a connection in a shared project or shared chat (chat/turn.ts
+   * confirmSharedConnection; docs/decisions/20261123-shared-connector-warning-once.md): one button, shown once */
+  sharedConnectionWarn: t('이 채팅의 다른 사람도 {service}에서 가져온 내용을 볼 수 있어요.',
+    'Other people in this chat can also see what the AI gets from {service}.',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari {service}.',
+    "このチャットの他の人も、AIが{service}から取得した内容を見られます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de {service}.',
+    '这个对话里的其他人也能看到 AI 从{service}获取的内容。'),
+  /** ...when a guest sees the chat (someone outside the team) */
+  sharedConnectionWarnGuest: t('이 채팅의 다른 사람도 {service}에서 가져온 내용을 볼 수 있어요. 여기에는 게스트(팀 밖의 사람)도 있어요.',
+    'Other people in this chat can also see what the AI gets from {service}, including a guest (someone outside the team).',
+    'Orang lain di obrolan ini juga bisa melihat apa yang AI ambil dari {service}, termasuk tamu (orang di luar tim).',
+    "このチャットの他の人も、AIが{service}から取得した内容を見られます。ゲスト（チーム外の人）もいます。",
+    'Las demás personas de este chat también pueden ver lo que la IA obtenga de {service}, incluido un invitado (alguien de fuera del equipo).',
+    '这个对话里的其他人也能看到 AI 从{service}获取的内容，其中包括访客（团队以外的人）。'),
+  sharedConnectionContinue: t('계속', 'Continue', 'Lanjutkan', "続ける", 'Continuar', '继续'),
   sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
   // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
   // the label of its list of those changes (chat/tools.ts boxShellTool confirm)

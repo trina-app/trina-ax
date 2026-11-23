@@ -4,11 +4,13 @@
 // whose name holds a change word as a noun (get_post: the read card). Covered: the card's plain words and buttons;
 // Always allow in chat A means no card in chat B; another person still asks; Settings lists it and deleting it asks
 // again; a re-pointed connection, the team's switch off and a lost access each end it; a change still asks every time.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { warnedIn } from '../lib/shared-warned'
+import { WARNED_PREFIX } from '../../server/src/integrations/connections/tool-allow'
 import { FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { setAccess } from '../../server/src/integrations/connections/store'
@@ -42,6 +44,9 @@ beforeAll(async () => {
   expect(team.status).toBe('connected')
   teamId = team.id
 })
+// every person has seen the one notice in the project (docs/decisions/20261123-shared-connector-warning-once.md): the
+// cards here are the tools' own
+beforeEach(() => { if (h && projectId) warnedIn(h.ctx.db, `p:${projectId}`) })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); svc?.stop(); await h?.close() })
 
 const db = () => h.ctx.db
@@ -74,8 +79,8 @@ async function askCards(user: string, chatId: string, content: string, pick: (ca
 const last = (c: Card) => c.options.at(-1)!.value
 const callsOf = (n: string) => svc.calls.filter((c) => c.name === n).length
 const via = (name: string, args: Record<string, unknown> = {}) => fake({ tool: name, args, sayResult: true })
-const grants = (user: string) => (db().query('SELECT tool FROM connector_tool_allow WHERE user_id = ?').all(user) as { tool: string }[]).map((r) => r.tool)
-const clear = () => db().query('DELETE FROM connector_tool_allow').run()
+const grants = (user: string) => (db().query('SELECT tool FROM connector_tool_allow WHERE user_id = ?').all(user) as { tool: string }[]).map((r) => r.tool).filter((t) => !t.startsWith(WARNED_PREFIX))
+const clear = () => { db().query('DELETE FROM connector_tool_allow').run(); warnedIn(db(), `p:${projectId}`) }
 
 describe('a read-only connector tool in a shared chat', () => {
   test('a tool with no change word (scrape_as_markdown) runs with no card', async () => {
@@ -117,13 +122,13 @@ describe('a read-only connector tool in a shared chat', () => {
     expect(callsOf('get_post')).toBe(n + 2)
     // Settings › Allowed for Trina
     const list = await h.api('alice').call(API.listAiAllowances)
-    const row = list.items.find((x) => x.kind === 'connector_tool')
+    const row = list.items.find((x) => x.kind === 'connector_tool' && x.warned === undefined)
     expect(row).toMatchObject({ kind: 'connector_tool', connection: 'Bright Data', tool: 'Get post' })
     // bob's own choice: his card still comes (alice's Always is hers)
     const bobs = await newShared('bob')
     const bob = await askCards('bob', bobs.id, via(T('get_post'), { url: 'https://example.com/c' }), last)
     expect(bob.cards.length).toBe(1)
-    expect((await h.api('bob').call(API.listAiAllowances)).items.some((x) => x.kind === 'connector_tool')).toBe(false)
+    expect((await h.api('bob').call(API.listAiAllowances)).items.some((x) => x.kind === 'connector_tool' && x.warned === undefined)).toBe(false)
     // and bob cannot delete alice's
     const del = await h.req('bob', `/api/ai-allowances/${encodeURIComponent(row!.id)}`, { method: 'DELETE' })
     expect(del.status).toBe(404)
@@ -132,7 +137,7 @@ describe('a read-only connector tool in a shared chat', () => {
 
   test('deleting it in Settings asks again', async () => {
     const list = await h.api('alice').call(API.listAiAllowances)
-    const row = list.items.find((x) => x.kind === 'connector_tool')!
+    const row = list.items.find((x) => x.kind === 'connector_tool' && x.warned === undefined)!
     await h.api('alice').call(API.deleteAiAllowance, { params: { id: row.id } })
     expect(grants('alice')).toEqual([])
     const c = await newShared()
@@ -147,8 +152,9 @@ describe('a read-only connector tool in a shared chat', () => {
     expect(grants('alice')).toEqual(['get_post'])
     // the connection now points elsewhere than when it was chosen
     db().query("UPDATE connector_tool_allow SET url = 'https://elsewhere.example.com/mcp'").run()
+    warnedIn(db(), `p:${projectId}`)
     expect((await askCards('alice', (await newShared()).id, via(T('get_post')), last)).cards.length).toBe(1)
-    expect((await h.api('alice').call(API.listAiAllowances)).items.some((x) => x.kind === 'connector_tool')).toBe(false)
+    expect((await h.api('alice').call(API.listAiAllowances)).items.some((x) => x.kind === 'connector_tool' && x.warned === undefined)).toBe(false)
     clear()
     await askCards('alice', (await newShared()).id, via(T('get_post')), () => 'always')
     // the team's "Always allow" switch off: the row is ignored, and the card offers no Always
@@ -163,6 +169,8 @@ describe('a read-only connector tool in a shared chat', () => {
     setAccess(db(), teamId, { everyone: false, groups: [], users: ['bob'] })
     expect(grants('alice')).toEqual([])
     setAccess(db(), teamId, { everyone: true, groups: [], users: [] })
+    // (a lost access took the notice too: seen again here, the tool's own card is the subject)
+    warnedIn(db(), `p:${projectId}`)
     expect((await askCards('alice', (await newShared()).id, via(T('get_post')), last)).cards.length).toBe(1)
   })
 

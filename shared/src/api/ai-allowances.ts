@@ -50,6 +50,10 @@ export const ConnectorToolAllowance = z.object({
   /** "<connector> 전체 항상 허용" (docs/decisions/20261123-one-always-allow.md): every tool of this connection, one entry
    * per connection (`tool` then reads "All tools" for an app that does not know the field) */
   all: z.literal(true).optional(),
+  /** the one notice of a shared project or shared chat (docs/decisions/20261123-shared-connector-warning-once.md): the
+   * person went on from it there; this is the project's name or the chat's title ('' when it has none). Removing it shows
+   * the notice again (with `shared`, so an app that does not know the field still names it) */
+  warned: z.string().max(500).optional(),
   createdAt: z.string(),
 })
 export type ConnectorToolAllowance = z.infer<typeof ConnectorToolAllowance>

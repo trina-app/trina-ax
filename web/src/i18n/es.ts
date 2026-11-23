@@ -811,6 +811,7 @@ export const es: Record<MessageKey, string> = {
   'allowances.deleteLabel': "Eliminar el permiso de {place}",
   'allowances.always': "Permitir siempre",
   'allowances.connectorShared': "Mostrar lo que devuelve en chats compartidos",
+  'allowances.connectorWarned': "Aviso de chats compartidos visto",
   'allowances.connectorAll': "Todas las herramientas (todos los chats y tareas programadas)",
   'allowances.card.room_change': "Cambios tras leer conversaciones",
   'allowances.card.remember': "Recordar cosas",

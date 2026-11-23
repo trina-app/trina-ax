@@ -811,6 +811,7 @@ export const ja: Record<MessageKey, string> = {
   'allowances.deleteLabel': "{place}の許可を削除",
   'allowances.always': "常に許可",
   'allowances.connectorShared': "共有チャットで取得した内容を表示",
+  'allowances.connectorWarned': "共有チャットの案内を確認済み",
   'allowances.connectorAll': "すべてのツール（すべての会話と予定タスク）",
   'allowances.card.room_change': "トークを読んだ後の変更",
   'allowances.card.remember': "覚えておくこと",

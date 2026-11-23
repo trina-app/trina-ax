@@ -79,6 +79,38 @@ export function keepSharedAllow(db: Database, integrationId: string, userId: str
   audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_shared', integration: integrationId, on: true, via: 'card', turnId } })
 }
 
+/** The one notice before the person's first use of a connection in a shared project or shared chat
+ * (docs/decisions/20261123-shared-connector-warning-once.md; the owner: "공유 프로젝트에서 처음 쓰기전에 노출될 수 있습니다.
+ * 경고 한번만 주고 시작하면 되지 않을까?"): a row per person, connection and place, whose tool is this prefix and the place
+ * (`p:<project id>` or `c:<chat id>`). Kept in the same table so Settings › Allowed for Trina lists it and the person can
+ * reset it (the notice then shows again). Bound like the Always rows (address and account): a reconnect to another account
+ * shows it again. Not an Always: the team's "Always allow" switch does not end it (it lets nothing more through than the
+ * notice said). */
+export const WARNED_PREFIX = '\u0000seen:'
+export const warnPlace = (shared: { kind: 'project'; projectId: string } | { kind: 'people'; chatId: string }) => shared.kind === 'project' ? `p:${shared.projectId}` : `c:${shared.chatId}`
+
+/** The person saw (and went on from) the notice for this connection in this place, as the connection is now */
+export function warnSeen(db: Database, integrationId: string, userId: string, place: string, bind: string): boolean {
+  const r = db.query("SELECT a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool = ? AND u.status = 'active' AND u.deleted_at IS NULL")
+    .get(userId, integrationId, WARNED_PREFIX + place) as { url: string } | null
+  return !!r && r.url === bind
+}
+
+/** Keep that the person went on from the notice (their own press). Audited. */
+export function keepWarnSeen(db: Database, integrationId: string, userId: string, place: string, bind: string, turnId: string | null): void {
+  db.query('INSERT INTO connector_tool_allow (user_id, integration_id, tool, url, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, integration_id, tool) DO UPDATE SET url = excluded.url, created_at = excluded.created_at')
+    .run(userId, integrationId, WARNED_PREFIX + place, bind, new Date().toISOString())
+  audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_warned', integration: integrationId, place, on: true, via: 'card', turnId } })
+}
+
+/** The place's name for Settings: the project's name, or the chat's title */
+function placeName(db: Database, place: string): string {
+  const id = place.slice(2)
+  const r = place.startsWith('p:') ? db.query('SELECT name FROM projects WHERE id = ?').get(id) as { name: string } | null
+    : db.query('SELECT title AS name FROM chats WHERE id = ?').get(id) as { name: string } | null
+  return (r?.name ?? '').trim().slice(0, 500)
+}
+
 /** The allowance's id: `tool:` and the connection and tool, so a tool name with any character round-trips. */
 const idOf = (integrationId: string, tool: string) => `tool:${Buffer.from(JSON.stringify([integrationId, tool])).toString('base64url')}`
 function parseId(id: string): [string, string] | null {
@@ -99,6 +131,7 @@ export function listToolAllows(db: Database, userId: string): ConnectorToolAllow
   for (const r of stale) db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, r.integration_id, r.tool)
   return rows.filter((r) => r.bound === sharedBind(r)).map((r) => {
     if (r.tool === ALL_TOOLS) return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: 'All tools', all: true, createdAt: r.created_at }
+    if (r.tool.startsWith(WARNED_PREFIX)) return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: '', shared: true, warned: placeName(db, r.tool.slice(WARNED_PREFIX.length)), createdAt: r.created_at }
     if (r.tool === SHARED_TOOL) return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: '', shared: true, createdAt: r.created_at }
     const saved = savedTools(db, { id: r.integration_id, tools_rev: r.tools_rev }).find((t) => t.name === r.tool)
     return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: toolTitle(saved ?? { name: r.tool }), createdAt: r.created_at }
@@ -110,7 +143,7 @@ export function dropToolAllow(db: Database, userId: string, id: string): boolean
   const p = parseId(id)
   if (!p) return false
   const n = db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, p[0], p[1]).changes
-  if (n) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: p[1] === ALL_TOOLS ? 'connector_all' : 'connector_tool', integration: p[0], tool: p[1], on: false, via: 'settings' } })
+  if (n) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: p[1] === ALL_TOOLS ? 'connector_all' : p[1].startsWith(WARNED_PREFIX) ? 'connector_warned' : 'connector_tool', integration: p[0], tool: p[1], on: false, via: 'settings' } })
   return n > 0
 }
 

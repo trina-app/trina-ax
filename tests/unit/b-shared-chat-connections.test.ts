@@ -11,6 +11,8 @@ import { API, type Message } from '@mycel/shared/api'
 import { addTestPerson, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { warnedIn } from '../lib/shared-warned'
+import { WARNED_PREFIX } from '../../server/src/integrations/connections/tool-allow'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -48,7 +50,11 @@ beforeAll(async () => {
   const mine = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Alice Mail', url: `${svc.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY, writePolicy: 'ask' } as never })
   expect(mine.status).toBe('connected')
 })
-beforeEach(() => { h?.ctx.db.query('DELETE FROM connector_tool_allow').run() })
+// every person has seen the one notice in the project (docs/decisions/20261123-shared-connector-warning-once.md); a test
+// of the notice itself clears it first (fresh())
+beforeEach(() => { h?.ctx.db.query('DELETE FROM connector_tool_allow').run(); if (h) warnedIn(h.ctx.db, `p:${projectId}`) })
+const fresh = () => h.ctx.db.query('DELETE FROM connector_tool_allow').run()
+const WARN = (s: string) => `Other people in this chat can also see what the AI gets from ${s}.`
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); svc?.stop(); await h?.close() })
 
 const db = () => h.ctx.db
@@ -127,11 +133,11 @@ describe('a team connection (TC-4885)', () => {
       expect(calls()).toBe(n)
       // (the tool is not offered: the turn's call of it fails); the instructions say why
       expect(r.done.content).not.toContain('search_tasks: ')
-      // alice's own connection still asks her, and the card says a guest is among the people (security review of #1276)
-      const own = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'g' }, sayResult: true }), 'cancel')
-      expect(own.card.question).toBe('What the AI gets from Alice Mail will show to the 2 people in this chat, including a guest (someone outside the team).')
-      // with someone outside the team in the chat: the same one Always (docs/decisions/20261123-one-always-allow.md)
-      expect(own.card.options.map((o) => o.label)).toEqual(['Allow', 'Always allow', 'Always allow all of Alice Mail', 'Don’t allow'])
+      // alice's own connection still works; its one notice says a guest is among the people (security review of #1276)
+      fresh()
+      const own = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'g' }, sayResult: true }), 'once')
+      expect(own.card.question).toBe('Other people in this chat can also see what the AI gets from Alice Mail, including a guest (someone outside the team).')
+      expect(own.card.options.map((o) => o.label)).toEqual(['Continue'])
       const said = await ask('alice', chat.id, fake({ echo: 'system' }))
       expect(said.done.content).toContain("The team's connections (Bright Data): not usable in this shared chat, because a guest is in it and guests have no connected services")
       expect(said.done.content).toContain('When a guest is in this chat the team\'s connections are off')
@@ -149,7 +155,7 @@ describe('a guest in the shared chat: the one Always holds there too', () => {
     db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('conn-guest', 'f_projects_falcon', 'user', 'bob', 'read')").run()
   }
   const guestOff = () => { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run(); db().query("DELETE FROM folder_rules WHERE id = 'conn-guest'").run(); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
-  const grants = () => (db().query("SELECT tool FROM connector_tool_allow WHERE user_id = 'alice' AND tool <> ''").all() as { tool: string }[]).map((r) => r.tool).sort()
+  const grants = () => (db().query("SELECT tool FROM connector_tool_allow WHERE user_id = 'alice' AND tool <> ''").all() as { tool: string }[]).map((r) => r.tool).filter((t) => !t.startsWith(WARNED_PREFIX)).sort()
   const always = (c: { options: { value: string }[] }) => (c.options.some((o) => o.value === 'always') ? 'always' : c.options[0]!.value)
   const made = () => svc.calls.filter((c) => c.name === 'create_task').length
   const reads = () => svc.calls.filter((c) => c.name === 'get_post').length
@@ -160,8 +166,8 @@ describe('a guest in the shared chat: the one Always holds there too', () => {
     guestOn()
     try {
       const r = await askCards('alice', chat.id, fake({ tool: MINE_READ, args: { url: 'https://example.com/p/1' }, sayResult: true }, { tool: MINE_WRITE, args: { title: 'with a guest' }, sayResult: true }), always)
-      const shared = r.cards.find((c) => c.question.startsWith('What the AI gets'))!
-      expect(shared.options.map((o) => o.value)).toEqual(['once', 'always', 'all', 'cancel'])
+      const shared = r.cards.find((c) => c.question.startsWith('Other people in this chat'))!
+      expect(shared.options.map((o) => o.value)).toEqual(['once'])
       const read = r.cards.find((c) => c.question.startsWith('Read this page with Alice Mail'))!
       const change = r.cards.find((c) => c.question.includes('Create a task in Alice Mail'))!
       for (const c of [read, change]) {
@@ -197,17 +203,17 @@ describe('a guest in the shared chat: the one Always holds there too', () => {
 })
 
 describe("the asker's own connection (TC-4886)", () => {
-  test('the card goes to alice only, names the service and the people, and nothing is fetched before her answer; Cancel fetches nothing', async () => {
+  test('the notice goes to alice only, names the service, and nothing is fetched before her press; no press fetches nothing', async () => {
+    fresh()
     const chat = await newShared()
     const n = calls()
     let before = -1
-    const r = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'invoices' }, sayResult: true }), 'cancel', () => { before = calls() })
+    const r = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'invoices' }, sayResult: true }), null, () => { before = calls() })
     expect(before).toBe(n)
-    expect(r.card.question).toBe('What the AI gets from Alice Mail will show to the 2 people in this chat.')
-    // one press: three buttons; Always is for good (docs/decisions/20261122-connector-always-allow.md)
-    expect(r.card.options.map((o) => [o.label, o.value])).toEqual([['Allow', 'once'], ['Always allow', 'always'], ['Always allow all of Alice Mail', 'all'], ['Don’t allow', 'cancel']])
+    expect(r.card.question).toBe(WARN('Alice Mail'))
+    // one button (docs/decisions/20261123-shared-connector-warning-once.md)
+    expect(r.card.options.map((o) => [o.label, o.value])).toEqual([['Continue', 'once']])
     expect((r.card as { buttons?: boolean }).buttons).toBe(true)
-    expect((r.card as { note?: string }).note).toContain('in shared chats')
     expect(cardsTo('bob', r.started.turnId)).toEqual([])
     expect(calls()).toBe(n)
     expect(events(r.started.turnId).find((e) => e.tool === MINE_TOOL)?.summary).toContain('not fetched (shared chat)')
@@ -215,6 +221,7 @@ describe("the asker's own connection (TC-4886)", () => {
   })
 
   test('no answer in time fetches nothing', async () => {
+    fresh()
     const chat = await newShared()
     const n = calls()
     const r = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'x' }, sayResult: true }), null)
@@ -222,7 +229,8 @@ describe("the asker's own connection (TC-4886)", () => {
     expect(r.done.content).toContain('Nothing was fetched from Alice Mail')
   })
 
-  test('Allow once: fetched for this answer, asked again in the next one; a later joiner does not see the answer', async () => {
+  test('Continue: fetched, and no notice in the next answer; a later joiner does not see the answer', async () => {
+    fresh()
     const chat = await newShared()
     const n = calls()
     const r = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }, { tool: MINE_TOOL, args: { q: 'b' }, sayResult: true }), 'once')
@@ -239,15 +247,16 @@ describe("the asker's own connection (TC-4886)", () => {
       const forGina = await answerFor('gina', chat.id, r.done.id)
       expect([forGina.withheld, forGina.content]).toEqual([true, ''])
     } finally { ginaLeaves() }
-    // the next answer asks again
-    const again = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'c' }, sayResult: true }), 'cancel')
-    expect(again.card.question).toContain('Alice Mail')
+    // the next answer: no notice again (once per project)
+    const again = await ask('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'c' }, sayResult: true }))
+    expect(cardsTo('alice', again.started.turnId)).toEqual([])
   })
 
-  test('Always allow: no card in the next answers, in another shared chat, or when a new person joins; Settings removes it', async () => {
+  test('Continue once: no card in the next answers, in another chat of the project, or when a new person joins; Settings removes it', async () => {
+    fresh()
     const chat = await newShared()
     const n = calls()
-    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'once')
     expect(calls()).toBe(n + 1)
     const next = await ask('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'b' }, sayResult: true }))
     expect(cardsTo('alice', next.started.turnId)).toEqual([])
@@ -267,13 +276,13 @@ describe("the asker's own connection (TC-4886)", () => {
     const row = (await h.api('alice').call(API.listAiAllowances)).items.find((x) => x.kind === 'connector_tool' && x.shared)
     expect(row).toMatchObject({ connection: 'Alice Mail', shared: true })
     await h.api('alice').call(API.deleteAiAllowance, { params: { id: row!.id } })
-    const back = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'e' }, sayResult: true }), 'cancel')
+    const back = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'e' }, sayResult: true }), 'once')
     expect(back.card.question).toContain('Alice Mail')
   })
 
   test("bob's turn in the same chat never uses alice's connection", async () => {
     const chat = await newShared()
-    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+    await ask('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }))
     const n = calls()
     const r = await ask('bob', chat.id, fake({ tool: MINE_TOOL, args: { q: 'bob asks' }, sayResult: true }, { tool: 'call_tool', args: { name: MINE_TOOL, arguments: { q: 'bob asks' } }, sayResult: true }))
     expect(calls()).toBe(n)
@@ -296,9 +305,10 @@ describe("the asker's own connection (TC-4886)", () => {
 })
 
 describe('security review of #1276', () => {
-  test("a change through alice's own connection: its card offers Always allow for that tool; the shared card never covers it", async () => {
+  test("a change through alice's own connection: its card offers Always allow for that tool; the shared notice never covers it", async () => {
+    fresh()
     const chat = await newShared()
-    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'once')
     const n = svc.calls.filter((c) => c.name === 'create_task').length
     // no shared card (Always), but the change's own card names it; alice says no: nothing is created
     const r = await askCards('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'from the shared chat' }, sayResult: true }), (c) => c.options.at(-1)!.value)
@@ -315,11 +325,12 @@ describe('security review of #1276', () => {
     expect(svc.calls.filter((c) => c.name === 'create_task').length).toBe(n + 2)
   })
 
-  test('Always allow holds for the connection as it is: reconnected (a new version or account), it asks again', async () => {
+  test('the notice holds for the connection as it is: reconnected to another account, it shows again', async () => {
+    fresh()
     const chat = await newShared()
-    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'once')
     db().query("UPDATE integrations SET version = version + 1, account = '{\"email\":\"other@example.com\"}' WHERE name = 'Alice Mail'").run()
-    const again = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'b' }, sayResult: true }), 'cancel')
+    const again = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'b' }, sayResult: true }), 'once')
     expect(again.card.question).toContain('Alice Mail')
   })
 
@@ -338,7 +349,7 @@ describe('security review of #1276', () => {
     const own = (o2: Record<string, unknown>) => { for (const [k, v] of Object.entries(o2)) Object.defineProperty(t, k, { value: v, writable: true, configurable: true }) }
     own({
       shared: { kind: 'project', project: {} }, rt: { db: db(), files: h.ctx.files, log: { warn() {} } }, spec: { chatId: 'none', userId: 'alice', locale: 'en' },
-      principal: { name: 'Alice Kim' }, id: 'stand-in', sharedConnAllowed: new Map(), sharedConnRefused: new Map(), sharedConnPending: new Map(),
+      principal: { name: 'Alice Kim' }, id: 'stand-in', sharedWarnPlace: () => 'c:none', sharedConnForGood: () => false, sharedConnAllowed: new Map(), sharedConnRefused: new Map(), sharedConnPending: new Map(),
       recorded: [] as string[][],
     })
     own({
@@ -350,24 +361,18 @@ describe('security review of #1276', () => {
   }
   const conn = { id: 'conn-1', key: 'conn-1\u00001\u0000', name: 'Alice Mail', sources: [{ type: 'user' as const, id: 'alice', via: 'connection' as const }] }
 
-  test('a parallel call whose audience grew while the card was open asks again; only the asked people are recorded', async () => {
-    let people = ['alice', 'bob']
+  test('parallel calls share one notice; each records the people who see the chat', async () => {
     const asked: string[][] = []
     let release!: (v: string) => void
     const first = new Promise<string>((r) => { release = r })
-    const t = standIn({ audience: () => people, ask: (a) => { asked.push([...a]); return asked.length === 1 ? first : Promise.resolve('shared') } })
+    const t = standIn({ audience: () => ['alice', 'bob'], ask: (a) => { asked.push([...a]); return first } })
     const one = t.confirmSharedConnection(conn)
-    await Bun.sleep(5)
-    people = ['alice', 'bob', 'gina']
     const two = t.confirmSharedConnection(conn)
     await Bun.sleep(5)
     release('shared')
     expect([await one, await two]).toEqual([null, null])
-    expect(asked).toEqual([['alice', 'bob'], ['alice', 'bob', 'gina']])
-    // every record names exactly the people one card was answered for (gina only after the card that named her)
-    expect(t.recorded.length).toBe(2)
-    for (const r of t.recorded) expect(asked.map((a) => a.join())).toContain(r.join())
-    expect(t.recorded.every((r: string[]) => !r.includes('gina') || asked[1]!.includes('gina'))).toBe(true)
+    expect(asked).toEqual([['alice', 'bob']])
+    expect(t.recorded).toEqual([['alice', 'bob'], ['alice', 'bob']])
   })
 
   test('nobody found to see the chat: no card and nothing fetched (fails closed)', async () => {
@@ -393,14 +398,14 @@ describe('the instructions and the provider in a shared chat', () => {
   const shared = (o: { guest?: boolean; audience?: string[] } = {}): SharedConnections => ({ locale: 'en', audience: () => o.audience ?? ['alice', 'bob'], guestHere: () => !!o.guest, confirm: async () => null })
   const build = (o: { guest?: boolean } = {}) => integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false, shared: shared(o) })
 
-  test('each connection says whether a card comes first; connecting a new one is not offered here', () => {
+  test('each connection says what it returns shows to everyone here, after one notice; connecting a new one is not offered here', () => {
     const b = build()
     const names = b.tools.map((t) => t.name)
     expect(names).toContain(TEAM_TOOL)
     expect(names).toContain(MINE_TOOL)
     const line = (name: string) => b.prompt!.split('\n').find((l) => l.startsWith(`- ${name} `))!
-    expect(line('Bright Data')).toContain('everyone in this shared chat may use it, so it works here with no extra card')
-    expect(line('Alice Mail')).toContain('before its first call the server asks them on a card only they see')
+    expect(line('Bright Data')).toContain('what it returns shows to everyone in this shared chat (the first time the user uses it here the server shows them a short notice')
+    expect(line('Alice Mail')).toContain("in this shared chat it is the user's own: what it returns shows to everyone here")
     expect(b.prompt).toContain('connecting is not done in a shared chat')
     expect(b.prompt).not.toContain('connect_service')
   })
@@ -413,11 +418,12 @@ describe('the instructions and the provider in a shared chat', () => {
     expect(b.prompt).toContain("The team's connections (Bright Data): not usable in this shared chat, because a guest is in it")
   })
 
-  test('the shared section no longer says connected services are off, and says how the card works', () => {
+  test('the shared section no longer says connected services are off, and says how the notice works', () => {
     const text = sharedSection({ project: 'Falcon', audience: 2, asker: 'Alice Kim', members: null }, 'en')
     expect(text).not.toContain('connected services (and connecting one)')
     expect(text).toContain('connecting a new service')
-    expect(text).toContain('the server asks Alice Kim on a card only they see')
+    expect(text).toContain('the server shows Alice Kim a short notice that says so, only once')
+    expect(text).toContain('is not "the browser on Alice Kim\'s computer"')
     expect(text).toContain("never another person's")
   })
 

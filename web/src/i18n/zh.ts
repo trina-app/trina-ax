@@ -810,6 +810,7 @@ export const zh: Record<MessageKey, string> = {
   "allowances.deleteLabel": "删除对{place}的允许",
   "allowances.always": "始终允许",
   'allowances.connectorShared': "在共享对话中显示获取的内容",
+  'allowances.connectorWarned': "已看过共享对话提示",
   'allowances.connectorAll': "全部工具（所有对话和定时任务）",
   "allowances.card.room_change": "读取聊天后进行的更改",
   "allowances.card.remember": "记住信息",

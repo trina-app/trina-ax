@@ -830,6 +830,7 @@ export const en: Record<MessageKey, string> = {
   'allowances.deleteLabel': "Delete the allowance for {place}",
   'allowances.always': "Always allow",
   'allowances.connectorShared': "Show what it returns in shared chats",
+  'allowances.connectorWarned': "Notice seen in shared chats",
   'allowances.connectorAll': "All tools (every chat and scheduled task)",
   'allowances.card.room_change': "Changes after reading conversations",
   'allowances.card.remember': "Remembering things",

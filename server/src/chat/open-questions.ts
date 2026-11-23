@@ -105,6 +105,16 @@ export function saveQuestion(db: Database, o: { request: TurnRequest; chatId: st
       o.call?.tool ?? null, o.call ? JSON.stringify(o.call.args ?? {}) : null, o.call?.window ?? null, meta && Object.keys(meta).length ? JSON.stringify(meta) : null)
 }
 
+/** The open card of this person in this chat that a call of the same tool with the same arguments left waiting, and
+ * that reads the same as `request` (sameCard): its request id, or null. One card per call (QA batch 5 flow 3): the AI
+ * that calls the very same thing again while its card waits gets that card, not a second one that would run it twice. */
+export function waitingTwin(db: Database, o: { chatId: string; userId: string; tool: string; args: unknown; request: TurnRequest }): string | null {
+  const args = JSON.stringify(o.args ?? {})
+  const rows = db.query('SELECT request_id, request FROM open_questions WHERE chat_id = ? AND user_id = ? AND answer IS NULL AND call_tool = ? AND call_args = ?').all(o.chatId, o.userId, o.tool, args) as { request_id: string; request: string }[]
+  for (const r of rows) { const q = parse(r.request); if (q && sameCard(q, o.request)) return r.request_id }
+  return null
+}
+
 /** The person's open cards in this chat, oldest first, as GET /api/chats/:id/requests lists cards: a card for one
  * desktop window (a browser site) only to that window. */
 export function openQuestionsOf(db: Database, chatId: string, userId: string, window: string | null = null): OpenTurnRequest[] {

@@ -54,7 +54,7 @@ import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
-import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
+import { sourceOf, type ReadSource } from '../../chat/read-scope'
 import { awayWords, localSpecOf, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
@@ -219,12 +219,19 @@ export function answerSources(row: Pick<Row, 'id' | 'scope' | 'google_app' | 'ow
 }
 
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
-function noteAnswer(ctx: AppContext, chat: string, row: Row) {
+function noteAnswer(ctx: AppContext, chat: string, row: Row, plain = false) {
   ctx.db.transaction(() => {
     addSources(ctx.db, chat, answerSources(row))
-    ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
+    if (!plain) ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
   })()
 }
+
+/** The short answer of a create the create tier let through (gate: nothing from outside, nobody else's words) says what
+ * was made ("앱 \"견적-계산기\"을 만들었습니다 (v10)"): it joins the chat's sources, but does not count as outside content
+ * that ends the tier for the next create of the same answer or chat (QA batch 5 flow 3: every create after the first
+ * asked). A longer or error answer, a file kept or an image, marks the chat as before. */
+const TIER_ANSWER_MAX = 300
+const plainTierAnswer = (sent: Sent | null, text: string, isError: boolean | undefined, kept: number) => !!sent?.tier && !isError && !kept && text.length <= TIER_ANSWER_MAX
 
 /**
  * A shared chat (BuildCtx.shared; docs/decisions/20261118-shared-chat-connections.md): before anything is fetched, a
@@ -274,6 +281,8 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** set by the gate: 'card' when the person said yes on this call's card, 'chat' when their yes on an earlier card in
    * this chat covered it (chat/card-approvals.ts) */
   via?: 'card' | 'chat'
+  /** it went with no card through the create tier (gate): its short answer does not mark the chat (noteAnswer) */
+  tier?: true
   /** the tool acts on the person's own things and sends nothing to other people (ownActTool): in a shared chat its card
    * offers Always allow for this tool (tool-allow.ts) */
   ownAct?: boolean
@@ -682,8 +691,10 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
   // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
   // (an admin who chose "ask" for a team connection is asked of every change there, the create tier too: createTierOk)
+  // (othersInChat, not othersWords: a shared chat itself is not another person's words; their messages, a room read or
+  // content they wrote are: QA batch 5 flow 3, where every create in a shared chat nobody else wrote in still asked)
   if (sent.create && createTierOk(row) && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
-    && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersWords?.() === false && !(sharedMode && guestShared(b))) return false
+    && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersInChat?.() === false && !(sharedMode && guestShared(b))) { sent.tier = true; return false }
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
@@ -1303,10 +1314,15 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         })
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
-        noteAnswer(ctx, chat, current)
         // whoever reads the attached files is who may read what the service says back about them
         if (files.length) addSources(ctx.db, chat, files.map((f) => sourceOf(ctx.db, ctx.files.rules(), f.rel)))
-        const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
+        // (the chat is marked whatever happens below: a reading that fails still counts as an answer that came in)
+        let plain = false, parsed: ReturnType<typeof mcpText>
+        try {
+          parsed = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
+          plain = plainTierAnswer(sent, parsed.text, parsed.isError, parsed.kept.length) && !parsed.links.length
+        } finally { noteAnswer(ctx, chat, current, plain) }
+        const { text: raw, isError, links, kept } = parsed
         // a draft the person said yes to on its card: sending it unchanged needs no second card (chat/card-approvals.ts)
         if (sent && !isError) keepMade(ctx, current, b, t.name, sent, raw)
         // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model
@@ -1764,17 +1780,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const guestHere = !!sh?.guestHere()
       const all = integrationsOf(ctx).usable(b.userId)
       const rows = guestHere ? all.filter((r) => r.scope !== 'team') : all
-      const audience = sh ? sh.audience() : []
-      /** a shared chat: does a call ask the person on the card first (someone here could not see what it returns)? */
-      const asks = (row: Row): boolean => {
-        try { return missingReaders(ctx.db, ctx.files.rules(), answerSources(row), audience).length > 0 } catch { return true }
-      }
+      /** a shared chat: the one notice before this person's first use of a connection here (chat/turn.ts
+       * confirmSharedConnection, docs/decisions/20261123-shared-connector-warning-once.md) */
       const sharedNote = (row: Row): string => !sh ? ''
-        : asks(row)
-          ? row.scope === 'personal'
-            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow, Always allow, Don't allow; no card once they chose Always allow). Never ask in your own words first; if they cancel, answer without it and do not try another way`
-            : `; some people in this shared chat may not use it: before its first call the server asks the user on a card only they see whether what it returns may be shown to everyone here. If they cancel, answer without it and do not try another way`
-          : '; everyone in this shared chat may use it, so it works here with no extra card'
+        : row.scope === 'personal'
+          ? '; in this shared chat it is the user\'s own: what it returns shows to everyone here (the first time they use it here the server shows them a short notice; just call the tool, never ask in your own words first)'
+          : '; what it returns shows to everyone in this shared chat (the first time the user uses it here the server shows them a short notice; just call the tool)'
       const tools: TurnTool[] = []
       const taken = new Set<string>()
       const http: Row[] = []
