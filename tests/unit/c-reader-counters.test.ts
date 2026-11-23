@@ -126,6 +126,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/policy/convert-additive.ts": { n: {"access": 6, "users/": 1}, why: "rule conversion" },
   "server/src/policy/invariants.ts": { n: {"users/": 1}, why: "rule invariants" },
   "server/src/policy/legacy-deepest.ts": { n: {"access": 1, "users/": 2}, why: "the old rule model (conversion only)" },
+  "server/src/promo-video/spec.ts": { n: {"users/": 1}, why: "the person's own uploads (users/<me>/.attachments/) may go into their promo video as a picture (AB4 F11); authorize reads it as them, a shared viewer's play and MP4 check it again with their own rights (render.ts rowFor), and a save to a team folder weighs it as a source (confirmSources); no reader count, no share" },
   "server/src/promo-video/save.ts": { n: {"users/": 1}, why: "the default users/<id>/videos/ (never shared); a chosen place goes through confirmSources -> confirmWidening" },
   "server/src/realtime/hub.ts": { n: {"access": 1}, why: "replayed file events: by path" },
   "server/src/rooms/save-to-team.ts": { n: {"readerCheck": 1, "activePeople": 1, "access": 1, "import:activePeople": 1, "import:readerCheck": 1}, why: "outsideRoom counts with readerCheck (share readers included); access: the viewer's own read of a saved place" },
