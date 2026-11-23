@@ -365,18 +365,6 @@ function launcherStopOf(signal: unknown): LauncherStop | null {
 /** Words of a request to save or write something down, in the product's languages (the person's own message: an
  * explicit save; docs/decisions/20261116-room-link-save-one-prompt.md). Escapes: no Korean text outside the language tables. */
 const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
-/** The tools an existing file of the person's own may be changed by without the room card when their own message named
- * it (ownFolderPlace): each keeps the earlier content as a version */
-const OWN_NAMED_CHANGE_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'make_file'])
-/** a word asking to make, save, add to or change a file: 만들/저장/추가/작성/수정/고쳐/바꿔/써/적어, make, create, save, write,
- * add, update, change, fix, edit and the other languages' common verbs */
-const CHANGE_ASK = new RegExp(['\\uB9CC\\uB4E4', '\\uC800\\uC7A5', '\\uCD94\\uAC00', '\\uC791\\uC131', '\\uC218\\uC815', '\\uACE0\\uCCD0', '\\uBC14\\uAFD4', '\\uC368\\s*\\uC918', '\\uC801\\uC5B4', '\\b(make|create|save|write|add|update|change|fix|edit|append)\\b', '\\b(buat|simpan|tambah|ubah)', '\\b(crea|guarda|añade|agrega|cambia|edita)', '\\u4F5C\\u6210|\\u4FDD\\u5B58|\\u8FFD\\u52A0|\\u4FEE\\u6B63|\\u521B\\u5EFA|\\u6DFB\\u52A0|\\u4FEE\\u6539'].join('|'), 'iu')
-/** a word asking to read, show or sum up (읽/보여/요약/정리해서, read, show, summar…): a clause with one is about reading
- * the file it names, not changing it */
-const READ_ASK = new RegExp(['\\uC77D', '\\uBCF4\\uC5EC', '\\uC694\\uC57D', '\\b(read|show|summari[sz]e|open|look)\\b', '\\b(baca|lihat|lee|muestra|abre)\\b', '\\u8AAD|\\u8BFB|\\u770B|\\u8981\\u7D04|\\u603B\\u7ED3'].join('|'), 'iu')
-/** a clause that keeps the file it names or uses it only as a source: a "don't" (하지 말/말고/않/안 …, don't, never,
- * without…) or a source word (참고/바탕/기반/보고, based on, using, use, from…) */
-const KEEP_OR_SOURCE = new RegExp(['\\uD558\\uC9C0\\s*\\uB9D0', '\\uB9D0\\uACE0', '\\uC54A', '(^|\\s)\\uC548\\s', '\\uCC38\\uACE0', '\\uBC14\\uD0D5', '\\uAE30\\uBC18', '\\uBCF4\\uACE0\\s', "\\b(don'?t|do not|never|without|not|based on|using|use|from|instead)\\b", '\\b(jangan|tanpa|berdasarkan|no|sin|basado)\\b', '\\u53C2\\u8003|\\u57FA\\u4E8E|\\u4E0D\\u8981|\\u3057\\u306A\\u3044\\u3067|\\u53C2\\u7167'].join('|'), 'iu')
 /** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
 const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
@@ -3647,35 +3635,6 @@ export class TurnExec {
   }
 
   /** The person's own message of this turn asks to save or write down something ("파일로 저장해줘", "save it"). */
-  /** The person's own message of this turn (not a run's task, not one the app sent) names the file at `segs`
-   * (users/<them>/…) and asks, in the same clause, to make, save, add to or change it (CHANGE_ASK), with no read word
-   * there ("방문-메모.txt 읽고 요약 만들어줘" is a read of it): ownFolderPlace's rule for an existing file of their own.
-   * A file right in their folder by its name; one in a folder of it by its path from there ("notes/방문-메모.txt"), so a
-   * file of the same name elsewhere is never the one their words chose. */
-  private askerNamesChangeOf(segs: readonly string[]): boolean {
-    if (this.spec.clientKind === 'schedule' || this.spec.clientKind === 'slack') return false
-    const m = this.rt.db.query('SELECT content, auto_sent FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null; auto_sent: number | null } | null
-    if (!m || m.auto_sent) return false
-    // (letter case as written: Notes.md and notes.md are two files on a case-sensitive disk)
-    const said = withoutQuoteLines(m.content ?? '').normalize('NFC')
-    const n = segs.slice(2).join('/').normalize('NFC')
-    if (n.length < 3) return false
-    // the clauses of the message: a sentence, a comma, "and", or a Korean "…고" joining two asks
-    for (const clause of said.split(/[.!?。](?=\s|$)|[\n,;，、]|\s(?:and|then|dan|y|然后)\s|(?<=\p{Script=Hangul})\uACE0\s/u)) {
-      const at = clause.indexOf(n)
-      if (at < 0) continue
-      const before = clause[at - 1] ?? ' ', after = clause[at + n.length] ?? ' '
-      // the whole name standing apart (not "old-방문-메모.txt", "방문-메모.txt.bak"); after a "/" only as the end of
-      // their own folder's path (users/<them>/…), never another folder's file of that name
-      const own = before === '/' && clause.slice(0, at).toLowerCase().endsWith(`${segs[0]}/${segs[1]}/`.toLowerCase())
-      if ((/[\p{L}\p{N}_.\/-]/u.test(before) && !own) || /[\p{N}_\p{Script=Latin}.\/-]/u.test(after)) continue
-      // (never "수정하지 말고 새 파일 만들어줘", "don't change notes.md", "참고해서 보고서 만들어줘": the file is kept or only a source;
-      // security review of this change)
-      if (CHANGE_ASK.test(clause) && !READ_ASK.test(clause) && !SAVE_NOT.test(clause) && !KEEP_OR_SOURCE.test(clause)) return true
-    }
-    return false
-  }
-
   private askedToSave(): boolean {
     // a scheduled run's message is the task's text, not the person asking now; a message the app sent for them neither
     if (this.spec.clientKind === 'schedule') return false
@@ -3836,12 +3795,7 @@ export class TurnExec {
     // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
     // as they are over the person's draft; security review of this change)
     if (r.exists && WIDEN_TARGET_TOOLS.has(tool)) return null
-    // ...or a file the person's own message of this turn names and asks to make, save or change (QA b5 F9: "방금 방
-    // 메시지 읽고 방문-메모.txt 만들어줘" asked again for a 방문-메모.txt that was there): their own words chose it, only
-    // they can open it, and its earlier content stays as a version (files/store.ts saveVersion), so it can be undone.
-    // Only write, edit and make_file (each keeps the version), in the person's own chat (never shared, never restricted,
-    // never a run)
-    if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && (madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel) || (OWN_NAMED_CHANGE_TOOLS.has(tool) && this.askerNamesChangeOf(segs))))))) return null
+    if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
     if (!r.exists && !mayBeNew) return null
     // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
     // something the person never saw where they agreed something should go

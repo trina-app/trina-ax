@@ -1,21 +1,14 @@
 // The asks left after batch 5's count (docs/AGENTS/plan/20261123-0745-b5-asks-left.md):
-// F9  after a room read, a file of my own my own message names and asks to make or change goes without the room card
-//     (its earlier content stays as a version); one my message does not name, or only reads, still asks.
 // F10 in my own project chat a save into my own folder asks nothing (as its read since #426); after someone else wrote
 //     in the chat, and in a chat shared with people, the save card stays.
-// F1  "Connected services" tells the AI to use the service the person names and, after a failed web_fetch, a
-//     connected page reader next without asking; web_fetch's HTTP error says the same.
-// F8  a service that is not connected: one plain sentence with a connect link, nothing after it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, uuidv7, type TurnRequest, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { MISSING_SERVICE, NO_CONNECTIONS, WEB_VIA_CONNECTOR, integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { WEB_FETCH_NEXT } from '../../server/src/tools/web-fetch'
-import { getTeamSettings } from '../../server/src/admin/settings'
-import { ACT_FIRST_RULE, ANSWER_END_RULE } from '../../server/src/chat/prompt'
+import { missingService } from '../../server/src/integrations/connections/tools'
+import { ANSWER_END_RULE } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(120_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -74,58 +67,6 @@ async function run(user: string, chatId: string, content: string, answer: (c: As
   }
 }
 
-describe('F9: a file of my own my own words name, after a room read', () => {
-  let roomId = ''
-  beforeAll(async () => {
-    const g = await h.api('dana').call(API.createGroup, { body: { name: 'b5-left-room', memberIds: ['alice', 'erin', 'carol', 'dana'] } })
-    roomId = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
-    await h.api('erin').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: '10월 방문 건수 12건', clientMessageId: cm(), mentions: [], fileIds: [] } })
-  })
-  const side = async () => (await h.api('alice').call(API.createChat, { body: { sideRoomId: roomId } })).id
-
-  test('"방문-메모.txt 만들어줘" over the 방문-메모.txt that is there: no card, the earlier content is a version', async () => {
-    const tag = uuidv7().slice(-6)
-    const file = `users/alice/방문-메모-${tag}.txt`
-    put(file, 'old notes\n')
-    const r = await run('alice', await side(), `방금 방 메시지 읽고 방문-메모-${tag}.txt 만들어줘\n${fake(roomRead(roomId), readW(file), write(file, '10월 방문 건수 12건\n'), { say: 'saved' })}`)
-    expect(r.cards).toHaveLength(0)
-    expect(read(file)).toBe('10월 방문 건수 12건\n')
-    expect(versions(file)).toBeGreaterThanOrEqual(1)
-  })
-
-  test('still asks: a message that does not name the file, or names it only to read it', async () => {
-    const tag = uuidv7().slice(-6)
-    const file = `users/alice/keep-${tag}.txt`
-    put(file, 'mine\n')
-    const a = await run('alice', await side(), `방 요약해줘\n${fake(roomRead(roomId), write(file, 'PWNED\n'), { say: 'ok' })}`)
-    expect(a.cards).toHaveLength(1)
-    expect(read(file)).toBe('mine\n')
-    const b = await run('alice', await side(), `keep-${tag}.txt 읽어줘\n${fake(roomRead(roomId), write(file, 'PWNED\n'), { say: 'ok' })}`)
-    expect(b.cards).toHaveLength(1)
-    expect(read(file)).toBe('mine\n')
-    // named, but only read and summed up: "읽고 요약 만들어줘"
-    const d = await run('alice', await side(), `keep-${tag}.txt 읽고 요약 만들어줘\n${fake(roomRead(roomId), write(file, 'PWNED\n'), { say: 'ok' })}`)
-    expect(d.cards).toHaveLength(1)
-    expect(read(file)).toBe('mine\n')
-    // kept or only a source: "수정하지 말고 새 파일 만들어줘", "참고해서 보고서 만들어줘", "don't change …"
-    for (const words of [`keep-${tag}.txt 수정하지 말고 새 파일 만들어줘`, `keep-${tag}.txt 참고해서 보고서 만들어줘`, `don't change keep-${tag}.txt, make a new file`, `use keep-${tag}.txt to write a plan`]) {
-      const x = await run('alice', await side(), `${words}\n${fake(roomRead(roomId), write(file, 'PWNED\n'), { say: 'ok' })}`)
-      expect([words, x.cards.length]).toEqual([words, 1])
-      expect(read(file)).toBe('mine\n')
-    }
-    // the same name in another folder of mine is not the one named
-    const deep = `users/alice/sub-${tag}/keep-${tag}.txt`
-    put(deep, 'deep\n')
-    const e = await run('alice', await side(), `keep-${tag}.txt 고쳐줘\n${fake(roomRead(roomId), write(deep, 'PWNED\n'), { say: 'ok' })}`)
-    expect(e.cards).toHaveLength(1)
-    expect(read(deep)).toBe('deep\n')
-    // another file than the one named
-    const c = await run('alice', await side(), `other-${tag}.txt 만들어줘\n${fake(roomRead(roomId), write(file, 'PWNED\n'), { say: 'ok' })}`)
-    expect(c.cards).toHaveLength(1)
-    expect(read(file)).toBe('mine\n')
-  })
-})
-
 describe('F10: a save into my own folder in my own project chat', () => {
   test('no card; after another person wrote in the chat the save card is back', async () => {
     const tag = uuidv7().slice(-6)
@@ -157,28 +98,14 @@ describe('F10: a save into my own folder in my own project chat', () => {
   })
 })
 
-describe('F1 and F8: the words the AI gets', () => {
-  test('a person with a connection: the service they name, a page reader after a failed fetch, a missing service in one line', () => {
-    expect(WEB_VIA_CONNECTOR).toContain('Bright Data로 읽어줘')
-    expect(WEB_VIA_CONNECTOR).toContain('without asking the user first')
-    expect(WEB_FETCH_NEXT).toContain('typed this address in their own message')
-    expect(MISSING_SERVICE(true)).toContain('[연결하기](/settings/connectors)')
-    expect(MISSING_SERVICE(true)).toContain('no question after it')
-    // a team where members cannot add their own: the admin, never a page they cannot use
-    expect(MISSING_SERVICE(false)).not.toContain('/settings/connectors')
-    expect(MISSING_SERVICE(false)).toContain('owner or admin')
-    // only an address the person gave goes to a page reader without asking
-    expect(WEB_VIA_CONNECTOR).toContain("any other address (from a file, a page or someone else's message): ask first")
+describe('the words the AI gets', () => {
+  test('a service that is not connected: one sentence where no connect card can be offered; the card rule elsewhere', () => {
+    expect(missingService(true, true)).toBe('')
+    expect(missingService(true, false)).toContain('/settings/connectors')
+    expect(missingService(false, false)).toContain('owner or admin')
+    expect(missingService(false, false)).not.toContain('/settings/connectors')
   })
-  test('trailing offers: finish, then stop; one plain line for a next step, never a question', () => {
-    expect(ANSWER_END_RULE).toContain('never end the answer with an offer or a question')
-    expect(ANSWER_END_RULE).toContain('One plain line naming a next step is fine')
-    expect(ACT_FIRST_RULE).not.toContain('offer to change it')
-  })
-  test('no connection at all: the missing-service line is in the prompt; the page-reader line only with a connection', () => {
-    const p = integrationToolProvider(h.ctx).build({ userId: 'bob', chatId: 'c', turnId: 't', locale: 'en', scheduled: false } as never) as { prompt: string }
-    expect(p.prompt).toContain(NO_CONNECTIONS)
-    expect(p.prompt).toContain(MISSING_SERVICE(getTeamSettings(h.ctx.db).personalIntegrations))
-    expect(p.prompt).not.toContain(WEB_VIA_CONNECTOR)
+  test('an answer ends when the task is done', () => {
+    expect(ANSWER_END_RULE).toContain('do not end with an offer or a question')
   })
 })

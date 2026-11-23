@@ -338,8 +338,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       'In a Trina chat it also copies between the team folder, this chat\'s files (chat:files/…) and this chat\'s work folder (chat:work/…, $TRINA_WORK in box_shell): ' +
       'to_folder "chat:work/in/" brings team files, whole team folders (an HTML file with its images folder) or chat files into the work folder for your commands; ' +
       'to_folder "chat:files/" attaches a file (a team file, or one from chat:work/) to your answer for everyone in a chat shared with people (a chat only the user sees attaches nothing: link the file in their own folder instead); ' +
-      'a chat file or a work-folder file into a team folder saves a copy there. In a project chat the project folder is the place to save, and chat:files/ is read-only. ' +
-      'Never copy a chat file into a folder only to send or post it: post_to_room takes its link (chat:files/…) and sends a copy itself.',
+      'a chat file or a work-folder file into a team folder saves a copy there. In a project chat the project folder is the place to save, and chat:files/ is read-only.',
     input: CopyFilesInput,
     describe: (a) => `copy_files ${a.paths.length} -> ${a.to_folder}`,
     run: (a, tc) => batch('copy', a, tc),
