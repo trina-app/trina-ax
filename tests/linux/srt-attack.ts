@@ -357,6 +357,15 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A14', what: 'the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 --noproxy "*" http://127.0.0.1:8099/ || curl -fsS -m 5 https://team.trina.test/', check: failsQuietly },
   { id: 'A15', what: 'git over ssh', cmd: 'GIT_TERMINAL_PROMPT=0 timeout 20 git clone ssh://git@example.com/x.git /tmp/x', check: failsQuietly },
   { id: 'A16', what: 'a unix socket of the server', cmd: `python3 -c "import socket;s=socket.socket(socket.AF_UNIX);s.connect('${unixSock}');print(s.recv(100))"`, check: failsQuietly },
+  // the browser of a run (config.ts BOX_BROWSER) needs no unix socket by path: this block stays (decisions/20261123-chat-browser-render.md)
+  { id: 'A16b', what: 'no new unix socket, by path or abstract; a socketpair (the browser\'s own pipes) works', cmd: `python3 -c "
+import socket
+a,b=socket.socketpair(); a.send(b'x'); assert b.recv(1)==b'x'
+for addr in ('${unixSock}', '\\0trina-attack'):
+    try:
+        s=socket.socket(socket.AF_UNIX); s.connect(addr); print('REACHED', addr)
+    except PermissionError: print('refused')
+"`, check: (r) => (r.code === 0 && r.out.split('refused').length === 3 && !r.out.includes('REACHED') ? null : `code ${r.code}: ${r.out.slice(0, 200)}`) },
   // the sandbox has its own pid space: the same number names one of its own processes, never the server
   { id: 'A18', what: 'see the server process', cmd: `ps axww; cat /proc/${process.pid}/cmdline; ls /proc/${process.pid}/root/opt/mycel`, check: (r) => (r.out.includes('srt-attack.ts') ? 'the server process is visible' : null) },
   { id: 'A19', what: 'new namespaces, mount, chroot', cmd: 'unshare -U true || unshare -Urm true || mount -t tmpfs x /mnt || chroot / true', check: failsQuietly },

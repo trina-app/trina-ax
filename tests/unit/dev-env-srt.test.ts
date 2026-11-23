@@ -15,6 +15,8 @@ import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
 import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_BROWSER, boxBrowser, runEnv as runEnvForBrowser } from '../../server/src/devenv/srt/config'
+import { PINNED_BROWSER } from '../../server/src/files/html-pdf'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -22,7 +24,7 @@ import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } f
 import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, REQUEST_DONE, REQUEST_SOURCE, REQUEST_WHY, requestNoticeText, runResultsForAI, tellHeldJobs, type RequestStop } from '../../server/src/devenv/jobs'
 import { closeChatQuestions } from '../../server/src/chat/open-questions'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
-import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
+import { boxBrowserText, boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
@@ -510,6 +512,26 @@ describe('the srt settings file', () => {
     // the local names it refuses are the ones a person cannot allow (shared LOCAL_SUFFIXES): the copies agree
     const copy = /export const LOCAL_SUFFIXES = (\[[^\]]*\])/.exec(w)?.[1]
     expect(copy && JSON.parse(copy.replace(/'/g, '"'))).toEqual([...LOCAL_SUFFIXES])
+  })
+  test('the browser of a run: the pinned headless shell, named for every tool that reads a path, only where it is', () => {
+    expect(BOX_BROWSER).toBe(PINNED_BROWSER)
+    const base = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null }
+    const e = runEnvForBrowser({ ...base, platform: 'linux', browser: BOX_BROWSER })
+    for (const k of ['TRINA_BROWSER', 'HYPERFRAMES_BROWSER_PATH', 'PUPPETEER_EXECUTABLE_PATH', 'CHROME_PATH']) expect(e[k]).toBe(BOX_BROWSER)
+    const none = runEnvForBrowser({ ...base, platform: 'linux', browser: null })
+    for (const k of ['TRINA_BROWSER', 'HYPERFRAMES_BROWSER_PATH', 'PUPPETEER_EXECUTABLE_PATH', 'CHROME_PATH']) expect(none[k]).toBeUndefined()
+    expect(boxBrowser('darwin', process.execPath)).toBeNull()
+    expect(boxBrowser('linux', process.execPath)).toBe(process.execPath)
+    expect(boxBrowser('linux', '/nonexistent/chrome-headless-shell')).toBeNull()
+    expect(boxBrowser('linux', os.tmpdir())).toBeNull() // a folder is not a browser
+  })
+  test('the tool text: the browser that starts, no dead end, and the truth when there is none', () => {
+    const t = boxBrowserText('linux', BOX_BROWSER)
+    for (const w of ['$TRINA_BROWSER', '--no-sandbox', 'executablePath', 'do not download', 'job=true', 'ffmpeg', 'do not say it is impossible']) expect(t).toContain(w)
+    const no = boxBrowserText('linux', null)
+    expect(no).toContain('ffmpeg'); expect(no).not.toContain('$TRINA_BROWSER')
+    expect(boxBrowserText('darwin', null)).toContain('--no-sandbox')
+    for (const d of [srtShellDescription(true), sharedShellDescription(true), sharedShellDescription(false)]) expect(d).toContain(boxBrowserText())
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
