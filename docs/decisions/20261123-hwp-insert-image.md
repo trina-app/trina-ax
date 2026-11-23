@@ -30,8 +30,9 @@
   the first. hwp_render is that renderer, so the tool result does not treat it as proof of the spot. The renderer's
   LAYOUT_OVERFLOW note no longer blocks a preview. Hangul desktop itself was not available; the forms it saved were opened
   in Hancom Docs.
-- **Whose picture:** one that is not the asker's own (a chat file another member sent, a team file outside their own folder)
-  needs their yes on a card; with nobody to ask it is refused (tools/own-picture.ts).
+- **Whose picture:** one that is not the asker's own needs their yes on a card; with nobody to ask it is refused
+  (tools/own-picture.ts). Where a file lies does not show who put it there (the AI can copy a seal into the asker's folder),
+  so until #448's shared origin helper lands every picture gets the card; `ownPicture.is` is the one place to swap.
 - **Security:** the picture is a team file the person may read (authorize, as stamp_pdf), or a file of this chat through its
   own open; at most 10 MB each, 20 MB per call as read and as re-encoded, 10 per call, PNG or JPEG by its bytes, at most
   8000 px a side, not quarantined, and a source of the result even

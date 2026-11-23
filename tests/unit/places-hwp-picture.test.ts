@@ -93,10 +93,10 @@ describe('the seal is a file of the chat', () => {
     return { chat, doc, seal, p: chatFilePath(doc.id, 'form.hwp') }
   }
 
-  test('the form is a chat file: text and the sender\'s own seal make a new version with no picture card; the other member opens it', async () => {
+  test('the form is a chat file: text and a seal make a new version after the picture card; the other member opens it', async () => {
     const { chat, doc, seal, p } = await chatWithForm()
     const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }, { image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
-    expect(r.cards.filter((c) => /not your own/.test(c.question ?? ''))).toHaveLength(0)
+    expect(r.cards.filter((c) => /not your own/.test(c.question ?? ''))).toHaveLength(1)
     expect(r.content).toContain('saved as version 2')
     expect(versions(doc.id)).toBe(2)
     const got = new Uint8Array(await (await h.req('bob', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())

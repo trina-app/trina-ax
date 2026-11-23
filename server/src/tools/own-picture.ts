@@ -2,7 +2,6 @@
 // or a team file outside their own folder) goes in only after their yes on a card, never on the AI's choice; with
 // nobody to ask (a call outside a chat) it is refused. Used by edit_hwp's image change.
 import type { Locale } from '@mycel/shared/api'
-import { parsePlace } from '@mycel/shared/places'
 import { teamDefaultLocale } from '../admin/settings'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
@@ -17,14 +16,13 @@ const PICTURE_TEXT = {
   no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
 }
 
-/** A team file in the asker's own folder (users/<them>/...) is theirs. */
-export const ownTeamPicture = (segs: readonly string[], userId: string) => segs[0] === 'users' && segs[1] === userId
-/** A chat file is the asker's when they sent it (the chain's root row). */
-export function ownChatPicture(ctx: AppContext, place: string, userId: string): boolean {
-  const at = parsePlace(place)
-  const id = at?.kind === 'chatFiles' ? at.id : undefined
-  return !!id && (ctx.db.query('SELECT user_id FROM chat_files WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === userId
-}
+/**
+ * Whether a picture is the asker's own: the one place that decides it, so #448's shared helper is a one-line swap here.
+ * Until then nothing counts as own. Where a file lies or whose row it is does not show who put it there: the AI can copy
+ * someone's seal into the asker's folder, and a chat file the AI attached carries the asker's id. So every picture gets
+ * the card (fails closed).
+ */
+export const ownPicture = { is: (_ctx: AppContext, _place: string, _userId: string): boolean => false }
 
 /** Asks the card for `pictures` (none: nothing happens); anything but yes refuses the call, nothing saved. */
 export async function confirmNotOwnPictures(ctx: AppContext, c: ToolCtx, pictures: ReadonlySet<string>, doc: string): Promise<void> {

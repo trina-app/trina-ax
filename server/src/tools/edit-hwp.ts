@@ -44,7 +44,7 @@ import { imageKind } from '../files/pdf-stamp'
 import { parsePlace } from '@mycel/shared/places'
 import { authorizeOutput, readPlaceFile, versionText, type ChatVersionMade } from '../files/place-output'
 import { chatSource, reencodePicture } from './edit-office'
-import { confirmNotOwnPictures, ownChatPicture, ownTeamPicture } from './own-picture'
+import { confirmNotOwnPictures, ownPicture } from './own-picture'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof EditHwpInput>
@@ -162,13 +162,13 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
         // the chat's own visibility and quarantine checks (the place's one safe open)
         const f = await readPlaceFile(ctx, c, ch.image, PICTURE_LIMITS.imageBytes, work)
         rel = f.place
-        if (!ownChatPicture(ctx, rel, c.user.id)) notOwn.add(f.name)
+        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.add(f.name)
         load = () => readRegular(f.local, PICTURE_LIMITS.imageBytes).bytes
       } else {
         const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
         if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
         rel = img.rel
-        if (!ownTeamPicture(img.segs, c.user.id)) notOwn.add(rel)
+        if (!ownPicture.is(ctx, rel, c.user.id)) notOwn.add(rel)
         load = () => {
           if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
           return readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
