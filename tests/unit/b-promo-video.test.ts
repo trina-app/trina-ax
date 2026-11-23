@@ -20,9 +20,8 @@ import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../serve
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
 import { AUDIO_DIR, PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
-import { killTree, mp4Available, noFileReason, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 import { isolation } from '../../server/src/tools/isolate'
-import { PROMO_FONT_PATH } from '../../server/src/promo-video/render'
 import { REPO_ROOT } from '../../server/src/app-config'
 import { linuxBundleFiles } from '../../scripts/build-bundle'
 

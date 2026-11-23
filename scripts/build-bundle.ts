@@ -30,6 +30,7 @@
 // Only on a Linux machine of the bundle's arch (assertLinuxHost). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
 // fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
+// resources/promo-video/ (the font and sounds the promo video's MP4 reads),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
 // engines/codex-<v>.model_catalog.json, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
