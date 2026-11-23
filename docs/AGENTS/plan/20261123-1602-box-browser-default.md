@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 16:02
 - Branch: `fix/box-browser-default`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/devenv`. Why: the run environment of the dev environment is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in what a run is given and told; no root update (the package list does not change)
 
@@ -30,4 +30,4 @@ docs/decisions/20261123-box-browser-default.md
 
 ## Result
 
-(filled in at the end)
+In a real srt 0.0.81 run (Debian, arm64): plain `chromium --headless --screenshot` of an allowed site wrote a 141 KB PNG; all five names work; Puppeteer with a default launch and Playwright with `executablePath: TRINA_BROWSER` load an allowed page; a site off the list stays refused; HyperFrames still renders an MP4; no relay is left after the browser ends. amd64 was not run here.

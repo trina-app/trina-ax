@@ -12,10 +12,11 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { writeBoxBrowser } from '../../server/src/devenv/srt/box-browser'
 import { othersLive, sweepRoots, visibleOf, type Visible } from '../../server/src/devenv/srt/hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, isRunPlaceholder, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, boxBrowser, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -162,6 +163,8 @@ const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
 fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
 // the git wrapper first on every run's PATH, as the runner writes it (runner.ts writeGitWrapper)
 fs.mkdirSync(devenvPaths(BASE).bin, { recursive: true }); fs.writeFileSync(path.join(devenvPaths(BASE).bin, 'git'), gitWrapperSource({ node: SRT_PATHS.node, realGit: '/usr/bin/git' }), { mode: 0o755 })
+// and the browser commands, as the runner writes them (runner.ts prepare, box-browser.ts)
+writeBoxBrowser(devenvPaths(BASE).bin, boxBrowser('linux'), SRT_PATHS.node)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')

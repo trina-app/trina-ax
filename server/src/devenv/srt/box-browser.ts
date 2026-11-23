@@ -49,7 +49,10 @@ server.on('connect', (req, client, head) => {
 })
 server.on('clientError', (_e, c) => c.destroy())
 setInterval(() => { if (process.ppid !== parent) process.exit(0) }, 500)
-server.listen(0, '127.0.0.1', () => { fs.writeSync(1, server.address().port + '\n'); fs.closeSync(1) })
+// one connection's fault never ends the relay of the browser
+process.on('uncaughtException', () => {})
+// stdout stays open: node's stream.pipe looks at process.stdout, which throws on a closed descriptor
+server.listen(0, '127.0.0.1', () => { fs.writeSync(1, server.address().port + '\n') })
 `
 
 /** The command. A flag it does not know goes to the browser as it is. */
