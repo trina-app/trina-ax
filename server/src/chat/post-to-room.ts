@@ -776,8 +776,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         }
         // (why it asks, and what "Always allow" covers: the small line under the buttons, so the question stays one line)
         if (explicit) byWords = true
-        let shown = false
-        const reply = explicit ? yes : byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => (shown = true, exec.waitForPerson({
+        let cardShown = false
+        const reply = explicit ? yes : byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => (cardShown = true, exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question,
           options: opts, multiple: false, allowText: false, ...(whyLine || more.note ? { note: [whyLine, more.note ?? ''].filter(Boolean).join(' ') } : {}),
           details: [
@@ -801,7 +801,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
         // a title that found its teammate only by a guess (the project's creator, the one owner or admin): the person's
         // yes on the card that sends to them keeps it as their alias, so the next ask by that title asks nothing
-        if (shown && (v === 'send' || v === 'send_files') && titled && guessedTitle((titled.via as { how?: string } | undefined)?.how)
+        if (cardShown && (v === 'send' || v === 'send_files') && titled && guessedTitle((titled.via as { how?: string } | undefined)?.how)
           && (pendingTo?.id === titled.id || (!!roomId && roomId === titled.dmRoomId))) { try { keepPick(db, spec.userId, titled.via!.ref, titled.id) } catch { /* only a convenience */ } }
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)
