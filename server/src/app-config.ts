@@ -484,6 +484,8 @@ export function readDemoFile(value: string | undefined, where: DemoWhere, cwd = 
       !loopbackUrl(where.modelUpstream) ? 'engine.modelUpstreams.anthropic must be the gate on 127.0.0.1' : '',
       where.devEnv ? `${P}DEV_ENV must be off` : '',
       where.logLevel === 'debug' ? 'no debug log level' : '',
+      // the connected services' tools are open to a visitor only because here they are the fakes (demo/guard.ts)
+      !parsed.data.fakes ? 'a free-roam demo needs its fakes' : '',
     ].filter(Boolean)
     if (why.length) throw new ConfigError(`${P}DEMO: ${file} is a free-roam demo, which needs: ${why.join('; ')}.`)
   }
