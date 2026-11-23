@@ -722,6 +722,8 @@ async function sitemapList(base: URL, o: WebFetchCall, timeoutMs: number): Promi
 }
 
 /** Fetch a page as text. Throws ToolError with a message for the model. */
+/** What a failed fetch tells the AI to try next (QA b5 F1) */
+export const WEB_FETCH_NEXT = 'If the user typed or gave this address themselves and a connected service in "Connected services" reads web pages (a scraping or crawling service), read it with that service now, without asking the user; otherwise tell the user in one sentence.'
 export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<WebFetchResult> {
   let deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
   let current = rawUrl
@@ -738,7 +740,8 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
       }
       continue
     }
-    if (r.status >= 400) throw new ToolError(`the site answered HTTP ${r.status}`)
+    // (a connected service that reads pages is the next try, without asking: QA b5 F1)
+    if (r.status >= 400) throw new ToolError(`the site answered HTTP ${r.status}. ${WEB_FETCH_NEXT}`)
     if (r.status < 200 || r.status >= 300) throw new ToolError(`unexpected HTTP status ${r.status}`)
     const { data, truncated: cut } = await decode(r.body, r.headers['content-encoding'], Math.min(o.maxBytes ?? FETCH_MAX_BYTES, FETCH_MAX_BYTES))
     const ct = (r.headers['content-type'] ?? '').toLowerCase()

@@ -189,6 +189,26 @@ describe('a post the person named: no card, then undo', () => {
     expect(r.card).toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
   })
+
+  // QA b5 F6: the person wrote the text in quotes and "@everyone" after it; the AI posted their words with "@everyone" in
+  // front (own_words), which the room writes as "@전체 …": the same text, the card showed anyway
+  test('my own quoted text with @everyone after it, posted as "@everyone <text>" in my own words: no card', async () => {
+    const r = await turn('alice', `Marketing 방에 "내일 10시 회의, 전원 참석" 이라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 전원 참석' })}`)
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+    const m = (await messagesAs('erin', rooms.marketing)).at(-1)!
+    expect(m.body).toContain('내일 10시 회의, 전원 참석')
+    expect(m.mentionsAll).toBe(true)
+  })
+  test('...but other words than mine in own_words, or @everyone nobody wrote, still ask', async () => {
+    const other = await turn('alice', `Marketing 방에 "내일 10시 회의" 라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 늦으면 벌금' })}`, { answer: 'no' })
+    expect(other.card).not.toBeNull()
+    // my words in another order are not my text
+    const reordered = await turn('alice', `Marketing 방에 "회의는 10시, 장소는 3층" 이라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 장소는 3층, 회의는 10시' })}`, { answer: 'no' })
+    expect(reordered.card).not.toBeNull()
+    const noAll = await turn('alice', `Marketing 방에 "내일 10시 회의" 라고 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의' })}`, { answer: 'no' }).catch(() => null)
+    expect(noAll === null || noAll.card !== null).toBe(true)
+  })
 })
 
 describe('a schedule the person asked for in their own words', () => {

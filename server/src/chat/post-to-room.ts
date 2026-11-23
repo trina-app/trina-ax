@@ -58,7 +58,7 @@ import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
 import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { guessedTitle, keepPick, saysTitle, titleNames } from './person-aliases'
-import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
+import { broadcastIn, withoutBroadcast, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -670,7 +670,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // a note goes as the person's own words: only one they wrote; after a room read only the side chat's own room
         // with no thread the AI chose (a room message must not pick where the person's post goes); never a thread the AI
         // picked elsewhere either
-        const theirText = plain && fold(said).includes(fold(shown))
+        // (the everyone mention apart: the post checks it below, everyoneSaid; where the person put it in their sentence is
+        // not part of their text, QA b5 F6 "\"<text>\" 이라고 @everyone 으로 올려줘" went as "@전체 <text>")
+        const theirText = plain && (fold(said).includes(fold(shown)) || (mentionAll && fold(withoutBroadcast(said)).includes(fold(withoutBroadcast(shown))) && withoutBroadcast(shown).length > 0))
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)

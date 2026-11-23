@@ -213,6 +213,23 @@ describe('a room post card', () => {
     expect(cardsOf(next.turnId)).toEqual([])
   })
 
+  // QA b5 F12: in mode (a) a late "보내기" on an @everyone own-words post card seemed to post nothing in 2 of 3 runs.
+  // The press itself posts it, once, with everyone mentioned (the QA script's button lookup took the chat box's own
+  // "보내기" button, which has the same name: it never pressed the card's)
+  test('an @everyone post in the person\'s own words, pressed late with Send: posted once, everyone mentioned', async () => {
+    const chatId = await ownChat()
+    const count = () => (db().query("SELECT COUNT(*) n FROM room_messages WHERE room_id = ? AND body LIKE '%dinner vote please%' AND mentions_all = 1").get(teamRoom) as { n: number }).n
+    const w = await askAndWait(chatId, `post "dinner vote please" there with @everyone\n${fake({ tool: 'post_to_room', args: { room: teamRoom, own_words: true, text: '@everyone dinner vote please' }, sayResult: true })}`)
+    expect(w.card.options!.map((o) => o.value)).toEqual(['send', ALWAYS_VALUE, 'no'])
+    expect(count()).toBe(0)
+    await Bun.sleep(1800)
+    expect((await post(w.turnId, w.card.requestId, 'send')).status).toBe(204)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(cardsOf(next.turnId)).toEqual([])
+    expect(count()).toBe(1)
+  })
+
   // QA of #414 (qa.trina.app): the answer read b4-note.txt and sent b4-sum.pdf to a teammate; the first card said
   // "(my files)", the run after the press "(1 file in my files)" (the same source, now counted from the answer's saved
   // list), and the card was asked again with "Something changed". The same post to the same person with the same file

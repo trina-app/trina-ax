@@ -139,6 +139,59 @@ describe('"share this folder" with the files only in the chat', () => {
   })
 })
 
+// QA b5 F5: in a chat shared with Bob the AI made the quote as chat:files/견적서.docx; "이 폴더 팀원들한테 공유해줘" then
+// asked which folder twice. The files the person's latest answer that made any carries, in a chat that holds only their
+// work, are in the chat alone, as an attachment is: the same folder of copies, the same Undo
+describe('"share this folder" with a file the AI made in the chat (chat:files)', () => {
+  const folders = () => fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice'), { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => d.name).sort()
+  async function sharedWithBob() {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    await turn(`hello\n${fake({ say: 'hi' })}`, c.id)
+    const subjects = [user('bob')]
+    let r = await h.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects } }) as { status?: string; confirmKey?: string }
+    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects, confirmKey: r.confirmKey! } }) as never
+    return c.id
+  }
+  const makeQuote = (c: string, name: string) => turn(`견적서 만들어줘\n${fake({ tool: 'make_file', args: { format: 'docx', content: '# 견적서\n\nA형 1,200,000원 x 3\n', output: `chat:files/${name}` }, sayResult: true })}`, c)
+  const share = (c: string) => turn(`이 폴더 Bob Lee한테 공유해줘\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c)
+
+  test('makes a folder with a copy of what the answer made and shares it with no card; 취소 deletes it; an unsent upload stays out', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'quote-f5.docx')
+    // an upload alice did not send: never in the folder
+    await upload(c, 'draft-not-sent.txt', 'draft')
+    const before = folders()
+    const f0 = sock.frames.length
+    const r = await share(c)
+    expect(cards(f0)).toBe(0)
+    const shared = r.steps.find((s) => s.tool === 'share_folder')!.shared!
+    expect(shared.outcome).toBe('done')
+    expect(shared.madeFolder).toBe(true)
+    const made = folders().filter((x) => !before.includes(x))
+    expect(made.length).toBe(1)
+    expect(fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!))).toEqual(['quote-f5.docx'])
+    expect(canOpen('bob', 'alice', `users/alice/${made[0]}`)).toBe(true)
+    expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
+    expect(folders()).toEqual(before)
+  })
+  test('nothing is made where someone else wrote in the chat, or the chat took in someone else\'s words before', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'memo-f5.docx')
+    await h.api('bob').call(API.sendMessage, { params: { id: c }, body: { content: `a note from bob\n${fake({ say: 'ok' })}`, clientMessageId: cm(), attachmentIds: [] } })
+    await Bun.sleep(2500)
+    const before = folders()
+    const r = await share(c)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+    const d = await sharedWithBob()
+    await makeQuote(d, 'memo2-f5.docx')
+    h.ctx.db.query('UPDATE chats SET others_words = 1 WHERE id = ?').run(d)
+    const r2 = await share(d)
+    expect(r2.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+})
+
 describe('the create tier and the admin\'s "ask"', () => {
   test('a team connection set to ask asks for a create too; allow and a person\'s own keep the tier', () => {
     expect(createTierOk({ scope: 'team', write_policy: 'ask' })).toBe(false)
