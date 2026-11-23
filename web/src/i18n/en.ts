@@ -3233,7 +3233,7 @@ export const en: Record<MessageKey, string> = {
   "ask.exactHide": "Hide exactly what is sent",
   "ask.foldedShow": "Details",
   "ask.foldedHide": "Hide details",
-  "ask.batchMany": "{n} things to confirm",
+  "ask.batchMany": "{n, plural, one {# thing} other {# things}} to confirm",
   "ask.batchOpen": "Open",
   'notice.openHistory': 'Version history',
   'notice.openSkills': 'Open team skills',
