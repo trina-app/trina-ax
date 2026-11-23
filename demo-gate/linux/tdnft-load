@@ -1,0 +1,25 @@
+#!/bin/sh
+# Load the Trina demo nft table and refill its Turnstile sets (root; trina-demo-nft.timer every minute, and
+# ExecStartPre of the gate and tunnel units, so neither starts without the table). Only table inet trina_demo is
+# touched. The table is loaded again when it is missing or the file changed.
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+F=/opt/trina-demo/etc/trina-demo.nft
+T="inet trina_demo"
+STAMP=/run/trina-demo-nft.sha256
+want=$(sha256sum "$F" | cut -c1-64) || exit 1
+# shellcheck disable=SC2086
+if ! nft list table $T >/dev/null 2>&1 || [ "$want" != "$(cat "$STAMP" 2>/dev/null)" ]; then
+  nft -f "$F" || { echo "tdnft-load: loading $F failed" >&2; exit 1; }
+  echo "$want" > "$STAMP"
+  echo "tdnft-load: table loaded"
+fi
+# challenges.cloudflare.com (Turnstile siteverify): replaced only when DNS answered
+v4=$(getent ahostsv4 challenges.cloudflare.com | awk '{print $1}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | sort -u | paste -sd, -)
+v6=$(getent ahostsv6 challenges.cloudflare.com | awk '{print $1}' | grep -E '^[0-9a-f:]+$' | grep -v '^::ffff:' | sort -u | paste -sd, -)
+{
+  [ -n "$v4" ] && printf 'flush set %s turnstile4\nadd element %s turnstile4 { %s }\n' "$T" "$T" "$v4"
+  [ -n "$v6" ] && printf 'flush set %s turnstile6\nadd element %s turnstile6 { %s }\n' "$T" "$T" "$v6"
+  true
+} | nft -f - || { echo "tdnft-load: refreshing the Turnstile sets failed" >&2; exit 1; }
+exit 0
