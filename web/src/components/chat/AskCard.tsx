@@ -342,6 +342,8 @@ interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: 
 const CHANGED = '⁣'
 const changedLine = (q: string) => (q.startsWith(CHANGED) ? q.slice(1).split(/\n{2,}/)[0]!.trim() : null)
 
+/** the server's value of an "Always allow" button (server chat/always-allow.ts ALWAYS_VALUE) */
+const ALWAYS_CHOICE = '__always'
 /** how long after its latest card a running answer's group stays closed to a press (the answer may go on with other work) */
 export const CARDS_GATHER_MS = 8_000
 /** True while more cards of the group may still come: the answer runs and its latest card is under CARDS_GATHER_MS old. */
@@ -358,12 +360,12 @@ function useCardsGathering(running: boolean, count: number): boolean {
 /**
  * Which cards of a group a press may cover, and whether its buttons wait (lib/cardBatch.ts joinLock): a card that joins
  * must be on screen for a moment first, so a click aimed at the others never approves it. A group that first shows with
- * several cards while its answer runs (a lone card became a group) counts all but the first as just arrived.
+ * several cards (a lone card became a group: this is a new component then) counts all but the first as just arrived.
  */
-function useJoinLock(ids: readonly string[], answerRunning: boolean) {
+function useJoinLock(ids: readonly string[]) {
   const arrived = useRef<Map<string, number> | null>(null)
   const now = Date.now()
-  if (!arrived.current) arrived.current = new Map(ids.map((id, i) => [id, answerRunning && i > 0 ? now : 0]))
+  if (!arrived.current) arrived.current = new Map(ids.map((id, i) => [id, i > 0 ? now : 0]))
   for (const id of ids) if (!arrived.current.has(id)) arrived.current.set(id, now)
   const here = new Map(ids.map((id) => [id, arrived.current!.get(id)!]))
   const lock = joinLock(here, now)
@@ -404,7 +406,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
   // cards that wait after the answer (no time limit) come one call at a time on an engine that runs writes in order: while
   // the answer still runs, the press waits for the rest, so one press covers them all. A card a call waits on is never held
   const gathering = useCardsGathering(answerRunning && asks.length > 0 && asks.every(gathers), asks.length)
-  const { locked, here } = useJoinLock(asks.map((r) => r.requestId), answerRunning)
+  const { locked: joining, here } = useJoinLock(asks.map((r) => r.requestId))
   const first = asks[0]
   if (!first) return null
   const options = first.options ?? []
@@ -420,6 +422,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
     try {
       // only the cards on screen long enough, as of this click: one that just joined stays open with its own question
       const { seen } = joinLock(here, Date.now())
+      if (v === ALWAYS_CHOICE && seen.size < n) return
       for (const a of pressPlan(cards.filter((c) => seen.has(c.request.requestId)), v, ticked, n === 1)) {
         // a card another press of the same answer closed (an "Always allow" answers its kind): nothing to send
         if (!useChats.getState().requests[a.requestId]) continue
@@ -432,6 +435,10 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
   }
   const noValue = options.at(-1)?.value
   const seenNow = joinLock(here, Date.now()).seen
+  // nothing seen yet: a press would answer nothing
+  const locked = joining || seenNow.size === 0
+  // "Always allow" answers every open card of its kind on the server, so it waits until all of them have been seen
+  const alwaysWaits = seenNow.size < n
   const noneTicked = n > 1 && ![...ticked].some((id) => seenNow.has(id) && asks.some((r) => r.requestId === id))
   const choice = (o: { label: string; value: string }): Choice => ({ label: o.label, value: o.value, testId: 'ask-choice', busy: busy === o.value, onClick: () => void press(o.value) })
   return (
@@ -498,7 +505,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
         </div>
       ) : (
         <ChoiceRow className="mt-3" busy={!!busy} error={error}
-          choices={options.map((o) => ({ ...choice(o), ...(gathering || locked || (noneTicked && o.value !== noValue) ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
+          choices={options.map((o) => ({ ...choice(o), ...(gathering || locked || (alwaysWaits && o.value === ALWAYS_CHOICE) || (noneTicked && o.value !== noValue) ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
       )}
       {first.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{first.note}</p>}
     </div>

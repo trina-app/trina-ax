@@ -30,6 +30,7 @@ test('three skills: one lean card, no raw path by default, one press answers all
   useChats.setState({ requests: Object.fromEntries(cards.map((c) => [c.request.requestId, c])), answer: async (id: string, body: { answer?: unknown }) => { sent.push({ id, answer: body.answer }) } } as never)
   const m = await mount(<BatchCard cards={cards} />)
   try {
+    await m.settle(CARD_JOIN_LOCK_MS + 50)
     expect(m.get('ask-batch-head').textContent).toBe('스킬 3개를 팀 스킬로 옮길까요?')
     expect([...m.container.querySelectorAll('[data-testid="ask-batch-name"]')].map((x) => x.textContent)).toEqual(['korean-landing-copy', 'community-voice', 'seo-notes'])
     expect(m.container.querySelectorAll('[data-testid="ask-batch-summary"]').length).toBe(1)
@@ -116,6 +117,24 @@ test('a card arriving at the click is not approved and stays open; repeated arri
     expect(sent).not.toContain('r6')
   } finally { await m.unmount(); removeDom() }
 }, 20_000)
+
+test('Always waits until every card was seen (the server answers all open cards of its kind); a lone card that became a group is locked', async () => {
+  installDom()
+  const a = card(1, 'r-a'), b = card(2, 'r-b')
+  const sent: string[] = []
+  useChats.setState({ requests: { r1: a, r2: b }, answer: async (id: string) => { sent.push(id) } } as never)
+  // (mounted with two cards and no answer running: a reconnect brought the second to a lone card)
+  const m = await mount(<BatchCard cards={[a, b]} />)
+  try {
+    await m.click(m.container.querySelector('[data-value="__always"]')!)
+    await m.click(m.container.querySelector('[data-value="yes"]')!)
+    await m.settle(30)
+    expect(sent).toEqual([])
+    await m.settle(CARD_JOIN_LOCK_MS + 50)
+    await m.click(m.container.querySelector('[data-value="__always"]')!)
+    await m.until(() => sent.length === 2, 'both answered once seen')
+  } finally { await m.unmount(); removeDom() }
+}, 10_000)
 
 test('joinLock: a run of arrivals locks for its cap at most; each card counts once it has been seen', () => {
   const t = 1_000_000
