@@ -13,20 +13,25 @@
   found in the document is paired with the same occurrence in the layout (counts and the line's text must agree, else
   refused). The picture floats behind the text by default, its control at the END of a body paragraph (never in a cell:
   a cell grows around it), so no text moves.
-- **Two vertical anchors, by what the document stores:**
-  - Every paragraph of the section has a layout cache (PARA_LINE_SEG / hp:linesegarray, which Hangul desktop writes):
-    the renderer follows the stored line positions (measured: moving a stored vpos moves the line), so the picture is
-    placed from the paper and the preview shows it on the spot.
-  - Any paragraph without one (Hancom Docs web saves none): Hangul wraps by itself and can differ from the renderer by a
-    line above the label (measured: 5 mm). The picture is placed from the top of the label's body paragraph; for a place
-    in a table, from the body paragraph after the table, because Hangul measures a table's own paragraph from below it.
-- **Measured in Hancom Docs** on made-up forms Hancom saved, through the whole tool path: vertical 0.0 to 0.5 mm on the
-  three seals measured over body text (seals in a table were checked by eye); horizontal 1.1 to 1.7 mm to the left of "(인)" (the renderer's line is a little narrower than Hancom's). No
-  correction factor was added: the error does not follow one rule across these few lines.
-- **Known limits:** with the paragraph anchor the pinned renderer draws the NEXT text line one line too high, over the
-  label's line, so Trina's preview of such a document looks wrong while the file is right. The paper anchor on a real
-  Hangul desktop file is not checked in Hangul itself (none is available here). hwp_render is that same renderer, so the
-  tool result does not call it a check of Hangul.
+- **Where the picture's control goes, by what the document stores:**
+  - Every paragraph of the section has a layout cache (Hangul desktop writes one): placed from the paper. In body text the
+    control goes at the end of the label's paragraph. For a place in a table it goes into a plain body paragraph on that
+    page, never the paragraph that holds a table (on a government form Hancom then moved the page-filling table or the
+    picture to another page). A page that is one table has no such paragraph: the control goes into the cell.
+  - Any paragraph without a cache (Hancom Docs web saves none): Hangul wraps by itself and can differ from the renderer by
+    a line (measured: 5 mm), so the picture is placed from the top of the label's paragraph, or of the paragraph after its
+    table.
+- **Layer:** behind body text, in front in a table by default: filled cells hid or cut off a picture behind the text.
+- **Measured in Hancom Docs:** forms Hancom saved: vertical 0.0 to 0.5 mm, horizontal 1.1 to 1.7 mm left of "(인)". Two
+  public government forms saved by Hangul: on the label's line, nothing moved, 1.3 and 2.8 mm left of the centre of the
+  longer mark "(서명 또는 인)", so its last word is not fully under a 15 mm seal. No correction factor was added.
+- **Known limits:** with the paragraph anchor the renderer draws the next text line over the label's line, and on a page
+  that is one table it draws a row a little taller; the file is right in Hancom. Eight attribute variants did not change
+  the first. hwp_render is that renderer, so the tool result does not treat it as proof of the spot. The renderer's
+  LAYOUT_OVERFLOW note no longer blocks a preview. Hangul desktop itself was not available; the forms it saved were opened
+  in Hancom Docs.
+- **Whose picture:** one that is not the asker's own (a chat file another member sent, a team file outside their own folder)
+  needs their yes on a card; with nobody to ask it is refused (tools/own-picture.ts).
 - **Security:** the picture is a team file the person may read (authorize, as stamp_pdf), or a file of this chat through its
   own open; at most 10 MB each, 20 MB per call as read and as re-encoded, 10 per call, PNG or JPEG by its bytes, at most
   8000 px a side, not quarantined, and a source of the result even
@@ -35,7 +40,8 @@
   name, never someone else's on its own. The server allows exactly the new parts; the fresh verify worker
   compares old and new (DocInfo / content.hpf only gained the pictures' entries, each part a clean picture, each new
   picture shows a new entry). The render tree is parsed with caps and checked numbers.
-- **Left out:** a Hangul DOCUMENT that is itself a chat file (a shared chat's attachment; edit_hwp takes team paths), pictures in headers or footers, nested tables as targets, explicit page coordinates, HWP to PDF (the
+- **Chat files:** a form that is a chat file gets a new version through the same path as edit_office.
+- **Left out:** pictures in headers or footers, nested tables as targets, explicit page coordinates, HWP to PDF (the
   engine only draws PNG pages; with the picture in the Hangul file itself the PDF detour is not needed).
 - **Needs:** the HWP Preview renderer running on the server; without it an image change is refused with that reason and
   text changes work as before.

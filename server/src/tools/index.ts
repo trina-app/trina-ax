@@ -173,11 +173,12 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. ' +
       'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. ' +
       '{ image: "<a PNG or JPG in the team folder>", at: "<text>" } puts the picture (a signature, a seal; a PNG keeps its see-through parts) over that text, e.g. the seal mark printed after the signer\'s name (place "after" or "before": next to it), ' +
-      'or with cell: { next_to: "<label>" } centred in the cell right of (or below) that label, e.g. the signature cell; it floats behind the text (layer "front": over it), nothing else moves; ' +
+      'or with cell: { next_to: "<label>" } centred in the cell right of (or below) that label, e.g. the signature cell; it floats behind body text and in front of a table (set layer to change that), nothing else moves; a JPG has no see-through parts, so in front it hides what is under it: prefer a PNG; ' +
       'width_mm or height_mm sets its size (a seal 12-20 mm, a signature 25-40 mm wide). The picture may also be a file of this chat (chat:files/<file_id>/<name>). For "sign this" / "stamp this" use the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; ' +
       'never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use, or ask them to attach one. Text changes are plain text: no new formatting or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
       'tab, a field or a merged cell), nothing is saved and the error says why. Without `output` the result is a new version of the ' +
       'same file (the previous one stays in its history); with `output` a new file of the same format. ' +
+      'A file of this chat (chat:files/<file_id>/<name>, read it first) is changed the same way: without output it gets a new version, opened from the same file in the chat, and the earlier version stays. ' +
       'To write a new document, use make_file. write and edit cannot change .hwp or .hwpx files.',
     input: EditHwpInput,
     // only while the HWP plugin is installed and on for the company (tools/hwp-writing.ts); otherwise not listed, and a

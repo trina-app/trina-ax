@@ -42,21 +42,25 @@ import { HwpError } from '../files/hwp-engine'
 import { PICTURE_LIMITS } from '../files/hwp-picture'
 import { imageKind } from '../files/pdf-stamp'
 import { parsePlace } from '@mycel/shared/places'
-import { readPlaceFile } from '../files/place-output'
-import { reencodePicture } from './edit-office'
+import { authorizeOutput, readPlaceFile, versionText, type ChatVersionMade } from '../files/place-output'
+import { chatSource, reencodePicture } from './edit-office'
+import { confirmNotOwnPictures, ownChatPicture, ownTeamPicture } from './own-picture'
 import { confirmSources, placeProduced, type MadeFile } from './make-file'
 
 type Input = z.output<typeof EditHwpInput>
-export interface EditedHwp extends MadeFile { source: string; inPlace: boolean; report: HwpEditReport }
+export interface EditedHwp extends MadeFile { source: string; inPlace: boolean; report: HwpEditReport; chatVersion?: ChatVersionMade }
 
 export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input): Promise<EditedHwp> {
   const fx = files.fx
-  const src = authorize(fx, files.rules(), c.user, a.file_path, 'read')
-  if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
+  // a chat file (chat:files/…): without output it gets a new version, with an output a new file is made from it, through
+  // the same path as edit_office (who may, the file's own open, every rule again when it is saved)
+  const chatPlace = parsePlace(a.file_path)
+  const src = chatPlace ? await chatSource(ctx, c, a, chatPlace, 'edit_hwp', HWP_EDIT_MAX) : authorize(fx, files.rules(), c.user, a.file_path, 'read')
+  if (src.st?.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
   const x = ext(src.rel)
   if (x !== 'hwpx' && x !== 'hwp') throw new ToolError('edit_hwp changes Hangul documents (.hwp and .hwpx) only; use edit for text files and make_file for new documents')
-  if (checkRegular(src.abs).size > HWP_EDIT_MAX) throw new ToolError(`'${src.rel}' is larger than ${HWP_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
-  const { bytes } = readRegular(src.abs, HWP_EDIT_MAX, src.st)
+  if (!chatPlace && checkRegular(src.abs).size > HWP_EDIT_MAX) throw new ToolError(`'${src.rel}' is larger than ${HWP_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
+  const { bytes } = 'bytes' in src ? { bytes: src.bytes } : readRegular(src.abs, HWP_EDIT_MAX, src.st)
   // the changes are found in the text the AI read: the file must still be that version
   const seen = c.files.readHashes.get(src.rel)
   if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before changing it`, 'not_read')
@@ -65,7 +69,8 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   // the result keeps the document's format: a .hwp stays a .hwp (Hangul converts between them)
   if (outRel !== undefined && ext(outRel) !== x) throw new ToolError(`'${outRel}' would be a .${ext(outRel)}, but '${src.rel}' is a .${x} and stays one when it is changed; give output ending in .${x} (to have a .${ext(outRel)}, open the file in Hangul and save it as one)`)
   // write access where the result goes, before any work (checked again when it is placed)
-  const out = authorize(fx, files.rules(), c.user, outRel ?? src.rel, 'write', { mustExist: outRel === undefined, createDirs: true })
+  const head = 'head' in src ? src.head : null
+  const out = head ? { rel: head.path, segs: ['chat:files', head.id, head.name], exists: false, st: undefined } : authorizeOutput(fx, files.rules(), c, outRel ?? src.rel, { mustExist: outRel === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel
 
@@ -96,11 +101,19 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   // a new file carries the document's bytes: asked like make_file's sources; a new version stays where it was. The
   // pictures' bytes go where the document's readers see them, a new version too (as stamp_pdf)
   const sources = [...(inPlace ? [] : [src.rel]), ...(pictures?.sources ?? [])]
+  if (pictures) await confirmNotOwnPictures(ctx, c, pictures.notOwn, src.rel)
   if (sources.length) await confirmSources(ctx, files, c, out.rel, out.segs, sources)
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
     const produced = path.join(work, `out.${x}`)
     fs.writeFileSync(produced, r.file, { flag: 'wx', mode: 0o600 })
+    if (head) {
+      // the chat file's new version (ChatFiles.putVersion through the turn's chat places: every rule again, origin 'ai')
+      c.user = ctx.files.principal(c.user.id)
+      c.beforePlace?.()
+      const v = await c.places!.version(head.id, { bytes: r.file }, seen, c.files)
+      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report: r.report, chatVersion: v }
+    }
     const made = await placeProduced(ctx, files, c, out.segs, produced, 'edit_hwp')
     return { ...made, source: src.rel, inPlace, report: r.report }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
@@ -108,7 +121,7 @@ export async function editHwpFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
 
 /** The tool result for the AI: where it went, what changed, what is left to fill. */
 export function editHwpFileText(r: EditedHwp, link: string): string {
-  const where = r.conflictCopyOf
+  const where = r.chatVersion ? versionText(r.chatVersion, 'Changed') : r.conflictCopyOf
     ? `'${r.conflictCopyOf}' was changed by someone else in the meantime, so the result was saved as '${r.path}' and the original left as it was. Tell the user about both.`
     : r.inPlace ? `Saved a new version of ${r.path}; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
@@ -118,7 +131,7 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
   const loose = r.report.pictures?.some((p) => p.fromParagraph)
   const check = pics.length ? `\nPictures:\n${pics.join('\n')}\n` + (loose
     ? 'This document has no layout stored by Hangul, so each picture is tied to the paragraph or table of its label and Hangul keeps it there. hwp_render uses a different layout engine: it can draw the line after such a paragraph too high, over it, while the file is right. Do not change the file for that; tell the user to check the spot in Hangul.'
-    : 'They are placed from the layout Hangul stored in the document. hwp_render shows a close approximation, not Hangul itself: use it to catch a wrong page or label, and tell the user to check the exact spot in Hangul.') +
+    : 'They are placed from the layout Hangul stored in the document. hwp_render uses a different layout engine, so it does not prove the spot, and on a page that is one table it can draw a row a little taller while the file is right: use it only to catch a wrong page or label, and tell the user to check the exact spot in Hangul.') +
     ' The file\'s own small preview picture (shown by some file browsers) is not redrawn.' : ''
   const body = notes.length ? `\n${notes.join('\n')}\nThe file was read back: the changed text is there and every other paragraph reads as before.` : '\nThe file was read back: every paragraph reads as before.'
   return `${where}${body} Layout in Hangul is not checked.${left}${check}`
@@ -127,7 +140,7 @@ export function editHwpFileText(r: EditedHwp, link: string): string {
 /** The image changes' pictures and the page layout, or null without image changes: each picture read with the person's
  * read access, at most PICTURE_LIMITS (one, all together, how many), a PNG or JPEG by its bytes, not quarantined; the
  * layout from the HWP renderer, which must run here. */
-async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[], doc: Uint8Array, x: 'hwp' | 'hwpx', rel: string): Promise<{ extra: HwpEditExtra; sources: string[] } | null> {
+async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes: HwpChange[], doc: Uint8Array, x: 'hwp' | 'hwpx', rel: string): Promise<{ extra: HwpEditExtra; sources: string[]; notOwn: Set<string> } | null> {
   const which = changes.flatMap((ch, i) => (isImageChange(ch) ? [i] : []))
   if (!which.length) return null
   if (which.length > PICTURE_LIMITS.images) throw new ToolError(`more than ${PICTURE_LIMITS.images} pictures in one call; nothing was saved`)
@@ -136,6 +149,8 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
   const seen = new Map<string, HwpEditExtra['images'][number]>()
   const images: HwpEditExtra['images'] = []
   let readBytes = 0, madeBytes = 0
+  /** pictures that are not the asker's own: their yes on a card first */
+  const notOwn = new Set<string>()
   const tooMany = () => new ToolError(`the pictures of one call are larger than ${PICTURE_LIMITS.totalBytes / 1024 / 1024} MB together; use smaller ones`)
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
@@ -147,11 +162,13 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
         // the chat's own visibility and quarantine checks (the place's one safe open)
         const f = await readPlaceFile(ctx, c, ch.image, PICTURE_LIMITS.imageBytes, work)
         rel = f.place
+        if (!ownChatPicture(ctx, rel, c.user.id)) notOwn.add(f.name)
         load = () => readRegular(f.local, PICTURE_LIMITS.imageBytes).bytes
       } else {
         const img = authorize(files.fx, files.rules(), c.user, ch.image, 'read')
         if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
         rel = img.rel
+        if (!ownTeamPicture(img.segs, c.user.id)) notOwn.add(rel)
         load = () => {
           if (checkRegular(img.abs).size > PICTURE_LIMITS.imageBytes) throw new ToolError(`'${img.rel}' is larger than ${PICTURE_LIMITS.imageBytes / 1024 / 1024} MB; use a smaller picture (resize_images makes one)`)
           return readRegular(img.abs, PICTURE_LIMITS.imageBytes, img.st).bytes
@@ -179,5 +196,5 @@ async function picturesOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, changes
       : `the page layout of '${rel}' could not be read (${e.reason})`
     throw new ToolError(`${why}; nothing was saved`)
   }
-  return { extra: { layout, images }, sources: [...seen.keys()] }
+  return { extra: { layout, images }, sources: [...seen.keys()], notOwn }
 }

@@ -293,45 +293,48 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     //   breaks, which can differ from the renderer's above the label: the picture is placed from the top of the label's
     //   body paragraph (or of the table that holds the label or cell), which Hangul keeps next to the label whatever it
     //   wraps above.
+    // a table's filled cells are drawn over what lies behind the text (seen in Hancom on government forms: a seal cut off
+    // or gone), so a place in a table is in front unless the change says otherwise
+    const inTable = !!p.cell
     const pg = layout.pages[page]!
     const top = this.topIndex(p)
     const next = layout.pages[page + 1]
     const cached = this.paras.every((q) => q.sec !== p.sec || this.hasLayoutCache(q))
     let fromPara: number | undefined
-    if (!cached) {
-      // the body paragraph of the label: itself, or the paragraph holding its table (a table in a table is refused)
-      const holder = p.cell ? p.cell.table.para as P | null : p
+    if (inTable && cached) {
+      // A place in a table of a document with Hangul's stored layout, placed from the paper. The anchor is a plain body
+      // paragraph that starts and ends on this page: the page and its preview stay as they were. Never the paragraph
+      // that holds a table (seen in Hancom on a government form: a control added there pushed the page-filling table or
+      // the picture onto another page). A page that is one table has no such paragraph: the picture goes into the cell's
+      // own paragraph, right in Hangul, while the preview may draw that row taller.
+      const flat = (x: string) => x.replace(/\s+/g, '')
+      const plain = pg.starts.map((x) => ({ x, q: this.topParagraph(pg.section, x.para) })).find(({ x, q }) => q && !q.cell && !x.table && !this.tables.some((t) => t.para === q) &&
+        !(next && next.section === pg.section && next.continued.includes(x.para)) && (!flat(x.preview) || flat(q.text).startsWith(flat(x.preview).replace(/…$/, ''))))
+      if (plain) p = plain.q!
+    } else if (inTable) {
+      // no stored layout: placed from the body paragraph after the table, or below the table from its own paragraph
+      // (Hangul measures a table's own paragraph from below it), so it follows the table whatever Hangul wraps above
+      const holder = p.cell!.table.para as P | null
       if (!holder || holder.cell) refuseChange(i, 'the place is in a table inside a table, which this document (saved without Hangul\'s layout) cannot place exactly; put the picture over a text with at')
       const k = this.topIndex(holder)
-      if (k < 0 || !pg.starts.some((x) => x.para === k)) refuseChange(i, `the paragraph that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
-      let topY: number
-      if (p.cell) {
-        // Hangul measures from below a table that holds the place: the picture goes into the body paragraph after the
-        // table (when it starts on this page), from the top of that paragraph's first line; else into the table's own
-        // paragraph, from the table's bottom
-        const t = cellIdx >= 0 ? pg.tables[pg.cells[cellIdx]!.table - 1] : undefined
-        if (!t) refuseChange(i, 'the table that holds the place could not be found on the page')
-        const after = this.topParagraph(holder.sec, k + 1)
-        const line = after && !after.cell ? pg.lines.find((l) => l.cell < 0 && l.para.endsWith(`:${k + 1}`) && l.y >= t.y + t.h - 1) : undefined
-        if (after && line && pg.starts.some((x) => x.para === k + 1)) { p = after; topY = line.y }
-        else { p = holder; topY = t.y + t.h }
-      } else {
-        topY = pg.lines.find((l) => l.para === lineKey)!.y
-        p = holder
-      }
-      fromPara = topY
-    } else if (p.cell || top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
-      const flat = (s: string) => s.replace(/\s+/g, '')
-      const fits = pg.starts.map((x) => ({ x, q: this.topParagraph(pg.section, x.para) })).filter(({ x, q }) => q && !q.cell &&
-        (x.table ? this.tables.some((t) => t.para === q) : !flat(x.preview) || flat(q.text).startsWith(flat(x.preview).replace(/…$/, ''))))
-      const anchor = fits[0]
-      if (!anchor) refuseChange(i, `page ${page + 1} has no paragraph that starts on it to hold the picture (a table or paragraph continued from the page before fills it); put the picture over a text outside the table with at`)
-      p = anchor.q!
+      if (k < 0 || !pg.starts.some((x) => x.para === k)) refuseChange(i, `the table that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
+      const t = cellIdx >= 0 ? pg.tables[pg.cells[cellIdx]!.table - 1] : undefined
+      if (!t) refuseChange(i, 'the table that holds the place could not be found on the page')
+      const after = this.topParagraph(holder.sec, k + 1)
+      const line = after && !after.cell ? pg.lines.find((l) => l.cell < 0 && l.para.endsWith(`:${k + 1}`) && l.y >= t.y + t.h - 1) : undefined
+      if (after && line && pg.starts.some((x) => x.para === k + 1)) { p = after; fromPara = line.y }
+      else { p = holder; fromPara = t.y + t.h }
+    } else if (!cached) {
+      // a body paragraph without Hangul's layout: placed from its own top
+      if (top < 0 || !pg.starts.some((x) => x.para === top)) refuseChange(i, `the paragraph that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
+      fromPara = pg.lines.find((l) => l.para === lineKey)!.y
+    } else if (top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
+      refuseChange(i, 'the paragraph that holds the place continues on the next page, so the picture cannot be placed exactly; give a text in a paragraph that ends on its page')
     }
     const place: ImagePlace = c.cell ? 'cell' : c.place ?? 'over'
     const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
     if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
-    const part = this.pictureAt(p, spot, img, c.layer ?? 'behind', i)
+    const part = this.pictureAt(p, spot, img, c.layer ?? (inTable ? 'front' : 'behind'), i)
     this.pictures.push(spotNote(i, spot, where, part))
   }
 

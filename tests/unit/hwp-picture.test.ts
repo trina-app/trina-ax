@@ -19,7 +19,7 @@ import { pictureInput } from '../../server/src/files/hwp-changes'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { employmentForm } from '../lib/hwpx'
-import { hwpDoc, hwpEmploymentForm, hwpStreams, para, sectionDef, sectionRecords } from '../lib/hwp'
+import { hwpDoc, hwpEmploymentForm, hwpStreams, para, sectionDef, sectionRecords, table } from '../lib/hwp'
 import { emptyScript } from '../../server/src/files/hwpx-write'
 
 const FIX = path.join(import.meta.dir, '../fixtures/hwp')
@@ -248,6 +248,25 @@ describe('placing and checking, more cases', () => {
     expect(gso.data.readInt32LE(8)).toBeLessThan(0) // a seal taller than its line starts above it
     const paper = editHwp(hwpEmploymentForm(), [SEAL_OVER], pictures([SEAL_OVER]))
     expect(paper.report.pictures![0]!.fromParagraph).toBeUndefined()
+  })
+
+  const gsos = (b: Uint8Array) => sectionRecords(b).filter((x) => x.tag === 71 && x.data.toString('latin1', 0, 4) === ' osg')
+  test('a place in a table of a stored-layout document: anchored in a plain body paragraph, in front of the table', () => {
+    const r = editHwp(hwpEmploymentForm(), [SEAL_CELL], { layout: { pages: [{ ...EMPLOYMENT.pages[0]!, starts: [{ para: 1, table: false, preview: '재직' }, { para: 2, table: true, preview: '' }] }] }, images: new Map([[0, clean()]]) })
+    const g = gsos(r.file)[0]!
+    expect(g.level).toBe(1) // a body paragraph's control, not a cell's
+    expect((g.data.readUInt32LE(4) >>> 21) & 7).toBe(3) // in front: a filled cell would hide what is behind the text
+    expect((g.data.readUInt32LE(4) >>> 3) & 3).toBe(0) // from the paper
+  })
+
+  test('a page that is one table: the picture is in the cell, never in the paragraph holding the table', () => {
+    const doc = hwpDoc([Buffer.concat([para([[0, sectionDef()]]), table([[{ text: '서명', width: 8000 }, { text: '', width: 8000 }]]), para('끝', { last: true })])])
+    const cells = [{ table: 1, row: 0, col: 0, x: 117, y: 198, w: 100, h: 17 }, { table: 1, row: 0, col: 1, x: 217, y: 198, w: 200, h: 17 }]
+    const layout: HwpLayout = { pages: [page([{ text: '서명', x: 124, y: 200, cell: 0 }, { text: '', x: 290, y: 200, cell: 1 }], cells, [{ para: 1, table: true }])] }
+    const c: HwpChange = { image: 's.png', cell: { next_to: '서명' } }
+    const r = editHwp(doc, [c], { layout, images: new Map([[0, clean()]]) })
+    expect(gsos(r.file)[0]!.level).toBeGreaterThan(1)
+    expect(r.report.pictures![0]!.fromParagraph).toBeUndefined()
   })
 
   test('Hangul\'s empty script template passes, with a handler per check box; a statement in a handler does not', () => {

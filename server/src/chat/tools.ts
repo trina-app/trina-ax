@@ -496,7 +496,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
     // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
     // checked before any card
-    const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
+    const versionAt = name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp' ? officeVersionPlace(args, name) : null
     // a team Office file in a shared chat is changed like edit_hwp and comment_docx there (S-028,
     // docs/decisions/20261122-shared-chat-team-office-edit.md): the asker's own access, the read card for the document,
     // the save card for an output, and confirmSources in the tool for what the chat read
@@ -630,12 +630,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     },
     async call(name, args, caller) {
       // the chat file's newest version before the call: a refusal after a save never says "nothing was saved"
-      const before = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
+      const before = name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp' ? officeVersionPlace(args, name) : null
       const headBefore = before ? chatHeadId(exec, before) : null
       const out = await callTool(name, args, caller)
       // an in-place change of a chat file (edit_office, edit_pdf without output) that did not go through: the result says
       // what the file is now, whichever check refused it (QA TC-7039: the AI told people a test slide was "the original")
-      if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf')) return out
+      if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf' && name !== 'edit_hwp')) return out
       const at = officeVersionPlace(args, name)
       const state = at ? chatFileState(exec, caller?.files ?? exec.files, at, headBefore) : null
       return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
@@ -1800,7 +1800,7 @@ export function placeRefusal(name: string, args: unknown): string | null {
     if (name === 'make_file' && (key === 'source' || key === 'template')) continue
     // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
     // new file made from it
-    if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
+    if ((name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp') && key === 'file_path' && place?.kind === 'chatFiles') continue
     // edit_hwp's pictures may be files of this chat (tools/edit-hwp.ts: read through the place's open)
     if (name === 'edit_hwp' && key === 'change.image' && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`

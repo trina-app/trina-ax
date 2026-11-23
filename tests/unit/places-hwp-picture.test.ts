@@ -13,36 +13,50 @@ import { componentC } from '../../server/src/team-files/component'
 import { localHwpAssets, NativeHwpEngine } from '../../server/src/files/hwp-engine'
 import { hwpEmploymentForm } from '../lib/hwp'
 import type { HwpLayout } from '../../server/src/files/hwp-picture'
+import { hwpText } from '../../server/src/files/hwp'
+import { readCfb } from '../../server/src/files/cfb'
 
 setDefaultTimeout(120_000)
 const FIX = path.join(import.meta.dir, '../fixtures/hwp')
 const SEAL = fs.readFileSync(path.join(FIX, 'seal.png'))
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
-let h: Harness, ws: TestSocket
-beforeAll(async () => { h = await startHarness({ name: 'places-hwp-picture', stallTimeoutMs: 60_000 }); hwpPluginOn(h.ctx); ws = await h.ws('alice'); await ws.next('hello') })
-afterAll(async () => { ws.close(); await h.close() })
+let h: Harness
+const sockets: Record<string, TestSocket> = {}
+beforeAll(async () => { h = await startHarness({ name: 'places-hwp-picture', stallTimeoutMs: 60_000 }); hwpPluginOn(h.ctx); for (const u of ['alice', 'bob']) { sockets[u] = await h.ws(u); await sockets[u]!.next('hello') } })
+afterAll(async () => { for (const s of Object.values(sockets)) s.close(); await h.close() })
 
-async function run(chat: string, content: string, attachmentIds: string[] = []) {
-  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds } })
-  const answered = new Set<string>()
-  for (const end = Date.now() + 30_000; Date.now() < end; await Bun.sleep(25)) {
+type Card = { kind: string; requestId: string; question?: string; options?: { value: string }[] }
+/** one turn; each card is answered with its first button, or its last with `no` */
+async function turn(user: string, chat: string, content: string, o: { attachmentIds?: string[]; no?: RegExp } = {}) {
+  const ws = sockets[user]!
+  const r = await h.api(user).call(API.sendMessage, { params: { id: chat }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: o.attachmentIds ?? [] } })
+  const cards: Card[] = []
+  for (const end = Date.now() + 40_000; Date.now() < end; await Bun.sleep(25)) {
     for (const x of ws.frames) {
       if (x.type !== 'turn.request' || x.data.turnId !== r.turnId) continue
-      const q = x.data.request as unknown as { kind: string; requestId: string; question?: string; options?: { value: string }[] }
-      if (answered.has(q.requestId)) continue
-      answered.add(q.requestId)
-      await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: q.requestId, answer: q.options?.[0]?.value ?? 'yes' } })
+      const q = x.data.request as unknown as Card
+      if (cards.some((c) => c.requestId === q.requestId)) continue
+      cards.push(q)
+      const no = o.no?.test(q.question ?? '')
+      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: q.requestId, answer: (no ? q.options?.at(-1)?.value : q.options?.[0]?.value) ?? (no ? 'skip' : 'yes') } })
     }
     const done = ws.frames.find((x) => x.type === 'message.done' && x.data.message.turnId === r.turnId)
-    if (done && done.type === 'message.done') return done.data.message.content as string
+    if (done && done.type === 'message.done') return { content: done.data.message.content as string, cards }
   }
   throw new Error('turn did not end')
 }
-async function send(chat: string, name: string, bytes: Uint8Array) {
+const run = async (chat: string, content: string, attachmentIds: string[] = []) => (await turn('alice', chat, content, { attachmentIds })).content
+async function send(chat: string, name: string, bytes: Uint8Array, user = 'alice') {
   const form = new FormData(); form.set('chatId', chat); form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
-  return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
+  return (await (await h.req(user, '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
 }
 const newChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id as string
+async function shareWithBob(chat: string) {
+  const subjects = [{ subjectType: 'user' as const, subjectId: 'bob' }]
+  let r = await h.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects } })
+  if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects, confirmKey: r.confirmKey } })
+  expect(r.status).toBe('saved')
+}
 const withLayout = async <T>(l: (b: Buffer, x: 'hwp' | 'hwpx') => Promise<HwpLayout>, f: () => Promise<T>) => {
   const p = componentC(h.ctx).hwp, was = p.layout
   p.layout = async (_u, b, x) => l(b, x)
@@ -56,10 +70,7 @@ describe('the seal is a file of the chat', () => {
     fs.writeFileSync(path.join(h.team, rel), hwpEmploymentForm())
     const chat = await newChat()
     await run(chat, `hello\n${fake({ say: 'hi' })}`)
-    // (a chat shared with someone keeps its attachments as chat files; a private one in the person's .attachments)
-    let r = await h.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }] } })
-    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: chat }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }], confirmKey: r.confirmKey } })
-    expect(r.status).toBe('saved')
+    await shareWithBob(chat)
     const seal = await send(chat, 'seal.png', SEAL)
     await run(chat, `my seal\n${fake({ say: 'ok' })}`, [seal.id])
     const layout: HwpLayout = { pages: [{ w: 793.7, h: 1122.5, section: 0, continued: [], tables: [], cells: [], starts: [{ para: 0, table: false, preview: '' }],
@@ -67,6 +78,56 @@ describe('the seal is a file of the chat', () => {
     const out = await withLayout(async () => layout, () => run(chat, fake({ tool: 'read', args: { file_path: rel } }, { tool: 'edit_hwp', args: { file_path: rel, changes: [{ image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
     expect(out).toContain('a picture on page 1')
     expect(out).toContain(`Saved a new version of ${rel}`)
+  })
+
+  const LAYOUT: HwpLayout = { pages: [{ w: 793.7, h: 1122.5, section: 0, continued: [], tables: [], cells: [], starts: [{ para: 0, table: false, preview: '' }],
+    lines: [{ x: 113, y: 400, w: 566, h: 13, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)', runs: [{ x: 200, w: 330, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)' }], para: '0:5', cell: -1 }] }] }
+  const versions = (id: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM chat_files WHERE id = ? OR root_id = ?').get(id, id) as { n: number }).n
+  const chatWithForm = async () => {
+    const chat = await newChat()
+    await turn('alice', chat, `hello\n${fake({ say: 'hi' })}`)
+    await shareWithBob(chat)
+    const doc = await send(chat, 'form.hwp', hwpEmploymentForm())
+    const seal = await send(chat, 'seal.png', SEAL)
+    await turn('alice', chat, `the form and my seal\n${fake({ say: 'ok' })}`, { attachmentIds: [doc.id, seal.id] })
+    return { chat, doc, seal, p: chatFilePath(doc.id, 'form.hwp') }
+  }
+
+  test('the form is a chat file: text and the sender\'s own seal make a new version with no picture card; the other member opens it', async () => {
+    const { chat, doc, seal, p } = await chatWithForm()
+    const r = await withLayout(async () => LAYOUT, () => turn('alice', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }, { image: chatFilePath(seal.id, 'seal.png'), at: '(인)' }] }, sayResult: true })))
+    expect(r.cards.filter((c) => /not your own/.test(c.question ?? ''))).toHaveLength(0)
+    expect(r.content).toContain('saved as version 2')
+    expect(versions(doc.id)).toBe(2)
+    const got = new Uint8Array(await (await h.req('bob', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())
+    expect(hwpText(got)).toContain('김예시')
+    expect(readCfb(got).streams.has('BinData/BIN0001.png')).toBe(true)
+  })
+
+  test('a seal another member sent: a card first; no means nothing saved, yes puts it in', async () => {
+    const { chat, doc, p } = await chatWithForm()
+    const bobs = await send(chat, 'bob-seal.png', SEAL, 'bob')
+    await turn('bob', chat, `my seal\n${fake({ say: 'ok' })}`, { attachmentIds: [bobs.id] })
+    const call = fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_hwp', args: { file_path: p, changes: [{ image: chatFilePath(bobs.id, 'bob-seal.png'), at: '(인)' }] }, sayResult: true })
+    const no = await withLayout(async () => LAYOUT, () => turn('alice', chat, call, { no: /not your own/ }))
+    expect(no.cards.filter((c) => /not your own/.test(c.question ?? ''))).toHaveLength(1)
+    expect(no.content).toContain('Nothing was saved')
+    expect(versions(doc.id)).toBe(1)
+    const yes = await withLayout(async () => LAYOUT, () => turn('alice', chat, call))
+    expect(yes.cards.filter((c) => /not your own/.test(c.question ?? ''))).toHaveLength(1)
+    expect(yes.content).toContain('saved as version 2')
+  })
+
+  test('a member who cannot see the form (uploaded, not sent) cannot change it, and it stays as it was', async () => {
+    const chat = await newChat()
+    await turn('alice', chat, `hello\n${fake({ say: 'hi' })}`)
+    await shareWithBob(chat)
+    const doc = await send(chat, 'unsent.hwp', hwpEmploymentForm())
+    const p = chatFilePath(doc.id, 'unsent.hwp')
+    const r = await withLayout(async () => LAYOUT, () => turn('bob', chat, fake({ tool: 'edit_hwp', args: { file_path: p, changes: [{ find: '{{대표자}}', replace: '김예시' }] }, sayResult: true })))
+    expect(r.content).toMatch(/not found|Not done|not changed|Error/i)
+    expect(r.content).not.toContain('saved as version')
+    expect(versions(doc.id)).toBe(1)
   })
 })
 

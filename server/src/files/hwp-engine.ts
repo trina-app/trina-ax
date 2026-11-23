@@ -207,7 +207,7 @@ export class NativeHwpEngine implements HwpEngine {
       if (info.code !== 0) throw new HwpError('damaged')
       let data: { pageCount: number; warnings?: unknown[] }
       try { data = JSON.parse(info.stdout.toString()) } catch { throw new HwpError('damaged') }
-      if (info.stderr.trim() || data.warnings?.length) throw new HwpError('loss')
+      if (diagnostics(info.stderr).length || data.warnings?.length) throw new HwpError('loss')
       if (!Number.isInteger(data.pageCount) || data.pageCount < 1) throw new HwpError('damaged')
       if (data.pageCount > L.pages) throw new HwpError('limit')
       return await body({ run, input, fontDir, output, pageCount: data.pageCount })
@@ -220,5 +220,7 @@ export class NativeHwpEngine implements HwpEngine {
  * plugin turned on is the only switch; the old MYCEL_HWP_PREVIEW release gate is gone and ignored. */
 export const disabledHwpEngine: HwpEngine = { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') }, async layout() { throw new HwpError('disabled') } }
 
-/** stderr lines that are not the renderer's known progress note (parser warnings: possible structural loss) */
-const diagnostics = (stderr: string) => stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line))
+/** stderr lines that say more than the renderer's known notes: its progress note, and a table a few pixels past the page
+ * body in its own layout (LAYOUT_OVERFLOW: a page-filling form after a picture went into a cell; the preview is marked
+ * layout_approximation anyway). Other parser warnings mean possible structural loss. */
+const diagnostics = (stderr: string) => stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line) && !/^LAYOUT_OVERFLOW: page=\d+, sec=\d+, col=\d+, para=\d+, type=\w+, first=(true|false), y=[\d.]+, bottom=[\d.]+, overflow=[\d.]+px$/.test(line))

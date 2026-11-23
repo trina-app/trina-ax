@@ -369,6 +369,18 @@ describe('a signature or seal picture', () => {
     expect(versions(rel)).toEqual([])
   })
 
+  test('a team picture outside the asker\'s own folder with nobody to ask: refused, nothing saved', async () => {
+    const rel = 'users/alice/서명양식-4.hwpx'
+    put(rel, employmentForm({ cache: true }))
+    put('shared/company-seal.png', SEAL)
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'shared/company-seal.png', at: '(인)' }] }))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('Nothing was saved')
+    expect(versions(rel)).toEqual([])
+  })
+
   test('the picture is named for the shared chat\'s read card and wider-audience check, and is never a place written to', () => {
     const args = { file_path: 'users/alice/a.hwp', changes: [{ find: 'a', replace: 'b' }, { image: 'groups/finance/seal.png', at: 'x' }] }
     expect(namedPaths('edit_hwp', args)).toContainEqual({ key: 'change.image', value: 'groups/finance/seal.png' })

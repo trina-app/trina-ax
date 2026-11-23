@@ -184,11 +184,11 @@ export const EditHwpChange = z.union([
     occurrence: n1.optional().describe('Which match of at (or which label cell), 1-based in reading order, when there are several'),
     width_mm: z.number().min(2).max(300).optional().describe('The picture\'s width in mm (a seal is usually 10-20, a signature 25-40); its height follows the picture'),
     height_mm: z.number().min(2).max(300).optional().describe('Or its height in mm (with width_mm too: both as given)'),
-    layer: z.enum(['behind', 'front']).optional().describe('Behind the text, like a seal over the seal mark (default), or in front of it'),
+    layer: z.enum(['behind', 'front']).optional().describe('Behind the text or in front of it. Default: behind in body text, in front in a table (filled cells would hide it)'),
   }),
 ])
 export const EditHwpInput = z.strictObject({
-  file_path: relPath.describe('The .hwp or .hwpx to change; read it in this turn first'),
+  file_path: relPath.describe('The .hwp or .hwpx to change (a team path, or a chat file chat:files/<file_id>/<name>); read it in this turn first'),
   changes: z.array(EditHwpChange).min(1).max(100).describe('Applied together, each to the document as you read it'),
   output: optRelPath.describe('Save the result as this new file (same format as file_path) instead of a new version of file_path'),
 })
