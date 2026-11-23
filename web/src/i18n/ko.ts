@@ -4801,6 +4801,7 @@ export const ko = {
   "marker.paused": "한도에서 멈췄어요",
   "marker.running": "답하는 중",
   "marker.queued": "차례를 기다리는 중",
+  "marker.someone": "다른 사람의 확인을 기다리는 중",
   "marker.new": "새 답",
   "marker.message": "새 메시지",
   "marker.open": "열기",

@@ -396,6 +396,15 @@ const othersWaiting = (rt: ChatRuntime, chatId: string, viewer: string): { waiti
   return n > 0 ? { waiting: n } : {}
 }
 
+/** Chat.waitsFor: the name of the person whose card the AI is stopped on, for everyone else in the chat. Nothing while
+ * another person's answer runs past a card that stays (the chat is not stopped on it), and nothing for that person. */
+function waitsForOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audiences, runner: string | null): { waitsFor?: string } {
+  const who = rt.waitingOn(r, aud)
+  if (!who || who === viewer || (runner && runner !== who)) return {}
+  const name = rt.store.userRef(who)?.name
+  return name ? { waitsFor: name } : {}
+}
+
 /** Chat.shared for `viewer` (who made it, how many see it, whose question is being answered, whether it is theirs). */
 export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audiences): NonNullable<Chat['shared']> {
   const runner = rt.activeTurnUser(r.id)
@@ -411,7 +420,7 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
       by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
       audience: counts ? aud.ofChat(r).length : 0,
       ...(counts ? {} : { audienceHidden: true as const }),
-      answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
+      answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitingOn(r, aud) === runner ? { waiting: true as const } : {}) } : null,
       ...othersWaiting(rt, r.id, viewer),
       // in the list of everyone in it, unless they hid it from their list
       mine: creator || !hiddenByMe(rt.db, viewer, r.id),
@@ -432,7 +441,7 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
     // who sees this chat (Audiences.ofChat): never a guest of the project but the chat's own creator, as its cards and
     // notices count them (QA TC-b4s s2: "4명이 이 채팅을 볼 수 있어요" counted a guest who cannot open it)
     audience: project ? aud.ofChat(r).length : 0,
-    answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
+    answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitingOn(r, aud) === runner ? { waiting: true as const } : {}) } : null,
     ...othersWaiting(rt, r.id, viewer),
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
     canDelete: r.user_id === viewer || (!!me && !!project && mayEditProject(rt.files, me, project)),
@@ -470,7 +479,7 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   // once for a chat.updated to all its viewers)
   const unread = o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
   const muted = !!unread?.muted
-  return { ...c, title: hide(c.title), shared, ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
+  return { ...c, title: hide(c.title), shared, ...waitsForOf(rt, viewer, r, aud, runner), ...(unread?.n ? { unseen: true as const, unreadCount: unread.n } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer

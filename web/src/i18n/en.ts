@@ -4804,6 +4804,7 @@ export const en: Record<MessageKey, string> = {
   "marker.paused": "Paused at a limit",
   "marker.running": "Answering",
   "marker.queued": "Waiting in line",
+  "marker.someone": "Waiting for someone to confirm",
   "marker.new": "New answer",
   "marker.message": "New messages",
   "marker.open": "Open",

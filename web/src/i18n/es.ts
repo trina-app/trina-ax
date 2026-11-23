@@ -4758,6 +4758,7 @@ export const es: Record<MessageKey, string> = {
   "marker.paused": "En pausa por un límite",
   "marker.running": "Respondiendo",
   "marker.queued": "Esperando turno",
+  "marker.someone": "Esperando la confirmación de otra persona",
   "marker.new": "Respuesta nueva",
   "marker.message": "Mensajes nuevos",
   "marker.open": "Abrir",

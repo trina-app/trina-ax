@@ -66,6 +66,19 @@ describe('one marker per row', () => {
   })
 })
 
+describe("the AI waits on someone else's card (Chat.waitsFor)", () => {
+  const base = { runState: 'idle', waitsFor: 'Alice' } as const
+  test('a still ring that needs nothing of me, in no count and not in the waiting filter', () => {
+    expect(markerOf(base)).toEqual({ kind: 'running', reason: 'someone' })
+    expect(markerOf({ ...base, runState: 'running' })).toEqual({ kind: 'running', reason: 'someone' })
+    expect(waitingOrRunning(base)).toBe(false)
+    expect(attentionCount([{ ...base, id: 'c1' }], []).n).toBe(0)
+  })
+  test('my own card comes first', () => {
+    expect(markerOf({ ...base, waiting: true })).toEqual({ kind: 'ask', reason: 'card' })
+  })
+})
+
 describe("⌘K's Needs attention (QA TC-419)", () => {
   test('every chat whose row shows a marker, with that marker: "?" first, then a new answer, then the ring; the latest first in each', () => {
     const waits = ask({ title: 'waits', updatedAt: iso(5) })

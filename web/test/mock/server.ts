@@ -8103,6 +8103,7 @@ export class MockServer {
       return {
         ...rest,
         ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+        ...(runner && s.waiting ? { waitsFor: runner.name } : {}),
         ...(chat.unseen && creator ? { unseen: true as const } : {}),
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
@@ -8587,6 +8588,7 @@ export class MockServer {
     return {
       ...rest,
       ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+      ...(runner && s.waiting ? { waitsFor: runner.name } : {}),
       ...(chat.unseen && s.by.id === viewer.id ? { unseen: true as const } : {}),
       shared: {
         by: s.by,

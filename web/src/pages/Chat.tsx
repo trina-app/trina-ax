@@ -903,7 +903,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
             // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
             hold={chat?.ending ? t('chat.endingEarlier') : undefined}
             // someone else's question is being answered: a line saying whose, and what I send now waits for it
-            note={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            note={chat?.waitsFor ? t('chat.sharedWaiting', { name: chat.waitsFor }) : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}

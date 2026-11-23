@@ -48,7 +48,7 @@ import { publishDoneToOthers } from './live-answer'
 import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
-import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, openQuestionPeople, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -476,6 +476,15 @@ export class ChatRuntime {
     if (exec && (userId === undefined || exec.spec.userId === userId) && exec.openRequests().some((r) => !r.window)) return true
     // or a question of the AI that waits after its answer ended (chat/open-questions.ts): `userId`'s own, when given
     return hasOpenQuestion(this.db, chatId, userId)
+  }
+  /** The person the AI of this shared chat waits for now, whatever the card (one inside a running answer, one kept after
+   * the answer ended, one for a single desktop window), or null. Only someone who still sees the chat: a card of a
+   * person taken out of it holds nobody up. Who, never what: the cards stay their person's. */
+  waitingOn(r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>, aud: Audiences): string | null {
+    const turnId = this.activeTurn(r.id)
+    const exec = turnId ? this.execFor(turnId) : undefined
+    if (exec?.openRequests().length && aud.seesChat(exec.spec.userId, r)) return exec.spec.userId
+    return openQuestionPeople(this.db, r.id).find((id) => aud.seesChat(id, r)) ?? null
   }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
@@ -1235,7 +1244,7 @@ export class ChatRuntime {
    * opened, a long answer ended). `window`: to that window only (a card only it shows opened there; the chat itself is
    * the same as everyone's).
    */
-  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string; notices?: ReadonlyMap<string, Ring> } = {}) {
+  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string; notices?: ReadonlyMap<string, Ring>; others?: boolean } = {}) {
     // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
@@ -1257,6 +1266,8 @@ export class ChatRuntime {
       // (its project's people, or the people and groups a chat outside projects is shared with: Audiences.ofChat)
       for (const uid of aud.ofChat(r)) {
         if (o.window && uid !== userId) continue
+        // `others`: what changed is only what the rest of the chat is told (a card of one window of `userId`)
+        if (o.others && uid === userId) continue
         const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
         // `notice`: a person's message here gave them a notice that may ring (chat/message-notices.ts): the desktop app
         // tells it and rings, as for a room's message
@@ -1267,6 +1278,7 @@ export class ChatRuntime {
       }
       return
     }
+    if (o.others) return
     // a chat of one person: only its person hears about it. Someone else's turn may outlive the chat's sharing (a deleted
     // project's shared chat went to its creator's trash, the rollback guard): its end tells nobody else, and its creator
     // as for their own chat (never to a window of the other person)

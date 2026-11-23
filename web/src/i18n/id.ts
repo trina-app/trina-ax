@@ -4802,6 +4802,7 @@ export const id: Record<MessageKey, string> = {
   "marker.paused": "Dijeda di batas",
   "marker.running": "Sedang menjawab",
   "marker.queued": "Menunggu giliran",
+  "marker.someone": "Menunggu konfirmasi orang lain",
   "marker.new": "Jawaban baru",
   "marker.message": "Pesan baru",
   "marker.open": "Buka",

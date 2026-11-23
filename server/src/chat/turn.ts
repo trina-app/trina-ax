@@ -5805,7 +5805,11 @@ export class TurnExec {
       // a card every window shows: the person who asked may get a push (notifications/chat-answers.ts), once per turn
       if (opened && this.tells && this.spec.clientKind && !window) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: 'waiting' })
       if (!window) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', notify)
-      else if (opened && this.tells) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...notify, window })
+      else {
+        if (opened && this.tells) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...notify, window })
+        // the person's own lists do not change, but the others in a shared chat now wait for them (Chat.waitsFor)
+        this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { others: true })
+      }
     } catch (e) { this.rt.log.warn('session marker event failed', { err: e, turn: this.id }) }
   }
 

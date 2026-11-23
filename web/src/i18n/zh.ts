@@ -4744,6 +4744,7 @@ export const zh: Record<MessageKey, string> = {
   "marker.paused": "达到上限，已暂停",
   "marker.running": "正在回答",
   "marker.queued": "排队等待中",
+  "marker.someone": "正在等待他人确认",
   "marker.new": "新回答",
   "marker.message": "新消息",
   "marker.open": "打开",

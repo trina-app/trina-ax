@@ -4758,6 +4758,7 @@ export const ja: Record<MessageKey, string> = {
   "marker.paused": "上限で一時停止しました",
   "marker.running": "回答中",
   "marker.queued": "順番待ち",
+  "marker.someone": "他の人の確認を待っています",
   "marker.new": "新しい回答",
   "marker.message": "新しいメッセージ",
   "marker.open": "開く",

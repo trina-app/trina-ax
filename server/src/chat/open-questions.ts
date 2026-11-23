@@ -65,6 +65,14 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
   'write', 'edit', 'make_file'])
 
+/** The tools whose step line repeats what their card asks (the question, a command, an address, a service, a text) and
+ * keeps no path aside: anyone but the person whose turn it is reads their verb alone (ChatStore.viewSteps), and so does
+ * another person's AI (chat/step-record.ts). The file tools are not here: their line names a path only to a viewer who
+ * may see it (StoredStep.sv). */
+const PATH_GUARDED_CARD_TOOLS: ReadonlySet<string> = new Set(['delete_files', 'write', 'edit', 'make_file'])
+export const stepRepeatsCard = (tool: string | undefined): boolean =>
+  !!tool && (tool === 'ask_user' || tool === 'connect_service' || tool === 'box_shell' || (CARD_LATER_TOOLS.has(tool) && !PATH_GUARDED_CARD_TOOLS.has(tool)))
+
 /** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
  * its card inside the call, with its time limit, as before */
 export const CARD_LATER_ARGS_MAX = 1024 * 1024
@@ -133,6 +141,13 @@ export function hasOpenQuestion(db: Database, chatId: string, userId?: string): 
   return !!(userId === undefined
     ? db.query('SELECT 1 FROM open_questions WHERE chat_id = ? AND answer IS NULL AND window_id IS NULL LIMIT 1').get(chatId)
     : db.query('SELECT 1 FROM open_questions WHERE chat_id = ? AND user_id = ? AND answer IS NULL AND window_id IS NULL LIMIT 1').get(chatId, userId))
+}
+
+/** Who has a card still open in this chat, the longest waiting first; a card for one desktop window counts (its
+ * person is still the one the chat waits for). Ids only: what the cards say stays with their person. */
+export function openQuestionPeople(db: Database, chatId: string): string[] {
+  const rows = db.query('SELECT user_id FROM open_questions WHERE chat_id = ? AND answer IS NULL ORDER BY created_at, request_id').all(chatId) as { user_id: string }[]
+  return [...new Set(rows.map((r) => r.user_id))]
 }
 
 /** A question of this turn still waits for `userId` (the push of a waiting card is still wanted). */
