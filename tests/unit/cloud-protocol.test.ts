@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   checkTeamName, keyRotationString as relayRotate, registerSigningString as relayRegister, verifyB64,
 } from '@mycel/shared/relay-protocol'
@@ -311,7 +312,7 @@ describe('cloud-protocol: relay operator API', () => {
   })
   test('Node loads relay-ops.ts directly (type stripping, no build step)', () => {
     if (!Bun.which('node')) return
-    const p = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', `import(${JSON.stringify(path.join(DIR, 'relay-ops.ts'))}).then((m) => console.log(m.opsSigningString('get', '/ops/v1/stats', 1, '')))`])
+    const p = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', `import(${JSON.stringify(pathToFileURL(path.join(DIR, 'relay-ops.ts')).href)}).then((m) => console.log(m.opsSigningString('get', '/ops/v1/stats', 1, '')))`])
     expect(p.exitCode).toBe(0)
     expect(p.stdout.toString()).toContain('mycel-relay-ops-v1\nGET\n/ops/v1/stats\n1\ne3b0c442')
   })
