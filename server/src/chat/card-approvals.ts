@@ -23,6 +23,10 @@ export type ApprovalKind =
   /** a save where more people can see than can see what the chat read (chat/turn.ts widenNeed): target = the folder and
    * who may see it (folderAudience); detail.sources = the narrower sources the card named (sourceKey) */
   | 'save_wider'
+  /** content from sources some recipients could not see that the person sent on a post card in this chat (chat/post-to-
+   * room.ts; docs/decisions/20261123-do-then-undo.md "one card per source"): target ''; detail.keys = the sources
+   * (sourceKey). A later post to a place their own words name, of content from those sources only, needs no card */
+  | 'post_sources'
   // (no "Always in this chat" kinds: shared_connection, shared_unsure_tool, shared_own_act and card_always went with
   // docs/decisions/20261123-one-always-allow.md; migration 445 removed their rows)
 

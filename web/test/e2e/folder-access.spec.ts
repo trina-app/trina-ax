@@ -234,9 +234,9 @@ test('an admin: add a person, change one, save with the confirm; remove one, sav
   expect(link.y + link.height).toBeLessThanOrEqual(bar.y + 1)
 
   // remove Carol (Remove access, in her role menu): only less access, saved without a question
+  // (no question: the row goes from the draft with an Undo toast; nothing is saved before Save)
   await sharingRow(page, 'user:carol').getByTestId('sharing-level').selectOption('remove')
-  await expect(page.getByRole('dialog', { name: en('folderAccess.removeTitle', { name: 'Carol' }) })).toBeVisible()
-  await confirm(page).click()
+  await expect(page.getByText(en('folderAccess.removedRow', { name: 'Carol' }))).toBeVisible()
   await expect(outcome(page)).toHaveText(en('folderAccess.willLose', { names: 'Carol' }))
   await page.getByTestId('sharing-save').click()
   await expect(page.getByTestId('sharing-done')).toBeVisible()

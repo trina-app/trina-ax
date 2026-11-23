@@ -103,7 +103,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = a.kind === 'card' ? cardName(a) : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
@@ -125,6 +125,13 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                       <span className="px-1.5 text-faint" aria-hidden>·</span>
                       <span>{t('allowances.connectorSend')}</span>
                     </p>
+                  ) : a.kind === 'person_alias' ? (
+                    // a name the person taught for a teammate (docs/decisions/20261123-do-then-undo.md): "팀장 → QA Owner"
+                    <p className="text-sm [overflow-wrap:anywhere]" data-testid="allowance-alias">
+                      <span className="font-medium">{a.ref}</span>
+                      <span className="px-1.5 text-faint" aria-hidden>→</span>
+                      <span>{a.person.name}</span>
+                    </p>
                   ) : a.kind === 'site' ? (
                     // a site for good (docs/decisions/20261122-always-allow-holds-everywhere.md): "example.com · 웹 주소 열기"
                     <p className="text-sm [overflow-wrap:anywhere]" data-testid="allowance-site">
@@ -140,7 +147,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                     </p>
                   )}
                   <p className="mt-0.5 text-xs text-muted">
-                    {t(a.kind === 'room_files' ? 'allowances.newFiles' : 'allowances.always')} · {formatMonthDay(a.createdAt, locale)}
+                    {t(a.kind === 'room_files' ? 'allowances.newFiles' : a.kind === 'person_alias' ? 'allowances.alias' : 'allowances.always')} · {formatMonthDay(a.createdAt, locale)}
                   </p>
                 </div>
                 {phone ? (

@@ -81,7 +81,19 @@ export const ConnectorSendAllowance = z.object({
 })
 export type ConnectorSendAllowance = z.infer<typeof ConnectorSendAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance])
+/** A name the person calls a teammate by ("팀장님" = QA Owner; docs/decisions/20261123-do-then-undo.md): kept when they
+ * answered once who a title meant, so the AI does not ask again. `ref` the title as matched ("팀장"), `person` the
+ * teammate. Deleting it means being asked again. */
+export const PersonAliasAllowance = z.object({
+  kind: z.literal('person_alias'),
+  id: z.string(),
+  ref: z.string(),
+  person: z.object({ id: z.string(), name: z.string() }),
+  createdAt: z.string(),
+})
+export type PersonAliasAllowance = z.infer<typeof PersonAliasAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance, PersonAliasAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {

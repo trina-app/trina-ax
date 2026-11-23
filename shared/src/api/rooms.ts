@@ -1053,6 +1053,10 @@ export const AnswerShareConfirm = z.object({
   artifacts: z.array(z.object({ name: z.string() })).max(10).optional(),
   /** the answer's part of the message exactly as it would go (a preview's first press: ShareAnswerToRoomBody.preview) */
   text: z.string().max(ROOM_MESSAGE_MAX).optional(),
+  /** nothing in it needs the person's look (server/src/chat/explicit-send.ts: no source some member cannot see that the
+   * person did not name, every file that goes is their own): the app sends at once with the offered files and shows
+   * Undo instead of this step (docs/decisions/20261123-do-then-undo.md). Only on a first ask */
+  direct: z.literal(true).optional(),
   /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
    * but the files I chose to attach change the provenance line (shown for that choice) */
   reason: z.enum(['changed', 'choice']).optional(),

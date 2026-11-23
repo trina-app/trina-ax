@@ -5,6 +5,7 @@
 import { dropAlways, listAlways } from '../chat/always-allow'
 import { dropSendAllow, dropToolAllow, listSendAllows, listToolAllows } from '../integrations/connections/tool-allow'
 import { dropSiteAllow, listSiteAllows } from '../tools/site-allow'
+import { dropAlias, listAliases } from '../chat/person-aliases'
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
@@ -113,8 +114,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
     // "Always allow" on a kind of card (chat/always-allow.ts) first, then the room folders
-    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listToolAllows(ctx.db, auth.user.id), ...listSendAllows(ctx.db, auth.user.id), ...listSiteAllows(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)].sort((x, y) => (x.createdAt < y.createdAt ? 1 : x.createdAt > y.createdAt ? -1 : 0)) } })
-    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('tool:') ? dropToolAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('send:') ? dropSendAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('site:') ? dropSiteAllow(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
+    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listToolAllows(ctx.db, auth.user.id), ...listSendAllows(ctx.db, auth.user.id), ...listSiteAllows(ctx.db, auth.user.id), ...listAliases(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)].sort((x, y) => (x.createdAt < y.createdAt ? 1 : x.createdAt > y.createdAt ? -1 : 0)) } })
+    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : params.id.startsWith('tool:') ? dropToolAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('send:') ? dropSendAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('site:') ? dropSiteAllow(ctx.db, auth.user.id, params.id) : params.id.startsWith('alias:') ? dropAlias(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
     // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a

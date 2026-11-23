@@ -30,7 +30,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashAsksFirst, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
 import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, sameNamedProjects, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
 import { ListRow } from '../components/list/List'
@@ -557,7 +557,9 @@ function Files() {
     try {
       const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
-        confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
+        // into my personal folder: the toast's Undo moves them back, so no question first; only when people lose files
+        // they have by link (removed by the move, not put back by Undo) it still asks (docs/decisions/20261123-do-then-undo.md)
+        confirmNarrow: async (count, n, linked) => !linked || confirmDialog({ title: t('files.narrowTitle'), body: <><p>{t('files.bulk.narrowBody', { count, n })}</p><p className="mt-2" data-testid="move-link-people">{t('files.narrowLinkPeople', { n: linked })}</p></>, confirm: t('files.moveAnyway'), danger: true }),
         // into a folder of my own: only a folder share there adds people (its own sentence); else out of my personal folder
         confirmWiden: (count, n) => confirmDialog({ title: t('files.widenTitle'), body: t(isOwnPath(folder, me.user.id) ? 'files.bulk.widenSharedBody' : ok.every((e) => isOwnPath(e.path, me.user.id)) ? 'files.bulk.widenBody' : 'files.bulk.widenBodyAny', { count, n }), confirm: t('files.moveAnyway') }),
         confirmSkills: confirmSkillsOn,
@@ -570,7 +572,8 @@ function Files() {
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
           skipped: skipWords || null,
         },
-        undefined,
+        // made private without a question: Undo moves those back where they were
+        r.narrowed.length ? { label: t('common.undo'), run: () => void moveBack(r.narrowed) } : undefined,
         select,
       )
     } catch (err) {
@@ -611,14 +614,13 @@ function Files() {
     }
   }
 
-  /** Trash the selection, after one question when someone else could open one of them (lib/bulkFiles.ts
-   * trashAsksFirst; the rows are this folder's listing, GET /api/files/tree); "Undo" brings all of them back. */
+  /** Trash the selection at once: the trash keeps them (and their shares) and the toast's "Undo" brings all of them
+   * back, so there is no question first (Drive's way; docs/decisions/20261123-do-then-undo.md). */
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
     const skipped = chosen.length - items.length - fixedChosen
-    const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
-    if (trashAsksFirst(items, me.user.id, listed ? projects : null, { fromListing: true }) && !(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    const left = [skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
     const each = leaveAtOnce(items)
     setRunning('delete')
     try {
@@ -626,7 +628,7 @@ function Files() {
       each.settle(r)
       // trashIds are in the order of r.done
       const undo = () => untrash(r.done.map((entry, i) => ({ entry, trashId: r.trashIds[i]! })))
-      reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
+      reportBatch(r, { done: (n) => t('files.bulk.trashed', { n }), failed: (n, list) => t('files.bulk.deleteFailed', { n, list }), skipped: left || null, okLevel: 'info' }, { label: t('common.undo'), run: () => void undo() })
     } catch (err) {
       // rows back, and why
       each.fail(err)
@@ -733,14 +735,30 @@ function Files() {
     void onScreen.current?.load()
   }
 
-  /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
-  const confirmSkillsOn = (skills: string[]) =>
-    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('files.moveAnyway') })
+  /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats. Nothing to
+   * choose there (the person moved it), so it is said in one line, with their names, and the move goes ahead
+   * (docs/decisions/20261123-do-then-undo.md). */
+  const confirmSkillsOn = (skills: string[]) => {
+    toast({ level: 'info', text: t('files.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }) })
+    return Promise.resolve(true)
+  }
+
+  /** Undo of a move into my personal folder: each item back where it was, confirmed (the same people see it again; the
+   * place it left is its own, so nothing new widens), then the listing read again. */
+  const moveBack = async (items: readonly { entry: FileEntry; path: string }[]) => {
+    const failed: string[] = []
+    for (const { entry, path: at } of items) {
+      try { await api.call(API.move, { body: { from: at, to: entry.path, onExists: 'fail', confirm: true } }) } catch { failed.push(entry.name) }
+    }
+    dropFolders([folderKey(parentPath(items[0]?.entry.path ?? ''))])
+    void onScreen.current?.load()
+    if (failed.length) toast({ level: 'error', text: t('files.undoMoveFailed', { list: failed.join(', ') }) })
+  }
 
   /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), or more people would see
    * it (out of a personal folder; QA TC-115), ask first, then confirm.
    * A project's folder moved to projects/<name> turns its skills on in that project's chats: that is asked first too. */
-  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<MoveResult | null> => {
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean; askWiden?: boolean }): Promise<(MoveResult & { narrowed?: true }) | null> => {
     // out of my personal folder to where more people see it: asked first as well (QA TC-115)
     body = { ...body, askWiden: true }
     try {
@@ -764,11 +782,11 @@ function Files() {
       // people who have a file there by its link lose it too (files/shares.ts linkPeopleUnder; QA TC-3093)
       const linked = Number(err.body.params.linkPeople ?? 0)
       const folder = tree0.current?.entries.find((x) => x.path === body.from)?.type === 'folder'
-      const narrow = linked > 0
-        ? <><p>{t('files.narrowBody', { n })}</p><p className="mt-2" data-testid="move-link-people">{t(folder ? 'files.narrowLinkPeopleFolder' : 'files.narrowLinkPeople', { n: linked })}</p></>
-        : t('files.narrowBody', { n })
-      if (!(await confirmDialog({ title: t('files.narrowTitle'), body: narrow, confirm: t('files.moveAnyway'), danger: true }))) return null
-      return await api.call(API.move, { body: { ...body, confirm: true } })
+      // into my personal folder: the toast's Undo moves it back (narrowed), so no question first; only when people lose
+      // files they have by link (the move removes those links, Undo does not bring them back) it still asks
+      // (docs/decisions/20261123-do-then-undo.md)
+      if (linked > 0 && !(await confirmDialog({ title: t('files.narrowTitle'), body: <><p>{t('files.narrowBody', { n })}</p><p className="mt-2" data-testid="move-link-people">{t(folder ? 'files.narrowLinkPeopleFolder' : 'files.narrowLinkPeople', { n: linked })}</p></>, confirm: t('files.moveAnyway'), danger: true }))) return null
+      return { ...(await api.call(API.move, { body: { ...body, confirm: true } })), ...(linked > 0 ? {} : { narrowed: true as const }) }
     }
   }
 
@@ -776,7 +794,7 @@ function Files() {
    * leaves this listing for another folder, read there when it opens), the server's questions are asked meanwhile, a
    * no or a refusal puts it back (a refusal with one toast). */
   const moveEntry = (e: FileEntry, dest: string, onExists: 'fail' | 'rename', to: FileEntry | null) =>
-    placeEntry<MoveResult>({
+    placeEntry<MoveResult & { narrowed?: true }>({
       key: fileChangeKey(e.path),
       from: e,
       to,
@@ -809,7 +827,8 @@ function Files() {
     // the destination's kept listing does not have it yet: read when it opens
     dropFolders([folderKey(folder)])
     const r = await moveEntry(e, joinPath(folder, e.name), 'rename', null)
-    if (r.ok && r.newest) toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
+    // made private without a question (moveConfirmed): Undo moves it back
+    if (r.ok && r.newest) toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }), ...(r.reply.narrowed ? { action: { label: t('common.undo'), run: () => void moveBack([{ entry: e, path: r.reply.entry.path }]) } } : {}) })
   }
 
   /** '공유' (design tab 2 rule 3): copy the file into a team folder; first say how many more people will see it. */
@@ -840,11 +859,8 @@ function Files() {
       ),
     ).then(() => void onScreen.current?.load())
 
-  /** To the trash, asked first only when someone else could open it (lib/bulkFiles.ts trashAsksFirst; a row of this
-   * folder's listing, GET /api/files/tree); the toast's Undo
-   * brings it back either way. */
+  /** To the trash at once: the toast's Undo brings it back with its shares (docs/decisions/20261123-do-then-undo.md). */
   const remove = async (e: FileEntry) => {
-    if (trashAsksFirst([e], me.user.id, listed ? projects : null, { fromListing: true }) && !(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
     // out of the listing at once; "moved to the trash" with its Undo comes with the server's answer
     const r = await placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => api.call(API.remove, { query: { path: e.path } }) })
     void onScreen.current?.load()

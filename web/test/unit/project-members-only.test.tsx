@@ -153,24 +153,12 @@ describe('Add me', () => {
     }
     const m = await page()
     try {
+      // no question (docs/decisions/20261123-do-then-undo.md): one line says the members are told, and it goes ahead
       await m.click(await m.until(() => m.find('project-add-me'), 'Add me', 2000))
-      await m.until(() => m.find('project-add-me-confirm'), 'the confirm', 2000)
-      expect(dialogText(m)).toContain("Add yourself to 'Acme legal'?")
-      expect(m.get('project-add-me-confirm').textContent).toBe('Members will see that you joined.')
-      expect(translate('ko', 'projects.addMeTitle', { name: 'Acme legal' })).toBe("'Acme legal'에 나를 추가할까요?")
-      expect(translate('ko', 'projects.addMeBody')).toBe('멤버들에게 내가 들어왔다고 알려요.')
-      expect(m.get('dialog-confirm').textContent).toBe('Add me')
-      // cancel: nothing asked or saved
-      const cancel = m.get('dialog-confirm').parentElement!.querySelector('button')!
-      expect(cancel.textContent).toBe('Cancel')
-      await m.click(cancel)
-      await m.settle(30)
-      expect(calls(`GET /api/projects/${P1}/access`)).toEqual([])
-      // again, yes
-      await m.click('project-add-me')
-      await m.until(() => m.find('project-add-me-confirm'), 'the confirm', 2000)
-      await m.click('dialog-confirm')
       await m.until(() => m.find('composer-input'), 'the page as a member\'s', 3000)
+      expect(m.find('project-add-me-confirm')).toBeNull()
+      expect(useUi.getState().toasts.some((x) => x.text === "Adding you to 'Acme legal'. Members will see that you joined.")).toBe(true)
+      expect(translate('ko', 'projects.addMeNotice', { name: 'Acme legal' })).toBe("'Acme legal'에 나를 추가해요. 멤버들에게 내가 들어왔다고 알려요.")
       expect(calls(`PUT /api/projects/${P1}/participants`)[0]!.body).toEqual({ participants: [{ subjectType: 'group', subjectId: 'g-legal' }, { subjectType: 'user', subjectId: 'olga' }], expectedHash: 'h7' })
       const gets = calls(`GET /api/projects/${P1}`)
       expect(gets.at(-1)!.url).not.toContain('manage')
@@ -198,7 +186,6 @@ describe('Add me', () => {
     const m = await page()
     try {
       await m.click(await m.until(() => m.find('project-add-me'), 'Add me', 2000))
-      await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm', 2000))
       await m.until(() => useUi.getState().toasts.some((x) => x.text === 'Someone changed who sees this project in the meantime.'), 'the words', 2000)
       await m.until(() => calls(`GET /api/projects/${P1}`).length === 2, 'loaded again', 2000)
       expect(m.find('project-members-only')).not.toBeNull()

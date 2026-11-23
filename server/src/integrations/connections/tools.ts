@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { quietRun } from '../../chat/explicit-send'
 import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
 import { steerableRun } from '../../chat/shared-run'
 import { isConfidentialChat } from '../../safe-ops/confidential'
@@ -40,7 +41,7 @@ import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine,
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
-import { argsReachOthers, plainName, readKind, readsHere, takesRecipient } from './read-mark'
+import { argsReachOthers, namedAsChange, nameWords, plainName, readKind, readsHere, takesRecipient } from './read-mark'
 import { keepConnectorAllow, keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -282,7 +283,9 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** an app on the person's computer runs code the call gives (codeKeyOf) */
   runs?: boolean
   /** the short title or description the AI gave the call (titleArg): the card's plain sentence */
-  title?: string | null }
+  title?: string | null
+  /** the tool only makes something new (createTool): no card in a turn the person watches */
+  create?: boolean }
 
 /** Words in a tool's name or title that say it reaches other people (a post, a mail, a message, a share, an invite …) */
 const TO_OTHERS = /send|post|mail|messag|repl(y|ies)|forward|invit|publish|tweet|comment|notif|broadcast|sms|chat|respond|answer|share|member|permission|access|grant|collaborat|visib|schedul|meeting|calendar|event/i
@@ -298,6 +301,31 @@ export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
   if (!ascii(name) || !ascii(title)) return false
   // a recipient in the schema, or in the call's own arguments (extra keys still reach the service)
   return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !argsReachOthers(args)
+}
+
+/** The create tier (docs/decisions/20261123-do-then-undo.md; Claude.ai and Cursor run a tool that only adds without asking):
+ * a tool that makes something new and changes, deletes or sends nothing. All of: the service marks it a change that
+ * destroys nothing (RemoteTool.nonDestructive: its own destructiveHint false; MCP's default for a change is destructive,
+ * so a tool that says nothing asks); a plain ASCII name and title whose verb (first word, or the first after a service
+ * prefix) is a create verb and with no other change word, no word of TO_OTHERS and no money word; no recipient in its
+ * schema or the call; never a Google app (Trina's own list decides there). Anything else: change, delete or send, asked. */
+const CREATE_VERBS = new Set(['create', 'new', 'add', 'make', 'generate', 'build'])
+const MONEY = /pay|charg|order|invoice|purchas|checkout|subscri|refund|transfer|billing|price|buy|sell|book|reserv|donat|wallet|card/i
+/** a new thing that others can reach, or that grants access (security review): never the create tier */
+const REACHES = /public|publish|webhook|hook|key|token|secret|credential|password|user|member|role|permission|access|repo|gist|issue|pull|release|deploy|dns|domain|link|invit|guest|account|org|team|workspace|channel|group|campaign|broadcast|newsletter|ticket/i
+export function createTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title' | 'nonDestructive'> & { inputSchema?: unknown }, args: unknown): boolean {
+  if (!t.nonDestructive || row.google_app) return false
+  const name = plainName(t.name), title = plainName(t.title)
+  if (!name || name !== t.name.normalize('NFKC') || !/^[\x21-\x7e]+$/.test(name) || !/^[\x20-\x7e]*$/.test(title)) return false
+  const w = nameWords(name)
+  const at = CREATE_VERBS.has(w[0] ?? '') ? 0 : w.length > 2 && CREATE_VERBS.has(w[1]!) && !namedAsChange(w[0]) ? 1 : -1
+  if (at < 0) return false
+  // nothing after the verb that is another change ("create_and_send", "add_member", "create_or_update")
+  const rest = w.slice(at + 1).join('_')
+  if (rest && namedAsChange(rest)) return false
+  if (TO_OTHERS.test(name) || TO_OTHERS.test(title) || MONEY.test(name) || MONEY.test(title) || REACHES.test(name) || REACHES.test(title)) return false
+  if (title && nameWords(title).some((x, i) => i > 0 && namedAsChange(x) && !CREATE_VERBS.has(x))) return false
+  return !takesRecipient(t.inputSchema) && !argsReachOthers(args)
 }
 
 /** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */
@@ -602,6 +630,14 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
     }), 'refused (nobody to ask: scheduled run in a shared chat with a guest)')
   }
+  // a run of a task made without its card changes nothing at any service (docs/decisions/20261123-do-then-undo.md)
+  if (b.scheduled && quietRun(ctx.db, b.turnId)) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: 'this scheduled task was made without its confirmation card, so its runs send and change nothing at connected services',
+      next: 'say so in the summary; the user can ask for it in a chat, or make the task again with its card', names: [row.name],
+    }), 'refused (quiet scheduled task)')
+  }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
     if (scheduleMayWrite(ctx, b.turnId, row.id)) return false
@@ -633,6 +669,13 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // a change (docs/decisions/20261118-shared-chat-connections.md, security review of #1276)
   const sharedMode = !!b.shared
   if (allowed && !outside && (!attachAsks || ownAllow) && !sharedMode) return false
+  // the create tier (createTool): a tool that only makes something new runs without the card in a turn the person
+  // watches from their own app, also in a shared chat (it reaches nobody and deletes nothing; the result says what was
+  // made). Never api_request, team files, a scheduled run or after a room read (there every change asks on its card)
+  // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
+  // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
+  if (sent.create && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
+    && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersWords?.() === false && !(sharedMode && guestShared(b))) return false
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
@@ -1216,7 +1259,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)

@@ -48,8 +48,8 @@ export default function Groups() {
     const off = connectionsOnlyFor(connections.data, { subjectType: 'group', subjectId: g.id })
     const body = off.length ? <><p>{t('groups.deleteBody')}</p><p className="mt-2" data-testid="group-delete-ai-off">{t('groups.deleteAiOff', { names: off.join(', ') })}</p></> : t('groups.deleteBody')
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body, confirm: t('common.delete'), danger: true }))) return
-    // people the folder conversion added by name keep that access without the group: said before deleting
-    if (!(await confirmOriginKept(g.memberIds.map((userId) => ({ userId, groupId: g.id })), { title: t('groups.originTitle'), confirm: t('common.delete') }))) return
+    // people the folder conversion added by name keep that access without the group: said with the delete
+    if (!(await confirmOriginKept(g.memberIds.map((userId) => ({ userId, groupId: g.id })), { title: t('groups.originTitle'), show: t('groups.originShow'), close: t('common.close') }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
     focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
     if (off.length) void connections.reload()
@@ -212,7 +212,7 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
     // people taken out of the group who keep folder access by name (added when folders changed): said before saving
     const leaving = group ? group.memberIds.filter((id) => !memberIds.includes(id)).map((userId) => ({ userId, groupId: group.id })) : []
     setBusy(true)
-    if (!(await confirmOriginKept(leaving, { title: t('groups.originTitle'), confirm: t('common.save') }))) { setBusy(false); return }
+    if (!(await confirmOriginKept(leaving, { title: t('groups.originTitle'), show: t('groups.originShow'), close: t('common.close') }))) { setBusy(false); return }
     const body = { name: name.trim(), description: description.trim() || null, memberIds }
     const r = await act(() => (group ? api.call(API.updateGroup, { params: { id: group.id }, body }) : api.call(API.createGroup, { body })))
     setBusy(false)

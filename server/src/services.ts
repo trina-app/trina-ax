@@ -137,6 +137,8 @@ export interface TurnToolResult {
   summary?: string
   /** pictures the call saved, shown under its step by the chat (tools/registry.ts ToolResult.stepImages) */
   stepImages?: { path: string; alt?: string; label?: string }[]
+  /** a scheduled task the call made, shown on its step with Pause and Delete (tools/registry.ts ToolResult.stepScheduled) */
+  stepScheduled?: { id: string; title: string; nextRunAt: string | null; quiet?: true }
 }
 /**
  * A tool the engine can call besides the six file tools (as mcp__team__<name>). C registers make_file,

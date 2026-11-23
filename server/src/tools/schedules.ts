@@ -21,7 +21,9 @@ import { redactorFor } from '../integrations/connections/redact'
 import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
-import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, opensUnderAllSites, type ConfirmExtra } from './url-gate'
+import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, opensUnderAllSites, typedUrls, type ConfirmExtra, type TurnPerson } from './url-gate'
+import { asksFor, ownWords, SCHEDULE_ASK } from '../chat/shared-actions'
+import { isGuestUser } from '../credentials/guest-ai'
 import { cardSources, cleanPins, makeSaveFolder, MAX_PINS, MAX_SOURCES, resolveSaveFolder, saveFolderChanged, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 import { MAX_EVERY_MINUTES, REPEATS, timingOf, type TimingSource } from '../chat/schedule-timing'
@@ -53,6 +55,12 @@ const CreateInput = z.object({
   save_to: z.string().max(1000).optional().describe('Only when runs must save files in a team folder that more people can see than what they read (e.g. "shared/weekly-reports"): that existing folder. After the user\'s yes on the card, runs may make NEW files there and in its sub-folders without asking (never change, replace, move or delete existing files; never skills or instruction files), at most 20 per run. Leave it out for the user\'s own folder, where runs always may save.'),
   reads: z.array(z.string().max(1000)).max(MAX_SOURCES).optional().describe('The places runs read whose content may go into save_to although fewer people can see them: "my folder", team folder paths, and rooms as #[name](room:<id>) or their ids. A run that read anything else that fewer people can see does not save there. Rooms listed here also let a run that read them send to the user\'s own connections at their pinned recipients (never to a team connection after a room read).'),
 })
+
+/** An address a run opens while the server does not know its exit address (url-gate.ts: a plain one the card listed):
+ * no long random-looking part, no user name or password, a site name rather than a number. */
+const plainUrl = (u: string) => {
+  try { const x = new URL(u); return !opaqueParts(u).length && !x.username && !x.password && !/^[\d.]+$|^\[/.test(x.hostname) } catch { return false }
+}
 
 /** The turn's project, whether it is a scheduled run, and the shared chat it is in (null: the person's own chat). */
 function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean; sharedChat: string | null } {
@@ -528,6 +536,41 @@ function scopeNote(db: Database, userId: string, save: SaveFolder | null, source
   return parts.join('')
 }
 
+/**
+ * A task the person asked for in their own words is made without its card (docs/decisions/20261123-do-then-undo.md,
+ * replacing the registry's "keep as is"; ChatGPT's Tasks do the same): the step then says it was made, with Pause and
+ * Delete. Only when nothing about it reaches anyone the person did not see or name: the person's own message of this
+ * turn (not sent for them, quoted lines left out) says when it runs or asks for a schedule, in a turn they watch from
+ * their app (not Slack, a draft or a run), after no room read; the task sends nowhere (no connection it may send to,
+ * no pinned recipient, no save folder or places for one); every address in it is one the person typed in this chat and
+ * none has a random-looking part or a long query; and no guest sees the shared chat it runs in. Anything else: the card
+ * (a task that sends to others with nobody watching stays on the floor).
+ */
+/** Words of a task that send, post or share (then it keeps its card) */
+const SENDS_IN_TASK = /\b(send|post|share|e-?mail|mail|message|notify|forward|invite|publish|upload|tweet|slack|kirim|enviar|compartir)\b|\uBCF4\uB0B4|\uC62C\uB824|\uACF5\uC720|\uC804\uB2EC|\uAC8C\uC2DC|\u9001|\u5171\u6709|\u53D1|\u5206\u4EAB/iu
+const REPEAT_WORDS = new RegExp(['\uB9E4\uC77C', '\uB9E4\uC8FC', '\uB9E4\uB2EC', '\uB9E4\uC6D4', '\uB9E4\uB144', '\uD3C9\uC77C', '\uB9C8\uB2E4', '\u6BCE\u65E5', '\u6BCE\u9031', '\u6BCE\u6708', '\u6BCE\u671D', '\u5B9A\u671F', '\u6BCF\u5929', '\u6BCF\u5468', '\u6BCF\u6708', '\u5B9A\u65F6', '\\b(every|daily|weekly|monthly|hourly|weekdays|setiap|cada|todos los)\\b'].join('|'), 'iu')
+const ONCE_WORDS = new RegExp(['\uB0B4\uC77C', '\uBAA8\uB808', '\u660E\u65E5', '\u660E\u5929', '\\b(tomorrow|besok|ma\u00F1ana)\\b'].join('|'), 'iu')
+const TIME_CUE = new RegExp(['\\d', '\uC544\uCE68', '\uC800\uB141', '\uC624\uC804', '\uC624\uD6C4', '\uC810\uC2EC', '\u671D', '\u591C', '\u65E9\u4E0A', '\u665A\u4E0A', '\\b(morning|evening|noon|night|pagi|sore|malam|tarde|noche)\\b'].join('|'), 'iu')
+
+export function askedInOwnWords(ctx: AppContext, turnId: string | null | undefined, userId: string, person: TurnPerson, task: { prompt: string; title: string }, o: { sends: boolean; urls: readonly string[]; longQuery: number; sharedChat: ChatRow | null }): boolean {
+  if (!turnId || person.unattended || !person.allSitesHere?.() || person.roomsSeen) return false
+  // only in the person's own chat (a shared chat's runs post there, for its people), never for a task that says to send
+  if (o.sends || o.longQuery || o.sharedChat || SENDS_IN_TASK.test(`${task.title}\n${task.prompt}`)) return false
+  const m = ctx.db.query('SELECT m.content, m.auto_sent, t.chat_id FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null; chat_id: string } | null
+  const said = ownWords(m?.content ?? '')
+  // (a repeat word, or "tomorrow" with a time: a bare "tomorrow" in a message is no schedule)
+  if (!m || m.auto_sent || !asksFor(SCHEDULE_ASK, said) || !(REPEAT_WORDS.test(said) || (ONCE_WORDS.test(said) && TIME_CUE.test(said)))) return false
+  if (opaqueParts(`${task.title}\n${task.prompt}`).length) return false
+  if (o.urls.length) {
+    const typed = typedUrls(ctx.db, m.chat_id, userId)
+    if (!o.urls.every((u) => typed.has(u))) return false
+  }
+  if (o.sharedChat) {
+    try { if (new Audiences(ctx.db, ctx.files).ofChat(o.sharedChat).some((id) => isGuestUser(ctx.db, id))) return false } catch { return false }
+  }
+  return true
+}
+
 export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
   const rt = getChatRuntime(ctx)
   const local = (iso: string | null) => {
@@ -577,14 +620,18 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const offered = taskConnections(writable, parsed.data, listed.ids)
       // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
       await egressSettled(ctx)
-      const urlsOpen = egressOf(ctx).known
+      // (while it does not know its exit address, a run still opens the plain addresses the card lists: url-gate.ts gateUrl,
+      // docs/decisions/20261123-do-then-undo.md; only a marked one would wait for a person)
+      const urlsOpen = egressOf(ctx).known || extractUrls(parsed.data.prompt).every(plainUrl)
       // a run of this person in this chat opens a plain address under their own "Allow all websites" (AB4)
       const allSites = runOpensUnderAllSites(ctx, shared?.id ?? null, t.user.id)
       const timing = inputTiming(parsed.data, new Date(), rt.timeZone)
       const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, allSites, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
         ...(shared ? { sharedWith: new Audiences(ctx.db, ctx.files).ofChat(shared).length } : {}) })
       const options = scheduleOptions(L, offered.length > 0 || scope.sends.length > 0)
-      const answer = person.choose
+      // the person's own words asked for it and it sends nowhere: made without the card, undone from its step
+      const quiet = askedInOwnWords(ctx, t.turnId, t.user.id, person, parsed.data, { sends: offered.length > 0 || scope.sends.length > 0 || !!scope.save || scope.sources.length > 0, urls: card.urls, longQuery: card.longQuery.length, sharedChat: shared })
+      const answer = quiet ? 'create' : person.choose
         ? await person.choose(card.question, options, card.extra)
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
@@ -609,7 +656,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const own = answer === 'create_write' ? scope.sends : []
       let s: ScheduleRow
       try {
-        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
+        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })), ...(quiet ? { quiet: true } : {}) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length && !card.urls.filter((u) => !card.longQuery.includes(u)).every(allSites) ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does or the user turns on "Allow all websites" (the card said so); tell the user.' : ''
@@ -617,7 +664,8 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
       const here = shared ? ' Its runs are turns in this shared chat, as this user: they read this chat\'s messages, post their results here, and skip places some people here cannot open.' : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const quietNote = quiet ? ' It was made without a confirmation card because the user asked for it in their own words; the step under your answer shows it with Pause and Delete buttons. Say in one short sentence that it is made, when it first runs, and that they can pause or delete it there.' : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${quietNote}${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (${quiet ? 'asked in the user\'s own words, no card' : 'confirmed by the user'}${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at }, stepScheduled: { id: s.id, title: s.title, nextRunAt: s.next_run_at, ...(quiet ? { quiet: true as const } : {}) } }
     },
   })
   reg.register({

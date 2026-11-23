@@ -1242,6 +1242,11 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
         const shown = r.stepImages
         exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
       }
+      // a scheduled task it made (schedule_create): its step shows it with Pause and Delete (docs/decisions/20261123-do-then-undo.md)
+      if (r.stepScheduled && !r.isError && !callerOf(files, exec.files).helper) {
+        const scheduled = r.stepScheduled
+        exec.patchToolStep(t.name, () => ({ scheduled }))
+      }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
       return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }

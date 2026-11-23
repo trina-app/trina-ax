@@ -456,3 +456,34 @@ test('my shared answer can be copied and deleted, never edited', async () => {
     await plain.unmount()
   }
 })
+
+// Do then undo (docs/decisions/20261123-do-then-undo.md): a confirm the server marks `direct` (nothing from a source some
+// members cannot see, every copy my own) is not shown: the send goes at once with the offered files, and the toast's
+// Undo deletes the message
+test('a direct confirm sends at once with the offered files; the toast offers Undo, which deletes the message', async () => {
+  serve()
+  signIn()
+  const sent = sharedMessage({})
+  answers = [
+    { body: confirm({ files: [files.mine], direct: true }) },
+    { body: { status: 'sent', message: sent, cut: false } },
+  ]
+  useRooms.setState({ rooms: [team], loaded: true })
+  let closed = 0
+  const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="Here is the plan" onClose={() => closed++} />)
+  try {
+    await m.click(m.container.ownerDocument!.body.querySelector(`[data-room-id="${team.id}"]`)!)
+    await m.click('share-room-send')
+    await m.until(() => closed === 1, 'the dialog closed')
+    expect(m.find('share-room-confirm')).toBeNull()
+    const [first, second] = shares()
+    expect(first!.body!.preview).toBe(true)
+    expect(second!.body).toMatchObject({ roomId: team.id, confirmKey: 'key-1', attach: ['users/me/quote.xlsx'] })
+    const toast = useUi.getState().toasts.at(-1)!
+    expect(toast).toMatchObject({ level: 'success', ms: 10_000, action: { label: en('postedCard.undo') } })
+    toast.action!.run()
+    await m.until(() => calls.some((c) => c.method === 'DELETE' && c.path === `/api/rooms/${team.id}/messages/${sent.id}`), 'the delete')
+  } finally {
+    await m.unmount()
+  }
+})

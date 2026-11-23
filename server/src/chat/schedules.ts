@@ -122,7 +122,7 @@ export interface ScheduleRow {
 /** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
  * the confirmation: a free-text task created without one never runs. `save`, `sources`, `personalSends`: the save
  * folder, the places and the pinned personal connections the card showed (chat/schedule-scope.ts). */
-export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
+export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; /** made without its card: its runs send nothing (tools/schedules.ts) */ quiet?: boolean; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
 
 /** A free-text task nobody confirmed on its card: it never runs and the switch cannot resume it (unknown = paused). */
 export function needsReview(s: Pick<ScheduleRow, 'template_id' | 'confirmed_at'>): boolean {
@@ -202,10 +202,10 @@ export class Schedules {
     const id = newId()
     const scope = scopeColumns(approval?.save ?? null, approval?.sources ?? [], approval?.personalSends ?? [])
     this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at,
-      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends, rule, chat_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends, rule, chat_id, quiet)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
       approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
-      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends, s.rule, o.chatId ?? null)
+      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends, s.rule, o.chatId ?? null, approval?.quiet ? 1 : 0)
     return this.get(userId, id)!
   }
 

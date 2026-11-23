@@ -82,6 +82,8 @@ export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.use
  * this list against the schema). Anything not here and not removed is a leak.
  */
 export const KEPT_WITH_ACCOUNT: Record<string, string> = {
+  'person_aliases.user_id': 'the names the person called teammates by (a title meaning someone): never read for an account that is gone (aliasOf joins active users), removed with the user row (CASCADE)',
+  'person_aliases.target_id': 'as user_id: an alias that points at a removed account resolves to nobody (aliasOf only takes an active person), removed with the user row (CASCADE)',
   'account_deletion_requests.user_id': 'the handled request (dates only) stays with the tombstone; the audit log has the history',
   'account_deletion_notices.source_id': 'the owners\' and admins\' inbox entry about the person: settled (read) at the deletion, ages out with the inbox',
   'chats.user_id': 'private chats go at removal for a self-requested deletion, else after the chat retention days (auth/sweeper.ts); shared project chats stay for the project',
