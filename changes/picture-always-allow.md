@@ -1,0 +1,1 @@
+- The card for a signature or seal you did not upload now lists every picture and offers Always allow for exactly those pictures. Take one back in Settings › Allowed for Trina.

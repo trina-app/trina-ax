@@ -832,6 +832,7 @@ export const es: Record<MessageKey, string> = {
   'allowances.alias': "A quién se refiere con este nombre",
   'allowances.siteOffice': "Abrir esta dirección de la red de la oficina en el navegador de la app",
   "allowances.connectorSend": "Enviar sin preguntar",
+  "allowances.picture": "Poner en documentos sin preguntar",
   "allowances.deviceSite": "Navegador de este ordenador",
   "allowances.deviceOffice": "Red de la oficina en el navegador de este ordenador",
   'allowances.card.share_files': "Compartir mis archivos con personas",

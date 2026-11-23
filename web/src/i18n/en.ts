@@ -851,6 +851,7 @@ export const en: Record<MessageKey, string> = {
   'allowances.alias': "Who you mean by this name",
   'allowances.siteOffice': "Opening this office-network address in the in-app browser",
   "allowances.connectorSend": "Send without asking",
+  "allowances.picture": "Put into documents without asking",
   "allowances.deviceSite": "This computer's browser",
   "allowances.deviceOffice": "Office network in this computer's browser",
   'allowances.card.share_files': "Sharing my files with people",

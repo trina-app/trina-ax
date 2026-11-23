@@ -177,7 +177,7 @@ test('a member with no projects: the history is 트리나 기록 without project
   await expect(panel(page).getByTestId('trina-all-projects')).toHaveCount(0)
 })
 
-test('the filter in the header shows the filtered history, and Reset brings the list back', async ({ page }) => {
+test('the filter on the history header shows the filtered history, and Reset brings the list back', async ({ page }) => {
   await start(page)
   const p = await project(page, 'Acme filter')
   await chat(page, 'In project', p)
@@ -188,11 +188,11 @@ test('the filter in the header shows the filtered history, and Reset brings the 
   await page.getByTestId('recents-status-noProject').click()
   await page.keyboard.press('Escape')
   await expect(panel(page).getByTestId('recents-filter-label')).toContainText(t['sidebar.filter.noProject'])
-  await expect(panel(page).getByTestId('trina-list')).toHaveCount(0)
+  await expect(panel(page).getByTestId('trina-other').getByTestId('recents-list')).toBeVisible()
   await expect(panel(page).getByText('Outside')).toBeVisible()
   await expect(panel(page).getByText('In project')).toHaveCount(0)
   await panel(page).getByTestId('recents-filter-clear').click()
-  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
+  await expect(panel(page).getByTestId('recents-list')).toHaveCount(0)
   await expect(panel(page).getByText('In project')).toBeVisible()
 })
 

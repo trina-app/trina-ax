@@ -832,6 +832,7 @@ export const ja: Record<MessageKey, string> = {
   'allowances.alias': "この呼び方で指す人",
   'allowances.siteOffice': "アプリ内ブラウザでこの社内ネットワークのアドレスを開く",
   "allowances.connectorSend": "確認せずに送信",
+  "allowances.picture": "確認せずに文書に入れる",
   "allowances.deviceSite": "このコンピューターのブラウザ",
   "allowances.deviceOffice": "このコンピューターのブラウザの社内ネットワーク",
   'allowances.card.share_files': "自分のファイルを人と共有する",

@@ -269,12 +269,14 @@ export function readRels(pkg: Pkg, part: string): { xml: string; tree: XNode; re
   return { xml, tree, rels }
 }
 /** The relationships part with one relationship added; returns its new id. */
-export function addRel(pkg: Pkg, part: string, typeUri: string, target: string): string {
+export function addRel(pkg: Pkg, part: string, typeUri: string, target: string, alsoTaken: Iterable<string> = []): string {
   const name = relsPartOf(part)
   const xml = pkg.text(name) ?? '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
   // every Id as XML has it (either quoting, spaces around =), so a new one never repeats one (security review)
   const root = kid(xmlTree(xml, name), 'Relationships')
   const taken = new Set((root ? kidsNamed(root, 'Relationship') : []).map((r) => attrOf(r.head, 'Id') ?? ''))
+  // ids the part already points at without a relationship (a broken reference must not come to show the new target)
+  for (const t of alsoTaken) taken.add(t)
   let n = taken.size + 1
   while (taken.has(`rId${n}`)) n++
   const id = `rId${n}`
@@ -293,10 +295,10 @@ export function ensureContentType(pkg: Pkg, o: { part?: string; ext?: string; ty
   const name = '[Content_Types].xml'
   const xml = pkg.need(name)
   if (o.part) {
-    if (new RegExp(`PartName="/${o.part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'i').test(xml)) return
+    if (new RegExp(`PartName\\s*=\\s*["']/${o.part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i').test(xml)) return
     pkg.set(name, appendTo(xml, 'Types', `<Override PartName="/${escAttr(o.part)}" ContentType="${o.type}"/>`, name))
   } else if (o.ext) {
-    if (new RegExp(`Extension="${o.ext}"`, 'i').test(xml)) return
+    if (new RegExp(`Extension\\s*=\\s*["']${o.ext}["']`, 'i').test(xml)) return
     pkg.set(name, appendTo(xml, 'Types', `<Default Extension="${o.ext}" ContentType="${o.type}"/>`, name))
   }
 }
@@ -546,6 +548,60 @@ type ParaLister = (pkg: Pkg) => string[]
 const listers: Partial<Record<OfficeKind, ParaLister>> = {}
 export function registerLister(kind: OfficeKind, f: ParaLister) { listers[kind] = f }
 
+/** every wp:docPr id (a drawing's id in a Word document) of the XML parts directly in `dir` (body, headers, footers,
+ * notes, comments) */
+export function docPrIds(pkg: Pkg, dir: string): number[] {
+  const out: number[] = []
+  for (const n of pkg.names()) {
+    if (!n.startsWith(dir) || !/^[^/]+\.xml$/.test(n.slice(dir.length))) continue
+    const x = pkg.text(n)
+    if (x === null || !x.includes('docPr')) continue
+    for (const m of x.matchAll(/<[A-Za-z_][\w.-]*:docPr\b[^>]*?\sid\s*=\s*["'](\d+)["']/g)) out.push(Number(m[1]))
+  }
+  return out
+}
+const counted = <T>(xs: T[]) => { const m = new Map<T, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return m }
+
+/** A .docx with new pictures (edit_office insert_picture): every new wp:docPr id is used once in the whole document, and
+ * every new r:embed of the main part names an internal image relationship whose target is a part this edit added and
+ * that has a content type. The paragraph read-back cannot see pictures, so this is what vouches for them. */
+function assertNewPictures(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
+  const bad = (why: string): never => refuse(`the changed file did not pass the checks (${why})`)
+  const main = mainPart(neu, 'word/document.xml')
+  const dir = main.slice(0, main.lastIndexOf('/') + 1)
+  const rels = readRels(neu, main)?.rels ?? []
+  const ct = neu.need('[Content_Types].xml')
+  const added = new Set(r.added)
+  const before = counted(docPrIds(oldPkg, dir))
+  for (const [id, n] of counted(docPrIds(neu, dir))) if (n > (before.get(id) ?? 0) && n !== 1) bad(`a picture id ${id} is used twice`)
+  // the relationships: every old one as it was, every new one an internal image relationship to a part added here
+  const oldRels = new Map((readRels(oldPkg, main)?.rels ?? []).map((x) => [x.id, x]))
+  for (const x of readRels(neu, main)?.rels ?? []) {
+    const o = oldRels.get(x.id)
+    if (o) { if (o.type !== x.type || o.target !== x.target || o.external !== x.external) bad(`the relationship ${JSON.stringify(x.id.slice(0, 40))} changed`); oldRels.delete(x.id); continue }
+    if (x.external || x.type !== 'image' || !added.has(x.target)) bad(`a new relationship ${JSON.stringify(x.id.slice(0, 40))} is not a picture added here`)
+  }
+  if (oldRels.size) bad('a relationship was removed')
+  // the content types: only a Default for png or jpeg may be new, nothing else changes
+  const entries = (x: string) => [...x.matchAll(/<(?:[A-Za-z_][\w.-]*:)?(?:Default|Override)\b[^>]*>/g)].map((m) => m[0])
+  const oldCt = counted(entries(oldPkg.need('[Content_Types].xml')))
+  for (const e of entries(ct)) {
+    const n = oldCt.get(e) ?? 0
+    if (n > 0) { oldCt.set(e, n - 1); continue }
+    if (!/^<Default Extension="(png|jpeg)" ContentType="image\/(png|jpeg)"\/>$/.test(e)) bad('the content types changed')
+  }
+  if ([...oldCt.values()].some((n) => n > 0)) bad('a content type was removed')
+  const embeds = (x: string) => counted([...x.matchAll(/\s[A-Za-z_][\w.-]*:embed\s*=\s*["']([^"']*)["']/g)].map((m) => m[1]!))
+  const oldE = embeds(oldPkg.need(main))
+  for (const [id, n] of embeds(neu.need(main))) {
+    if (n <= (oldE.get(id) ?? 0)) continue
+    const rel = rels.find((x) => x.id === id)
+    if (!rel || rel.external || rel.type !== 'image' || !added.has(rel.target)) bad(`a new picture points at ${JSON.stringify(id.slice(0, 40))}, which is not a picture added here`)
+    const ext = rel!.target.split('.').pop()!.toLowerCase()
+    if (!new RegExp(`Extension="${ext}"`, 'i').test(ct) && !ct.includes(`PartName="/${rel!.target}"`)) bad(`${rel!.target} has no content type`)
+  }
+}
+
 export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newBytes: Uint8Array): void {
   const neu = new Pkg(newBytes, r.kind)
   for (const name of [...r.changed, ...r.added]) {
@@ -568,6 +624,8 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     }
     return
   }
+  // a docx edit that touched its relationships or content types (only insert_picture does) is checked part by part
+  if (r.kind === 'docx' && [...r.changed, ...r.added].some((n) => /\/media\/|\.rels$|^\[Content_Types\]\.xml$/.test(n))) assertNewPictures(new Pkg(oldBytes, r.kind), neu, r)
   const lister = listers[r.kind]!
   const a = lister(new Pkg(oldBytes, r.kind)), b = lister(neu)
   const diff = listDiff(a, b)

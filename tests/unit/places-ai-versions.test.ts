@@ -8,6 +8,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
+import { which } from '../../server/src/config'
+import { readZip } from '../../server/src/files/zip-write'
 import * as XLSX from '../../server/node_modules/xlsx'
 import ExcelJS from '../../server/node_modules/exceljs'
 import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
@@ -60,7 +63,9 @@ async function share(user: string, chatId: string, subjects: Sub[]) {
   if (r.status === 'confirm') { const key = r.confirmKey; r = await patient(() => put(user, chatId, subjects, key)) }
   if (r.status !== 'saved') throw new Error('not saved')
 }
-type Card = { requestId: string; question: string }
+type Card = { requestId: string; question: string; origin?: string; options?: { label: string; value: string }[] }
+/** a card's answer: a server card takes only its buttons (its last one is the "no"), any other card "skip" */
+const noAnswer = (c: Card) => (c.origin === 'server' && c.options?.length ? c.options[c.options.length - 1]!.value : 'skip')
 async function run(user: string, chatId: string, content: string, attachmentIds: string[] = []) {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds } })
   const cards: Card[] = []
@@ -72,7 +77,7 @@ async function run(user: string, chatId: string, content: string, attachmentIds:
       const c = f.data.request as unknown as Card
       cards.push(c)
       expectNoRawPlace(c)
-      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: 'skip' } })
+      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: noAnswer(c) } })
       continue
     }
     const done = sock.frames.find((x) => x.type === 'message.done' && x.data.message.turnId === r.turnId)
@@ -408,6 +413,126 @@ describe('edit_office on a chat file', () => {
     const no = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: p, changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
     expect(no.content).toMatch(/read .* first|changed after you read it/)
     expect(versionsOf(chat, up.id)).toBe(2)
+  })
+})
+
+describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () => {
+  const pandoc = which('pandoc')
+  function png(w: number, h: number): Uint8Array {
+    const raw = Buffer.concat(Array.from({ length: h }, () => Buffer.from([0, ...Array.from({ length: w }, () => [200, 20, 20]).flat()])))
+    const chunk = (t: string, d: Buffer) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td) >>> 0); return Buffer.concat([len, td, crc]) }
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
+  }
+  async function send(chat: string, name: string, bytes: Uint8Array) {
+    const form = new FormData()
+    form.set('chatId', chat)
+    form.set('file', new File([bytes as Uint8Array<ArrayBuffer>], name))
+    return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
+  }
+  ;(pandoc ? test : test.skip)('the seal sent in the chat goes onto the form sent in the chat: by its sender with no card (a new version, the text as it was); by another member only after a card (no answer: nothing saved)', async () => {
+    const r0 = Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSeller: Hong Gildong (seal)\n') })
+    const chat = await sharedChat()
+    const doc = await send(chat, 'form.docx', new Uint8Array(r0.stdout))
+    const seal = await send(chat, 'seal.png', png(30, 30))
+    await run('alice', chat, `the form and my seal\n${fake({ say: 'ok' })}`, [doc.id, seal.id])
+    const p = chatFilePath(doc.id, 'form.docx')
+    const stamp = fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_office', args: { file_path: p, changes: [{ insert_picture: { image: chatFilePath(seal.id, 'seal.png'), over: '(seal)', width_mm: 15 } }] }, sayResult: true })
+    // bob, with alice's seal: a card first (answered "skip" here), nothing saved
+    const other = await run('bob', chat, stamp)
+    expect(other.cards.some((c) => /did not upload|직접 올린/.test(c.question))).toBe(true)
+    // a chat file is named by its name on the card, never by its place path
+    expect(other.cards.some((c) => /did not upload|직접 올린/.test(c.question) && c.question.includes("'seal.png'") && !c.question.includes('chat:files'))).toBe(true)
+    expect(other.content).toContain('Nothing was saved')
+    expect(versionsOf(chat, doc.id)).toBe(1)
+    // alice, with her own seal: no card
+    const r = await run('alice', chat, stamp)
+    expect(r.cards).toHaveLength(0)
+    expect(r.content).toContain('saved as version 2')
+    expect(r.content).toContain('picture over "(seal)", behind the text (15 x 15 mm)')
+    const got = new Uint8Array(await (await h.req('erin', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())
+    const z = readZip(got)
+    expect(z.filter((e) => /^word\/media\/image\d+\.png$/.test(e.name)).length).toBe(1)
+    expect(new TextDecoder().decode(z.find((e) => e.name === 'word/document.xml')!.data)).toMatch(/Seller: Hong Gildong <\/w:t><w:drawing>[\s\S]*<\/w:drawing><w:t xml:space="preserve">\(seal\)<\/w:t>/)
+  })
+})
+
+describe('insert_picture: a file counts as the asker\'s own only if they uploaded it (review of #448)', () => {
+  const pandoc = which('pandoc')
+  const png = (n = 8) => {
+    const c = (t: string, d: Buffer) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const b = Buffer.concat([Buffer.from(t), d]); const x = Buffer.alloc(4); x.writeUInt32BE(zlib.crc32(b) >>> 0); return Buffer.concat([l, b, x]) }
+    const i = Buffer.alloc(13); i.writeUInt32BE(n, 0); i.writeUInt32BE(n, 4); i[8] = 8; i[9] = 2
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), c('IHDR', i), c('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: n }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(n * 3, 90)]))))), c('IEND', Buffer.alloc(0))]))
+  }
+  const abs = (rel: string) => path.join(h.team, ...rel.split('/'))
+  const put = (rel: string, b: Uint8Array) => { fs.mkdirSync(path.dirname(abs(rel)), { recursive: true }); fs.writeFileSync(abs(rel), b) }
+  const form = (rel: string) => put(rel, new Uint8Array(Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSeller: Hong Gildong (seal)\n') }).stdout))
+  const stamp = (doc: string, image: string) => [{ tool: 'read', args: { file_path: doc } }, { tool: 'edit_office', args: { file_path: doc, changes: [{ insert_picture: { image, over: '(seal)' } }] }, sayResult: true }]
+  const copy = (from: string, to: string) => ({ tool: 'copy_files', args: { paths: [from], to_folder: to } })
+  const newChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id as string
+  const asked = (r: { cards: Card[] }) => r.cards.some((c) => /did not upload|직접 올린/.test(c.question))
+  const t = pandoc ? test : test.skip
+
+  t('copied by the AI into the person\'s folder and stamped in the same answer: a card, nothing saved', async () => {
+    put('shared/brand/ceo-seal-a.png', png()); form('users/alice/same.docx')
+    const before = fs.readFileSync(abs('users/alice/same.docx'))
+    const r = await run('alice', await newChat(), fake(copy('shared/brand/ceo-seal-a.png', 'users/alice'), ...stamp('users/alice/same.docx', 'users/alice/ceo-seal-a.png')))
+    expect(asked(r)).toBe(true)
+    expect(fs.readFileSync(abs('users/alice/same.docx')).equals(before)).toBe(true)
+  })
+  t('copied in one answer and stamped in a later chat: still a card, nothing saved', async () => {
+    put('shared/brand/ceo-seal-b.png', png()); form('users/alice/later.docx')
+    await run('alice', await newChat(), fake(copy('shared/brand/ceo-seal-b.png', 'users/alice'), { say: 'ok' }))
+    expect(fs.existsSync(abs('users/alice/ceo-seal-b.png'))).toBe(true)
+    const before = fs.readFileSync(abs('users/alice/later.docx'))
+    const r = await run('alice', await newChat(), fake(...stamp('users/alice/later.docx', 'users/alice/ceo-seal-b.png')))
+    expect(asked(r)).toBe(true)
+    expect(fs.readFileSync(abs('users/alice/later.docx')).equals(before)).toBe(true)
+  })
+  t('copied by the AI into the chat\'s files: a card', async () => {
+    put('shared/brand/ceo-seal-c.png', png()); form('users/alice/inchat.docx')
+    const chat = await sharedChat()
+    const up = new FormData(); up.set('chatId', chat); up.set('file', new File([fs.readFileSync(abs('users/alice/inchat.docx'))], 'inchat.docx'))
+    const doc = (await (await h.req('alice', '/api/uploads', { method: 'POST', body: up })).json()) as Attachment
+    await run('alice', chat, `the form\n${fake({ say: 'ok' })}`, [doc.id])
+    await run('alice', chat, fake(copy('shared/brand/ceo-seal-c.png', 'chat:files/'), { say: 'ok' }))
+    const row = db().query("SELECT id FROM chat_files WHERE chat_id = ? AND name = 'ceo-seal-c.png'").get(chat) as { id: string }
+    expect(asked(await run('alice', chat, fake(...stamp(chatFilePath(doc.id, 'inchat.docx'), chatFilePath(row.id, 'ceo-seal-c.png')))))).toBe(true)
+    expect(versionsOf(chat, doc.id)).toBe(1)
+  })
+  t('someone else\'s AI saves a new version over the person\'s seal: stamping it asks (the bytes are judged); an untouched upload does not', async () => {
+    const chat = await sharedChat()
+    const sendFile = async (name: string, b: Uint8Array) => { const up = new FormData(); up.set('chatId', chat); up.set('file', new File([b as Uint8Array<ArrayBuffer>], name)); return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: up })).json()) as Attachment }
+    form('users/alice/chain.docx')
+    const doc = await sendFile('chain.docx', new Uint8Array(fs.readFileSync(abs('users/alice/chain.docx'))))
+    const seal = await sendFile('seal.png', png())
+    const kept = await sendFile('kept.png', png())
+    await run('alice', chat, `the form and my seals\n${fake({ say: 'ok' })}`, [doc.id, seal.id, kept.id])
+    const docPath = chatFilePath(doc.id, 'chain.docx'), sealPath = chatFilePath(seal.id, 'seal.png')
+    // alice's untouched upload: no card
+    const fine = await run('alice', chat, fake(...stamp(docPath, chatFilePath(kept.id, 'kept.png'))))
+    expect(fine.cards).toHaveLength(0)
+    expect(versionsOf(chat, doc.id)).toBe(2)
+    // bob's AI writes its own picture as version 2 of alice's seal
+    put('shared/brand/bobs-picture.png', png(40))
+    const bob = await run('bob', chat, fake({ tool: 'read', args: { file_path: sealPath } }, { tool: 'resize_images', args: { paths: ['shared/brand/bobs-picture.png'], width: 16, output: sealPath }, sayResult: true }))
+    expect(bob.content).not.toContain('Not done')
+    expect(versionsOf(chat, seal.id)).toBe(2)
+    // alice asks to stamp "her" seal: a card, and without a yes the form stays as it was
+    const r = await run('alice', chat, fake(...stamp(docPath, sealPath)))
+    expect(asked(r)).toBe(true)
+    expect(versionsOf(chat, doc.id)).toBe(2)
+  })
+  t('really uploaded to the person\'s own folder: no card; once other bytes are written over it, a card again', async () => {
+    form('users/alice/real.docx')
+    const f = new FormData(); f.set('folder', 'users/alice'); f.set('name', 'my-seal.png'); f.set('onExists', 'replace'); f.set('file', new File([png() as Uint8Array<ArrayBuffer>], 'my-seal.png'))
+    expect((await h.req('alice', '/api/files/upload', { method: 'POST', body: f })).status).toBe(201)
+    const ok = await run('alice', await newChat(), fake(...stamp('users/alice/real.docx', 'users/alice/my-seal.png')))
+    expect(ok.cards).toHaveLength(0)
+    expect(ok.content).toContain('Saved a new version')
+    const other = Buffer.concat([Buffer.from(png()), Buffer.from([0])])
+    put('users/alice/my-seal.png', other)
+    expect(asked(await run('alice', await newChat(), fake(...stamp('users/alice/real.docx', 'users/alice/my-seal.png'))))).toBe(true)
   })
 })
 
