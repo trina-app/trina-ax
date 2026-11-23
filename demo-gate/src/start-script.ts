@@ -12,12 +12,19 @@ export const CHECK_WAIT_MS = 45_000
 export const START_WAIT_MS = 60_000
 
 /** Turnstile retries a failed check by itself (`retry=auto`, every 8 s). The error shows on this many failures in a row,
- * or at once for a configuration error (code 110xxx), which a retry cannot fix. */
+ * or at once for a configuration error (code 110xxx), which a retry cannot fix. Cloudflare marks two 110xxx codes as
+ * retryable, both timeouts (CHECK_RETRYABLE_110): they count like any other brief error. */
 export const CHECK_MAX_ERRORS = 3
+export const CHECK_RETRYABLE_110 = ['110600', '110620']
+
+/** How long after a press a late token may still start the demo by itself. Later, the visitor presses Start again: a tab
+ * left on Try again must not open a demo (and use a copy) long after anyone asked for it. */
+export const WANTED_MS = 180_000
 
 export const START_SCRIPT = `(function () {
   var proof = '', pending = false, sent = false, stalled = false, failed = false, recovering = false, interactive = false;
-  var errors = 0, leavingTo = '', timer = 0, wanted = false;
+  var errors = 0, leavingTo = '', timer = 0, wantedUntil = 0;
+  function wanted() { return Date.now() < wantedUntil; }
   function form() { return document.querySelector('form[data-start]'); }
   function stopTimer() { if (timer) clearTimeout(timer); timer = 0; }
   function armTimer() { stopTimer(); if (!interactive) timer = setTimeout(fail, ${CHECK_WAIT_MS}); }
@@ -36,7 +43,7 @@ export const START_SCRIPT = `(function () {
     if (sent || !proof) return;
     var f = form(), input = f.querySelector('input[name="cf-turnstile-response"]');
     if (!input) { input = document.createElement('input'); input.type = 'hidden'; input.name = 'cf-turnstile-response'; f.appendChild(input); }
-    input.value = proof; sent = true; pending = false; wanted = false; stopTimer(); timer = setTimeout(stall, ${START_WAIT_MS}); paint(); f.submit();
+    input.value = proof; sent = true; pending = false; wantedUntil = 0; stopTimer(); timer = setTimeout(stall, ${START_WAIT_MS}); paint(); f.submit();
   }
   function resetWidget() {
     try { window.turnstile.reset(); return true; } catch (e) { return false; }
@@ -49,12 +56,14 @@ export const START_SCRIPT = `(function () {
   window.demoCheckDone = function (t) {
     if (sent || stalled) return;
     proof = t; failed = false; recovering = false; interactive = false; errors = 0; stopTimer();
-    if ((pending || wanted) && !leavingTo) send(); else paint();
+    if ((pending || wanted()) && !leavingTo) send(); else paint();
   };
   window.demoCheckFailed = function (code) {
     if (sent || stalled) return true;
     proof = ''; errors++;
-    if (errors >= ${CHECK_MAX_ERRORS} || String(code || '').indexOf('110') === 0) return fail();
+    var c = String(code || '');
+    if (errors >= ${CHECK_MAX_ERRORS} || (c.indexOf('110') === 0 && ${JSON.stringify(CHECK_RETRYABLE_110)}.indexOf(c) < 0)) return fail();
+    if (interactive) { interactive = false; if (pending) armTimer(); }
     return true;
   };
   window.demoCheckStopped = fail;
@@ -63,7 +72,7 @@ export const START_SCRIPT = `(function () {
     proof = ''; errors = 0;
     if (resetWidget()) { recovering = true; paint(); } else fail();
   };
-  window.demoCheckInteractive = function () { interactive = true; stopTimer(); };
+  window.demoCheckInteractive = function () { if (sent || stalled) return; interactive = true; stopTimer(); };
   document.addEventListener('submit', function (e) {
     if (e.target !== form()) return;
     e.preventDefault();
@@ -73,18 +82,18 @@ export const START_SCRIPT = `(function () {
     if (proof) return send();
     var retry = failed;
     if (retry) errors = 0;
-    failed = false; pending = true; wanted = true; paint(); armTimer();
+    failed = false; pending = true; wantedUntil = Date.now() + ${WANTED_MS}; paint(); armTimer();
     if (retry && !recovering) { if (resetWidget()) recovering = true; else freshPage(); }
   }, true);
   document.addEventListener('click', function (e) {
     var link = e.target && e.target.closest ? e.target.closest('a[data-lang-link]') : null;
     if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     if (sent) { e.preventDefault(); return; }
-    leavingTo = link.href; pending = false; wanted = false; stopTimer(); paint();
+    leavingTo = link.href; pending = false; wantedUntil = 0; stopTimer(); paint();
   }, true);
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
-    stopTimer(); proof = ''; pending = false; wanted = false; sent = false; stalled = false; failed = false; interactive = false; errors = 0; leavingTo = '';
+    stopTimer(); proof = ''; pending = false; wantedUntil = 0; sent = false; stalled = false; failed = false; interactive = false; errors = 0; leavingTo = '';
     recovering = resetWidget(); paint();
   });
 })();`

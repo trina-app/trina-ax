@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 17:10
 - Branch: `fix/demo-banner-start-edges`
-- Status: in progress
+- Status: done
 - Where: demo-gate/ (the landing page's Start script). Why: the script and its tests live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, fixes to the demo landing's Start button, no new feature or API
 
@@ -48,4 +48,8 @@ No migration, no permissions, no app language strings.
 
 ## Result
 
-To be filled in at the end.
+- The bar is correct and did not change. It counts what the per-visitor stop counts; the 81k is the daily cap's count.
+- Start: the four fixes as planned. The other 110xxx codes still show the error at once. Cloudflare also lists 200100
+  and 400020/400021/400070 as not retryable; they keep today's path (three errors or the 45 s limit).
+- The Korean page: a unit test on the rendered page, and one local Chromium run under the real CSP with Turnstile
+  blocked and its callback called by hand. The live Turnstile widget was not part of that run.
