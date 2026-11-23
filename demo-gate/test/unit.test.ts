@@ -1,5 +1,6 @@
 // The gate's pure parts: header allowlist, beta handling, error shapes, prompt-too-long, weighted counting, the stream
 // rewrite, the deny list, cookies, languages, start limits, config checks and log hygiene.
+import { START_SCRIPT } from '../src/start-script.ts'
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -275,7 +276,8 @@ describe('pages', () => {
       const summary = html.slice(html.indexOf('<summary'), html.indexOf('</summary><p>'))
       expect(summary, l).toContain(`<span>${w.factPractice}</span>`)
       expect(html, l).toContain(`<p>${w.practice}</p></details>`)
-      expect(html, l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
+      // scripts: Turnstile's, and our own Start script, which the CSP allows by its hash
+      expect(html.replace(`<script data-start>${START_SCRIPT}</script>`, ''), l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
     }
     for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
   })

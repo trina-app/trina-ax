@@ -2,8 +2,8 @@
 
 - Date (UTC): 2026-11-23 12:18
 - Branch: `fix/demo-start-waits-for-check`
-- Status: in progress
-- Where: demo-gate/src/pages.ts and a new demo-gate/src/start-script.ts. Why: the gate's landing page and its words live there.
+- Status: done
+- Where: demo-gate/src/pages.ts, a new demo-gate/src/start-script.ts, and one line in demo-gate/src/public.ts. Why: the gate's landing page and its words live there.
 - Version impact: patch. A bug fix on the demo landing page, with no API or config change.
 
 ## Goal
@@ -11,10 +11,18 @@
 Turnstile takes about 8-15 s. A visitor who presses Start before it finishes gets an error page today. After this
 change they press once, the button shows a calm waiting state, and the demo starts when the token arrives.
 
+Second fix, same PR (owner approved both): the language came only from the browser or `?lang=`, so a Korean visitor
+with an English browser had no way to switch. The landing gets a small language picker.
+
 ## Scope
 
-In: a small inline script on the pages with the Start form, one new string in six languages, button states, tests.
-Out: every server check. `start()` and `turnstileOk()` in public.ts stay as they are. No change to the files of #446.
+In: a small inline script on the pages with the Start form, new strings in six languages, button states, the language
+picker, tests.
+Out: every server check. `start()` and `turnstileOk()` in public.ts stay as they are. A new language cookie: a start
+already writes `mycel_locale`, so the choice is remembered from then on.
+
+Overlap with #446: one line in public.ts (`page()` passes `cfg.pool.locales`), so the picker offers only languages this
+gate runs. #446 changes a different hunk of that file.
 
 ## Steps
 
@@ -24,6 +32,8 @@ Out: every server check. `start()` and `turnstileOk()` in public.ts stay as they
 3. Allow only that script in `PAGE_CSP`, by its sha256 hash. No `unsafe-inline`.
 4. Reserve the error line's height so nothing moves. Use aria-busy and aria-disabled, never `disabled`, so focus stays.
 5. Test the press orders, then check a real browser at 1440 and 390.
+6. Add the picker: plain `/?lang=` links from the fixed list, in a details menu outside the page flow. A switch during the
+   wait cancels the pending start, so a late token cannot start the old language.
 
 ## Decisions
 
@@ -32,7 +42,8 @@ none
 ## Risks
 
 The CSP gains one script hash; a test keeps the hash equal to the script. Without JavaScript the form behaves as
-before and the server still refuses a missing token. Back navigation must not leave the button stuck.
+before and the server still refuses a missing token. Back navigation must not leave the button stuck. The picker lists
+`pool.locales` only: a gate configured for en and ko shows two languages, because any other would open in English.
 
 ## Tests
 
@@ -41,4 +52,4 @@ Turnstile's public test keys.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus room for the widget (71 px: 65, or 71 with Cloudflare's test-key banner) held before its script loads, so Start does not move when it appears.

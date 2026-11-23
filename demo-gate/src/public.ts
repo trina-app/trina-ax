@@ -189,7 +189,7 @@ export function createPublic(d: PublicDeps) {
       // and start()/resume() refuse that (403). Other sites still get no referrer.
       'referrer-policy': 'same-origin', 'x-robots-tag': 'noindex', ...extra,
     })
-    res.end(renderPage(kind, locale, { siteKey: cfg.turnstile.siteKey, links: cfg.links, limit }))
+    res.end(renderPage(kind, locale, { siteKey: cfg.turnstile.siteKey, links: cfg.links, limit, locales: cfg.pool.locales }))
   }
   const json = (res: http.ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...extra })
