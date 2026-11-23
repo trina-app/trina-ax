@@ -1,11 +1,11 @@
-// Word forms stamped by the real editor (server/src/files/docx-edit.ts), for the preview test: bun stamped-docx.ts <dir>
+// Word forms stamped by the real editor (server/src/files/docx-edit.ts), for the preview test: bun tests/lib/stamped-docx.ts <dir>
 // writes stamp-over.docx, stamp-after.docx and stamp-next_to.docx. Fake names, a generated red seal.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import '../../../server/src/files/docx-edit' // registers the Word editor
-import { frame, officeEditRequest, officeVerifyRequest, unframe, type EditReport } from '../../../server/src/files/office-edit'
-import { writeZip } from '../../../server/src/files/zip-write'
+import '../../server/src/files/docx-edit' // registers the Word editor
+import { frame, officeEditRequest, officeVerifyRequest, unframe, type EditReport } from '../../server/src/files/office-edit'
+import { writeZip } from '../../server/src/files/zip-write'
 
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
 const crc = (b: Uint8Array) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 255]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
@@ -15,13 +15,13 @@ function chunk(type: string, data: Uint8Array): Buffer {
   const end = Buffer.alloc(4); end.writeUInt32BE(crc(body))
   return Buffer.concat([head, body, end])
 }
-/** a red ring on transparent, 120 px */
+/** a round red seal with a square mark inside, on transparent, 120 px */
 function seal(): Uint8Array {
   const n = 120
   const raw = Buffer.alloc((n * 4 + 1) * n)
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const d = Math.hypot(x - n / 2, y - n / 2), at = y * (n * 4 + 1) + 1 + x * 4
-    if (d < 58 && (d > 46 || (Math.abs(x - y) < 6 && d < 40))) { raw[at] = 214; raw[at + 1] = 40; raw[at + 2] = 40; raw[at + 3] = 255 }
+    if (d < 58 && (d > 48 || (Math.abs(x - n / 2) < 24 && Math.abs(y - n / 2) < 24 && (Math.abs(x - n / 2) > 17 || Math.abs(y - n / 2) > 17 || Math.abs(y - n / 2) < 3)))) { raw[at] = 214; raw[at + 1] = 40; raw[at + 2] = 40; raw[at + 3] = 255 }
   }
   const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(n, 0); ihdr.writeUInt32BE(n, 4); ihdr[8] = 8; ihdr[9] = 6
   return new Uint8Array(Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', new Uint8Array())]))

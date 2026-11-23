@@ -126,7 +126,7 @@ test.describe('a stamped Word form in the file panel', () => {
   let dir: string
   test.beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'mycel-stamped-docx-'))
-    execFileSync('bun', [path.join(import.meta.dirname, 'stamped-docx.ts'), dir], { timeout: 20_000 })
+    execFileSync('bun', [path.join(import.meta.dirname, '../../../tests/lib/stamped-docx.ts'), dir], { timeout: 20_000 })
   })
   test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
 
