@@ -30,7 +30,7 @@ O=/opt/trina-demo G=/var/demo-gate FS=/srv/tdg IMG=/var/lib/trina-demo/tdg.xfs
 need=
 command -v mkfs.xfs >/dev/null || need="$need xfsprogs"
 command -v heif-convert >/dev/null || command -v heif-dec >/dev/null || need="$need libheif-examples"
-for c in bwrap nft choom runuser; do command -v $c >/dev/null || die "$c is missing"; done
+for c in bwrap nft choom runuser curl; do command -v $c >/dev/null || die "$c is missing"; done
 if [ -n "$need" ]; then say "apt:$need"; DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $need >/dev/null; fi
 
 # ---- users (system users, no login shell) ----
@@ -68,7 +68,7 @@ chk "$STAGE/dl/claude" "$CLAUDE_SHA256"; chk "$STAGE/dl/cloudflared" "$CLOUDFLAR
 chk "$STAGE/tools/claude/bin/claude" "$CLAUDE_SHA256"; chk "$STAGE/tools/bin/cloudflared" "$CLOUDFLARED_SHA256"
 for d in node claude chrome-headless-shell; do rm -rf "$O/$d.new"; cp -a "$STAGE/tools/$d" "$O/$d.new"; rm -rf "$O/$d"; mv "$O/$d.new" "$O/$d"; done
 install -m 755 "$STAGE/tools/bin/bun" "$STAGE/tools/bin/cloudflared" $O/bin/
-for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync; do install -m 755 "$HERE/$f" $O/bin/; done
+for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync tdfw-check; do install -m 755 "$HERE/$f" $O/bin/; done
 install -m 644 "$HERE/trina-demo.nft" $O/etc/
 if [ -d $O/app ]; then rm -rf $O/app-old; mv $O/app $O/app-old; fi
 cp -a "$STAGE/app" $O/app.new && mv $O/app.new $O/app
@@ -143,5 +143,7 @@ if [ "$START" = 1 ]; then
   systemctl restart trina-demo-gate.service
   [ -f /var/demo-tunnel/config.yml ] && systemctl restart trina-demo-tunnel.service
   say "started: systemctl status trina-demo-gate trina-demo-tunnel; curl -s 127.0.0.1:19190/__demo/health"
+  sleep 5
 fi
+command -v curl >/dev/null && { $O/bin/tdfw-check || die "the firewall checks failed: the demo must not run like this (systemctl stop trina-demo-gate trina-demo-tunnel)"; }
 say done

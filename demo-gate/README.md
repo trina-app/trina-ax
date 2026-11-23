@@ -104,6 +104,9 @@ AI answer is "busy".
 | `trina-demo-snapshots.timer` | `tdsnap-rebuild` at 05:00: build, canary scan, move in (`TD_LOCALES="en ko"` for some) |
 | `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes |
 
+`tdfw-check` (root) checks the table from each user (the internet, the LAN, Tailscale, Postgres on loopback, DNS, and
+what each may reach); `install.sh` runs it last and stops on a failure.
+
 ## Run
 
 ## Run
