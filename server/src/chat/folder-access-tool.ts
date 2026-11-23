@@ -7,7 +7,9 @@
 // The rules:
 // - Where: the person's own chat with them there. Not offered, and refused when reached anyway, in a scheduled run, a
 //   question from Slack, a confidential chat, an approved template's or a restricted run, a shared chat, a chat other
-//   people wrote in, a guest's turn; refused for a sub-agent (PARENT_ONLY_TOOLS).
+//   people wrote in, a guest's turn; refused for a sub-agent (PARENT_ONLY_TOOLS). The person's own "Always allow" for
+//   folder access lifts the scheduled run, the shared chat and the chat others wrote in (Rule A, docs/decisions/
+//   20261123-ask-registry-findings.md); the who and the folder checks below stay.
 // - Who: the role is re-read at the call (livePrincipal), again when the card is answered, and saveFolderAccess runs
 //   only for the owner or an admin. For anyone else the folder is resolved first as they may see it: a folder they
 //   cannot list answers exactly like a missing one (the same words, the same audit reason); only for a folder they can
@@ -125,16 +127,20 @@ type FolderExec = Pick<TurnExec, 'spec' | 'rt' | 'shared' | 'restricted' | 'temp
 
 /** Why change_folder_access is not offered in this turn (and refused when reached anyway), or null: the person's own
  * chat with them there. */
-export function folderAccessOff(exec: Pick<FolderExec, 'spec' | 'rt' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack'>): { text: string; reason: string } | null {
+export function folderAccessOff(exec: Pick<FolderExec, 'spec' | 'rt' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack'> & Partial<Pick<FolderExec, 'alwaysPlace'>>): { text: string; reason: string } | null {
   const no = (reason: string, mode: string, next: string) => ({ reason, text: refusal({ done: NONE, why: { kind: 'mode', mode }, next }) })
   const own = 'the user can ask in a chat of their own (a new AI chat)'
   const off = actionOff(exec, null)
-  if (off === 'schedule') return no('scheduled run', 'a scheduled run (nobody is there to answer the card)', `${own}, or change it on ${SCREEN}`)
+  // the person's own Always for folder access holds in their scheduled run, a shared chat and a chat others wrote in
+  // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); every check of who may change what stays
+  // (an owner or admin, the folder as they see it, the person or group named: run() below)
+  const always = alwaysHere(exec.alwaysPlace?.(), 'folder_access') === 'on'
+  if (off === 'schedule' && !always) return no('scheduled run', 'a scheduled run (nobody is there to answer the card)', `${own}, or change it on ${SCREEN}`)
   if (off === 'confidential' || confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', 'a confidential chat (safe operations)', `the user can change it on ${SCREEN}`)
   if (off === 'slack' || exec.fromSlack) return no('slack', 'a question from Slack or a Slack thread\'s chat', `the user can ask in the app's AI chat, or change it on ${SCREEN}`)
   if (off === 'restricted' || exec.restricted || exec.templateRun) return no('limited run', 'a run limited to one task', `${own}, or change it on ${SCREEN}`)
-  if (exec.shared) return no('shared chat', 'a shared chat', `${own}, or change it on ${SCREEN}`)
-  if (exec.otherAuthors) return no('other authors', 'a chat other people wrote in', `${own}, or change it on ${SCREEN}`)
+  if (exec.shared && !always) return no('shared chat', 'a shared chat', `${own}, or change it on ${SCREEN}`)
+  if (exec.otherAuthors && !always) return no('other authors', 'a chat other people wrote in', `${own}, or change it on ${SCREEN}`)
   if (isGuestUser(exec.rt.db, exec.spec.userId)) return no('guest', 'a guest\'s chat', 'a team admin can change it')
   return null
 }

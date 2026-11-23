@@ -1054,6 +1054,8 @@ export class TurnExec {
       // the project's own chat room, which this chat reads (chat/room-tools.ts projectRoomTools)
       projectRoom: sharedProject && !this.templateScope ? projectRoomOfChat(this) : null,
       members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
+      // the person's own Always that opens these here (Rule A)
+      always: (['delete_files', 'skill_files', 'project_members', 'folder_access'] as const).filter((k) => alwaysHere(this.alwaysPlace(), k) === 'on'),
     } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
     const sideRoom = sideRoomOf(rt.db, spec.chatId, spec.userId, rt.files)

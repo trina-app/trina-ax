@@ -9,7 +9,7 @@
 // connection card's Always (no tool, SHARED_TOOL: what the connection returns may show to the people in a shared chat).
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
-import type { ConnectorToolAllowance } from '@mycel/shared/api'
+import type { ConnectorSendAllowance, ConnectorToolAllowance } from '@mycel/shared/api'
 import { audit } from '../../admin/audit'
 import { teamAllowsAlways } from '../../chat/always-allow'
 import { toolTitle } from './card-lines'
@@ -89,5 +89,37 @@ export function dropToolAllow(db: Database, userId: string, id: string): boolean
   if (!p) return false
   const n = db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, p[0], p[1]).changes
   if (n) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_tool', integration: p[0], tool: p[1], on: false, via: 'settings' } })
+  return n > 0
+}
+
+/** The person's "Always allow" on connection send cards (tools.ts keepAlwaysAllow), as Settings › Allowed for Trina lists
+ * them (decision 6 of docs/decisions/20261123-ask-registry-findings.md): their own connections set to send without
+ * asking, and their own rows on team connections that still count (the same address). Never the team's rule (an
+ * admin's). Id `send:<connection id>`. */
+export function listSendAllows(db: Database, userId: string): ConnectorSendAllowance[] {
+  const own = db.query("SELECT id, name, updated_at FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND write_policy = 'allow'").all(userId) as { id: string; name: string; updated_at: string }[]
+  const team = db.query("SELECT i.id, i.name, a.created_at FROM integration_user_allow a JOIN integrations i ON i.id = a.integration_id WHERE a.user_id = ? AND i.scope = 'team' AND a.url = i.url").all(userId) as { id: string; name: string; created_at: string }[]
+  return [
+    ...own.map((r) => ({ kind: 'connector_send' as const, id: `send:${r.id}`, connection: r.name, scope: 'personal' as const, createdAt: r.updated_at })),
+    ...team.map((r) => ({ kind: 'connector_send' as const, id: `send:${r.id}`, connection: r.name, scope: 'team' as const, createdAt: r.created_at })),
+  ]
+}
+
+/** Take a send Always back: the person's own connection asks again (its write rule back to "ask"), or their row on a
+ * team connection goes (the team's rule stays). False when it is not this person's or not there. Audited. */
+export function dropSendAllow(db: Database, userId: string, id: string): boolean {
+  if (!id.startsWith('send:')) return false
+  const integrationId = id.slice(5)
+  const row = db.query('SELECT id, scope, owner_user_id, google_app, kind, write_policy FROM integrations WHERE id = ?').get(integrationId) as { id: string; scope: string; owner_user_id: string | null; google_app: string | null; kind: string; write_policy: string } | null
+  if (!row) return false
+  if (row.scope === 'personal') {
+    if (row.owner_user_id !== userId || row.write_policy !== 'allow') return false
+    db.query("UPDATE integrations SET write_policy = 'ask', version = version + 1, updated_at = ? WHERE id = ? AND write_policy = 'allow'").run(new Date().toISOString(), row.id)
+    if (row.google_app) audit(db, { actor: userId, action: 'google_app.write_policy', target: row.id, detail: { app: row.google_app, writePolicy: 'ask', via: 'settings' } })
+    else audit(db, { actor: userId, action: 'integration.update', target: row.id, detail: { scope: row.scope, kind: row.kind, changed: ['writePolicy'], writePolicy: 'ask', via: 'allowances' } })
+    return true
+  }
+  const n = db.query('DELETE FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').run(row.id, userId).changes
+  if (n) audit(db, { actor: userId, action: 'integration.always_allow', target: row.id, detail: { allow: false, via: 'allowances' } })
   return n > 0
 }

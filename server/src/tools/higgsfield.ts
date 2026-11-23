@@ -118,7 +118,8 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
       if (!key) throw new ToolError('Higgsfield is not set up on this server')
       if (!t.person) throw new ToolError('this tool only works inside a chat turn (the person confirms each video)')
       // a scheduled run: nobody is there to confirm the credits (not "the person did not allow"; policy/refusal.ts)
-      if (t.person.unattended) throw new ToolError(refusal({ done: 'No video was made and no credits were spent.', why: cardReason('unattended'), next: 'the user can ask for the video in a chat, where they confirm it' }))
+      // (the person's own Always for videos holds there: Rule A; the daily limit below still counts)
+      if (t.person.unattended && !t.person.alwaysOn?.('video')) throw new ToolError(refusal({ done: 'No video was made and no credits were spent.', why: cardReason('unattended'), next: 'the user can ask for the video in a chat, where they confirm it' }))
       // skills/ is for team skills and rules (skills/guard.ts): refused before any credits are spent
       if (a.save_as && inSkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
       const used = (ctx.db.query("SELECT count(*) AS n FROM tool_events WHERE user_id = ? AND tool = 'generate_video' AND ok = 1 AND at >= ?")

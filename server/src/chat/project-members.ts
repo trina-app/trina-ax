@@ -7,7 +7,10 @@
 // - Where: the person's own chat with the person there. Refused up front (refusal()) in a scheduled run, a room, a
 //   shared project chat, a confidential chat, a chat other people wrote in, a question from Slack or a Slack thread's
 //   chat (exec.fromSlack), a draft / judge / merge chat, and for a sub-agent. Never offered in rooms, shared or
-//   confidential chats (chat/tools.ts add()), an approved template run, FILE_TOOLS or the remote connector.
+//   confidential chats (chat/tools.ts add()), an approved template run, FILE_TOOLS or the remote connector. The person's
+//   own "Always allow" for members changes lifts the scheduled run, the shared chat (where it is then offered) and the
+//   chat others wrote in (Rule A, docs/decisions/20261123-ask-registry-findings.md); every check of who may manage the
+//   project stays. A guest is always refused.
 // - Read rooms (M1): a chat that read rooms by the one rule of chat/read-rooms.ts (chats.rooms_seen, a room's side chat,
 //   or a "> " quote in the person's messages on this branch: "Ask Trina about this" quotes another person's message
 //   there) gets the card with the room line first (roomsSeenWhy). It is the call's only card (rooms/ai-tools.ts
@@ -44,6 +47,7 @@ import { getFolderByPath, rulesOf } from '../admin/folders'
 import { cardReason, cardNext, refusal, SCREEN, type CardEnd, type RefusalReason } from '../policy/refusal'
 import type { Principal } from '../policy/access'
 import { confidentialChat } from '../safe-ops/confidential'
+import { isGuestUser } from '../credentials/guest-ai'
 import { PROJECT_COLS, type ProjectRow } from './store'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
@@ -52,7 +56,7 @@ import { seenWhy } from './grant-reads'
 import { ROOM_REF_RE } from '@mycel/shared/api'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { withAlways } from './always-allow'
+import { alwaysHere, withAlways } from './always-allow'
 
 export const PROJECT_MEMBERS_TOOL = 'change_project_members'
 
@@ -294,14 +298,20 @@ export type MembersExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'tem
 
 /** Why the tool is refused in this turn whatever is asked (refusal() text and a short reason), or null: the person's own
  * chat with them there. */
-export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'rt'>): { text: string; reason: string } | null {
+export function projectMembersRefusal(exec: Pick<MembersExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<MembersExec, 'alwaysPlace'>>): { text: string; reason: string } | null {
   const L = exec.spec.locale
   const no = (reason: string, why: RefusalReason, next: string) => ({ reason, text: refusal({ done: NONE, why, next }) })
   if (exec.restricted || exec.templateRun) return no('limited run', { kind: 'mode', mode: 'a run limited to one task' }, `${ownChat}, or change them on ${panel(L)}`)
-  if (exec.spec.clientKind === 'schedule') return no('scheduled run', cardReason('unattended'), `${cardNext('unattended', 'in a chat of their own')}, or change them on ${panel(L)}`)
-  if (exec.shared) return no('shared chat', { kind: 'mode', mode: 'a shared project chat', why: 'everyone in the project reads and writes it' }, `${ownChat}, or change them on ${panel(L)}`)
+  // a guest never changes members (before any Always: theirs never reaches the checks below)
+  if (isGuestUser(exec.rt.db, exec.spec.userId)) return no('guest', { kind: 'mode', mode: 'a guest\'s chat' }, `a project member who manages it can change them on ${panel(L)}`)
+  // the person's own Always for members changes holds in their scheduled run, a shared chat and a chat others wrote in
+  // (Rule A, decision 2 of docs/decisions/20261123-ask-registry-findings.md); who may manage the project and every name
+  // are checked as always (run() below: mayManageProject, accessEditable, the plan)
+  const always = alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on'
+  if (exec.spec.clientKind === 'schedule' && !always) return no('scheduled run', cardReason('unattended'), `${cardNext('unattended', 'in a chat of their own')}, or change them on ${panel(L)}`)
+  if (exec.shared && !always) return no('shared chat', { kind: 'mode', mode: 'a shared project chat', why: 'everyone in the project reads and writes it' }, `${ownChat}, or change them on ${panel(L)}`)
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return no('confidential chat', { kind: 'mode', mode: 'a confidential chat (safe operations)' }, `the user can change them on ${panel(L)}`)
-  if (exec.otherAuthors) return no('other authors', { kind: 'mode', mode: 'a chat other people wrote in', why: 'one of their messages could ask for the change' }, `${ownChat}, or change them on ${panel(L)}`)
+  if (exec.otherAuthors && !always) return no('other authors', { kind: 'mode', mode: 'a chat other people wrote in', why: 'one of their messages could ask for the change' }, `${ownChat}, or change them on ${panel(L)}`)
   if (exec.fromSlack) return no('slack', { kind: 'mode', mode: 'a question from Slack or a Slack thread\'s chat' }, `the user can ask in the app's AI chat, or change them on ${panel(L)}`)
   return null
 }

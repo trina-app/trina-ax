@@ -2,6 +2,7 @@
 // A leaf module: the chat turn (chat/turn.ts, chat/tools.ts) and the tool socket (mcp/socket.ts) read it. (It began as
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
+import type { CardAlwaysKind } from '@mycel/shared/api'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { commentDocxOutput, editOfficeOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
@@ -27,6 +28,13 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, nothing from outside
   'change_banner_text',
 ])
+
+/** Tools a shared chat gets only while the person whose turn it is has "Always allow" on for the tool's card (Rule A,
+ * decisions 1 and 2 of docs/decisions/20261123-ask-registry-findings.md): their choice holds in shared chats too. Without
+ * it the tool is not offered there (it would only refuse). Each keeps all its own checks of who may change what. */
+export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
+  change_project_members: 'project_members', change_folder_access: 'folder_access', skill_files: 'skill_files',
+}
 
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later

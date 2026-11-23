@@ -154,6 +154,10 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** the person's own "Always allow" for this kind of card holds in this turn (chat/always-allow.ts alwaysHere 'on'):
+   * also in their own scheduled run, where no card can be raised (Rule A; docs/decisions/
+   * 20261123-ask-registry-findings.md). Absent: never */
+  alwaysOn?(kind: CardAlwaysKind): boolean
   /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own
    * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
@@ -203,7 +207,8 @@ export interface TurnPerson {
 /** How a yes / no card of `person` ended (policy/refusal.ts CardOutcome): an unattended run is not asked at all
  * ('unattended'); a person without confirmWhy reads false as the person's no. */
 export async function askConfirm(person: TurnPerson, question: string, allow: string, deny: string, extra?: ConfirmExtra): Promise<CardOutcome> {
-  if (person.unattended) return 'unattended'
+  // nobody is watching: the person's own Always for this kind still holds (Rule A), else nobody can be asked
+  if (person.unattended) return extra?.always && person.alwaysOn?.(extra.always) ? 'yes' : 'unattended'
   if (person.confirmWhy) return person.confirmWhy(question, allow, deny, extra)
   return (await person.confirm(question, allow, deny, extra)) ? 'yes' : 'declined'
 }

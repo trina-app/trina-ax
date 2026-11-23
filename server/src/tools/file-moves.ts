@@ -236,8 +236,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       if (no) throw new ToolError(no)
     }
     if (audienceCard) {
-      // a scheduled run has a person who is never asked (unattended): the same answer as no chat at all
-      if (!tc.person || tc.person.unattended) {
+      // a scheduled run has a person who is never asked (unattended): the same answer as no chat at all, unless their own
+      // Always for moves holds there (Rule A: askConfirm below answers yes)
+      if (!tc.person || (tc.person.unattended && !tc.person.alwaysOn?.('move_files'))) {
         throw new ToolError(refusal({
           done: `Nothing was ${verb}.`, why: cardReason('unattended', { run: tc.person ? undefined : 'a call outside a chat' }), also: change,
           next: `the user can do it in a chat, where they answer the card, or on ${SCREEN.files(L)}; tell them in the summary`, names: [folder || '/'],

@@ -157,6 +157,14 @@ export interface SharedPrompt {
   project: string | null; audience: number; asker: string; members?: string | null
   /** a project with its own chat room: its room id (the shared chat reads it: chat/room-tools.ts projectRoomTools) */
   projectRoom?: string | null
+  /** the asker's own "Always allow" kinds that open tools a shared chat has no other way (rooms/ai-tools.ts
+   * SHARED_UNDER_ALWAYS, and deletes of team files): these work here too (Rule A) */
+  always?: readonly ('delete_files' | 'skill_files' | 'project_members' | 'folder_access')[]
+}
+
+const SHARED_ALWAYS_WORDS: Record<NonNullable<SharedPrompt['always']>[number], string> = {
+  delete_files: 'putting team files in the trash (delete_files)', skill_files: 'changing skill folders (skill_files)',
+  project_members: 'changing the project\'s members (change_project_members)', folder_access: 'changing who can open a team folder (change_folder_access)',
 }
 
 /** A shared project chat's rules (docs/DECISIONS.md "Shared project chats"): everyone who sees the chat sees what the AI
@@ -210,6 +218,9 @@ export function sharedSection(sh: SharedPrompt, locale: Locale = 'en', post = fa
     // a member who may not change who is in the project: who may, instead of a private chat that refuses them too
     // (scenario PRJ-03.project; chat/projects.ts projectMembersBy)
     !guest && sh.members ? `- Only ${sh.members} changes this project's members, not ${name}: say so if asked.` : '',
+    // the asker's own Always holds here too (Rule A, docs/decisions/20261123-ask-registry-findings.md): what the list of
+    // things not available here names is there after all
+    !guest && sh.always?.length ? `- ${name} chose "Always allow" for ${sh.always.map((k) => SHARED_ALWAYS_WORDS[k]).join(', ')}: ${sh.always.length === 1 ? 'it works' : 'they work'} in this chat too, with ${name}'s own access, whatever the list of things not available here says. Use ${sh.always.length === 1 ? 'it' : 'them'} when ${name} asks.` : '',
     // the dev environment in a shared chat (docs/decisions/20261118-devenv-shared-chats.md)
     devEnv ? `- box_shell commands here see only the team folders everyone in this chat may open${sh.project === null ? '' : ' inside the project folder'}, never ${name}'s own folder, and run no logins; their jobs and dev servers see the same and stop when the people here change. When a command cannot see a file ${name} means, say that some people here cannot open it and that ${name} can run it in a chat only they see (${privatelyMenu(locale)}).` : '',
     // a team file the asker may change is changed here like in their own chat (S-028, QA TC-r2c-F1: the AI refused a
