@@ -3,7 +3,7 @@
 // the teammate whose profile title holds the word (user_profiles.title), else for an owner word the team's owner, else
 // for a lead word the project's creator (in a project chat) or the one owner or admin. Exactly one match counts as the
 // person's own naming of that teammate (rooms/reader.ts findPeople returns them, with how). Several or none: the AI asks
-// once; the person's answer is kept as an alias (person_aliases, migration 446) and used before asking next time, in
+// once; the person's answer is kept as an alias (person_aliases, migration 447) and used before asking next time, in
 // every chat, until the person deletes it in Settings › Allowed for Trina (kind person_alias).
 //
 // Learning the answer, from the person alone (security review: never the AI's pick or guess): their pick on a shared
