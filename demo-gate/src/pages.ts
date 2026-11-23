@@ -1,7 +1,9 @@
-// The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), in the six languages. Static HTML,
-// no script of our own: the only script is Cloudflare Turnstile's widget on the landing page.
+// The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), in the six languages. Static HTML.
+// Pages with Start carry Cloudflare Turnstile's widget and our Start script; pages with the language menu carry its script
+// (both in start-script.ts, allowed by hash).
 import { LOCALES, isLocale, type Locale } from './config.ts'
 import { WORDMARK_DARK, WORDMARK_LIGHT } from './brand.ts'
+import { LANGUAGE_MENU_SCRIPT, LANGUAGE_MENU_SCRIPT_HASH, START_SCRIPT, START_SCRIPT_HASH } from './start-script.ts'
 
 export type PageKind = 'landing' | 'busy' | 'ended' | 'limit' | 'check' | 'error'
 
@@ -9,7 +11,7 @@ interface Words {
   title: string; landingH: string; sub: string; factQ: string; factHours: string; factPractice: string; practice: string; start: string
   busyH: string; busyP: string; guided: string; plans: string; retry: string
   endedH: string; endedP: string; again: string
-  limitH: string; limitP: string; limitLaterP: string; checkH: string; checkP: string; errorH: string; errorP: string
+  limitH: string; limitP: string; limitLaterP: string; checkH: string; checkP: string; checking: string; language: string; errorH: string; errorP: string
 }
 
 /** Why a start was refused for this address: `hour` = the starts per hour (clears in about an hour); `day` = the starts
@@ -43,6 +45,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: 'You can start again tomorrow. Meanwhile, you can watch the guided demo.',
     checkH: "We couldn't finish the browser check",
     checkP: 'Wait for the check to finish, then press Start.',
+    checking: 'Checking…',
+    language: 'Language',
     errorH: "The demo couldn't start",
     errorP: 'Try again in a bit.',
   },
@@ -68,6 +72,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: '내일 다시 시작할 수 있어요. 그동안 안내 데모를 볼 수 있어요.',
     checkH: '브라우저 확인을 마치지 못했어요',
     checkP: '확인이 끝날 때까지 기다린 뒤 시작하기를 눌러 주세요.',
+    checking: '확인하는 중…',
+    language: '언어',
     errorH: '데모를 시작하지 못했어요',
     errorP: '잠시 뒤 다시 해 주세요.',
   },
@@ -93,6 +99,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: '明日また始められます。それまでガイド付きデモをご覧いただけます。',
     checkH: 'ブラウザの確認が完了しませんでした',
     checkP: '確認が終わるまで待ってから、「はじめる」を押してください。',
+    checking: '確認しています…',
+    language: '言語',
     errorH: 'デモを開始できませんでした',
     errorP: '少し時間をおいてから、もう一度お試しください。',
   },
@@ -118,6 +126,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: '明天可以重新开始。在此期间，你可以先看引导演示。',
     checkH: '浏览器验证没有完成',
     checkP: '请等验证完成后，再点击“开始”。',
+    checking: '正在验证…',
+    language: '语言',
     errorH: '演示没能启动',
     errorP: '请稍后再试。',
   },
@@ -143,6 +153,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: 'Podrá empezar de nuevo mañana. Mientras tanto, puede ver la demostración guiada.',
     checkH: 'No pudimos completar la verificación del navegador',
     checkP: 'Espere a que termine la verificación y pulse Empezar.',
+    checking: 'Verificando…',
+    language: 'Idioma',
     errorH: 'No se pudo iniciar la demostración',
     errorP: 'Vuelva a intentarlo dentro de un rato.',
   },
@@ -168,6 +180,8 @@ export const WORDS: Record<Locale, Words> = {
     limitLaterP: 'Anda bisa memulai lagi besok. Sementara itu, Anda bisa menonton demo terpandu.',
     checkH: 'Pemeriksaan browser belum selesai',
     checkP: 'Tunggu sampai pemeriksaan selesai, lalu tekan Mulai.',
+    checking: 'Memeriksa…',
+    language: 'Bahasa',
     errorH: 'Demo tidak bisa dimulai',
     errorP: 'Coba lagi sebentar lagi.',
   },
@@ -192,7 +206,7 @@ export function localeOf(query: string | null, acceptLanguage: string | undefine
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
-export const PAGE_CSP = "default-src 'none'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+export const PAGE_CSP = `default-src 'none'; script-src '${START_SCRIPT_HASH}' '${LANGUAGE_MENU_SCRIPT_HASH}' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
 
 export interface PageLinks { scriptedDemo: string; pricing: string }
 
@@ -201,31 +215,44 @@ const icon = (d: string) => `<svg class="ic" viewBox="0 0 24 24" width="18" heig
 const ICON_ASK = icon('<path d="M5 18.5V6.5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9.5L5 18.5Z"/><path d="M9 9.5h6M9 12h3.5"/>')
 const ICON_CLOCK = icon('<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>')
 const ICON_MAIL = icon('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4.5 7 7.5 5.5L19.5 7"/>')
+const ICON_GLOBE = icon('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5s1.2-6.2 3.6-8.5Z"/>').replace('class="ic"', 'class="lang-ic"').replace('width="18" height="18"', 'width="15" height="15"')
 const ICON_INFO = `<svg class="ic info-ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 8h.01" stroke-width="2.4"/></svg>`
 
 /** The wordmark in both colours; CSS shows the one that matches the theme. Each copy gets its own mask id (one page,
  * two SVGs with the same id would share the first one's mask). */
 const wordmark = (label: string) => `<div class="brand" role="img" aria-label="${esc(label)}">${WORDMARK_LIGHT.replace(/id="m"/, 'id="wm-l"').replace(/url\(#m\)/, 'url(#wm-l)').replace('<svg ', '<svg class="wm wm-light" aria-hidden="true" ')}${WORDMARK_DARK.replace(/id="m"/, 'id="wm-d"').replace(/url\(#m\)/, 'url(#wm-d)').replace('<svg ', '<svg class="wm wm-dark" aria-hidden="true" ')}</div>`
 
-export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string; links: PageLinks; limit?: LimitReason }): string {
+/** Each language in its own name, for the landing's picker. No flags: a flag is a country, not a language. */
+export const LANGUAGE_NAMES: Record<Locale, string> = { en: 'English', ko: '한국어', ja: '日本語', zh: '中文', es: 'Español', id: 'Bahasa Indonesia' }
+
+export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string; links: PageLinks; limit?: LimitReason; locales?: readonly Locale[] }): string {
   const w = WORDS[locale]
+  // only languages this gate runs: any other would silently open in English. Links are built from the fixed list, never from the request
+  const pickable = LOCALES.filter((l) => (o.locales ?? LOCALES).includes(l))
+  const picker = (kind !== 'landing' && kind !== 'busy') || pickable.length < 2 ? '' : `
+  <details class="lang">
+    <summary><span class="sr">${esc(w.language)}: </span>${ICON_GLOBE}<span lang="${locale}">${esc(LANGUAGE_NAMES[locale])}</span></summary>
+    <ul>${pickable.map((l) => `<li><a data-lang-link href="/?lang=${l}" lang="${l}" hreflang="${l}"${l === locale ? ' aria-current="true"' : ''}>${esc(LANGUAGE_NAMES[l])}</a></li>`).join('')}</ul>
+  </details>`
   const startForm = (label: string, turnstile: boolean) => `
-    <form method="post" action="/__demo/start">
+    <form method="post" action="/__demo/start" data-start data-label="${esc(label)}" data-checking="${esc(w.checking)}" data-retry="${esc(w.retry)}" data-failed="${esc(w.checkH)}" data-stalled="${esc(w.errorH)}" data-home="/?lang=${locale}">
       <input type="hidden" name="lang" value="${locale}">
-      ${turnstile ? `<div class="cf-turnstile" data-sitekey="${esc(o.siteKey)}" data-language="${locale}"></div>` : ''}
+      ${turnstile ? `<div class="cf-turnstile" data-sitekey="${esc(o.siteKey)}" data-language="${locale}" data-callback="demoCheckDone" data-error-callback="demoCheckFailed" data-expired-callback="demoCheckExpired" data-timeout-callback="demoCheckStopped" data-unsupported-callback="demoCheckStopped" data-before-interactive-callback="demoCheckInteractive" data-refresh-expired="manual" data-refresh-timeout="manual"></div>` : ''}
       <button type="submit" class="primary">${esc(label)}</button>
+      <p class="check-error" role="alert"></p>
+      <span class="check-wait" role="status"></span>
     </form>`
   const away = `
     <div class="row">
       <a class="primary" href="${esc(o.links.scriptedDemo)}">${esc(w.guided)}</a>
       <a class="secondary" href="${esc(o.links.pricing)}">${esc(w.plans)}</a>
     </div>`
-  // busy and error: one more way, back to the landing page (a new Start there passes Turnstile again)
+  // busy and error: one more way, back to the landing page in this language (a new Start there passes Turnstile again)
   const awayOrRetry = `
     <div class="row">
       <a class="primary" href="${esc(o.links.scriptedDemo)}">${esc(w.guided)}</a>
       <a class="secondary" href="${esc(o.links.pricing)}">${esc(w.plans)}</a>
-      <a class="secondary" href="/">${esc(w.retry)}</a>
+      <a class="secondary" href="/?lang=${locale}">${esc(w.retry)}</a>
     </div>`
   // The three facts, a few words each. The full practice sentence opens from the third one on tap or click
   // (details/summary: no script) and is its hover title too.
@@ -252,8 +279,11 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(kind === 'landing' ? w.landingH : w.title)}</title>
-${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
-<style>
+${picker ? `<script data-lang-menu>${LANGUAGE_MENU_SCRIPT}</script>\n` : ''}${turnstile ? `<script data-start>${START_SCRIPT}</script>
+<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
+<style>${turnstile ? `
+  /* the widget's height (65 px, 71 with Cloudflare's test-key banner), held before its script loads, so Start does not move */
+  .cf-turnstile { min-height:71px; }` : ''}
   /* Trina AX brand (editions/trina/branding/logo/README.md): ink, paper, Signal Orange (#E8521A in UI on paper) */
   :root { --bg:#f6f2ea; --raised:#fffdf9; --text:#14110f; --dim:#5c544c; --line:rgba(20,17,15,.12); --accent:#14110f; --on-accent:#f6f2ea;
     --orange:#e8521a; --shadow:0 10px 30px rgba(20,17,15,.12), 0 2px 6px rgba(20,17,15,.06); color-scheme: light dark; }
@@ -292,6 +322,31 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
     background:var(--raised); color:var(--text); border-radius:12px; box-shadow:var(--shadow); font-weight:400; line-height:1.5; }
   form { display:flex; flex-direction:column; gap:16px; align-items:center; }
   form .primary { width:100%; }
+  /* Start while Turnstile runs: same box, so nothing moves. aria-disabled, not disabled: the button keeps keyboard focus */
+  .primary[aria-busy="true"] { cursor:progress; opacity:.78; }
+  .primary[aria-busy="true"]:active { transform:none; }
+  .primary[aria-busy="true"]::before { content:""; width:14px; height:14px; margin-inline-end:9px; flex:none; border-radius:50%;
+    border:2px solid color-mix(in srgb, var(--on-accent) 35%, transparent); border-top-color:var(--on-accent); animation:check-spin .9s linear infinite; }
+  @keyframes check-spin { to { transform:rotate(360deg); } }
+  /* the line is always there, empty until a check fails, so the error moves nothing */
+  .check-error { margin:-4px 0 0; min-height:1.45em; font-size:14px; line-height:1.45; color:var(--orange); font-weight:500; }
+  /* a long error (Spanish) takes two lines on a narrow phone: the room is there from the start */
+  @media (max-width:420px) { .check-error { min-height:2.9em; } }
+  .check-wait, .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* the language picker: out of the page's flow in the top corner, so opening it moves nothing */
+  .lang { position:absolute; top:4px; inset-inline-end:12px; z-index:2; font-size:13px; }
+  .lang summary { display:flex; align-items:center; gap:6px; min-height:34px; padding:0 9px; border-radius:8px; color:var(--dim); cursor:pointer; list-style:none; }
+  .lang summary::-webkit-details-marker { display:none; }
+  .lang summary:hover, .lang[open] summary { color:var(--text); background:color-mix(in srgb, var(--text) 7%, transparent); }
+  .lang-ic { flex:none; }
+  .lang ul { position:absolute; top:calc(100% + 4px); inset-inline-end:0; min-width:172px; margin:0; padding:5px; list-style:none; text-align:start;
+    background:var(--raised); border:1px solid var(--line); border-radius:11px; box-shadow:var(--shadow); }
+  .lang a { display:flex; align-items:center; min-height:38px; padding:0 10px; border-radius:7px; color:var(--text); text-decoration:none; white-space:nowrap; }
+  .lang a:hover { background:color-mix(in srgb, var(--text) 7%, transparent); }
+  .lang a[aria-current] { font-weight:700; }
+  /* phones: 44 px targets, and the page starts below the picker */
+  @media (max-width:480px), (pointer:coarse) { .lang { top:0; } .lang summary, .lang a { min-height:44px; } body:has(.lang) { padding-top:52px; } }
+  .lang a[aria-current]::after { content:""; width:6px; height:6px; margin-inline-start:auto; border-radius:50%; background:var(--orange); }
   /* busy, limit, ended, check and error: one narrower column for the text and the buttons, the buttons stacked at its
      full width like the landing page's Start (at 1440 px the balanced text sat in a narrow column above a wider row of
      buttons, so the page looked lopsided) */
@@ -306,10 +361,11 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
   .secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
   .secondary:hover { border-color:color-mix(in srgb, var(--text) 35%, transparent); }
   :focus-visible { outline:2px solid var(--orange); outline-offset:3px; }
-  @media (prefers-reduced-motion: reduce) { .primary, .secondary { transition:none; } }
+  @media (prefers-reduced-motion: reduce) { .primary, .secondary { transition:none; } .primary[aria-busy="true"]::before { animation:none; } }
 </style>
 </head>
 <body class="${kind}">
+${picker}
 <main>
   ${wordmark('Trina AX')}
   <h1>${esc(h)}</h1>

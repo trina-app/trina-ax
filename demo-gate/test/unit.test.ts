@@ -1,5 +1,6 @@
 // The gate's pure parts: header allowlist, beta handling, error shapes, prompt-too-long, weighted counting, the stream
 // rewrite, the deny list, cookies, languages, start limits, config checks and log hygiene.
+import { LANGUAGE_MENU_SCRIPT, START_SCRIPT } from '../src/start-script.ts'
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -276,7 +277,8 @@ describe('pages', () => {
       const summary = html.slice(html.indexOf('<summary'), html.indexOf('</summary><p>'))
       expect(summary, l).toContain(`<span>${w.factPractice}</span>`)
       expect(html, l).toContain(`<p>${w.practice}</p></details>`)
-      expect(html, l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
+      // scripts: Turnstile's, and our own Start script, which the CSP allows by its hash
+      expect(html.replace(`<script data-start>${START_SCRIPT}</script>`, '').replace(`<script data-lang-menu>${LANGUAGE_MENU_SCRIPT}</script>`, ''), l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
     }
     for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
   })
@@ -321,17 +323,17 @@ describe('pages', () => {
     expect(html).toContain('url(#wm-d)')
     expect(html).not.toContain('id="m"')
   })
-  test('busy and error pages have a Try again link to /; the limit page does not', () => {
+  test('busy and error pages have a Try again link to the landing in their language; the limit page does not', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
     expect(WORDS.en.retry).toBe('Try again')
     expect(WORDS.ko.retry).toBe('다시 해 보기')
     for (const l of LOCALES) {
       for (const k of ['busy', 'error'] as const) {
         const html = renderPage(k, l, { siteKey: 'k', links })
-        expect(html, `${l} ${k}`).toContain(`<a class="secondary" href="/">${WORDS[l].retry}</a>`)
+        expect(html, `${l} ${k}`).toContain(`<a class="secondary" href="/?lang=${l}">${WORDS[l].retry}</a>`)
         expect(html, `${l} ${k}`).toContain('https://ax.trina.app/demo')
       }
-      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' })).not.toContain('href="/"')
+      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' })).not.toContain('/?lang=')
     }
   })
   test('the limit page says "about an hour" only for the per-hour limit; the day and live-copy limits say tomorrow', () => {
