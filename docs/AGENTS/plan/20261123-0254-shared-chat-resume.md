@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 02:54
 - Branch: `fix/shared-chat-resume`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (turn.ts, shared.ts, runtime.ts, prompt.ts), server/src/admin/folders.ts. Why: the engine session is chat runtime (docs/REPOSITORY-RULES.md)
 - Version impact: patch (a fix: shared chats stop starting a fresh engine session every turn; no schema or API change)
 
@@ -35,6 +35,9 @@ Out: Codex and the API engine (they start fresh every turn, as before); one sess
    `othersSessionFiles`.
 2. `turn.ts`: the shared-chat resume decision; `sessionHeld`; the since block in a resumed message; stash keeps others'.
 3. `prompt.ts`: `sinceOwnBlock` (window-bounded; too long → fresh session with the summary).
+   (Review changes: no read card at turn start; a no-card read someone who sees the chat now cannot open, or a place
+   the asker lost, starts fresh as before; only the session's own y/k groups cover a place; a refused attach in a
+   k answer makes the next answer fresh; per-person stash deletion; a new first message drops every kept session.)
 4. `runtime.ts` / `admin/folders.ts`: `SESSION_CHATS_OF` for resets and counts; blobs cleared on reset.
 5. Tests in `tests/unit/b-shared-chats.test.ts`; fake engine ignores directives quoted in the since block.
 6. Measure tokens before/after on a QA copy (claude-code, QA token).
@@ -45,4 +48,7 @@ docs/decisions/20261123-shared-chat-own-session.md
 
 ## Result
 
-(filled at the end)
+Measured on a QA copy (claude-code, Opus 5.5, 6 turns, list-price equivalent): shared chat with a personal-folder read
+on turn 2 went from $0.899 to $0.526 (cache writes 94.6k → 45.2k tokens; turns 3-6 now resume). Private chat and
+shared chat without a private read unchanged ($0.62 / $0.51 → $0.63 / $0.48). Plan review and two security review
+passes (fresh Opus subagents) done; findings fixed.
