@@ -105,7 +105,7 @@ describe('fail closed: a chat place in any path argument of a tool that does not
         if (p3 && /^chat:(files|work)\//.test(place)) { expect(no, `${tool}.${key}`).toBeNull(); continue }
         // P4: edit_office's and edit_pdf's document may be a chat file (a new version, or a new file made from it:
         // tools/edit-office.ts, tools/pdf-tools.ts; QA TC-7044)
-        if ((tool === 'edit_office' || tool === 'edit_pdf') && key === 'file_path' && place.startsWith('chat:files/')) { expect(no, `${tool}.${key}`).toBeNull(); continue }
+        if ((tool === 'edit_office' || tool === 'edit_pdf' || tool === 'edit_hwp') && key === 'file_path' && place.startsWith('chat:files/')) { expect(no, `${tool}.${key}`).toBeNull(); continue }
         expect(no, `${tool}.${key}`).toBeString()
       }
     })

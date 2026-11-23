@@ -105,12 +105,19 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'picture' ? a.picture : a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
                   {a.kind === 'card' ? (
                     <p className="text-sm font-medium [overflow-wrap:anywhere]">{cardName(a)}</p>
+                  ) : a.kind === 'picture' ? (
+                    // one picture that goes into documents without the card: "shared/brand/ceo-seal.png · ..."
+                    <p className="text-sm [overflow-wrap:anywhere]" data-testid="allowance-picture">
+                      <span className="font-medium">{a.picture}</span>
+                      <span className="px-1.5 text-faint" aria-hidden>·</span>
+                      <span>{t('allowances.picture')}</span>
+                    </p>
                   ) : a.kind === 'connector_tool' ? (
                     // a connector tool's read card (docs/decisions/20261122-connector-always-allow.md): "Bright Data · Get post"
                     <p className="text-sm [overflow-wrap:anywhere]">

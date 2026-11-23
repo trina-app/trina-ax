@@ -488,6 +488,22 @@ interface Template {
 /** compound-file (OLE) bytes: an embedded object, or a .hwp inside the package */
 export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.subarray(0, 8)).toString('hex') === 'd0cf11e0a1b11ae1'
 
+/** Hangul's script header, exactly (white space aside), or none */
+const SCRIPT_HEADER = /^\s*(?:var\s+Documents\s*=\s*XHwpDocuments\s*;\s*var\s+Document\s*=\s*Documents\.Active_XHwpDocument\s*;\s*)?$/
+/** Event handlers with an empty body, or only the line "//todo :" that Hangul writes in one, ended by a line break. No
+ * other comment is taken: text after a comment mark can be code to a reader that sees the comment end elsewhere. */
+const SCRIPT_HANDLERS = /^\s*(?:function\s+On[A-Za-z0-9_]{1,63}\s*\(\s*\)\s*\{\s*(?:\/\/[ \t]*todo[ \t]*:?[ \t]*[\r\n]\s*)?\}\s*){0,200}$/
+/** A script part with the NULs Hangul leaves at its end taken off */
+export const scriptText = (s: string) => s.replace(/\0+$/, '')
+/**
+ * Hangul's default script template, which Hangul and Hancom Docs write into the documents they save: the header that
+ * names the document objects and event handlers with empty bodies (Hancom Docs adds one per check box, OnCheckBox1_Click
+ * ...). Only these exact shapes pass; anything else is a script.
+ */
+export function emptyScript(header: string, source: string): boolean {
+  return SCRIPT_HEADER.test(scriptText(header)) && SCRIPT_HANDLERS.test(scriptText(source))
+}
+
 /**
  * The checks every .hwpx from outside gets, a template here or a document changed in place (files/hwpx-edit.ts): a
  * Hangul package (the application/hwp+zip mimetype), no scripts (Scripts/), no OLE objects (BinData/*.ole, compound
@@ -496,7 +512,13 @@ export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.
  */
 export function assertPlainPackage(parts: Map<string, Uint8Array>, text: (n: string) => string | null, bad: (why: string) => never) {
   const names = [...parts.keys()]
-  if (names.some((n) => /(^|\/)scripts(\/|$)/i.test(n))) bad('it contains scripts (Scripts/)')
+  // scripts: only Hangul's empty template (Scripts/headerScripts and Scripts/sourceScripts, UTF-16), as Hancom Docs saves it
+  const scripts = names.filter((n) => /(^|\/)scripts(\/|$)/i.test(n))
+  if (scripts.length) {
+    const u16 = (n: string) => { const b = parts.get(n); return b && b.length % 2 === 0 && b.length <= 64 * 1024 ? Buffer.from(b).toString('utf16le') : null }
+    const head = u16('Scripts/headerScripts'), src = u16('Scripts/sourceScripts')
+    if (scripts.some((n) => n !== 'Scripts/headerScripts' && n !== 'Scripts/sourceScripts') || head === null || src === null || !emptyScript(head, src)) bad('it contains scripts (Scripts/)')
+  }
   for (const [n, b] of parts) if (/^BinData\//i.test(n) && (/\.ole$/i.test(n) || isCompoundFile(b))) bad('it contains an embedded OLE object')
   const mimetype = text('mimetype')
   if (mimetype === null || mimetype.trim() !== 'application/hwp+zip') bad('it is not a Hangul document (no application/hwp+zip mimetype)')

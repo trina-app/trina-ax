@@ -4,7 +4,11 @@
 // the reason, and nothing is written. The formats only say how a change that was found goes into their bytes, what an
 // empty cell may hold, and which rows can be copied.
 import { ToolError } from '../policy/errors'
-import { cleanText, hwpxParagraphLines, type HwpChange, type HwpEditNote, type LineEdit } from './hwpx-check'
+import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit } from './hwpx-check'
+import {
+  HU_PER_PX, labelX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
+  type PictureSpot,
+} from './hwp-picture'
 
 export const HWP_CHANGE_LIMITS = {
   changes: 100,
@@ -22,7 +26,7 @@ export const strip = (s: string) => s.replace(/\s+/g, '')
 export const cleanValue = (s: string) => cleanText(s.replace(/\r\n?/g, '\n'))
 
 /** A paragraph as the changes see it: its text as hwp.ts reads it, its heading level, the table cell it is directly in. */
-export interface CPara { i: number; text: string; heading: number; cell?: CCell }
+export interface CPara { i: number; sec: number; text: string; heading: number; cell?: CCell }
 export interface CCell { table: CTable; row: number; col: number; rowSpan: number; colSpan: number; height: number; paras: CPara[] }
 /** a table, numbered in reading order (`i`, 0-based), and the paragraph that holds it */
 export interface CTable { i: number; cells: CCell[]; para: CPara | null }
@@ -70,6 +74,10 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   private rowsAdded = new Set<T>()
   /** paragraphs of cells a change filled */
   protected filled = new Set<P>()
+  /** image changes: the page layout and each one's picture (by change index), set before apply; where each went */
+  layout: HwpLayout | null = null
+  images = new Map<number, CleanImage>()
+  readonly pictures: HwpPictureNote[] = []
 
   constructor(protected readonly paras: P[], protected readonly tables: T[]) {}
 
@@ -99,6 +107,15 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   /** writes the rows; returns the index of the paragraph the new ones go before in reading order (or paras.length) and
    * how deep the table is nested (rows put in at one place read deepest first) */
   protected abstract rowsAt(plan: RowPlan<C, T>, i: number): { before: number; depth: number }
+  /** puts `image` at the end of body paragraph p (its anchor; p is on the page of `spot`), floating at `spot` on the
+   * paper, behind or in front of the text; returns the part that holds the picture's bytes (a zip part, a stream) */
+  protected abstract pictureAt(p: P, spot: PictureSpot, image: CleanImage, layer: 'behind' | 'front', i: number): string
+  /** the body paragraph `index` (0-based, among the paragraphs directly in the section) of section `section`, or null */
+  protected abstract topParagraph(section: number, index: number): P | null
+  /** whether p keeps Hangul's layout cache (line segments) */
+  protected abstract hasLayoutCache(p: P): boolean
+  /** p's index among the body paragraphs of its section, or -1 (a paragraph in a table or an object) */
+  protected abstract topIndex(p: P): number
   /** the table's height as the document states it (HWPUNIT), or null */
   protected abstract tableHeight(t: T): number | null
   /** the height one new row copied from `cells` adds to the table: the estimate rowsAt writes into the table's height */
@@ -110,7 +127,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   protected abstract pageBody(t: T): number | null
 
   apply(c: HwpChange, i: number) {
-    if ('find' in c) this.replace(c, i)
+    if (isImageChange(c)) this.placeImage(c, i)
+    else if ('find' in c) this.replace(c, i)
     else if ('cell' in c) this.fillCell(c, i)
     else this.addRows(c.add_rows, i)
   }
@@ -120,16 +138,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     const find = c.find
     if (!find) refuseChange(i, 'find is empty')
     if (find === c.replace) refuseChange(i, 'find and replace are the same')
-    const hits: { p: P; at: number }[] = []
-    for (const p of this.paras) {
-      for (let k = p.text.indexOf(find); k >= 0; k = p.text.indexOf(find, k + find.length)) hits.push({ p, at: k })
-    }
-    if (!hits.length) {
-      const near = this.paras.find((p) => strip(find) && strip(p.text).includes(strip(find)))
-      const hint = near ? ` It is there with other spacing or line breaks, in ${this.where(near)}: ${clip(near.text, 120)}; give the text exactly as it is, within one paragraph.`
-        : find.includes('\n') ? ' Each paragraph is searched on its own: give text from one paragraph.' : ''
-      refuseChange(i, `${clip(find)} is not in the document.${hint}`.replace(/\.$/, ''))
-    }
+    const hits = this.textHits(find, i)
     let chosen = hits
     if (c.all) {
       if (c.occurrence !== undefined) refuseChange(i, 'give occurrence or all, not both')
@@ -150,6 +159,21 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     }
   }
 
+  /** where `find` is in the paragraphs' text, in reading order; refused (with a hint) when nowhere */
+  private textHits(find: string, i: number): { p: P; at: number }[] {
+    const hits: { p: P; at: number }[] = []
+    for (const p of this.paras) {
+      for (let k = p.text.indexOf(find); k >= 0; k = p.text.indexOf(find, k + find.length)) hits.push({ p, at: k })
+    }
+    if (!hits.length) {
+      const near = this.paras.find((p) => strip(find) && strip(p.text).includes(strip(find)))
+      const hint = near ? ` It is there with other spacing or line breaks, in ${this.where(near)}: ${clip(near.text, 120)}; give the text exactly as it is, within one paragraph.`
+        : find.includes('\n') ? ' Each paragraph is searched on its own: give text from one paragraph.' : ''
+      refuseChange(i, `${clip(find)} is not in the document.${hint}`.replace(/\.$/, ''))
+    }
+    return hits
+  }
+
   private addTextEdit(p: P, e: TextEdit) {
     const list = this.textEdits.get(p) ?? []
     list.push(e)
@@ -157,23 +181,26 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   }
 
   // ---- an empty cell
-  private fillCell(c: Extract<HwpChange, { cell: unknown }>, i: number) {
-    const a = c.cell
+  /** the cell a change names: next_to a label cell (right of it or below it; `labels` are every cell that reads the
+   * label, `label` the one chosen) or by table, row and column */
+  protected findCell(a: { next_to?: string; direction?: 'right' | 'below'; occurrence?: number; table?: number; row?: number; col?: number }, i: number): { cell: C; label?: C; labels?: C[] } {
     let cell: C
+    let lab: C | undefined, labels: C[] | undefined
     const all = () => this.tables.flatMap((t) => t.cells as C[])
     if (a.next_to !== undefined) {
       if (a.table !== undefined || a.row !== undefined || a.col !== undefined) refuseChange(i, 'give next_to or table, row and col, not both')
       const label = strip(a.next_to)
       if (!label) refuseChange(i, 'next_to is empty')
-      const labels = all().filter((x) => strip(x.paras.map((p) => p.text).join('')) === label)
+      labels = all().filter((x) => strip(x.paras.map((p) => p.text).join('')) === label)
       if (!labels.length) refuseChange(i, `no table cell reads ${clip(a.next_to)}${this.cellsContaining(label)}`)
       if (labels.length > 1 && a.occurrence === undefined) refuseChange(i, `${labels.length} cells read ${clip(a.next_to)} (${labels.slice(0, 5).map((x) => `table ${x.table.i + 1} row ${x.row + 1} column ${x.col + 1}`).join('; ')}); give occurrence (1-${labels.length}) or table, row and col`)
       const o = a.occurrence ?? 1
-      const lab = labels[o - 1] ?? refuseChange(i, `${labels.length} cell${labels.length > 1 ? 's read' : ' reads'} ${clip(a.next_to)}, so there is no occurrence ${o}`)
+      lab = labels[o - 1] ?? refuseChange(i, `${labels.length} cell${labels.length > 1 ? 's read' : ' reads'} ${clip(a.next_to)}, so there is no occurrence ${o}`)
       const below = a.direction === 'below'
       const row = below ? lab.row + lab.rowSpan : lab.row, col = below ? lab.col : lab.col + lab.colSpan
-      cell = (lab.table.cells as C[]).find((x) => x.row === row && x.col === col)
-        ?? refuseChange(i, `there is no cell ${below ? 'below' : 'right of'} ${clip(a.next_to)} (table ${lab.table.i + 1}, row ${lab.row + 1}, column ${lab.col + 1})`)
+      const l = lab
+      cell = (l.table.cells as C[]).find((x) => x.row === row && x.col === col)
+        ?? refuseChange(i, `there is no cell ${below ? 'below' : 'right of'} ${clip(a.next_to)} (table ${l.table.i + 1}, row ${l.row + 1}, column ${l.col + 1})`)
     } else {
       if (a.table === undefined || a.row === undefined || a.col === undefined) refuseChange(i, 'a cell is given by next_to, or by table, row and col (all three)')
       const t = this.tables[a.table - 1] ?? refuseChange(i, `there is no table ${a.table} (the document has ${this.tables.length})`)
@@ -184,6 +211,11 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
           : `table ${a.table} has no cell at row ${a.row} column ${a.col}`)
       })()
     }
+    return { cell, label: lab, labels }
+  }
+
+  private fillCell(c: Extract<HwpChange, { value: string }>, i: number) {
+    const cell = this.findCell(c.cell, i).cell
     const where = `table ${cell.table.i + 1}, row ${cell.row + 1}, column ${cell.col + 1}`
     // every paragraph inside the cell counts, those of a table or an object in it too
     const inside = this.inside(cell)
@@ -195,6 +227,114 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     this.fillAt(cell, p, value, where, i)
     this.filled.add(p)
     this.addTextEdit(p, { from: 0, to: p.text.length, text: value, change: i })
+  }
+
+  // ---- a picture
+  /**
+   * An image change: the label (`at`, found like find's text) or the cell (next to a label) in the document, paired
+   * with the same occurrence on the pages as the renderer laid them out: the counts must agree and the laid-out line
+   * must be text of the same paragraph, or nothing is placed. The picture floats on the paper at the place the layout
+   * shows, anchored at the end of a body paragraph on that page, so no text moves.
+   */
+  private placeImage(c: HwpImageChange, i: number) {
+    const img = this.images.get(i) ?? refuseChange(i, 'its picture did not arrive')
+    const layout = this.layout ?? refuseChange(i, 'the page layout is missing')
+    if (this.pictures.length >= PICTURE_LIMITS.images) refuseChange(i, `more than ${PICTURE_LIMITS.images} pictures in one call`)
+    if ((c.at === undefined) === (c.cell === undefined)) refuseChange(i, 'give at (the text the picture goes over or next to) or cell (next to a label cell), one of them')
+    if (c.place !== undefined && c.at === undefined) refuseChange(i, 'place goes with at')
+    const unmatched = (what: string, model: number, laid: number): never => refuseChange(i,
+      `${what} ${model === 1 ? 'is' : 'are'} ${model} in the document's text but ${laid} on its pages as they are laid out ` +
+      '(in a page header or footer, split over two lines, repeated on each page, or hidden), so the place cannot be found exactly; ' +
+      (c.at !== undefined ? 'give a longer text that is on one line, or put the picture into a table cell' : 'give the label as at instead'))
+    /** the laid-out cell the place is in (-1: none) and the laid-out paragraph of the label's line */
+    let cellIdx = -1, lineKey = ''
+    let p: P, page: number, target: { x: number; y: number; w: number; h: number }, where: string
+    if (c.at !== undefined) {
+      const find = c.at
+      const hits = this.textHits(find, i)
+      if (hits.length > 1 && c.occurrence === undefined) {
+        const list = hits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + find.length + 20), 70)}`).join('; ')
+        refuseChange(i, `${clip(find)} appears ${hits.length} times (${list}${hits.length > 5 ? '; …' : ''}). Give occurrence (1-${hits.length})`)
+      }
+      const k = (c.occurrence ?? 1) - 1
+      const h = hits[k] ?? refuseChange(i, `${clip(find)} appears ${hits.length} time${hits.length > 1 ? 's' : ''}, so there is no occurrence ${k + 1}`)
+      const laid = layoutTextHits(layout, find)
+      if (laid.length !== hits.length) unmatched(clip(find), hits.length, laid.length)
+      const L = laid[k]!
+      const pg = layout.pages[L.page]!, line = pg.lines[L.line]!
+      if (!strip(h.p.text).includes(strip(line.text))) refuseChange(i, `${clip(find)} could not be matched with its line on page ${L.page + 1} (${clip(line.text, 60)}); give a longer text`)
+      const [x0, x1] = labelX(line, L.at, [...find].length)
+      target = { x: x0, y: line.y, w: Math.max(0, x1 - x0), h: line.h }
+      cellIdx = line.cell; lineKey = line.para
+      p = h.p; page = L.page
+      where = `${this.where(p)}, ${c.place ?? 'over'} ${clip(find, 40)}`
+    } else {
+      const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
+      const cell = f.cell, k = f.labels!.indexOf(f.label!)
+      const laid = layoutLabelCells(layout, strip(c.cell!.next_to))
+      if (laid.length !== f.labels!.length) unmatched(`cells reading ${clip(c.cell!.next_to)}`, f.labels!.length, laid.length)
+      const L = laid[k]!
+      const pg = layout.pages[L.page]!, lc = pg.cells[L.cell]!
+      const ti = pg.cells.findIndex((x) => x.table === lc.table && x.row === cell.row && x.col === cell.col)
+      if (ti < 0) refuseChange(i, `the cell ${c.cell!.direction === 'below' ? 'below' : 'right of'} ${clip(c.cell!.next_to)} is not on the same page as its label; put the picture over a text with at`)
+      target = pg.cells[ti]!
+      cellIdx = ti
+      if (!pg.lines.some((l) => l.cell === ti)) refuseChange(i, `the cell next to ${clip(c.cell!.next_to)} has no line to anchor a picture in`)
+      p = (cell.paras[0] as P | undefined) ?? refuseChange(i, `the cell next to ${clip(c.cell!.next_to)} has no paragraph`)
+      page = L.page
+      where = `table ${cell.table.i + 1}, row ${cell.row + 1}, column ${cell.col + 1}`
+    }
+    // The anchor: a body paragraph, the picture's control at its end (so no text and no layout cache of the paragraph
+    // changes); a picture anchored in a cell would make the cell grow around it.
+    // - Every paragraph of the section has Hangul's layout cache: the renderer draws the page where Hangul laid it out,
+    //   so the picture is placed from the paper (and the preview shows it on the spot). The anchor is the label's own
+    //   paragraph when it is a body paragraph that ends on that page, else the first body paragraph that starts there.
+    // - Otherwise (Hancom Docs and other writers save no cache) Hangul lays the document out again with its own line
+    //   breaks, which can differ from the renderer's above the label: the picture is placed from the top of the label's
+    //   body paragraph (or of the table that holds the label or cell), which Hangul keeps next to the label whatever it
+    //   wraps above.
+    // a table's filled cells are drawn over what lies behind the text (seen in Hancom on government forms: a seal cut off
+    // or gone), so a place in a table is in front unless the change says otherwise
+    const inTable = !!p.cell
+    const pg = layout.pages[page]!
+    const top = this.topIndex(p)
+    const next = layout.pages[page + 1]
+    const cached = this.paras.every((q) => q.sec !== p.sec || this.hasLayoutCache(q))
+    let fromPara: number | undefined
+    if (inTable && cached) {
+      // A place in a table of a document with Hangul's stored layout, placed from the paper. The anchor is a plain body
+      // paragraph that starts and ends on this page: the page and its preview stay as they were. Never the paragraph
+      // that holds a table (seen in Hancom on a government form: a control added there pushed the page-filling table or
+      // the picture onto another page). A page that is one table has no such paragraph: the picture goes into the cell's
+      // own paragraph, right in Hangul, while the preview may draw that row taller.
+      const flat = (x: string) => x.replace(/\s+/g, '')
+      const plain = pg.starts.map((x) => ({ x, q: this.topParagraph(pg.section, x.para) })).find(({ x, q }) => q && !q.cell && !x.table && !this.tables.some((t) => t.para === q) &&
+        !(next && next.section === pg.section && next.continued.includes(x.para)) && (!flat(x.preview) || flat(q.text).startsWith(flat(x.preview).replace(/…$/, ''))))
+      if (plain) p = plain.q!
+    } else if (inTable) {
+      // no stored layout: placed from the body paragraph after the table, so it follows the table whatever Hangul wraps
+      // above; a table with no such paragraph on this page: in the cell
+      const holder = p.cell!.table.para as P | null
+      if (!holder || holder.cell) refuseChange(i, 'the place is in a table inside a table, which this document (saved without Hangul\'s layout) cannot place exactly; put the picture over a text with at')
+      const k = this.topIndex(holder)
+      const t = cellIdx >= 0 ? pg.tables[pg.cells[cellIdx]!.table - 1] : undefined
+      if (!t) refuseChange(i, 'the table that holds the place could not be found on the page')
+      const after = k >= 0 && pg.starts.some((x) => x.para === k) ? this.topParagraph(holder.sec, k + 1) : null
+      const line = after && !after.cell ? pg.lines.find((l) => l.cell < 0 && l.para.endsWith(`:${k + 1}`) && l.y >= t.y + t.h - 1) : undefined
+      if (after && line && pg.starts.some((x) => x.para === k + 1)) { p = after; fromPara = line.y }
+      // else it stays in the cell, from the paper: never the paragraph holding the table (it moved a page-filling form)
+    } else if (!cached) {
+      // a body paragraph without Hangul's layout: placed from its own top
+      if (top < 0 || !pg.starts.some((x) => x.para === top)) refuseChange(i, `the paragraph that holds the place starts on an earlier page than page ${page + 1}, so the picture cannot be placed exactly; put it over a text that starts on that page`)
+      fromPara = pg.lines.find((l) => l.para === lineKey)!.y
+    } else if (top < 0 || (next && next.section === pg.section && next.continued.includes(top))) {
+      refuseChange(i, 'the paragraph that holds the place continues on the next page, so the picture cannot be placed exactly; give a text in a paragraph that ends on its page')
+    }
+    const place: ImagePlace = c.cell ? 'cell' : c.place ?? 'over'
+    const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
+    if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
+    const part = this.pictureAt(p, spot, img, c.layer ?? (inTable ? 'front' : 'behind'), i)
+    this.pictures.push(spotNote(i, spot, where, part))
   }
 
   /** refuses a fill of p when another change already changes its text */
@@ -348,15 +488,62 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
 /** the {{…}} placeholders a document still has, from its lines as read back */
 export const placeholdersIn = (lines: string[]) => [...new Set(lines.join('\n').match(/\{\{[^{}\n]{1,40}\}\}/g) ?? [])].slice(0, 20)
 
+/** What an edit's image changes need in the worker: the page layout and each one's picture, made clean. */
+export interface PictureInput { layout: HwpLayout; images: Map<number, CleanImage> }
+/** The image changes' layout and pictures from a worker request (after asChanges checked the changes): every image
+ * change has its picture and only those; each picture is read again here (sanitizeImage: PNG or JPEG, its size,
+ * only the parts that draw it); the layout is the shape the server's parse made (numbers checked again). */
+export function pictureInput(req: { changes: unknown; layout: unknown; images: Map<number, Uint8Array> }, what: string): PictureInput | undefined {
+  const bad = (): never => { throw new ToolError(`the ${what} editor got a damaged request`) }
+  const changes = req.changes as HwpChange[]
+  const wanted = changes.flatMap((c, i) => (isImageChange(c) ? [i] : []))
+  if (!wanted.length) { if (req.images.size) bad(); return undefined }
+  if (wanted.length !== req.images.size || wanted.some((i) => !req.images.has(i))) bad()
+  // each picture once, however many changes use it (the same bytes of the request)
+  const total = [...new Set(req.images.values())].reduce((n, b) => n + b.length, 0)
+  if (total > PICTURE_LIMITS.totalBytes) bad()
+  const images = new Map<number, CleanImage>()
+  const once = new Map<Uint8Array, CleanImage>()
+  for (const i of wanted) {
+    const b = req.images.get(i)!
+    let made = once.get(b)
+    if (!made) { made = sanitizeImage(b, (changes[i] as HwpImageChange).image); once.set(b, made) }
+    images.set(i, made)
+  }
+  return { layout: checkLayout(req.layout) ?? bad(), images }
+}
+function checkLayout(v: unknown): HwpLayout | null {
+  const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 1e6
+  const box = (o: any) => o && num(o.x) && num(o.y) && num(o.w) && num(o.h) && o.w >= 0 && o.h >= 0
+  const l = v as HwpLayout
+  if (!l || !Array.isArray(l.pages) || l.pages.length > 200) return null
+  for (const p of l.pages) {
+    if (!p || !num(p.w) || !num(p.h) || !Array.isArray(p.lines) || !Array.isArray(p.cells) || p.lines.length > 20_000 || p.cells.length > 20_000) return null
+    if (!Number.isInteger(p.section) || !Array.isArray(p.continued) || p.continued.some((x) => !Number.isInteger(x)) || !Array.isArray(p.starts) || p.starts.some((x) => !x || !Number.isInteger(x.para) || typeof x.table !== 'boolean' || typeof x.preview !== 'string')) return null
+    for (const c of p.cells) if (!box(c) || !Number.isInteger(c.table) || !Number.isInteger(c.row) || !Number.isInteger(c.col)) return null
+    for (const ln of p.lines) {
+      if (!box(ln) || typeof ln.text !== 'string' || typeof ln.para !== 'string' || !Number.isInteger(ln.cell) || ln.cell < -1 || ln.cell >= p.cells.length || !Array.isArray(ln.runs)) return null
+      if (ln.runs.some((r) => !r || !num(r.x) || !num(r.w) || typeof r.text !== 'string')) return null
+    }
+  }
+  return l
+}
+
 /** The changes as a worker gets them: the server checked them with the tool's schema; checked again here. */
 export function asChanges(v: unknown, what: string): HwpChange[] {
   const bad = (): never => { throw new ToolError(`the ${what} editor got a damaged request`) }
   if (!Array.isArray(v)) return bad()
   const str = (x: unknown) => typeof x === 'string'
   const int = (x: unknown) => x === undefined || (Number.isInteger(x) && (x as number) >= 1)
+  const mm = (x: unknown) => x === undefined || (typeof x === 'number' && Number.isFinite(x) && x >= 2 && x <= 300)
   for (const c of v) {
     if (!c || typeof c !== 'object') bad()
-    if ('find' in c) { if (!str(c.find) || !str(c.replace) || !int(c.occurrence) || (c.all !== undefined && typeof c.all !== 'boolean')) bad() }
+    if ('image' in c) {
+      if (!str(c.image) || !(c.at === undefined || str(c.at)) || !int(c.occurrence) || !mm(c.width_mm) || !mm(c.height_mm)) bad()
+      if (c.place !== undefined && !['over', 'after', 'before'].includes(c.place)) bad()
+      if (c.layer !== undefined && !['behind', 'front'].includes(c.layer)) bad()
+      if (c.cell !== undefined && (!c.cell || typeof c.cell !== 'object' || !str(c.cell.next_to) || (c.cell.direction !== undefined && !['right', 'below'].includes(c.cell.direction)))) bad()
+    } else if ('find' in c) { if (!str(c.find) || !str(c.replace) || !int(c.occurrence) || (c.all !== undefined && typeof c.all !== 'boolean')) bad() }
     else if ('cell' in c) {
       const a = c.cell
       if (!a || typeof a !== 'object' || !str(c.value) || !(a.next_to === undefined || str(a.next_to)) || !int(a.table) || !int(a.row) || !int(a.col) || !int(a.occurrence)) bad()

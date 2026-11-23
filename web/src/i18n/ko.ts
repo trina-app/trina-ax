@@ -850,6 +850,7 @@ export const ko = {
   'allowances.alias': "이 호칭으로 부르는 사람",
   'allowances.siteOffice': "앱 안 브라우저에서 사내망 주소 열기",
   "allowances.connectorSend": "묻지 않고 보내기",
+  "allowances.picture": "묻지 않고 문서에 넣기",
   "allowances.deviceSite": "이 컴퓨터의 브라우저",
   "allowances.deviceOffice": "이 컴퓨터 브라우저의 사내망 주소",
   'allowances.card.share_files': "내 파일을 사람에게 공유하기",

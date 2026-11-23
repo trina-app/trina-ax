@@ -1,6 +1,7 @@
 // Route module "files" — owner: component C (docs/WORKPLAN.md).
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
 // team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
+import { BY_PERSON } from '../files/own-upload'
 import { registerConnectionsAccountCleanup } from '../integrations/account-cleanup'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
@@ -198,7 +199,7 @@ export const filesRoutes: RouteModule = {
       assertStorageRoom(body.file.size)
       // the body is on disk already, hashed on the way (http/multipart.ts); the kit removes what is left of the temp file
       // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
-      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, undefined, { keepSame: true })
+      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, { action: 'upload', detail: BY_PERSON }, { keepSame: true })
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))

@@ -97,7 +97,21 @@ export const PersonAliasAllowance = z.object({
 })
 export type PersonAliasAllowance = z.infer<typeof PersonAliasAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance, PersonAliasAllowance])
+/** "Always allow" on the card for a picture the person did not upload (tools/own-picture.ts): this one picture goes into
+ * documents without the card, never a different one (docs/decisions/20261123-picture-always-allow.md). Kept in
+ * card_always_allow under a key of its own: `picture:t:<team path>` or `picture:c:<chat file id>`. `picture` is the
+ * team path or the chat file's name. */
+export const PictureAllowance = z.object({
+  kind: z.literal('picture'),
+  id: z.string(),
+  picture: z.string(),
+  createdAt: z.string(),
+})
+export type PictureAllowance = z.infer<typeof PictureAllowance>
+/** The stored key of one approved picture. */
+export type PictureAlwaysKey = `picture:${'t' | 'c'}:${string}`
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance, PersonAliasAllowance, PictureAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {
