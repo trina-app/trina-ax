@@ -326,6 +326,28 @@ describe('Hangul: seal on the true target or refused, never on another', () => {
         }
       }
     }
+    // the other way to name a place: the cell next to a label cell
+    let cellPlaced = 0, cellRefused = 0
+    for (let seed = 1; seed <= 400; seed++) {
+      const r = rng(seed), items = generate(r), doc = build(ext, items), { layout, at, kept } = draw(r, items)
+      for (const label of ['성명', '대표']) {
+        const where = items.flatMap((x, i) => (x.kind === 'table' ? x.rows.flatMap((row, n) => (row[0] === label ? [`${i}:${n}:1`] : [])) : []))
+        for (let k = 1; k <= where.length; k++) {
+          const ch: HwpChange = { image: 'seal.png', cell: { next_to: label }, occurrence: k }
+          let got: HwpPictureNote
+          try {
+            got = (ext === 'hwp' ? editHwp(doc, [ch], { layout, images: new Map([[0, clean]]) }) : editHwpx(doc, [ch], { layout, images: new Map([[0, clean]]) })).report.pictures![0]!
+          } catch { cellRefused++; continue }
+          cellPlaced++
+          const truth = at.get(where[k - 1]!)!
+          const failure = `seed ${seed}, next to ${label} occurrence ${k}`
+          expect([failure, kept[got.page - 1]]).toEqual([failure, truth.page])
+          expect([failure, Math.abs(got.yMm + got.heightMm / 2 - (truth.y - 3 + 10) * MM_PER_PX) <= SEAL_TOLERANCE_MM]).toEqual([failure, true])
+        }
+      }
+    }
+    expect(cellPlaced).toBeGreaterThan(50)
+    expect(cellRefused).toBeGreaterThan(50)
     // neither side may be empty, or the test proves nothing
     expect(placed).toBeGreaterThan(50)
     expect(refused).toBeGreaterThan(50)
