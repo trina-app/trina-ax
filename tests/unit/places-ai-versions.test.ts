@@ -457,10 +457,10 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
 
 describe('insert_picture: a file counts as the asker\'s own only if they uploaded it (review of #448)', () => {
   const pandoc = which('pandoc')
-  const png = () => {
+  const png = (n = 8) => {
     const c = (t: string, d: Buffer) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const b = Buffer.concat([Buffer.from(t), d]); const x = Buffer.alloc(4); x.writeUInt32BE(zlib.crc32(b) >>> 0); return Buffer.concat([l, b, x]) }
-    const i = Buffer.alloc(13); i.writeUInt32BE(8, 0); i.writeUInt32BE(8, 4); i[8] = 8; i[9] = 2
-    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), c('IHDR', i), c('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: 8 }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(24, 90)]))))), c('IEND', Buffer.alloc(0))]))
+    const i = Buffer.alloc(13); i.writeUInt32BE(n, 0); i.writeUInt32BE(n, 4); i[8] = 8; i[9] = 2
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), c('IHDR', i), c('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: n }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(n * 3, 90)]))))), c('IEND', Buffer.alloc(0))]))
   }
   const abs = (rel: string) => path.join(h.team, ...rel.split('/'))
   const put = (rel: string, b: Uint8Array) => { fs.mkdirSync(path.dirname(abs(rel)), { recursive: true }); fs.writeFileSync(abs(rel), b) }
@@ -512,7 +512,7 @@ describe('insert_picture: a file counts as the asker\'s own only if they uploade
     expect(fine.cards).toHaveLength(0)
     expect(versionsOf(chat, doc.id)).toBe(2)
     // bob's AI writes its own picture as version 2 of alice's seal
-    put('shared/brand/bobs-picture.png', Buffer.concat([Buffer.from(png())]))
+    put('shared/brand/bobs-picture.png', png(40))
     const bob = await run('bob', chat, fake({ tool: 'read', args: { file_path: sealPath } }, { tool: 'resize_images', args: { paths: ['shared/brand/bobs-picture.png'], width: 16, output: sealPath }, sayResult: true }))
     expect(bob.content).not.toContain('Not done')
     expect(versionsOf(chat, seal.id)).toBe(2)
