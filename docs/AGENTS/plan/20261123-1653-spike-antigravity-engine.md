@@ -370,6 +370,45 @@ Risks of the test: the account can be suspended (the terms allow it); the token 
 `cloud-platform`-scope Google credential (keep the box offline except Google, delete it after); a "pass" does not make
 the product use allowed.
 
+### 5. How T3 Code does it
+
+T3 Code (ping.gg, MIT, [github.com/pingdotgg/t3code](https://github.com/pingdotgg/t3code), read at commit
+`d63b9c4c`, 2026-11-23) offers "Sign in with Google" for Antigravity. We read the source and docs only. We did not
+sign in and did not read the owner's stored tokens. (The app is not in `/Applications` on this Mac.)
+
+| Question | Answer | Where in T3 |
+|---|---|---|
+| Which engine | Google's official `agy`, in **ACP** mode (`agy acp --gemini-dir <profile> --app-data-dir antigravity-acp`). Not Gemini CLI, not the API. T3 downloads and updates `agy` itself (needs 1.5+, recommends 1.5.12+). | `docs/user/providers-antigravity.md`, `apps/server/src/provider/antigravityAuthSupport.ts` (`buildAntigravityAcpSpawnInput`) |
+| Google login | **agy's own OAuth client.** T3 runs `agy acp --login` with `DISPLAY` removed. It reads the `https://accounts.google.com/…` line from stdout, checks it (host, `redirect_uri` = `https://antigravity.google/oauth-callback`, one `state`), shows it to the user, and writes the code that the user pastes back to agy's stdin. T3 never has the OAuth client or the code exchange. | `AntigravityDriver.ts` (spawn with `--login`), `parseAntigravityAuthorizationUrl` |
+| Where the token is | In a private profile per provider instance: `GEMINI_HOME=<profile>`, file `<profile>/antigravity-acp/antigravity-oauth-token`, shape `{"token":{"access_token","refresh_token","expiry"}}`. To get a file instead of the OS keyring (the keyring has one entry for all profiles), T3 sets `AGY_ACP_FORCE_FILE_STORAGE=1` **and** a fake `SSH_CONNECTION="127.0.0.1 0 127.0.0.1 0"`, because 1.5 ignores the first. Older runtimes wrote `acp_token.json` (`client_id`, `client_secret`, `refresh_token`, `project_id`). | `antigravityEnvironment`, `antigravityUsageLimits.ts` (`CliToken`, `TokenFile`) |
+| Refresh | `agy` refreshes. T3's comment: the 1.5 file "stores no OAuth client, so T3 cannot refresh it". | `antigravityUsageLimits.ts` |
+| Does T3 touch the token | Yes, read-only, for the usage screen: it reads the access token from the file and calls `cloudcode-pa` / `daily-cloudcode-pa` `v1internal:retrieveUserQuotaSummary` and `fetchAvailableModels` with a User-Agent that copies agy's own (`antigravity/hub/…`). | `makeAntigravityUsageProbe` |
+| Headless with the subscription | Yes: a long-running ACP process per session, on the user's subscription quota; tool approvals map to ACP modes ("full-access" = `yolo`). Also `AGY_CLI_DISABLE_AUTO_UPDATE=1`, a T3-owned `TMPDIR` ("each launch unpacks about 1 GB"). For older `agy` releases T3 sends `clientInfo` `{"name":"zed"}` so that Google offers non-Gemini models ("Older releases offer non-Gemini models only to allowlisted clients such as Zed"). | `antigravityClientInfo`, `antigravityPermissionMode` |
+| Terms | T3 is the case asked in forum #190447 (a third-party app runs the unmodified `agy` with the user's own Pro/Ultra login, never sees the code). The forum reply says that is not permitted. T3's docs only say "Google controls which models and account access are available through this agent." T3 runs on the user's own machine for one person; Trina would run it on a team server for many people. | — |
+
+What Trina can reuse:
+
+- **The login flow, if the owner ever accepts the terms risk:** run the official `agy acp --login` in a throwaway,
+  per-connection `GEMINI_HOME`, take the URL from stdout, let the person paste the code back. This is the same shape
+  as Trina's ChatGPT device login (`codex login --device-auth` in `<agent root>/.codex-login/<loginId>`). Trina never
+  holds Google's OAuth client.
+- **The storage switches:** `GEMINI_HOME` per connection, `AGY_ACP_FORCE_FILE_STORAGE=1` + `SSH_CONNECTION` to force
+  the file store, `AGY_CLI_DISABLE_AUTO_UPDATE=1`, a private `TMPDIR`. Our sandbox already gives the file store (the
+  container check), but a macOS install would need the same switches.
+- **The token file shape** `{"token":{…}}`. With it, the server could keep the real refresh token and refresh it
+  itself (D10) only if it also had agy's OAuth client secret, which T3 says the 1.5 file does not contain. So a
+  placeholder login is still not possible: we tried the T3 shape with a placeholder access token, `CLOUD_CODE_URL` and
+  the fake `SSH_CONNECTION`; `agy` read the file and still answered "You are not logged into Antigravity". The real
+  token would have to sit in the chat folder, inside the sandbox, where the engine (and the model) can read it. That
+  breaks Trina's rule that an engine never holds a real credential (D9).
+- **The quota probe:** `retrieveUserQuotaSummary` gives the five-hour and weekly windows. Trina could show them on the
+  AI connection screen, as T3 does under Usage › Limits.
+- **Not to copy:** the `zed` client name (it pretends to be another product to get models) and the copied agy
+  User-Agent. Both make a terms dispute worse.
+
+Conclusion: T3 shows that a Google sign-in through `agy acp` works for **one person on their own machine**. It does
+not solve Trina's two blockers: the terms (server, team, many people) and the real token inside the sandbox.
+
 ## Recommendation
 
 1. Now: offer Gemini through the existing `api` engine. Measure if teams use it.
