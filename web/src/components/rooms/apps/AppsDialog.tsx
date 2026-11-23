@@ -141,7 +141,9 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
     : view.view === 'guide' ? (app ? t('roomApps.guideTitle', { app: app.name }) : view.service === 'other' ? t('roomApps.guideTitleOther') : t('roomApps.guideTitle', { app: kindLabel(view.service) }))
     : app?.name ?? ''
   // a new app needs the internet address; the list and settings of existing ones say it is gone
-  const blocked = !!list && !list.available && (view?.view === 'pick' || (view?.view === 'guide' && !view.appId && view.service !== EMAIL))
+  // no internet address: only Email can be added (its mail comes from the mail service, not to this server's address),
+  // so the picker stays open while Email is available, and every other service's new guide shows the no-address screen
+  const blocked = !!list && !list.available && ((view?.view === 'pick' && !list.mail?.available) || (view?.view === 'guide' && !view.appId && view.service !== EMAIL))
   return (
     <Modal
       open
@@ -313,7 +315,7 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
         })}
       </ul>
       <div className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-3 max-sm:px-4">
-        <Button size="sm" onClick={onAdd} disabled={left <= 0 || !list.available} data-testid="apps-add">
+        <Button size="sm" onClick={onAdd} disabled={left <= 0 || (!list.available && !list.mail?.available)} data-testid="apps-add">
           <Plus size={14} aria-hidden />
           {t('roomApps.add')}
         </Button>
