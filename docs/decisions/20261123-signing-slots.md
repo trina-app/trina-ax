@@ -14,10 +14,11 @@
   its section and its table row and column, never by counting: the renderer draws a floating table after the body text
   that follows it, so a count put a seal on another signer. Text after the chosen mark, a sign-like token this tool does
   not know, or a bare mark on a line with another place to sign is refused unless `occurrence` says which.
-  Where the same words are in several places, only a positive match counts: a body paragraph's own index, or the one
-  drawn table whose whole text equals the mark's table (white space and format characters aside). Nothing is chosen by
-  dropping what does not fit, since the right one may be drawn a little differently. Two equal tables, or a table split
-  over pages with a twin elsewhere, are refused. The result names a table only from the line the picture was placed on.
+  **The invariant:** a placement is accepted only if the document's target maps to exactly one drawn location, proved
+  from the document's side. Every reading of the page that fits the whole document (each table covered exactly by its
+  drawn parts) must put the target in the same place. Nothing is chosen by counting or by dropping what does not fit.
+  Equal tables, whole or split, are refused; a split table with no twin is placed. The result names a table only from
+  the line the picture was placed on. A generated test (`sign-corpus`) asserts: on the true target or refused.
 - **No slot ids, no read note, no choice by a person's name.** Ids shift with fills and added rows, a note misses chat files
   and guests, and a name could put a seal on someone else's mark with no human check (independent plan review).
 - **What is checked, per format:**

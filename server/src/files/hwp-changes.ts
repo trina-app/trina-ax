@@ -301,10 +301,10 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       where = `${this.placedWhere(p, pg, line)}, ${c.place ?? 'over'} ${mark ? placedOn(label, mark) : clip(find, 40)}`
     } else {
       const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
-      const cell = f.cell, k = f.labels!.indexOf(f.label!)
+      const cell = f.cell
       const laid = layoutLabelCells(layout, strip(c.cell!.next_to))
       if (laid.length !== f.labels!.length) unmatched(`cells reading ${clip(c.cell!.next_to)}`, f.labels!.length, laid.length)
-      const L = laid[k]!
+      const L = this.labelCellHit(f.label!, f.labels!, laid, layout) ?? refuseChange(i, `the cell reading ${clip(c.cell!.next_to)} could not be matched with its own place on the page, so the picture could go into another table; give the table, or say which signer`)
       const pg = layout.pages[L.page]!, lc = pg.cells[L.cell]!
       const ti = pg.cells.findIndex((x) => x.table === lc.table && x.row === cell.row && x.col === cell.col)
       if (ti < 0) refuseChange(i, `the cell ${c.cell!.direction === 'below' ? 'below' : 'right of'} ${clip(c.cell!.next_to)} is not on the same page as its label; put the picture over a text with at`)
@@ -378,11 +378,70 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     this.pictures.push({ ...spotNote(i, spot, where, part), ...aim })
   }
 
-  /** The place on the pages of one found text, by a positive match only: never by dropping what does not fit, because the
-   * one that does not fit can be the right one drawn a little differently. A laid-out hit fits when its line reads as the
-   * text around it in its own paragraph, in the same section, in the body or the same row and column of a table. One hit
-   * and no other place in the document that it could also be: that one. Otherwise a body paragraph must carry its own
-   * index, and a table cell must be in the one drawn table whose whole text equals its table's. Else null: refused. */
+  // ---- THE PAIRING INVARIANT (QA TC-8357, three reviews of #484)
+  // A placement is accepted only if the document's target maps to exactly one drawn location, proved from the document's
+  // side: every reading of the page that fits the whole document must put the target in that same place. So:
+  // - never by counting (the renderer's order is not the document's), never by dropping what does not fit (the right one
+  //   may be the one drawn differently), never because only one drawn table looks whole (a split twin never does);
+  // - every place of the document holding the same words must have a drawn place of its own, or nothing is proved;
+  // - a body paragraph is proved by its own index; a table by tableReadings, every way the drawn tables and their parts
+  //   can make up the document's tables. A target that could be in two drawn places is refused.
+  // Both ways to name a place go through this: a text (layoutHit) and a label cell (labelCellHit).
+
+  /** Every way to assign the drawn tables (and the parts of a split one) of a section to the document's tables so that each
+   * of those is covered exactly, cell by cell with the same text: for each drawn table ("page:table"), the document's
+   * tables it can be. Null when no reading exists or there are too many to go through: nothing is proved then. */
+  private tableReadings(layout: HwpLayout, section: number): Map<string, Set<CTable>> | null {
+    const models = (this.tables as CTable[]).filter((t) => t.cells.some((c) => c.paras[0]?.sec === section)).map((t) => ({
+      t, cells: new Map(t.cells.map((c) => [`${c.row}:${c.col}`, drawnText(c.paras.map((q) => q.text).join(''))])),
+    }))
+    const drawn: { key: string; cells: Map<string, string>; can: typeof models }[] = []
+    layout.pages.forEach((pg, pi) => {
+      if (pg.section !== section) return
+      for (const id of new Set(pg.cells.map((c) => c.table))) {
+        const cells = new Map<string, string>()
+        let repeated = false
+        pg.cells.forEach((c, k) => {
+          if (c.table !== id) return
+          const at = `${c.row}:${c.col}`
+          if (cells.has(at)) repeated = true
+          cells.set(at, drawnText(pg.lines.filter((l) => l.cell === k).map((l) => l.text).join('')))
+        })
+        if (repeated) return drawn.push({ key: `${pi}:${id}`, cells, can: [] })
+        drawn.push({ key: `${pi}:${id}`, cells, can: models.filter((m) => [...cells].every(([at, text]) => m.cells.get(at) === text)) })
+      }
+    })
+    if (drawn.some((d) => !d.can.length)) return null
+    drawn.sort((a, b) => a.can.length - b.can.length)
+    const out = new Map<string, Set<CTable>>(drawn.map((d) => [d.key, new Set<CTable>()]))
+    const taken = new Map(models.map((m) => [m, new Set<string>()]))
+    const chosen: (typeof models)[number][] = []
+    let steps = 0, tooMany = false
+    const walk = (n: number) => {
+      if (tooMany) return
+      if (++steps > 100_000) { tooMany = true; return }
+      if (n === drawn.length) {
+        if (models.every((m) => taken.get(m)!.size === m.cells.size)) chosen.forEach((m, k) => out.get(drawn[k]!.key)!.add(m.t))
+        return
+      }
+      const d = drawn[n]!
+      for (const m of d.can) {
+        const have = taken.get(m)!
+        if ([...d.cells.keys()].some((at) => have.has(at))) continue
+        for (const at of d.cells.keys()) have.add(at)
+        chosen[n] = m
+        walk(n + 1)
+        for (const at of d.cells.keys()) have.delete(at)
+      }
+    }
+    walk(0)
+    if (tooMany || [...out.values()].some((x) => !x.size)) return null
+    return out
+  }
+
+  /** The drawn place of one found text, under the pairing invariant above, or null: refused. A laid-out hit fits a place of
+   * the document when its line reads as the text around it in its own paragraph, in the same section, in the body or the
+   * same row and column of a table. */
   private layoutHit(h: { p: P; at: number }, find: string, hits: { p: P; at: number }[], laid: LHit[], layout: HwpLayout): LHit | null {
     const fits = (x: { p: P; at: number }, l: LHit) => {
       const pg = layout.pages[l.page]!, line = pg.lines[l.line]!, chars = [...line.text], n = [...find].length
@@ -390,21 +449,41 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       if (x.p.cell ? line.cell < 0 || pg.cells[line.cell]!.row !== x.p.cell.row || pg.cells[line.cell]!.col !== x.p.cell.col : line.cell >= 0) return false
       return drawnText(x.p.text.slice(0, x.at)).endsWith(drawnText(chars.slice(0, l.at).join(''))) && drawnText(x.p.text.slice(x.at + find.length)).startsWith(drawnText(chars.slice(l.at + n).join('')))
     }
-    const mine = laid.filter((l) => fits(h, l))
-    if (!mine.length) return null
-    if (mine.length === 1 && !hits.some((x) => x !== h && fits(x, mine[0]!))) return mine[0]!
+    const could = new Map(hits.map((x) => [x, laid.filter((l) => fits(x, l))]))
+    // a place of the document with the same words and no drawn place of its own: its line may be the one taken for ours
+    if ([...could.values()].some((c) => !c.length)) return null
+    const mine = could.get(h)!
+    if (mine.length === 1 && !hits.some((x) => x !== h && could.get(x)!.includes(mine[0]!))) return mine[0]!
     const pi = (l: LHit) => Number(layout.pages[l.page]!.lines[l.line]!.para.split(':')[1])
     if (!h.p.cell) {
       const own = mine.filter((l) => pi(l) === this.topIndex(h.p))
-      return own.length === 1 ? own[0]! : null
+      if (own.length !== 1) return null
+      // another place in this same paragraph that reads the same could be that line too
+      return hits.some((x) => x !== h && x.p === h.p && could.get(x)!.includes(own[0]!)) ? null : own[0]!
     }
     const cell = h.p.cell as C
-    const inTable = mine.filter((l) => sameTable(cell.table, layout.pages[l.page]!, layout.pages[l.page]!.cells[layout.pages[l.page]!.lines[l.line]!.cell]!.table))
-    // exactly one drawn table: two equal tables cannot be told apart
-    if (new Set(inTable.map((l) => `${l.page}:${layout.pages[l.page]!.cells[layout.pages[l.page]!.lines[l.line]!.cell]!.table}`)).size !== 1) return null
-    if (inTable.length === 1) return inTable[0]!
-    const own = inTable.filter((l) => pi(l) === cell.paras.indexOf(h.p))
+    const readings = this.tableReadings(layout, h.p.sec)
+    if (!readings) return null
+    const tableKey = (l: LHit) => `${l.page}:${layout.pages[l.page]!.cells[layout.pages[l.page]!.lines[l.line]!.cell]!.table}`
+    const inTable = mine.filter((l) => readings.get(tableKey(l))?.has(cell.table))
+    // the target's table is more than one drawn table in some reading of the page: not proved
+    if (new Set(inTable.map(tableKey)).size !== 1) return null
+    if (readings.get(tableKey(inTable[0]!))!.size !== 1) return null
+    const own = inTable.length === 1 ? inTable : inTable.filter((l) => pi(l) === cell.paras.indexOf(h.p))
     return own.length === 1 ? own[0]! : null
+  }
+
+  /** The drawn place of a label cell, under the same invariant, or null. */
+  private labelCellHit(label: C, labels: C[], laid: { page: number; cell: number }[], layout: HwpLayout): { page: number; cell: number } | null {
+    const section = label.paras[0]?.sec
+    const here = laid.filter((l) => { const pg = layout.pages[l.page]!, c = pg.cells[l.cell]!; return pg.section === section && c.row === label.row && c.col === label.col })
+    if (labels.length === 1 && laid.length === 1) return here[0] ?? null
+    if (section === undefined) return null
+    const readings = this.tableReadings(layout, section)
+    if (!readings) return null
+    const own = here.filter((l) => readings.get(`${l.page}:${layout.pages[l.page]!.cells[l.cell]!.table}`)?.has(label.table))
+    if (own.length !== 1) return null
+    return readings.get(`${own[0]!.page}:${layout.pages[own[0]!.page]!.cells[own[0]!.cell]!.table}`)!.size === 1 ? own[0]! : null
   }
 
   /** Where a picture went for the result, from the line it was placed on: a table is named by its number only when

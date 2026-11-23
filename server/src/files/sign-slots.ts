@@ -2,6 +2,8 @@
 // "<label>: <name> (seal mark)", and a seal centred on all of it landed about 10 mm left of the mark). Word's insert_picture
 // `over` and edit_hwp's image `at` both narrow the text they are given to its sign mark here, so the seal does not depend
 // on how the AI worded the label. Decision: docs/decisions/20261123-signing-slots.md.
+// The invariant of the whole path: a placement is accepted only if the document's target maps to exactly one drawn
+// location, proved from the document's side; anything else is refused (hwp-changes.ts, "THE PAIRING INVARIANT").
 
 /** The words of a printed sign mark (written as escapes: no Korean literals in server code): the seal, stamp, company
  * seal, signature and sign words of Korean forms, the hanja seal, and Seal, Stamp, Signature, Sign, L.S. */

@@ -239,6 +239,99 @@ describe('Word: the seal is tied to the mark', () => {
   })
 })
 
+// The invariant, tried on generated documents: repeated tables and lines, tables split over pages, drawn in any order.
+// Whatever the document, the seal is on the true target or the call is refused, never on another place.
+describe('Hangul: seal on the true target or refused, never on another', () => {
+  const clean = sanitizeImage(SEAL, 'seal.png')
+  const rng = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+  type Row = [string, string]
+  type Item = { kind: 'line'; text: string } | { kind: 'table'; rows: Row[] }
+  const VALUES = ['홍길동 (인)', '이몽룡 (인)', '메모', '123']
+  const generate = (r: () => number): Item[] => {
+    const pick = <T,>(a: readonly T[]) => a[Math.floor(r() * a.length)]!
+    const items: Item[] = [{ kind: 'line', text: '머리말' }]
+    let last: Row[] | null = null
+    for (let n = 2 + Math.floor(r() * 3); n > 0; n--) {
+      const rows: Row[] = last && r() < 0.55 ? last.map((x) => [...x] as Row) : Array.from({ length: 1 + Math.floor(r() * 5) }, () => [pick(['성명', '대표']), pick(VALUES)] as Row)
+      items.push({ kind: 'table', rows })
+      last = rows
+      items.push({ kind: 'line', text: pick(['을: 홍길동 (인)', '중간', '이몽룡 (인)']) })
+    }
+    return items
+  }
+  const build = (ext: 'hwp' | 'hwpx', items: Item[]) => {
+    const spec = (rows: Row[]) => rows.map(([a, b]) => [{ text: a, width: 8000 }, { text: b, width: 30000 }])
+    if (ext === 'hwpx') return hwpxDoc([items.map((x, i) => (x.kind === 'line' ? hwpxPara(x.text, { cache: true, vert: i * 1000 }) : hwpxTable(spec(x.rows), { cache: true }))).join('') + hwpxPara('끝', { cache: true, vert: 90000 })])
+    return hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]]), ...items.map((x) => (x.kind === 'line' ? hwpPara(x.text) : hwpTable(spec(x.rows)))), hwpPara('끝', { last: true })])])
+  }
+  /** the items drawn on up to four pages in a shuffled order, each table whole or split in two; where each text is drawn */
+  const draw = (r: () => number, items: Item[]) => {
+    const pages: HwpLayout['pages'] = Array.from({ length: 4 }, () => ({ w: 793.7, h: 1122.5, section: 0, continued: [], tables: [], cells: [], starts: [], lines: [] }))
+    const nextY = [150, 150, 150, 150], ids = [0, 0, 0, 0]
+    const at = new Map<string, { page: number; y: number }>()
+    const put = (page: number, height: number) => { const y = nextY[page]!; nextY[page] = y + height + 8; return y }
+    const blocks: (() => void)[] = []
+    items.forEach((x, i) => {
+      const para = i + 1
+      if (x.kind === 'line') {
+        blocks.push(() => {
+          const page = Math.floor(r() * 4), y = put(page, 16)
+          pages[page]!.lines.push({ x: 113.4, y, w: 566.9, h: 13.3, text: x.text, runs: [{ x: 113.4, w: x.text.length * 13.3, text: x.text }], para: `0:${para}`, cell: -1 })
+          pages[page]!.starts.push({ para, table: false, preview: '' })
+          at.set(`${i}:line`, { page, y })
+        })
+        return
+      }
+      const cut = x.rows.length > 1 && r() < 0.6 ? 1 + Math.floor(r() * (x.rows.length - 1)) : x.rows.length
+      for (const [from, to] of [[0, cut], [cut, x.rows.length]] as const) {
+        if (from === to) continue
+        blocks.push(() => {
+          const page = Math.floor(r() * 4), pg = pages[page]!, id = ++ids[page]!, top = put(page, (to - from) * 20)
+          pg.tables.push({ x: 113, y: top, w: 500, h: (to - from) * 20 })
+          pg.starts.push({ para, table: true, preview: '' })
+          for (let row = from; row < to; row++) x.rows[row]!.forEach((text, col) => {
+            const y = top + (row - from) * 20
+            const cell = pg.cells.push({ table: id, row, col, x: 113 + col * 100, y, w: col ? 400 : 100, h: 20 }) - 1
+            pg.lines.push({ x: 120 + col * 100, y: y + 3, w: 380, h: 13.3, text, runs: [{ x: 120 + col * 100, w: text.length * 13.3, text }], para: `${id * 100 + cell}:0`, cell })
+            at.set(`${i}:${row}:${col}`, { page, y: y + 3 })
+          })
+        })
+      }
+    })
+    for (let k = blocks.length - 1; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [blocks[k], blocks[j]] = [blocks[j]!, blocks[k]!] }
+    blocks.forEach((b) => b())
+    // a table's two parts on one page would be one drawn table with a gap: such a drawing is still data the code must survive
+    return { layout: { pages: pages.filter((p) => p.lines.length) } as HwpLayout, at, kept: pages.map((p, n) => (p.lines.length ? n : -1)).filter((n) => n >= 0) }
+  }
+  /** every place of the text in the document's reading order */
+  const places = (items: Item[], text: string) => items.flatMap((x, i) => x.kind === 'line'
+    ? (x.text.includes(text) ? [`${i}:line`] : [])
+    : x.rows.flatMap((row, r2) => row.flatMap((c, col) => (c.includes(text) ? [`${i}:${r2}:${col}`] : []))))
+  for (const ext of ['hwp', 'hwpx'] as const) test(`.${ext}: 400 generated documents`, () => {
+    let placed = 0, refused = 0
+    for (let seed = 1; seed <= 400; seed++) {
+      const r = rng(seed), items = generate(r), doc = build(ext, items), { layout, at, kept } = draw(r, items)
+      for (const label of ['홍길동 (인)', '이몽룡 (인)']) {
+        const where = places(items, label)
+        for (let k = 1; k <= where.length; k++) {
+          let got: HwpPictureNote
+          try {
+            got = (ext === 'hwp' ? editHwp(doc, [{ image: 'seal.png', at: label, occurrence: k }], { layout, images: new Map([[0, clean]]) }) : editHwpx(doc, [{ image: 'seal.png', at: label, occurrence: k }], { layout, images: new Map([[0, clean]]) })).report.pictures![0]!
+          } catch { refused++; continue }
+          placed++
+          const truth = at.get(where[k - 1]!)!
+          const failure = `seed ${seed}, ${label} occurrence ${k}`
+          expect([failure, kept[got.page - 1]]).toEqual([failure, truth.page])
+          expect([failure, Math.abs(got.yMm + got.heightMm / 2 - (truth.y + 13.3 / 2) * MM_PER_PX) <= SEAL_TOLERANCE_MM]).toEqual([failure, true])
+        }
+      }
+    }
+    // neither side may be empty, or the test proves nothing
+    expect(placed).toBeGreaterThan(50)
+    expect(refused).toBeGreaterThan(50)
+  }, 120_000)
+})
+
 // ---------------------------------------------------------------- Hangul
 // The renderer's order and line boxes, set by hand: what real files show only with a floating table or tight line spacing.
 describe('Hangul: the mark is paired by its own paragraph, not by counting', () => {
@@ -466,6 +559,29 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       expect(Math.abs(q.note.yMm + q.note.heightMm / 2 - ys[1]! * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
       expect(q.note.where).toStartWith('table 2,')
     })
+    if (ext === 'hwpx') {
+      const rows9 = Array.from({ length: 9 }, (_, n) => [{ text: n === 1 ? '갑' : n === 6 ? '을' : `행${n}`, width: 8000, height: 7000 }, { text: n === 1 ? '홍길동 (인)' : n === 6 ? '이몽룡 (인)' : '메모', width: 30000, height: 7000 }])
+      const fill = (n: number) => Array.from({ length: n }, (_, i) => hwpxPara(`본문 ${i}`, { cache: false })).join('')
+      const splits = hwpxTable(rows9, { cache: false, treatAsChar: false, pageBreak: 'CELL' }), whole = hwpxTable(rows9, { cache: false, treatAsChar: false, pageBreak: 'NONE' })
+      const parts = (l: HwpLayout) => l.pages.reduce((n, p) => n + new Set(p.cells.map((c) => c.table)).size, 0)
+      for (const [name, body] of [['the second split', fill(1) + whole + hwpxPara('중간', { cache: false }) + splits], ['the first split', fill(15) + splits + hwpxPara('중간', { cache: false }) + whole]] as const) {
+        test(`two equal tables, ${name} over pages: refused for both signers and both tables`, async () => {
+          const doc = hwpxDoc([body + hwpxPara('끝', { cache: false })])
+          expect(parts(await engine.layout(Buffer.from(doc), 'hwpx'))).toBe(3)
+          for (const at of ['홍길동 (인)', '이몽룡 (인)']) for (const occurrence of [1, 2]) await expect(stamp('hwpx', doc, at, { occurrence })).rejects.toThrow('its own line')
+        })
+      }
+      test('one table split over pages with no twin: the seal goes on its mark on the right page', async () => {
+        const rows = Array.from({ length: 14 }, (_, n) => [{ text: `행${n}`, width: 8000, height: 7000 }, { text: n === 11 ? '홍길동 (인)' : '메모', width: 30000, height: 7000 }])
+        const doc = hwpxDoc([fill(1) + hwpxTable(rows, { cache: false, treatAsChar: false, pageBreak: 'CELL' }) + hwpxPara('끝', { cache: false })])
+        const l = await engine.layout(Buffer.from(doc), 'hwpx')
+        expect(parts(l)).toBeGreaterThan(1)
+        const r = await stamp('hwpx', doc, '홍길동 (인)')
+        const h = layoutTextHits(l, '홍길동 (인)')[0]!
+        expect(r.note.page).toBe(h.page + 1)
+        onMark(r, '(인)', 0)
+      })
+    }
     test('no mark: centred on the label as before', async () => {
       const r = await stamp(ext, docOf(ext, '확인자리 표시'), '확인자리')
       expect(r.note.where).toContain('over "확인자리"')
