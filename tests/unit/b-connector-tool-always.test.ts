@@ -34,7 +34,8 @@ beforeAll(async () => {
     { name: 'get_post', title: 'Get post', description: 'Reads a post', inputSchema: { type: 'object', properties: { url: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'resend_invoice', description: 'Resends an invoice', inputSchema: { type: 'object', properties: { to: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     // AB4 F3: a Repl-like change that reaches nobody else (an app in the workspace)
-    { name: 'create_app', title: 'Create app', description: 'Create or update an app in the workspace.', inputSchema: { type: 'object', properties: { name: { type: 'string' }, code: { type: 'string' } }, required: ['name'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    // (create or update: no destructiveHint, so it is a change that asks, never #426's create tier that runs without a card)
+    { name: 'create_app', title: 'Create app', description: 'Create or update an app in the workspace.', inputSchema: { type: 'object', properties: { name: { type: 'string' }, code: { type: 'string' } }, required: ['name'] }, annotations: { readOnlyHint: false } },
   ]
   integrationsOf(h.ctx, { net: svc.net() })
   const team = await h.api('carol').call(API.createTeamIntegration, { body: { kind: 'mcp', name: 'Bright Data', url: `${svc.base}/mcp-open`, auth: 'none', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } } as never })
