@@ -184,7 +184,8 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
     expect(why(plan('alice', { action: 'copy', path: 'users/alice/drafts/fake.png', to_folder: 'projects/falcon/skills/launch' }))).toContain('only written with write / edit')
     expect(why(plan('alice', { action: 'copy', path: 'users/alice/drafts/guide.pdf', to_folder: 'projects/falcon/skills/launch' }))).toContain('does not put pictures, media or any other file that is not text')
     expect(why(plan('alice', { action: 'copy', path: 'users/alice/drafts/sneaky', to_folder: 'projects/falcon/skills' }))).toContain('is an instruction file')
-    expect(why(plan('alice', { action: 'copy', path: 'users/alice/drafts/big', to_folder: 'projects/falcon/skills' }))).toContain('too long to show in full on one card')
+    // no limit for the card's sake (owner 2026-11-23): a long skill is planned; the card lists its files, each opened on request
+    expect('refused' in plan('alice', { action: 'copy', path: 'users/alice/drafts/big', to_folder: 'projects/falcon/skills' })).toBe(false)
     // a SKILL.md folder goes right into the skills folder, not inside another skill
     expect(why(plan('alice', { action: 'copy', path: 'users/alice/drafts/brand-kit', to_folder: 'projects/falcon/skills/launch' }))).toContain('right into the skills folder')
     // the person's own skills folder is move_skill's
@@ -552,7 +553,7 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
   })
   afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-  type Card = { question: string; origin?: string; options?: { value: string }[]; details?: { label: string; text: string; fields?: { name: string; value: string }[] }[]; preview?: { path: string } }
+  type Card = { question: string; origin?: string; options?: { value: string }[]; details?: { label: string; text: string; fields?: { name: string; value: string }[]; open?: { path: string; size: number }[] }[]; preview?: { path: string }; batch?: { item?: string } }
   /** One turn; `answers`: each card in order (null: leave it), `meanwhile` before answering each */
   async function turn(user: string, content: string, answers: (string | null)[] = [], meanwhile?: () => void) {
     const chat = await h.api(user).call(API.createChat, { body: {} })
@@ -604,10 +605,12 @@ describe('in a chat: the card, its answer, and what the AI is told', () => {
     // its people: alice, bob, carol (a member); dana, the owner, is not one of them
     expect(c.question).toContain('New skill "brand-kit": the AI of 3 people will follow it.')
     expect(c.question).toContain('2 people can change it there; 1 of them is new.')
-    const all = c.details!.find((d) => d.label === 'Everything the AI would follow')!.text
-    expect(all).toContain('=== projects/falcon/skills/brand-kit/SKILL.md ===')
-    expect(all).toContain('BRAND-BODY')
-    expect(all).toContain('TONE-CANARY')
+    // SKILL.md on the card; every other file by name and size, each opened on request (never all of their text)
+    expect(c.details!.find((d) => d.label === 'SKILL.md')!.text).toContain('BRAND-BODY')
+    expect(JSON.stringify(c)).not.toContain('TONE-CANARY')
+    expect(c.details!.find((d) => d.open?.length)!.open!.map((f) => f.path)).toContain('users/alice/drafts/brand-kit/references/tone.md')
+    // and it leads in plain words (AskUserRequest.batch)
+    expect(c.batch).toMatchObject({ item: 'brand-kit' })
     // alice made Falcon: she may see who gets it there
     expect(c.details!.find((d) => d.fields?.length)!.fields!.find((f) => f.name === 'Newly get it')!.value).toContain('Bob Lee')
     expect(r.content).toContain('The user did not allow this')

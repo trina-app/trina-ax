@@ -1,6 +1,6 @@
 // The mark of a shared project chat (docs/DECISIONS.md "Shared project chats"): one people icon, the same in the
 // Trina list's row, the project page's row and the chat header (there with how many see it as its tooltip). In every
-// chat list a shared chat someone else wrote in shows their faces in place of the icon (ChatFaces, their stack:
+// chat list a shared chat someone else wrote in shows their faces at its end, after the icon (ChatFaces, their stack:
 // FaceStack.tsx; docs/DECISIONS.md "Faces in every chat list").
 import clsx from 'clsx'
 import { Lock, ShieldAlert, Users } from 'lucide-react'

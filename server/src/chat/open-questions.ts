@@ -16,7 +16,7 @@
 // replayCalls), every check made again at that moment.
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
-import { ALWAYS_VALUE } from './always-allow'
+import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { TEXT, tr } from './i18n'
@@ -167,15 +167,36 @@ export function reopenAnswers(db: Database, messageId: string, userId: string): 
  * with the last one); 'ready': all of them are answered now, in the order they were asked; 'closed': not open any more.
  * undo() takes the answer back (the next turn could not start: the card stays open).
  */
-export function recordAnswer(db: Database, requestId: string, value: unknown): { state: 'closed' } | { state: 'waiting' } | { state: 'ready'; answers: AnsweredQuestion[]; requests: TurnRequest[]; window: string | null; undo(): void } {
+export function recordAnswer(db: Database, requestId: string, value: unknown): { state: 'closed' } | { state: 'waiting'; also: string[] } | { state: 'ready'; answers: AnsweredQuestion[]; requests: TurnRequest[]; window: string | null; also: string[]; undo(): void } {
   return db.transaction(() => {
     const r = db.query('SELECT * FROM open_questions WHERE request_id = ? AND answer IS NULL').get(requestId) as Row | null
     if (!r) return { state: 'closed' as const }
-    db.query('UPDATE open_questions SET answer = ? WHERE request_id = ?').run(JSON.stringify(value ?? null), requestId)
+    const set = db.query('UPDATE open_questions SET answer = ? WHERE request_id = ?')
+    set.run(JSON.stringify(value ?? null), requestId)
+    // "Always allow" on one waiting card answers every other waiting card of the same kind of this answer with it (the
+    // owner, 2026-11-23: "항상 허용하면 뒤에것들은 안해도 되어야지"): their calls run with it, no further card
+    const also = alwaysAlso(db, r, value)
+    for (const id of also) set.run(JSON.stringify(value ?? null), id)
     const ready = readyAnswers(db, r.message_id, r.user_id)
-    if (!ready) return { state: 'waiting' as const }
-    return { state: 'ready' as const, ...ready, undo: () => { db.query('UPDATE open_questions SET answer = NULL WHERE request_id = ?').run(requestId) } }
+    if (!ready) return { state: 'waiting' as const, also }
+    const undoIds = [requestId, ...also]
+    return { state: 'ready' as const, ...ready, also, undo: () => { for (const id of undoIds) db.query('UPDATE open_questions SET answer = NULL WHERE request_id = ?').run(id) } }
   })()
+}
+
+/** The other open waiting cards of the same answer and person that offer the same "Always allow" as `r`, when `value`
+ * is that Always (each takes it: chat/turn.ts replayCalls keeps the choice once and runs every call). */
+function alwaysAlso(db: Database, r: Row, value: unknown): string[] {
+  const one = Array.isArray(value) && value.length === 1 ? value[0] : value
+  if (one !== ALWAYS_VALUE && one !== ALWAYS_CHAT_VALUE) return []
+  const kind = metaOf(r.call_meta).always
+  if (!kind) return []
+  const rows = db.query('SELECT * FROM open_questions WHERE message_id = ? AND user_id = ? AND answer IS NULL AND request_id <> ?').all(r.message_id, r.user_id, r.request_id) as Row[]
+  return rows.filter((x) => {
+    if (metaOf(x.call_meta).always !== kind || (x.window_id ?? null) !== (r.window_id ?? null)) return false
+    const card = parse(x.request)
+    return card?.kind === 'ask_user' && (card.options ?? []).some((o) => o.value === one)
+  }).map((x) => x.request_id)
 }
 
 /** A new turn starts in the chat: the AI's own questions still there go (answered ones with their turn, the rest because
@@ -412,6 +433,8 @@ export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
     const x = { ...rest } as Record<string, unknown>
     if (Array.isArray(x.options)) x.options = (x.options as { value: string }[]).map((o) => o.value).filter((v) => v !== ALWAYS_VALUE).sort()
     delete x.note
+    // how the app groups the card with others of the same answer (AskUserRequest.batch): presentation only
+    delete x.batch
     if (x.share && typeof x.share === 'object') { const { why: _w, ...share } = x.share as Record<string, unknown>; x.share = share }
     const question = typeof x.question === 'string' ? x.question : null
     delete x.question
@@ -472,3 +495,8 @@ export function declined(card: TurnRequest, answer: unknown): boolean {
 const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(',')}]`
   : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`
   : JSON.stringify(v ?? null)
+
+/** The turn a waiting card was raised in (null: no such card). */
+export function turnOfQuestion(db: Database, requestId: string): string | null {
+  return (db.query('SELECT turn_id FROM open_questions WHERE request_id = ?').get(requestId) as { turn_id: string } | null)?.turn_id ?? null
+}

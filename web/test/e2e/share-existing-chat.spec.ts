@@ -98,13 +98,13 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('chat-project-move')).toHaveCount(0)
       await page.keyboard.press('Escape')
 
-      // Bob: on the project page, with the face and name of who wrote in it (in place of the people icon; docs/DECISIONS.md
+      // Bob: on the project page, with the face and name of who wrote in it (beside the people icon; docs/DECISIONS.md
       // "Faces in every chat list"); he opens it and can write in it
       const b = await bob(browser)
       await b.goto(`/projects/${id}`)
       const row = b.getByTestId('project-chats').getByRole('link', { name: /출시 일정/ })
       await expect(row.getByTestId('project-chat-people-label')).toHaveText('공유 채팅 · Olga님이 시작함')
-      await expect(row.getByTestId('shared-icon')).toHaveCount(0)
+      await expect(row.getByTestId('shared-icon')).toBeVisible()
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)
       await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')

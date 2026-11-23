@@ -3199,6 +3199,8 @@ export const es: Record<MessageKey, string> = {
   "ask.exactHide": "Ocultar exactamente lo que se envía",
   "ask.foldedShow": "Detalles",
   "ask.foldedHide": "Ocultar detalles",
+  "ask.batchMany": "{n, plural, one {# cosa} other {# cosas}} que confirmar",
+  "ask.batchOpen": "Abrir",
   'notice.openHistory': "Historial de versiones",
   'notice.openSkills': "Abrir habilidades del equipo",
   'notice.open': "Abrir",
