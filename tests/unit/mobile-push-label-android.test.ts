@@ -122,3 +122,22 @@ test('the Kotlin keeps the iPhone extension\'s rules: its words, the stored team
   expect(store).toContain('"AndroidKeyStore"')
   expect(store).toContain('AES/GCM/NoPadding')
 })
+
+// A silent sync (code phone.sync, docs/AGENTS/plan/20261123-0705-phone-badge-sync.md): handled before expo-notifications
+// (which would list an empty notification while the app is open), shows nothing, takes the listed notices off the tray
+test('a sync is stopped before expo-notifications and takes only the listed, well-formed notice ids off the tray', () => {
+  const service = kotlin('LabelMessagingService.kt'), sync = kotlin('Sync.kt')
+  expect(service).toContain('override fun onMessageReceived(remoteMessage: RemoteMessage)')
+  expect(service).toContain('if (Sync.isSync(data)) { Sync.apply(context, data); return }')
+  // the sync check comes before anything goes to expo-notifications
+  expect(service.indexOf('Sync.isSync(data)')).toBeLessThan(service.indexOf('super.onMessageReceived(remoteMessage)'))
+  expect(sync).toContain('const val CODE = "phone.sync"')
+  expect(sync).toContain(".split(',').filter { Label.isId(it) }.take(MAX_CLEAR)")
+  // only by tag (the notice id), never everything; empty group summaries go too; never throws
+  expect(sync).toContain('it.tag != null && it.tag in ids')
+  expect(sync).toContain('nm.cancel(n.tag, n.id)')
+  expect(sync).toContain('FLAG_GROUP_SUMMARY')
+  expect(sync).toContain('catch (_: Throwable) {}')
+  expect(sync).not.toContain('cancelAll')
+  expect(sync).not.toMatch(/notify\(/)
+})

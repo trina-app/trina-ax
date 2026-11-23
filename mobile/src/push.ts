@@ -14,7 +14,7 @@ import * as Crypto from 'expo-crypto'
 import { LABEL_ITEM, LABEL_SERVICE, LabelStore } from './labels'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 import { permissionFrom } from './permission'
-import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber } from './badge'
+import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber, SYNC_CODE } from './badge'
 
 export const CHANNEL_ID = 'default'
 // set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
@@ -95,7 +95,8 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
  * sets the icon's number itself (badge-v1: its own count, the newest), so a push's number does not replace it. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
-  try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
+  // a silent sync (an iPhone's number after reads elsewhere) is never listed
+  try { Notifications.setNotificationHandler({ handleNotification: async (n) => ({ shouldShowBanner: false, shouldShowList: n.request.content.data?.code !== SYNC_CODE, shouldPlaySound: false, shouldSetBadge: false }) }) }
   catch { console.log('push: notification handler unavailable') }
 }
 

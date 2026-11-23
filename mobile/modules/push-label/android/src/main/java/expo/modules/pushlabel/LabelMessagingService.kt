@@ -6,10 +6,12 @@
 //
 // The notification goes through expo-notifications (NotificationsService.receive): quiet in the foreground as the app
 // asks (src/push.ts quietForeground), channel "default", and a tap reaches the app with the push's own data (the trigger
-// keeps the FCM message, so content.data stays { notificationId, code, path, device, ... }).
+// keeps the FCM message, so content.data stays { notificationId, code, path, device, ... }). A silent sync (code
+// phone.sync, Sync.kt) takes notices read on another device off the tray and is never shown.
 package expo.modules.pushlabel
 
 import android.content.Context
+import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.notifications.interfaces.INotificationContent
 import expo.modules.notifications.notifications.model.NotificationContent
 import expo.modules.notifications.notifications.model.NotificationRequest
@@ -25,6 +27,13 @@ class LabelMessagingService : ExpoFirebaseMessagingService() {
 }
 
 class LabelMessagingDelegate(context: Context) : FirebaseMessagingDelegate(context) {
+  /** A silent sync (Sync.kt) never reaches expo-notifications: it would list an empty notification while the app is open. */
+  override fun onMessageReceived(remoteMessage: RemoteMessage) {
+    val data = remoteMessage.data
+    if (Sync.isSync(data)) { Sync.apply(context, data); return }
+    super.onMessageReceived(remoteMessage)
+  }
+
   override fun createNotificationRequest(identifier: String, content: INotificationContent, notificationTrigger: FirebaseNotificationTrigger): NotificationRequest {
     val named = try { named(content, notificationTrigger) } catch (_: Throwable) { null }
     return if (named != null) super.createNotificationRequest(named.first, named.second, notificationTrigger)
