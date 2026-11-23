@@ -30,6 +30,7 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
+import { destinations, foldsField, isPayload, payloadLines } from '../../lib/cardPayload'
 import { gathers, joinLock, pressPlan, type CardLike } from '../../lib/cardBatch'
 import { openTeamFile } from '../../lib/sidePanel'
 import { formatSize } from '../../lib/format'
@@ -684,8 +685,16 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
   )
 }
 
-function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
+/** A detail as the card opens it (lib/cardPayload.ts): a service call's JSON (`callJson`, the server's own) folds when it
+ * reads back into plain lines. Everything else is as the server sent it. */
+const byShape = (d: ConfirmDetail): ConfirmDetail => {
+  if (!d.callJson || !d.text || d.folded || d.exact || d.fullChars || d.alerts?.length) return d
+  return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true } : d
+}
+
+function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
+  const items = raw.map(byShape)
   if (plain)
     return (
       <div className="mt-2.5 space-y-2.5" data-testid="ask-details">
@@ -700,7 +709,9 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
-                      {f.code ? (
+                      {d.callJson && foldsField(f) ? (
+                        <dd className="min-w-0" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></dd>
+                      ) : f.code ? (
                         <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
                       ) : (
                         <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
@@ -754,7 +765,9 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
-                  {f.code ? (
+                  {d.callJson && foldsField(f) ? (
+                    <span className="min-w-0 flex-1" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></span>
+                  ) : f.code ? (
                     <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
                   ) : (
                     <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
@@ -804,25 +817,67 @@ function CodeValue({ text, label, marks }: { text: string; label: string; marks?
   )
 }
 
-/** A detail's text that is code or a file's content (`folded`: a dev-environment command, what a file will hold) behind
- * "자세히", with its size on the button while closed; the label, the fields and the question above say what happens in
- * words. A text with highlighted parts (marks, alerts) or one formatted for reading (markdown) stays open. */
+/** What stays in view of a folded payload: its short values, every destination, and its long random-looking parts. */
+function PayloadKeeps({ text, marks, known }: { text: string; marks?: string[]; known?: string[] }) {
+  const t = useT()
+  const lines = payloadLines(text, known) ?? destinations(text)
+  const here = (marks ?? []).filter((m) => text.includes(m))
+  if (!lines.length && !here.length) return null
+  return (
+    <div className="mt-1 space-y-1 text-xs" data-testid="ask-payload-keeps">
+      {lines.length > 0 && (
+        <div data-testid="ask-payload-lines">
+          <p className="text-faint">{t('ask.payloadGoesTo')}</p>
+          <p className="scroll-thin max-h-24 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]" tabIndex={0}>{lines.join('\n')}</p>
+        </div>
+      )}
+      {here.length > 0 && (
+        <div data-testid="ask-payload-marks">
+          <p className="text-faint">{t('ask.payloadMarks')}</p>
+          <p className="scroll-thin max-h-24 overflow-auto font-mono [overflow-wrap:anywhere]" tabIndex={0}><Marked text={here.join('\n')} marks={here} /></p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A field's value that is code or a payload: its size, what must stay in view, the value behind "자세히". */
+function FoldedValue({ f, marks }: { f: { name: string; value: string; code?: true }; marks?: string[] }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-0.5 text-left text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="ask-field-folded">
+        {open ? t('ask.foldedHide') : <>{t('ask.foldedShow')} <span className="font-normal text-faint">{t('ask.detailSize', { n: f.value.length })}</span></>}
+      </button>
+      {open ? <CodeValue text={f.value} label={f.name} marks={marks} /> : <PayloadKeeps text={f.value} marks={marks} />}
+    </div>
+  )
+}
+
+/** A detail's text that is code, a payload or a file's content (`folded`, or by its shape: byShape) behind "자세히": its
+ * label, size and one plain line while closed. Where it goes and any highlighted part stay in view (PayloadKeeps). Red
+ * alert lines and a text formatted for reading (markdown) stay open. */
 function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  if (!d.folded || d.markdown || d.marks?.length || d.alerts?.length) return <>{children}</>
+  // (the server's own fold of code stays open with marks; a call's JSON shows them below)
+  if (!d.folded || d.markdown || d.alerts?.length || (d.marks?.length && !d.callJson)) return <>{children}</>
+  const known = (d.fields ?? []).map((f) => f.value)
   return (
-    <div className={plain ? undefined : 'border-t border-line'}>
+    <div className={plain ? undefined : clsx('border-t border-line', !open && 'px-3 pb-1.5')}>
+      {plain && !open && <p className="text-xs text-faint" data-testid="ask-detail-folded-label">{d.label}</p>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'touch-hit rounded py-1 underline-offset-2 hover:underline' : 'w-full px-3 py-1.5 hover:bg-hover')}
+        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'touch-hit rounded py-1 underline-offset-2 hover:underline' : open ? 'w-full px-3 py-1.5 hover:bg-hover' : 'w-full py-1.5')}
         data-testid="ask-detail-folded"
       >
         <span>{open ? t('ask.foldedHide') : t('ask.foldedShow')}</span>
         {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
       </button>
+      {!open && <PayloadKeeps text={d.text} marks={d.marks} known={known} />}
       {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
   )

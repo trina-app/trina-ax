@@ -1,0 +1,1 @@
+- Confirm cards no longer open on raw JSON. You see its values as plain lines, with the full content behind **Details**.
