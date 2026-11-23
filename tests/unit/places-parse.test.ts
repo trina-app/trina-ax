@@ -115,6 +115,10 @@ describe('fail closed: a chat place in any path argument of a tool that does not
     expect(placeRefusal('make_file', { source: 'shared/a.md', output: 'users/u/a.pdf' })).toBeNull()
     expect(placeRefusal('merge_pdfs', { files: [{ path: 'chat:files/a.pdf' }], output: 'shared/b.pdf' })).toBeString()
   })
+  test("promo_video's pictures and logo may be this chat's files (AB4 F11); a work-folder path is still refused", () => {
+    expect(placeRefusal('promo_video', { promise: { picture: 'chat:files/01a2059b-1d6a-7210-883b-0a01b2bf1bb4/a.jpg' }, logo: 'chat:files/b.png' })).toBeNull()
+    expect(placeRefusal('promo_video', { work: { picture: 'chat:work/a.jpg' } })).toBeString()
+  })
 })
 
 describe('resolvePlace (server/src/files/places.ts): looks up, never opens', () => {
