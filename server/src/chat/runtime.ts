@@ -45,10 +45,10 @@ import { unsharePeopleChecked } from './people-guard'
 import { emptyAnswerText } from './step-record'
 import { Audiences, chatView, chatWriters, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
-import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
+import { newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
-import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, openQuestionPeople, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, pressParent, labelsHidden, hasOpenQuestion, openCardsIn, chatsWithCardsOf, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -214,6 +214,11 @@ export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly s
   return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
 }
 
+/** After an access change: the others in the chats where someone who lost them had a card open (ChatRuntime). */
+export function cardsAfterAccessChange(ctx: AppContext, cards: readonly { userId: string; chatId: string }[]): void {
+  runtimes.get(ctx)?.cardsAfterAccessChange(cards)
+}
+
 /** Everyone in this chat hears it again as they see it (chat.updated): an account change of its creator (QA TC-7431). */
 export function publishChatChanged(ctx: AppContext, userId: string, chatId: string): void {
   runtimes.get(ctx)?.publishChat(userId, chatId, 'updated')
@@ -348,6 +353,7 @@ export class ChatRuntime {
       return view(viewer, author, atts)
     }
     this.hub = new Hub(ctx, o.hub)
+    this.hub.onWindow((userId, windowId) => { try { this.windowCardsChanged(userId, windowId) } catch (e) { ctx.log.warn('chat update after a window change failed', { err: e }) } })
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
     this.localRelay = new LocalRelay(this.hub, ctx.log.child({ c: 'local-apps' }), o.relay ? { windowGoneMs: o.relay.windowGoneMs, sweepMs: o.relay.sweepMs, pollStaleMs: o.relay.pollStaleMs, repollMs: o.relay.repollMs } : {})
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
@@ -477,14 +483,35 @@ export class ChatRuntime {
     // or a question of the AI that waits after its answer ended (chat/open-questions.ts): `userId`'s own, when given
     return hasOpenQuestion(this.db, chatId, userId)
   }
-  /** The person the AI of this shared chat waits for now, whatever the card (one inside a running answer, one kept after
-   * the answer ended, one for a single desktop window), or null. Only someone who still sees the chat: a card of a
-   * person taken out of it holds nobody up. Who, never what: the cards stay their person's. */
+  /** The person the AI of this shared chat is stopped on now, or null. While a turn runs: only that turn's open cards.
+   * Idle: only the cards of the chat's latest turn (an older card stays for its person, but the chat went on without
+   * it). A card for one desktop window counts only while that window is connected, and nobody counts who no longer sees
+   * the chat. Who, never what: the cards stay their person's. */
   waitingOn(r: Pick<ChatRow, 'id' | 'user_id' | 'shared_at' | 'project_id' | 'people_shared_at'>, aud: Audiences): string | null {
-    const turnId = this.activeTurn(r.id)
-    const exec = turnId ? this.execFor(turnId) : undefined
-    if (exec?.openRequests().length && aud.seesChat(exec.spec.userId, r)) return exec.spec.userId
-    return openQuestionPeople(this.db, r.id).find((id) => aud.seesChat(id, r)) ?? null
+    const holds = (userId: string, window: string | null) => aud.seesChat(userId, r) && (!window || this.hub.connectedWindows(userId).includes(window))
+    const active = this.activeTurn(r.id)
+    const exec = active ? this.execFor(active) : undefined
+    if (exec?.openRequests().some((x) => holds(exec.spec.userId, x.window))) return exec.spec.userId
+    const cards = openCardsIn(this.db, r.id)
+    if (!cards.length) return null
+    const turn = active ?? (this.db.query('SELECT id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(r.id) as { id: string } | null)?.id
+    return cards.find((c) => c.turnId === turn && holds(c.userId, c.window))?.userId ?? null
+  }
+  /** A desktop window of this person opened or closed: the others in the chats where a card waits for that window hear
+   * whether it still holds them up. */
+  private windowCardsChanged(userId: string, window: string) {
+    const chats = new Set(chatsWithCardsOf(this.db, userId, window))
+    for (const e of this.running.values()) if (e.spec.userId === userId && e.openRequests().some((x) => x.window === window)) chats.add(e.spec.chatId)
+    for (const id of chats) this.publishChat(userId, id, 'updated', { others: true })
+  }
+  /** These people may have lost a chat where their card was open (read before the change: the rows may be gone with the
+   * account): the others there hear that it no longer holds them up. */
+  cardsAfterAccessChange(cards: readonly { userId: string; chatId: string }[]) {
+    const aud = new Audiences(this.db, this.files)
+    for (const c of cards) {
+      const r = this.store.chatRow(c.chatId)
+      if (r && isSharedRow(r) && !aud.seesChat(c.userId, r)) this.publishChat(c.userId, c.chatId, 'updated', { others: true })
+    }
   }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
@@ -1092,13 +1119,8 @@ export class ChatRuntime {
       queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
     // a shared chat: other people's questions this message closed before they answered (QA S-125; turn.ts names them).
     // Not for a scheduled run (nobody watches it to choose) or a regenerate (no new message)
-    // The question's words only when its answer is kept from nobody who sees the chat: an answer with a k or x group
-    // (a connection's, or one whose reads are not all known), or without a readable record, is hidden from some, and
-    // this answer carries no such group (the same rule as chat-file-tool.ts chatMadeOwnFile). Then only who asked
-    const closedOthers = isSharedRow(chat) && o.user && !o.scheduled ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => {
-      const name = labelName(this.store, q.userId)
-      return answerKeptFromSome(this.db, q.turnId) ? { name } : { name, question: q.question! }
-    }) : []
+    // Who asked, never the question's words: those are the asker's alone
+    const closedOthers = isSharedRow(chat) && o.user && !o.scheduled ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => ({ name: labelName(this.store, q.userId) })) : []
     if (closedOthers.length) spec.closedOthers = closedOthers
     // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
     if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)

@@ -400,7 +400,7 @@ const othersWaiting = (rt: ChatRuntime, chatId: string, viewer: string): { waiti
  * another person's answer runs past a card that stays (the chat is not stopped on it), and nothing for that person. */
 function waitsForOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audiences, runner: string | null): { waitsFor?: string } {
   const who = rt.waitingOn(r, aud)
-  if (!who || who === viewer || (runner && runner !== who)) return {}
+  if (!who || who === viewer) return {}
   const name = rt.store.userRef(who)?.name
   return name ? { waitsFor: name } : {}
 }

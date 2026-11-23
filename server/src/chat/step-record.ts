@@ -309,7 +309,7 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
       // (a note's own words name paths too: a write's result, "saved to users/alice/…". Kept only when the asker and
       // everyone who sees the chat now may list every path in it; fails closed: security review of batch 5)
       notes = Object.fromEntries(Object.entries(notes).filter(([id, n]) => ok.has(id) && notePathsListable(n, o.canList)))
-      steps = steps.map((x) => (stepRepeatsCard(x.tool) ? (({ sv: _sv, ...rest }) => ({ ...rest, label: stepWords(x, 'en') }))(x) : x))
+      steps = steps.map((x) => (stepRepeatsCard(x.tool, !!x.sv) ? (({ sv: _sv, tool, ...rest }) => ({ ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(x, 'en') }))(x) : x))
     }
     let text = stepsRecord(steps, notes, o.canList)
     if (!text) continue

@@ -1559,6 +1559,7 @@ export const ko = {
   'chat.waitingForPlace': "빈자리를 기다리는 중이에요. 자리가 나면 바로 이어서 답해요.",
   "chat.branchNotice": "AI가 이미 바꾼 팀 폴더 파일은 그대로 남아 있어요. 파일 화면의 버전 기록에서 되돌릴 수 있어요.",
   'chat.sharedWaiting': "{name}님의 확인을 기다리는 중이에요.",
+  'chat.sharedWaitingCanSend': "{name}님의 확인을 기다리는 중이에요. 메시지는 지금 보낼 수 있어요.",
   "chat.sharedSafeOps": "이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.",
   "chat.sharedUploadLine": "프로젝트 폴더({folder})에 저장돼요 · {n}명이 볼 수 있어요",
   'chat.sharedNoMove': "공유 채팅은 다른 프로젝트로 옮길 수 없어요.",

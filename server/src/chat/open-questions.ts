@@ -65,13 +65,18 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
   'write', 'edit', 'make_file'])
 
-/** The tools whose step line repeats what their card asks (the question, a command, an address, a service, a text) and
- * keeps no path aside: anyone but the person whose turn it is reads their verb alone (ChatStore.viewSteps), and so does
- * another person's AI (chat/step-record.ts). The file tools are not here: their line names a path only to a viewer who
- * may see it (StoredStep.sv). */
+/** The tools whose step line repeats what their card covers (the question, an address, a service, a text): anyone but
+ * the person whose turn it is reads their verb alone (ChatStore.viewSteps), and so does another person's AI
+ * (chat/step-record.ts). docs/decisions/20261124-shared-chat-card-steps.md. Not here: the file tools, whose line names a
+ * path only to a viewer who may see it (StoredStep.sv); save_url when it kept its path aside the same way (`pathKept`);
+ * and box_shell, whose command and output the others see (20261118-devenv-shared-chats.md). A connected service's tool
+ * (mcp__…) is here: its name and line say which service did what. */
 const PATH_GUARDED_CARD_TOOLS: ReadonlySet<string> = new Set(['delete_files', 'write', 'edit', 'make_file'])
-export const stepRepeatsCard = (tool: string | undefined): boolean =>
-  !!tool && (tool === 'ask_user' || tool === 'connect_service' || tool === 'box_shell' || (CARD_LATER_TOOLS.has(tool) && !PATH_GUARDED_CARD_TOOLS.has(tool)))
+export const stepRepeatsCard = (tool: string | undefined, pathKept = false): boolean => {
+  if (!tool) return false
+  if (tool === 'save_url') return !pathKept
+  return tool === 'ask_user' || tool === 'connect_service' || tool.startsWith('mcp__') || (CARD_LATER_TOOLS.has(tool) && !PATH_GUARDED_CARD_TOOLS.has(tool))
+}
 
 /** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
  * its card inside the call, with its time limit, as before */
@@ -143,11 +148,25 @@ export function hasOpenQuestion(db: Database, chatId: string, userId?: string): 
     : db.query('SELECT 1 FROM open_questions WHERE chat_id = ? AND user_id = ? AND answer IS NULL AND window_id IS NULL LIMIT 1').get(chatId, userId))
 }
 
-/** Who has a card still open in this chat, the longest waiting first; a card for one desktop window counts (its
- * person is still the one the chat waits for). Ids only: what the cards say stays with their person. */
-export function openQuestionPeople(db: Database, chatId: string): string[] {
-  const rows = db.query('SELECT user_id FROM open_questions WHERE chat_id = ? AND answer IS NULL ORDER BY created_at, request_id').all(chatId) as { user_id: string }[]
-  return [...new Set(rows.map((r) => r.user_id))]
+/** The cards still open in this chat, the longest waiting first: whose, of which turn, for which desktop window (null:
+ * every window). Never what they say: that stays with their person. */
+export function openCardsIn(db: Database, chatId: string): { userId: string; turnId: string; window: string | null }[] {
+  return (db.query('SELECT user_id, turn_id, window_id FROM open_questions WHERE chat_id = ? AND answer IS NULL ORDER BY created_at, request_id').all(chatId) as { user_id: string; turn_id: string; window_id: string | null }[])
+    .map((r) => ({ userId: r.user_id, turnId: r.turn_id, window: r.window_id }))
+}
+
+/** The chats where a card waits for this person, for one desktop window of theirs when given. */
+export function chatsWithCardsOf(db: Database, userId: string, window?: string): string[] {
+  const rows = (window === undefined
+    ? db.query('SELECT DISTINCT chat_id FROM open_questions WHERE user_id = ? AND answer IS NULL').all(userId)
+    : db.query('SELECT DISTINCT chat_id FROM open_questions WHERE user_id = ? AND window_id = ? AND answer IS NULL').all(userId, window)) as { chat_id: string }[]
+  return rows.map((r) => r.chat_id)
+}
+
+/** Every open card's person and chat: read before an access change, whose cascade may delete the rows
+ * (admin/folders.ts afterAccessChange tells the others in those chats). */
+export function everyOpenCard(db: Database): { userId: string; chatId: string }[] {
+  return (db.query('SELECT DISTINCT user_id, chat_id FROM open_questions WHERE answer IS NULL').all() as { user_id: string; chat_id: string }[]).map((r) => ({ userId: r.user_id, chatId: r.chat_id }))
 }
 
 /** A question of this turn still waits for `userId` (the push of a waiting card is still wanted). */
@@ -279,12 +298,11 @@ export function waitingCardsNote(db: Database, chatId: string, userId: string, t
 /** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next
  * turn's engine message names them, so another person's request is not dropped without a word (prompt.ts sharedSection
  * "opposite requests"). `name`: the asker's label name (chat/shared.ts labelName). '' when there are none. */
-export function closedQuestionNote(closed: readonly { name: string; question?: string }[]): string {
+export function closedQuestionNote(closed: readonly { name: string }[]): string {
   if (!closed.length) return ''
-  // the words inside the block, never a tag of their own (as answeredNote). A question without its words: its answer is
-  // kept from some who see the chat (runtime.ts closedOthers), so only who asked
-  const json = JSON.stringify(closed.map((c) => (c.question === undefined ? { person: c.name } : { person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-  const hidden = closed.some((c) => c.question === undefined) ? ' A question without its words is private to its asker: never guess or repeat what it was about; only say that their question is still open.' : ''
+  // who asked, never what: a card's words are its asker's alone (docs/decisions/20261124-shared-chat-card-steps.md)
+  const json = JSON.stringify(closed.map((c) => ({ person: c.name }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  const hidden = ' What they were asked is private to its asker: never guess or repeat what it was about; only say that their question is still open.'
   return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}.${hidden} Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
 }
 

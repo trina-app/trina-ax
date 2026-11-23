@@ -224,7 +224,7 @@ export class ChatStore {
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
       // (and a line that repeats what a card asks: only who it waits for reaches the others, Chat.waitsFor)
-      if (stepRepeatsCard(st.tool)) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, folders: _fo, moreFolders: _mf, sources: _so, images: _i, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
+      if (stepRepeatsCard(st.tool, !!stored[i]?.sv)) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, folders: _fo, moreFolders: _mf, sources: _so, tool, ...rest } = st; steps[i] = { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(st, view.locale ?? 'en') }; continue }
       // (a memory step's record, Step.memory: the person's own memory, never anyone else's to see)
       // (and a scheduled task's card, Step.scheduled: the person's own task, its Pause and Delete theirs alone)
       if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined || st.scheduled !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, ...rest } = st; steps[i] = rest }

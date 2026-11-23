@@ -1533,6 +1533,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.waitingForPlace": "正在等待空闲位置。一有空位就会继续回答。",
   "chat.branchNotice": "AI 已经修改过的团队文件夹文件会保持现状。你可以在“文件”页面的版本历史中恢复它们。",
   "chat.sharedWaiting": "正在等待{name}确认。",
+  'chat.sharedWaitingCanSend': "正在等待{name}确认。你仍可以发送消息。",
   "chat.sharedSafeOps": "团队的安全设置不允许继续共享对话。请在你自己的对话中提问。",
   "chat.sharedUploadLine": "已保存到项目文件夹（{folder}）· {n, plural, one {#人} other {#人}}能看到",
   "chat.sharedNoMove": "共享对话无法移到其他项目。",

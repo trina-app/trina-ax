@@ -22,8 +22,9 @@ export function markerOf(c: MarkedChat, v: MarkerView = {}): Marker | null {
   // a chat shared with people: messages of others I have not read (docs/decisions/20261122-shared-chat-new-message-notices.md),
   // their number before the ring of an answer running (someone's message there starts one: the number is the news)
   if (c.unreadCount && c.unseen && !v.here) return { kind: 'new', reason: 'message', count: c.unreadCount }
-  // the AI is stopped on someone else's card: a still ring in the running rank, so it never counts as needing me
-  if (c.waitsFor) return { kind: 'running', reason: 'someone' }
+  // the AI is stopped on someone else's card: a still ring in the running rank, so it never counts as needing me. An
+  // answer of mine I have not seen comes first: it does need me, and the server's badge and the notices count it
+  if (c.waitsFor && (!c.unseen || v.here)) return { kind: 'running', reason: 'someone' }
   if (c.runState === 'running') return { kind: 'running', reason: 'running' }
   if (c.runState === 'queued') return { kind: 'running', reason: 'queued' }
   if (!c.unseen || v.here) return null

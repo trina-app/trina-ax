@@ -8,6 +8,7 @@ import { waitFor } from '../lib/wait'
 
 setDefaultTimeout(60_000)
 const SECRET = 'S3CRET-card-detail'
+const WIN = '33333333-3333-4333-8333-333333333333'
 const cards = [
   { kind: 'ask_user', requestId: 'leak-ask', question: `Delete ${SECRET}.xlsx?`, origin: 'server', options: [{ label: `Run rm ${SECRET}`, value: 'yes', description: SECRET }] },
   { kind: 'ask_user', requestId: 'leak-picture', question: `Which ${SECRET} picture?`, options: [{ label: SECRET, value: 'a' }] },
@@ -19,14 +20,14 @@ let alice: TestSocket, bob: TestSocket
 let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'shared-chat-waits-for', askUserTimeoutMs: 1500, stallTimeoutMs: 60_000 })
-  alice = await h.ws('alice'); await alice.next('hello')
+  alice = await h.ws('alice', { windowId: WIN }); await alice.next('hello')
   bob = await h.ws('bob'); await bob.next('hello')
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
 afterAll(async () => { alice?.close(); bob?.close(); await h?.close() })
 
-for (const window of [null, '33333333-3333-4333-8333-333333333333']) for (const card of cards) {
+for (const window of [null, WIN]) for (const card of cards) {
   test(`${card.requestId} (${window ? 'one window' : 'every window'}): only the name reaches the others`, async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
     const from = bob.frames.length
@@ -49,20 +50,43 @@ for (const window of [null, '33333333-3333-4333-8333-333333333333']) for (const 
   })
 }
 
-test("a step line that repeats a card (question, command, address) is the asker's: the others read its verb", async () => {
+const stamp = () => ({ status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() })
+test("a step line that repeats a card (question, address, service) is the asker's; a connected service's tool name too", async () => {
   const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
   await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
+  const image = { path: 'projects/falcon/shot.png', alt: 'shot' }
   const steps = [
-    { id: 's1', kind: 'tool', tool: 'ask_user', label: `Question: ${SECRET}`, status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() },
-    { id: 's2', kind: 'tool', tool: 'box_shell', label: `Run · rm ${SECRET}`, status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() },
-    { id: 's3', kind: 'tool', tool: 'web_fetch', label: `Fetch · https://${SECRET}.example.com`, status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() },
-    { id: 's4', kind: 'tool', tool: 'connect_service', label: `Connect · ${SECRET}`, status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() },
-    { id: 's5', kind: 'tool', tool: 'remember', label: `Remembered: ${SECRET}`, status: 'ok', startedAt: new Date().toISOString(), endedAt: new Date().toISOString() },
+    { id: 's1', kind: 'tool', tool: 'ask_user', label: `Question: ${SECRET}`, ...stamp() },
+    { id: 's3', kind: 'tool', tool: 'web_fetch', label: `Fetch · https://${SECRET}.example.com`, ...stamp() },
+    { id: 's4', kind: 'tool', tool: 'connect_service', label: `Connect · ${SECRET}`, ...stamp() },
+    { id: 's5', kind: 'tool', tool: 'remember', label: `Remembered: ${SECRET}`, ...stamp() },
+    { id: 's6', kind: 'tool', tool: `mcp__conn__gmail__send_${SECRET}`, label: `Send ${SECRET}`, ...stamp() },
+    { id: 's7', kind: 'tool', tool: 'save_url', label: `Save · https://${SECRET}.example.com`, ...stamp() },
+    { id: 's8', kind: 'browser', tool: 'navigate', label: `Open ${SECRET}`, images: [image], ...stamp() },
   ]
   h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
   const forBob = await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })
   expect(JSON.stringify(forBob)).not.toContain(SECRET)
-  const forAlice = await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })
-  expect(JSON.stringify(forAlice)).toContain(SECRET)
+  expect(JSON.stringify(forBob)).not.toContain('mcp__conn')
+  const bobSteps = forBob.items.find((m) => m.id === r.assistantMessage.id)!.steps
+  // a screenshot the AI shared to the chat stays
+  expect(bobSteps.find((s) => s.id === 's8')?.images).toEqual([image] as never)
+  expect(JSON.stringify(await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} }))).toContain(SECRET)
+})
+
+test('what stays for the others: a command (20261118-devenv-shared-chats) and a save_url path they may see', async () => {
+  const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
+  const steps = [
+    { id: 'c1', kind: 'tool', tool: 'box_shell', label: 'Run · npm test', ...stamp() },
+    { id: 'u1', kind: 'tool', tool: 'save_url', label: 'Save', sv: { label: 'Save · projects/falcon/report.pdf', paths: ['projects/falcon/report.pdf'] }, ...stamp() },
+    { id: 'u2', kind: 'tool', tool: 'save_url', label: 'Save', sv: { label: 'Save · users/alice/private.pdf', paths: ['users/alice/private.pdf'] }, ...stamp() },
+  ]
+  h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
+  const bobSteps = (await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === r.assistantMessage.id)!.steps
+  expect(bobSteps.find((s) => s.id === 'c1')?.label).toBe('Run · npm test')
+  expect(bobSteps.find((s) => s.id === 'u1')?.label).toBe('Save · projects/falcon/report.pdf')
+  expect(bobSteps.find((s) => s.id === 'u2')?.label).toBe('Save')
 })

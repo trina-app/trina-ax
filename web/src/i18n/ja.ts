@@ -1535,6 +1535,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.waitingForPlace': "空きを待っています。空きが出しだい回答を続けます。",
   "chat.branchNotice": "AIがすでに変更したチームフォルダーのファイルはそのまま残ります。ファイル画面のバージョン履歴から元に戻せます。",
   'chat.sharedWaiting': "{name}さんの確認を待っています。",
+  'chat.sharedWaitingCanSend': "{name}さんの確認を待っています。メッセージは今も送信できます。",
   "chat.sharedSafeOps": "チームのセキュリティ設定により、共有チャットは続けられません。自分のチャットで質問してください。",
   "chat.sharedUploadLine": "プロジェクトのフォルダー（{folder}）に保存されます · {n, plural, one {#人} other {#人}}が閲覧できます",
   'chat.sharedNoMove': "共有チャットは別のプロジェクトに移動できません。",

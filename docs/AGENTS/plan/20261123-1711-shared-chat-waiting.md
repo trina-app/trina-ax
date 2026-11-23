@@ -16,7 +16,7 @@ confirm" within a couple of seconds, and the right state again once it is answer
 
 1. A question or safety card that outlives its answer (`open_questions`) has no running turn, so `shared.answering` is null: teammates see nothing.
 2. A card for one desktop window is not counted by `waitsForPerson`, and its open and close are published to that window only.
-3. The step line of a card tool (`ask_user`, a command, an address, a service) repeated the card's content to everyone.
+3. The step line of a card tool (`ask_user`, an address, a service) repeated the card's content to everyone.
 4. `answering.waiting` asks "does anyone's card wait" but prints the runner's name, so a kept card of A under B's turn can name B.
 
 ## Scope
@@ -35,7 +35,7 @@ Out: who may answer a card; what a message sent meanwhile does to an open card (
 
 ## Decisions
 
-None beyond this plan: the name is the only thing told, as `shared.answering` already does.
+[docs/decisions/20261124-shared-chat-card-steps.md](../../decisions/20261124-shared-chat-card-steps.md)
 
 ## Result
 
