@@ -119,6 +119,8 @@ install -m 644 "$HERE/trina-demo.nft" $O/etc/
 rm -rf $O/app.new; mv "$ST/app" $O/app.new
 if [ -d $O/app ]; then rm -rf $O/app-old; mv $O/app $O/app-old; fi
 mv $O/app.new $O/app
+# the app moved out of root's stage copy: its hosting files are read from the installed app from here on
+HERE=$O/app/demo-gate/linux
 chown -R root:root $O; chmod -R go-w $O; chmod -R a+rX $O
 say "programs and app in $O (node $($O/node/bin/node --version), bun $($O/bin/bun --version), app $(cat $O/app/.git-head 2>/dev/null || echo '?'))"
 
