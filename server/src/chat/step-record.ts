@@ -245,6 +245,17 @@ const OTHERS_NOTE_TOOLS: ReadonlySet<string> = new Set(['read', 'list', 'glob', 
   'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'delete_files'])
 /** (only a step that names team paths, kept aside for whoever may list them all: StoredStep.sv, shown by stepFor) */
 const othersNotes = (s: StoredStep): boolean => !!s.tool && OTHERS_NOTE_TOOLS.has(s.tool) && !!s.sv
+/** The team paths a note's words name: quoted values and words with a "/" (a web address and a chat place left out). */
+export function notePaths(n: StepNote): string[] {
+  const out = new Set<string>()
+  for (const t of [n.i ?? '', n.o ?? '']) {
+    for (const m of t.matchAll(/"((?:[^"\\]|\\.)*)"/g)) if (m[1]!.includes('/')) out.add(m[1]!)
+    for (const w of t.replace(/"(?:[^"\\]|\\.)*"/g, ' ').split(/[\s,;()[\]{}<>|'`]+/)) if (w.includes('/')) out.add(w)
+  }
+  return [...out].map((p) => p.replace(/[.:!?…]+$/, '').replace(/^\/+/, '')).filter((p) => p && !/^[a-z][a-z0-9+.-]*:/i.test(p))
+}
+const notePathsListable = (n: StepNote, canList: ((p: string) => boolean) | null): boolean =>
+  notePaths(n).every((p) => { try { return !!canList && canList(p) } catch { return false } })
 /** the tools whose line names a room, a person or what was shared (ChatStore.viewSteps): their verb alone for others */
 const OTHERS_WORDS_ONLY: ReadonlySet<string> = new Set(['post_to_room', 'share_with_person', 'stop_sharing', 'share_folder'])
 
@@ -296,7 +307,9 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     let notes = withNotes ? parseNotes(row.step_notes) : {}
     if (other) {
       const ok = new Set(steps.filter(othersNotes).map((x) => x.id))
-      notes = Object.fromEntries(Object.entries(notes).filter(([id]) => ok.has(id)))
+      // (a note's own words name paths too: a write's result, "saved to users/alice/…". Kept only when the asker and
+      // everyone who sees the chat now may list every path in it; fails closed: security review of batch 5)
+      notes = Object.fromEntries(Object.entries(notes).filter(([id, n]) => ok.has(id) && notePathsListable(n, o.canList)))
       steps = steps.map((x) => (x.tool && OTHERS_WORDS_ONLY.has(x.tool) ? (({ sv: _sv, ...rest }) => ({ ...rest, label: stepWords(x, 'en') }))(x) : x))
     }
     let text = stepsRecord(steps, notes, o.canList)

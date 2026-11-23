@@ -16,7 +16,7 @@
 // message, named in it, or that the AI made in this turn (otherwise another member's message could point the AI at the
 // asker's files). The explicit-ask skip (no card when the person's own message asked for exactly this share) is our own
 // text match, so it never applies where other people's words are.
-import { keepPick, saysTitle, titleNames } from './person-aliases'
+import { guessedTitle, keepPick, saysTitle, titleNames } from './person-aliases'
 import { askerMessageId, madeHere } from './asked-in'
 import { ShareWithPersonInput } from '@mycel/shared'
 import { plainLabel, type Step, type ShareCardFile, type StepShared } from '@mycel/shared/api'
@@ -109,7 +109,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
 
         // ---- who, as matched: teammates (never a guest) and groups ----
         /** people found by a title the asker used ("팀장님"): that word names them (one match only) */
-        const titles = new Map<string, { ref: string }>()
+        const titles = new Map<string, { ref: string; how?: string }>()
         const candidatesOf = (ref: string) => {
           const g = findGroups(db, me, ref)
           // (a title or role, "팀장님": the team directory or the person's own alias, chat/person-aliases.ts)
@@ -329,6 +329,12 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
         const v = Array.isArray(reply) && reply.length === 1 ? reply[0] : reply
+        // a title that found its teammate only by a guess (the project's creator, the one owner or admin): the person's
+        // yes on the card that named them keeps it as their alias, so the next ask by that title goes without a card
+        if (v === 'share' && !explicit && !byAlways) for (const w of who) {
+          const via = w.subjectType === 'user' ? titles.get(w.subjectId) : undefined
+          if (via && guessedTitle(via.how)) { try { keepPick(db, spec.userId, via.ref, w.subjectId) } catch { /* only a convenience */ } }
+        }
         if (v !== 'share') {
           detail = tr('fileShareNotShared', L)
           return v === 'no'
