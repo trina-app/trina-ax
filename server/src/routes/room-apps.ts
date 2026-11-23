@@ -8,6 +8,7 @@ import type { AppContextC } from '../http/env'
 import { publicAddressRefusal, visitorScheme } from '../http/middleware'
 import { NOT_FOUND, roomAppInbound } from '../rooms/apps/inbound'
 import { roomAppsOf } from '../rooms/apps/service'
+import { mailInOf } from '../rooms/apps/mail/service'
 import { IMAGE_HEADERS } from './people'
 
 export const roomAppsRoutes: RouteModule = {
@@ -17,8 +18,12 @@ export const roomAppsRoutes: RouteModule = {
     // old deliveries, day counters and threads go once an hour; every 5 minutes (and with the hourly prune) the managers
     // are told when someone who left still knows an app's address (RoomApps.leaverSweep: no single code path to hook)
     if (process.env.NODE_ENV === 'test') return
+    // email into rooms: the mail service gets the current addresses, and the long poll starts when there are any
+    void mailInOf(ctx).sync()
+    ctx.onClose(() => mailInOf(ctx).stop())
     const sweep = () => { try { roomAppsOf(ctx).leaverSweep() } catch (e) { ctx.log.warn('room app leaver sweep failed', { err: e }) } }
-    const tick = setInterval(() => { try { roomAppsOf(ctx).prune() } catch (e) { ctx.log.warn('room app prune failed', { err: e }) } sweep() }, 3_600_000)
+    // (the hourly tick also sends the mail service the current addresses again: a room archived since takes no mail)
+    const tick = setInterval(() => { try { roomAppsOf(ctx).prune() } catch (e) { ctx.log.warn('room app prune failed', { err: e }) } sweep(); void mailInOf(ctx).sync() }, 3_600_000)
     const short = setInterval(sweep, 300_000)
     for (const t of [tick, short]) (t as { unref?: () => void }).unref?.()
     ctx.onClose(() => { clearInterval(tick); clearInterval(short) })

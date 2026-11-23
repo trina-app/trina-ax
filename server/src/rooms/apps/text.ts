@@ -8,6 +8,17 @@ type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
 export const APP_TEXT = {
+  // Email (plan 20261123-0421-room-email). Written once into each card in the team's language
+  nameEmail: t('이메일', 'Email', 'Email', 'メール', 'Correo', "邮件"),
+  mailKind: t('이메일 · 보낸 사람 {from} (확인 안 됨)', 'Email · From {from} (unverified)', 'Email · Dari {from} (belum diverifikasi)', 'メール · 差出人 {from}（未確認）', 'Correo · De {from} (sin verificar)', "邮件 · 发件人 {from}（未验证）"),
+  mailNoSubject: t('(제목 없음)', '(no subject)', '(tanpa subjek)', '(件名なし)', '(sin asunto)', "（无主题）"),
+  mailNoSender: t('(보낸 사람 없음)', '(no valid sender)', '(pengirim tidak valid)', '(差出人なし)', '(remitente no válido)', "（无有效发件人）"),
+  mailAttachments: t('첨부 {n}개는 보관하지 않음: {names}', '{n} attachments not kept: {names}', '{n} lampiran tidak disimpan: {names}', '添付 {n} 件は保存されません: {names}', '{n} adjuntos no guardados: {names}', "{n} 个附件未保存：{names}"),
+  mailCut: t('(메일이 길어서 뒷부분은 생략했어요)', '(The mail is long: the rest is not shown.)', '(Email panjang: sisanya tidak ditampilkan.)', '(メールが長いため、残りは表示されません。)', '(El correo es largo: el resto no se muestra.)', "（邮件较长：其余部分未显示。）"),
+  mailConfirmLine: t('{provider}에서 이 대화방으로 메일 전달을 확인해 달라고 해요. 앱을 관리하는 사람은 앱 설정에서 코드를 볼 수 있어요.', '{provider} asks to confirm forwarding to this conversation. People who manage its apps see the code in the app\'s settings.', '{provider} meminta konfirmasi penerusan ke percakapan ini. Orang yang mengelola aplikasinya melihat kodenya di pengaturan aplikasi.', '{provider} がこの会話への転送の確認を求めています。アプリを管理する人はアプリの設定でコードを確認できます。', '{provider} pide confirmar el reenvío a esta conversación. Quienes gestionan sus aplicaciones ven el código en los ajustes de la aplicación.', "{provider} 请求确认转发到此对话。管理其应用的人可在应用设置中查看代码。"),
+  mailEmailOff: t('관리자가 팀 설정에서 "대화방에서 이메일 받기"를 켜야 해요.', 'An admin must turn on "Let rooms get email" in Team settings.', 'Admin harus mengaktifkan "Izinkan ruang menerima email" di Pengaturan tim.', '管理者がチーム設定で「会話でメールを受け取る」をオンにする必要があります。', 'Un administrador debe activar "Permitir que las salas reciban correo" en Ajustes del equipo.', "管理员必须在团队设置中打开“允许对话接收邮件”。"),
+  mailNotConnected: t('이메일은 이 서버가 Trina 서비스에 연결되어 있어야 쓸 수 있어요.', 'Email needs this server to be connected to the Trina service.', 'Email memerlukan server ini terhubung ke layanan Trina.', 'メールを使うには、このサーバーが Trina サービスに接続されている必要があります。', 'El correo necesita que este servidor esté conectado al servicio de Trina.', "邮件需要此服务器连接到 Trina 服务。"),
+  mailOneOnly: t('이 대화방에는 이미 이메일 주소가 있어요.', 'This conversation has an email address already.', 'Percakapan ini sudah punya alamat email.', 'この会話にはすでにメールアドレスがあります。', 'Esta conversación ya tiene una dirección de correo.', "此对话已有邮件地址。"),
   // Sentry
   sentryNew: t('새 이슈', 'New issue', 'Masalah baru', '新しい問題', 'Nuevo problema', "新问题"),
   sentryBack: t('이슈가 다시 생겼어요', 'Issue came back', 'Masalah muncul lagi', '問題が再発しました', 'El problema volvió', "问题再次出现"),

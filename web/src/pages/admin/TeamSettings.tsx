@@ -257,6 +257,9 @@ export default function TeamSettingsPage() {
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                        {/* email into rooms (plan docs/AGENTS/plan/20261123-0421-room-email.md): off until an owner or admin turns it on;
+                            an older server leaves the field out (off) */}
+                        <SwitchRow id="ts-room-email" testId="team-room-email" value={f.roomEmail === true} onChange={(v) => setF({ ...f, roomEmail: v })} title={t('teamSettings.roomEmail')} desc={t('teamSettings.row.roomEmailDesc')} />
                         {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                         {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove

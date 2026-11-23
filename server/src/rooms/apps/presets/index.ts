@@ -14,7 +14,9 @@ import { hubspot } from './hubspot'
 import { channelTalk, portonePreset, tossPayments } from './regional'
 
 export type { PresetDef } from './common'
-export const PRESETS: Record<RoomAppPreset, PresetDef> = {
+/** The presets that take a Webhook URL: every one but Email (its mail comes from the mail service, rooms/apps/mail). */
+export type WebhookPreset = Exclude<RoomAppPreset, 'email'>
+export const PRESETS: Record<WebhookPreset, PresetDef> = {
   notion, typeform: typeformPreset, tally: tallyPreset, jotform: jotformPreset, stripe, shopify, zendesk,
   jira, hubspot, toss_payments: tossPayments, channel_talk: channelTalk, portone: portonePreset,
 }

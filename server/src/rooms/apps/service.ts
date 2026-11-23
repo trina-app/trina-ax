@@ -39,6 +39,8 @@ import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
 import { presetOf } from './presets'
 import { appNumber, appText } from './text'
+import { mailInOf } from './mail/service'
+import { MAIL_IN_LOCAL_LENGTH } from '@mycel/shared/cloud-protocol'
 
 const TOKEN_KIND = 'room_app_token'
 const SECRET_KIND = 'room_app_secret'
@@ -64,6 +66,8 @@ export interface AppRow {
 
 export const sha256 = (s: string | Uint8Array) => crypto.createHash('sha256').update(s).digest('hex')
 const newToken = () => `tax_in_${crypto.randomBytes(32).toString('base64url')}`
+/** An Email app's address: 26 random lowercase base32 characters (cloud-protocol/mail-in.ts MAIL_IN_LOCAL_RE) */
+const newMailLocal = () => { const a = 'abcdefghijklmnopqrstuvwxyz234567', b = crypto.randomBytes(MAIL_IN_LOCAL_LENGTH); return [...b].map((x) => a[x & 31]).join('') }
 const newSecret = () => `tax_whs_${crypto.randomBytes(32).toString('base64url')}`
 /** Latin lookalikes of Cyrillic and Greek letters (the common confusables), for comparing names */
 const LOOKALIKE: Record<string, string> = {
@@ -123,6 +127,13 @@ export class RoomApps {
   }
   /** The address, for `viewer` (who is recorded as someone who knows it: room_app_viewers). */
   addressOf(row: AppRow, viewer: string): string {
+    if (this.isEmail(row)) {
+      const domain = mailInOf(this.ctx).domain()
+      if (!domain) return fail('conflict', appText('mailNotConnected', this.locale()), { params: { reason: 'mail_not_connected' } })
+      const address = `${this.tokenOf(row)}@${domain}`
+      this.saw(row.id, viewer)
+      return address
+    }
     const base = this.base()
     if (!base) return fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
     const address = `${base}/in/${this.tokenOf(row)}`
@@ -183,6 +194,8 @@ export class RoomApps {
   }
 
   // ---------------- reading ----------------
+  /** An Email app (email into rooms): preset 'email'. */
+  isEmail(row: Pick<AppRow, 'kind' | 'preset'>): boolean { return row.kind === 'other' && row.preset === 'email' }
   private locale(): Locale { try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE } }
   row(id: string): AppRow | null { return this.db.query('SELECT * FROM room_apps WHERE id = ?').get(id) as AppRow | null }
   /** The app's preset when this build knows it (an unknown one: none here; inbound.ts refuses its requests). */
@@ -259,6 +272,7 @@ export class RoomApps {
       rotatedAt: row.rotated_at ?? null,
       eventsSeen: this.eventsSeen(row),
       ...(this.leaverKnows(row) ? { leaverKnows: true as const } : {}),
+      ...(this.isEmail(row) ? { mail: mailInOf(this.ctx).stateOf(row) } : {}),
       today: this.shownToday(row.id, day),
     }
   }
@@ -282,7 +296,7 @@ export class RoomApps {
   list(userId: string, roomId: string): RoomAppList {
     const room = this.managed(userId, roomId)
     const rows = this.db.query('SELECT * FROM room_apps WHERE room_id = ? ORDER BY created_at, id').all(room.id) as AppRow[]
-    return { items: rows.map((r) => this.out(r)), available: this.base() !== null, max: ROOM_APPS_MAX }
+    return { items: rows.map((r) => this.out(r)), available: this.base() !== null, max: ROOM_APPS_MAX, mail: mailInOf(this.ctx).availability() }
   }
 
   /** A name an app may take: not a person's in this team, nor one that looks like it (lookalike letters, mixed
@@ -296,18 +310,25 @@ export class RoomApps {
 
   create(userId: string, roomId: string, b: CreateRoomAppBody, locale: Locale): RoomAppCreated {
     const room = this.managed(userId, roomId)
-    if (this.base() === null) fail('conflict', appText('noAddress', locale), { params: { reason: 'no_public_address' } })
+    const email = b.kind === 'other' && b.preset === 'email'
+    if (email) {
+      // Email needs a mail service and the team's switch (off by default); one address per room
+      const a = mailInOf(this.ctx).availability()
+      if (a.reason === 'not_connected') fail('conflict', appText('mailNotConnected', locale), { params: { reason: 'mail_not_connected' } })
+      if (a.reason === 'off') fail('conflict', appText('mailEmailOff', locale), { params: { reason: 'room_email_off' } })
+      if (this.db.query("SELECT 1 FROM room_apps WHERE room_id = ? AND kind = 'other' AND preset = 'email'").get(room.id)) fail('conflict', appText('mailOneOnly', locale), { params: { reason: 'room_email_exists' } })
+    } else if (this.base() === null) fail('conflict', appText('noAddress', locale), { params: { reason: 'no_public_address' } })
     // a name the person gave, else the kind's in the team's language (Google Forms and Other; Sentry and GitHub are names)
     const L = this.locale()
     // a preset only for Other (it is fixed from here on: a different service is a new app)
     if (b.preset && b.kind !== 'other') fail('validation', appText('presetNotForKind', locale), { fields: { 'body.preset': 'only with kind other' } })
     const preset = b.preset ?? null
-    const name = line(b.name ?? (preset ? ROOM_APP_PRESET_NAMES[preset] : b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
+    const name = line(b.name ?? (preset === 'email' ? appText('nameEmail', L) : preset ? ROOM_APP_PRESET_NAMES[preset] : b.kind === 'google_forms' ? appText('nameForms', L) : b.kind === 'other' ? appText('nameOther', L) : ROOM_APP_DEFAULT_NAMES[b.kind]), 40)
     this.checkName(name, locale)
     const n = (this.db.query('SELECT COUNT(*) n FROM room_apps WHERE room_id = ?').get(room.id) as { n: number }).n
     if (n >= ROOM_APPS_MAX) fail('conflict', appText('full', locale, { max: ROOM_APPS_MAX }), { params: { reason: 'room_apps_full' } })
     this.takeHourly(this.added, userId, ROOM_APPS_PER_HOUR, (minutes) => appText('addLimit', locale, { n: ROOM_APPS_PER_HOUR, minutes }))
-    const id = newId(), now = nowIso(), token = newToken()
+    const id = newId(), now = nowIso(), token = email ? newMailLocal() : newToken()
     const s = this.seal(id, token, null)
     this.db.transaction(() => {
       this.db.query(`INSERT INTO room_apps (id, room_id, kind, preset, name, token_hash, token_enc, secret_enc, key_version, events, created_by, created_at, updated_at)
@@ -315,6 +336,8 @@ export class RoomApps {
       audit(this.db, { actor: userId, action: 'room_app.add', target: id, detail: { ...roomAuditRef(room), kind: b.kind, ...(preset ? { preset } : {}) } })
     })()
     const row = this.row(id)!
+    // the mail service learns the new address (Copy waits for 'ready' on the app)
+    if (email) void mailInOf(this.ctx).sync()
     return { app: this.out(row), address: this.addressOf(row, userId) }
   }
 
@@ -400,19 +423,25 @@ export class RoomApps {
 
   rotate(userId: string, roomId: string, appId: string): RoomAppCreated {
     const { room, row } = this.mine(userId, roomId, appId)
-    if (this.base() === null) fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
+    const email = this.isEmail(row)
+    if (!email && this.base() === null) fail('conflict', appText('noAddress', this.locale()), { params: { reason: 'no_public_address' } })
+    if (email && !mailInOf(this.ctx).availability().available) fail('conflict', appText('mailEmailOff', this.locale()), { params: { reason: 'room_email_off' } })
     const prev = this.secretOf(row)
     // a secret that no longer opens must not turn into "no secret": set it again first
     if (prev === 'broken') return fail('conflict', undefined, { params: { reason: 'secret_unreadable' } })
-    const s = this.seal(row.id, newToken(), prev)
+    const s = this.seal(row.id, email ? newMailLocal() : newToken(), prev)
     this.db.transaction(() => {
       // Regenerate also forgets the pinned service account (Zendesk subdomain, Shopify store): whoever knew the old URL
       // may have pinned it
       // rotated_at: the status waits for the service to use the new URL until a message arrives after it
       const at = new Date(this.clock()).toISOString()
       this.db.query('UPDATE room_apps SET token_hash = ?, token_enc = ?, secret_enc = ?, key_version = ?, preset_pin = NULL, rotated_at = ?, updated_at = ? WHERE id = ?').run(s.token_hash, s.token_enc, s.secret_enc, s.key_version, at, nowIso(), row.id)
-      audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: roomAuditRef(room) })
+      // an Email app: the old address posts nothing from now on (mail/service.ts handle() takes only the current hash);
+      // the mail service refuses it at SMTP once the sync below reaches it. A confirmation was for the old address
+      if (email) this.db.query('UPDATE room_apps SET mail_confirmation = NULL, mail_synced_hash = NULL WHERE id = ?').run(row.id)
+      audit(this.db, { actor: userId, action: 'room_app.rotate', target: row.id, detail: { ...roomAuditRef(room), ...(email ? { kind: 'email' } : {}) } })
     })()
+    if (email) void mailInOf(this.ctx).sync()
     this.limits.forget(row.id)
     // a new address: only the person who got it knows it now
     this.db.query('DELETE FROM room_app_viewers WHERE app_id = ?').run(row.id)
@@ -435,6 +464,7 @@ export class RoomApps {
       audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind, ...(row.preset ? { preset: row.preset } : {}) } })
     })()
     this.limits.forget(row.id)
+    if (this.isEmail(row)) void mailInOf(this.ctx).sync()
   }
 
   // ---------------- its own icon (docs/decisions/20261116-other-app-icon.md) ----------------

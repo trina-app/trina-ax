@@ -2,7 +2,7 @@
 // face (AppTile), its name with the one "App" tag (SenderTag: the timeline, the thread, search). The card itself is
 // components/rooms/AppCard.tsx (plain text, its one checked link).
 import clsx from 'clsx'
-import { Blocks, ClipboardList } from 'lucide-react'
+import { Blocks, ClipboardList, Mail } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { RoomAppIcon, RoomAppRef } from '@mycel/shared/api'
 import { useT } from '../../../i18n'
@@ -14,7 +14,7 @@ import { Badge } from '../../ui'
  * docs/THIRD-PARTY-NOTICES.md), drawn through a CSS mask in the text colour so they read in light and dark (black or
  * white is what their guidelines allow). Stripe's guidelines name its colours (blurple on light, white on dark), so its
  * mark is drawn in those. Google Forms has none: Google asks for permission before its product icons are used, so it
- * gets a plain form icon (Other: its own icon or its name's first letter, AppTile). Shopify (written permission first), Tally and Jotform (no
+ * gets a plain form icon, Email a plain envelope (Other: its own icon or its name's first letter, AppTile). Shopify (written permission first), Tally and Jotform (no
  * mark we may copy) and Typeform (its only one-colour file is the wordmark, unreadable at this size) get their initials
  * on the same tile, as do Jira, HubSpot, Toss Payments, Channel Talk and PortOne (docs/THIRD-PARTY-NOTICES.md). */
 export const APP_LOGOS: Partial<Record<AppService, string>> = {
@@ -65,7 +65,8 @@ export function AppTile({ service, app, size = 'face', className }: { service: A
   const emoji = own?.icon && 'emoji' in own.icon ? own.icon.emoji : null
   const logo = APP_LOGOS[service]
   const initial = APP_INITIALS[service]
-  const Icon = service === 'google_forms' ? ClipboardList : Blocks
+  // Email: a plain envelope (no brand mark)
+  const Icon = service === 'google_forms' ? ClipboardList : service === 'email' ? Mail : Blocks
   const mask = logo ? `url(${logo}) center / contain no-repeat` : undefined
   // a plain Other app without its own icon: its letter on its tint; with an emoji: the emoji on the plain tile
   const letter = own && !emoji ? firstLetter(own.name) : null

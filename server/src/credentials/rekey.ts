@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import { Vault } from './vault'
 import { rekeySpeechKey } from './speech-key'
 import { rekeyRoomApps } from '../rooms/apps/service'
+import { rekeyMailKey } from '../rooms/apps/mail/client'
 import { listRows, type CredCtx } from './store'
 
 export function rekeyCredentials(cc: CredCtx): number {
@@ -22,15 +23,17 @@ export function rekeyCredentials(cc: CredCtx): number {
   }
   const speech = rekeySpeechKey(cc.db, cc.vault, nv)
   const apps = rekeyRoomApps(cc.db, cc.vault, nv)
+  const mail = rekeyMailKey(cc.db, cc.vault, nv)
   const now = new Date(cc.now()).toISOString()
   cc.db.transaction(() => {
     for (const o of out) cc.db.query('UPDATE engine_credentials SET secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(o.enc, next, now, o.id)
     speech.write()
     apps.write()
+    mail.write()
   })()
   // the older keys go once no row needs them (rows that never decrypted keep theirs: nothing lost that worked)
   const still = new Set((cc.db.query('SELECT DISTINCT key_version AS v FROM engine_credentials').all() as { v: number }[]).map((x) => x.v))
-  for (const v of [...speech.versions, ...apps.versions]) still.add(v)
+  for (const v of [...speech.versions, ...apps.versions, ...mail.versions]) still.add(v)
   for (let v = 1; v < next; v++) if (!still.has(v)) fs.rmSync(cc.vault.keyPath(v), { force: true })
   ;(cc as { vault: Vault }).vault = nv
   cc.cache.clear()

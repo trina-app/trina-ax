@@ -330,8 +330,10 @@ test('signature schemes alone: standard, toss and url-token good / bad / missing
 })
 
 test('a client reading a preset it does not know (a newer server): the app and the message still parse, as a plain Other app', () => {
-  const ref = RoomAppRef.parse({ id: 'a', name: 'Mail', kind: 'other', preset: 'email' })
+  // 'email' is known since email into rooms (plan 20261123-0421): a name no build knows stands for a newer server's
+  const ref = RoomAppRef.parse({ id: 'a', name: 'Fax', kind: 'other', preset: 'future_fax' })
   expect(ref.preset).toBeUndefined()
+  expect(RoomAppRef.parse({ id: 'a', name: 'Email', kind: 'other', preset: 'email' }).preset).toBe('email')
   expect(RoomAppRef.parse({ id: 'a', name: 'Jira', kind: 'other', preset: 'jira' }).preset).toBe('jira')
   const app = RoomApp.parse({ id: 'a', roomId: 'r', kind: 'other', preset: 'future_service', name: 'X', events: {}, quiet: false, signed: false, createdBy: null, createdAt: '2026-11-14T00:00:00.000Z', firstOkAt: null, lastOkAt: null, lastRefusal: null, pausedUntil: null, canResume: false, today: 0 })
   expect(app.preset).toBeUndefined()
