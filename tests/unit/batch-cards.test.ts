@@ -47,8 +47,7 @@ afterAll(async () => { ws?.close(); await h?.close() })
 async function ask(content: string, cards: number) {
   const chatId = (await h.api('carol').call(API.createChat, { body: {} })).id as string
   const r = await h.api('carol').call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
-  const d = await ws.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 60_000)
-  if (process.env.DEBUG_BATCH) console.log(d.data.status, JSON.stringify(d.data.message).slice(0, 1500), JSON.stringify(db().query('SELECT tool, summary FROM tool_events WHERE turn_id = ?').all(r.turnId)))
+  await ws.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 60_000)
   expect(await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })).toBe(true)
   const rows = open(r.assistantMessage.id)
   expect(rows.length).toBe(cards)
