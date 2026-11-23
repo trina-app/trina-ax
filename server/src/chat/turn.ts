@@ -3661,7 +3661,7 @@ export class TurnExec {
     const n = segs.slice(2).join('/').normalize('NFC')
     if (n.length < 3) return false
     // the clauses of the message: a sentence, a comma, "and", or a Korean "…고" joining two asks
-    for (const clause of said.split(/[.!?。](?=\s|$)|[\n,;，、]|\s(?:and|then|dan|y|然后)\s|(?<=\p{Script=Hangul})고\s/u)) {
+    for (const clause of said.split(/[.!?。](?=\s|$)|[\n,;，、]|\s(?:and|then|dan|y|然后)\s|(?<=\p{Script=Hangul})\uACE0\s/u)) {
       const at = clause.indexOf(n)
       if (at < 0) continue
       const before = clause[at - 1] ?? ' ', after = clause[at + n.length] ?? ' '
