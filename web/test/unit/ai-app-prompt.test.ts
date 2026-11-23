@@ -14,7 +14,7 @@ const tr = (locale: 'en' | 'ko' | 'id' | 'ja' | 'es' | 'zh') => (key: MessageKey
 test('the commands are the ones the steps show, with the server name and this address', () => {
   expect(CONNECTOR_NAME).toBe(PRODUCT.artifactBase.toLowerCase())
   expect(connectorCommands(URL)).toEqual({
-    claudeCode: `claude mcp add --transport http ${CONNECTOR_NAME} ${URL}`,
+    claudeCode: `claude mcp add --transport http --scope user ${CONNECTOR_NAME} ${URL}`,
     codex: `codex mcp add ${CONNECTOR_NAME} --url ${URL}`,
     codexLogin: `codex mcp login ${CONNECTOR_NAME}`,
   })
@@ -22,8 +22,9 @@ test('the commands are the ones the steps show, with the server name and this ad
 
 test('Claude Code: the add command, a new session, /mcp with the server name, and the folder check', () => {
   const p = connectPrompt(app('claude-code'), URL, tr('en'))!
-  expect(p).toContain(`claude mcp add --transport http ${CONNECTOR_NAME} ${URL}`)
-  expect(p).toContain('start it again')
+  expect(p).toContain(`claude mcp add --transport http --scope user ${CONNECTOR_NAME} ${URL}`)
+  expect(p).toContain('start it again,')
+  expect(p).not.toContain('this folder')
   expect(p).toContain(`/mcp, pick ${CONNECTOR_NAME}`)
   expect(p).toContain(`List my team folder in ${CONNECTOR_NAME}`)
   expect(p).toContain(PRODUCT.displayName)

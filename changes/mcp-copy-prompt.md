@@ -2,3 +2,4 @@
   Code, Codex and Other apps, **Copy prompt** copies a ready prompt with this team's own address: paste it into the app
   and it adds the connection, tells you how to sign in, and checks by listing your team folder. The Claude dialog ends
   with a first ask to try once connected.
+- The Claude Code command adds the connection for every folder (`--scope user`); it worked only in the folder where it ran.

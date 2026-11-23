@@ -53,7 +53,7 @@ test('Claude Code: the exact command to copy, then /mcp; Codex: add, then login;
   await page.goto('/settings/ai-apps')
   await page.getByTestId('ai-app-connect-claude-code').click()
   const code = page.getByRole('dialog', { name: 'Claude Code 연결' })
-  const command = `claude mcp add --transport http trina-ax ${RESOURCE}`
+  const command = `claude mcp add --transport http --scope user trina-ax ${RESOURCE}`
   await expect(code.getByTestId('ai-app-command')).toContainText(command)
   await code.getByTestId('ai-app-command-copy').click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command)
@@ -78,7 +78,7 @@ test('Copy prompt: Claude Code, Codex and other apps copy a ready prompt with th
   await page.goto('/settings/ai-apps')
   const copied = () => page.evaluate(() => navigator.clipboard.readText())
   for (const [id, title, holds] of [
-    ['claude-code', 'Claude Code 연결', [`claude mcp add --transport http trina-ax ${RESOURCE}`, '/mcp']],
+    ['claude-code', 'Claude Code 연결', [`claude mcp add --transport http --scope user trina-ax ${RESOURCE}`, '/mcp']],
     ['codex', 'Codex 연결', [`codex mcp add trina-ax --url ${RESOURCE}`, 'codex mcp login trina-ax']],
     ['other', '다른 앱 연결', [RESOURCE, 'Streamable HTTP']],
   ] as const) {

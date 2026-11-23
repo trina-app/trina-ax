@@ -1764,7 +1764,7 @@ export const zh: Record<MessageKey, string> = {
   "aiApps.other.limit": "适用于通过电脑本地地址登录的应用。ChatGPT 的连接器也可以使用，但尚未确认。",
   'aiApps.copyPrompt': "复制提示词",
   'aiApps.promptHint': "最简单的方法：把这段提示词粘贴到 {name}，它会完成下面的步骤。",
-  'aiApps.prompt.claude-code': "请在 Claude Code 中为我设置{product}（我团队的文件中心）。\n1. 在终端运行这条命令：{command}\n2. 然后用简单的话告诉我接下来做什么：退出 Claude Code，在这个文件夹里重新打开，输入 /mcp，选择{server}，在打开的浏览器中登录{product}（选择“允许”）。\n3. 之后让我提问“在{server}中列出我的团队文件夹”来确认。\n不要更改其他设置。",
+  'aiApps.prompt.claude-code': "请在 Claude Code 中为我设置{product}（我团队的文件中心）。\n1. 在终端运行这条命令：{command}\n2. 然后用简单的话告诉我接下来做什么：退出 Claude Code，重新打开，输入 /mcp，选择{server}，在打开的浏览器中登录{product}（选择“允许”）。\n3. 之后让我提问“在{server}中列出我的团队文件夹”来确认。\n不要更改其他设置。",
   'aiApps.prompt.codex': "请在 Codex 中为我设置{product}（我团队的文件中心）。\n1. 在终端运行这条命令：{command}\n2. 浏览器会打开{product}的登录页（我选择“允许”）。如果没有打开，请让我在终端运行：{login}\n3. 然后让我重新打开 Codex，并提问“在{server}中列出我的团队文件夹”来确认。\n不要更改其他设置。",
   'aiApps.prompt.other': "请把{product}（我团队的文件中心）作为远程 MCP 服务器添加到这个应用。\n- 名称：{server}\n- 地址：{url}\n- 传输：Streamable HTTP。登录：OAuth（会打开{product}登录页，我选择“允许”）。\n如果你无法自己添加，请告诉我在这个应用的设置中哪里添加。然后列出我的团队文件夹来确认。",
   'aiApps.tryLabel': "连接后试试这样问",

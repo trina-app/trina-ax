@@ -24,7 +24,7 @@ export const CONNECTOR_NAME = PRODUCT.artifactBase.toLowerCase()
 /** The commands the steps show and the copied prompt holds, built once so the two never differ. */
 export function connectorCommands(resource: string) {
   return {
-    claudeCode: `claude mcp add --transport http ${CONNECTOR_NAME} ${resource}`,
+    claudeCode: `claude mcp add --transport http --scope user ${CONNECTOR_NAME} ${resource}`,
     codex: `codex mcp add ${CONNECTOR_NAME} --url ${resource}`,
     codexLogin: `codex mcp login ${CONNECTOR_NAME}`,
   }

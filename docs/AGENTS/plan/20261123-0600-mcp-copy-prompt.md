@@ -57,4 +57,5 @@ Built as planned: lead text, Copy prompt (primary button with a one-line hint ab
 Codex and Other apps dialogs, and a "Try this" line with Copy after the Claude steps (`CopyLine prose`). The commands
 moved to `connectorCommands`, which both the steps and the prompts use. Korean prompts avoid a particle after the
 product name (`Trina AX` cannot be told by the particle helper). Tests: `web/test/unit/ai-app-prompt.test.ts`, one case
-in `web/test/e2e/ai-apps.spec.ts`.
+in `web/test/e2e/ai-apps.spec.ts`. Review: the Claude Code command now adds `--scope user` (the default local scope works
+only in the folder where it ran), so the step and the prompt work in every folder.

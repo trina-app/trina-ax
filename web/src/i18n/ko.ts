@@ -1792,7 +1792,7 @@ export const ko = {
   'aiApps.other.limit': "내 컴퓨터의 로컬 주소로 로그인하는 앱이 돼요. ChatGPT 커넥터도 받지만 아직 확인 전이에요.",
   'aiApps.copyPrompt': "프롬프트 복사",
   'aiApps.promptHint': "가장 쉬운 방법: 이 프롬프트를 {name}에 붙여 넣으면 아래 단계를 대신 해 줘요.",
-  'aiApps.prompt.claude-code': "Claude Code에 우리 팀 파일 공간({product})을 연결해 주세요.\n1. 터미널에서 이 명령을 실행해 주세요: {command}\n2. 그다음 제가 할 일을 쉬운 말로 알려 주세요: Claude Code를 끄고 이 폴더에서 다시 켠 뒤 /mcp를 입력하고 {server} 서버를 골라, 열리는 브라우저에서 {product}에 로그인하고 허용을 누르기.\n3. 그 뒤에 \"{server}에서 팀 폴더 목록 보여 줘\"라고 물어서 확인하라고 알려 주세요.\n다른 설정은 바꾸지 마세요.",
+  'aiApps.prompt.claude-code': "Claude Code에 우리 팀 파일 공간({product})을 연결해 주세요.\n1. 터미널에서 이 명령을 실행해 주세요: {command}\n2. 그다음 제가 할 일을 쉬운 말로 알려 주세요: Claude Code를 끄고 다시 켠 뒤 /mcp를 입력하고 {server} 서버를 골라, 열리는 브라우저에서 {product}에 로그인하고 허용을 누르기.\n3. 그 뒤에 \"{server}에서 팀 폴더 목록 보여 줘\"라고 물어서 확인하라고 알려 주세요.\n다른 설정은 바꾸지 마세요.",
   'aiApps.prompt.codex': "Codex에 우리 팀 파일 공간({product})을 연결해 주세요.\n1. 터미널에서 이 명령을 실행해 주세요: {command}\n2. {product} 로그인 창이 브라우저에 열리면 제가 로그인하고 허용을 눌러요. 열리지 않으면 터미널에서 이 명령을 실행하라고 알려 주세요: {login}\n3. 그다음 Codex를 다시 켜고 \"{server}에서 팀 폴더 목록 보여 줘\"라고 물어서 확인하라고 알려 주세요.\n다른 설정은 바꾸지 마세요.",
   'aiApps.prompt.other': "이 앱에 우리 팀 파일 공간({product})을 원격 MCP 서버로 추가해 주세요.\n- 이름: {server}\n- 주소: {url}\n- 방식: Streamable HTTP. 로그인: OAuth({product} 로그인 창이 열리면 제가 허용을 눌러요).\n직접 추가할 수 없으면 이 앱 설정의 어디에서 추가하는지 알려 주세요. 그다음 팀 폴더 목록을 보여 줘서 확인해 주세요.",
   'aiApps.tryLabel': "연결한 뒤 이렇게 물어보세요",
