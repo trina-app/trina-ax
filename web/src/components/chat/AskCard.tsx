@@ -427,7 +427,7 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
       {summaries.map((x) => <p key={x} className="mt-2 text-sm text-muted" data-testid="ask-batch-summary">{x}</p>)}
       {lean && (
         <div className="mt-2" data-testid="ask-details-hidden">
-          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-1 text-left text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="ask-details-toggle">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-1 text-left text-xs font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" data-testid="ask-details-toggle">
             {open ? t('ask.foldedHide') : t('ask.foldedShow')}
           </button>
           {open && (
