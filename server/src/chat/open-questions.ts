@@ -16,7 +16,7 @@
 // replayCalls), every check made again at that moment.
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
-import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE } from './always-allow'
+import { ALWAYS_VALUE } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { TEXT, tr } from './i18n'
@@ -188,7 +188,7 @@ export function recordAnswer(db: Database, requestId: string, value: unknown): {
  * is that Always (each takes it: chat/turn.ts replayCalls keeps the choice once and runs every call). */
 function alwaysAlso(db: Database, r: Row, value: unknown): string[] {
   const one = Array.isArray(value) && value.length === 1 ? value[0] : value
-  if (one !== ALWAYS_VALUE && one !== ALWAYS_CHAT_VALUE) return []
+  if (one !== ALWAYS_VALUE) return []
   const kind = metaOf(r.call_meta).always
   if (!kind) return []
   const rows = db.query('SELECT * FROM open_questions WHERE message_id = ? AND user_id = ? AND answer IS NULL AND request_id <> ?').all(r.message_id, r.user_id, r.request_id) as Row[]
