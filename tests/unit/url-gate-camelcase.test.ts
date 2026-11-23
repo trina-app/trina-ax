@@ -98,6 +98,8 @@ const db = () => h.ctx.db
 beforeEach(() => {
   updateTeamSettings(db(), { browserAllowAll: true, webAllowAll: true })
   setWebAllowAll(db(), 'alice', false, { via: 'settings' })
+  // a site allowed in one test is for good: every test starts without it
+  db().query('DELETE FROM user_allowed_sites').run()
 })
 
 type Asked = { question: string; options?: { label: string; value: string }[]; extra?: ConfirmExtra }
@@ -108,6 +110,8 @@ function person(answer: string | null, asked: Asked[] = [], o: { unattended?: bo
     async choose(question, options, extra) { asked.push({ question, options, extra }); return answer },
     turnUrls: () => [],
     allSitesHere: () => true,
+    // a turn the person asks from their app: their sites for good count and may be kept (chat/tools.ts turnPerson)
+    sitesForGood: () => !o.unattended,
     ...(o.unattended ? { unattended: true } : {}),
   }
 }

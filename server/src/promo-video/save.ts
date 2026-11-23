@@ -2,7 +2,8 @@
 // so the person can send or share it (share_with_person, post_to_room) like any file. Before, the video was only the
 // preview beside the chat and the AI could only tell the person to download it by hand.
 // The MP4 is the same render as the preview's download button (render.ts): one render at a time on the server, a
-// finished one reused. So the tool exists only where that render runs (mp4Available: a development Mac today); elsewhere
+// finished one reused. So the tool exists only where that render runs (mp4Available: a Linux team server with the list's
+// video group, or a development Mac); elsewhere
 // it is not offered, and the promo_video result tells the AI to say plainly that this server cannot save the video as a
 // file. The file is placed like every file the AI makes (tools/make-file.ts placeProduced: the person's write access,
 // a conflict copy over a file not read in this turn, the turn's write budget, the audit), and the files whose content
@@ -22,7 +23,7 @@ import { componentC } from '../team-files/component'
 import { confirmSources, placeProduced } from '../tools/make-file'
 import type { ToolRegistry } from '../tools/registry'
 import { DURATION } from './layout'
-import { mp4Available, promoVideoFile, promoVideoInfo, renderPromoVideo, type StoredSpec } from './render'
+import { mp4Available, mp4Why, noFileReason, promoVideoFile, promoVideoInfo, renderPromoVideo, type StoredSpec } from './render'
 import { teamPathOf } from './spec'
 
 export const SAVE_PROMO_TOOL = 'save_promo_video'
@@ -60,7 +61,8 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   const turn = ctx.db.query('SELECT chat_id, user_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string; user_id: string } | null
   if (!turn) throw new ToolError('unknown turn')
   if (turn.user_id !== t.user.id) throw new Denied('turn belongs to another person')
-  if (!mp4Available(ctx)) throw new ToolError('This server cannot save the promo video as a file (only the preview next to the chat is made here). Nothing was saved. Tell the person so in one plain sentence.')
+  const why = mp4Why(ctx)
+  if (why) throw new ToolError(`This server cannot save the promo video as a file (only the preview next to the chat is made here; ${noFileReason(why)}). Nothing was saved. Tell the person so in one plain sentence with that reason.`)
   // the newest version this person may see (never one an answer hidden from them made: Artifacts.hiddenVersions)
   const hidden = componentC(ctx).artifacts.hiddenVersions(t.user.id, turn.chat_id)
   const row = (ctx.db.query('SELECT artifact_id, spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC').all(turn.chat_id) as { artifact_id: string; spec: string }[]).find((r) => !hidden.has(r.artifact_id)) ?? null

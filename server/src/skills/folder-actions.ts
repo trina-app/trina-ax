@@ -99,8 +99,6 @@ export interface FolderPlan {
 }
 export interface FolderRefused { refused: { why: string; next: string; say?: 'fileMediaNext' } }
 
-/** The card shows the text in full: more than this many characters in all is refused, never cut. */
-export const FOLDER_TEXT_MAX = 60_000
 /** A folder this large is moved on the Files screen. */
 export const FOLDER_MAX_FILES = 500
 export const FOLDER_MAX_BYTES = 50 * 1024 * 1024
@@ -234,7 +232,7 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
     if (!st.isFile()) refuse(`'${relp}' is not a regular file`)
     if (st.nlink > 1) refuse(`'${relp}' is hard-linked to another file; replace it with a copy first`)
     if (!atLeast(rules.access(user, relp.split('/')), 'read')) refuse('something inside it is hidden from the user', ADMIN)
-    if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large to show on one card (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
+    if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large for the AI to move here (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
     const bytes = readRegular(abs, FOLDER_MAX_BYTES, st).bytes
     out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes, exec: (st.mode & 0o111) !== 0 })
   }
@@ -536,7 +534,9 @@ function into(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionI
     chars += t.length
     texts.push({ path: to + f.path.slice(from.length), text: t })
   }
-  if (chars > FOLDER_TEXT_MAX) refuse(`its text files are too long to show in full on one card (${chars} characters, at most ${FOLDER_TEXT_MAX})`, FILES)
+  // no length limit (owner 2026-11-23: no action is refused because of a card's size): the card lists the files, each
+  // opened on request, and the token still binds every byte
+  void chars
   const entry = `${to}/SKILL.md`
   const problem = skillFileProblem(ctx.files.fx.root, entry, manifest!.bytes.toString('utf8'))
   if (problem) refuse(`its SKILL.md would not load there (${problem}): a skill's folder and its name: line must match`, 'fix the SKILL.md header with edit first, or rename the folder to its name')

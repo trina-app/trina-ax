@@ -76,7 +76,7 @@ describe('save_promo_video', () => {
     expect(toolRegistry(h.ctx.files).available(SAVE_PROMO_TOOL)).toBe(false)
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const answer = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
-    expect(answer).toContain('This server cannot save the video as a file (only this preview)')
+    expect(answer).toContain('This server cannot save the video as a file (only this preview; the video tools are not installed on this server (yet))')
     expect(PROMO_TOOL_DESCRIPTION).toContain('The length is always 18.5 s')
   })
 

@@ -4,6 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { navRail, openRail, reset, signIn, adv, choose } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
+import { DICTS } from '../../src/i18n'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
 for (const address of ['/', '/?prompt=Draft%20from%20a%20link']) {
@@ -70,7 +71,7 @@ test('choosing the ready question focuses the filled composer', async ({ page })
   await expect(input).toBeFocused()
 })
 
-test('Escape from the file trash confirmation returns focus to its opener', async ({ page }) => {
+test('the selection\'s trash by keyboard goes at once (no dialog: docs/decisions/20261123-do-then-undo.md), its Undo reachable', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/files?path=marketing')
@@ -78,10 +79,8 @@ test('Escape from the file trash confirmation returns focus to its opener', asyn
   const opener = page.getByTestId('bulk-delete')
   await opener.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(opener).toBeFocused()
+  await expect(page.getByRole('button', { name: new RegExp(`^(${DICTS.ko['common.undo']}|${DICTS.en['common.undo']})$`) })).toBeVisible()
 })
 
 test.describe('home focus on touch devices', () => {

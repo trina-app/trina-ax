@@ -5,7 +5,9 @@
 // here too). Those are refused before any card, with the reason and where to do it instead: a card nobody can answer
 // is never raised. A chat that has read rooms (chat/read-rooms.ts: a room read, a ✦ side chat, a quoted message) puts
 // nothing into a skill folder (other people's words could have asked for it). The card is the server's (origin
-// 'server'), raised for every call: no earlier answer, room grant or "always" covers it. It shows the full paths, who
+// 'server'), raised for every call unless the person chose "Always allow" for it (withAlways), which also lifts the
+// shared chat, the chat others wrote in, the scheduled run and the room-read refusals (Rule A, docs/decisions/
+// 20261123-ask-registry-findings.md); no earlier answer or room grant covers it. It shows the full paths, who
 // gains or loses each skill (by name only to who may see that: seesWho), every word the AI would follow, and its yes
 // is bound to the plan's token, which the file service checks again right before the change. The result tells the AI
 // counts, and names only where the person may see them.
@@ -23,6 +25,7 @@ import { inSkills } from '../skills/guard'
 import { planFolderAction, runFolderAction, type FolderActionInput, type FolderPlan } from '../skills/folder-actions'
 import { levelFolder, levelLabel, peopleNames, peopleText, seesWho, type Level } from '../skills/move'
 import { st } from '../skills/text'
+import { skillBatch } from '../skills/lean-card'
 import { neutralizeTags } from './prompt'
 import { grantOnly, SHARED_FILE_SOURCE } from './grant-reads'
 import { readRooms } from './read-rooms'
@@ -30,7 +33,7 @@ import type { TurnExec } from './turn'
 
 export const SKILL_FILES_TOOL = 'skill_files'
 
-export const SKILL_FILES_DESCRIPTION = 'Move, copy or rename one file or folder that touches a skill folder (skills/, a group\'s or a project\'s skills: what people\'s AI follows), when the user asks: rename a group\'s or a project\'s folder that holds skills (e.g. projects/quotes to "quotes-2026"; only when nobody gains or loses anything) or a skill\'s own folder (its SKILL.md name line changes with it); take files, skills or rules out of a skill folder (move, a file copied out, or the skills folder renamed; the card says who stops getting them); or put a whole SKILL.md folder of text files into one (the card shows every word the AI would follow and who gets it). Never a picture, media or any other file that is not text into a skill folder: the user uploads those on the Files screen. One item per call. Nothing changes until the user says yes on the server\'s card; you do not need to ask first. A whole skill to another level goes with move_skill, a text file or rule in a skill folder with write / edit. Everything else is refused with the reason: tell the user that in their words, with the next step it gives.'
+export const SKILL_FILES_DESCRIPTION = 'Move, copy or rename one file or folder that touches a skill folder (skills/, a group\'s or a project\'s skills: what people\'s AI follows), when the user asks: rename a group\'s or a project\'s folder that holds skills (e.g. projects/quotes to "quotes-2026"; only when nobody gains or loses anything) or a skill\'s own folder (its SKILL.md name line changes with it); take files, skills or rules out of a skill folder (move, a file copied out, or the skills folder renamed; the card says who stops getting them); or put a whole SKILL.md folder of text files into one (the card shows its SKILL.md, lists every file, each opened on request, and says who gets it; no size limit for the card). Never a picture, media or any other file that is not text into a skill folder: the user uploads those on the Files screen. One item per call; for several (three skills into the team\'s skills), make all the calls together in the same reply, so the user answers them on one card. Nothing changes until the user says yes on the server\'s card; you do not need to ask first. A whole skill to another level goes with move_skill, a text file or rule in a skill folder with write / edit. Everything else is refused with the reason: tell the user that in their words, with the next step it gives.'
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
@@ -46,17 +49,21 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   const r = (why: string, next: string, summary: string) => ({ text: nothing(why, next), summary: `${SKILL_FILES_TOOL} -> refused: ${summary}` })
   const own = 'the user can ask for it in one of their own chats, or do it on the Files screen'
   if (files && files !== exec.files) return r('only the main AI may change skill folders, where the user answers its card; a helper (sub-agent) cannot ask the user', 'put it in your report; the main AI calls skill_files itself', 'sub-agent')
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'skill_files') !== 'on') return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
-  if (exec.shared) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
+  // the person's own Always for skill-folder changes holds in their scheduled run and in a shared chat or a chat others
+  // wrote in (Rule A, decision 1 of docs/decisions/20261123-ask-registry-findings.md)
+  const always = alwaysHere(exec.alwaysPlace?.(), 'skill_files') === 'on'
+  if (exec.spec.clientKind === 'schedule' && !always) return r('this is a scheduled run with nobody watching, so no card can be answered and nobody was asked. The user did not refuse anything', own, 'scheduled run')
+  if (exec.shared && !always) return r('this is a shared project chat; skill folders are changed only in the user\'s own chat', own, 'shared chat')
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return r('this is a confidential chat, which keeps to local tools', 'the user can ask in another chat, or do it on the Files screen', 'confidential chat')
   // a chat of a Slack thread: its answers may be posted to a channel, whose people may not see who gets a skill
   if (exec.spec.clientKind === 'slack' || exec.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(exec.spec.chatId)) return r('this chat answers in Slack, where a channel may read the answer', 'the user can ask in the app, or do it on the Files screen', 'slack')
   // someone else wrote in this chat (it was shared): their words are in it
-  if (exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
+  if (!always && exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
   // a chat that has read rooms (a room read, a side chat, a quoted message): nothing goes into a skill folder (S7)
-  if (intoSkills(args) && readRooms(exec)) return r(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
+  // (not under the person's own Always for skill-folder changes: final after a room read too, Rule A)
+  if (!always && intoSkills(args) && readRooms(exec)) return r(roomReadWhy(exec), 'the user can ask in a new chat, or do it on the Files screen', 'into skills after a room read')
   return null
 }
 
@@ -102,15 +109,31 @@ export function skillFilesTool(exec: TurnExec) {
       const details: ConfirmDetail[] = [
         ...(fields.length ? [{ label: st('moveWho', L), text: '', fields }] : []),
         { label: st('filePaths', L), text: `${plan.from}\n→ ${plan.to}` },
-        ...(plan.texts.length ? [{ label: st('fileTexts', L), text: plan.texts.length === 1 ? plan.texts[0]!.text : plan.texts.map((t) => `=== ${t.path} ===\n${t.text}`).join('\n\n') }] : []),
+        // a skill put in: its SKILL.md (its start when long), and every file by name and size, each opened on request; the
+        // card never carries all of their text (owner 2026-11-23: "무거운것도 문제야", a 15-file skill was refused)
+        ...(plan.kind === 'in' ? skillInDetails(plan, L) : plan.texts.length ? [{ label: st('fileTexts', L), text: plan.texts.length === 1 ? plan.texts[0]!.text : plan.texts.map((t) => `=== ${t.path} ===\n${t.text}`).join('\n\n') }] : []),
         ...(plan.skills.length ? [{ label: st('fileSkills', L), text: skillLines(plan, L) }] : []),
-        ...(plan.files.length ? [{ label: st('fileList', L, { n: String(plan.files.length) }), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }] : []),
+        ...(plan.files.length && plan.kind !== 'in' ? [{ label: st('fileList', L, { n: String(plan.files.length) }), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }] : []),
       ]
+      // a skill put into a skill folder leads in plain words (its name, its description, who follows it), the rest behind
+      // "자세히"; several of one answer to the same place are one card (AskUserRequest.batch, skills/lean-card.ts)
+      const lean = plan.kind === 'in' && plan.level && plan.skills[0] && plan.skills[0].kind === 'skill' ? (() => {
+        const s0 = plan.skills[0]!
+        const skillMd = plan.texts.find((x) => /(^|\/)SKILL\.md$/i.test(x.path))?.text
+        const warn = [
+          plan.shadow ? st('fileShadow', L, { n: String(plan.shadow.people), where: plan.shadow.projects.length ? ` (${plan.shadow.projects.map((x) => st('whereProject', L, { project: x })).join(', ')})` : '' }) : '',
+          plan.hiddenFor ? st('fileHidden', L, { n: String(plan.hiddenFor) }) : '',
+          plan.replaces ? st('fileReplaces', L, { n: String(plan.replaces), name: s0.name }) : '',
+          // who newly may change it: never only behind 자세히
+          plan.editorsGainedIds.length ? st('fileEditorsNew', L, { n: String(plan.editorIds.length), gained: String(plan.editorsGainedIds.length) }) : '',
+        ]
+        return skillBatch({ tool: SKILL_FILES_TOOL, to: plan.level!, copy: a.action === 'copy', name: s0.name, text: skillMd, followers: s0.followers.length, warn }, L)
+      })() : null
       const yes = a.action === 'copy' ? st('copyYes', L) : a.action === 'rename' ? st('fileYesRename', L) : st('moveYes', L)
       // "Always allow" for skill file moves, copies and renames (chat/always-allow.ts)
       const answer = await withAlways(exec.alwaysPlace?.(), 'skill_files', [{ label: yes, value: 'yes' }, { label: st('fileNo', L), value: 'no' }], 'yes', (options, more) => exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: card, multiple: false, allowText: false,
-        options, details, ...more,
+        options, details, ...more, ...(lean ? { batch: lean } : {}),
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
       } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
       const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
@@ -172,6 +195,18 @@ export function skillFilesTool(exec: TurnExec) {
   function skillLines(p: FolderPlan, L: Locale): string {
     return p.skills.filter((s) => s.readable).map((s) => `${s.kind === 'rule' ? s.entry : s.name} (${s.entry})`).join('\n') + (p.skills.some((s) => !s.readable) ? `\n${st('fileMoreSkills', L, { n: String(p.skills.filter((s) => !s.readable).length) })}` : '')
   }
+}
+
+/** SKILL.md's text (its start past SKILL_MD_SHOWN characters, with its whole size) and the files by name and size,
+ * each opened on request (ConfirmDetail.open): the source paths, which the person reads (planFolderAction checked). */
+const SKILL_MD_SHOWN = 12_000
+function skillInDetails(p: FolderPlan, L: Locale): ConfirmDetail[] {
+  const md = p.texts.find((x) => /(^|\/)SKILL\.md$/i.test(x.path))
+  const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+  return [
+    ...(md ? [{ label: 'SKILL.md', text: md.text.length > SKILL_MD_SHOWN ? `${md.text.slice(0, SKILL_MD_SHOWN)}\n…` : md.text, collapsedAt: 600 }] : []),
+    { label: st('fileList', L, { n: String(p.files.length) }), text: p.files.map((f) => `${f.path} (${size(f.size)})`).join('\n'), noSize: true, open: p.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size, sha: f.sha })) },
+  ]
 }
 
 /** What the card said, for the AI (English): the skills and people by count, names only where the person may see who

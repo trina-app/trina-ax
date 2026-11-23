@@ -96,7 +96,7 @@ describe('no talk about the rules in the answer (QA batch 3 flow 2)', () => {
 
   test('the opposite-requests line no longer ends on "just do it" (what the AI echoed)', () => {
     const s = sharedSection({ project: null, audience: 2, asker: 'QA Member' }, 'en')
-    expect(s).toContain('No question when QA Member only changes their own earlier request')
+    expect(s).toContain('No question either when QA Member only changes their own earlier request')
     expect(s).toContain('do it, and say only what you did.')
     expect(s).not.toContain('just do it')
   })

@@ -13,6 +13,7 @@ import FolderSharing from '../../src/pages/admin/FolderSharing'
 import { DialogHost } from '../../src/components/ui'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 import { ruleWorld } from '../../../tests/lib/rule-world'
 
@@ -205,17 +206,18 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
 })
 
 describe('Drive\'s role menu and Access removed (P1)', () => {
-  test('Remove access is in the role menu: the row goes, and what will happen names who loses it', async () => {
+  test('Remove access is in the role menu: the row goes at once with Undo, and what will happen names who loses it', async () => {
     const m = await open()
     await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
-    // asked first (a native menu's arrow keys would remove on the way); Cancel keeps the row
-    const ask = await m.until(() => m.find('dialog-confirm'), 'the remove question')
-    expect(m.html()).toContain(en('folderAccess.removeTitle', { name: 'Alice' }))
-    await m.click((ask.parentNode as FakeElement).querySelectorAll('button')[0]!)
-    await m.until(() => !m.find('dialog-confirm'), 'the question closed')
-    expect(rowsOf(m, 'sharing-row')).toHaveLength(2)
+    // no question (docs/decisions/20261123-do-then-undo.md): the row goes, the toast's Undo puts it back in its place
+    await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
+    expect(m.find('dialog-confirm')).toBeNull()
+    const undo = useUi.getState().toasts.at(-1)!
+    expect(undo.text).toBe(en('folderAccess.removedRow', { name: 'Alice' }))
+    expect(undo.action?.label).toBe(en('common.undo'))
+    undo.action!.run()
+    await m.until(() => rowsOf(m, 'sharing-row').length === 2, 'the row back')
     await choose(rowsOf(m, 'sharing-row')[1]!.querySelector('select')!, 'remove')
-    await m.click(await m.until(() => m.find('dialog-confirm'), 'the remove question'))
     await m.until(() => rowsOf(m, 'sharing-row').length === 1, 'the row gone')
     expect(rowsOf(m, 'sharing-row').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${SALES}`])
     await ready(m)

@@ -38,7 +38,12 @@ test('a personal project: refused as a guest place until shared; shared with nob
 
   // now the invite is made and the guest joins: two people see it (it moves to Team projects)
   const g = await addGuest(h, mia.client, { username: 'gus', place })
-  expect((await mia.client.call('GET', `/api/projects/${p.id}`)).audience).toBe(2)
+  const seen = await mia.client.call('GET', `/api/projects/${p.id}`)
+  expect(seen.audience).toBe(2)
+  // ...but a shared chat of it is never the guest's (QA TC-b4s s2: "2명이 이 채팅을 볼 수 있어요" counted them): the
+  // chat's count and a new chat's count leave the guest out
+  expect(seen.chatAudience).toBe(1)
+  expect((await mia.client.call('GET', `/api/chats/${after.id}`)).shared.audience).toBe(1)
   const people = await mia.client.call('GET', `/api/projects/${p.id}/people`)
   expect(people.people.map((x: any) => x.id).sort()).toEqual([mia.id, g.id].sort())
   // the guest: this one project and its folder, its files (moved along with it), none of my chats (shared or not)
@@ -46,6 +51,8 @@ test('a personal project: refused as a guest place until shared; shared with nob
   expect((await g.client.call('GET', `/api/files/content?path=${encodeURIComponent(`${shared.folderPath}/price.txt`)}`)).content).toBe('banana price')
   expect((await g.client.call('GET', `/api/chats?projectId=${p.id}`)).items).toEqual([])
   for (const c of [before, after]) expect((await g.client.try('GET', `/api/chats/${c.id}`)).status).toBe(404)
+  // the guest's own new chat there: they and mia see it
+  expect((await g.client.call('GET', `/api/projects/${p.id}`)).chatAudience).toBe(2)
 })
 
 test('an invite made for a project that was personal stays refused at accept if it is somehow personal again', async () => {

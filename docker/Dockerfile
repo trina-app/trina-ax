@@ -7,6 +7,7 @@
 #   docker build --build-arg TRINA_AX_VERSION=0.15.0 -t trina-ax:0.15.0 docker/
 #
 # HTML to PDF (CJK fonts and the pinned headless browser): add --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser".
+# The promo video's MP4 too: TRINA_AX_PACKAGE_GROUPS="fonts browser video" (node and the HyperFrames CLI in /opt/trina).
 #
 # A kit from your own build (development, unsigned): put the unpacked kit folder in docker/kit-local/ and build with
 # --build-arg TRINA_AX_KIT=local. The container then needs TRINA_AX_ALLOW_UNSIGNED=1.
@@ -70,13 +71,18 @@ RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
     fi; \
     groups="minimal docker"; \
     for g in $TRINA_AX_PACKAGE_GROUPS; do \
-      case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser)" >&2; exit 1 ;; esac; \
+      case "$g" in fonts|browser|video) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser, video)" >&2; exit 1 ;; esac; \
     done; \
+    case " $groups " in *" video "*) case " $groups " in *" browser "*) ;; *) echo "TRINA_AX_PACKAGE_GROUPS: video needs browser (the MP4 is drawn by the headless browser)" >&2; exit 1 ;; esac ;; esac; \
     . "$root/packages.sh"; pk_load "$root/packages.json"; \
     if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi; \
     pk_apt_install -- $(pk_packages "$(pk_distro)" "$(pk_arch)" $groups); \
     if pk_artifacts $groups | grep -qx chrome-headless-shell; then \
       pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)" >/dev/null; \
+    fi; \
+    if pk_artifacts $groups | grep -qx hyperframes; then \
+      declare -F pk_video_install >/dev/null || { echo "TRINA_AX_PACKAGE_GROUPS: video needs a newer kit" >&2; exit 1; }; \
+      pk_video_install /opt/trina/hyperframes "linux-$(pk_arch)" >/dev/null; \
     fi; \
     for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done; \
     rm -rf /var/lib/apt/lists/*

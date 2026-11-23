@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
 import { answerShellOutputs, commandShape, roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
-import { globLabel } from '../../shared/src/step-labels'
+import { globLabel, pageKeyWords, searchPatternWords } from '../../shared/src/step-labels'
 import { placeWords } from '../../server/src/chat/place-words'
 
 const none = new Set<string>()
@@ -221,12 +221,54 @@ describe('answerShellOutputs', () => {
 describe('globLabel', () => {
   test('the folder and the kind of file, no wildcards', () => {
     expect(globLabel('파일 찾기', '매출/**/*', '')).toBe('파일 찾기 · 매출')
-    expect(globLabel('파일 찾기', '**/*.xlsx', 'shared/매출')).toBe('파일 찾기 · shared/매출 · .xlsx')
-    expect(globLabel('Find files', '**/*.{png,jpg}', undefined)).toBe('Find files · .png, .jpg')
-    expect(globLabel('파일 찾기', '*배너*', '')).toBe('파일 찾기 · "배너"')
+    expect(globLabel('파일 찾기', '**/*.xlsx', 'shared/매출')).toBe('파일 찾기 .xlsx · shared/매출')
+    expect(globLabel('Find files', '**/*.{png,jpg}', undefined)).toBe('Find files .png, .jpg')
+    expect(globLabel('파일 찾기', '*배너*', '')).toBe('파일 찾기 "배너"')
+    // QA TC-b4s: alternatives with a comma and a space, the place last
+    expect(globLabel('파일 찾기', '**/*{견적,단가,가격}*', 'shared')).toBe('파일 찾기 "견적, 단가, 가격" · shared')
     expect(globLabel('파일 찾기', '보고서.md', 'shared')).toBe('파일 찾기 "보고서.md" · shared')
     for (const p of ['매출/**/*', '**/*', '*.md', 'a/*/b/**/*.csv']) expect(globLabel('x', p, 'shared')).not.toMatch(/[*?{}[\]]/)
     expect(stepLabel('glob', { pattern: '매출/**/*' }, 'ko', none)).toBe('파일 찾기 · 매출')
+  })
+})
+
+// QA TC-b4s (TC-b3s-8 left over): developer words in step lines
+describe('step lines in plain words (batch 5)', () => {
+  test('a search pattern: alternatives as words, no regular expression', () => {
+    expect(searchPatternWords('A형.{0,40}(원|단가|가격)')).toBe('A형 (원, 단가, 가격)')
+    expect(searchPatternWords('별빛커피|A형')).toBe('별빛커피, A형')
+    expect(searchPatternWords('커피머신|A형|한빛상사')).toBe('커피머신, A형, 한빛상사')
+    expect(searchPatternWords('^\\s*total:\\s*\\d+')).toBe('total:')
+    expect(searchPatternWords('invoice')).toBe('invoice')
+    expect(searchPatternWords('단가표.xlsx')).toBe('단가표.xlsx')
+    expect(searchPatternWords('.*')).toBe('')
+    expect(searchPatternWords('\\p{L}+원')).toBe('원')
+    expect(stepLabel('grep', { pattern: '.*', path: 'shared' }, 'en', none)).toBe('Search · shared')
+    for (const l of L) expect(stepLabel('grep', { pattern: 'A형.{0,40}(원|단가|가격)', path: 'shared' }, l, none)).not.toMatch(/[|{}\\]|\.\{/)
+  })
+  test('a page by its title, never a slug key', () => {
+    expect(pageKeyWords('year-end-party')).toBe('')
+    expect(pageKeyWords('oct-sales-dashboard')).toBe('')
+    expect(pageKeyWords('sales_top3')).toBe('')
+    expect(pageKeyWords('송년회 안내')).toBe('송년회 안내')
+    expect(pageKeyWords('event')).toBe('event')
+    expect(stepLabel('artifact', { action: 'read', key: 'year-end-party' }, 'ko', none)).toBe('화면 보기')
+    expect(stepLabel('artifact', { action: 'update', key: 'year-end-party', title: '송년회 안내' }, 'ko', none)).toBe('화면 고치기 · 송년회 안내')
+    expect(stepLabel('artifact', { action: 'restore', key: 'sales-top3', version: 2 }, 'en', none)).toBe('Restore a page · v2')
+  })
+  test('the top folders and the team folder in words, in every language', () => {
+    for (const l of L) {
+      const calls: [string, object][] = [['list', { path: 'groups' }], ['list', { path: '/' }], ['glob', { pattern: '*단가표*', path: 'groups/마케팅' }], ['glob', { pattern: '*견적*', path: 'projects' }], ['grep', { pattern: 'x', path: 'projects/신제품-출시' }], ['glob', { pattern: '*영업*', path: 'shared' }]]
+      for (const [tool, input] of calls) {
+        const shown = stepPlace({ tool }, stepLabel(tool, input, l, none), l).label
+        expect(shown).not.toMatch(/ · (?:groups|projects|shared|\/)(?:\/|$| )/)
+      }
+    }
+    expect(placeName('groups', 'ko')).toBe('부서')
+    expect(placeName('projects/신제품-출시', 'ko')).toBe('프로젝트 › 신제품-출시')
+    expect(placeName('/', 'en')).toBe('Team folder')
+    expect(stepPlace({ tool: 'glob' }, '파일 찾기 "단가표" · shared', 'ko').label).toBe('파일 찾기 "단가표" · 전사 공유')
+    expect(stepPlace({ tool: 'glob' }, '파일 찾기 "단가표" · groups/마케팅', 'ko').label).toBe('파일 찾기 "단가표" · 마케팅 폴더')
   })
 })
 

@@ -181,10 +181,14 @@ describe("the office's public exit address (design tab 7 \"내부망 공격\")",
     expect(egressOf(ctx).ips).toHaveLength(MAX_EGRESS_IPS)
     expect(egressOf(ctx).ips[0]).toBe('93.184.216.19')
   })
-  test('while it is unknown every URL needs the person, even one the person typed', async () => {
+  // (docs/decisions/20261123-do-then-undo.md, the owner's order, confirmed by a security review: while it is unknown an
+  // address the person typed opens without the card; any other one still needs the person, with the warning)
+  test('while it is unknown every URL needs the person, except one the person typed', async () => {
     const chat = await chatWith('read https://docs.example/known')
     const asked: string[] = []
-    expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(true, asked), { egressKnown: false })).toBe('confirmed')
+    expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/known', person(true, asked), { egressKnown: false })).toBe('seen')
+    expect(asked).toHaveLength(0)
+    expect(await gateUrl(h.ctx.db, chat, 'https://docs.example/other', person(true, asked), { egressKnown: false })).toBe('confirmed')
     expect(asked).toHaveLength(1)
     expect(asked[0]).toContain("doesn't lead to a device inside your network")
     expect(gateUrl(h.ctx.db, chat, 'https://docs.example/known', null, { egressKnown: false })).rejects.toThrow(/nobody can confirm/)

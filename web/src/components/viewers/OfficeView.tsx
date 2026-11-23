@@ -13,15 +13,13 @@ import { PreviewLoading } from '../ui'
 import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
 import { fillFormulaResults, type SheetFormula } from '../../lib/sheetFormulas'
 
-/** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
+/** Links in a drawn document: http(s) only, opened in a new tab without an opener, with no question first
+ * (lib/safeLinks.ts; docs/decisions/20261123-ask-registry-findings.md, decision 14). */
 function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
-  const t = useT()
-  const tRef = useRef(t)
-  tRef.current = t
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    return guardLinks(el, (url) => window.confirm(tRef.current('preview.openLink', { url })))
+    return guardLinks(el)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 }

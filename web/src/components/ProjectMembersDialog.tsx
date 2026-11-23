@@ -108,8 +108,14 @@ function ChangeLines({ t, p, guestsOff = 0, room = false }: { t: ReturnType<type
 
 /** "Add me" (docs/DECISIONS.md "Project contents only for members"): the owner or an admin adds themselves to a project
  * they manage without being a member; its members are told. `p`: the dry run of a members dialog save that adds only
- * them (what else it does is said under it). False when cancelled. */
+ * them (what else it does is said under it). Adding only me has nothing to choose: one line says the members are told and
+ * it goes ahead (docs/decisions/20261123-do-then-undo.md); the question stays only when the save does more (someone
+ * loses it, a guest's access goes, a rule is added or put back). False when cancelled. */
 export function confirmAddMe(t: ReturnType<typeof useT>, name: string, p?: ProjectAccessPreview): Promise<boolean> {
+  if (!p || !(p.removed > 0 || p.addsFloor || p.restoresCreator)) {
+    toast({ level: 'info', text: t('projects.addMeNotice', { name }) })
+    return Promise.resolve(true)
+  }
   return confirmDialog({
     title: t('projects.addMeTitle', { name }),
     body: (

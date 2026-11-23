@@ -69,7 +69,8 @@ describe('a chat file sent to a teammate with post_to_room', () => {
   test('the recipient gets a copy they can open, byte for byte, and the card names the file', async () => {
     const body = '# 제안서\n\n한 장짜리 초안입니다.\n'
     const f = await chatWithFile('proposal.docx', body)
-    const r = await run('alice', f.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `The one-page proposal: [proposal.docx](${f.link})` }, sayResult: true })}`, 'send_files')
+    // (no ask in alice's own words: the card; with one, the next test, it goes without it)
+    const r = await run('alice', f.chat, `${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `The one-page proposal: [proposal.docx](${f.link})` }, sayResult: true })}`, 'send_files')
     // one card, with the files choice, and the text shows the file's name, never the raw /c/ link
     expect(r.cards).toHaveLength(1)
     expect(r.cards[0]!.options?.map((o) => o.value)).toContain('send_files')

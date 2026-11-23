@@ -102,10 +102,11 @@ test('the other member saving after that read: still asked, and the connection s
   expect(saved(target)).toBe(true)
 })
 
-test('a team connection both may use: no card', async () => {
+test('a team connection both may use: no save card', async () => {
   const { folder, chat } = await projectChat()
   const used = await run('alice', chat, fake({ tool: 'team_opensearch__search_tasks', args: { query: 'logo' }, sayResult: true }))
-  expect(used.questions).toHaveLength(0)
+  // (the one notice of a shared project, team connections too: docs/decisions/20261123-shared-connector-warning-once.md)
+  expect(used.questions).toHaveLength(1)
   const target = `${folder}/svg_output/08_all.svg`
   const r = await run('alice', chat, save(target))
   expect(r.questions).toHaveLength(0)

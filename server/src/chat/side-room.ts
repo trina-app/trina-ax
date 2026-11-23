@@ -36,8 +36,9 @@ export function saveInFor(db: Database, files: FileService, r: { id: string; kin
  * group's folder. The Everyone room: shared/ (its meeting-notes or other fitting subfolder, by the placement rule). A
  * group chat: the folder of the smallest group that every member of the room who is not an owner or admin belongs to
  * (owners and admins read every group's folder). When no group holds them all and the team has people outside the room,
- * the person's own folder, and the file is then shared with the room's other people (share_with_person, its one card):
- * before, it went to shared/, which the whole team can open (MAN-026: notes from a 3-person room in Company-wide ›
+ * the person's own folder; the file is shared with the room's other people (share_with_person) only when the person asks
+ * to share or send it (docs/decisions/20261123-fewer-asks-b5.md: before, the AI shared it after every save, with a card
+ * nobody asked for). Before 20261117, it went to shared/, which the whole team can open (MAN-026: notes from a 3-person room in Company-wide ›
  * Meeting notes, 10 people). shared/ stays the place when everyone in the team is in the room, or when the person may
  * not share their own files (the team's "Members can share files they own" is off). A 1:1, a guest asking, or a place
  * the person cannot write: the person's own folder (a private talk is not for a department by default). A few queries

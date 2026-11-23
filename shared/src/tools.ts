@@ -593,7 +593,7 @@ export const StopSharingInput = z.strictObject({
  * own files for teammates or groups, view only, files added later included; an add always behind the server's card.
  * Also takes people off it, or stops sharing it (no card when the user's own message names the folder). */
 export const ShareFolderInput = z.strictObject({
-  folder: relPath.describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder.'),
+  folder: relPath.optional().describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder. Leave it out when the user did not name one ("this folder", "\uC774 \uD3F4\uB354") and you would otherwise ask: the server takes the folder this chat just used (the file sent or read lives in it), and the user can undo or change it on the card.'),
   add: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who gets to view it: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
   remove: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who to take off it, the same way.'),
   stop: z.boolean().optional().describe('true to stop sharing the folder with everyone. Not with add.'),

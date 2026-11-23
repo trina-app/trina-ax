@@ -293,5 +293,10 @@
   "file": "rooms/team-place.ts",
   "sql": "SELECT 1 FROM users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.role NOT IN ('owner', 'admin') AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = u.id)",
   "reason": "a person rule reaching a group folder (widerThanRoom): anyone named who is outside the room counts, a guest too (stored as role 'member'), so the role filter only drops the owner and admins, who read every folder outside users/ anyway"
- }
+ },
+  {
+    "file": "rooms/reader.ts",
+    "sql": "SELECT id, username, name, role FROM users WHERE status = 'active' AND deleted_at IS NULL AND id <> ? ORDER BY name, id",
+    "reason": "reachablePeople: an owner title resolves to the owner, a generic lead word to the one owner or admin (resolvedByTitle); a guest is role 'member' and resolvedByTitle drops guests by users.guest first, so a title never names a guest (docs/decisions/20261123-do-then-undo.md)"
+  }
 ]

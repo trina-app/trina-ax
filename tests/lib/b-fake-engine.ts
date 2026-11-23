@@ -130,6 +130,7 @@ let sessionId = ''
 let resumed = false
 let history: { role: string; text: string }[] = []
 let sessionFile = ''
+function ownWords(m: string): string { return m.replace(/<since_your_last_answer>[\s\S]*?<\/since_your_last_answer>/g, '') }
 const model = codex ? JSON.parse(argv.find((a) => a.startsWith('model='))?.slice(6) ?? '""') : arg('--model') ?? ''
 const maxTurns = codex ? 0 : Number(arg('--max-turns') ?? 0)
 let turnsUsed = 0
@@ -199,7 +200,7 @@ let answer = ''
 let toolN = resumed ? 1000 * history.filter((h) => h.role === 'user').length : 0
 if (codex) out({ type: 'thread.started', thread_id: sessionId })
 else {
-  const init = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).find((d) => d.init)?.init
+  const init = ownWords(message).split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).find((d) => d.init)?.init
   out({ type: 'system', subtype: 'init', session_id: sessionId, model, tools: init?.tools ?? [], ...(init?.agents ? { agents: init.agents } : {}) })
 }
 
@@ -526,7 +527,8 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
 }
 
 // ---------------- run the directives ----------------
-let directives = message.split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
+// (what others wrote, quoted before a shared chat's message, chat/prompt.ts sinceOwnBlock: their words, never this turn's)
+let directives = ownWords(message).split('\n').filter((l) => l.startsWith('@fake ')).map((l) => JSON.parse(l.slice(6)))
 // the server's note that continues an answer after a connect (chat/turn.ts continueAfterConnect): the person's message
 // in the session carries what this run does, {"afterContinue": [...]} (the n-th continuation runs the n-th such
 // directive). Ignored on any other run.

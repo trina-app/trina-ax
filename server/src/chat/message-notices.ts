@@ -96,7 +96,11 @@ export function readChatNotices(ctx: AppContext, userId: string, chatId: string)
  * chat.updated `notice`); a muted person gets nothing. No notice is a mention: the main box of an AI chat mentions
  * nobody, a person is mentioned in a thread under an AI answer (chat/threads.ts; docs/decisions/
  * 20261122-ai-session-no-main-mention.md). Never throws: the message is saved whether or not it is told. */
-function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kind: Kind): Map<string, Ring> {
+function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, how: Kind | 'scheduled'): Map<string, Ring> {
+  // a scheduled run's answer (AB4): told as a main message is (its row kind 'message': the number, a push, the ring), with
+  // the hidden-answer check of an answer, and no person as its writer (it is Trina's; the push says "a new message")
+  const kind: Kind = how === 'answer' ? 'answer' : 'message'
+  const answer = how !== 'message'
   const rings = new Map<string, Ring>()
   if (!isConversationRow(chat) || chat.deleted_at || chat.room_id) return rings
   try {
@@ -111,7 +115,7 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
     // an answer: who this one answer is hidden from, worked out before the write transaction from its own branch only
     // (shared-answers.ts answerHiddenFrom: never the whole chat per person; an answer from the cutover on reads nothing
     // more), never held inside the write
-    const hiddenFrom = kind === 'answer' ? answerHiddenFrom(db, ctx.files, chat.id, messageId, ids.filter((uid) => active.has(uid) && !muted.has(uid))) : new Set<string>()
+    const hiddenFrom = answer ? answerHiddenFrom(db, ctx.files, chat.id, messageId, ids.filter((uid) => active.has(uid) && !muted.has(uid))) : new Set<string>()
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, 0) ON CONFLICT DO NOTHING`)
@@ -122,8 +126,8 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
         if (muted.has(uid)) continue
         if (hiddenFrom.has(uid)) continue
         const ring = kind === 'message' && mayRing(prefs!.get(uid)!, tz, now)
-        const r = insert.run(newId(), uid, messageId, chat.id, kind === 'message' ? by : null, kind, at, ring ? 0 : 1)
-        if (r.changes && kind === 'message') told.push(uid)
+        const r = insert.run(newId(), uid, messageId, chat.id, how === 'message' ? by : null, kind, at, ring ? 0 : 1)
+        if (r.changes && how === 'message') told.push(uid)
         if (r.changes && ring) rings.set(uid, { messageId })
       }
       // a person's message brings a chat I hid from my list back (as a room's message brings a hidden room back), so
@@ -146,9 +150,12 @@ export function noteSharedMessage(ctx: AppContext, chat: ChatIds, messageId: str
   return note(ctx, chat, messageId, by, 'message')
 }
 
-/** Trina's finished answer to `asker` (turn.ts announceEnd, before its chat.updated): the unread number for the others. */
-export function noteSharedAnswer(ctx: AppContext, chat: ChatIds, answerId: string, asker: string) {
-  note(ctx, chat, answerId, asker, 'answer')
+/** Trina's finished answer to `asker` (turn.ts announceEnd, before its chat.updated): the unread number for the others.
+ * A scheduled run's answer (`scheduled`; nobody asked it live: AB4, the owner's Slack rule for main messages, docs/
+ * decisions/20261123-ab4-asks-left.md) tells them as a main message does: the number, a push and the desktop ring (the
+ * people whose notice may ring now are returned), never anyone it is hidden from or who muted the chat. */
+export function noteSharedAnswer(ctx: AppContext, chat: ChatIds, answerId: string, asker: string, o: { scheduled?: boolean } = {}): Map<string, Ring> {
+  return note(ctx, chat, answerId, asker, o.scheduled ? 'scheduled' : 'answer')
 }
 
 /** Asked before and after each send (push-service.ts SOURCES wanted): a person's message, unread, made outside quiet

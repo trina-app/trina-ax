@@ -233,10 +233,36 @@ function neverShared(db: Database, chatId: string, asker: string, memo: Map<stri
 export const STEP_RECORD_MIN_BUDGET = 12_000
 /** characters for all records of one history together (newest answers first) */
 export const STEP_RECORD_TOTAL = 6_000
+/** another person's answers in a shared chat (docs/decisions/20261123-shared-chat-others-steps.md): at most this many
+ * per person, and this many characters of theirs together (inside STEP_RECORD_TOTAL) */
+export const OTHER_RECORD_ANSWERS = 4
+export const OTHER_RECORD_CHARS = 1_800
+/** The tools of another person's answer whose notes (arguments, result) may be shown to the asker: the team's own file
+ * tools that name team paths (their paths shown only when everyone may list them: stepFor). Everything else (a
+ * connection's, an app's or the browser's step, a card's answer, a post, a share, a web address, a data query) shows
+ * its name and how it ended only. */
+const OTHERS_NOTE_TOOLS: ReadonlySet<string> = new Set(['read', 'list', 'glob', 'grep', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render',
+  'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'delete_files'])
+/** (only a step that names team paths, kept aside for whoever may list them all: StoredStep.sv, shown by stepFor) */
+const othersNotes = (s: StoredStep): boolean => !!s.tool && OTHERS_NOTE_TOOLS.has(s.tool) && !!s.sv
+/** The team paths a note's words name: quoted values and words with a "/" (a web address and a chat place left out). */
+export function notePaths(n: StepNote): string[] {
+  const out = new Set<string>()
+  for (const t of [n.i ?? '', n.o ?? '']) {
+    for (const m of t.matchAll(/"((?:[^"\\]|\\.)*)"/g)) if (m[1]!.includes('/')) out.add(m[1]!)
+    for (const w of t.replace(/"(?:[^"\\]|\\.)*"/g, ' ').split(/[\s,;()[\]{}<>|'`]+/)) if (w.includes('/')) out.add(w)
+  }
+  return [...out].map((p) => p.replace(/[.:!?…]+$/, '').replace(/^\/+/, '')).filter((p) => p && !/^[a-z][a-z0-9+.-]*:/i.test(p))
+}
+const notePathsListable = (n: StepNote, canList: ((p: string) => boolean) | null): boolean =>
+  notePaths(n).every((p) => { try { return !!canList && canList(p) } catch { return false } })
+/** the tools whose line names a room, a person or what was shared (ChatStore.viewSteps): their verb alone for others */
+const OTHERS_WORDS_ONLY: ReadonlySet<string> = new Set(['post_to_room', 'share_with_person', 'stop_sharing', 'share_folder'])
 
 /**
  * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own
- * and called a tool,
+ * (and, in a chat shared now, other people's answers the asker sees: OTHER_RECORD_ANSWERS / OTHER_RECORD_CHARS per
+ * person, their connections' and browser's steps by name and status only) and called a tool,
  * within STEP_RECORD_TOTAL characters. Own (as chat/history-summary.ts summaryLines): in a chat several people wrote in,
  * only an answer to the asker's own message whose turn was theirs, and never one hidden from them (`withheld`); in a
  * chat of one person, every answer whose turn was theirs (an answer another person regenerated while the chat was
@@ -249,6 +275,7 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
   let room = o.budget ?? STEP_RECORD_TOTAL
   const out = items.slice()
   const never = new Map<string, boolean>()
+  const others = new Map<string, { n: number; chars: number }>()
   for (let i = out.length - 1; i >= 0 && left > 0 && room > 200; i--) {
     const h = out[i]!
     if (h.role !== 'assistant' || !h.id || o.withheld?.has(h.id)) continue
@@ -259,9 +286,16 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     // another person's turn (B regenerated an answer on A's message), also in a chat that is no longer shared: their
     // steps are theirs. A row with no turn (an older build's) is nobody's known turn: only in a chat of one person that
     // was never shared (neverShared)
-    if (row.ran_by !== null && row.ran_by !== o.asker) continue
     if (row.ran_by === null && (o.several || !neverShared(db, row.chat_id, o.asker, never))) continue
-    if (o.several && row.asked_by !== o.asker) continue
+    // another person's answer (their turn, or an answer to their message): only in a chat shared now, where the asker
+    // sees that answer (not withheld, above), with that person's own cap; their connections' and browser's steps by
+    // name only (othersNotes). In a chat that is no longer shared their steps stay theirs
+    // (a row with no turn got here only in a chat of one person that was never shared: theirs)
+    const own = (row.ran_by === o.asker || row.ran_by === null) && (!o.several || row.asked_by === o.asker)
+    const other = !own && o.several && !!o.shared && row.ran_by !== null ? row.ran_by : null
+    if (!own && !other) continue
+    const per = other ? others.get(other) ?? { n: 0, chars: 0 } : null
+    if (per && (per.n >= OTHER_RECORD_ANSWERS || per.chars >= OTHER_RECORD_CHARS)) continue
     let steps: StoredStep[] = []
     try { const v = JSON.parse(row.steps ?? '[]'); if (Array.isArray(v)) steps = v.filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.label === 'string') } catch {}
     if (!steps.length) continue
@@ -270,11 +304,21 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     let withNotes = !before
     if (withNotes && o.shared) { try { withNotes = !o.shared.hiddenFrom(h.id) } catch { withNotes = false } }
     if (before) steps = steps.map((s) => { const { sv: _sv, tool, ...rest } = s; return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, 'en') } })
-    let text = stepsRecord(steps, withNotes ? parseNotes(row.step_notes) : {}, o.canList)
+    let notes = withNotes ? parseNotes(row.step_notes) : {}
+    if (other) {
+      const ok = new Set(steps.filter(othersNotes).map((x) => x.id))
+      // (a note's own words name paths too: a write's result, "saved to users/alice/…". Kept only when the asker and
+      // everyone who sees the chat now may list every path in it; fails closed: security review of batch 5)
+      notes = Object.fromEntries(Object.entries(notes).filter(([id, n]) => ok.has(id) && notePathsListable(n, o.canList)))
+      steps = steps.map((x) => (x.tool && OTHERS_WORDS_ONLY.has(x.tool) ? (({ sv: _sv, ...rest }) => ({ ...rest, label: stepWords(x, 'en') }))(x) : x))
+    }
+    let text = stepsRecord(steps, notes, o.canList)
     if (!text) continue
     if (o.mapText) text = o.mapText(text)
-    if (text.length > room) text = `${text.slice(0, Math.max(0, room - 40)).replace(/\n[^\n]*$/, '')}\n(older steps left out)`
+    const cap = per ? Math.min(room, OTHER_RECORD_CHARS - per.chars) : room
+    if (text.length > cap) text = `${text.slice(0, Math.max(0, cap - 40)).replace(/\n[^\n]*$/, '')}\n(older steps left out)`
     room -= text.length
+    if (per && other) others.set(other, { n: per.n + 1, chars: per.chars + text.length })
     left--
     out[i] = { ...h, steps: text }
   }
