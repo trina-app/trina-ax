@@ -40,6 +40,8 @@ units_off() {
     if systemctl is-active --quiet "$u"; then die "$u is still active"; fi
   done
 }
+# this commit ran through every check (install.sh may keep it as the next rollback copy)
+proved() { install -d -o root -g root -m 700 "$RB"; printf '%s\n' "$1" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"; }
 # gate on, every instance warm, firewall, tunnel on, then enabled. Any failure: both off and disabled.
 bring_up() {
   want=$(python3 -I -c 'import json;p=json.load(open("/var/demo-gate/gate.json"))["pool"];print(p.get("warmPerLocale",2)*len(p.get("locales",["en","ko"])))')
@@ -74,7 +76,7 @@ case "$CMD" in
       || die "install failed: the gate and the tunnel are off. Fix it and run deploy again, or: sudo sh $SELF rollback --expect <good commit>"
     [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || { units_off; die "the installed app is not $EXPECT: both are off"; }
     bring_up
-    printf '%s\n' "$EXPECT" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+    proved "$EXPECT"
     say "deployed $EXPECT"
     ;;
   rollback)
@@ -88,7 +90,7 @@ case "$CMD" in
       if [ -L "$G/gate.json" ] || [ ! -f "$G/gate.json" ]; then die "$G/gate.json is not a regular file"; fi
       say "no rollback copy: the app was not changed and is at $cur"
       check_live; units_off; bring_up
-      printf '%s\n' "$cur" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+      proved "$cur"
       say "back at $cur"
       exit 0
     fi
@@ -110,7 +112,7 @@ case "$CMD" in
     mv -T "$G/gate.json.new" "$G/gate.json"
     say "app and gate.json are back at $head"
     bring_up
-    printf '%s\n' "$head" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"
+    proved "$head"
     say "rolled back to $head"
     ;;
   status)

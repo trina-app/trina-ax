@@ -111,4 +111,9 @@ Second review: the key check fails closed (a free-roam instance without a hash s
 the builder's own server have no key; the snapshot check uses a throwaway key). install.sh migrates an older
 `pool.command` with a backup, refuses one without the whole sandbox, and stops the units before it changes the app.
 
+Third review: install.sh disables the gate and tunnel before any change and enables them only after every check, and
+refuses links in the folders role users own. The instance command must equal one exact template. `tddeploy` (deploy,
+rollback, status) and `stage-remote.sh` hold the order, and the first app is kept for rollback; a retry never replaces
+it. The failure paths were rehearsed in a throwaway fake root with stubbed systemd.
+
 PR: https://github.com/trina-app/trina-ax/pull/446
