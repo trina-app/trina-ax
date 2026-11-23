@@ -147,7 +147,7 @@ Two scripts hold the order, so nobody retypes it. A gate restart ends every live
 
 ```sh
 # on the operator's machine, in a checkout: the source, .git-head and the app build (no root, nothing running changes)
-sh demo-gate/linux/stage-remote.sh <ssh host> <commit>
+sh demo-gate/linux/stage-remote.sh <ssh host> <commit on origin/dev>
 # on the host, as root
 sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy prebuild --stage /var/tmp/trina-demo-stage --expect <full commit>
 sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy deploy --stage /var/tmp/trina-demo-stage --expect <full commit>
@@ -163,8 +163,9 @@ sh /var/lib/trina-demo/tddeploy status
   while the site stays up (from a root copy, `/opt/trina-demo/app-next`; refused from 03:45 to 06:00 and when the running
   gate is on that version, since it would use them at once), so a deploy only swaps. Without it, `deploy` and `rollback`
   build what is missing with the site off. One version can be built from many commits, so a prebuild and a version
-  change count a snapshot only when its `manifest.git` is the commit being deployed (a stage's `.git-head`), and a
-  prebuild first removes that version's snapshots of other commits. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
+  deploy or rollback count a snapshot only when its `manifest.git` is that commit (a stage's `.git-head`; a version
+  whose builder records none, its unstamped ones), and a prebuild first removes that version's snapshots of other
+  commits. When the newest snapshot is bad, the gate falls back only to an older one of the same commit. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
   deploy keeps this version and the newest of the rollback copy's version, and removes the rest. One build runs at a
   time (a lock, one unit `trina-demo-snapshots-deploy`), and an install stops a build a lost connection left behind.
 - **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` checks free space while the site is up,

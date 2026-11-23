@@ -63,7 +63,8 @@ proved() { install -d -o root -g root -m 700 "$RB"; printf '%s\n' "$1" > "$RB/DE
 # The gate uses the newest snapshot of its own code version, and its sweeper leaves other versions alone (the old gate's
 # removes those older than the one it uses, an hour after they were made), so a version change needs them built before
 # the gate starts. missing_snapshots [VERSION] [COMMIT]: the languages without one; with COMMIT, also those whose newest
-# snapshot of that version is from another commit (one version can be built from many commits).
+# snapshot of that version is from another commit (one version can be built from many commits). COMMIT "-": a version
+# whose builder does not record its commit, so its newest snapshot must name none.
 missing_snapshots() { python3 -I -c 'import datetime,glob,json,os,sys
 p=json.load(open("/var/demo-gate/gate.json"))["pool"]
 ver=sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else p["codeVersion"]
@@ -78,8 +79,11 @@ def has(l):
             found.append((at,os.path.basename(os.path.dirname(f)),m.get("git")))
         except Exception: pass
     if not found: return False
-    return not commit or max(found)[2]==commit
+    newest=max(found,key=lambda x:x[:2])[2]
+    return not commit or (newest is None if commit=="-" else newest==commit)
 print(" ".join(l for l in p.get("locales",["en","ko"]) if not has(l)))' "$@"; }
+# what the installed app's builder writes to manifest.git for this commit (versions before 0.15 write nothing)
+built_as() { if grep -q "'.git-head'" "$O/app/scripts/demo/free-roam/build-snapshot.ts" 2>/dev/null; then echo "$1"; else echo -; fi; }
 # the version of the rollback copy: empty without a copy, ? when its gate.json cannot be read
 rollback_version() {
   n=$(cat "$RB/GOOD" 2>/dev/null || true)
@@ -214,16 +218,11 @@ case "$CMD" in
     install -d -o root -g root -m 755 /var/lib/trina-demo
     install -o root -g root -m 755 "$STAGE/app/demo-gate/linux/tddeploy" "$SELF"
     check_live
-    # the running snapshots serve only a proved app of this same version; any other case (a new version, or a retry after
-    # a failed run that already moved gate.json) takes only snapshots of this commit
-    want=$EXPECT
-    was=$(python3 -I -c 'import json;print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])' 2>/dev/null || true)
-    nextv=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$STAGE/app/server/package.json")
-    if [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$(cat "$RB/DEPLOYED" 2>/dev/null)" ] && [ -f "$RB/DEPLOYED" ] && [ "$was" = "$nextv" ]; then want=''; fi
     sh "$STAGE/app/demo-gate/linux/install.sh" --stage "$STAGE" --no-start </dev/null \
       || die "install failed: the gate and the tunnel are off. Fix it and run deploy again, or: sudo sh $SELF rollback --expect <good commit>"
     [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || { units_off; die "the installed app is not $EXPECT: both are off"; }
-    ensure_snapshots "$want"
+    # only snapshots of this very commit, also at the same version (one version can be built from many commits)
+    ensure_snapshots "$EXPECT"
     bring_up
     proved "$EXPECT"
     prune_versions || say "could not remove every old snapshot (the site is up)"
@@ -239,7 +238,7 @@ case "$CMD" in
       case "$cur" in "$EXPECT"*) ;; *) die "no rollback copy in $RB, and the app is $cur, not $EXPECT" ;; esac
       if [ -L "$G/gate.json" ] || [ ! -f "$G/gate.json" ]; then die "$G/gate.json is not a regular file"; fi
       say "no rollback copy: the app was not changed and is at $cur"
-      check_live; units_off; stop_builds; rm -rf "$O/app-next"; ensure_snapshots; bring_up
+      check_live; units_off; stop_builds; rm -rf "$O/app-next"; ensure_snapshots "$(built_as "$cur")"; bring_up
       proved "$cur"
       say "back at $cur"
       exit 0
@@ -263,7 +262,7 @@ case "$CMD" in
     install -T -o tdgate -g tdgate -m 600 "$RB/$n/gate.json" "$G/gate.json.new"
     mv -T "$G/gate.json.new" "$G/gate.json"
     say "app and gate.json are back at $head"
-    ensure_snapshots
+    ensure_snapshots "$(built_as "$head")"
     bring_up
     proved "$head"
     say "rolled back to $head"

@@ -8,8 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   DUMMY_CREDENTIAL, FAKE_CREDENTIAL, NODE, SSE, fakeTurnstile, fakeUpstream, get, startGate, startVisit, until, visitor, warm, wsEcho,
-  type Gate,
-} from './harness.ts'
+  type Gate, writeSnapshot } from './harness.ts'
 
 // each test starts real gate and instance processes (clone, config, health and fence checks): 5 s is too short on a
 // loaded machine
@@ -883,6 +882,31 @@ describe.skipIf(skip)('gate: pool', () => {
       await until(() => !fs.existsSync(path.join(g.instancesDir, 'abcdef12')), 5000, 'orphan removed')
       await until(() => !fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-0')), 5000, 'old snapshot removed')
       expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: a bad newest snapshot', () => {
+  const setup = (older: string) => ({ snapshotsDir }: { snapshotsDir: string }) => {
+    const manifest = (name: string) => path.join(snapshotsDir, 'en', name, 'manifest.json')
+    writeSnapshot(snapshotsDir, 'en', '9.9.9', 'snap-new', new Date(Date.now() + 60_000).toISOString(), { demo: { kind: 'scripted' } })
+    for (const [name, git] of [['snap-new', 'b'.repeat(40)], ['snap-1', older]] as const) fs.writeFileSync(manifest(name), JSON.stringify({ ...JSON.parse(fs.readFileSync(manifest(name), 'utf8')), git }))
+  }
+  test('never falls back to a snapshot of the same version from another commit', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], before: setup('a'.repeat(40)) })
+    try {
+      await until(() => g.log().includes('the newest is bad and this one is from another commit'), 8000, 'refused')
+      await Bun.sleep(500)
+      expect((await g.health()).pool.warm).toBe(0)
+      expect(fs.readdirSync(g.instancesDir)).toEqual([])
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+  test('an older snapshot of the same commit stands in', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], before: setup('b'.repeat(40)) })
+    try {
+      await until(async () => (await g.health()).pool.warm === 1, 8000, 'warm from the older one')
+      expect(g.log()).not.toContain('from another commit')
     } finally { await g.stop() }
   })
 })

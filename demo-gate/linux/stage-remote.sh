@@ -12,6 +12,10 @@ if ! SHA=$(git rev-parse --verify -q "$REF^{commit}"); then
   git fetch -q origin "$REF"
   SHA=$(git rev-parse --verify "$REF^{commit}")
 fi
+# root builds and installs this: only a commit on origin/dev. A fetch by id can bring a commit that exists only in a fork
+# (a public repository shares its objects across the fork network), so a local or fetched commit is checked alike.
+git fetch -q origin dev
+git merge-base --is-ancestor "$SHA" FETCH_HEAD || { echo "stage-remote: $SHA is not on origin/dev" >&2; exit 2; }
 ST=${3:-/var/tmp/trina-demo-stage}
 case "$ST" in /*) ;; *) echo "stage-remote: the stage folder must be absolute" >&2; exit 2 ;; esac
 case "$ST" in *[!A-Za-z0-9/._-]*) echo "stage-remote: unusual characters in the stage folder" >&2; exit 2 ;; esac

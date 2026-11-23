@@ -126,4 +126,8 @@ sweeper leaves other versions alone and a proved deploy prunes them.
 Fifth review: snapshots name their commit in a `git archive` tree too (`.git-head`), and a prebuild or a version change
 counts only those of the commit being deployed, so one pool is never built from two commits.
 
+Sixth review: `stage-remote.sh` takes only a commit on origin/dev (a fetch by id can bring a fork's); a deploy and a
+rollback take only snapshots of their own commit (a version whose builder records none: its unstamped ones); the gate
+never falls back from a bad newest snapshot to another commit's.
+
 PR: https://github.com/trina-app/trina-ax/pull/446
