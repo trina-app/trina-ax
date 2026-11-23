@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 20:25
 - Branch: `fix/preview-seal-offset`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`web/src`). Why: the file preview is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a preview fix with no change to files
 
@@ -37,4 +37,4 @@ Uses docx-preview's `keepOrigin` and its private `_xmlDocument`, pinned at 0.4.1
 
 ## Result
 
-Filled in at the end.
+As planned. Pictures placed from their line are aligned to the line top; a picture placed from its paragraph is unchanged. On `dev` the seal was 10.6 px off its line in the e2e, now under 4 px.
