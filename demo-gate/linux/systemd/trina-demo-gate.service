@@ -43,13 +43,14 @@ ProtectHome=yes
 PrivateTmp=yes
 InaccessiblePaths=-/run/postgresql -/run/tailscale -/run/docker.sock -/var/run/docker.sock -/run/containerd -/var/lib/postgresql -/var/lib/docker -/var/lib/containerd -/var/lib/tailscale
 ProtectControlGroups=yes
-ProtectHostname=yes
 # NoNewPrivileges must stay off: the gate starts every instance through sudo. For a unit that is not root, systemd
 # turns it on with any of PrivateDevices, ProtectKernelModules, ProtectKernelTunables, ProtectKernelLogs, ProtectClock,
 # LockPersonality, RestrictRealtime, RestrictSUIDSGID, RestrictNamespaces, RestrictAddressFamilies,
 # MemoryDenyWriteExecute, SystemCallFilter or SystemCallArchitectures, so none of them is here (install.sh checks sudo
-# in a transient unit with these properties). ProtectProc is out too: it mounts over /proc, and the kernel then refuses
-# the new /proc each instance's bwrap mounts.
+# in a transient unit with these properties). ProtectProc and ProtectHostname are out too: they mount over parts of
+# /proc (ProtectHostname: /proc/sys/kernel/hostname, read-only), and the kernel then refuses the new /proc each
+# instance's bwrap mounts ("Can't mount proc on /newroot/proc", found on the first install). tdgate cannot change the
+# hostname anyway (no CAP_SYS_ADMIN).
 
 [Install]
 WantedBy=multi-user.target

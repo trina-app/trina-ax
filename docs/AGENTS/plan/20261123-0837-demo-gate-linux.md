@@ -95,6 +95,7 @@ the explicit MYCEL_HTML_PDF_BROWSER inside the folder MYCEL_SANDBOX_ROOT_UNMAPPE
 must be plain files. Ubuntu 26.04's sudo is sudo-rs: the sudoers file sets only `Defaults:tdgate !use_pty` (sudo-rs
 refuses requiretty and log_output; it never asks for a tty and has no I/O logging); install.sh stops if a sudo.ws host
 logs I/O. The first install run also found that install.sh read its hosting files from the stage copy after moving
-the app out of it (fixed).
+the app out of it (fixed), that systemd-run takes no `localhost` in IPAddressAllow (spelled out), and that
+ProtectHostname breaks the instance bwrap's /proc (it mounts /proc/sys/kernel/hostname read-only; removed).
 
 PR: https://github.com/trina-app/trina-ax/pull/446

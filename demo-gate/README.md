@@ -79,13 +79,13 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   `choom -n 800`, so when memory runs out the kernel ends an instance, not the gate or another service.
 - **The gate unit.** `ProtectSystem=strict` (writes only `/var/demo-gate`, `/srv/tdg`, `/run/sudo`),
   `ProtectHome=yes`, `PrivateTmp=yes`, `InaccessiblePaths=` for the host's Postgres, Docker, containerd and Tailscale
-  sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders), `ProtectControlGroups`,
-  `ProtectHostname`. The gate starts every instance through sudo, so the unit must keep `NoNewPrivileges` off: for a
+  sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders), `ProtectControlGroups`.
+  The gate starts every instance through sudo, so the unit must keep `NoNewPrivileges` off: for a
   unit that is not root, systemd turns it on with any of `PrivateDevices`, `ProtectKernelModules`,
   `ProtectKernelTunables`, `ProtectKernelLogs`, `ProtectClock`, `LockPersonality`, `RestrictRealtime`,
   `RestrictSUIDSGID`, `RestrictNamespaces`, `RestrictAddressFamilies`, `MemoryDenyWriteExecute`, `SystemCallFilter`
-  or `SystemCallArchitectures`, and none of those is set (`ProtectProc` is left out too: it mounts over `/proc`, and
-  the kernel then refuses the new `/proc` each instance's bwrap mounts). `install.sh` checks sudo inside a transient
+  or `SystemCallArchitectures`, and none of those is set. `ProtectProc` and `ProtectHostname` are left out too: they
+  mount over parts of `/proc`, and the kernel then refuses the new `/proc` each instance's bwrap mounts. `install.sh` checks sudo inside a transient
   unit with the gate unit's properties before it starts the gate, and that the gate warms an instance after.
 - **bwrap and AppArmor.** Ubuntu 24.04+ restricts user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`);
   its AppArmor profile for `/usr/bin/bwrap` (`bwrap-userns-restrict`, or a host's own replacement) allows bwrap and
