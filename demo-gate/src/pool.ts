@@ -29,6 +29,9 @@ export interface Instance {
   dir: string
   port: number
   proxyPort: number
+  /** the model proxy's internal port (engine.proxyInnerPort): fixed, so a host firewall can allow the instance user
+   * pool.portRange on loopback and nothing else (demo-gate/linux/trina-demo.nft) */
+  innerPort: number
   /** the path secret in the instance's model upstream address (/i/<id>.<secret>) */
   secret: string
   state: InstanceState
@@ -271,21 +274,22 @@ export class Pool {
     }
   }
 
-  private async allocPorts(): Promise<[number, number]> {
+  /** three free ports of pool.portRange: the instance's listener, its model proxy and the proxy's internal server */
+  private async allocPorts(): Promise<[number, number, number]> {
     const [from, to] = this.cfg.pool.portRange
     const got: number[] = []
-    for (let p = from; p <= to && got.length < 2; p++) {
+    for (let p = from; p <= to && got.length < 3; p++) {
       if (this.usedPorts.has(p) || p === this.cfg.listen.port || p === this.cfg.upstreamListen.port) continue
       this.usedPorts.add(p)
       if (await portFree(p)) got.push(p)
       else this.usedPorts.delete(p)
     }
-    if (got.length < 2) { for (const p of got) this.usedPorts.delete(p); throw new Error('no free ports in pool.portRange') }
-    return [got[0]!, got[1]!]
+    if (got.length < 3) { for (const p of got) this.usedPorts.delete(p); throw new Error('no free ports in pool.portRange') }
+    return [got[0]!, got[1]!, got[2]!]
   }
 
   /** the instance's server.json: the snapshot's file with the gate's settings on top */
-  instanceConfig(snapshotFile: string, inst: Pick<Instance, 'id' | 'port' | 'proxyPort' | 'secret'>): string {
+  instanceConfig(snapshotFile: string, inst: Pick<Instance, 'id' | 'port' | 'proxyPort' | 'innerPort' | 'secret'>): string {
     const c = JSON.parse(fs.readFileSync(snapshotFile, 'utf8')) as Record<string, any>
     c.listen = { host: '127.0.0.1', port: inst.port }
     c.publicOrigins = [this.cfg.publicOrigin]
@@ -293,6 +297,7 @@ export class Pool {
     delete engine.modelUpstream
     delete engine.anthropicGateway
     engine.proxyPort = inst.proxyPort
+    engine.proxyInnerPort = inst.innerPort
     engine.modelUpstreams = { anthropic: `${this.upstreamUrl()}/i/${inst.id}.${inst.secret}` }
     c.engine = engine
     c.relay = { url: null, teamName: null, officialAvailable: false }
@@ -372,10 +377,10 @@ export class Pool {
   private async create(locale: Locale, snap: Snapshot): Promise<void> {
     const id = newId()
     const dir = path.join(this.cfg.pool.instancesDir, id)
-    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
+    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, innerPort: 0, secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
     this.instances.set(id, inst)
     try {
-      ;[inst.port, inst.proxyPort] = await this.allocPorts()
+      ;[inst.port, inst.proxyPort, inst.innerPort] = await this.allocPorts()
       // read from the snapshot (the gate may not read the clone), written into the clone as the instance user
       const snapConfig = inside(snap.base, snap.manifest.config)
       const configFile = inside(dir, snap.manifest.config)
@@ -486,6 +491,7 @@ export class Pool {
     try { fs.rmSync(path.join(this.logsDir, inst.id + LOG_SUFFIX), { force: true }) } catch {}
     this.usedPorts.delete(inst.port)
     this.usedPorts.delete(inst.proxyPort)
+    this.usedPorts.delete(inst.innerPort)
     this.instances.delete(inst.id)
   }
 

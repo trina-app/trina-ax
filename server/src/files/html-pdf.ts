@@ -141,7 +141,7 @@ export function findPdfBrowser(env: NodeJS.ProcessEnv = process.env, platform: N
   const ok = (p: string | undefined | null): string | null => (isExe(p) && trustedBrowser(p) ? fs.realpathSync(p) : null)
   const explicit = env.MYCEL_HTML_PDF_BROWSER
   if (explicit === 'none') return null
-  if (explicit) return ok(explicit)
+  if (explicit) return isExe(explicit) && trustedBrowser(explicit, undefined, rootOwnerUids(explicit, env)) ? fs.realpathSync(explicit) : null
   if (platform === 'linux') { const r = ok(pinned); if (r) return r }
   const hyper = ok(env.HYPERFRAMES_BROWSER_PATH) ?? ok(hyperframesBrowser(home))
   if (hyper) return hyper
@@ -167,13 +167,37 @@ const SHARED_DIRS = new Set(['/', '/bin', '/sbin', '/usr', '/usr/bin', '/usr/sbi
   '/opt/homebrew/lib', '/opt/homebrew/libexec', '/opt/homebrew/opt', '/opt/homebrew/Cellar', '/private/tmp', '/tmp', '/var/tmp', '/Applications',
   '/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu'])
 /**
+ * The uids that stand for root when checking `bin`: 0, and the kernel's overflow uid only in the free-roam demo's
+ * per-instance bwrap (demo-gate/linux), a user namespace that does not map root, where every file of root shows as the
+ * overflow uid. All of these must hold, else 0 only:
+ * - MYCEL_SANDBOX_ROOT_UNMAPPED names an absolute folder (the operator's, e.g. /opt/trina-demo) that root owns on the
+ *   host: the operator vouches for it, since another unmapped account's files would show as the same uid;
+ * - `bin` is the explicit MYCEL_HTML_PDF_BROWSER (same real path), and that real path is inside the folder: never a
+ *   browser of the fallback list (the pinned path, HyperFrames', Debian's);
+ * - "/" itself is seen here as owned by the overflow uid.
+ */
+export function rootOwnerUids(bin: string, env: NodeJS.ProcessEnv = process.env, read: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+  ownerOfRoot: () => number = () => fs.statSync('/').uid, real: (p: string) => string = (p) => fs.realpathSync(p)): number[] {
+  const dir = env.MYCEL_SANDBOX_ROOT_UNMAPPED?.replace(/\/+$/, '')
+  const explicit = env.MYCEL_HTML_PDF_BROWSER
+  if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir || dir === '' || !explicit || explicit === 'none') return [0]
+  try {
+    const r = real(bin)
+    if (r !== real(explicit) || !r.startsWith(dir + '/')) return [0]
+    const overflow = Number(read('/proc/sys/kernel/overflowuid').trim())
+    if (!Number.isInteger(overflow) || overflow <= 0) return [0]
+    return ownerOfRoot() === overflow ? [0, overflow] : [0]
+  } catch { return [0] }
+}
+
+/**
  * A browser the server may run: its binary and every folder from it up to the root (through its own folder,
  * browserHome: an app bundle's Contents/MacOS and Contents included) are owned by root or the server's account and
  * nobody else can write them, and its own folder is not a shared one such as /usr/bin. Anyone who could change those
  * files could run code as the server account inside the isolation, and the macOS profile lets the browser exec every
  * file of its folder.
  */
-export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1): boolean {
+export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1, rootUids: readonly number[] = [0]): boolean {
   try {
     const real = fs.realpathSync(bin)
     const home = browserHome(real)
@@ -182,7 +206,7 @@ export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1): boo
     // not theirs there; the browser's own folder and those inside it never
     const owned = (p: string, sticky = false) => {
       const st = fs.statSync(p)
-      return (st.uid === 0 || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000)))
+      return (rootUids.includes(st.uid) || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000)))
     }
     if (!owned(real)) return false
     const inside = (d: string) => d === home || d.startsWith(home + '/')
@@ -537,7 +561,7 @@ export async function runBrowser<T>(work: string, o: BrowserRun, body: (cdp: Cdp
   // the file trustedBrowser looks at is the file that runs: resolved once, checked, and run by that path
   let browser: string
   try { browser = fs.realpathSync(o.browser) } catch { throw new HtmlPdfError('unavailable', 'the browser is not installed') }
-  if (!trustedBrowser(browser)) throw new HtmlPdfError('unavailable', 'the browser is not in a folder only root or the server can change')
+  if (!trustedBrowser(browser, undefined, rootOwnerUids(browser))) throw new HtmlPdfError('unavailable', 'the browser is not in a folder only root or the server can change')
   const fonts = (o.fonts ?? []).filter((d) => { try { return fs.statSync(d).isDirectory() } catch { return false } })
   const home = browserHome(browser)
   // Chromium on macOS keeps its temporary files in the user's temp folder, which the isolation hides, unless

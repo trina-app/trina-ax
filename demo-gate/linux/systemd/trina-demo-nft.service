@@ -1,0 +1,11 @@
+[Unit]
+Description=Trina demo egress table (nft inet trina_demo) and its Turnstile addresses
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/trina-demo/bin/tdnft-load
+
+[Install]
+WantedBy=multi-user.target
