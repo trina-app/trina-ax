@@ -7,7 +7,7 @@
 import { which } from '../config'
 import { decodeStampResult, encodeStampRequest, imageSize, mmToPt, PDF_STAMP_MODE, ptToMm, STAMP_DEFAULT_MARGIN_MM } from '../files/pdf-stamp'
 import { officeWorkerWrite } from '../files/extract'
-import { changed, glyphShows, MM_PER_PT, parsePpm, pixelsOf, probePng, type PBox, type Pixels, type PdfTarget } from '../files/pdf-marks'
+import { MM_PER_PT, parsePpm, pixelsOf, probePng, type PBox, type PdfTarget } from '../files/pdf-marks'
 import { decodeMarksResult, encodeMarksRequest, PDF_MARKS_MODE, type MarkGlyph } from '../files/pdf-marks-worker'
 import { PDF_OUTPUT_MAX } from '../files/pdf-pages'
 import type { ToolCtx } from '../files/service'
@@ -31,7 +31,7 @@ const VISIBLE_SHARE = 0.9
 export interface PdfLanding { on: string; mm: number }
 export interface PdfPlan {
   page: number; position: { x_mm: number; y_mm: number }; width_mm: number
-  target: PdfTarget; xml: Uint8Array; before: Pixels; overview: Buffer[]; probe: PBox; mm: number
+  target: PdfTarget; xml: Uint8Array; before: Buffer; overview: Buffer[]; probe: PBox; mm: number
 }
 
 /** After a refused `at`, a picture on any PDF by coordinates in the same turn: refused. */
@@ -53,10 +53,16 @@ async function tool(c: ToolCtx, pdf: Uint8Array, name: 'pdftotext' | 'pdftoppm',
   return r.stdout
 }
 const textOf = (c: ToolCtx, pdf: Uint8Array) => tool(c, pdf, 'pdftotext', ['-bbox-layout', '-cropbox', '-enc', 'UTF-8', '-', '-'], TEXT_OUT_MAX)
-async function draw(c: ToolCtx, pdf: Uint8Array, page: number, w: number, h: number): Promise<Pixels> {
+async function draw(c: ToolCtx, pdf: Uint8Array, page: number, w: number, h: number): Promise<Buffer> {
   const n = String(page + 1)
-  const out = await tool(c, pdf, 'pdftoppm', ['-r', '150', '-f', n, '-l', n, '-cropbox', '-singlefile', '-'], Math.ceil(w * h) * 3 + 64)
-  try { return parsePpm(out) } catch { return refuse(c, 'this PDF\'s page could not be drawn') }
+  const out = await tool(c, pdf, 'pdftoppm', ['-r', '150', '-f', n, '-l', n, '-cropbox', '-singlefile', '-'], Math.ceil(w) * Math.ceil(h) * 3 + 64)
+  try { parsePpm(out) } catch { return refuse(c, 'this PDF\'s page could not be drawn') }
+  return out
+}
+/** two drawings of the page compared in the worker: what changed, and whether `glyphs` are what made the difference */
+async function compare(c: ToolCtx, a: Buffer, b: Buffer, glyphs?: MarkGlyph[]) {
+  const r = decodeMarksResult(await officeWorkerWrite(PDF_MARKS_MODE, encodeMarksRequest({ kind: 'diff', xmlLength: a.length, ...(glyphs ? { glyphs } : {}) }, a, b), c.signal))
+  return r.kind === 'diff' ? r : refuse(c, 'the page could not be compared')
 }
 /** every page drawn small, each page's picture on its own */
 async function overview(c: ToolCtx, pdf: Uint8Array, pixels: number, pages: number): Promise<Buffer[]> {
@@ -94,12 +100,17 @@ export async function planPdfAt(c: ToolCtx, rel: string, pdf: Uint8Array, pictur
   const small = found.pages.reduce((n, p) => n + Math.ceil((p.w * OVERVIEW_DPI) / 72 + 1) * Math.ceil((p.h * OVERVIEW_DPI) / 72 + 1), 0)
   if (!(full > 0) || full > PAGE_PIXELS_MAX) return refuse(c, 'this page is too large to check where a picture lands on it')
   if (found.pages.length > OVERVIEW_PAGES_MAX || small > OVERVIEW_PIXELS_MAX) return refuse(c, `this PDF has too many or too large pages (at most ${OVERVIEW_PAGES_MAX}) to check that nothing else changes`)
-  const before = await draw(c, pdf, t.page, Math.ceil(size.w * (150 / 72)) + 2, Math.ceil(size.h * (150 / 72)) + 2)
-  if (found.glyphs.some((g: MarkGlyph) => !glyphShows(before, g, g.small))) return refuse(c, `${t.on} does not show on page ${t.page + 1} (hidden, white, covered or cut off)`)
+  const W = Math.ceil(size.w * (150 / 72)) + 2, H = Math.ceil(size.h * (150 / 72)) + 2
+  const before = await draw(c, pdf, t.page, Math.max(W, H), Math.max(W, H))
+  const shape = parsePpm(before)
+  // the same page with the target's letters taken away: each letter's box must change, or something else is what shows there
+  // (a picture over the text, no opacity, a white stroke or spot colour)
+  const without = await draw(c, found.without!, t.page, shape.w + 2, shape.h + 2)
+  if (!(await compare(c, before, without, found.glyphs)).drawn) return refuse(c, `${t.on} does not show on page ${t.page + 1} (hidden, covered or drawn by something else)`)
   const width_mm = o.width_mm ?? SEAL_WIDTH_MM
   const iw = mmToPt(width_mm), ih = iw * (px.height / px.width)
   const cx = (t.aim.x0 + t.aim.x1) / 2, cy = (t.aim.y0 + t.aim.y1) / 2
-  const pageW = before.w * (72 / 150), pageH = before.h * (72 / 150)
+  const pageW = shape.w * (72 / 150), pageH = shape.h * (72 / 150)
   const u = Math.max(0, Math.min(cx - iw / 2, pageW - iw)), v = Math.max(0, Math.min(cy - ih / 2, pageH - ih))
   const position = { x_mm: ptToMm(u), y_mm: ptToMm(v) }
   // a solid picture of this size, drawn there first: it shows where a picture lands and how much of it can be seen, which a
@@ -107,8 +118,8 @@ export async function planPdfAt(c: ToolCtx, rel: string, pdf: Uint8Array, pictur
   const solid = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({ page: t.page + 1, position, width_mm, margin_mm: STAMP_DEFAULT_MARGIN_MM, image: 'png' }, pdf, probePng(px.width, px.height)), c.signal, PDF_OUTPUT_MAX)
   let probeFile: Uint8Array
   try { probeFile = decodeStampResult(solid).file } catch { return refuse(c, 'the place could not be checked') }
-  const seen = changed(before, await draw(c, probeFile, t.page, before.w + 2, before.h + 2))
-  if (!seen || seen.count < VISIBLE_SHARE * pixelsOf(iw, ih)) return refuse(c, `a picture at ${t.on} would not show there (something on the page covers or cuts it off)`)
+  const seen = await compare(c, before, await draw(c, probeFile, t.page, shape.w + 2, shape.h + 2))
+  if (!seen.box || seen.count < VISIBLE_SHARE * pixelsOf(iw, ih)) return refuse(c, `a picture at ${t.on} would not show there (something on the page covers or cuts it off)`)
   const off = Math.max(Math.abs((seen.box.x0 + seen.box.x1) / 2 - cx), Math.abs((seen.box.y0 + seen.box.y1) / 2 - cy)) * MM_PER_PT
   if (off > SEAL_TOLERANCE_MM) return refuse(c, `a picture at ${t.on} would land ${off.toFixed(1)} mm off it`)
   return { page: t.page, position, width_mm, target: t, xml, before, overview: await overview(c, pdf, small, found.pages.length), probe: seen.box, mm: Math.round(off * 10) / 10 }
@@ -121,8 +132,9 @@ export async function verifyPdfAt(c: ToolCtx, p: PdfPlan, saved: Uint8Array): Pr
   if (same.kind !== 'same' || !same.same) return refuse(c, 'the stamped PDF does not read as the original did')
   const now = await overview(c, saved, p.overview.reduce((n, b) => n + b.length, 0), p.overview.length)
   if (now.some((b, i) => i !== p.page && !b.equals(p.overview[i]!))) return refuse(c, 'another page of the PDF would change')
-  const drawn = changed(p.before, await draw(c, saved, p.page, p.before.w + 2, p.before.h + 2))
-  if (!drawn) return refuse(c, `the picture does not show at ${p.target.on} on the saved page`)
+  const shape = parsePpm(p.before)
+  const drawn = await compare(c, p.before, await draw(c, saved, p.page, shape.w + 2, shape.h + 2))
+  if (!drawn.box) return refuse(c, `the picture does not show at ${p.target.on} on the saved page`)
   const e = 1
   if (drawn.box.x0 < p.probe.x0 - e || drawn.box.y0 < p.probe.y0 - e || drawn.box.x1 > p.probe.x1 + e || drawn.box.y1 > p.probe.y1 + e) return refuse(c, 'the saved page changed outside the picture\'s place')
   return { on: p.target.on, mm: p.mm }

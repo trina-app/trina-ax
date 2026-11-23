@@ -40,7 +40,8 @@ export function sameWords(a: PPage[], b: PPage[]): boolean {
   })
 }
 
-const norm = (s: string) => s.normalize('NFKC')
+/** compatibility forms folded, but the circled seal stays itself: NFKC turns it into a plain hanja, which is no mark alone */
+export const norm = (s: string) => s.replace(/\u329E/g, '\uE29E').normalize('NFKC').replace(/\uE29E/g, '\u329E')
 const compact = (s: string) => s.replace(/[\s\p{Cf}]/gu, '')
 const shown = (s: string, max = 50) => { const t = s.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' '); return JSON.stringify(t.length > max ? `${t.slice(0, max)}…` : t) }
 const overlapY = (a: PBox, b: PBox) => Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0)
@@ -112,6 +113,8 @@ export interface PdfTarget {
   words: (PBox & { text: string })[]
   /** the text it lands on, for the result */
   on: string
+  /** the mark is part of a longer word (next to rules or punctuation): which letters of it, to be measured from what is drawn */
+  sub?: { word: PBox & { text: string }; from: number; to: number }
 }
 export type PdfResolve = { target: PdfTarget } | { ask: string }
 
@@ -141,23 +144,17 @@ function placeOf(pages: PPage[], h: Hit, hits: Hit[], label: string, mark: SignM
   const from = h.at + inCompact(mark.from), to = h.at + inCompact(mark.to)
   const first = h.map[from]!, last = h.map[to - 1]!
   const wordLen = (i: number) => compact(norm(h.band[i]!.text)).length
-  if (first.k !== 0 || last.k !== wordLen(last.w) - 1) return { ask: `the mark in ${shown(at)} is joined to other letters in the PDF's text, so its place cannot be measured. Ask the person where it goes` }
+  // a mark inside a longer word: only next to rules and punctuation ("____(seal),"), and measured from its drawn letters in the
+  // worker. Next to letters it may be part of another word, so it is refused
+  const whole = first.k === 0 && last.k === wordLen(last.w) - 1
+  const before0 = compact(norm(h.band[first.w]!.text)).slice(0, first.k), after0 = compact(norm(h.band[last.w]!.text)).slice(last.k + 1)
+  if (/[\p{L}\p{N}]/u.test(before0 + after0)) return { ask: `the mark in ${shown(at)} is joined to other letters in the PDF's text, so its place cannot be measured. Ask the person where it goes` }
   const labelWords = [...new Set(h.map.slice(h.at, h.at + compact(label).length).map((x) => x.w))].map((i) => h.band[i]!)
   const markWords = h.band.slice(first.w, last.w + 1)
-  // the name and its mark are one printed line for pdftotext too. Only inside a known mark may it break ("(sign or seal)" set
-  // with wide spaces), since those words cannot belong to two people
-  for (let i = 1; i < labelWords.length; i++) {
-    const a = labelWords[i - 1]!, b = labelWords[i]!
-    if (a.line !== b.line && !(markWords.includes(a) && markWords.includes(b))) return { ask: `${shown(at)} is not on one printed line of the PDF, so the name and the mark are not proved to belong together. Give the signer's name and its mark as they are on one line, or ask the person` }
-  }
-  // text turned upright or drawn backwards: its order on the page is not its reading order, so whose mark it is is not proved
-  // (a word's box is as tall as its font's whole height, so a short upright word of wide letters is taller than wide)
-  const turned = (w: PWord) => [...compact(w.text)].length >= 3 && w.y1 - w.y0 > 1.5 * (w.x1 - w.x0)
-  if ([...labelWords, ...markWords].some(turned)) return { ask: `${shown(at)} is on turned text, so whose mark it is cannot be proved. Ask the person where it goes` }
-  for (const id of new Set(labelWords.map((w) => w.line))) {
-    const drawn = pages[h.page]!.words.filter((w) => w.line === id)
-    if (drawn.some((w, i) => i > 0 && w.x0 < drawn[i - 1]!.x0 - 0.5)) return { ask: `${shown(at)} is on text drawn in another direction, so whose mark it is cannot be proved. Ask the person where it goes` }
-  }
+  // the word right before the mark is on the mark's printed line for pdftotext too. Elsewhere it may break a line at a wide
+  // space ("(sign or seal)", or a font with a full-width space), which the one-font-height limit of a run already bounds
+  const before = labelWords[labelWords.indexOf(markWords[0]!) - 1]
+  if (before && before.line !== markWords[0]!.line) return { ask: `${shown(at)} is not on one printed line of the PDF, so the name and the mark are not proved to belong together. Give the signer's name and its mark as they are on one line, or ask the person` }
   // another word over any of them: what shows there is not proved to be this text
   const others = pages[h.page]!.words.filter((w) => !labelWords.some((l) => l === w || (l.text === w.text && meet(l, w) > 0.8 * Math.min(area(l), area(w)))))
   if (others.some((w) => labelWords.some((l) => meet(l, w) > 0.15 * Math.min(area(l), area(w))))) return { ask: `other text overlaps ${shown(at)} on page ${h.page + 1}, so what shows there is not proved. Ask the person where it goes` }
@@ -176,8 +173,14 @@ function placeOf(pages: PPage[], h: Hit, hits: Hit[], label: string, mark: SignM
     const w = h.band[aw.w]!, t = compact(norm(w.text))
     const [x0, x1] = partX(w.x0, w.x1, t, aw.k, az.k + 1)
     aim = { x0, x1, y0: w.y0, y1: w.y1 }
+  } else if (!whole && first.w !== last.w) {
+    // "( seal )," in several words with a rule or comma stuck to its brackets: the words between the brackets are the mark
+    const inner = h.band.slice(first.w + 1, last.w)
+    if (!inner.length) return { ask: `the mark in ${shown(at)} is joined to other marks on the line, so its place cannot be measured. Ask the person where it goes` }
+    aim = union(inner)
   } else aim = union(h.band.slice(aw.w, az.w + 1))
-  return { target: { page: h.page, aim, words: labelWords, on: placedOn(label, mark) } }
+  const sub = !whole && first.w === last.w ? { word: h.band[first.w]!, from: aw.k, to: az.k + 1 } : undefined
+  return { target: { page: h.page, aim, words: labelWords, on: placedOn(label, mark), ...(sub ? { sub } : {}) } }
 }
 
 // ---------------------------------------------------------------- what the page really shows
@@ -202,30 +205,29 @@ export function parsePpm(b: Uint8Array): Pixels {
   return { w, h, rgb: b.subarray(p, p + w * h * 3) }
 }
 
-const gray = (i: Pixels, x: number, y: number) => { const o = (y * i.w + x) * 3; return (i.rgb[o]! * 3 + i.rgb[o + 1]! * 6 + i.rgb[o + 2]!) / 10 }
 const pxBox = (i: Pixels, b: PBox) => ({
   x0: Math.max(0, Math.floor(b.x0 * PX)), y0: Math.max(0, Math.floor(b.y0 * PX)),
   x1: Math.min(i.w, Math.ceil(b.x1 * PX)), y1: Math.min(i.h, Math.ceil(b.y1 * PX)),
 })
 
-/** One letter's box shows that letter: enough pixels stand apart from the colour most of it has, over enough of its height
- * (a rule crossing white text covers a few rows). `small`: a punctuation mark, which only has to show something. */
-export function glyphShows(i: Pixels, b: PBox, small: boolean): boolean {
-  const r = pxBox(i, b)
+/** Taking the letter away changes its box: enough pixels, over enough of its height. What is painted over it, or a letter that
+ * draws nothing however it was hidden (no opacity, a white stroke, a white spot colour), changes none. `small`: a punctuation
+ * mark, which only has to change something. */
+export function letterDrawn(withIt: Pixels, without: Pixels, b: PBox, small: boolean): boolean {
+  if (withIt.w !== without.w || withIt.h !== without.h) return false
+  const r = pxBox(withIt, b)
   if (r.x1 <= r.x0 || r.y1 <= r.y0) return false
-  const hist = new Uint32Array(52)
-  const total = (r.x1 - r.x0) * (r.y1 - r.y0)
-  for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) hist[Math.floor(gray(i, x, y) / 5)]!++
-  const back = hist.indexOf(Math.max(...hist)) * 5 + 2
   let ink = 0, rows = 0
   for (let y = r.y0; y < r.y1; y++) {
     let here = 0
-    for (let x = r.x0; x < r.x1; x++) if (Math.abs(gray(i, x, y) - back) > 48) here++
+    for (let x = r.x0, o = (y * withIt.w + x) * 3; x < r.x1; x++, o += 3) {
+      if (Math.abs(withIt.rgb[o]! - without.rgb[o]!) > 32 || Math.abs(withIt.rgb[o + 1]! - without.rgb[o + 1]!) > 32 || Math.abs(withIt.rgb[o + 2]! - without.rgb[o + 2]!) > 32) here++
+    }
     ink += here
     if (here) rows++
   }
   if (small) return ink > 0
-  return ink / total >= 0.05 && rows / (r.y1 - r.y0) >= 0.35
+  return ink / ((r.x1 - r.x0) * (r.y1 - r.y0)) >= 0.05 && rows / (r.y1 - r.y0) >= 0.35
 }
 
 /** The pixels that differ between two drawings of one page: their box (in points) and how many. */

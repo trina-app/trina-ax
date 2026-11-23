@@ -168,6 +168,20 @@ describe('stamp_pdf at: on the right mark', () => {
     expect(r.isError).toBe(false)
     onWord(r.out, 1, '(Seal)')
   })
+  t('a mark joined to a signing rule and a comma is measured from its drawn letters', async () => {
+    const r = await stamp(doc([T(100, 600, 'Agent ________(Seal), done')]), { at: '(Seal)' })
+    expect([r.isError, r.isError ? r.text : '']).toEqual([false, ''])
+    const w = lineBands(wordsOf(r.out)[0]!).flat().find((x) => x.text.includes('(Seal)'))!
+    const s = sealCentre(r.out, 1)
+    // the mark is the last 6 of the word's letters but one, right of the rule
+    expect(s.x).toBeGreaterThan((w.x0 + w.x1) / 2)
+    expect(s.x).toBeLessThan(w.x1)
+  })
+  t('a mark in spaced brackets with a rule and a comma stuck to them lands on the words inside', async () => {
+    const r = await stamp(doc([T(100, 600, 'Agent ________( Seal ), done')]), { at: '( Seal )' })
+    expect([r.isError, r.isError ? r.text : '']).toEqual([false, ''])
+    onWord(r.out, 1, 'Seal')
+  })
   t('two signers at slightly different heights keep their left-to-right order', async () => {
     const pdf = doc([T(80, 600, 'Kim (Seal)') + T(350, 600.6, 'Hong (Seal)')])
     const r = await stamp(pdf, { at: '(Seal)', occurrence: 1 })
@@ -221,9 +235,39 @@ describe('stamp_pdf at: refused, nothing saved', () => {
     await refused(doc(['/Span << /ActualText (Hong) >> BDC\n' + T(100, 600, 'Kims') + 'EMC\n' + T(132, 600, '(Seal)')]), { at: 'Hong (Seal)' }, 'ActualText')
     const stripes = Array.from({ length: 16 }, (_, i) => `${95 + i * 8} 590 3 30 re f\n`).join('')
     await refused(doc([stripes + T(100, 600, 'Hong (Seal)', '3 Tr')]), { at: 'Hong (Seal)' }, 'hidden text')
-    await refused(doc(['1 1 1 rg\n' + T(100, 600, 'Hong (Seal)') + '0 0 0 RG 1 w 90 604 m 260 604 l S\n']), { at: 'Hong (Seal)' }, 'white text')
+    await refused(doc(['1 1 1 rg\n' + T(100, 600, 'Hong (Seal)') + '0 0 0 RG 1 w 90 604 m 260 604 l S\n']), { at: 'Hong (Seal)' }, 'does not show')
     await refused(doc(['BT /F1 1 Tf 100 600 Td (Hong \\(Seal\\)) Tj ET\n']), { at: 'Hong (Seal)' }, 'too small')
     await refused(doc([T(100, 600, 'Hong (Seal)') + '1 1 1 rg 132 590 30 30 re f\n']), { at: 'Hong (Seal)' }, 'does not show')
+  })
+  t('hidden ways that are not a render mode: no opacity, a white stroke, a white spot colour, a picture over the text', async () => {
+    await refused(doc(['/G0 gs\n' + T(100, 600, 'Hong (Seal)')], { res: '/ExtGState << /G0 << /ca 0 /CA 0 >> >>' }), { at: 'Hong (Seal)' }, 'does not show')
+    await refused(doc(['1 1 1 RG 0.3 w\n' + T(100, 600, 'Hong (Seal)', '1 Tr')]), { at: 'Hong (Seal)' }, 'does not show')
+    await refused(doc(['/CS0 cs 0 scn\n' + T(100, 600, 'Hong (Seal)')], { res: '/ColorSpace << /CS0 [/Separation /White /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [1] /N 1 >>] >>' }), { at: 'Hong (Seal)' }, 'does not show')
+    // the text layer says Hong, and an opaque picture of other letters is what shows
+    const img = 'q 110 0 0 16 98 596 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\xff\xff\x00 EI Q\n'
+    await refused(doc([T(100, 600, 'Hong (Seal)') + img]), { at: 'Hong (Seal)' }, 'does not show')
+  })
+  t('replacement text that says what the letters say is fine, and a seal mark in a circle works', async () => {
+    const same = await stamp(doc(['/Span << /ActualText (Hong) >> BDC\n' + T(100, 600, 'Hong') + 'EMC\n' + T(132, 600, '(Seal)')]), { at: 'Hong (Seal)' })
+    expect(same.isError).toBe(false)
+    // (the circled seal: the repository's font has no glyph for it, so the word boxes are given here)
+    const words: PWord[] = [{ text: '담당', x0: 100, x1: 122, y0: 200, y1: 217, line: 1 }, { text: '오민수', x0: 134, x1: 167, y0: 200, y1: 217, line: 2 }, { text: '㊞', x0: 170, x1: 182, y0: 200, y1: 217, line: 2 }]
+    const got = resolvePdfMark([{ words }], '담당 오민수 ㊞', {})
+    expect('target' in got && got.target.aim.x0).toBe(170)
+  })
+  t('a worker that fails on the way counts as a refusal: coordinates are blocked after it too', async () => {
+    const r = await stamp(doc([T(100, 600, 'Hong (Seal)')]), { at: 'Hong (Seal)', width_mm: 900 })
+    expect(r.isError).toBe(true)
+    const xy = await r.call('stamp_pdf', { file_path: r.rel, image: 'users/alice/seal.png', position: { x_mm: 10, y_mm: 10 } })
+    expect(xy.isError).toBe(true)
+    expect(xy.text).toContain('by coordinates')
+  })
+  t('text drawn thousands of times at one spot is checked once, within the caps', async () => {
+    const many = Array.from({ length: 6000 }, () => '1 0 0 1 100 600 Tm (\\(Seal\\)) Tj').join(' ')
+    const t0 = performance.now()
+    const r = await stamp(doc([`BT /F1 12 Tf ${many} ET\n`]), { at: '(Seal)' })
+    expect(performance.now() - t0).toBeLessThan(30_000)
+    expect(typeof r.isError).toBe('boolean')
   })
   t('two different letters that read as one in a font\'s map are refused', async () => {
     const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 2 beginbfchar <48> <0048> <4C> <0048> endbfchar endcmap end end'

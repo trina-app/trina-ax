@@ -133,20 +133,28 @@ async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, sr
     throw new ToolError(`output is the original '${src.rel}'; to replace it (its old version stays in its history), read it in this chat first. Otherwise leave output out to save a new file next to it`)
   }
 
-  // `at`: the one proved place of the printed mark, or a refusal; a stamp by coordinates cannot step around that refusal
-  if (a.at !== undefined && a.position !== undefined) throw new ToolError('give at or position, not both; nothing was saved')
-  if (a.at === undefined && a.occurrence !== undefined) throw new ToolError('occurrence goes with at; nothing was saved')
-  if (a.at === undefined) assertNoStampAfterRefusal(c)
-  const planned = a.at !== undefined ? await planPdfAt(c, src.rel, pdf, picture, kind, { at: a.at, occurrence: a.occurrence, page: a.page, width_mm: a.width_mm }) : null
-  const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
-    page: planned ? planned.page + 1 : a.page ?? 'last', position: planned?.position ?? a.position ?? 'bottom-right', width_mm: planned?.width_mm ?? a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
-    margin_mm: a.margin_mm ?? STAMP_DEFAULT_MARGIN_MM, image: kind,
-  }, pdf, picture), c.signal, PDF_OUTPUT_MAX)
-  let r: ReturnType<typeof decodeStampResult>
-  try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
-  if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')
-  // what was saved is what was planned: the same text everywhere, the picture drawn in its place
-  const landed = planned ? await verifyPdfAt(c, planned, r.file) : undefined
+  // any failure on the way to a proved seal counts as a refused place (a worker that stopped too), so a stamp by coordinates
+  // cannot follow it in this answer; a stopped answer and a PDF not read yet say nothing about the place
+  const { r, landed } = await (async () => {
+    // `at`: the one proved place of the printed mark, or a refusal; a stamp by coordinates cannot step around that refusal
+    if (a.at !== undefined && a.position !== undefined) throw new ToolError('give at or position, not both; nothing was saved')
+    if (a.at === undefined && a.occurrence !== undefined) throw new ToolError('occurrence goes with at; nothing was saved')
+    if (a.at === undefined) assertNoStampAfterRefusal(c)
+    const planned = a.at !== undefined ? await planPdfAt(c, src.rel, pdf, picture, kind, { at: a.at, occurrence: a.occurrence, page: a.page, width_mm: a.width_mm }) : null
+    const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
+      page: planned ? planned.page + 1 : a.page ?? 'last', position: planned?.position ?? a.position ?? 'bottom-right', width_mm: planned?.width_mm ?? a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
+      margin_mm: a.margin_mm ?? STAMP_DEFAULT_MARGIN_MM, image: kind,
+    }, pdf, picture), c.signal, PDF_OUTPUT_MAX)
+    let r: ReturnType<typeof decodeStampResult>
+    try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
+    if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')
+    // what was saved is what was planned: the same text everywhere, the picture drawn in its place
+    const landed = planned ? await verifyPdfAt(c, planned, r.file) : undefined
+    return { r, landed }
+  })().catch((e: unknown) => {
+    if (a.at !== undefined && !c.signal?.aborted && !(e instanceof ToolError && e.code === 'not_read')) c.files.signRefused = true
+    throw e
+  })
   assertGuestOutput(ctx.db, c.user.id, r.file.length, out.rel)
 
   // the new file carries the PDF's and the image's bytes: asked like make_file's sources

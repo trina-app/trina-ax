@@ -425,7 +425,7 @@ const mul = (a: M, b: M): M => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * 
 const apply = (m: M, x: number, y: number) => ({ x: x * m[0] + y * m[2] + m[4], y: x * m[1] + y * m[3] + m[5] })
 const lin = (m: M, x: number, y: number) => ({ x: x * m[0] + y * m[2], y: x * m[1] + y * m[3] })
 
-interface TextState { ctm: M; tc: number; tw: number; tz: number; tl: number; font: string | null; fontRaw: string; size: number; tr: number; ts: number; /** the fill's lightness, 0 black to 1 white; null: not a plain colour */ fill: number | null }
+interface TextState { ctm: M; tc: number; tw: number; tz: number; tl: number; font: string | null; fontRaw: string; size: number; tr: number; ts: number }
 interface Glyph {
   code: number; bytes: string; letters: string
   /** the advance in text space (size, Tc, Tw), before horizontal scaling */
@@ -439,12 +439,29 @@ interface Glyph {
 /** one text operator. `group`: the operators drawn one after the other from one placed start (no Td, Tm, T* or BT
  * between them) share it: moving the first moves them all */
 /** a marked-content start (BDC) and where it is in the content; `actual`: its property list has /ActualText */
-interface Marked { start: number; end: number; actual: boolean }
+interface Marked { start: number; end: number; actual: boolean; /** its /ActualText, decoded (null: none, or not readable) */ actualText?: string | null }
 interface Show { start: number; end: number; op: string; group: number; marked: number[]; items: ({ n: number } | { glyphs: number[] })[]; st: TextState; aw?: number; ac?: number }
 
 /** a straight upright stroke or box edge the page draws (a table's column rule), in user space */
 interface Rule { x1: number; y1: number; x2: number; y2: number }
 export interface PageText { glyphs: Glyph[]; shows: Show[]; marks: Marked[]; images: boolean; forms: boolean; rules: Rule[]; unmapped: boolean; text: string }
+
+/** A marked-content property list's /ActualText: a hex or literal string, UTF-16 with its byte-order mark or single bytes */
+function actualTextOf(props: string): string | null {
+  const m = /\/ActualText\s*(?:<([0-9A-Fa-f\s]*)>|\(((?:\\[\s\S]|[^\\)])*)\))/.exec(props)
+  if (!m) return null
+  let bytes: number[]
+  if (m[1] !== undefined) {
+    const h = m[1].replace(/\s/g, '')
+    bytes = (h.length % 2 ? `${h}0` : h).match(/../g)?.map((x) => parseInt(x, 16)) ?? []
+  } else bytes = [...m[2]!.replace(/\\([0-7]{1,3}|[\s\S])/g, (_a, x: string) => (/^[0-7]/.test(x) ? String.fromCharCode(parseInt(x, 8)) : ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' } as Record<string, string>)[x] ?? x))].map((c) => c.charCodeAt(0))
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let out = ''
+    for (let i = 2; i + 1 < bytes.length; i += 2) out += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!)
+    return out
+  }
+  return String.fromCharCode(...bytes.slice(0, 4096))
+}
 
 function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): PageText {
   const fonts = new Map<string, FontInfo | null>()
@@ -472,7 +489,7 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
     // upright or level strokes only (a table's lines), at most RULES_MAX a page: a page of hatching is not a table
     if (rules.length < RULES_MAX && Math.hypot(b.x - a.x, b.y - a.y) > 2 && (Math.abs(b.x - a.x) < 0.5 || Math.abs(b.y - a.y) < 0.5)) rules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })
   }
-  let st: TextState = { ctm: ID, tc: 0, tw: 0, tz: 100, tl: 0, font: null, fontRaw: '', size: 0, tr: 0, ts: 0, fill: 0 }
+  let st: TextState = { ctm: ID, tc: 0, tw: 0, tz: 100, tl: 0, font: null, fontRaw: '', size: 0, tr: 0, ts: 0 }
   const stack: TextState[] = []
   let tm: M = ID, tlm: M = ID
   let group = 0
@@ -517,11 +534,6 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
       case 'Q': if (stack.length) st = stack.pop()!; break
       case 'cm': if (a.length >= 6) st.ctm = mul(a.slice(-6).map(n) as M, st.ctm); break
       case 'BT': tm = tlm = ID; group++; break
-      case 'g': st.fill = n(a[0]); break
-      case 'rg': st.fill = 0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]); break
-      case 'k': st.fill = (1 - n(a[3])) * (1 - (0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]))); break
-      case 'cs': st.fill = null; break
-      case 'sc': case 'scn': st.fill = a.length === 1 && typeof a[0] === 'number' ? a[0] : a.length === 3 && a.every((x) => typeof x === 'number') ? 0.3 * n(a[0]) + 0.59 * n(a[1]) + 0.11 * n(a[2]) : null; break
       case 'Tc': st.tc = n(a[0]); break
       case 'Tw': st.tw = n(a[0]); break
       case 'Tz': st.tz = n(a[0]); break
@@ -562,7 +574,7 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
       }
       case 'BDC': case 'BMC': {
         // only a BDC has properties; a BMC is kept on the stack (-1) so that EMC pops the right one
-        if (ins.op === 'BDC') open.push(marks.push({ start: ins.start, end: ins.end, actual: /\/ActualText\b/.test(content.slice(ins.start, ins.end)) }) - 1)
+        if (ins.op === 'BDC') open.push(marks.push({ start: ins.start, end: ins.end, actual: /\/ActualText\b/.test(content.slice(ins.start, ins.end)), actualText: actualTextOf(content.slice(ins.start, ins.end)) }) - 1)
         else open.push(-1)
         break
       }
@@ -635,10 +647,12 @@ export function findMatches(p: PageText, find: string, matchCase: boolean): numb
 
 /** One drawn letter for checking a signing place (files/pdf-marks-worker.ts): where it is in user space and how it is drawn. */
 export interface DrawnGlyph {
-  letters: string; code: number; font: unknown; mapped: boolean
+  letters: string; code: number; font: unknown; mapped: boolean; show: number
   x: number; y: number; dx: number; dy: number; hx: number; hy: number
-  /** text render mode; the fill's lightness (null: not a plain colour); inside marked content with /ActualText */
-  tr: number; fill: number | null; actual: boolean
+  /** text render mode */
+  tr: number
+  /** the innermost marked content with /ActualText around it: which one, and that text (null: unreadable) */
+  actual: { id: number; text: string | null } | null
 }
 /** The letters page content draws directly (not those inside a Form XObject). Null when its content cannot be decoded. */
 export function drawnGlyphs(doc: PDFDocument, pageIndex: number): DrawnGlyph[] | null {
@@ -648,8 +662,26 @@ export function drawnGlyphs(doc: PDFDocument, pageIndex: number): DrawnGlyph[] |
   const p = readPage(doc.context, resourcesOf(doc.context, page), content)
   return p.glyphs.map((g) => {
     const show = p.shows[g.show]!
-    return { letters: g.letters, code: g.code, font: g.font, mapped: !!g.font?.mapped, x: g.x, y: g.y, dx: g.dx, dy: g.dy, hx: g.hx, hy: g.hy, tr: show.st.tr, fill: show.st.fill, actual: show.marked.some((i) => p.marks[i]?.actual) }
+    const id = [...show.marked].reverse().find((i) => p.marks[i]?.actual)
+    return { letters: g.letters, code: g.code, font: g.font, mapped: !!g.font?.mapped, show: g.show, x: g.x, y: g.y, dx: g.dx, dy: g.dy, hx: g.hx, hy: g.hy, tr: show.st.tr, actual: id === undefined ? null : { id, text: p.marks[id]!.actualText ?? null } }
   })
+}
+
+/** The page's content with these text operators drawn invisibly (same advance, so nothing else moves), written into `doc`. */
+export function hideShows(doc: PDFDocument, pageIndex: number, shows: readonly number[]): boolean {
+  const page = doc.getPage(pageIndex)
+  const content = contentOf(doc.context, page)
+  if (content === null) return false
+  const p = readPage(doc.context, resourcesOf(doc.context, page), content)
+  let out = '', at = 0
+  for (const i of [...new Set(shows)].sort((a, b) => p.shows[a]!.start - p.shows[b]!.start)) {
+    const x = p.shows[i]!
+    out += `${content.slice(at, x.start)} 3 Tr ${content.slice(x.start, x.end)} ${x.st.tr} Tr `
+    at = x.end
+  }
+  out += content.slice(at)
+  page.node.set(K('Contents'), doc.context.obj([doc.context.register(doc.context.flateStream(Buffer.from(out, 'latin1')))]))
+  return true
 }
 
 /** a page's text as this tool reads it (for tests and messages) */
