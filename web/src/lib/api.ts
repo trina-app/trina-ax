@@ -183,13 +183,6 @@ export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal
   return readBounded(res, max, o)
 }
 
-/** A file of a chat shared with people (GET /api/chats/:id/files/:fileId, checked as whoever sees the chat now), at most
- * `max` bytes: a promo video's picture among the chat's own files (lib/frame-files.ts) */
-export async function fetchChatFileBlob(chatId: string, fileId: string, max: number, signal?: AbortSignal): Promise<Blob> {
-  const res = await api.call(API.chatFile, { params: { id: chatId, fileId }, query: {}, signal })
-  return readBounded(res, max)
-}
-
 /** This sign-in's media key (Me.session.mediaKey; App.tsx keeps it in step with the session), or null. */
 let mediaKey: string | null = null
 export function setMediaKey(k: string | null) {
