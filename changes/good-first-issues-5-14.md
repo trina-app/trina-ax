@@ -1,2 +1,0 @@
-- Desktop app: in the in-app browser, a screen reader now hears the number of new events with **Activity**, and each tab's **×** button names the tab it closes.
-- Phone app: on the setup and "Could not reach your team" screens, VoiceOver and TalkBack now announce **Try again** and **Change team address** as buttons, and **Continue** keeps its name while it connects.
