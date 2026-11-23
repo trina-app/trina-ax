@@ -10,11 +10,15 @@
 - **Rule:** Word `over` and edit_hwp's `at` (place over) go through one resolver, `server/src/files/sign-slots.ts`. A text
   that holds a printed sign mark means that mark; "(서명 또는 인)" aims at the seal word. A text with several marks is
   refused and lists them, unless `occurrence` picks one. A text with no mark works as before.
+- **Bound to its signer (review of #484):** the mark is matched with its own line by the text around it in its paragraph,
+  its section and its table row and column, never by counting: the renderer draws a floating table after the body text
+  that follows it, so a count put a seal on another signer. Text after the chosen mark, a sign-like token this tool does
+  not know, or a bare mark on a line with another place to sign is refused unless `occurrence` says which.
 - **No slot ids, no read note, no choice by a person's name.** Ids shift with fills and added rows, a note misses chat files
   and guests, and a name could put a seal on someone else's mark with no human check (independent plan review).
 - **What is checked, per format:**
-  - Hangul with a stored layout: the saved file is laid out again and the drawn picture is compared with the aim, 2 mm per
-    axis. A measured miss saves nothing. The result says "checked in the preview engine", never that Hangul was checked.
+  - Hangul with a stored layout: the saved file is laid out again, the same mark is found in it, and the drawn picture is
+    compared with that mark, 2 mm per axis. A mark that cannot be found again is "not checked". A measured miss saves nothing. The result says "checked in the preview engine", never that Hangul was checked.
   - Hangul with no stored layout: Hangul wraps by itself. A mark on the paragraph's first line, clear of its end, is placed
     and reported as not checked. A mark on a line that wraps is refused: in Hancom Docs such a seal landed about 17 mm off.
   - Word: servers have no layout engine and none is added. The picture is anchored on the mark's character, using the

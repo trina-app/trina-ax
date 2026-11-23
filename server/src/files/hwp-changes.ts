@@ -6,10 +6,10 @@
 import { ToolError } from '../policy/errors'
 import { cleanText, hwpxParagraphLines, isImageChange, type HwpChange, type HwpEditNote, type HwpImageChange, type LineEdit } from './hwpx-check'
 import {
-  HU_PER_PX, aimOf, labelX, partX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type HwpLayout, type HwpPictureNote, type ImagePlace,
+  HU_PER_PX, aimOf, labelX, partX, layoutLabelCells, layoutTextHits, placePicture, sanitizeImage, spotNote, PICTURE_LIMITS, type CleanImage, type AimMark, type HwpLayout, type LHit, type LLine, type HwpPictureNote, type ImagePlace,
   type PictureSpot,
 } from './hwp-picture'
-import { pickSignMark, placedOn } from './sign-slots'
+import { bareMarkAsk, pickSignMark, placedOn } from './sign-slots'
 
 export const HWP_CHANGE_LIMITS = {
   changes: 100,
@@ -249,6 +249,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       (c.at !== undefined ? 'give a longer text that is on one line, or put the picture into a table cell' : 'give the label as at instead'))
     /** the laid-out cell the place is in (-1: none) and the laid-out paragraph of the label's line */
     let cellIdx = -1, lineKey = ''
+    /** the line the place was found on, and the mark to find again on the saved file */
+    let atLine: LLine | null = null, aimMark: AimMark | undefined
     let p: P, page: number, target: { x: number; y: number; w: number; h: number }, where: string
     if (c.at !== undefined) {
       const label = c.at
@@ -263,6 +265,8 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       }
       const labelK = (signed.occurrence ?? 1) - 1
       const chosen = labelHits[labelK] ?? refuseChange(i, `${clip(label)} appears ${labelHits.length} time${labelHits.length > 1 ? 's' : ''}, so there is no occurrence ${labelK + 1}`)
+      const bare = bareMarkAsk(label, mark, chosen.p.text, c.occurrence)
+      if (bare) refuseChange(i, bare)
       // from here the place is the mark itself, so a whole line that wraps on the page still finds it
       const find = mark ? label.slice(mark.from, mark.to) : label
       const hits = mark ? this.textHits(find, i) : labelHits
@@ -270,10 +274,16 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       const h = hits[k] ?? refuseChange(i, `${clip(find)} could not be found in ${clip(label)}; give the text of the mark`)
       const laid = layoutTextHits(layout, find)
       if (laid.length !== hits.length) unmatched(clip(find), hits.length, laid.length)
-      const L = laid[k]!
+      // paired by what surrounds it in its own paragraph, never by counting: the renderer's order is not the document's
+      // (a floating table is drawn after the body text that follows it)
+      const L = this.layoutHit(h, find, hits, laid, layout) ?? refuseChange(i, `${clip(find)} could not be matched with its own line on the page, so the picture could go on another signer's mark; give the signer's name and its mark, or put the picture into a table cell`)
       const pg = layout.pages[L.page]!, line = pg.lines[L.line]!
-      if (!strip(h.p.text).includes(strip(line.text))) refuseChange(i, `${clip(find)} could not be matched with its line on page ${L.page + 1} (${clip(line.text, 60)}); give a longer text`)
+      atLine = line
       const [m0, m1] = labelX(line, L.at, [...find].length)
+      aimMark = {
+        text: find, line: line.text, at: L.at, nth: pg.lines.filter((l) => l.text === line.text).indexOf(line),
+        from: mark ? mark.aimFrom - mark.from : 0, to: mark ? mark.aimTo - mark.from : find.length,
+      }
       // a "signature or seal" mark: the seal word only
       const [x0, x1] = mark ? partX(m0, m1, find, mark.aimFrom - mark.from, mark.aimTo - mark.from) : [m0, m1]
       target = { x: x0, y: line.y, w: Math.max(0, x1 - x0), h: line.h }
@@ -347,16 +357,47 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     // first line, clear of the line's end, has a place that holds; anything else is refused rather than placed by a guess
     if (c.at !== undefined && !cached) {
       const lines = pg.lines.filter((l) => l.para === lineKey)
-      const line = lines.find((l) => l.y <= target.y + 0.5 && l.y + l.h >= target.y - 0.5)
-      if (lines[0] !== line || target.x + target.w > line!.x + line!.w - line!.h * 2) refuseChange(i, `${clip(c.at, 40)} is on a line that wraps in a document with no stored layout, so Hangul may put it elsewhere and the picture would miss it. Nothing was placed; tell the person, or open the file in Hangul, save it there and try again, or put the picture into a table cell`)
+      const line = atLine!
+      if (lines[0] !== line || target.x + target.w > line.x + line.w - line.h * 2) refuseChange(i, `${clip(c.at, 40)} is on a line that wraps in a document with no stored layout, so Hangul may put it elsewhere and the picture would miss it. Nothing was placed; tell the person, or open the file in Hangul, save it there and try again, or put the picture into a table cell`)
     }
     const place: ImagePlace = c.cell ? 'cell' : c.place ?? 'over'
     const spot = placePicture(layout.pages[page]!, page, target, place, { width_mm: c.width_mm, height_mm: c.height_mm }, img.height / img.width)
     if (fromPara !== undefined) spot.fromPara = spot.box.y - Math.round(fromPara * HU_PER_PX)
     const part = this.pictureAt(p, spot, img, c.layer ?? (inTable ? 'front' : 'behind'), i)
     // over a text: what the landing is checked against; only an anchor the renderer draws as Hangul does can be a miss
-    const aim = place === 'over' ? { aim: aimOf(target, cached && fromPara === undefined && !p.cell) } : {}
+    const aim = place === 'over' ? { aim: aimOf(target, cached && fromPara === undefined && !p.cell, aimMark) } : {}
     this.pictures.push({ ...spotNote(i, spot, where, part), ...aim })
+  }
+
+  /** The place on the pages of one found text: the laid-out hits whose line reads as the text around it in its own
+   * paragraph, in the same section, in the body or in the same row and column of a table. Several left (the same words
+   * more than once): the body paragraph's own index, or the table whose text holds the line. Null when it stays unclear. */
+  private layoutHit(h: { p: P; at: number }, find: string, hits: { p: P; at: number }[], laid: LHit[], layout: HwpLayout): LHit | null {
+    const fits = (x: { p: P; at: number }, l: LHit) => {
+      const pg = layout.pages[l.page]!, line = pg.lines[l.line]!, chars = [...line.text], n = [...find].length
+      if (pg.section !== x.p.sec) return false
+      if (x.p.cell ? line.cell < 0 || pg.cells[line.cell]!.row !== x.p.cell.row || pg.cells[line.cell]!.col !== x.p.cell.col : line.cell >= 0) return false
+      return strip(x.p.text.slice(0, x.at)).endsWith(strip(chars.slice(0, l.at).join(''))) && strip(x.p.text.slice(x.at + find.length)).startsWith(strip(chars.slice(l.at + n).join('')))
+    }
+    const mine = laid.filter((l) => fits(h, l))
+    if (mine.length <= 1) return mine[0] ?? null
+    const pi = (l: LHit) => Number(layout.pages[l.page]!.lines[l.line]!.para.split(':')[1])
+    if (!h.p.cell) {
+      const own = mine.filter((l) => pi(l) === this.topIndex(h.p))
+      if (own.length) return own.length === 1 ? own[0]! : null
+      const twins = hits.filter((x) => !x.p.cell && mine.every((l) => fits(x, l)))
+      return twins.length === mine.length ? mine[twins.indexOf(h)] ?? null : null
+    }
+    const cell = h.p.cell as C
+    const own = mine.filter((l) => pi(l) === cell.paras.indexOf(h.p))
+    const left = own.length ? own : mine
+    if (left.length === 1) return left[0]!
+    const text = strip(cell.table.cells.flatMap((x) => x.paras.map((q) => q.text)).join(''))
+    const inTable = left.filter((l) => {
+      const pg = layout.pages[l.page]!, t = pg.cells[pg.lines[l.line]!.cell]!.table
+      return pg.lines.filter((x) => x.cell >= 0 && pg.cells[x.cell]!.table === t).every((x) => text.includes(strip(x.text)))
+    })
+    return inTable.length === 1 ? inTable[0]! : null
   }
 
   /** refuses a fill of p when another change already changes its text */

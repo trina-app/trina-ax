@@ -341,26 +341,38 @@ export function placePicture(page: LPage, pageIndex: number, target: { x: number
   return { page: pageIndex, box: { x: hu(x), y: hu(y), w: Math.max(1, hu(w)), h: Math.max(1, hu(h)) } }
 }
 
-export const aimOf = (t: { x: number; y: number; w: number; h: number }, exact: boolean) => ({ xMm: round1((t.x + t.w / 2) * MM_PER_PX), yMm: round1((t.y + t.h / 2) * MM_PER_PX), exact })
+/** The same mark, to find again on the saved file's page: its text, the whole line it is on, where in that line (code
+ * points), which of the page's lines with that text, and the part of it the seal is centred on (string indexes). */
+export interface AimMark { text: string; line: string; at: number; nth: number; from: number; to: number }
+export const aimOf = (t: { x: number; y: number; w: number; h: number }, exact: boolean, mark?: AimMark) => ({ xMm: round1((t.x + t.w / 2) * MM_PER_PX), yMm: round1((t.y + t.h / 2) * MM_PER_PX), exact, ...(mark ? { mark } : {}) })
 
 /** Where a picture really landed, from the layout of the saved file. */
 export type HwpLanding = { change: number; state: 'checked'; mm: number } | { change: number; state: 'missed'; mm: number | null } | { change: number; state: 'not-checked' }
-/** Each aimed picture against the pictures that are new in `after`: the nearest on its page, its centre to the aim, the
- * larger of the two axes. An anchor the renderer does not draw as Hangul does is reported as not checked, never as a miss. */
+/** Each aimed picture on the saved file: the same mark found again in `after` (same line text, same place in it, same
+ * one of the lines with that text) and the new picture nearest to it, the larger of the two axes between their centres.
+ * A mark that cannot be found again, or an anchor the renderer does not draw as Hangul does, is not checked: never a pass
+ * and never a miss. A new picture only on another page is a miss. */
 export function landings(before: HwpLayout, after: HwpLayout, notes: readonly HwpPictureNote[], toleranceMm: number): HwpLanding[] {
   const same = (a: { x: number; y: number; w: number; h: number }, b: typeof a) => Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5 && Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5
   return notes.flatMap((n): HwpLanding[] => {
     if (!n.aim) return []
-    if (!n.aim.exact) return [{ change: n.change, state: 'not-checked' }]
+    const m = n.aim.mark
+    if (!n.aim.exact || !m) return [{ change: n.change, state: 'not-checked' }]
+    const page = after.pages[n.page - 1]
     const old = before.pages[n.page - 1]?.images ?? []
-    const fresh = (after.pages[n.page - 1]?.images ?? []).filter((b) => !old.some((o) => same(o, b)))
-    const off = fresh.map((b) => Math.max(Math.abs((b.x + b.w / 2) * MM_PER_PX - n.aim!.xMm), Math.abs((b.y + b.h / 2) * MM_PER_PX - n.aim!.yMm)))
-    if (!off.length) {
-      // on another page it is a miss; drawn nowhere, the renderer shows nothing to measure
+    const fresh = (page?.images ?? []).filter((b) => !old.some((o) => same(o, b)))
+    if (!fresh.length) {
       const elsewhere = after.pages.some((pg, i) => i !== n.page - 1 && (pg.images ?? []).some((b) => !(before.pages[i]?.images ?? []).some((o) => same(o, b))))
       return [elsewhere ? { change: n.change, state: 'missed', mm: null } : { change: n.change, state: 'not-checked' }]
     }
-    const mm = round1(Math.min(...off))
+    const twins = (page?.lines ?? []).filter((l) => l.text === m.line)
+    const was = (before.pages[n.page - 1]?.lines ?? []).filter((l) => l.text === m.line)
+    const line = twins.length === was.length ? twins[m.nth] : undefined
+    if (!line || [...line.text].slice(m.at, m.at + [...m.text].length).join('') !== m.text) return [{ change: n.change, state: 'not-checked' }]
+    const [a, b] = labelX(line, m.at, [...m.text].length)
+    const [x0, x1] = partX(a, b, m.text, m.from, m.to)
+    const cx = (x0 + x1) / 2, cy = line.y + line.h / 2
+    const mm = round1(Math.min(...fresh.map((f) => Math.max(Math.abs(f.x + f.w / 2 - cx), Math.abs(f.y + f.h / 2 - cy)) * MM_PER_PX)))
     return [mm <= toleranceMm ? { change: n.change, state: 'checked', mm } : { change: n.change, state: 'missed', mm }]
   })
 }
@@ -370,7 +382,7 @@ export interface HwpPictureNote {
   change: number; page: number; xMm: number; yMm: number; widthMm: number; heightMm: number; where: string; part: string; fromParagraph?: boolean
   /** a picture over a text: the centre of what it is aimed at, in mm on the page; `exact`: the renderer draws this
    * anchor where Hangul does (a stored layout and a body paragraph), so a measured miss is a real one */
-  aim?: { xMm: number; yMm: number; exact: boolean }
+  aim?: { xMm: number; yMm: number; exact: boolean; mark?: AimMark }
 }
 export const spotNote = (change: number, s: PictureSpot, where: string, part: string): HwpPictureNote => ({
   change, page: s.page + 1, xMm: round1(s.box.x / HU_PER_MM), yMm: round1(s.box.y / HU_PER_MM), widthMm: round1(s.box.w / HU_PER_MM), heightMm: round1(s.box.h / HU_PER_MM), where, part,

@@ -22,7 +22,7 @@ import {
   type XNode, xmlTree,
 } from './office-edit'
 import { imageInfo } from './pptx-edit'
-import { pickSignMark, placedOn } from './sign-slots'
+import { bareMarkAsk, pickSignMark, placedOn } from './sign-slots'
 
 export type DocxChange =
   | { find: string; replace: string; occurrence?: number; all?: boolean }
@@ -132,6 +132,13 @@ export function pictureSize(w: number, h: number, o: { width_mm?: number; height
   else { W = PICTURE_DEFAULT_MM; H = (W * h) / w; if (H > PICTURE_DEFAULT_MM) { H = PICTURE_DEFAULT_MM; W = (H * w) / h } }
   if (W > PICTURE_MM.max * 2 || H > PICTURE_MM.max * 2) refuse(`${where}: with its shape the picture would be ${Math.round(W)} x ${Math.round(H)} mm; give a smaller size`)
   return { cx: Math.max(1, Math.round(W * EMU_MM)), cy: Math.max(1, Math.round(H * EMU_MM)) }
+}
+
+/** the run is hidden text: w:vanish on it, unless its value turns it off */
+function hiddenRun(run: XNode | null): boolean {
+  const rPr = run ? kid(run, 'w:rPr') : null
+  const v = rPr ? kid(rPr, 'w:vanish') : null
+  return !!v && !['0', 'false', 'off'].includes((attrOf(v.head, 'w:val') ?? '').toLowerCase())
 }
 
 /** The run's font size in points (w:sz is in half points), or `fallback` (the document's default) */
@@ -413,10 +420,13 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       if (x.over !== undefined) {
         // behind the text, centred on the mark (or the label without one): anchored at its first character
         const mark = signed?.mark ?? null
+        const bare = bareMarkAsk(label, mark, hit.para.text, x.occurrence)
+        if (bare) refuse(`${where}: ${bare}`)
         const aimAt = hit.at + (mark?.aimFrom ?? 0)
         const aim = mark ? label.slice(mark.aimFrom, mark.aimTo) : label
         const atPiece = pieceAt(hit.para, aimAt)
-        if (atPiece?.run && kid(atPiece.run, 'w:rPr') && kid(kid(atPiece.run, 'w:rPr')!, 'w:vanish')) refuse(`${where}: that mark is hidden text, which nobody sees on the page; give a mark that shows`)
+        const markFrom = hit.at + (mark?.from ?? 0), markTo = hit.at + (mark?.to ?? label.length)
+        if (hit.para.pieces.some((q) => q.at < markTo && q.at + q.text.length > markFrom && hiddenRun(q.run))) refuse(`${where}: that mark is hidden text, which nobody sees on the page; give a mark that shows`)
         const d = picture(i, x)
         const pt = runPt(atPiece?.run ?? null, defaultPt)
         d.float = { dx: Math.round(textWidthEmu(aim, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy, hit.para) }

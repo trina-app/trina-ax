@@ -16,9 +16,10 @@ import { labelX, landings, layoutTextHits, partX, sanitizeImage, type HwpLayout,
 import { editHwpx } from '../../server/src/files/hwpx-edit'
 import type { HwpChange } from '../../server/src/files/hwpx-check'
 import { frame, officeEditRequest, unframe, type EditReport } from '../../server/src/files/office-edit'
-import { pickSignMark, placedOn, SEAL_TOLERANCE_MM, signMarks } from '../../server/src/files/sign-slots'
+import { bareMarkAsk, pickSignMark, placedOn, SEAL_TOLERANCE_MM, signMarks } from '../../server/src/files/sign-slots'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
-import { hwpxDoc, para as hwpxPara } from '../lib/hwpx'
+import { hwpDoc, para as hwpPara, sectionDef, table as hwpTable } from '../lib/hwp'
+import { hwpxDoc, para as hwpxPara, table as hwpxTable } from '../lib/hwpx'
 
 setDefaultTimeout(60_000)
 const FIX = path.join(import.meta.dir, '../fixtures/hwp')
@@ -30,8 +31,25 @@ describe('the sign marks in a text', () => {
   test('every printed form of a mark, with spacing and full-width brackets', () => {
     for (const m of ['(인)', '( 인 )', '(印)', '(서명)', '(서 명)', '(날인)', '(날 인)', '(서명 또는 인)', '(서명또는인)', '(서명 또는 날인)', '(Seal)', '(SEAL)', '(Signature)', '(L.S.)', '(L. S.)', '（인）']) expect(on(`이름 ${m} 끝`)).toEqual([m])
   })
+  test('the other printed forms: circled seal, joined words, square brackets, company seal', () => {
+    for (const m of ['㊞', '(서명/날인)', '(서명·날인)', '(인 또는 서명)', '(서명 날인)', '(직인)', '[인]', '[서명]', '(도장)', '(Signature or Seal)']) expect(on(`이름 ${m} 끝`)).toEqual([m])
+    for (const [m, w] of [['(인 또는 서명)', '인'], ['(서명/날인)', '날인'], ['(서명 날인)', '날인'], ['(서명·날인)', '날인']] as const) {
+      const x = signMarks(m)[0]!
+      expect(m.slice(x.aimFrom, x.aimTo)).toBe(w)
+    }
+  })
   test('words in brackets that are not marks, and text with none', () => {
-    for (const s of ['(인사팀)', '(주식회사)', '(LS)', '본인 확인', '신청인: 김가나']) expect(on(s)).toEqual([])
+    for (const s of ['(인사팀)', '(주식회사)', '(LS)', '(개인)', '(확인)', '(본인)', '(대리인)', '본인 확인', '개인 정보', '신청인: 김가나']) expect(on(s)).toEqual([])
+  })
+  test('text after the chosen mark, or a sign-like token nobody knows, is never passed over', () => {
+    expect('ask' in pickSignMark('(인)   을: 홍길동', undefined, 1)).toBe(true)
+    expect('ask' in pickSignMark('갑 ㊞  을 ㊞', undefined, 1)).toBe(true)
+    expect('ask' in pickSignMark('갑: 김철수 (인)  을: 홍길동 (서명란)', undefined, 1)).toBe(true)
+    expect('mark' in pickSignMark('을: 홍길동 (인).', undefined, 1)).toBe(true)
+    expect(pickSignMark('(서명란)', undefined, 1)).toEqual({ mark: null, occurrence: undefined })
+    expect(bareMarkAsk('(인)', signMarks('(인)')[0]!, '갑: 김철수 (인)   을: 홍길동 ㊞', undefined)).toContain('2 places')
+    expect(bareMarkAsk('(인)', signMarks('(인)')[0]!, '갑: 김철수 (인)   을: 홍길동 ㊞', 1)).toBeNull()
+    expect(bareMarkAsk('(인)', signMarks('(인)')[0]!, '신청인: 김가나 (인)', undefined)).toBeNull()
   })
   test('a signature line counts only where no bracketed mark is there', () => {
     expect(on('성명: ______')).toEqual(['______'])
@@ -78,6 +96,17 @@ function wForm(body: string): Uint8Array {
     'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document ${W}><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`,
   }
   return writeZip(Object.entries(parts).map(([name, v]) => ({ name, data: new TextEncoder().encode(v) })))
+}
+/** the same form with a page header holding `head` */
+function wFormWithHeader(body: string, head: string): Uint8Array {
+  const parts = readZip(wForm(body)).map((e) => ({ name: e.name, data: e.data }))
+  const text = (n: string) => new TextDecoder().decode(parts.find((e) => e.name === n)!.data)
+  const put = (n: string, v: string) => { parts.find((e) => e.name === n)!.data = new TextEncoder().encode(v) }
+  put('[Content_Types].xml', text('[Content_Types].xml').replace('</Types>', '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>'))
+  put('word/document.xml', text('word/document.xml').replace('<w:document ', '<w:document xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ').replace('<w:sectPr>', '<w:sectPr><w:headerReference w:type="default" r:id="rId9"/>'))
+  parts.push({ name: 'word/_rels/document.xml.rels', data: new TextEncoder().encode('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>') })
+  parts.push({ name: 'word/header1.xml', data: new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8"?><w:hdr ${W}>${wPara(head)}</w:hdr>`) })
+  return writeZip(parts)
 }
 const redPng = () => {
   const n = 60, raw = Buffer.alloc((n * 3 + 1) * n)
@@ -146,6 +175,31 @@ describe('Word: the seal is tied to the mark', () => {
     const exact = y('<w:pPr><w:spacing w:line="600" w:lineRule="exact"/></w:pPr>'), plain = y('')
     expect(exact - plain).toBe(Math.round((30 * 0.8 - 11 * 0.3) * 12700) - Math.round(((11 * 1.2) / 2) * 12700))
   })
+  test('text after the mark names another signer: refused', () => {
+    expect(() => stampWord(wForm(wPara('갑: 김철수 (인)   을: 홍길동 ㊞')), [pic('(인)   을: 홍길동')])).toThrow('after its sign mark')
+    expect(() => stampWord(wForm(wPara('갑 ㊞  을 ㊞')), [pic('갑 ㊞  을 ㊞')])).toThrow('2 sign marks')
+    expect(() => stampWord(wForm(wPara('갑: 김철수 (인)   을: 홍길동 ㊞')), [pic('(인)')])).toThrow('2 places')
+  })
+  test('a mark split over runs and styles is found and anchored at its start', () => {
+    const split = '<w:p><w:r><w:t xml:space="preserve">신청인 김가나 </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>(</w:t></w:r><w:r><w:rPr><w:sz w:val="28"/></w:rPr><w:t>인</w:t></w:r><w:r><w:t>)</w:t></w:r></w:p>'
+    const xml = docXml(stampWord(wForm(split), [pic('신청인 김가나 (인)')]).file)
+    expect(xml.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '@').replace(/<[^>]+>/g, '')).toBe('신청인 김가나 @(인)')
+  })
+  test('hidden text: w:vanish counts, w:vanish off is visible, and part of a split mark hidden is refused', () => {
+    const v = (a: string) => `<w:p><w:r><w:t xml:space="preserve">이름 </w:t></w:r><w:r><w:rPr><w:vanish${a}/></w:rPr><w:t>(인)</w:t></w:r></w:p>`
+    for (const off of [' w:val="0"', ' w:val="false"', ' w:val="off"']) expect(docXml(stampWord(wForm(v(off)), [pic('(인)')]).file)).toContain('<wp:anchor')
+    expect(() => stampWord(wForm(v(' w:val="1"')), [pic('(인)')])).toThrow('hidden')
+    const part = '<w:p><w:r><w:t>(</w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>인</w:t></w:r><w:r><w:t>)</w:t></w:r></w:p>'
+    expect(() => stampWord(wForm(part), [pic('(인)')])).toThrow('hidden')
+  })
+  test('a mark in a page header or footer is not a place: only the body counts', () => {
+    const f = wFormWithHeader(wPara('본문만 있음'), '머리글 (인)')
+    expect(() => stampWord(f, [pic('(인)')])).toThrow('of the body')
+    const both = wFormWithHeader(wPara('신청인 김가나 (인)'), '신청인 김가나 (인)')
+    const r = stampWord(both, [pic('(인)')])
+    expect(anchoredOn(docXml(r.file))).toBe('(인)')
+    expect(new TextDecoder().decode(readZip(r.file).find((e) => e.name === 'word/header1.xml')!.data)).not.toContain('w:drawing')
+  })
   test('a hidden mark is refused; no mark: centred on the label as before', () => {
     const hidden = '<w:p><w:r><w:t xml:space="preserve">이름 </w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>(인)</w:t></w:r></w:p>'
     expect(() => stampWord(wForm(hidden), [pic('(인)')])).toThrow('hidden')
@@ -186,6 +240,57 @@ describe('Word: the seal is tied to the mark', () => {
 })
 
 // ---------------------------------------------------------------- Hangul
+// The renderer's order and line boxes, set by hand: what real files show only with a floating table or tight line spacing.
+describe('Hangul: the mark is paired by its own paragraph, not by counting', () => {
+  const clean = () => sanitizeImage(SEAL, 'seal.png')
+  const box = { w: 793.7, h: 1122.5, section: 0, continued: [] as number[] }
+  const ln = (text: string, y: number, para: string, cell = -1, h = 13.3) => ({ x: 113.4, y, w: 566.9, h, text, runs: [{ x: 113.4, w: text.length * 13.3, text }], para, cell })
+  const edit = (ext: 'hwp' | 'hwpx', doc: Uint8Array, ch: HwpChange[], x: { layout: HwpLayout; images: Map<number, ReturnType<typeof clean>> }) => (ext === 'hwp' ? editHwp(doc, ch, x) : editHwpx(doc, ch, x))
+  const doc = (ext: 'hwp' | 'hwpx', cache: boolean) => ext === 'hwpx'
+    ? hwpxDoc([hwpxPara('머리말', { cache, vert: 0 }) + hwpxTable([[{ text: '갑', width: 8000 }, { text: '김철수 (인)', width: 30000 }]], { cache }) + hwpxPara('을: 홍길동 (인)', { cache, vert: 6000 }) + hwpxPara('끝', { cache, vert: 8000 })])
+    : hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]], { lines: cache ? 1 : 0 }), hwpPara('머리말', { lines: cache ? 1 : 0 }), hwpTable([[{ text: '갑', width: 8000 }, { text: '김철수 (인)', width: 30000 }]]), hwpPara('을: 홍길동 (인)', { lines: cache ? 1 : 0 }), hwpPara('끝', { lines: cache ? 1 : 0, last: true })])])
+  /** the body drawn first, then the floating table: the opposite of the document's order */
+  const floating = (bodyPara: number): HwpLayout => ({ pages: [{
+    ...box, tables: [{ x: 113, y: 640, w: 500, h: 20 }],
+    cells: [{ table: 1, row: 0, col: 0, x: 113, y: 640, w: 100, h: 20 }, { table: 1, row: 0, col: 1, x: 213, y: 640, w: 400, h: 20 }],
+    starts: [0, 1, 2, 3, 4].map((para) => ({ para, table: para === bodyPara - 1, preview: '' })),
+    lines: [ln('머리말', 120, '0:1'), ln('을: 홍길동 (인)', 400, `0:${bodyPara}`), ln('끝', 420, `0:${bodyPara + 1}`), ln('갑', 642, '1:0', 0), ln('김철수 (인)', 642, '2:0', 1)],
+  }] })
+  for (const ext of ['hwp', 'hwpx'] as const) {
+    const bodyPara = ext === 'hwp' ? 3 : 2
+    test(`.${ext}: a floating table's mark is not taken for the body line's`, () => {
+      const r = edit(ext, doc(ext, true), [{ image: 'seal.png', at: '을: 홍길동 (인)' }], { layout: floating(bodyPara), images: new Map([[0, clean()]]) })
+      const y = r.report.pictures![0]!.yMm + r.report.pictures![0]!.heightMm / 2
+      expect(Math.abs(y - (400 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
+    test(`.${ext}: and the table's own mark lands in the table`, () => {
+      const r = edit(ext, doc(ext, true), [{ image: 'seal.png', at: '김철수 (인)' }], { layout: floating(bodyPara), images: new Map([[0, clean()]]) })
+      const y = r.report.pictures![0]!.yMm + r.report.pictures![0]!.heightMm / 2
+      expect(Math.abs(y - (642 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
+    test(`.${ext}: a mark whose line reads differently from its paragraph is refused`, () => {
+      const layout = floating(bodyPara)
+      layout.pages[0]!.lines[1] = ln('다른 사람 (인)', 400, `0:${bodyPara}`)
+      expect(() => edit(ext, doc(ext, true), [{ image: 'seal.png', at: '을: 홍길동 (인)' }], { layout, images: new Map([[0, clean()]]) })).toThrow('its own line')
+    })
+    test(`.${ext}: a row repeated on the page draws the mark twice: refused`, () => {
+      const layout = floating(bodyPara)
+      layout.pages[0]!.lines.push(ln('김철수 (인)', 700, '3:0', 1))
+      expect(() => edit(ext, doc(ext, true), [{ image: 'seal.png', at: '김철수 (인)' }], { layout, images: new Map([[0, clean()]]) })).toThrow()
+    })
+    for (const spacing of [1.05, 1, 0.95, 0.9, 0.8]) test(`.${ext}: no stored layout, a mark on the second line at ${spacing * 100}% spacing is refused`, () => {
+      const text = '을: 홍길동 신청합니다 (인)'
+      const d = ext === 'hwpx'
+        ? hwpxDoc([hwpxPara(text, { cache: false }) + hwpxPara('끝', { cache: false })])
+        : hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]], { lines: 0 }), hwpPara(text, { lines: 0 }), hwpPara('끝', { lines: 0, last: true })])])
+      const pi = ext === 'hwp' ? 1 : 0
+      const layout: HwpLayout = { pages: [{ ...box, tables: [], cells: [], starts: [{ para: pi, table: false, preview: '' }, { para: pi + 1, table: false, preview: '' }],
+        lines: [ln('을: 홍길동', 200, `0:${pi}`), ln('신청합니다 (인)', 200 + 13.3 * spacing, `0:${pi}`), ln('끝', 240, `0:${pi + 1}`)] }] }
+      expect(() => edit(ext, d, [{ image: 'seal.png', at: '(인)' }], { layout, images: new Map([[0, clean()]]) })).toThrow('wraps')
+    })
+  }
+})
+
 const RHWP = fs.existsSync(localHwpAssets().bin)
 if (!RHWP) test('HWP Preview renderer not in this checkout: Hangul corpus skipped', () => { console.log(`skipped: no ${localHwpAssets().bin}`) })
 else describe('Hangul: the drawn seal is on the mark', () => {
@@ -230,33 +335,47 @@ else describe('Hangul: the drawn seal is on the mark', () => {
     const img = (pg.images ?? []).find((b) => !old.some((o) => Math.abs(o.x - b.x) < 0.5 && Math.abs(o.y - b.y) < 0.5))!
     return { x: Math.abs(img.x + img.w / 2 - (x0 + x1) / 2) * MM_PER_PX, y: Math.abs(img.y + img.h / 2 - (line.y + line.h / 2)) * MM_PER_PX }
   }
-  const near = (o: { x: number; y: number }, note: HwpPictureNote) => {
-    expect(o.x).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
-    // a document with no stored layout is placed from its paragraph, and this renderer draws that differently from Hangul
-    if (!note.fromParagraph) expect(o.y).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+  type Stamped = Awaited<ReturnType<typeof stamp>>
+  /** Numerically, on both axes. Always: the saved picture box against the mark in the layout it was placed from. With a
+   * stored layout, also the picture as drawn from the saved file against the mark found again there. Without one, the
+   * renderer's drawing of the saved file is not Hangul's, so that part is proved only in Hancom Docs, by hand. */
+  const onMark = (r: Stamped, mark: string, nth: number, aim = mark) => {
+    const hit = layoutTextHits(r.before, mark)[nth]!
+    expect(hit.page).toBe(r.note.page - 1)
+    const line = r.before.pages[hit.page]!.lines[hit.line]!
+    const [m0, m1] = labelX(line, hit.at, [...mark].length)
+    const from = mark.indexOf(aim)
+    const [x0, x1] = partX(m0, m1, mark, from, from + aim.length)
+    expect(Math.abs(r.note.xMm + r.note.widthMm / 2 - ((x0 + x1) / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    expect(Math.abs(r.note.yMm + r.note.heightMm / 2 - (line.y + line.h / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    if (r.note.aim?.exact) {
+      const o = off(r.after, r.before, r.note, mark, nth, aim)
+      expect(o.x).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(o.y).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    }
   }
   for (const ext of ['hwp', 'hwpx'] as const) describe(`.${ext}`, () => {
     test('a whole line', async () => {
       const r = await stamp(ext, docOf(ext, MARK_LINE), '신청인: 김가나테스트 (인)')
       expect(r.note.where).toContain('"(인)", the sign mark in')
-      near(off(r.after, r.before, r.note, '(인)', 0), r.note)
+      onMark(r, '(인)', 0)
     })
     test('one signer of a shared line', async () => {
       const r = await stamp(ext, docOf(ext, '갑: 김철수 (인)   을: 홍길동 (인)'), '을: 홍길동 (인)')
-      near(off(r.after, r.before, r.note, '(인)', 1), r.note)
+      onMark(r, '(인)', 1)
     })
     test('a whole line with two marks: refused; occurrence picks one', async () => {
       const line = '갑: 김철수 (인)   을: 홍길동 (인)'
       const doc = docOf(ext, line)
       await expect(stamp(ext, doc, line)).rejects.toThrow('2 sign marks')
       const r = await stamp(ext, doc, line, { occurrence: 1 })
-      near(off(r.after, r.before, r.note, '(인)', 0), r.note)
+      onMark(r, '(인)', 0)
     })
     test('"(서명 또는 인)": on the seal word', async () => {
       const line = '신청인 김가나 (서명 또는 인)'
       const r = await stamp(ext, docOf(ext, line), line)
       expect(r.note.where).toContain('"인" of the mark')
-      near(off(r.after, r.before, r.note, '(서명 또는 인)', 0, '인'), r.note)
+      onMark(r, '(서명 또는 인)', 0, '인')
     })
     test('a long line that wraps', async () => {
       // no stored layout: Hangul wraps it by itself (in Hancom Docs the seal landed about 17 mm off), so it is refused
@@ -264,16 +383,16 @@ else describe('Hangul: the drawn seal is on the mark', () => {
     })
     test('a mark in a table cell', async () => {
       const r = await stamp(ext, docOf(ext, '신청인: 김가나', '박다라 (인)'), '박다라 (인)')
-      expect(Math.abs(r.note.xMm + r.note.widthMm / 2 - (r.note.aim!.xMm))).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      onMark(r, '(인)', layoutTextHits(r.before, '(인)').findIndex((h) => r.before.pages[h.page]!.lines[h.line]!.text.includes('박다라')))
     })
     test('after a fill', async () => {
       const r = await stamp(ext, docOf(ext, '신청인: {{이름}} (인)'), '신청인: 홍길동입니다 (인)', { fill: { find: '{{이름}}', replace: '홍길동입니다' } })
-      near(off(r.after, r.before, r.note, '(인)', 0), r.note)
+      onMark(r, '(인)', 0)
     })
     test('on a later page', async () => {
       const r = await stamp(ext, paged(ext), '신청인: 김가나 (인)')
       expect(r.note.page).toBeGreaterThan(1)
-      near(off(r.after, r.before, r.note, '(인)', 0), r.note)
+      onMark(r, '(인)', 0)
     })
     test('no mark: centred on the label as before', async () => {
       const r = await stamp(ext, docOf(ext, '확인자리 표시'), '확인자리')
@@ -283,8 +402,11 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       const r = await stamp(ext, docOf(ext, MARK_LINE), '신청인: 김가나테스트 (인)')
       const exact = { ...r.note, aim: { ...r.note.aim!, exact: true } }
       expect(landings(r.before, r.after, [exact], SEAL_TOLERANCE_MM)[0]!.state).toBe('checked')
-      const moved = { ...exact, aim: { ...exact.aim, xMm: exact.aim.xMm + 10 } }
-      expect(landings(r.before, r.after, [moved], SEAL_TOLERANCE_MM)[0]).toMatchObject({ state: 'missed' })
+      // the same mark is looked for again in the saved file: all text 30 mm lower is a miss, a mark that is gone is not a pass
+      const shift = (d: number): HwpLayout => ({ pages: r.after.pages.map((pg) => ({ ...pg, lines: pg.lines.map((l) => ({ ...l, y: l.y + d })) })) })
+      expect(landings(r.before, shift(30 / MM_PER_PX), [exact], SEAL_TOLERANCE_MM)[0]).toMatchObject({ state: 'missed' })
+      const gone: HwpLayout = { pages: r.after.pages.map((pg) => ({ ...pg, lines: pg.lines.filter((l) => !l.text.includes('(인)')) })) }
+      expect(landings(r.before, gone, [exact], SEAL_TOLERANCE_MM)[0]!.state).toBe('not-checked')
     })
   })
 })
