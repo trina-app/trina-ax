@@ -278,6 +278,67 @@ describe('Hangul: the mark is paired by its own paragraph, not by counting', () 
       layout.pages[0]!.lines.push(ln('김철수 (인)', 700, '3:0', 1))
       expect(() => edit(ext, doc(ext, true), [{ image: 'seal.png', at: '김철수 (인)' }], { layout, images: new Map([[0, clean()]]) })).toThrow()
     })
+    // two tables with the same "name (seal)" row, the second drawn first: only a whole-table match says which is which
+    const twoTables = (cache = true) => {
+      const row = [{ text: '성명', width: 8000 }, { text: '홍길동 (인)', width: 30000 }]
+      const note = [{ text: '비고', width: 8000 }, { text: '메모', width: 30000 }]
+      return ext === 'hwpx'
+        ? hwpxDoc([hwpxPara('머리말', { cache, vert: 0 }) + hwpxTable([row, note], { cache }) + hwpxPara('중간', { cache, vert: 6000 }) + hwpxTable([row], { cache }) + hwpxPara('끝', { cache, vert: 9000 })])
+        : hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]]), hwpPara('머리말'), hwpTable([row, note]), hwpPara('중간'), hwpTable([row]), hwpPara('끝', { last: true })])])
+    }
+    const drawnTwo = (memo = '메모', y2 = 300, y1 = 600): HwpLayout => ({ pages: [{
+      ...box, tables: [{ x: 113, y: y2, w: 500, h: 20 }, { x: 113, y: y1, w: 500, h: 40 }],
+      cells: [
+        { table: 1, row: 0, col: 0, x: 113, y: y2, w: 100, h: 20 }, { table: 1, row: 0, col: 1, x: 213, y: y2, w: 400, h: 20 },
+        { table: 2, row: 0, col: 0, x: 113, y: y1, w: 100, h: 20 }, { table: 2, row: 0, col: 1, x: 213, y: y1, w: 400, h: 20 },
+        { table: 2, row: 1, col: 0, x: 113, y: y1 + 20, w: 100, h: 20 }, { table: 2, row: 1, col: 1, x: 213, y: y1 + 20, w: 400, h: 20 },
+      ],
+      starts: [0, 1, 2, 3, 4, 5].map((para) => ({ para, table: false, preview: '' })),
+      lines: [ln('성명', y2 + 2, '1:0', 0), ln('홍길동 (인)', y2 + 2, '2:0', 1), ln('성명', y1 + 2, '3:0', 2), ln('홍길동 (인)', y1 + 2, '4:0', 3), ln('비고', y1 + 22, '5:0', 4), ln(memo, y1 + 22, '6:0', 5)],
+    }] })
+    const centre = (r: { report: { pictures?: HwpPictureNote[] } }) => r.report.pictures![0]!.yMm + r.report.pictures![0]!.heightMm / 2
+    test(`.${ext}: two tables with the same row: each lands in its own, named by what was placed`, () => {
+      const a = edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout: drawnTwo(), images: new Map([[0, clean()]]) })
+      expect(Math.abs(centre(a) - (602 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(a.report.pictures![0]!.where).toStartWith('table 1,')
+      const b = edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 2 }], { layout: drawnTwo(), images: new Map([[0, clean()]]) })
+      expect(Math.abs(centre(b) - (302 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(b.report.pictures![0]!.where).toStartWith('table 2,')
+    })
+    test(`.${ext}: a soft hyphen the renderer draws does not make a table lose to the other`, () => {
+      const r = edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout: drawnTwo('메\u00AD모'), images: new Map([[0, clean()]]) })
+      expect(Math.abs(centre(r) - (602 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+    })
+    test(`.${ext}: the target table drawn differently is refused, never given to the other table`, () => {
+      expect(() => edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout: drawnTwo('다른 글'), images: new Map([[0, clean()]]) })).toThrow('its own line')
+    })
+    test(`.${ext}: a target table split over two pages is refused when another table has the same row`, () => {
+      const one = drawnTwo().pages[0]!
+      const first = { ...one, tables: one.tables, cells: one.cells.slice(0, 4), lines: one.lines.slice(0, 4) }
+      const rest = { ...one, tables: [one.tables[1]!], cells: one.cells.slice(4).map((c) => ({ ...c, table: 1, row: c.row })), lines: one.lines.slice(4).map((l) => ({ ...l, cell: l.cell - 4 })), starts: [] }
+      expect(() => edit(ext, twoTables(), [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout: { pages: [first, rest] }, images: new Map([[0, clean()]]) })).toThrow('its own line')
+    })
+    test(`.${ext}: two equal tables cannot be told apart: refused`, () => {
+      const row = [{ text: '성명', width: 8000 }, { text: '홍길동 (인)', width: 30000 }]
+      const same = ext === 'hwpx'
+        ? hwpxDoc([hwpxPara('머리말', { cache: true, vert: 0 }) + hwpxTable([row], { cache: true }) + hwpxPara('중간', { cache: true, vert: 6000 }) + hwpxTable([row], { cache: true }) + hwpxPara('끝', { cache: true, vert: 9000 })])
+        : hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]]), hwpPara('머리말'), hwpTable([row]), hwpPara('중간'), hwpTable([row]), hwpPara('끝', { last: true })])])
+      const d = drawnTwo().pages[0]!
+      const layout: HwpLayout = { pages: [{ ...d, cells: d.cells.slice(0, 4), lines: d.lines.slice(0, 4) }] }
+      expect(() => edit(ext, same, [{ image: 'seal.png', at: '홍길동 (인)', occurrence: 1 }], { layout, images: new Map([[0, clean()]]) })).toThrow('its own line')
+    })
+    test(`.${ext}: two equal body lines: each by its own paragraph, and refused when the renderer gives no index for it`, () => {
+      const line = '을: 홍길동 (인)'
+      const d = ext === 'hwpx'
+        ? hwpxDoc([hwpxPara(line, { cache: true, vert: 0 }) + hwpxPara('중간', { cache: true, vert: 2000 }) + hwpxPara(line, { cache: true, vert: 4000 })])
+        : hwpDoc([Buffer.concat([hwpPara([[0, sectionDef()]]), hwpPara(line), hwpPara('중간'), hwpPara(line, { last: true })])])
+      // the body's first paragraph holds the section definition in both builders
+      const first = 1
+      const lay = (a: number, b: number): HwpLayout => ({ pages: [{ ...box, tables: [], cells: [], starts: [0, 1, 2, 3].map((para) => ({ para, table: false, preview: '' })), lines: [ln(line, 200, `0:${a}`), ln('중간', 240, `0:${first + 1}`), ln(line, 280, `0:${b}`)] }] })
+      const r = edit(ext, d, [{ image: 'seal.png', at: line, occurrence: 2 }], { layout: lay(first, first + 2), images: new Map([[0, clean()]]) })
+      expect(Math.abs(centre(r) - (280 + 13.3 / 2) * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(() => edit(ext, d, [{ image: 'seal.png', at: line, occurrence: 2 }], { layout: lay(first, 99), images: new Map([[0, clean()]]) })).toThrow('its own line')
+    })
     for (const spacing of [1.05, 1, 0.95, 0.9, 0.8]) test(`.${ext}: no stored layout, a mark on the second line at ${spacing * 100}% spacing is refused`, () => {
       const text = '을: 홍길동 신청합니다 (인)'
       const d = ext === 'hwpx'
@@ -393,6 +454,17 @@ else describe('Hangul: the drawn seal is on the mark', () => {
       const r = await stamp(ext, paged(ext), '신청인: 김가나 (인)')
       expect(r.note.page).toBeGreaterThan(1)
       onMark(r, '(인)', 0)
+    })
+    if (ext === 'hwpx') test('two tables, the first with a hyphen mark the renderer draws: the seal stays in the first', async () => {
+      const row = [{ text: '성명', width: 8000 }, { text: '홍길동 (인)', width: 30000 }]
+      const doc = hwpxDoc([hwpxPara('머리말', { cache: false }) + hwpxTable([row, [{ text: '사업자§번호', width: 8000 }, { text: '123', width: 30000 }]], { cache: false }).replace('§', '<hp:hyphen/>') + hwpxPara('중간', { cache: false }) + hwpxTable([row], { cache: false }) + hwpxPara('끝', { cache: false })])
+      const r = await stamp('hwpx', doc, '홍길동 (인)', { occurrence: 1 })
+      const ys = layoutTextHits(r.before, '홍길동 (인)').map((h) => r.before.pages[h.page]!.lines[h.line]!).map((l) => l.y + l.h / 2).sort((a, b) => a - b)
+      expect(Math.abs(r.note.yMm + r.note.heightMm / 2 - ys[0]! * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(r.note.where).toStartWith('table 1,')
+      const q = await stamp('hwpx', doc, '홍길동 (인)', { occurrence: 2 })
+      expect(Math.abs(q.note.yMm + q.note.heightMm / 2 - ys[1]! * MM_PER_PX)).toBeLessThanOrEqual(SEAL_TOLERANCE_MM)
+      expect(q.note.where).toStartWith('table 2,')
     })
     test('no mark: centred on the label as before', async () => {
       const r = await stamp(ext, docOf(ext, '확인자리 표시'), '확인자리')

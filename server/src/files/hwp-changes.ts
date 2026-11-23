@@ -23,6 +23,15 @@ export const HWP_CHANGE_LIMITS = {
 export function refuseChange(i: number, why: string): never { throw new ToolError(`change ${i + 1}: ${why}. Nothing was saved.`) }
 export const clip = (s: string, n = 80) => JSON.stringify(s.length > n ? s.slice(0, n) + '…' : s)
 export const strip = (s: string) => s.replace(/\s+/g, '')
+/** text as compared with what the renderer draws: no white space or format characters (a soft hyphen is drawn, not stored) */
+const drawnText = (s: string) => s.replace(/[\s\p{Cf}]/gu, '')
+/** the drawn table `t` of a page has exactly the cells of this table of the document, each with the same text */
+function sameTable(table: CTable, pg: { lines: { cell: number; text: string }[]; cells: { table: number; row: number; col: number }[] }, t: number): boolean {
+  const drawn = new Map<string, string>()
+  pg.cells.forEach((c, k) => { if (c.table === t) drawn.set(`${c.row}:${c.col}`, drawnText(pg.lines.filter((l) => l.cell === k).map((l) => l.text).join(''))) })
+  if (drawn.size !== table.cells.length) return false
+  return table.cells.every((c) => drawn.get(`${c.row}:${c.col}`) === drawnText(c.paras.map((q) => q.text).join('')))
+}
 /** a change's new text as it is written: line ends as line breaks, characters a document cannot hold taken out */
 export const cleanValue = (s: string) => cleanText(s.replace(/\r\n?/g, '\n'))
 
@@ -289,7 +298,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
       target = { x: x0, y: line.y, w: Math.max(0, x1 - x0), h: line.h }
       cellIdx = line.cell; lineKey = line.para
       p = h.p; page = L.page
-      where = `${this.where(p)}, ${c.place ?? 'over'} ${mark ? placedOn(label, mark) : clip(find, 40)}`
+      where = `${this.placedWhere(p, pg, line)}, ${c.place ?? 'over'} ${mark ? placedOn(label, mark) : clip(find, 40)}`
     } else {
       const f = this.findCell({ next_to: c.cell!.next_to, direction: c.cell!.direction, occurrence: c.occurrence }, i)
       const cell = f.cell, k = f.labels!.indexOf(f.label!)
@@ -369,35 +378,42 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     this.pictures.push({ ...spotNote(i, spot, where, part), ...aim })
   }
 
-  /** The place on the pages of one found text: the laid-out hits whose line reads as the text around it in its own
-   * paragraph, in the same section, in the body or in the same row and column of a table. Several left (the same words
-   * more than once): the body paragraph's own index, or the table whose text holds the line. Null when it stays unclear. */
+  /** The place on the pages of one found text, by a positive match only: never by dropping what does not fit, because the
+   * one that does not fit can be the right one drawn a little differently. A laid-out hit fits when its line reads as the
+   * text around it in its own paragraph, in the same section, in the body or the same row and column of a table. One hit
+   * and no other place in the document that it could also be: that one. Otherwise a body paragraph must carry its own
+   * index, and a table cell must be in the one drawn table whose whole text equals its table's. Else null: refused. */
   private layoutHit(h: { p: P; at: number }, find: string, hits: { p: P; at: number }[], laid: LHit[], layout: HwpLayout): LHit | null {
     const fits = (x: { p: P; at: number }, l: LHit) => {
       const pg = layout.pages[l.page]!, line = pg.lines[l.line]!, chars = [...line.text], n = [...find].length
       if (pg.section !== x.p.sec) return false
       if (x.p.cell ? line.cell < 0 || pg.cells[line.cell]!.row !== x.p.cell.row || pg.cells[line.cell]!.col !== x.p.cell.col : line.cell >= 0) return false
-      return strip(x.p.text.slice(0, x.at)).endsWith(strip(chars.slice(0, l.at).join(''))) && strip(x.p.text.slice(x.at + find.length)).startsWith(strip(chars.slice(l.at + n).join('')))
+      return drawnText(x.p.text.slice(0, x.at)).endsWith(drawnText(chars.slice(0, l.at).join(''))) && drawnText(x.p.text.slice(x.at + find.length)).startsWith(drawnText(chars.slice(l.at + n).join('')))
     }
     const mine = laid.filter((l) => fits(h, l))
-    if (mine.length <= 1) return mine[0] ?? null
+    if (!mine.length) return null
+    if (mine.length === 1 && !hits.some((x) => x !== h && fits(x, mine[0]!))) return mine[0]!
     const pi = (l: LHit) => Number(layout.pages[l.page]!.lines[l.line]!.para.split(':')[1])
     if (!h.p.cell) {
       const own = mine.filter((l) => pi(l) === this.topIndex(h.p))
-      if (own.length) return own.length === 1 ? own[0]! : null
-      const twins = hits.filter((x) => !x.p.cell && mine.every((l) => fits(x, l)))
-      return twins.length === mine.length ? mine[twins.indexOf(h)] ?? null : null
+      return own.length === 1 ? own[0]! : null
     }
     const cell = h.p.cell as C
-    const own = mine.filter((l) => pi(l) === cell.paras.indexOf(h.p))
-    const left = own.length ? own : mine
-    if (left.length === 1) return left[0]!
-    const text = strip(cell.table.cells.flatMap((x) => x.paras.map((q) => q.text)).join(''))
-    const inTable = left.filter((l) => {
-      const pg = layout.pages[l.page]!, t = pg.cells[pg.lines[l.line]!.cell]!.table
-      return pg.lines.filter((x) => x.cell >= 0 && pg.cells[x.cell]!.table === t).every((x) => text.includes(strip(x.text)))
-    })
-    return inTable.length === 1 ? inTable[0]! : null
+    const inTable = mine.filter((l) => sameTable(cell.table, layout.pages[l.page]!, layout.pages[l.page]!.cells[layout.pages[l.page]!.lines[l.line]!.cell]!.table))
+    // exactly one drawn table: two equal tables cannot be told apart
+    if (new Set(inTable.map((l) => `${l.page}:${layout.pages[l.page]!.cells[layout.pages[l.page]!.lines[l.line]!.cell]!.table}`)).size !== 1) return null
+    if (inTable.length === 1) return inTable[0]!
+    const own = inTable.filter((l) => pi(l) === cell.paras.indexOf(h.p))
+    return own.length === 1 ? own[0]! : null
+  }
+
+  /** Where a picture went for the result, from the line it was placed on: a table is named by its number only when
+   * exactly one table of the document has the text of the drawn table. */
+  private placedWhere(p: P, pg: HwpLayout['pages'][number], line: LLine): string {
+    if (line.cell < 0) return this.where(p)
+    const c = pg.cells[line.cell]!
+    const t = this.tables.filter((x) => sameTable(x, pg, c.table))
+    return `${t.length === 1 ? `table ${t[0]!.i + 1}` : 'a table'}, row ${c.row + 1}, column ${c.col + 1}`
   }
 
   /** refuses a fill of p when another change already changes its text */

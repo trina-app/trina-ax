@@ -14,6 +14,10 @@
   its section and its table row and column, never by counting: the renderer draws a floating table after the body text
   that follows it, so a count put a seal on another signer. Text after the chosen mark, a sign-like token this tool does
   not know, or a bare mark on a line with another place to sign is refused unless `occurrence` says which.
+  Where the same words are in several places, only a positive match counts: a body paragraph's own index, or the one
+  drawn table whose whole text equals the mark's table (white space and format characters aside). Nothing is chosen by
+  dropping what does not fit, since the right one may be drawn a little differently. Two equal tables, or a table split
+  over pages with a twin elsewhere, are refused. The result names a table only from the line the picture was placed on.
 - **No slot ids, no read note, no choice by a person's name.** Ids shift with fills and added rows, a note misses chat files
   and guests, and a name could put a seal on someone else's mark with no human check (independent plan review).
 - **What is checked, per format:**
