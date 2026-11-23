@@ -385,7 +385,7 @@ export function engineErrorOf(err: { code: Parameters<typeof engineError>[0]; re
 
 /** The tools whose chat-file target is a new version of an existing chat file (P4: chat/chat-file-write.ts, edit_office
  * without output), not a new file attached to the answer */
-export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office'])
+export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office', 'edit_hwp'])
 
 /** the tracked call of the async context a card is raised in (TurnExec.callNow) */
 const CALL_NOW = new AsyncLocalStorage<{ name: string; args: unknown; deferred: string | null }>()

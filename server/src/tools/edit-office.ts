@@ -127,10 +127,9 @@ export function countPictureBytes(total: { read: number; made: number }, kind: '
  * resize_images uses it: same size, details removed, upright; PNG and WebP become PNG, JPEG stays JPEG), so the deck
  * gets only pixels the helper made, never bytes that only start like a picture (security review of #1291).
  */
-async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, i: number, signal?: AbortSignal): Promise<Buffer> {
+export async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, i: number, signal?: AbortSignal, jpeg = /^jpe?g$/.test(ext(rel))): Promise<Buffer> {
   const helper = ctx.files.visionTools().normalizer
   if (!helper) throw new ToolError(`change ${i + 1}: pictures cannot be replaced on this server right now (its image helper is missing); nothing was saved`)
-  const jpeg = /^jpe?g$/.test(ext(rel))
   // details none (2) + format (1 JPEG, 2 PNG) * 4 + upright (16); the longest side 65535 never makes it smaller
   const r = await imageSlot(() => runIsolated({
     cmd: helper, args: ['resize', '65535', '0', '0', '0', String(2 + 4 * (jpeg ? 1 : 2) + 16)], stdin: bytes,
@@ -192,19 +191,19 @@ export interface EditedOffice { path: string; size: number; sha256: string; conf
 /** edit_office's document when it is a chat file: in place (no output) the chain's head as a new version's writer may
  * have it (ChatPlaces.head), else a server-only copy read through the resolver (readPlaceFile). `rel` is its chat place
  * path (the read-before-write key: chat:files/<id>/<name>), `bytes` what the tool works on. */
-async function chatSource(ctx: AppContext, c: ToolCtx, a: Input, place: NonNullable<ReturnType<typeof parsePlace>>): Promise<{ rel: string; abs: string; st?: fs.Stats; bytes: Buffer; head?: ChatHead }> {
-  if (place.kind !== 'chatFiles' || (!place.id && !place.name)) throw new ToolError('edit_office changes a team file or one of this chat\'s files (chat:files/<file_id>/<name>)', 'bad_place')
+export async function chatSource(ctx: AppContext, c: ToolCtx, a: { file_path: string; output?: string }, place: NonNullable<ReturnType<typeof parsePlace>>, tool = 'edit_office', maxBytes = OFFICE_EDIT_MAX): Promise<{ rel: string; abs: string; st?: fs.Stats; bytes: Buffer; head?: ChatHead }> {
+  if (place.kind !== 'chatFiles' || (!place.id && !place.name)) throw new ToolError(`${tool} changes a team file or one of this chat's files (chat:files/<file_id>/<name>)`, 'bad_place')
   if (!c.places) throw new ToolError(PLACE_WORDS.noChat, 'no_chat')
   if (a.output === undefined) {
     const head = c.places.head(place.id, place.name ?? '')
     if (head.quarantined) throw new ToolError(`'${head.name}' is held by the team's safety check, so it is not changed`, 'held')
-    if (head.size > OFFICE_EDIT_MAX) throw new ToolError(`'${head.name}' is larger than ${OFFICE_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
-    return { rel: head.path, abs: head.abs, bytes: readRegular(head.abs, OFFICE_EDIT_MAX).bytes, head }
+    if (head.size > maxBytes) throw new ToolError(`'${head.name}' is larger than ${maxBytes / 1024 / 1024} MB, too large to change here`)
+    return { rel: head.path, abs: head.abs, bytes: readRegular(head.abs, maxBytes).bytes, head }
   }
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
-    const f = await readPlaceFile(ctx, c, a.file_path, OFFICE_EDIT_MAX, work)
-    return { rel: f.place, abs: f.local, bytes: readRegular(f.local, OFFICE_EDIT_MAX).bytes }
+    const f = await readPlaceFile(ctx, c, a.file_path, maxBytes, work)
+    return { rel: f.place, abs: f.local, bytes: readRegular(f.local, maxBytes).bytes }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 

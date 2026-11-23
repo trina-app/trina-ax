@@ -7,6 +7,10 @@
 // in two chains, a stream's chain exactly as long as its size, the directory a tree with no loops, no entry outside
 // it and no two names alike in one storage. It expands nothing (a .hwp compresses inside its streams, not here).
 //
+// withStreams: new streams (a picture of edit_hwp) added to the directory: each a new entry in an unused slot or at the
+// end, put into its storage's tree as a leaf (one existing entry's empty child or sibling pointer set to it), a storage
+// made for it when there is none (BinData under the root). No entry is moved and no colour changed.
+//
 // writeCfb: the same directory entries in the same order, byte for byte (names, types, colours, the tree, CLSIDs,
 // state bits, times), only each stream's start sector and size written again; the same header fields (CLSID, minor
 // version, transaction signature); the streams' bytes as given, the ones not replaced as they were. Sectors are laid
@@ -285,19 +289,98 @@ export function writeCfb(c: Cfb, replace: Map<string, Uint8Array> = new Map()): 
   return out
 }
 
+/** MS-CFB's order of names in a storage's tree: the shorter first, then by their upper-cased UTF-16 units */
+function cfbCompare(a: string, b: string): number {
+  if (a.length !== b.length) return a.length - b.length
+  const x = a.toUpperCase(), y = b.toUpperCase()
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+/**
+ * `c` with new streams (path → bytes; "BinData/BIN0001.png"): each gets a directory entry (an unused one first, else a
+ * new one at the end), a storage on its path is made when there is none (directly under the root only), and each new
+ * entry hangs as a black leaf in its storage's tree, so of the old entries only the one it hangs from changes (one
+ * pointer that was empty). A path that exists already, a name longer than 31 characters or a deeper path is refused.
+ */
+export function withStreams(c: Cfb, add: Map<string, Uint8Array>): Cfb {
+  const entries: CfbEntry[] = c.entries.map((e) => ({ ...e, raw: e.raw.slice() }))
+  const streams = new Map([...c.streams].map(([k, e]) => [k, entries[e.i]!]))
+  const ptr = (e: CfbEntry, at: number) => new DataView(e.raw.buffer, e.raw.byteOffset).getUint32(at, true)
+  const setPtr = (e: CfbEntry, at: number, v: number) => new DataView(e.raw.buffer, e.raw.byteOffset).setUint32(at, v, true)
+  const free = entries.filter((e) => e.type === 0).map((e) => e.i)
+  const make = (name: string, type: 1 | 2, path: string, data: Uint8Array): CfbEntry => {
+    if (!name || name.length > 31 || /[/\\:!]/.test(name)) throw new CfbError(`a stream cannot be named ${JSON.stringify(name)}`)
+    const i = free.length ? free.shift()! : entries.length
+    if (i >= CFB_LIMITS.entries) throw new CfbError('too many directory entries')
+    const raw = new Uint8Array(ENTRY)
+    const v = new DataView(raw.buffer)
+    for (let k = 0; k < name.length; k++) v.setUint16(k * 2, name.charCodeAt(k), true)
+    v.setUint16(64, (name.length + 1) * 2, true)
+    raw[66] = type
+    raw[67] = 1 // black
+    for (const at of [68, 72, 76]) v.setUint32(at, FREE, true)
+    const e: CfbEntry = { i, type, name, path, raw, data }
+    entries[i] = e
+    return e
+  }
+  /** hangs `e` in the tree under storage `parent` */
+  const hang = (parent: CfbEntry, e: CfbEntry) => {
+    let at = ptr(parent, 76)
+    if (at === FREE) { setPtr(parent, 76, e.i); return }
+    for (let guard = 0; guard <= entries.length; guard++) {
+      const node = entries[at]!
+      const d = cfbCompare(e.name, node.name)
+      if (d === 0) throw new CfbError(`${e.path} is there already`)
+      const side = d < 0 ? 68 : 72
+      const next = ptr(node, side)
+      if (next === FREE) { setPtr(node, side, e.i); return }
+      at = next
+    }
+    throw new CfbError('its directory tree is damaged')
+  }
+  const root = entries[0]!
+  for (const [path, data] of add) {
+    const parts = path.split('/')
+    if (parts.length > 2 || streams.has(path)) throw new CfbError(`cannot add ${path}`)
+    let parent = root
+    if (parts.length === 2) {
+      const found = entries.find((e) => e.type === 1 && e.path.toUpperCase() === parts[0]!.toUpperCase())
+      parent = found ?? (() => { const st = make(parts[0]!, 1, parts[0]!, new Uint8Array(0)); hang(root, st); return st })()
+    }
+    const e = make(parts[parts.length - 1]!, 2, path, data)
+    hang(parent, e)
+    streams.set(path, e)
+  }
+  return { header: c.header, entries, streams }
+}
+
 /**
  * Whether `b` is `a` with only the streams `changeable` allows changed: the same header fields, the same directory
  * entries in the same order (every byte but a stream's start and size, and the root's mini stream), and every other
  * stream the same bytes. Returns why not, or null. Nothing is expanded.
  */
-export function cfbMismatch(a: Cfb, b: Cfb, changeable: (path: string) => boolean): string | null {
+export function cfbMismatch(a: Cfb, b: Cfb, changeable: (path: string) => boolean, added: (path: string) => boolean = () => false): string | null {
   const same = (x: Uint8Array, y: Uint8Array) => x.length === y.length && Buffer.from(x).equals(Buffer.from(y))
   if (!same(a.header.subarray(0, 40), b.header.subarray(0, 40)) || !same(a.header.subarray(52, 60), b.header.subarray(52, 60))) return 'the container header is not the same'
-  if (a.entries.length !== b.entries.length) return 'the new file does not have the same directory as the old one'
+  // entries that are new: in a slot that was unused or after the old ones, each one `added` allows
+  const isNew = (i: number) => i < b.entries.length && b.entries[i]!.type !== 0 && (i >= a.entries.length || a.entries[i]!.type === 0)
+  for (const [i, y] of b.entries.entries()) {
+    if (!isNew(i)) { if (i >= a.entries.length && y.type !== 0) return 'the new file does not have the same directory as the old one'; continue }
+    if (!added(y.path)) return `the new file's directory has ${JSON.stringify(y.path || y.name)}, which the change does not add`
+  }
+  if (b.entries.length < a.entries.length && b.entries.slice(a.entries.length).some((e) => e.type)) return 'the new file does not have the same directory as the old one'
   for (const [i, x] of a.entries.entries()) {
-    const y = b.entries[i]!
+    const y = b.entries[i]
+    if (x.type === 0) { if (y && y.type !== 0 && !isNew(i)) return 'the new file does not have the same directory as the old one'; continue }
+    if (!y) return 'the new file does not have the same directory as the old one'
     const keep = x.type === 2 || x.type === 5 ? 116 : ENTRY
-    if (x.type !== y.type || x.path !== y.path || !same(x.raw.subarray(0, keep), y.raw.subarray(0, keep))) return `the directory entry ${JSON.stringify(x.path || x.name)} is not the same as before`
+    // a tree pointer may change only from empty to a new entry (a new stream or storage hung there)
+    const xr = x.raw.slice(0, keep), yr = y.raw.slice(0, keep)
+    for (const at of [68, 72, 76]) {
+      const xv = new DataView(xr.buffer).getUint32(at, true), yv = new DataView(yr.buffer).getUint32(at, true)
+      if (xv === FREE && yv !== FREE && isNew(yv)) new DataView(yr.buffer).setUint32(at, FREE, true)
+    }
+    if (x.type !== y.type || x.path !== y.path || !same(xr, yr)) return `the directory entry ${JSON.stringify(x.path || x.name)} is not the same as before`
     if (x.type === 2 && !changeable(x.path) && !same(x.data, y.data)) return `${x.path} is not the same as before`
   }
   return null

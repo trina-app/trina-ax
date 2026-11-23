@@ -182,6 +182,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/pdf-tools.ts': { why: 'the words of made PDFs\' names, "견적서 (합침).pdf" (ko next to en/id/ja/es)' },
   'server/src/tools/resize-images.ts': { why: 'the word of a photo copy\'s name, "IMG_2041-작게.jpg" (ko next to en/id/ja/es)' },
   'server/src/tools/stamp-pdf.ts': { why: 'the word of a stamped PDF\'s name, "견적서 (날인).pdf" (ko next to en/id/ja/es)' },
+  'server/src/tools/own-picture.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a document (ko next to en/id/ja/es)' },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'shared/src/web-allow-all.ts': { why: 'the "Allow all websites" risk sentence, one versioned text for the address card, Settings and the desktop window (ko next to en/id/ja/es)' },

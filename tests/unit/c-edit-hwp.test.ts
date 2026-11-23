@@ -10,6 +10,11 @@ import { employmentForm, hwpxDoc, onePageForm, para, purchaseForm } from '../lib
 import { hwpEmploymentForm, hwpOnePageForm, hwpPurchaseForm, hwpStreams, paragraphs } from '../lib/hwp'
 import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { hwpPluginOn } from '../lib/hwp-plugin'
+import { componentC } from '../../server/src/team-files/component'
+import { HwpError } from '../../server/src/files/hwp-engine'
+import { namedPaths } from '../../server/src/rooms/ai-tools'
+import { widenOf } from '../../server/src/chat/tools'
+import type { HwpLayout } from '../../server/src/files/hwp-picture'
 
 setDefaultTimeout(60_000)
 
@@ -294,5 +299,105 @@ describe('a .hwp', () => {
     expect((await call('edit', { file_path: rel, old_string: '홍길동', new_string: '김예시' })).isError).toBe(true)
     expect((await call('write', { file_path: rel, content: '# 평문' })).isError).toBe(true)
     expect(bytes(rel).equals(after)).toBe(true)
+  })
+})
+
+describe('a signature or seal picture', () => {
+  const SEAL = fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp/seal.png'))
+  /** the made-up employment forms' layout: the seal mark's line and the name cell with its label (no renderer here) */
+  const layout: HwpLayout = { pages: [{
+    w: 793.7, h: 1122.5, section: 0, continued: [], tables: [{ x: 117, y: 198, w: 300, h: 60 }], starts: [{ para: 0, table: false, preview: '' }],
+    cells: [{ table: 1, row: 0, col: 0, x: 117, y: 198, w: 100, h: 17 }, { table: 1, row: 0, col: 1, x: 217, y: 198, w: 200, h: 17 }],
+    lines: [
+      { x: 124, y: 200, w: 90, h: 13, text: '성명', runs: [{ x: 124, w: 26, text: '성명' }], para: '1:0', cell: 0 },
+      { x: 290, y: 200, w: 190, h: 13, text: '', runs: [], para: '2:0', cell: 1 },
+      { x: 113, y: 400, w: 566, h: 13, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)', runs: [{ x: 200, w: 330, text: '주식회사 가나다상사  대표이사 {{대표자}} (인)' }], para: '0:5', cell: -1 },
+    ],
+  }] }
+  const withLayout = async <T>(f: () => Promise<T>, l: HwpLayout | Error = layout) => {
+    const hwp = componentC(A.ctx).hwp
+    const was = hwp.layout.bind(hwp)
+    hwp.layout = async () => { if (l instanceof Error) throw l; return l }
+    try { return await f() } finally { hwp.layout = was }
+  }
+
+  test('.hwp and .hwpx: a new version with the seal over "(인)", the seal a source of it, the text as before', async () => {
+    put('users/alice/도장.png', SEAL)
+    for (const [rel, doc] of [['users/alice/서명양식.hwp', hwpEmploymentForm()], ['users/alice/서명양식.hwpx', employmentForm({ cache: true })]] as const) {
+      put(rel, doc)
+      const call = turn('alice')
+      const before = (await call('read', { file_path: rel })).text
+      // the person's own upload of this picture: no card (the card has its own tests)
+      A.ctx.db.query("INSERT INTO file_events (turn_id, user_id, action, path, size, sha256, detail) VALUES (NULL, 'alice', 'upload', ?, ?, ?, ?)").run('users/alice/도장.png', SEAL.length, sha256hex(SEAL), JSON.stringify({ byPerson: true }))
+      const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/도장.png', at: '(인)' }, { image: 'users/alice/도장.png', cell: { next_to: '성명' }, width_mm: 20 }] }))
+      expect(r.isError, r.text).toBe(false)
+      expect(r.text).toContain(`Saved a new version of ${rel}`)
+      expect(r.text).toMatch(/- change 1: a picture on page 1, 15 x 15 mm/)
+      expect(r.text).toMatch(/- change 2: a picture on page 1, 20 x 20 mm/)
+      expect(r.text).toMatch(/check the (exact )?spot in Hangul/)
+      expect(r.text).not.toContain('Check each before you answer')
+      expect(versions(rel).map((v) => v.version)).toEqual([1])
+      expect((await turn('alice')('read', { file_path: rel })).text.replace(/\d+ B|sha256[^\n]*/g, '')).toBe(before.replace(/\d+ B|sha256[^\n]*/g, ''))
+    }
+  })
+
+  test('a picture the person cannot read, one that is not a PNG or JPG, or no renderer: refused, nothing saved', async () => {
+    const rel = 'users/alice/서명양식-2.hwpx'
+    put(rel, employmentForm())
+    put('users/bob/bob-sign.png', SEAL)
+    put('users/alice/sign.gif', new TextEncoder().encode('GIF89a not a png'))
+    put('users/alice/sign.png', SEAL)
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const other = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/bob/bob-sign.png', at: '(인)' }] }))
+    expect(other.isError).toBe(true)
+    expect(other.text).not.toContain('bob-sign.png is larger')
+    const gif = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/sign.gif', at: '(인)' }] }))
+    expect(gif.isError).toBe(true)
+    expect(gif.text).toContain('is not a PNG or JPG picture')
+    const none = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/sign.png', at: '(인)' }] }), new HwpError('disabled'))
+    expect(none.isError).toBe(true)
+    expect(none.text).toContain('placing a picture needs the page layout from the HWP Preview renderer')
+    expect(versions(rel)).toEqual([])
+  })
+
+  test('a file of this chat as the picture: used through the chat\'s own open; a place that is not one is refused', async () => {
+    const rel = 'users/alice/서명양식-3.hwpx'
+    put(rel, employmentForm({ cache: true }))
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const work = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'chat:work/seal.png', at: '(인)' }] }))
+    expect(work.isError).toBe(true)
+    expect(versions(rel)).toEqual([])
+  })
+
+  test('a picture in the asker\'s own folder that they did not upload is not theirs (the AI could have copied it there)', async () => {
+    const rel = 'users/alice/서명양식-5.hwpx'
+    put(rel, employmentForm({ cache: true }))
+    put('users/alice/copied-seal.png', SEAL)
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'users/alice/copied-seal.png', at: '(인)' }] }))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('Nothing was saved')
+    expect(versions(rel)).toEqual([])
+  })
+
+  test('a team picture outside the asker\'s own folder with nobody to ask: refused, nothing saved', async () => {
+    const rel = 'users/alice/서명양식-4.hwpx'
+    put(rel, employmentForm({ cache: true }))
+    put('shared/company-seal.png', SEAL)
+    const call = turn('alice')
+    await call('read', { file_path: rel })
+    const r = await withLayout(() => call('edit_hwp', { file_path: rel, changes: [{ image: 'shared/company-seal.png', at: '(인)' }] }))
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('Nothing was saved')
+    expect(versions(rel)).toEqual([])
+  })
+
+  test('the picture is named for the shared chat\'s read card and wider-audience check, and is never a place written to', () => {
+    const args = { file_path: 'users/alice/a.hwp', changes: [{ find: 'a', replace: 'b' }, { image: 'groups/finance/seal.png', at: 'x' }] }
+    expect(namedPaths('edit_hwp', args)).toContainEqual({ key: 'change.image', value: 'groups/finance/seal.png' })
+    expect(widenOf('edit_hwp', args)).toEqual({ target: 'users/alice/a.hwp', extra: ['groups/finance/seal.png'] })
   })
 })

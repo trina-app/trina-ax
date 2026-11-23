@@ -171,6 +171,13 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       }
     }
   }
+  // edit_hwp's signature or seal pictures (tools/edit-hwp.ts image changes): team files whose bytes go into the document
+  if (tool === 'edit_hwp' && Array.isArray(a.changes)) {
+    for (const c of a.changes as unknown[]) {
+      const img = c && typeof c === 'object' ? (c as { image?: unknown }).image : undefined
+      if (typeof img === 'string') out.push({ key: 'change.image', value: img })
+    }
+  }
   // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
   if (tool === 'rename_files') {
     if (Array.isArray(a.renames)) for (const r of a.renames as unknown[]) { const p = r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined; if (typeof p === 'string') out.push({ key: 'path', value: p }) }

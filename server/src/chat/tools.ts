@@ -194,9 +194,10 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-// (edit_office's pictures, replaced or inserted, are only read: never weighed as places an in-place edit writes to)
+// (edit_office's pictures, replaced or inserted, and edit_hwp's pictures are only read: never weighed as places an in-place
+// edit writes to)
 const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
-  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image' && n.key !== 'insert_picture.image'),
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image' && n.key !== 'insert_picture.image' && n.key !== 'change.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -495,7 +496,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
     // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
     // checked before any card
-    const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
+    const versionAt = name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp' ? officeVersionPlace(args, name) : null
     // a team Office file in a shared chat is changed like edit_hwp and comment_docx there (S-028,
     // docs/decisions/20261122-shared-chat-team-office-edit.md): the asker's own access, the read card for the document,
     // the save card for an output, and confirmSources in the tool for what the chat read
@@ -629,12 +630,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     },
     async call(name, args, caller) {
       // the chat file's newest version before the call: a refusal after a save never says "nothing was saved"
-      const before = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
+      const before = name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp' ? officeVersionPlace(args, name) : null
       const headBefore = before ? chatHeadId(exec, before) : null
       const out = await callTool(name, args, caller)
       // an in-place change of a chat file (edit_office, edit_pdf without output) that did not go through: the result says
       // what the file is now, whichever check refused it (QA TC-7039: the AI told people a test slide was "the original")
-      if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf')) return out
+      if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf' && name !== 'edit_hwp')) return out
       const at = officeVersionPlace(args, name)
       const state = at ? chatFileState(exec, caller?.files ?? exec.files, at, headBefore) : null
       return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
@@ -830,7 +831,9 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: [a.source, a.template].filter((x): x is string => typeof x === 'string') } : undefined
   if (name === 'edit_hwp') {
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
-    return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
+    // its pictures' bytes go into the result too (a new version of the document as well)
+    const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const img = (c as { image?: unknown })?.image; return typeof img === 'string' ? [img] : [] }) : []
+    return typeof target === 'string' ? { target, extra: [...(typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []), ...pics] } : undefined
   }
   // stamp_pdf (tools/stamp-pdf.ts) with an output: the stamped copy carries the PDF's and the picture's bytes; asked
   // here so that after a room read its room card and its wider-audience card are one card (the tool's own check then
@@ -1797,9 +1800,10 @@ export function placeRefusal(name: string, args: unknown): string | null {
     if (name === 'make_file' && (key === 'source' || key === 'template')) continue
     // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
     // new file made from it
-    if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
-    // edit_office's pictures may be files of this chat (tools/edit-office.ts picture: read through the place's open)
+    if ((name === 'edit_office' || name === 'edit_pdf' || name === 'edit_hwp') && key === 'file_path' && place?.kind === 'chatFiles') continue
+    // edit_office's and edit_hwp's pictures may be files of this chat (read through the place's open)
     if (name === 'edit_office' && (key === 'replace_picture.image' || key === 'insert_picture.image') && place?.kind === 'chatFiles') continue
+    if (name === 'edit_hwp' && key === 'change.image' && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
