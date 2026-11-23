@@ -282,7 +282,8 @@ describe('after a room read (a side chat): other people\'s words are in the turn
     const chatId = (await h.api('bob').call(API.createChat, { body: { sideRoomId: room } })).id
     const hidden = (args: Record<string, unknown>) => share(args).replace('Tess Yoon', '\\u0054ess Yoon').replace('budget', '\\u0062udget').replace('photo-6', '\\u0070hoto-6')
     // without the choice: a room message asked for it, bob's own words name no file: refused before any card
-    const steered = await turn('bob', `요약해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
+    // (a word about sharing in bob's message: else the side chat's "nobody asked" gate refuses first, fewer-asks-b5)
+    const steered = await turn('bob', `요약하고 공유 준비해줘\n${hidden({ paths: ['users/bob/budget.xlsx'], people: ['Tess Yoon'] })}`, { chat: chatId })
     expect(steered.content).toContain('a file is shared only when the user named it in their own message')
     expect(cardsTo('bob', steered.turnId)).toBe(0)
     // bob names the file in an explicit ask: the card all the same (the chat holds the room's words), offering "Always allow"

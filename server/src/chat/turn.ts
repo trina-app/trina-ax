@@ -1,7 +1,9 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
-import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
+import { chatFileCopyOf, chatMadeOwnFile, chatOwnsFile } from './chat-file-tool'
+import { landingPaths } from './places-copy'
+import { liveSources } from './answer-share'
 import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, chatScoped, keepAlways, keepAlwaysAt, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
 import { isConfidentialChat } from '../safe-ops/confidential'
@@ -84,7 +86,7 @@ import { notificationsOf, notifyEngineStartFailed } from '../notifications/servi
 import { tellHeldJobs } from '../devenv/jobs'
 import { noteChatAnswer } from '../notifications/chat-answers'
 import { noteSharedAnswer } from './message-notices'
-import { takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
+import { CARD_LATER_ARGS_MAX, takeAnsweredCalls, answeredNote, closedQuestionNote, CHANGED_MARK, declined, questionsWaitInCall, sameCard, saveQuestion, waitingCardsNote, type AskedIn, type PriorAnswer, type WaitingCall } from './open-questions'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
@@ -4228,7 +4230,28 @@ export class TurnExec {
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
       if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      // copy_files of only this chat's own places (chat:work/…, chat:files/…) into a team folder reads nothing of that
+      // folder: a name there already keeps the copy next to it (chat/places-copy.ts workToTeam, chatFileToTeam). The files
+      // it lands as are weighed, as any save's target, not the folder (QA of batch 4 r110: the banner the chat's commands
+      // made, copied into the person's own folder, asked "AI가 내 개인 폴더를 읽으려고 해요"); one that is there and is the
+      // chat's own file (chat-file-tool.ts chatOwnsFile) reads as the chat's
+      if (w && tool === 'copy_files' && k === 'to_folder' && Array.isArray(a.paths) && a.paths.length && a.paths.every(isReservedPlace)) {
+        const landing = landingPaths(this, this.files, a.paths as string[], v.normalize('NFC').split('/').filter((x) => x !== '' && x !== '.').join('/'))
+        if (landing) {
+          for (const p of landing) {
+            if (fresh(k, p)) continue
+            if (chatOwnsFile(this.rt.ctx, me.id, this.spec.chatId, p)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+            const from = out.length
+            for (const q of this.roomNames(p)) note(q)
+            for (const s of out.slice(from)) written.add(sourceKey(s))
+          }
+          continue
+        }
+      }
       if (w && fresh(k, v)) continue
+      // a save over a file this chat itself made (or handed over) in the person's own folder, untouched since: nothing
+      // there is new to the chat (chat-file-tool.ts chatOwnsFile)
+      if (w && asWritten(k, v).every((p) => chatOwnsFile(this.rt.ctx, me.id, this.spec.chatId, p))) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
       // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
       if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
@@ -4707,6 +4730,8 @@ export class TurnExec {
   // ---------------- read scope (tab 7 "공용 폴더를 거친 유출") ----------------
   /** Folders whose content the model saw in this turn (read / grep) join the chat's read scope. */
   noteReads() {
+    // a post or share check of this answer counts its sources from the live list (answer-share.ts liveSources)
+    liveSources(this.rt.db, this.spec.assistantId, this.files.sources)
     const paths = this.files.readPaths
     // a Slack chat: folders whose file names the AI saw (list, glob, searches) count too, as the names may reach a
     // channel, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'})
@@ -5424,7 +5449,11 @@ export class TurnExec {
     // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
     // inside the call as before (with its time limit)
     const r = this.redactor()
-    if (!nothingToHide(r)) { const raw = JSON.stringify(call.args ?? {}); if (r.hide(raw) !== raw) return false }
+    const raw = JSON.stringify(call.args ?? {})
+    if (!nothingToHide(r) && r.hide(raw) !== raw) return false
+    // a call too large to keep (a write of a whole book; its card may show the text again): its card waits inside the
+    // call as before
+    if (raw.length + JSON.stringify(request).length > CARD_LATER_ARGS_MAX) return false
     const { expiresAt: _no, ...card } = request as TurnRequest & { expiresAt?: string }
     const window = o.window ?? null
     // what the replay needs (open-questions.ts CallMeta): the first asking turn (a card re-raised while the call runs
@@ -5807,6 +5836,7 @@ export class TurnExec {
       let back = false
       try { back = this.endBackInQueue() } catch (e) { this.rt.log.error('queueing the turn for the restart failed', { err: e, turn: this.id }) }
       if (back) {
+        liveSources(this.rt.db, this.spec.assistantId, null)
         this.status = 'finished'
         try { this.rt.turnFinished(this) } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
         this.resolveDone()
@@ -5942,6 +5972,8 @@ export class TurnExec {
       if (this.files.sources.size) {
         try { saveSources(db, this.spec.assistantId, this.files.sources) } catch (e) { this.rt.log.warn('saving the answer\'s sources failed', { err: e, turn: this.id }) }
       }
+      // the saved list stands for the live one from here (answer-share.ts liveSources)
+      liveSources(db, this.spec.assistantId, null)
       if (this.subtasks.size) {
         const n = this.subagentTotals()
         db.query('UPDATE turns SET subagents = ?, subagent_tool_uses = ?, subagent_tokens = ? WHERE id = ?').run(n.subagents, n.toolUses, n.tokens, this.id)
@@ -5976,6 +6008,8 @@ export class TurnExec {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
     }
+    // (also when the end above failed: the live list never outlives its turn)
+    liveSources(db, this.spec.assistantId, null)
     if (this.spec.clientKind === 'schedule') this.finishStep('notifications', () => notificationsOf(this.rt.ctx).afterTurn(this.id))
     // a dev environment job that ended while this answer ran told nothing then: the request's notice is now (devenv/jobs.ts)
     this.finishStep('dev env jobs', () => tellHeldJobs(this.rt.ctx, this.spec.chatId))

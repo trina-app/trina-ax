@@ -35,7 +35,7 @@ import { CHAT_FILE_MAX, CHAT_FILE_VERSIONS_KEPT, chainIdOf, chatFilesOf, chatFil
 import { chatFileWriteHooks } from './chat-file-write'
 import { neutralizeTags } from './prompt'
 import { answerRecord } from './shared-answers'
-import { madeInChat, sameBytesAsEvent } from './shared-actions'
+import { handedOverInChat, madeInChat, sameBytesAsEvent } from './shared-actions'
 import { addSources, type ReadSource } from './read-scope'
 import type { Tool } from './tools'
 import { instructionLike, type TurnExec, type WidenOf } from './turn'
@@ -242,24 +242,38 @@ export function chatFileCopyOf(ctx: TurnExec['rt']['ctx'], userId: string, chatI
 /**
  * May a shared chat's read card count this argument as the chat's because this chat's own AI made the file in the
  * person's own folder, in any answer of it (QA v2g: "AI가 내 개인 폴더를 읽으려고 해요" for a file the AI had just made
- * there in this chat)? Only when all of this holds:
- *   - the call only takes the file's bytes (BYTE_ONLY_ARGS; read without versions or version);
- *   - the path is in the person's own folder, not its .attachments;
- *   - this chat made it and nothing else touched it since (shared-actions.ts madeInChat: the chat's own writing tools,
- *     by this person's turns of this chat, no live file before it, no folder above changed);
- *   - every answer that wrote it ran while the chat was shared as it is now (started at or after its share time: what
- *     it read went through this chat's own read cards then), and none of those answers is kept from anyone who sees the
- *     chat (no k or x group in its record: a connection's answer, or one whose reads are not all known).
- * Anything else, or a check that fails, is false: the card asks as before.
+ * there in this chat)? Only when the call only takes the file's bytes (BYTE_ONLY_ARGS; read without versions or version)
+ * and chatOwnsFile holds. Anything else, or a check that fails, is false: the card asks as before.
  */
 export function chatMadeOwnFile(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string, tool: string, key: string, input: unknown, p: string): boolean {
   try {
     if (!(BYTE_ONLY_ARGS[tool] ?? []).includes(key)) return false
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     if (tool === 'read' && (a.versions !== undefined || a.version !== undefined)) return false
+    return chatOwnsFile(ctx, userId, chatId, p)
+  } catch { return false }
+}
+
+/**
+ * The file at `p` is this chat's own in the person's own folder: everyone who sees the chat already saw what it holds.
+ * Only when all of this holds:
+ *   - the path is in the person's own folder, not its .attachments, and is a file;
+ *   - this chat made it and nothing else touched it since (shared-actions.ts madeInChat: the chat's own writing tools,
+ *     by this person's turns of this chat, no live file before it, no folder above changed), or this chat handed it over
+ *     from its own work folder the same way (handedOverInChat: copy_files or save_work_file of chat:work/…; QA of batch 4
+ *     r110: a banner the chat's commands made, copied into the person's folder, then copied over again);
+ *   - its bytes are still the ones the last event recorded (a change outside the app logs no event);
+ *   - every answer that wrote it ran while the chat was shared as it is now (started at or after its share time: what
+ *     it read went through this chat's own read cards then), and none of those answers is kept from anyone who sees the
+ *     chat (no k or x group in its record: a connection's answer, or one whose reads are not all known).
+ * Also the write-target test of a shared chat's card (chat/turn.ts sharedSources): a copy over such a file tells the
+ * chat nothing new. Anything else, or a check that fails, is false.
+ */
+export function chatOwnsFile(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string, p: string): boolean {
+  try {
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), p, 'read')
     if (r.segs[0] !== 'users' || r.segs[1] !== userId || r.segs.length < 3 || r.segs[2] === '.attachments' || !r.st?.isFile()) return false
-    if (!madeInChat(ctx.db, chatId, userId, r.rel)) return false
+    if (!madeInChat(ctx.db, chatId, userId, r.rel) && !handedOverInChat(ctx.db, chatId, userId, r.rel)) return false
     // its bytes are still the ones the last event recorded (a change outside the app logs no event)
     const last = ctx.db.query("SELECT sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { sha256: string | null } | null
     if (!sameBytesAsEvent(ctx.files.fx.root, r.rel, last?.sha256 ?? null)) return false
