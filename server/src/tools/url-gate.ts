@@ -872,7 +872,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     throw new ToolError((why === 'budget'
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? person.unattendedLabel ?? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
-        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (writing the address into a scheduled task does not change it)') + '; tell the user the server could not open web addresses this time'
+        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (a plain address the task\'s card listed opens in its runs; one typed only in a chat, or with a random-looking part, does not)') + '; tell the user the server could not open web addresses this time'
         : why === 'echo'
           ? 'this address came back from a connected service, but the AI had sent this address or a part of it to a tool earlier in this chat (the service may have repeated it), so it needs a person to confirm it, and nobody can confirm it here, so it was not opened'
         : why === 'echoWeb'
