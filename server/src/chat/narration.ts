@@ -29,31 +29,33 @@ const SCRIPT_LETTER: Record<AnswerScript, RegExp> = {
   zh: /[㐀-䶿一-鿿豈-﫿]/,
 }
 
-/** A message that asks for another language or a translation (영어로, 인도네시아어로, 일본말로, 스페인어 버전, 英語で, 用西班牙语,
- * English, translate …): no piece is dropped in that answer. Languages go by their names, and the answer's own is not
- * one of them ("자막은 한국어로", 0.16.0 gate: it turned this rule off and "Korean text renders correctly. Attaching it
- * now." led a Korean answer; a word that only ends like one, 레이어로, 소프트웨어로, 敬語で, is no language either). */
-const KO_ASKS = [
-  '영어', '영문', '번역', '일본어', '중국어', '스페인어', '프랑스어', '독일어', '베트남어', '인도네시아어', '태국어', '러시아어', '아랍어', '이탈리아어', '포르투갈어', '힌디어', '네덜란드어', '튀르키예어', '터키어', '말레이어', '타갈로그어', '몽골어', '라틴어', '폴란드어', '일본말', '중국말',
-  // 불어 and 독어 are also plain Korean words: only with what asks for a language
-  '영작', '불어\\s*(?:로|으로|버전|번역|판)', '독어\\s*(?:로|으로|버전|번역|판)',
-]
-/** Korean by name: another language only where the answer's own is not Korean */
-const KO_NAMED = [
-  '영어', '한국어', '한국말', '한글로',
-]
-const JA_LANGS = '英|中国|韓国|スペイン|フランス|ドイツ|ベトナム|インドネシア|タイ|ロシア|アラビア|イタリア|ポルトガル|ヒンディー|オランダ'
-const ZH_LANGS = '英|日|韩|韓|法|德|西班牙|俄|越南|印尼|泰|阿拉伯|意大利|葡萄牙'
-const asksPattern = (own: AnswerScript) => new RegExp([
-  ...KO_ASKS, ...(own === 'ko' ? [] : KO_NAMED), '翻訳', '英語', '翻译', '英文', '英语',
-  `(?:${JA_LANGS}${own === 'ja' ? '' : '|日本'})語`,
-  `(?:${ZH_LANGS})[语語]`, `用(?:${ZH_LANGS}${own === 'zh' ? '' : '|中'})文`, `(?:${ZH_LANGS}${own === 'zh' ? '' : '|中'})文版`,
-  'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'commit',
-  ...(own === 'ja' ? [] : ['japanese']), ...(own === 'zh' ? [] : ['chinese']), ...(own === 'ko' ? [] : ['korean']),
+/** A message that asks for another language or a translation (영어로, 스웨덴어로, 일본말로, 스페인어 버전, 英語で, 用西班牙语,
+ * English, translate …): no piece is dropped in that answer. Any language counts, by the shape of its name, so one
+ * nobody listed keeps its text. The answer's own language and ordinary words of that shape are taken out first (NOT_ASKING:
+ * "자막은 한국어로", 0.16.0 gate, turned this rule off and "Korean text renders correctly. Attaching it now." led a Korean
+ * answer). A language named with no ending (한국어로 하나, 일본어 하나) counts when it is a common one. */
+const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
+  '영어', '영문', '번역', '[가-힣]어(?:로|으로|\\s*버전|\\s*번역|\\s*판)', '[가-힣]\\s?말로', '일본어', '중국어', '스페인어', '프랑스어', '독일어', '베트남어', '인도네시아어', '태국어', '러시아어', '아랍어', '이탈리아어', '포르투갈어',
+  '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
+  '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '(?:英|日|韩|韓|法|德|俄)语', '翻译', '英文', '英语',
+  'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'japanese',
+  '영작', 'commit', 'chinese', 'korean',
   // the message quotes 3 or more Latin words (after ":" or in quotes)
   '[:：]\\s*[A-Za-z]+(?:[\\s,.\'-]+[A-Za-z]+){2,}', '["“\'‘「][A-Za-z]+(?:[\\s,.-]+[A-Za-z]+){2,}',
 ].join('|'), 'i')
-const ASKS_FOR_OTHER_LANGUAGE: Record<AnswerScript, RegExp> = { ko: asksPattern('ko'), ja: asksPattern('ja'), zh: asksPattern('zh') }
+/** What only looks like asking for another language, by the answer's script: its own language's names and ordinary words
+ * that end like a language name. */
+const NOT_ASKING: Record<AnswerScript, RegExp> = {
+  ko: new RegExp([
+    '한국어', '한국말', '한글', '우리말', 'korean', '단어', '용어', '레이어', '플레이어', '소프트웨어', '하드웨어', '미들웨어', '펌웨어', '시니어', '주니어', '엔지니어', '커리어', '캐리어', '아이디어', '미디어', '인테리어', '바이어', '프리미어', '기어', '정말', '참말', '거짓말', '존댓말', '존대말', '반말', '높임말', '혼잣말', '막말', '줄임말', '머리말', '맺음말', '꼬리말', '인사말', '끝말',
+  ].join('|'), 'gi'),
+  ja: /日本語|japanese|敬語|丁寧語|尊敬語|謙譲語|用語|単語|標準語|言語|熟語|外来語|略語|新語|流行語|主語|述語|物語/gi,
+  zh: /中文|汉语|漢語|华语|華語|简体|簡體|繁体|繁體|chinese|口语|书面语|成语|术语|用语/gi,
+}
+/** Does the message ask for a language other than the answer's own? (each word taken out leaves a mark no pattern reads
+ * across: "깨졌어 한국어로" must not become "깨졌어 로") */
+const asksOtherLanguage = (message: string, script: AnswerScript) => ASKS_FOR_OTHER_LANGUAGE.test(message.replace(NOT_ASKING[script], '\u0000'))
+
 /** Text that is often in English though the chat is not: a slogan, copy, a commit message, a button or label. Such a
  * message turns the hold off unless it gives the new words in the answer's own script (OWN_SCRIPT_COPY): "배너 문구를
  * '작지 않아 큰 햇살이야!'로 바꿔 줘" asks for Korean words (demo re-test 11-22: "Try with a full team path." went out at
@@ -64,9 +66,6 @@ const ownScriptCopy = (m: string, script: AnswerScript) => {
   for (const q of m.matchAll(/["“'‘「『]([^"”'’」』\n]{1,80})["”'’」』]/g)) if (SCRIPT_LETTER[script].test(q[1]!)) return true
   return script === 'ko' && /[가-힣][^\s]*\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|고쳐)/.test(m)
 }
-
-/** Does the message ask for a language other than the answer's own? */
-const asksOtherLanguage = (message: string, script: AnswerScript) => ASKS_FOR_OTHER_LANGUAGE[script].test(message)
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200

@@ -185,6 +185,14 @@ describe('skills written with write (the real engine: one call after the other, 
     expect(q.batch?.item).toBeUndefined()
     await ws.next('message.done', (x) => x.data.messageId === r.assistantMessage.id, 30_000)
   })
+  test('SKILL.md first, then a file of the same new skill: the file is not held, each card saves what it shows', async () => {
+    const files = [{ tool: 'write', args: { file_path: 'skills/w-two/SKILL.md', content: md('w-two', 'Does two for the team') }, sayResult: true }, { tool: 'write', args: { file_path: 'skills/w-two/references/a.md', content: '# a\n' }, sayResult: true }]
+    const w = await ask(`스킬 하나 만들어줘\n${fake(...files)}`, 2)
+    for (const c of w.cards) expect((await post(w.turnId, c.request.requestId, 'save')).status).toBe(204)
+    await nextTurn(w.chatId, w.answerId)
+    expect(has('skills/w-two/SKILL.md')).toBe(true)
+    expect(has('skills/w-two/references/a.md')).toBe(true)
+  })
   test('any other file-tool card carries its tool as the group key', async () => {
     const calls = ['w-rule-a', 'w-rule-b'].map((n) => ({ tool: 'write', args: { file_path: `skills/${n}.md`, content: `# ${n}\n` }, sayResult: true }))
     const w = await ask(`규칙 두 개 올려줘\n${fake(...calls)}`, 2)

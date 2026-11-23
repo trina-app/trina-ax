@@ -30,7 +30,7 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
-import { pressPlan, type CardLike } from '../../lib/cardBatch'
+import { gathers, pressPlan, type CardLike } from '../../lib/cardBatch'
 import { openTeamFile } from '../../lib/sidePanel'
 import { formatSize } from '../../lib/format'
 
@@ -382,7 +382,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
   })
   // cards that wait after the answer (no time limit) come one call at a time on an engine that runs writes in order: while
   // the answer still runs, the press waits for the rest, so one press covers them all. A card a call waits on is never held
-  const gathering = useCardsGathering(answerRunning && asks.length > 0 && asks.every((r) => !r.expiresAt), asks.length)
+  const gathering = useCardsGathering(answerRunning && asks.length > 0 && asks.every(gathers), asks.length)
   const first = asks[0]
   if (!first) return null
   const options = first.options ?? []
@@ -427,7 +427,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
             </span>
           ) : (
             <span className="min-w-0 flex-1">
-              {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-${r.requestId}`} /> : <span className="block whitespace-pre-wrap [overflow-wrap:anywhere]"><QuestionText r={r} /></span>}
+              {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-${r.requestId}`} /> : n === 1 ? null : <span className="block whitespace-pre-wrap [overflow-wrap:anywhere]"><QuestionText r={r} /></span>}
               {r.preview && <span className="mt-1.5 block"><SkillPreview p={r.preview} /></span>}
               {!r.share && r.details?.length ? <Details items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
             </span>

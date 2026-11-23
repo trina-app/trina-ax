@@ -5249,6 +5249,9 @@ export class TurnExec {
   /** a new skill's plain text files written before its SKILL.md in this turn, by the skill's folder: not saved, shown
    * on the SKILL.md card (QA MAN-052, docs/decisions/20261117-new-skill-files-on-card.md, chat/skill-held.ts) */
   private skillHeld?: Map<string, Map<string, HeldFile<WidenNeed>>> = new Map()
+  /** new skills' folders whose SKILL.md card waits after the answer: a file written after it gets its own card (holding it
+   * would ask for the SKILL.md again, on a second card that a replay could not honour) */
+  private skillWaiting?: Set<string> = new Set()
   /** new skills' folders whose SKILL.md the person said Save to in this turn: nothing more is held for them (a file
    * checked before the SKILL.md reached the disk would wait for a card that never comes; it gets its own card) */
   private skillSaved?: Set<string> = new Set()
@@ -5354,7 +5357,7 @@ export class TurnExec {
     // held, not saved, and shown on the SKILL.md card with the skill (QA MAN-052: two cards of raw text for one skill).
     // Never in a scheduled run (nobody sees a card there) or with "Always allow" for skill saves on (no card to show it)
     if (tool === 'write' && after !== null && !r.exists && folder && !manifest && this.spec.clientKind !== 'schedule' && alwaysHere(this.alwaysPlace(), 'skill_save') !== 'on'
-      && !this.skillSaved?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      && !this.skillSaved?.has(folder) && !this.skillWaiting?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
       const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile<WidenNeed>>()
       if (held.has(r.rel) || held.size < HELD_MAX_FILES) {
         held.set(r.rel, heldFile(r.rel, after, need))
@@ -5396,6 +5399,7 @@ export class TurnExec {
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
+    if (this.callNow?.deferred && folder && manifest && !r.exists) (this.skillWaiting ??= new Set()).add(folder)
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)

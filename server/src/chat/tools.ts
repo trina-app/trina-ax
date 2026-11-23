@@ -132,7 +132,11 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 
 /** a safety card's call result when the card waits after the answer ends */
-export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. If the request needs more calls of this same tool, make them now, all together: their cards join this one, so the user answers once. Then end your answer: write at most one short line, call no other tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
+export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. End your answer now: write at most one short line, call no more tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
+
+/** The same for a save of a file or skill: separate saves the request still needs join this card, so one press covers them */
+export const CARD_LATER_SAVE_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. If the request needs more separate saves of other files or skills that do not depend on this one, make them now: their cards join this one, so the user answers once. Then end your answer: write at most one short line, call no other tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
+const cardLaterNote = (tool: string) => (tool === 'write' || tool === 'edit' || tool === 'make_file' || tool === 'skill_files' ? CARD_LATER_SAVE_NOTE : CARD_LATER_NOTE)
 
 /** ask_user's result when its card waits after the answer ends (chat/open-questions.ts) */
 export const ASK_USER_LATER_NOTE = 'The card is open for the user and waits until they answer. End your answer now: write at most one short line, call no more tools, and do not answer the question yourself. Their answer comes as their next message in this chat; go on with the work from there.'
@@ -815,7 +819,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const out = await exec.runAsCall(call, () => once(name, args, caller), name)
     if (!call.deferred) return out
     exec.markCallWaiting(name)
-    return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
+    return { ...text(JSON.stringify({ waiting_for_user: true, note: cardLaterNote(name) })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
   }
   // ...and the file tools whose checks and cards run in mcp/protocol.ts (write, edit): the same, for the main AI's own
   // call (never a file of an edit_files batch: protocol.ts calls this only for a call of its own)
@@ -828,7 +832,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const out = await exec.runAsCall(call, run, name)
     if (!call.deferred) return out
     exec.markCallWaiting(name)
-    return waiting(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE }))
+    return waiting(JSON.stringify({ waiting_for_user: true, note: cardLaterNote(name) }))
   }
   return set
 }
