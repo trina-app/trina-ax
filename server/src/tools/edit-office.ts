@@ -253,7 +253,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   const picWork: string[] = []
   /** inserted pictures that are not the asker's own upload (files/own-upload.ts) */
   const notMine = new Set<string>()
-  const ownTeam = new Map<string, boolean>()
+  const ownPic = new Map<string, boolean>()
   const picture = async (p: string, i: number, insert = false): Promise<number> => {
     let rel: string, raw: Uint8Array
     const place = parsePlace(p)
@@ -263,28 +263,30 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       picWork.push(work)
       const f = await readPlaceFile(ctx, c, p, OFFICE_EDIT_LIMITS.imageBytes, work)
       rel = f.place
-      const at = parsePlace(rel)
-      if (insert && !isOwnUpload(ctx.db, c.user.id, { chatFile: at?.kind === 'chatFiles' ? at.id ?? '' : '' })) notMine.add(f.name)
       const known = imageIndex.get(rel)
-      if (known !== undefined) return known
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(f.name); return known }
       if (!PICTURE_EXT.has(ext(f.name))) throw new ToolError(`change ${i + 1}: '${f.name}' is not a PNG, JPEG or WebP picture; give one of those`)
       countPictureBytes(imageBytes, 'read', f.size, i)
       raw = readRegular(f.local, OFFICE_EDIT_LIMITS.imageBytes).bytes
       fs.rmSync(f.local, { force: true })
+      // judged on the very bytes that go into the document (the place path names the chain, its read is the newest version)
+      const at = parsePlace(rel)
+      ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { chatFile: at?.kind === 'chatFiles' ? at.id ?? '' : '', sha256: sha256(raw) }))
+      if (insert && !ownPic.get(rel)) notMine.add(f.name)
     } else {
       const img = authorize(fx, files.rules(), c.user, p, 'read')
       if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
       rel = img.rel
       const known = imageIndex.get(rel)
-      if (known !== undefined) { if (insert && !ownTeam.get(rel)) notMine.add(rel); return known }
+      if (known !== undefined) { if (insert && !ownPic.get(rel)) notMine.add(rel); return known }
       if (!PICTURE_EXT.has(ext(rel))) throw new ToolError(`change ${i + 1}: '${rel}' is not a PNG, JPEG or WebP picture; give one of those`)
       const size = checkRegular(img.abs).size
       if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
       countPictureBytes(imageBytes, 'read', size, i)
       raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
       // judged on the very bytes that go into the document
-      ownTeam.set(rel, isOwnUpload(ctx.db, c.user.id, { team: rel, sha256: sha256(raw) }))
-      if (insert && !ownTeam.get(rel)) notMine.add(rel)
+      ownPic.set(rel, isOwnUpload(ctx.db, c.user.id, { team: rel, sha256: sha256(raw) }))
+      if (insert && !ownPic.get(rel)) notMine.add(rel)
     }
     ctx.files.quarantine.assertBytes(raw)
     const made = await reencodePicture(ctx, raw, rel, i, c.signal)

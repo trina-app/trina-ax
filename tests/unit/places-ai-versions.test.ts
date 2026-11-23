@@ -498,6 +498,29 @@ describe('insert_picture: a file counts as the asker\'s own only if they uploade
     expect(asked(await run('alice', chat, fake(...stamp(chatFilePath(doc.id, 'inchat.docx'), chatFilePath(row.id, 'ceo-seal-c.png')))))).toBe(true)
     expect(versionsOf(chat, doc.id)).toBe(1)
   })
+  t('someone else\'s AI saves a new version over the person\'s seal: stamping it asks (the bytes are judged); an untouched upload does not', async () => {
+    const chat = await sharedChat()
+    const sendFile = async (name: string, b: Uint8Array) => { const up = new FormData(); up.set('chatId', chat); up.set('file', new File([b as Uint8Array<ArrayBuffer>], name)); return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: up })).json()) as Attachment }
+    form('users/alice/chain.docx')
+    const doc = await sendFile('chain.docx', new Uint8Array(fs.readFileSync(abs('users/alice/chain.docx'))))
+    const seal = await sendFile('seal.png', png())
+    const kept = await sendFile('kept.png', png())
+    await run('alice', chat, `the form and my seals\n${fake({ say: 'ok' })}`, [doc.id, seal.id, kept.id])
+    const docPath = chatFilePath(doc.id, 'chain.docx'), sealPath = chatFilePath(seal.id, 'seal.png')
+    // alice's untouched upload: no card
+    const fine = await run('alice', chat, fake(...stamp(docPath, chatFilePath(kept.id, 'kept.png'))))
+    expect(fine.cards).toHaveLength(0)
+    expect(versionsOf(chat, doc.id)).toBe(2)
+    // bob's AI writes its own picture as version 2 of alice's seal
+    put('shared/brand/bobs-picture.png', Buffer.concat([Buffer.from(png())]))
+    const bob = await run('bob', chat, fake({ tool: 'read', args: { file_path: sealPath } }, { tool: 'resize_images', args: { paths: ['shared/brand/bobs-picture.png'], width: 16, output: sealPath }, sayResult: true }))
+    expect(bob.content).not.toContain('Not done')
+    expect(versionsOf(chat, seal.id)).toBe(2)
+    // alice asks to stamp "her" seal: a card, and without a yes the form stays as it was
+    const r = await run('alice', chat, fake(...stamp(docPath, sealPath)))
+    expect(asked(r)).toBe(true)
+    expect(versionsOf(chat, doc.id)).toBe(2)
+  })
   t('really uploaded to the person\'s own folder: no card; once other bytes are written over it, a card again', async () => {
     form('users/alice/real.docx')
     const f = new FormData(); f.set('folder', 'users/alice'); f.set('name', 'my-seal.png'); f.set('onExists', 'replace'); f.set('file', new File([png() as Uint8Array<ArrayBuffer>], 'my-seal.png'))
