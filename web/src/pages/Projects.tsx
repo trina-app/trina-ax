@@ -393,7 +393,7 @@ export function ProjectChatRow({ chat: listed, project, mention, onMove, onChang
         name,
         <>
           {c.pinnedAt && <Pin size={12} role="img" aria-label={t('chat.pinned')} className="shrink-0 text-faint" data-testid="chat-pin-icon" />}
-          {c.shared && !faces && <SharedIcon className="text-faint" />}
+          {c.shared && <SharedIcon className="text-faint" />}
           {/* my chat that only I see in a team project ("Only me", or from before): only its creator lists it */}
           {privateInTeamProject(c, project) && <PrivateIcon />}
         </>,
