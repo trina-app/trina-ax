@@ -30,39 +30,49 @@ remove the phone's delivered notifications for what was read and set the icon's 
 
 ## Scope
 
-In:
-1. Server: a "read sync" step in the push dispatcher (`push-service.ts`). Every 5 s it finds notices that were pushed
-   to a phone (a delivery with `attempts > 0`, within the push day) and are now read or gone (`read_at` set,
-   suppressed, or the notice deleted), across all push sources (rooms, AI answers, shared chats, threads, chat
-   messages, files, access requests, Inbox). For each phone it sends at most one silent "sync" push: the ids to
-   remove (at most 40 a push, the rest next time) and, for an iPhone, the icon number now (`pushBadge`). An iPhone is
-   also synced when its count went down without a pushed notice being read (the last number sent to it is kept).
-   Coalesced: at most one sync per phone per 30 s and 100 a day; a burst of reads becomes one sync. Ids already sent
-   in a sync are recorded and never sent again. No text, no names, no path: ids and a number only.
-   One migration (`446_b_push_phone_sync.sql`): the last number and sync time per phone, and the ids cleared.
-2. Gateway contract (`shared/src/cloud-protocol/push-gateway.ts`): optional `sync: true` with `clear` (ids) and the
-   code `phone.sync`. `phone.sync` without `sync`, or `sync` with `path`/`label`, is refused, so a sync can never
-   become a visible notification. A gateway from before it refuses the key (invalid_body); the team server then sends
-   no sync to that gateway for an hour and never resends it without `sync` (that would show the fallback line).
-3. Gateway (`push-gateway/`): sync messages
-   - APNs: `aps: { badge, content-available: 1 }`, no alert, no sound, `apns-push-type: alert` when a badge is in it
-     (Apple: alert type is for alerts, sounds or badges), `background` without one, priority 5, collapse id
-     `phone.sync`, `body: { notificationId, code, device, clear }`.
-   - FCM: data-only `{ notificationId, code, device, clear: "id,id" }`, priority NORMAL, no `notification` block, no
-     title/message (expo-notifications never shows a data-only message without a title or text, so an app from before
-     this change ignores it).
-   - Rate limit: syncs count in their own (key, token) bucket, so they never use up the real pushes' 20/min, 200/day.
-4. Android app: `LabelMessagingService` handles `phone.sync` natively before expo-notifications (runs while the app is
-   closed): cancels the tray entries whose tag is a listed id and the group summaries left empty. Never shows anything.
-5. Both apps, foreground: when the page sends its count `badge` 0 (everything read; it sends it on every return to the
-   foreground), the app removes every delivered notification. A sync arriving while the app is open is never listed.
+In (changed after the independent plan review, see "Review" below):
+1. Server: every phone push that went (or whose answer never came) is written to a ledger per phone
+   (`push_phone_ledger`). A "read sync" step after each dispatch (at most every 5 s) finds the ledger's notices of the
+   push day that are now read on any device, no longer told (suppressed) or deleted, using each source's own "still to
+   tell" rule (so the owner's locked password check never counts as read). Each phone gets at most one silent sync
+   push: the **whole** set of such ids, newest first (at most 40, fitting the gateway body), so a sync lost while the
+   phone was offline costs nothing; an iPhone also gets its icon number now (`pushBadge`). It is sent only when the set
+   (Android) or the number (iPhone) changed since the last sync; at most one per phone per 30 s, 100 a day, 10 a round,
+   after the due pushes. An iPhone last sent a number above 0 is also checked every 15 s (a room read without a pushed
+   notice). Ids and a number only, unique notification id, 24 h TTL.
+   Android syncs go only to an app that registered with `sync: true` (new capability push-sync-v1, sent by the page with
+   the token): an older Android app would list an empty notification for a sync while it is open.
+   Migration `446_b_push_phone_sync.sql`: `push_subscriptions.sync_ok`, `push_phone_ledger`, `push_phone_sync`.
+2. Gateway contract: optional `sync: true` with `clear` (ids) and the code `phone.sync`. `phone.sync` without `sync`, `clear`
+   without `sync`, and `sync` with `path`, `label` or an Android `badge` are refused, so a sync can never become a visible
+   notification. A gateway from before it refuses the key; the team server then sends no sync there for an hour and
+   never resends it without `sync`.
+3. Gateway: APNs `aps: { badge?, content-available: 1 }` (no alert, no sound), push type alert with a badge, background
+   without, priority 5, collapse id `phone.sync`. FCM data-only, NORMAL priority, no title or line. Syncs have their own
+   (key, token) bucket. Every FCM message now also has `data.tag` = the notice id, so a notification expo-notifications
+   showed while the app was open has the notice id as its tag too.
+4. Android app (`modules/push-label`): `LabelMessagingDelegate.onMessageReceived` handles `phone.sync` before
+   expo-notifications: cancels the tray entries whose tag is a listed id and the group summaries left empty; shows
+   nothing.
+5. Both apps, foreground: the page's count 0 (sent on every return to the foreground) removes the delivered notifications
+   of the kinds that count covers (room notices, AI answers, chat messages, thread replies; on Android also the ones the
+   system drew without their data). File shares, access requests, schedule and owner notices stay. A sync arriving while
+   the iPhone app is open is never listed.
 
 Out (later):
-- iPhone: removing delivered notifications while the app is closed. That needs the remote-notification background mode
-  and a headless task (expo-task-manager), and iOS wakes the app only when it chooses. The sync already carries
-  `content-available` and the ids, so a later app build can do it without a gateway or server change. Until then the
-  iPhone's number is right at once, and its list is cleaned when the app is opened.
-- Per-room removal on open while some things are still unread (needs a bridge message and a page change).
+- iPhone: removing delivered notifications while the app is closed (needs the remote-notification background mode and
+  a headless task; iOS wakes the app only when it chooses). The sync already carries `content-available` and the ids,
+  so a later app build can do it without a gateway or server change. Until then the iPhone's number is right at once
+  and its list is cleaned when the app is opened.
+- Per-room removal on open while some things are still unread.
+
+## Review
+
+Independent plan review (fresh agent, 2026-11-23): MUST items taken: an Android capability flag (old apps in the
+foreground would list an empty notification), whole-set syncs instead of "each id once" (APNs/FCM keep only the last
+collapsed push), unique notification ids per sync, a ledger (delivery rows are deleted with their notice), the "still
+to tell" rule instead of `read_at`. SHOULD items taken: `data.tag` per notice on FCM, limit the iPhone count checks,
+clear only counted kinds on open, cap syncs per round after the pushes, a separate transport path, no empty sync.
 
 ## Steps
 

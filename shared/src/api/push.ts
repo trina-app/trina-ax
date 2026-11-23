@@ -21,9 +21,9 @@ export const PUSH_KEY_REASON = 'push_key'
 export const PushSubscriptionInput = z.object({ consent: z.literal(true), endpoint: z.string().min(1).max(4096), keys: z.object({ p256dh: z.string().min(1).max(128), auth: z.string().min(1).max(64) }).strict() }).strict()
 /** The phone's own APNs (hex) / FCM token, as the app's bridge hands it to the signed-in page. labelHash: sha256 hex of
  * the label key an iPhone app offering push-label-v1 made and keeps for its notification extension (who and where in a
- * room push); the key itself never leaves the phone's keychain. Older servers refuse the field, but only a page of this
- * server sends it. */
-export const PushDeviceInput = z.object({ consent: z.literal(true), platform: z.enum(['ios', 'android']), environment: z.enum(['sandbox', 'production']), token: z.string().min(32).max(3000), labelHash: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict()
+ * room push); the key itself never leaves the phone's keychain. sync: the app offers push-sync-v1 (it takes silent syncs:
+ * notices read elsewhere leave its list). Older servers refuse the fields, but only a page of this server sends them. */
+export const PushDeviceInput = z.object({ consent: z.literal(true), platform: z.enum(['ios', 'android']), environment: z.enum(['sandbox', 'production']), token: z.string().min(32).max(3000), labelHash: z.string().regex(/^[0-9a-f]{64}$/).optional(), sync: z.literal(true).optional() }).strict()
 /** The removal key the app got at registration (base64url, 32 bytes): proof enough to drop that one device. */
 export const PushDeviceRemoveInput = z.object({ key: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict()
 /** The label key (whose hash came with the registration) and a notice id the phone was sent. Strings of any shape: a malformed one gets the

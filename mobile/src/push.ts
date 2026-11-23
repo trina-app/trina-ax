@@ -14,7 +14,7 @@ import * as Crypto from 'expo-crypto'
 import { LABEL_ITEM, LABEL_SERVICE, LabelStore } from './labels'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 import { permissionFrom } from './permission'
-import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, setsIconNumber } from './badge'
+import { AppBadge, askBadgeAgain, PERMISSION_REQUEST, readWhenCountIsZero, setsIconNumber, SYNC_CODE } from './badge'
 
 export const CHANNEL_ID = 'default'
 // set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
@@ -95,7 +95,8 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
  * sets the icon's number itself (badge-v1: its own count, the newest), so a push's number does not replace it. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
-  try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
+  // a silent sync (an iPhone's number after reads elsewhere) is never listed
+  try { Notifications.setNotificationHandler({ handleNotification: async (n) => ({ shouldShowBanner: false, shouldShowList: n.request.content.data?.code !== SYNC_CODE, shouldPlaySound: false, shouldSetBadge: false }) }) }
   catch { console.log('push: notification handler unavailable') }
 }
 
@@ -126,6 +127,16 @@ export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNum
 
 /** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
  * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */
+/** The page's count is 0 (badge-v1; it sends it on every return to the foreground): the notifications of what that count
+ * covers were all read, here or on another device, and leave the phone's list (Slack's way). Others stay (on Android
+ * a notification without its data goes too: src/badge.ts readWhenCountIsZero). Never throws. */
+export function clearReadDelivered() {
+  void (async () => {
+    const shown = await Notifications.getPresentedNotificationsAsync()
+    for (const n of shown) if (readWhenCountIsZero(n.request.content.data?.code, Platform.OS)) await Notifications.dismissNotificationAsync(n.request.identifier).catch(() => {})
+  })().catch(() => {})
+}
+
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}); void appBadge.clear() }
 
 /** The label item (src/labels.ts). iPhone: the keychain item the notification extension reads, only on a build with the

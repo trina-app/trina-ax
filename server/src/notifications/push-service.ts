@@ -29,15 +29,24 @@ import { pushSecretsLogLine, pushSecretsProblem } from './push-secrets'
 import { readNativePushConfig } from './push-gateway-setting'
 import { decidePhone, type PhoneDecision } from './away'
 import { createNativeTransport, labelCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { PUSH_SYNC_CODE, PUSH_SYNC_MAX_CLEAR } from '@mycel/shared/cloud-protocol'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
 /** away.ts: a push to this person's phone app now goes, is cancelled (they are at Trina) or waits for the warm-up */
-phoneDecision:(userId:string)=>PhoneDecision&{reason?:string}}
+phoneDecision:(userId:string)=>PhoneDecision&{reason?:string}
+/** the transport of silent syncs (syncPhones): the native transport, unless options give their own nativeTransport
+ * without this one (tests of the pushes alone): then no syncs */
+syncTransport:NativeTransport|null}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native';label_hash?:string|null}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
 const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
+/** A phone follows reads made elsewhere (syncPhones): looked at every SYNC_EVERY_MS, an iPhone's number every
+ * SYNC_BADGE_EVERY_MS; at most one silent sync per phone per SYNC_GAP_MS and SYNC_PER_DAY a UTC day, so a burst of reads
+ * becomes one push. What was pushed to a phone is kept SYNC_KEEP_MS (a push's day and a margin). */
+export const SYNC_EVERY_MS=5_000,SYNC_BADGE_EVERY_MS=15_000,SYNC_GAP_MS=30_000,SYNC_PER_DAY=100,SYNC_PER_ROUND=10
+const SYNC_KEEP_MS=2*86400_000,SYNC_TTL_S=86400
 /** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
  * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
 export const LABEL_PER_MINUTE=30
@@ -96,7 +105,9 @@ export class PushService {
   /** label requests with the right key per device this minute (in memory: a restart forgets it) */
   private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
-    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>{const d=decidePhone(ctx,userId);return {...d.decision,reason:d.reason}},...options}
+    const nativeTransport=options.nativeTransport??createNativeTransport({dataDir:ctx.config.dataDir})
+    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>{const d=decidePhone(ctx,userId);return {...d.decision,reason:d.reason}},...options,
+      nativeTransport,syncTransport:options.syncTransport!==undefined?options.syncTransport:options.nativeTransport?null:nativeTransport}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
@@ -170,20 +181,22 @@ export class PushService {
     // push's title and nothing else (it cannot remove the device); the same key again changes nothing, so a lost answer
     // never leaves the phone with a key the server forgot. On Android it also makes the push data-only (label below)
     const labelHash=input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
+    // a phone app that takes silent syncs (push-sync-v1): it takes notices read elsewhere off its list (syncPhones)
+    const syncOk=input.sync===true?1:0
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.user_id!==userId&&this.live(other.user_id,other.session_id))throw new HttpError('conflict',PHONE_TAKEN[getUser(this.ctx.db,userId)?.locale??teamDefaultLocale(this.ctx.db)])
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
         // the same device again: a fresh removal key (the app keeps only the latest)
-        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=? WHERE id=?').run(removeHash,labelHash,other.id);return{id:other.id,moved:null}}
+        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=?,sync_ok=? WHERE id=?').run(removeHash,labelHash,syncOk,other.id);return{id:other.id,moved:null}}
       }
       if(other)this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(other.id)
       const count=this.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=? AND session_id<>?').get(userId,sessionId) as {n:number}
       if(count.n>=MAX_SUBSCRIPTIONS)throw new HttpError('plan_limit')
       this.ctx.db.query('DELETE FROM push_subscriptions WHERE session_id=?').run(sessionId)
       const id=newId(),encrypted=this.vault.encrypt(`${userId}|${sessionId}|${id}`,'native-push',device)
-      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash,label_hash) VALUES(?,?,?,?,?,?,?,?,'native',?,?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash,labelHash)
+      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash,label_hash,sync_ok) VALUES(?,?,?,?,?,?,?,?,'native',?,?,?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash,labelHash,syncOk)
       this.ctx.db.query('INSERT INTO push_preferences(user_id,enabled,enabled_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,enabled_at=CASE WHEN enabled=0 THEN excluded.enabled_at ELSE enabled_at END').run(userId,this.iso())
       return{id,moved:other&&other.user_id!==userId?other.user_id:null}
     })()
@@ -289,8 +302,79 @@ export class PushService {
   tick():Promise<void>{
     if(this.work)return this.work
     if(this.stopped)return Promise.resolve()
-    this.work=this.dispatch().catch(()=>{this.ctx.log.warn('push dispatch deferred')}).finally(()=>{this.work=null})
+    this.work=this.dispatch().catch(()=>{this.ctx.log.warn('push dispatch deferred')})
+      .then(()=>this.syncPhones()).catch(()=>{this.ctx.log.warn('phone sync deferred')}).finally(()=>{this.work=null})
     return this.work
+  }
+  private syncedAt=-Infinity
+  private badgeAt=-Infinity
+  /** Per phone, the notices pushed to it within a push's day (push_phone_ledger) that are read now (on any device), no
+   * longer told (suppressed) or deleted: ids only, newest first. The owner's locked password check stays told once
+   * read (SOURCES unread), so it is never in it. */
+  private readOnPhones(configKey:string):Map<string,string[]>{
+    const out=new Map<string,{nid:string;at:string}[]>(),since=this.iso(this.o.now()-TTL_MS)
+    for(const src of SOURCES){
+      const unread=src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)
+      const rows=this.ctx.db.query(`SELECT l.subscription_id sid,l.notification_id nid,l.sent_at at FROM push_phone_ledger l
+        JOIN push_subscriptions s ON s.id=l.subscription_id AND s.kind='native' AND s.config_key=?
+        LEFT JOIN ${src.inbox} n ON n.id=l.notification_id
+        WHERE l.src=? AND l.sent_at>? AND (n.id IS NULL OR NOT (n.suppressed=0 AND ${unread}))`).all(configKey,src.inbox,since) as {sid:string;nid:string;at:string}[]
+      for(const r of rows){const l=out.get(r.sid);if(l)l.push(r);else out.set(r.sid,[r])}
+    }
+    return new Map([...out].map(([sid,l])=>[sid,l.sort((x,y)=>y.at.localeCompare(x.at)||y.nid.localeCompare(x.nid)).map((r)=>r.nid)]))
+  }
+  /** After reads on another device: a phone that may still show a notice now read gets one silent sync (no alert, no
+   * sound, no text; push-native.ts): every such id of the push day, newest first (the whole set each time, so a sync
+   * lost while the phone was offline costs nothing), and an iPhone's icon number now. Android (an app that said
+   * push-sync-v1) takes those off its tray; an iPhone sets its number (its app takes nothing off while closed yet). An
+   * iPhone whose number went down without a pushed notice being read (a room's messages read) gets one too. At most one
+   * per phone per SYNC_GAP_MS and SYNC_PER_DAY a day, SYNC_PER_ROUND a round, after the due pushes; only when the set
+   * or the number changed. Plan: docs/AGENTS/plan/20261123-0705-phone-badge-sync.md. */
+  async syncPhones(){
+    const nowMs=this.o.now();if(this.stopped||nowMs-this.syncedAt<SYNC_EVERY_MS)return
+    this.syncedAt=nowMs
+    const native=this.o.native(),syncTransport=this.o.syncTransport;if(!native||!syncTransport)return
+    const key=nativeConfigKey(native),db=this.ctx.db,day=this.iso().slice(0,10)
+    db.query('DELETE FROM push_phone_ledger WHERE sent_at<?').run(this.iso(nowMs-SYNC_KEEP_MS))
+    const read=this.readOnPhones(key)
+    // an iPhone last sent a number above 0: is it lower now? (a few people's count, every SYNC_BADGE_EVERY_MS)
+    if(nowMs-this.badgeAt>=SYNC_BADGE_EVERY_MS){this.badgeAt=nowMs;for(const r of db.query('SELECT subscription_id sid FROM push_phone_sync WHERE badge>0').all() as {sid:string}[])if(!read.has(r.sid))read.set(r.sid,[])}
+    let sends=0
+    for(const [sid,all] of read){
+      if(this.stopped||sends>=SYNC_PER_ROUND)return
+      const sub=db.query("SELECT * FROM push_subscriptions WHERE id=? AND kind='native' AND config_key=?").get(sid,key) as (Subscription&{sync_ok:number})|null
+      if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))continue
+      const st=db.query('SELECT badge,digest,synced_at,day,day_count FROM push_phone_sync WHERE subscription_id=?').get(sid) as {badge:number|null;digest:string|null;synced_at:string|null;day:string|null;day_count:number}|null
+      if(st?.synced_at&&Date.parse(st.synced_at)+SYNC_GAP_MS>nowMs)continue
+      if(st?.day===day&&st.day_count>=SYNC_PER_DAY)continue
+      let device:NativeDevice
+      try{this.safeSecrets();device=this.vault.decrypt(`${sub.user_id}|${sub.session_id}|${sub.id}`,'native-push',sub.secret_enc,sub.key_version) as NativeDevice}catch{continue}
+      const ios=device.platform==='ios'
+      // Android: only an app that takes syncs (an older one would list an empty notification while open)
+      if(!ios&&sub.sync_ok!==1)continue
+      // the ids: as many as fit the gateway's body next to this token (ids are at most 100 characters)
+      const clear=all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103))))
+      const digest=clear.length?crypto.createHash('sha256').update(clear.join(',')).digest('hex').slice(0,32):null
+      const badge=ios?this.o.badge(sub.user_id):null
+      // an iPhone's sync is for its number: only when it changed; Android's for its tray: only when the set changed
+      if(ios?badge===null||badge===st?.badge:!clear.length||digest===st?.digest)continue
+      const locale=getUser(db,sub.user_id)?.locale??teamDefaultLocale(db),abort=new AbortController(),wait=this.o.requestTimeoutMs??10_000,syncId=newId()
+      const timer=setTimeout(()=>abort.abort(),wait)
+      let status=0;sends++
+      try{
+        const beforeSend=()=>!abort.signal.aborted&&!this.stopped&&this.activeKeys().includes(key)&&this.session(sub.user_id,sub.session_id)&&this.enabled(sub.user_id)
+        status=(await bounded(syncTransport({device,payload:{notificationId:syncId,code:PUSH_SYNC_CODE,locale,tag:sub.id},sync:{notificationId:syncId,locale,tag:sub.id,clear,...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds:SYNC_TTL_S}),abort.signal,wait)).statusCode
+      }catch{status=0}finally{clearTimeout(timer);abort.abort()}
+      if(status===410){db.query('DELETE FROM push_subscriptions WHERE id=?').run(sid);continue}
+      const sent=status>=200&&status<300
+      // a failed one is tried again after SYNC_GAP_MS (its number and set stay the old ones)
+      db.query(`INSERT INTO push_phone_sync(subscription_id,badge,digest,synced_at,day,day_count) VALUES(?,?,?,?,?,1)
+        ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge,digest=excluded.digest,synced_at=excluded.synced_at,
+        day=excluded.day,day_count=CASE WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`)
+        .run(sid,sent?badge:st?.badge??null,sent?digest:st?.digest??null,this.iso(),day)
+      // counts only, never ids or what was read
+      this.ctx.log.info('phone read sync',{device:sid.slice(-6),platform:device.platform,listed:clear.length,...(badge!==null?{badge}:{}),status})
+    }
   }
   private async dispatch(){
     const keys=this.activeKeys();if(!keys.length)return
@@ -322,7 +406,7 @@ export class PushService {
       const changed=this.ctx.db.query(`UPDATE ${src.deliveries} SET state='sending',attempts=attempts+1,lease_until=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(this.o.now()+35_000),row.notification_id,row.subscription_id)
       if(!changed.changes)continue
       const abort=new AbortController(),r=row,from=src;this.flight={abort,src,userId:allowed.sub.user_id,sessionId:allowed.sub.session_id,subscriptionId:row.subscription_id,notificationId:row.notification_id,configKey:key}
-      let status=0,failure:ReturnType<typeof pushFailure>|null=null,timedOut=false
+      let status=0,failure:ReturnType<typeof pushFailure>|null=null,timedOut=false,sentBadge:number|null=null
       try{
         this.safeSecrets()
         const aad=`${allowed.sub.user_id}|${allowed.sub.session_id}|${allowed.sub.id}`
@@ -339,6 +423,7 @@ export class PushService {
             // badge: the person's count now (what the page would show on the icon), a number only; an iPhone's only (the
             // gateway sends none to Android: launchers count the notifications there)
             const badge=device.platform==='ios'?this.o.badge(allowed.sub.user_id):null
+            sentBadge=badge
             // label: an Android app that registered a label key builds a room push itself (data-only FCM) and names who
             // and where (docs/decisions/20261121-android-push-who-where.md); an older app gets the gateway's line
             const label=device.platform==='android'&&!!allowed.sub.label_hash&&labelCode(allowed.event)
@@ -356,6 +441,13 @@ export class PushService {
       const outcome={kind:allowed.sub.kind,attempt:row.attempts+1,...(failure??{status})}
       if(failure?.outcome!=='push_cancelled'&&!(status>=200&&status<300))this.ctx.log.warn('push delivery failed',outcome)
       else this.ctx.log.debug(failure?'push delivery cancelled':'push delivered',outcome)
+      // what this phone may now show (sent, or a send whose answer never came; also when it was read meanwhile): a read
+      // of it later takes it off (syncPhones). The iPhone's icon shows this number, so a read that lowers it sends a sync
+      if(allowed.sub.kind==='native'){
+        const delivered=status>=200&&status<300
+        if(delivered||(status===0&&failure?.outcome!=='push_cancelled'))this.ctx.db.query('INSERT INTO push_phone_ledger(subscription_id,notification_id,src,sent_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').run(row.subscription_id,row.notification_id,src.inbox,this.iso())
+        if(delivered&&sentBadge!==null)this.ctx.db.query('INSERT INTO push_phone_sync(subscription_id,badge) VALUES(?,?) ON CONFLICT(subscription_id) DO UPDATE SET badge=excluded.badge').run(row.subscription_id,sentBadge)
+      }
       if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
       // Web Push: the provider says the subscription is gone (404/410; WNS too: 404 an unknown channel, 410 an expired
       // one). The gateway answers 410 only for a dead token (its 404 means a wrong address, which must not delete phones).

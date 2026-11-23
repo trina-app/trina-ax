@@ -161,7 +161,8 @@ export function createGateway(env: GatewayEnv, deps: GatewayDeps) {
       return answer(200, { ok: true })
     }
     if (k.kind === 'limited') return fail('rate_limited', { 'retry-after': String(k.retryAfterSec) })
-    const t = await deps.state.admitPair(await sha256Hex(`${team.keyId}:${tokenId}`), now)
+    // a sync counts in its own (key, token) bucket: syncs never use up the phone's real pushes
+    const t = await deps.state.admitPair(await sha256Hex(`${team.keyId}:${tokenId}${msg.sync ? ':sync' : ''}`), now)
     if (t.kind === 'limited') {
       await deps.state.release(team.keyId, dedupeId)
       return fail('rate_limited', { 'retry-after': String(t.retryAfterSec) })

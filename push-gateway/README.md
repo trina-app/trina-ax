@@ -25,7 +25,8 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
     its /64. These counters live in memory only.
   - per key: 120 a minute while the key is young (first seen less than 24 h ago), then 1200 a minute.
   - per (key, token) pair: 20 a minute and 200 a day (UTC), so one team server cannot use up a phone's budget for
-    other teams.
+    other teams. Silent syncs (`sync: true`) count in a separate bucket of the same size, so they never use up the
+    real pushes'; they still count toward the per-key limit.
   - dedupe: the same (key, token, notificationId) within 10 minutes is answered 200 without sending again. This is also
     the replay guard inside the ±5 minute timestamp window.
   - A refused or failed send is not remembered, so a retry sends.
@@ -41,8 +42,9 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
     title. So does `chat.shared` (a chat shared with the person by name): an app build whose extension knows that code
     shows who shared it (never the chat's title); older builds show the generic line. The gateway never sees a name; the generic alert stays as the fallback (an app without the extension, or an
     extension that gets no answer, shows it).
-  - Android: FCM `data` is the same keys as flat strings, and never a key named `body` or `tag` (expo-notifications uses
-    `data.tag` as the notification id, so the request's `tag` travels as `device`). With the request's optional
+  - Android: FCM `data` is the same keys as flat strings, and never a key named `body`. expo-notifications uses
+    `data.tag` as the notification id, so the request's `tag` (the device) travels as `device` and `data.tag` is the
+    notice id, as `android.notification.tag` is (the app's sync finds a notification by it). With the request's optional
     `label: true` (Android only; the team server sends it for an app that names who and where) a room code or
     `chat.shared` goes data-only: no `notification` block, and `data` also has the generic `title`, `message` and
     `channelId: 'default'`. The app's messaging service then asks its own team for the title; the gateway still never
@@ -52,6 +54,14 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   notifications in the tray and add up their `notification_count`, so a total on each push would be counted again and
   again; each notification counts as one there. A number only. A gateway from before the field answers `400 invalid_body` to a
   request that has it; the team server then sends the same push without it and tries the field again an hour later.
+- Silent sync (`sync: true`, code `phone.sync`; the team server sends it after the person read things on another
+  device): never an alert, a sound or a line. `clear` (at most 40 notice ids) lists the notices to take off the phone.
+  iOS: `{aps:{badge?, content-available:1}, body:{notificationId, code, device?, clear?}}`, push type `alert` with a
+  badge (else `background`), priority 5, collapse id `phone.sync`. Android: data-only `{notificationId, code, device?,
+  clear: "id,id"}`, priority NORMAL, no `notification` block and no title or line, so an app from before it shows
+  nothing in the background (the team server sends Android syncs only to apps that registered for them). `phone.sync`
+  without `sync`, and `sync` with `path`, `label` or (Android) `badge`, are refused. A gateway from before `sync` refuses
+  it (`invalid_body`); the team server then sends none for an hour and never resends one without `sync`.
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider
   answers are never logged.
 
