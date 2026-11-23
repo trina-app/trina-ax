@@ -24,6 +24,11 @@ setDefaultTimeout(60_000)
 const KEY = ['QA', 'FAKE', 'KEY', '0000', 'NOT', 'REAL'].join('-')
 const TEAM_KEY = 'team-CANARY-9a8b7c6d5e'
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// the fake directive as JSON escapes: the person's own words hold no schedule word, so the schedule card shows (a schedule
+// asked for in the person's own words is made without it: docs/decisions/20261123-do-then-undo.md; the key stays hidden
+// in the saved task either way, checked below)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fakeQuiet = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 /** the key whole, or its first or last 8 characters (a key cut in two) */
 const leaks = (text: string, keys = [KEY, TEAM_KEY]) => keys.filter((k) => text.includes(k) || text.includes(k.slice(0, 8)) || text.includes(k.slice(-8)))
 
@@ -228,15 +233,13 @@ describe('a turn that repeats the stored key', () => {
   })
 
   test.skipIf(!native)('schedule_create: the card and the saved task have the key hidden in the title and the prompt', async () => {
-    // (a task that sends keeps its card: one asked in the person's own words that sends nowhere is made without it,
-    // docs/decisions/20261123-do-then-undo.md, and this test is about the card)
-    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and send me the answer.`, repeat: 'daily', time: '07:00' }
-    const t = await turn(fake({ tool: 'schedule_create', args, sayResult: true }), 'create')
+    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and save the answer in my folder.`, repeat: 'daily', time: '07:00' }
+    const t = await turn(fakeQuiet({ tool: 'schedule_create', args, sayResult: true }), 'create')
     const card = published.find((p) => p.ev.type === 'turn.request' && JSON.stringify(p.ev.data.request).includes('Every morning call QA API'))
     expect(card).toBeTruthy()
     expect(leaks(JSON.stringify(card!.ev))).toEqual([])
     const row = h.ctx.db.query("SELECT title, prompt FROM schedules WHERE user_id = 'alice' AND prompt LIKE 'Every morning call QA API%'").get() as { title: string; prompt: string }
-    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and send me the answer.` })
+    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and save the answer in my folder.` })
     expect(leaks(t.done.content + JSON.stringify(t.done.steps))).toEqual([])
   })
 
