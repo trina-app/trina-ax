@@ -13,7 +13,7 @@ import type { ToolRegistry } from '../tools/registry'
 import { z } from 'zod'
 import { audioCues } from './audio'
 import { DURATION } from './layout'
-import { mp4Available } from './render'
+import { mp4Why, noFileReason } from './render'
 import { registerSavePromoVideo, SAVE_PROMO_TOOL } from './save'
 import { checkPromoInput, LOGO_MIN_PX, PICTURE_MIN_PX, readPicture } from './spec'
 import { artifactDocument, type PlayerText } from './template'
@@ -101,9 +101,9 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
       'It opens by itself next to the chat (muted until the person turns the sound on). Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
       'only if scene 2 or 3 is listed above as made with type and light, one more sentence that names that scene (in plain words in their language, e.g. "the second scene") and says pictures added to the brand images folder can go in next time; scenes 1, 4 and 5 never count. ' +
       'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML. ' +
-      (mp4Available(ctx)
+      ((why) => why === null
         ? `When the person wants the video as a file, or to send, share or post it, call ${SAVE_PROMO_TOOL} first (it saves the .mp4 in the team folder), then share that file.`
-        : 'This server cannot save the video as a file (only this preview): if the person asks to send, share or download it as a file, say so plainly in one sentence.'),
+        : `This server cannot save the video as a file (only this preview; ${noFileReason(why)}): if the person asks to send, share or download it as a file, say so plainly in one sentence with that reason.`)(mp4Why(ctx)),
     summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
   }

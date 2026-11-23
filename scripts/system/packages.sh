@@ -19,7 +19,8 @@
 #   packages.sh sync     --id ID --base BASE [--bun BUN]                 mycel-ctl update: bring this machine to the list
 #                        of <base>/root: the missing packages of the install's profile (apt, only when install.json says
 #                        skipApt false), then the browser at the pinned version and MYCEL_HTML_PDF_BROWSER in
-#                        /etc/default/<id>, and the Python programs in /opt/trina/python/<name>. Writes
+#                        /etc/default/<id>, the promo video's node and HyperFrames CLI in /opt/trina/node and
+#                        /opt/trina/hyperframes, and the Python programs in /opt/trina/python/<name>. Writes
 #                        <base>/root/packages.synced (the list's sha256 and the result: ok, incomplete = try again later,
 #                        blocked = needs an administrator). Exit 0 unless the arguments are wrong: the server works
 #                        without these.
@@ -663,6 +664,138 @@ pk__python_install_locked() {
   echo "$dest/current/bin/$PY_PROG"
 }
 
+# ---- node and the HyperFrames CLI (the video group: the promo video's MP4, server/src/promo-video/render.ts) ----
+# node: the list's version in $PK_OPT/node-v<version> and $PK_OPT/node -> it, the layout install-srt.sh uses (it finds
+# this one and downloads nothing; uninstall-srt.sh keeps it while $PK_OPT/hyperframes is there). The CLI: a tree per pin
+# in DEST/<version>-<lock sha12> (npm ci --ignore-scripts --omit=dev from the pinned lock, every package checked by its
+# integrity), current -> it once `hyperframes --version` answers the pin; the tree before stays until the next switch (a
+# render may still run from it). As root everything is root's, and nobody else can write it (render.ts trusted()).
+
+# where the lock is: root/hyperframes/ in a bundle, scripts/promo-video/hyperframes/ in the repository
+pk__video_src() {
+  local d
+  for d in ${PK_VIDEO_SRC:-} "$PK_HERE/hyperframes" "$PK_HERE/../promo-video/hyperframes"; do
+    [ -f "$d/package-lock.json" ] && [ -f "$d/package.json" ] && { (cd "$d" && pwd); return 0; }
+  done
+  pk_err "no HyperFrames lock file next to packages.sh"; return 1
+}
+# pk__node_runs DIR: DIR/bin/node starts and is 22 or newer
+pk__node_runs() { [ -x "$1/bin/node" ] && pk__bounded 30 "$1/bin/node" -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' >/dev/null 2>&1; }
+# pk_node_install PLATFORM: prints the node binary's path through $PK_OPT/node, or nothing and 1
+pk_node_install() {
+  local plat=$1 v top dir tmp rc=0
+  v=$(pk_art node "$plat" version) || { pk_err "the list has no node for $plat"; return 1; }
+  top=$(pk_art node "$plat" dir) || top=""
+  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$top" =~ ^node-v[0-9.]+-[a-z]+-[a-z0-9]+$ ]] || { pk_err "node: bad version or dir in the list"; return 1; }
+  dir=$PK_OPT/node-v$v
+  mkdir -p "$PK_OPT" && chmod 755 "$PK_OPT" || return 1
+  if command -v flock >/dev/null 2>&1; then
+    eval "exec $PK_LOCK_FD>\"\$PK_OPT/.node.lock\"" || return 1
+    flock -w 900 "$PK_LOCK_FD" || { pk__unlock; pk_err "$PK_OPT/.node.lock is held by another install for 15 minutes"; return 1; }
+  fi
+  if ! pk__node_runs "$dir"; then
+    if [ -L "$dir" ]; then pk_err "$dir is a link"; rc=1
+    elif ! tmp=$(mktemp -d "$PK_OPT/.node.XXXXXX"); then rc=1
+    else
+      # https only, the list's sha256 and size (a tarball of nodejs.org's SHASUMS256.txt)
+      if pk_fetch "$(pk_art node "$plat" url)" "$(pk_art node "$plat" sha256)" "$(pk_art node "$plat" size || true)" "$tmp/node.tar.xz" \
+        && tar -xJf "$tmp/node.tar.xz" -C "$tmp" && [ -d "$tmp/$top" ]; then
+        [ "$(id -u)" != 0 ] || chown -R 0:0 "$tmp/$top"
+        chmod -R a+rX,go-w "$tmp/$top"
+        rm -rf "$dir" && mv "$tmp/$top" "$dir" || rc=1
+        [ "$rc" != 0 ] || pk__node_runs "$dir" || { rm -rf "$dir"; pk_err "node $v does not start here"; rc=1; }
+      else pk_err "node $v: not downloaded, or not the tarball the list pins"; rc=1; fi
+      rm -rf "$tmp"
+    fi
+  fi
+  # (install-srt.sh writes the same absolute target)
+  if [ "$rc" = 0 ] && [ "$(readlink "$PK_OPT/node" 2>/dev/null || true)" != "$dir" ]; then pk__swap_link "$dir" "$PK_OPT/node" || rc=1; fi
+  pk__unlock
+  [ "$rc" = 0 ] && echo "$PK_OPT/node/bin/node"
+}
+# the pin: HF_V HF_SRC HF_SHA (the lock's sha256) HF_KEY
+pk__video_pin() {
+  HF_V=$(pk_art hyperframes any version) || { pk_err "the list has no hyperframes"; return 1; }
+  [[ "$HF_V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { pk_err "hyperframes: bad version in the list"; return 1; }
+  HF_SRC=$(pk__video_src) || return 1
+  # the lock pins the list's tarball (its sha512 integrity is the list's sha256's file)
+  grep -qF "\"resolved\": \"$(pk_art hyperframes any url)\"" "$HF_SRC/package-lock.json" \
+    || { pk_err "$HF_SRC/package-lock.json does not pin the list's hyperframes $HF_V"; return 1; }
+  HF_SHA=$(pk_sha256 "$HF_SRC/package-lock.json") HF_KEY="$HF_V-$(pk_sha256 "$HF_SRC/package-lock.json" | cut -c1-12)"
+}
+# pk__video_check DIR: the CLI of DIR answers the pin, with node from $PK_OPT/node, no network, no telemetry
+pk__video_check() {
+  local w out
+  [ -f "$1/node_modules/hyperframes/bin/hyperframes.mjs" ] && [ -x "$PK_OPT/node/bin/node" ] || return 1
+  w=$(mktemp -d) || return 1
+  out=$(cd "$w" && pk__bounded 60 env -i PATH=/usr/bin:/bin HOME="$w" LANG=C.UTF-8 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 \
+    HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_SKIP_SKILLS=1 "$PK_OPT/node/bin/node" "$1/node_modules/hyperframes/bin/hyperframes.mjs" --version 2>/dev/null | tail -n 1) || true
+  rm -rf "$w"
+  [ "$out" = "$HF_V" ]
+}
+# pk_video_install DEST PLATFORM: node, then the CLI tree, current -> it. Prints DEST/current, or nothing and 1 (then a
+# current that answers stays).
+pk_video_install() { pk__video_locked pk__video_install_locked "$@"; }
+# pk_video_prepare DEST PLATFORM: node and the tree only; current is not touched (install-linux.sh, before it stops the
+# server; pk_video_install then finds the tree and only switches)
+pk_video_prepare() { pk__video_locked pk__video_build_locked "$@"; }
+pk__video_locked() {  # FN DEST PLATFORM
+  local fn=$1 dest=$2 plat=$3 rc=0
+  pk__video_pin || return 1
+  pk_node_install "$plat" >/dev/null || { pk_err "hyperframes needs node"; return 1; }
+  if pk__browser_dest "$dest"; then
+    "$fn" "$dest" || rc=$?
+    pk__unlock
+  else rc=1; fi
+  return $rc
+}
+pk__video_build_locked() {
+  local dest=$1 dir new k env=()
+  dir="$dest/$HF_KEY"
+  # built by pk_video_prepare in this run: no second check
+  if [[ "${PK_HF_PREPARED:-}" == *" $dir:$HF_SHA "* ]] && [ "$(cat "$dir/.sha256" 2>/dev/null || true)" = "$HF_SHA" ]; then return 0; fi
+  if [ "$(cat "$dir/.sha256" 2>/dev/null || true)" != "$HF_SHA" ] || ! pk__video_check "$dir"; then
+    [ ! -L "$dir" ] || { pk_err "$dir is a link"; return 1; }
+    new=$(mktemp -d "$dest/.new.XXXXXX") || return 1
+    cp "$HF_SRC/package.json" "$HF_SRC/package-lock.json" "$new/" || { rm -rf "$new"; return 1; }
+    for k in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do [ -z "${!k:-}" ] || env+=("$k=${!k}"); done
+    if ! (cd "$new" && pk__bounded "${PK_FETCH_BUDGET:-480}" env -i PATH="$PK_OPT/node/bin:/usr/bin:/bin" HOME="$new" LANG=C.UTF-8 \
+      ${env[@]+"${env[@]}"} npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --cache "$new/.npm" >/dev/null 2>&1); then
+      rm -rf "$new"; pk_err "hyperframes $HF_V: npm ci failed (the lock's packages from the npm registry)"; return 1
+    fi
+    rm -rf "$new/.npm"
+    [ "$(id -u)" != 0 ] || chown -R 0:0 "$new"
+    chmod -R a+rX,go-w "$new"
+    chmod 755 "$new"
+    if ! pk__video_check "$new"; then rm -rf "$new"; pk_err "hyperframes $HF_V does not start here"; return 1; fi
+    printf '%s\n' "$HF_SHA" > "$new/.sha256"
+    chmod 644 "$new/.sha256"
+    rm -rf "$dir" && mv "$new" "$dir" || { rm -rf "$new"; return 1; }
+  fi
+  PK_HF_PREPARED="${PK_HF_PREPARED:- } $dir:$HF_SHA "
+}
+pk__video_install_locked() {
+  local dest=$1 cv prev keep v
+  pk__video_build_locked "$dest" || return 1
+  # current -> it; the tree before stays (a render may still run from it), every other one goes
+  cv=$(readlink "$dest/current" 2>/dev/null || true)
+  prev=""
+  [ ! -f "$dest/.previous" ] || prev=$(tr -cd 'A-Za-z0-9._-' < "$dest/.previous")
+  if [ "$cv" != "$HF_KEY" ]; then
+    pk__swap_link "$HF_KEY" "$dest/current" || return 1
+    prev=$cv
+    if [ -n "$prev" ]; then printf '%s\n' "$prev" > "$dest/.previous"; else rm -f "$dest/.previous"; fi
+  fi
+  for keep in "$dest"/*; do
+    [ -d "$keep" ] && [ ! -L "$keep" ] || continue
+    v=${keep##*/}
+    case "$v" in "$HF_KEY"|"$prev") continue ;; esac
+    rm -rf "$keep"
+  done
+  [ -n "$prev" ] && [ -d "$dest/$prev" ] || rm -f "$dest/.previous"
+  echo "$dest/current"
+}
+
 # ---- files of the install ----
 
 # pk_set_env FILE KEY [VALUE]: FILE (/etc/default/<id>, the server unit's EnvironmentFile) gets KEY=VALUE once; every
@@ -781,6 +914,14 @@ EOF
     fi
   else
     pk_set_env "/etc/default/$id" "$PK_ENV_KEY" "" || true
+  fi
+  # the promo video's MP4 (the video group): node and the HyperFrames CLI (the server finds them at $PK_OPT/node and
+  # $PK_OPT/hyperframes/current); a failure is tried again later, the server says the MP4 cannot be made meanwhile
+  if pk_artifacts "$profile" | grep -qx hyperframes && declare -F pk_video_install >/dev/null; then
+    # (this script runs from a private copy: the lock is root's, next to the list in <base>/root/)
+    [ -n "${PK_VIDEO_SRC:-}" ] || PK_VIDEO_SRC=$base/root/hyperframes
+    if path=$(pk_video_install "$PK_OPT/hyperframes" "linux-$arch"); then note "hyperframes $(pk_art hyperframes any version) ($path)"
+    else note "hyperframes was not installed; the promo video's MP4 stays off"; res=$(pk_worse "$res" incomplete); fi
   fi
   # the Python programs (the server finds each at $PK_OPT/python/<name>/current/bin/<program>)
   for p in $(pk_pythons "$profile"); do

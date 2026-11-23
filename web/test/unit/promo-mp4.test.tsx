@@ -1,6 +1,7 @@
 // [영상 파일로 받기] on a promo video (components/ArtifactPanel.tsx PromoMp4Button; docs/DECISIONS.md "V"): shown only
 // where the server says it can make the MP4 (GET /api/promo-videos/:id → mp4.available), never a button that cannot
-// work: hidden when it says no, and when the info cannot be read. A press on one never made asks the server to make it
+// work; where it says no, one line says why instead (docs/decisions/20261123-linux-video-mp4.md); nothing when the
+// info cannot be read. A press on one never made asks the server to make it
 // and says so while it is made.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { PromoVideoInfo } from '@mycel/shared/api'
@@ -15,7 +16,7 @@ const info = (mp4: Partial<PromoVideoInfo['mp4']> = {}): PromoVideoInfo => ({
   artifactId: ID, chatId: '01900000-0000-7000-8000-0000000000c1', title: 'Acme promo video', style: 'deep', duration: 18.5,
   mp4: { available: true, state: 'none', seconds: null, bytes: null, ...mp4 },
 })
-const say = (k: 'promo.mp4.get' | 'promo.mp4.making') => translate(useLocaleStore.getState().locale, k)
+const say = (k: 'promo.mp4.get' | 'promo.mp4.making' | 'promo.mp4.notInstalled' | 'promo.mp4.tooSmall' | 'promo.mp4.unsupported') => translate(useLocaleStore.getState().locale, k)
 
 let calls: string[] = []
 let answer: () => Response = () => json(info())
@@ -39,13 +40,17 @@ beforeEach(() => {
 afterEach(() => { globalThis.fetch = realFetch })
 
 describe('the MP4 button', () => {
-  test('hidden where the server cannot make the MP4 (available: false)', async () => {
-    answer = () => json(info({ available: false }))
-    const m = await mount(<PromoMp4Button id={ID} />)
-    await m.until(() => calls.includes(`GET /api/promo-videos/${ID}`), 'the info request')
-    await m.settle(50)
-    expect(m.find('promo-mp4')).toBeNull()
-    await m.unmount()
+  test('where the server cannot make the MP4 (available: false): no button, one line that says why', async () => {
+    for (const [why, key] of [['not_installed', 'promo.mp4.notInstalled'], ['too_small', 'promo.mp4.tooSmall'], ['unsupported', 'promo.mp4.unsupported'], [undefined, 'promo.mp4.unsupported']] as const) {
+      answer = () => json(info({ available: false, ...(why ? { why } : {}) }))
+      calls = []
+      const m = await mount(<PromoMp4Button id={ID} />)
+      await m.until(() => calls.includes(`GET /api/promo-videos/${ID}`), 'the info request')
+      await m.settle(50)
+      expect(m.find('promo-mp4')).toBeNull()
+      expect(m.find('promo-mp4-unavailable')?.textContent).toBe(say(key))
+      await m.unmount()
+    }
   })
 
   test('hidden when the info cannot be read', async () => {
@@ -54,6 +59,7 @@ describe('the MP4 button', () => {
     await m.until(() => calls.includes(`GET /api/promo-videos/${ID}`), 'the info request')
     await m.settle(50)
     expect(m.find('promo-mp4')).toBeNull()
+    expect(m.find('promo-mp4-unavailable')).toBeNull()
     await m.unmount()
   })
 

@@ -353,9 +353,11 @@ function StaticArtifact({ type, content, title, files }: { type: ArtifactType; c
 }
 
 /**
- * [영상 파일로 받기] on a promo video: shown only where this server can make the MP4 (GET /api/promo-videos/:id says
- * so; never a button that cannot work). The first press makes it (about half a minute; the button says so meanwhile)
- * and the download starts when it is ready; a later press downloads the one made before.
+ * [영상 파일로 받기] on a promo video: shown where this server can make the MP4 (GET /api/promo-videos/:id says so; never
+ * a button that cannot work), for everyone who may open the chat. Where it cannot, one short muted line says why
+ * instead (docs/decisions/20261123-linux-video-mp4.md: never a silent missing button). The first press makes it (about a
+ * minute; the button says so meanwhile) and the download starts when it is ready; a later press downloads the one made
+ * before.
  */
 export function PromoMp4Button({ id }: { id: string }) {
   const t = useT()
@@ -384,7 +386,15 @@ export function PromoMp4Button({ id }: { id: string }) {
     else if (info.mp4.state === 'failed') { setWanted(false); toast({ level: 'error', text: t('promo.mp4.failed') }) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info, wanted])
-  if (!info?.mp4.available) return null
+  if (!info) return null
+  if (!info.mp4.available) {
+    const why = info.mp4.why === 'not_installed' ? t('promo.mp4.notInstalled') : info.mp4.why === 'too_small' ? t('promo.mp4.tooSmall') : t('promo.mp4.unsupported')
+    return (
+      <span className="mr-2 max-w-56 truncate text-xs text-muted" title={why} data-testid="promo-mp4-unavailable">
+        {why}
+      </span>
+    )
+  }
   const press = async () => {
     if (info.mp4.state === 'done') return download(info)
     setWanted(true)

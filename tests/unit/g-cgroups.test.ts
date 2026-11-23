@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   _resetCgroupsForTest, cgexecPrefix, convBudgetMiB, converterCgroup, killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, PRINT_ONE_PIDS, printBudgetMiB,
-  printCgroup, printCgroupState, setupServerCgroups,
+  printCgroup, printCgroupState, setupServerCgroups, makeVideoLeaf, videoCgroup, videoCgroupState, videoFits, VIDEO_ONE_MIB, VIDEO_ONE_PIDS,
 } from '../../server/src/system/cgroups'
 
 function fakeCgroupFs(o: { controllers?: string; procs?: string[] } = {}) {
@@ -135,5 +135,61 @@ describe('HTML printing cgroup S/print (files/html-pdf.ts)', () => {
     // the fake folder holds files, so it is not removed here; the kill is written (the kernel's cgroup.kill)
     await killPrintLeaf(leaf)
     expect(fs.readFileSync(path.join(leaf, 'cgroup.kill'), 'utf8')).toBe('1')
+  })
+})
+
+describe('the promo video\'s MP4 cgroup S/video (promo-video/render.ts)', () => {
+  const setup = (machineMiB: number, plan?: object) => {
+    const fx = fakeCgroupFs()
+    let planFile: string | undefined
+    if (plan) { planFile = path.join(fx.root, 'plan.json'); fs.writeFileSync(planFile, JSON.stringify(plan)) }
+    setupServerCgroups({ mode: 'prod', platform: 'linux', cgroupFs: fx.root, selfCgroup: '0::/system.slice/mycel-server.service\n',
+      pid: 101, ppid: 100, uid: process.getuid!(), helper: fx.helper, machineMiB, cpus: 4, planFile })
+    return fx
+  }
+
+  test('beside S/print on a 4 GB machine: one render\'s memory, pids and two cores; a leaf of its own, killed together', async () => {
+    const { s, helper } = setup(4096)
+    const v = videoCgroup()!
+    expect(v.dir).toBe(path.join(s, 'video'))
+    expect(videoCgroupState()).toBe('ok')
+    expect(fs.readFileSync(path.join(v.dir, 'memory.max'), 'utf8')).toBe(String(VIDEO_ONE_MIB * 1048576))
+    expect(fs.readFileSync(path.join(v.dir, 'pids.max'), 'utf8')).toBe(String(VIDEO_ONE_PIDS))
+    expect(fs.readFileSync(path.join(v.dir, 'cpu.max'), 'utf8')).toBe('200000 100000')
+    // the render measured 1055-1076 MiB and 120 tasks with no limit, and failed under the print's 768 MiB
+    expect(VIDEO_ONE_MIB).toBeGreaterThan(1076)
+    expect(VIDEO_ONE_PIDS).toBeGreaterThan(120)
+    const leaf = makeVideoLeaf()!
+    expect(path.dirname(leaf)).toBe(v.dir)
+    expect(path.basename(leaf)).toMatch(/^v-/)
+    expect(fs.readFileSync(path.join(leaf, 'memory.max'), 'utf8')).toBe(String(VIDEO_ONE_MIB * 1048576))
+    expect(fs.readFileSync(path.join(leaf, 'memory.oom.group'), 'utf8')).toBe('1')
+    // the CPU-time limit counts every thread of the browser and the encoder
+    expect(cgexecPrefix(480_000, 4, { dir: leaf, oomScoreAdj: 900 })).toContain(String(480 * 4 + 5))
+    await killPrintLeaf(leaf)
+    expect(fs.readFileSync(path.join(leaf, 'cgroup.kill'), 'utf8')).toBe('1')
+    // a leaf an earlier server left is emptied at the next start
+    _resetCgroupsForTest()
+    fs.mkdirSync(path.join(s, 'video', 'v-old'))
+    setupServerCgroups({ mode: 'prod', platform: 'linux', cgroupFs: path.dirname(path.dirname(s)), selfCgroup: '0::/system.slice/mycel-server.service\n',
+      pid: 101, ppid: 100, uid: process.getuid!(), helper, machineMiB: 4096, cpus: 4 })
+    expect(fs.readFileSync(path.join(s, 'video', 'v-old', 'cgroup.kill'), 'utf8')).toBe('1')
+  })
+
+  test('the free plan\'s 2 GB VM: no S/video, too small, no leaf; the plan\'s memory counts over the machine\'s', () => {
+    setup(2048)
+    expect(videoCgroup()).toBeNull()
+    expect(videoCgroupState()).toBe('too_small')
+    expect(makeVideoLeaf()).toBeNull()
+    _resetCgroupsForTest()
+    setup(8192, { format: 1, plan: 'free', memoryMiB: 2048 })
+    expect(videoCgroupState()).toBe('too_small')
+    for (const [mem, want] of [[2048, false], [3072, false], [3584, true], [4096, true], [8192, true]] as const) expect(videoFits(undefined, mem)).toBe(want)
+  })
+
+  test('off Linux production: free (no cgroup), no leaf', () => {
+    setupServerCgroups({ mode: 'dev', platform: 'linux' })
+    expect(videoCgroupState()).toBe('free')
+    expect(makeVideoLeaf()).toBeNull()
   })
 })

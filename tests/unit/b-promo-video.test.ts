@@ -19,7 +19,8 @@ import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../serve
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
 import { AUDIO_DIR, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
-import { killTree, mp4Available, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, noFileReason, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { isolation } from '../../server/src/tools/isolate'
 
 setDefaultTimeout(60_000)
 
@@ -432,6 +433,48 @@ process.exit(1)
     } finally { process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none') }
   })
 
+  test.if(process.platform === 'linux' && isolation() === 'bwrap' && process.getuid?.() !== 0 && fs.existsSync('/usr/bin/ffmpeg'))('the MP4 on a Linux team server: the CLI runs isolated (bwrap, the team folder out of reach); the person a chat is shared with downloads it too', async () => {
+    // a stand-in CLI run by this bun as "node": what the isolation gives it, and a small file where --output says
+    const root = path.join(hfDir, 'linux')
+    const cli = path.join(root, 'node_modules', 'hyperframes', 'bin')
+    fs.mkdirSync(cli, { recursive: true })
+    const browser = path.join(hfDir, 'chs', 'chrome-headless-shell')
+    fs.mkdirSync(path.dirname(browser), { recursive: true })
+    fs.writeFileSync(browser, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    fs.writeFileSync(path.join(cli, 'hyperframes.mjs'), `import fs from 'node:fs'
+const a = process.argv.slice(2), dir = a[1], out = a[a.indexOf('--output') + 1]
+if (!out.startsWith(dir + '/') || a[a.indexOf('--workers') + 1] !== '1') process.exit(5)
+if (process.env.HOME !== dir || process.env.HYPERFRAMES_NO_TELEMETRY !== '1' || process.env.HYPERFRAMES_BROWSER_PATH !== ${JSON.stringify(fs.realpathSync(path.dirname(browser)))} + '/chrome-headless-shell') process.exit(6)
+let team = false
+try { fs.readdirSync(${JSON.stringify(h.team)}); team = true } catch {}
+if (team || !fs.existsSync(dir + '/index.html')) process.exit(7)
+fs.writeFileSync(out, 'MP4-LINUX')
+`)
+    const before = { ...process.env }
+    process.env.MYCEL_HYPERFRAMES_DIR = root
+    process.env.MYCEL_HYPERFRAMES_NODE = process.execPath
+    process.env.MYCEL_HTML_PDF_BROWSER = browser
+    try {
+      expect(mp4Available(h.ctx)).toBe(true)
+      const chat = await h.api('dana').call(API.createChat, { body: {} })
+      await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
+      const id = (h.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id
+      h.ctx.db.query("UPDATE chats SET people_shared_at = datetime('now') WHERE id = ?").run(chat.id)
+      h.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'alice', 'dana', datetime('now'))").run(chat.id)
+      // alice, whom the chat is shared with, sees the button and makes it herself
+      expect((await h.api('alice').call(API.getPromoVideo, { params: { id } })).mp4).toMatchObject({ available: true, why: null })
+      await h.api('alice').call(API.renderPromoVideo, { params: { id } })
+      expect(await waitFor(async () => (await h.api('alice').call(API.getPromoVideo, { params: { id } })).mp4.state === 'done', { timeoutMs: 30_000 })).toBe(true)
+      for (const who of ['alice', 'dana']) {
+        const res = await h.req(who, `/api/promo-videos/${id}/mp4`)
+        expect(res.status).toBe(200)
+        expect(await res.text()).toBe('MP4-LINUX')
+      }
+    } finally {
+      for (const k of ['MYCEL_HYPERFRAMES_DIR', 'MYCEL_HYPERFRAMES_NODE', 'MYCEL_HTML_PDF_BROWSER']) { if (before[k] === undefined) delete process.env[k]; else process.env[k] = before[k] }
+    }
+  })
+
   test('the trash keeps the MP4; purging the chat removes it and a cut-off part file, never another video\'s', async () => {
     const make = async () => {
       const chat = await h.api('dana').call(API.createChat, { body: {} })
@@ -539,5 +582,42 @@ setInterval(() => {}, 1000)
       await h2.close().catch(() => {})
       process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
     }
+  })
+})
+
+describe('where the MP4 is made (renderTools): a Linux team server with the list\'s video group, a development Mac', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-rt-'))
+  const file = (rel: string, mode = 0o755) => { const p = path.join(root, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, '#!/bin/sh\n', { mode }); fs.chmodSync(p, mode); return p }
+  const node = file('node/bin/node'), cliFile = file('hf/node_modules/hyperframes/bin/hyperframes.mjs', 0o644)
+  const browser = file('chs/chrome-headless-shell'), ffmpeg = file('bin/ffmpeg')
+  const env = { MYCEL_HYPERFRAMES_NODE: node, MYCEL_HYPERFRAMES_DIR: path.join(root, 'hf'), MYCEL_HTML_PDF_BROWSER: browser }
+  const ctx = (c: object = {}) => ({ config: { mode: 'prod', deployment: 'hosted', office: false, ...c } }) as unknown as Parameters<typeof renderTools>[0]
+  const linux = (o: Partial<Parameters<typeof renderTools>[1]> = {}) => renderTools(ctx(), { platform: 'linux', env, isolation: 'bwrap', uid: 1000, ffmpeg: [ffmpeg], ...o })
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  test('hosted and production Linux: node, the CLI tree and the browser by their real paths, isolated', () => {
+    const r = linux()
+    expect('tools' in r && r.tools).toEqual({ node: fs.realpathSync(node), cli: fs.realpathSync(cliFile), dir: fs.realpathSync(path.join(root, 'hf')), browser: fs.realpathSync(browser), isolated: true })
+    expect('tools' in renderTools(ctx({ mode: 'dev', deployment: 'self' }), { platform: 'linux', env, isolation: 'bwrap', uid: 1000, ffmpeg: [ffmpeg] })).toBe(true)
+  })
+
+  test('why not, in the words the panel and the AI use', () => {
+    // no bwrap, or the server runs as root (the browser has no sandbox of its own), or an office server
+    expect(linux({ isolation: 'none' })).toEqual({ why: 'unsupported' })
+    expect(linux({ uid: 0 })).toEqual({ why: 'unsupported' })
+    expect(renderTools(ctx({ office: true }), { platform: 'linux', env, isolation: 'bwrap', uid: 1000, ffmpeg: [ffmpeg] })).toEqual({ why: 'unsupported' })
+    // the tools missing: before the update installs them
+    expect(linux({ env: { ...env, MYCEL_HYPERFRAMES_DIR: path.join(root, 'none') } })).toEqual({ why: 'not_installed' })
+    expect(linux({ env: { ...env, MYCEL_HYPERFRAMES_NODE: path.join(root, 'none') } })).toEqual({ why: 'not_installed' })
+    expect(linux({ env: { ...env, MYCEL_HTML_PDF_BROWSER: 'none' } })).toEqual({ why: 'not_installed' })
+    expect(linux({ ffmpeg: [path.join(root, 'none')] })).toEqual({ why: 'not_installed' })
+    // a CLI anyone may change is never run
+    fs.chmodSync(cliFile, 0o666)
+    try { expect(linux()).toEqual({ why: 'not_installed' }) } finally { fs.chmodSync(cliFile, 0o644) }
+    // a production or office Mac: never (the CLI runs without isolation there)
+    expect(renderTools(ctx(), { platform: 'darwin', env })).toEqual({ why: 'unsupported' })
+    expect(renderTools(ctx({ mode: 'dev', deployment: 'self', office: true }), { platform: 'darwin', env })).toEqual({ why: 'unsupported' })
+    expect(noFileReason('not_installed')).toContain('next server update')
+    expect(noFileReason('too_small')).toContain('memory')
   })
 })
