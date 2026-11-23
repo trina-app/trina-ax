@@ -133,8 +133,10 @@ describe('replies', () => {
     const row = inbox.items.find((i) => i.eventType === 'chat.thread_reply')!
     expect(row).toMatchObject({ link: 'chat_thread', chatId, chatThread: { chatId, rootId: answerId, name: 'Bob Lee' } })
     expect(JSON.stringify(row)).not.toContain('Legal said')
-    // the push of a plain reply: off by default (a thread rings only on a mention); wanted with the setting on, outside
-    // quiet hours, and its path is the thread
+    // the push of a plain reply: wanted with "Replies in threads I'm part of" on (its default, as in Slack), outside
+    // quiet hours, and its path is the thread; with it off, a thread rings only on a mention
+    expect(chatThreadWanted(h.ctx, first.id)).toBe(true)
+    savePreferences(db(), 'alice', { roomThreadReplies: false })
     expect(chatThreadWanted(h.ctx, first.id)).toBe(false)
     savePreferences(db(), 'alice', { roomThreadReplies: true })
     expect(chatThreadWanted(h.ctx, first.id)).toBe(true)

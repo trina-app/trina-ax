@@ -7,8 +7,8 @@ import dns from 'node:dns/promises'
 import http from 'node:http'
 import https from 'node:https'
 import {
-  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushBadge, validPushPath,
-  validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
+  PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, PUSH_SYNC_CODE, PUSH_SYNC_MAX_CLEAR, pushGatewayAuthorization, pushGatewaySigningString,
+  validPushBadge, validPushPath, validPushToken, type PushEnvironment, type PushGatewaySend, type PushLocale, type PushPlatform,
 } from '@mycel/shared/cloud-protocol'
 import type { PushEventType } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
@@ -21,11 +21,15 @@ export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
 /** badge: the recipient's count for the app icon (push-badge.ts), a number only. label: an Android app that names who and
  * where builds this push itself (room codes and chat.shared only; the contract's "Label") */
-export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string; badge?: number; label?: true }
+export interface NativePayload { notificationId: string; code: PushEventType | typeof PUSH_SYNC_CODE; locale: PushLocale; tag?: string; path?: string; badge?: number; label?: true }
+/** A silent sync (push-service.ts syncPhones; the contract's "Sync"): the notice ids this phone may take off and, for an
+ * iPhone, its icon number now. Ids and a number only. */
+export interface NativeSyncPayload { notificationId: string; locale: PushLocale; tag?: string; badge?: number; clear: string[] }
 
 /** The codes the phone app may name (who and where): room notices and a chat shared by name. */
 export const labelCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
-export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
+/** sync: a silent sync; `payload` then only names it (code PUSH_SYNC_CODE) and is not sent as it is */
+export interface NativeSend { device: NativeDevice; payload: NativePayload; sync?: NativeSyncPayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 /** error: the gateway's error code of a 400 answer (its answers carry nothing else) */
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number; error?: string }>
 
@@ -67,15 +71,18 @@ function teamKey(dataDir: string) { const { key, publicKey } = loadOrCreateKey(d
  * then goes again without it, and that gateway gets none for this long before the next try with it (a gateway updated
  * meanwhile). Any other answer, another 400 included, is the answer of this push as before. */
 export const NO_BADGE_RETRY_MS = 60 * 60_000
+/** What the transport answers for a sync to a gateway that refused one within NO_BADGE_RETRY_MS (nothing was sent). */
+export const SYNC_UNSUPPORTED = 'sync_unsupported'
 
 export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; loopbackRequest?: typeof http.request; now?: () => number }): NativeTransport {
   // gateway address -> until when it gets no badge / no label
-  const noBadge = new Map<string, number>(), noLabel = new Map<string, number>()
+  const noBadge = new Map<string, number>(), noLabel = new Map<string, number>(), noSync = new Map<string, number>()
   const now = () => (o.now ?? Date.now)()
   return async input => {
     const url = validGatewayUrl(input.config.url)
     if (!url) throw new Error('push_gateway_invalid')
     const device = validNativeDevice(input.device)
+    if (input.sync) return sync(url, device, input.sync, input)
     const send: PushGatewaySend = {
       v: 1, platform: device.platform, environment: device.environment, token: device.token,
       notificationId: input.payload.notificationId, code: input.payload.code, locale: input.payload.locale,
@@ -93,6 +100,22 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
     if (badge !== undefined) noBadge.set(url, now() + NO_BADGE_RETRY_MS)
     if (label) noLabel.set(url, now() + NO_BADGE_RETRY_MS)
     return post(url, send, input)
+  }
+  /** A sync goes once, as it is: never again without `sync` (a gateway from before it would show its generic line for an
+   * unknown code), and none to a gateway that refused one within the hour. */
+  async function sync(url: string, device: NativeDevice, p: NativeSyncPayload, input: NativeSend): Promise<{ statusCode: number; error?: string }> {
+    if ((noSync.get(url) ?? 0) > now()) return { statusCode: 400, error: SYNC_UNSUPPORTED }
+    // the ids for Android only (the iPhone app takes nothing off while closed); an iPhone's sync is now or never
+    const clear = p.clear.filter((id) => /^[A-Za-z0-9_-]{1,100}$/.test(id)).slice(0, PUSH_SYNC_MAX_CLEAR)
+    const send: PushGatewaySend = {
+      v: 1, platform: device.platform, environment: device.environment, token: device.token, notificationId: p.notificationId,
+      code: PUSH_SYNC_CODE, locale: p.locale, ...(p.tag && /^[A-Za-z0-9_-]{1,100}$/.test(p.tag) ? { tag: p.tag } : {}),
+      ttlSeconds: device.platform === 'ios' ? 0 : Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))), sync: true,
+      ...(validPushBadge(p.badge) && device.platform === 'ios' ? { badge: p.badge } : {}), ...(clear.length && device.platform === 'android' ? { clear } : {}),
+    }
+    const r = await post(url, send, input)
+    if (r.statusCode === 400 && r.error === 'invalid_body') noSync.set(url, now() + NO_BADGE_RETRY_MS)
+    return r
   }
   async function post(url: string, send: PushGatewaySend, input: NativeSend): Promise<{ statusCode: number; error?: string }> {
     if (input.signal.aborted || !input.beforeSend()) throw new PushSendError('push_cancelled')

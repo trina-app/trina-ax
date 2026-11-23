@@ -1270,8 +1270,8 @@ export class Rooms {
         level, mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
         alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
       })
-      // a reply in a thread I follow that does not mention me, with "Replies in threads I'm part of" off (its default
-      // since 2026-11-22: a thread rings only on a mention, docs/decisions/20261122-project-chat-notices-threads-mention-only.md):
+      // a reply in a thread I follow that does not mention me, with "Replies in threads I'm part of" turned off (on by
+      // default, docs/decisions/20261123-thread-replies-default-on.md):
       // still a row in Mentions & threads, as a quiet notice (one per unread run, never pushed, rung or told)
       const silentReply = !alert && !!row.thread_root_id && !!followers?.has(m.user_id) && level !== 'off'
       if (!alert && !silentReply) continue

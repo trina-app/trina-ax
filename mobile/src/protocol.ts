@@ -47,6 +47,11 @@ export const PHOTO_PICK_CAPABILITY = 'photo-pick-v1'
  * the app icon: when it changes, whenever the app comes to the foreground, and 0 at sign-out. A number only. An app
  * without it: the icon shows what the last push set (an app before 1.0.5 asked for no badge, so iOS shows none). */
 export const BADGE_CAPABILITY = 'badge-v1'
+/** Optional, versioned: the app takes silent sync pushes (code phone.sync, docs/AGENTS/plan/20261123-0705-phone-badge-sync.md):
+ * Android's messaging service takes the notices read on another device off the tray and shows nothing. The page then
+ * registers the device with `sync: true`; the team sends an Android phone syncs only then (an app from before would
+ * list an empty notification for one while it is open). An iPhone gets its number by APNs either way. */
+export const PUSH_SYNC_CAPABILITY = 'push-sync-v1'
 /** Optional, versioned: `change-team` opens the app's own "다른 팀에 연결" screen over the team (the one the signed-out
  * page's footer opens): the team stays until another one answered and the person said yes. The 나 tab's "다른 팀으로
  * 전환…" row. An app without it: the page shows no such row. */
