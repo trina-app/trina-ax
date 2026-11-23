@@ -34,11 +34,13 @@ test('the command behind "Details" with its size; open, all of it', async () => 
   }
 })
 
-test('a folded text with highlighted parts stays open', async () => {
+test('a folded text with highlighted parts: the parts stay in view, the text is behind Details', async () => {
   installDom()
   const m = await mount(<AskCard req={{ request: card(['p.html']) }} onAnswer={async () => {}} />)
   try {
-    expect(m.find('ask-detail-folded')).toBeNull()
+    expect(m.find('ask-detail-text')).toBeNull()
+    expect(m.get('ask-payload-marks').textContent).toContain('p.html')
+    await m.click('ask-detail-folded')
     expect(m.get('ask-detail-text').textContent).toBe(command)
   } finally {
     await m.unmount()

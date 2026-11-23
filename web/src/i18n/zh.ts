@@ -3203,6 +3203,8 @@ export const zh: Record<MessageKey, string> = {
   "ask.exactHide": "隐藏实际发送的内容",
   "ask.foldedShow": "详细信息",
   "ask.foldedHide": "收起详细信息",
+  "ask.payloadGoesTo": "发送到:",
+  "ask.payloadMarks": "其中的长数值（请检查）:",
   "ask.batchMany": "{n, plural, one {#项需要确认} other {#项需要确认}}",
   "ask.batchGathering": "正在汇总这条回答的其余确认…",
   "ask.batchOpen": "打开",
