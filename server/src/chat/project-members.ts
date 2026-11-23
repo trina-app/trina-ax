@@ -461,7 +461,11 @@ export function projectMembersTool(exec: MembersExec): Tool {
     // took in other people's words: security review of batch 5). Without Always the card names them, with the red mark.
     if (alwaysHere(exec.alwaysPlace?.(), 'project_members') === 'on' && (guestInShared(exec) || (spec.clientKind === 'schedule' && (othersWordsIn(exec) || !!exec.tainted)))) {
       const mine = asked(askerText(db, askerMessageId(exec)))
-      const unnamed = [...p.adds, ...p.removes].filter((x) => !(x.subjectType === 'group' ? namesGroup(mine, x.name) : namedInFull(mine, [x.name, ...(x.aliases ?? []), ...usernameOf(x.subjectId)])))
+      // (a member is named as the one added or taken off, "add Bob Lee to this project": the whole name, an alias or the
+      // username as a word of the asker's own message; namedInFull reads a name only as a recipient, "to Bob")
+      const minef = foldName(mine)
+      const unnamed = [...p.adds, ...p.removes].filter((x) => !(x.subjectType === 'group' ? namesGroup(mine, x.name) || (x.aliases ?? []).some((a) => said(minef, a))
+        : namedInFull(mine, [x.name, ...usernameOf(x.subjectId)]) || [x.name, ...usernameOf(x.subjectId)].some((n) => said(minef, n))))
       if (unnamed.length) return refused('not_named', refusal({ done: NONE, why: { kind: 'mode', mode: 'a chat or run that holds other people\'s words (a guest in this shared chat, or what a scheduled run read)', why: 'one of them could ask for the change' }, also: `Not named in the user's own message: ${unnamed.slice(0, 10).map((x) => `'${ai(x.name)}'`).join(', ')}`, next: `the user names them in a new message of their own, or changes them on ${panel(L, r.name)}` }), r.id)
     }
 
