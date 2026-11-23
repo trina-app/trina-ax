@@ -800,6 +800,70 @@ describe('Connect for the team on a Google card (#253)', () => {
     await m.unmount()
   })
 
+  test('Gmail for a member: "Connect my Gmail" to its page, then "I\'ve connected it"; no team way, no admin endpoint', async () => {
+    const went: string[] = []
+    setNavigator((to) => { went.push(to) })
+    routes[CONNECT] = () => json({ state: 'connected' })
+    const r = gmail({ teamOffer: undefined })
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.settle(50)
+    expect(m.find('connect-team')).toBeNull()
+    expect(m.find('connect-team-way')).toBeNull()
+    expect(m.get('connect-own').textContent).toBe(translate('en', 'connect.ownConnectApp', { name: 'Gmail' }))
+    expect(m.get('connect-own-where').textContent).toBe(translate('en', 'connect.ownWhere'))
+    await m.click('connect-own')
+    expect(went).toEqual(['/settings/connectors/gmail'])
+    await m.click('connect-own-done')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    expect(adminCalls()).toEqual([])
+    await m.unmount()
+  })
+
+  test('Gmail for a member, not connected yet: "I\'ve connected it" keeps the card and says so; Not now still closes it', async () => {
+    setNavigator(() => {})
+    routes[CONNECT] = (c) => json(c.body.action === 'skip' ? { state: 'skipped' } : { state: 'retry', lastError: 'Not connected yet.' })
+    const r = gmail({ teamOffer: undefined })
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-own')
+    await m.click('connect-own-done')
+    await m.until(() => m.find('connect-last-error'), 'the reason')
+    expect(m.find('connect-own-done')).toBeTruthy()
+    await m.click('connect-skip')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    await m.unmount()
+  })
+
+  test('Gmail in the phone app, member or admin: connect on a computer, no link to a page that cannot sign in', async () => {
+    admin()
+    const went: string[] = []
+    setNavigator((to) => { went.push(to) })
+    routes[CONNECT] = () => json({ state: 'connected' })
+    const g = globalThis as Record<string, unknown>
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.4', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
+    const was = { mycelMobile: g.mycelMobile, ReactNativeWebView: g.ReactNativeWebView }
+    g.mycelMobile = { ...config }
+    g.ReactNativeWebView = { postMessage: () => {} }
+    try {
+      for (const r of [gmail({ teamOffer: undefined }), gmail()]) {
+        open(r)
+        const m = await mount(<ConnectCard request={r} />)
+        await m.settle(50)
+        expect(m.find('connect-own')).toBeNull()
+        expect(m.find('connect-own-where')).toBeNull()
+        expect(m.get('connect-own-on-computer').textContent).toBe(translate('en', 'integrations.onComputer', { name: 'Gmail' }))
+        await m.click('connect-own-done')
+        await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+        await m.unmount()
+      }
+      expect(went).toEqual([])
+    } finally {
+      g.mycelMobile = was.mycelMobile
+      g.ReactNativeWebView = was.ReactNativeWebView
+    }
+  })
+
   test('in the phone app: no team way (no Google sign-in there)', async () => {
     admin()
     const g = globalThis as Record<string, unknown>

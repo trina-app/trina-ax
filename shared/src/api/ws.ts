@@ -245,8 +245,8 @@ export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), re
 export const ConnectServiceRequest = z.object({
   kind: z.literal('connect_service'),
   requestId: z.string(),
-  /** google_app: Gmail, Google Calendar, Docs or Sheets (`googleApp`), a card only for an owner or admin, to connect it
-   * for the team (`teamOffer`) or their own on its page; older servers send only service and google_drive */
+  /** google_app: Gmail, Google Calendar, Docs or Sheets (`googleApp`): their own on its page, and for an owner or admin
+   * also for the team (`teamOffer`); older servers send only service and google_drive */
   target: z.enum(['service', 'google_drive', 'google_app']),
   /** the service as people call it ("Higgsfield"); "Google Drive" for google_drive, the app's name for google_app */
   name: z.string(),
