@@ -3,6 +3,7 @@
 // and answers with the server's values; the result card's one button is Manage access after a share (the file's Share
 // dialog) and Undo after a stop (the same people added again through the dialog's endpoint, then the card says so); a
 // refusal has no button unless a next step was registered for its kind; no path is ever on the card.
+import { useState } from 'react'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import type { ShareCardState, StepShared, TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
@@ -261,7 +262,7 @@ test('a post just sent: Undo deletes the message, then the card says it was take
   const posted = { roomId: '019a5f00-0000-7000-8000-00000000a011', messageId: '019a5f00-0000-7000-8000-00000000a012' }
   const m = await mount(<PostedCard posted={posted} endedAt={new Date().toISOString()} />)
   try {
-    expect(m.get('posted-card-undo').textContent).toBe('Undo')
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
     await m.click('posted-card-undo')
     const del = calls.find((c) => c.method === 'DELETE')!
     expect(del.url).toContain(`/api/rooms/${posted.roomId}/messages/${posted.messageId}`)
@@ -310,4 +311,24 @@ test('a scheduled task made from my words: next run, Pause, and Delete through t
       expect(m.find('scheduled-card-pause')).toBeNull()
     } finally { globalThis.fetch = real }
   } finally { await m.unmount() }
+})
+
+test('a post whose step is still running offers Undo at once; it counts down from the end and becomes Delete', async () => {
+  const { default: PostedCard } = await import('../../src/components/chat/PostedCard')
+  const posted = { roomId: '019a5f00-0000-7000-8000-00000000a021', messageId: '019a5f00-0000-7000-8000-00000000a022' }
+  // the step ends while the card is on screen, with a server clock an hour behind this device's
+  let end: (at: string) => void = () => {}
+  const Live = () => { const [at, set] = useState<string | null>(null); end = set; return <PostedCard posted={posted} endedAt={at} /> }
+  const m = await mount(<Live />)
+  try {
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
+    end(new Date(Date.now() - 3_600_000).toISOString())
+    await m.settle(50)
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
+  } finally { await m.unmount() }
+  const late = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 8_500).toISOString()} />)
+  try {
+    expect(late.get('posted-card-undo').textContent).toBe('Undo 2')
+    await late.until(() => late.find('posted-card-delete'), 'Delete', 4_000)
+  } finally { await late.unmount() }
 })

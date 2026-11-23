@@ -822,9 +822,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   set.callWaiting = () => !!exec.callNow?.deferred
   set.fileCallLater = async (name, args, caller, run, waiting) => {
     if (!exec.runAsCall) return run()
-    if (!(CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args) && (caller?.files ?? exec.files) === exec.files)) return exec.runAsCall(null, run)
+    if (!(CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args) && (caller?.files ?? exec.files) === exec.files)) return exec.runAsCall(null, run, name)
     const call = { name, args, deferred: null as string | null }
-    const out = await exec.runAsCall(call, run)
+    // (the tool's name is the cards' group key, turn.ts batchKeyed: without it write and edit cards never grouped)
+    const out = await exec.runAsCall(call, run, name)
     if (!call.deferred) return out
     exec.markCallWaiting(name)
     return waiting(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE }))

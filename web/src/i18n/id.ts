@@ -3250,6 +3250,7 @@ export const id: Record<MessageKey, string> = {
   "ask.foldedShow": "Detail",
   "ask.foldedHide": "Sembunyikan detail",
   "ask.batchMany": "{n} hal untuk dikonfirmasi",
+  "ask.batchGathering": "Mengumpulkan permintaan lain dari jawaban ini…",
   "ask.batchOpen": "Buka",
   'notice.openHistory': 'Riwayat versi',
   'notice.openSkills': 'Buka skill tim',

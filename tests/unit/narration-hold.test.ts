@@ -490,6 +490,15 @@ describe('a turn with an English line before a tool call', () => {
     expect(k.stored).toBe('헤더를 더 진한 빨간색으로 바꿨어요.')
   })
 
+  test.skipIf(!native)('Korean, the message names Korean: a report in English before a call leaves the answer (0.16.0 gate)', async () => {
+    const t = await turn('ko', '자막은 한국어로 넣어서 파일 확인해 주세요\n' + fake(
+      { say: 'Korean text renders correctly. Attaching it now.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '영상을 첨부했어요.' },
+    ))
+    expect(t.stored).toBe('영상을 첨부했어요.'); expect(t.streamed).toBe(t.stored)
+  })
+
   test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {
     const t = await turn('ko', '안녕\n' + fake({ say: '안녕하세요. 무엇을 도와드릴까요?' }))
     expect(t.streamed).toBe(t.stored)
@@ -547,5 +556,20 @@ describe('deliveredArgs (QA TC-f3-05)', () => {
     // a call that delivers words (a post, an event's description) keeps them: a piece copied there stays as content
     const event = { title: 'Launch', description: 'Bring the samples.' }
     expect(deliveredArgs(TEAM_TOOL_PREFIX + 'calendar_create', event, 'Bring the samples.')).toBe(event)
+  })
+})
+
+describe('naming the answer\'s own language (0.16.0 gate)', () => {
+  test('is not asking for another one', () => {
+    for (const m of ['홍보 영상을 mp4로 만들어 주세요. 자막은 한국어로요', '한글로 써 줘', '우리말로 풀어 줘', '반말로 답해 줘', '핵심 단어로 정리해 줘', '정말로 보내 줘'])
+      expect(narrationScript('ko', m), m).toBe('ko')
+    expect(narrationScript('ja', '字幕は日本語で作って')).toBe('ja')
+    expect(narrationScript('zh', '字幕用中文写')).toBe('zh')
+  })
+  test('another language named beside it still turns the rule off; English chats are unchanged', () => {
+    for (const m of ['한국어 말고 영어로 써 줘', '이 글을 영어로 번역해 줘', '자막은 일본어로 해 줘']) expect(narrationScript('ko', m), m).toBeNull()
+    expect(narrationScript('ja', '英語で書いて')).toBeNull()
+    expect(narrationScript('en', '자막은 한국어로')).toBeNull()
+    expect(narrationScript('ko', 'Please write the subtitles in Korean for this video')).toBeNull()
   })
 })

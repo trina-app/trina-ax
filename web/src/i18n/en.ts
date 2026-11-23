@@ -3252,6 +3252,7 @@ export const en: Record<MessageKey, string> = {
   "ask.foldedShow": "Details",
   "ask.foldedHide": "Hide details",
   "ask.batchMany": "{n, plural, one {# thing} other {# things}} to confirm",
+  "ask.batchGathering": "Gathering the rest of this answer's requests…",
   "ask.batchOpen": "Open",
   'notice.openHistory': 'Version history',
   'notice.openSkills': 'Open team skills',

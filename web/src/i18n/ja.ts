@@ -3209,6 +3209,7 @@ export const ja: Record<MessageKey, string> = {
   "ask.foldedShow": "詳細",
   "ask.foldedHide": "詳細をたたむ",
   "ask.batchMany": "{n, plural, one {確認すること#件} other {確認すること#件}}",
+  "ask.batchGathering": "この回答の残りの確認をまとめています…",
   "ask.batchOpen": "開く",
   'notice.openHistory': "バージョン履歴",
   'notice.openSkills': "チームスキルを開く",

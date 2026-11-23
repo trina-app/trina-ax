@@ -117,6 +117,8 @@ import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
 import { makeFileOutputPath } from '../tools/make-file-path'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
+import { skillBatch } from '../skills/lean-card'
+import { levelOfPath, reachOf } from '../skills/move'
 import { groupOfFolder, parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
 import { roomRefsForModel, roomRefsOf, type SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
@@ -5371,8 +5373,19 @@ export class TurnExec {
     // "Always allow" for team skill and rule saves (chat/always-allow.ts; the owner, 2026-11-13); not for a name that
     // is taken (that card asks for another name)
     const ask = (req: TurnRequest & { options: { label: string; value: string }[] }) => dead ? this.askPerson(req, { timeoutMs: this.rt.askUserTimeoutMs() }) : this.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
+    // a skill that loads leads in plain words, its path and diff behind 자세히, and several of one answer to one place
+    // are one card (skills/lean-card.ts). A file that does not load or a name that is taken keeps its whole card
+    const lean = (() => {
+      if (!skill || dead || problem) return null
+      try {
+        const to = levelOfPath(this.rt.ctx, me, r.rel)
+        if (!to) return null
+        const warn = [same?.text ?? '', held?.size ? tr('skillWithFiles', L, { n: String(held.size), names: [...held.keys()].map((k) => k.split('/').at(-1)!).join(', ') }) : '', need && wide ? tr('skillWiden', L, { ai: aiCalled(L), sources: wide.from, target: this.place(r.rel), n: String(need.viewers), m: String(need.blind) }) : '']
+        return skillBatch({ tool, to, copy: false, save: true, name: skill.name, text: after ?? undefined, followers: reachOf(this.rt.ctx, me, to, folder ?? r.rel).size, warn }, L)
+      } catch { return null }
+    })()
     const { value: answer, missing } = await ask({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), ...(lean ? { batch: lean } : {}),
       // a project's skills folder no live project has (yet): saved there, no chat follows it
       // the file and its folder in words (팀 스킬 › 회의록 › SKILL.md, place-words.ts); the preview's path shows on hover
       question: (project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: this.place(r.rel), what }) : st('confirmProjectNone', L, { folder: this.place(project.folder), path: this.place(r.rel), what })) : group ? st('confirmGroup', L, { group: group.name, path: this.place(r.rel), what }) : st('confirm', L, { path: this.place(r.rel), what }))

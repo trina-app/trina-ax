@@ -155,6 +155,34 @@ describe('a skill of 15 reference files (~150k characters)', () => {
   })
 })
 
+describe('skills written with write (the real engine: one call after the other, 0.16.0 gate)', () => {
+  const wr = (name: string) => ({ tool: 'write', args: { file_path: `skills/${name}/SKILL.md`, content: md(name, `Does ${name} for the team`) }, sayResult: true })
+  test('three new skills: one group, plain words, no SKILL.md or line counts up front; one press saves all three', async () => {
+    const names = ['w-minutes', 'w-quote', 'w-mail']
+    const w = await ask(`스킬 세 개 만들어서 팀 스킬로 올려줘\n${fake(...names.map(wr))}`, 3)
+    const groups = groupCards(w.cards)
+    expect(groups.length).toBe(1)
+    expect(showsAsBatch(groups[0]!)).toBe(true)
+    const b = w.cards.map((c) => c.request.batch!)
+    expect(b.map((x) => x.item)).toEqual(names)
+    expect(b[0]!.key).toStartWith('skill:save:')
+    expect(b[0]!.many).toContain('저장')
+    for (const x of b) expect(JSON.stringify([x.one, x.many, x.item, x.about, x.summary, x.summaryMany])).not.toMatch(/SKILL\.md|\+\d+/)
+    // (the diff the press binds to is still on the card, behind 자세히)
+    expect(w.cards[0]!.request.preview?.kind).toBe('skill_write')
+    for (const a of pressPlan(w.cards, 'save', new Set(w.cards.map((c) => c.request.requestId)))) expect((await post(w.turnId, a.requestId, a.answer)).status).toBe(204)
+    const next = await nextTurn(w.chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    for (const n of names) expect(has(`skills/${n}/SKILL.md`)).toBe(true)
+  })
+  test('any other file-tool card carries its tool as the group key', async () => {
+    const calls = ['w-rule-a', 'w-rule-b'].map((n) => ({ tool: 'write', args: { file_path: `skills/${n}.md`, content: `# ${n}\n` }, sayResult: true }))
+    const w = await ask(`규칙 두 개 올려줘\n${fake(...calls)}`, 2)
+    expect(groupCards(w.cards).length).toBe(1)
+    expect(w.cards[0]!.request.batch!.key).toBe('tool:write')
+  })
+})
+
 describe('the group key', () => {
   test('a server card of any tool gets its tool as its key; an own key stays; the AI\'s own question gets none', () => {
     const card: TurnRequest = { kind: 'ask_user', origin: 'server', requestId: 'r1', question: 'Share?', options: [{ label: 'Yes', value: 'y' }, { label: 'No', value: 'n' }] }

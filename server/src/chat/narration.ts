@@ -51,6 +51,17 @@ const ownScriptCopy = (m: string, script: AnswerScript) => {
   return script === 'ko' && /[가-힣][^\s]*\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|고쳐)/.test(m)
 }
 
+/** Words that the language check above would read as a language but are not another one: the answer's own language
+ * ("자막은 한국어로", 0.16.0 gate: it turned the interim rule off and "Korean text renders correctly. Attaching it now."
+ * led a Korean answer), and Korean words that only end like a language name (단어로, 정말로, 반말로). */
+const OWN_LANGUAGE: Record<AnswerScript, RegExp> = {
+  ko: /한국어|한국말|한글|우리말|korean|단어|용어|정말|참말|거짓말|존댓말|반말|높임말|혼잣말/gi,
+  ja: /日本語|japanese/gi,
+  zh: /中文|汉语|漢語|华语|華語|简体|簡體|繁体|繁體|chinese/gi,
+}
+/** Does the message ask for a language other than the answer's own? */
+const asksOtherLanguage = (message: string, script: AnswerScript) => ASKS_FOR_OTHER_LANGUAGE.test(message.replace(OWN_LANGUAGE[script], ' '))
+
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200
 const NARRATION_MAX_SENTENCES = 2
@@ -154,7 +165,7 @@ const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].
  */
 export function narrationScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (locale !== 'ko' && locale !== 'ja' && locale !== 'zh') return null
-  if (ASKS_FOR_OTHER_LANGUAGE.test(message)) return null
+  if (asksOtherLanguage(message, locale)) return null
   if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, locale)) return null
   if (SCRIPT_LETTER[locale].test(message)) return locale
   if (writesLatin(message, locale)) return null
@@ -421,7 +432,7 @@ const mostlyLatin = (m: string) => {
 export function leadScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (mostlyLatin(message)) return null
   // a follow-up to a request for another language ("영어 이메일 써줘", then "좀 더 짧게"): the draft is still in it (review)
-  if (previous && ASKS_FOR_OTHER_LANGUAGE.test(ownWords(previous))) return null
+  if (previous && (locale === 'ko' || locale === 'ja' || locale === 'zh') && asksOtherLanguage(ownWords(previous), locale)) return null
   return narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
 }
 

@@ -342,6 +342,19 @@ interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: 
 const CHANGED = '⁣'
 const changedLine = (q: string) => (q.startsWith(CHANGED) ? q.slice(1).split(/\n{2,}/)[0]!.trim() : null)
 
+/** how long after its latest card a running answer's group stays closed to a press (the answer may go on with other work) */
+export const CARDS_GATHER_MS = 8_000
+/** True while more cards of the group may still come: the answer runs and its latest card is under CARDS_GATHER_MS old. */
+function useCardsGathering(running: boolean, count: number): boolean {
+  const [quietAt, setQuietAt] = useState(-1)
+  useEffect(() => {
+    if (!running) return
+    const id = setTimeout(() => setQuietAt(count), CARDS_GATHER_MS)
+    return () => clearTimeout(id)
+  }, [running, count])
+  return running && quietAt !== count
+}
+
 /**
  * Several server cards of one kind from one answer as ONE card (web lib/cardBatch.ts; AskUserRequest.batch), or one card
  * that leads in plain words (`batch.item`: a skill to the team). It says what happens to how many, each item on a line
@@ -349,7 +362,7 @@ const changedLine = (q: string) => (q.startsWith(CHANGED) ? q.slice(1).split(/\n
  * each item has a tick (an unticked one is sent its card's "no"). Lean items keep their question, paths, names and
  * files behind one "자세히"; the others show their question and details as their own card would.
  */
-export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] }) {
+export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike & { turnId: string })[]; answerRunning?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const answer = useChats((s) => s.answer)
@@ -367,6 +380,9 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
     for (const id of fresh) seen.current.add(id)
     setTicked((p) => new Set([...p, ...fresh]))
   })
+  // cards that wait after the answer (no time limit) come one call at a time on an engine that runs writes in order: while
+  // the answer still runs, the press waits for the rest, so one press covers them all. A card a call waits on is never held
+  const gathering = useCardsGathering(answerRunning && asks.length > 0 && asks.every((r) => !r.expiresAt), asks.length)
   const first = asks[0]
   if (!first) return null
   const options = first.options ?? []
@@ -441,6 +457,7 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
                 <div key={r.requestId} className="border-l-2 border-line pl-3">
                   {n > 1 && <p className="text-xs font-medium">{r.batch?.item}</p>}
                   <p className="whitespace-pre-wrap text-xs text-muted [overflow-wrap:anywhere]">{r.question.replace(CHANGED, '')}</p>
+                  {r.preview && <div className="mt-1.5"><SkillPreview p={r.preview} /></div>}
                   {r.details?.length ? <DetailsShown items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
                 </div>
               ))}
@@ -448,15 +465,16 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
           )}
         </div>
       )}
+      {gathering && <p role="status" className="mt-2 text-xs text-muted" data-testid="ask-batch-gathering">{t('ask.batchGathering')}</p>}
       {options.length === 2 ? (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
-          <Button size="sm" variant="ghost" disabled={!!busy} busy={busy === options[1]!.value} onClick={() => void press(options[1]!.value)} data-testid="ask-no">{options[1]!.label}</Button>
-          <Button size="sm" variant="primary" disabled={!!busy || noneTicked} busy={busy === options[0]!.value} onClick={() => void press(options[0]!.value)} data-testid="ask-yes">{options[0]!.label}</Button>
+          <Button size="sm" variant="ghost" disabled={!!busy || gathering} busy={busy === options[1]!.value} onClick={() => void press(options[1]!.value)} data-testid="ask-no">{options[1]!.label}</Button>
+          <Button size="sm" variant="primary" disabled={!!busy || noneTicked || gathering} busy={busy === options[0]!.value} onClick={() => void press(options[0]!.value)} data-testid="ask-yes">{options[0]!.label}</Button>
         </div>
       ) : (
         <ChoiceRow className="mt-3" busy={!!busy} error={error}
-          choices={options.map((o) => ({ ...choice(o), ...(noneTicked && o.value !== noValue ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
+          choices={options.map((o) => ({ ...choice(o), ...(gathering || (noneTicked && o.value !== noValue) ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
       )}
       {first.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{first.note}</p>}
     </div>
