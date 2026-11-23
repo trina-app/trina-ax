@@ -36,6 +36,7 @@ import { checkRegular } from '../team-files/place'
 import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from './isolate'
 import { askConfirm } from './url-gate'
+import { isOwnUpload } from '../files/own-upload'
 import { teamDefaultLocale } from '../admin/settings'
 import { cardReason, refusal } from '../policy/refusal'
 import type { Locale } from '@mycel/shared/api'
@@ -105,7 +106,7 @@ const t = (ko: string, en: string, id: string, ja: string, es: string, zh: strin
 /** the card before a picture that is not the asker's own goes into a document (a signature or seal someone else sent,
  * or one outside their own folder): independent review of #448 */
 const PICTURE_TEXT = {
-  ask: t('AI가 내 것이 아닌 그림 {pics}을(를) {doc}에 넣으려고 해요. 넣을까요?', 'The AI wants to put {pics} into {doc}. It is not your own picture: someone else sent it, or it is outside your own folder. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan milik Anda: orang lain mengirimnya, atau ada di luar folder Anda. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身の画像ではありません（ほかの人が送ったか、あなたのフォルダーの外にあります）。入れますか？', 'La IA quiere poner {pics} en {doc}. No es una imagen tuya: la envió otra persona o está fuera de tu carpeta. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这不是你自己的图片：是别人发送的，或在你自己的文件夹之外。要放进去吗？'),
+  ask: t('AI가 {pics}을(를) {doc}에 넣으려고 해요. 직접 올린 그림이 아니에요. 넣을까요?', 'The AI wants to put {pics} into {doc}. You did not upload this picture yourself. Put it in?', 'AI ingin menaruh {pics} ke {doc}. Gambar ini bukan Anda sendiri yang mengunggahnya. Taruh?', 'AIが{pics}を{doc}に入れようとしています。あなた自身がアップロードした画像ではありません。入れますか？', 'La IA quiere poner {pics} en {doc}. No subiste tú esta imagen. ¿Ponerla?', 'AI 想把{pics}放进{doc}。这张图片不是你自己上传的。要放进去吗？'),
   yes: t('넣기', 'Put it in', 'Taruh', '入れる', 'Ponerla', '放进去'),
   no: t('넣지 않기', "Don't", 'Jangan', '入れない', 'No', '不要'),
 }
@@ -250,8 +251,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   /** a picture's index among the call's re-encoded pictures: a team file (read access as the person), or a file of this
    * chat (read through its place's one safe open); each sized, quarantine-checked and re-encoded before the worker */
   const picWork: string[] = []
-  /** inserted pictures that are not the asker's own: a chat file someone else sent, a team file outside users/<them>/ */
+  /** inserted pictures that are not the asker's own upload (files/own-upload.ts) */
   const notMine = new Set<string>()
+  const ownTeam = new Map<string, boolean>()
   const picture = async (p: string, i: number, insert = false): Promise<number> => {
     let rel: string, raw: Uint8Array
     const place = parsePlace(p)
@@ -261,9 +263,8 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       picWork.push(work)
       const f = await readPlaceFile(ctx, c, p, OFFICE_EDIT_LIMITS.imageBytes, work)
       rel = f.place
-      const fid = parsePlace(rel)?.kind === 'chatFiles' ? (parsePlace(rel) as { id?: string }).id : undefined
-      const by = fid ? (ctx.db.query('SELECT user_id FROM chat_files WHERE id = ?').get(fid) as { user_id: string } | null)?.user_id : undefined
-      if (insert && by !== c.user.id) notMine.add(f.name)
+      const at = parsePlace(rel)
+      if (insert && !isOwnUpload(ctx.db, c.user.id, { chatFile: at?.kind === 'chatFiles' ? at.id ?? '' : '' })) notMine.add(f.name)
       const known = imageIndex.get(rel)
       if (known !== undefined) return known
       if (!PICTURE_EXT.has(ext(f.name))) throw new ToolError(`change ${i + 1}: '${f.name}' is not a PNG, JPEG or WebP picture; give one of those`)
@@ -274,14 +275,16 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       const img = authorize(fx, files.rules(), c.user, p, 'read')
       if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
       rel = img.rel
-      if (insert && !(img.segs[0] === 'users' && img.segs[1] === c.user.id)) notMine.add(rel)
       const known = imageIndex.get(rel)
-      if (known !== undefined) return known
+      if (known !== undefined) { if (insert && !ownTeam.get(rel)) notMine.add(rel); return known }
       if (!PICTURE_EXT.has(ext(rel))) throw new ToolError(`change ${i + 1}: '${rel}' is not a PNG, JPEG or WebP picture; give one of those`)
       const size = checkRegular(img.abs).size
       if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
       countPictureBytes(imageBytes, 'read', size, i)
       raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
+      // judged on the very bytes that go into the document
+      ownTeam.set(rel, isOwnUpload(ctx.db, c.user.id, { team: rel, sha256: sha256(raw) }))
+      if (insert && !ownTeam.get(rel)) notMine.add(rel)
     }
     ctx.files.quarantine.assertBytes(raw)
     const made = await reencodePicture(ctx, raw, rel, i, c.signal)

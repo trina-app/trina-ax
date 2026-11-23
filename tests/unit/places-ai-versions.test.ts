@@ -440,7 +440,7 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
     const stamp = fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_office', args: { file_path: p, changes: [{ insert_picture: { image: chatFilePath(seal.id, 'seal.png'), over: '(seal)', width_mm: 15 } }] }, sayResult: true })
     // bob, with alice's seal: a card first (answered "skip" here), nothing saved
     const other = await run('bob', chat, stamp)
-    expect(other.cards.length).toBe(1)
+    expect(other.cards.some((c) => /did not upload|직접 올린/.test(c.question))).toBe(true)
     expect(other.content).toContain('Nothing was saved')
     expect(versionsOf(chat, doc.id)).toBe(1)
     // alice, with her own seal: no card
@@ -452,6 +452,62 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
     const z = readZip(got)
     expect(z.filter((e) => /^word\/media\/image\d+\.png$/.test(e.name)).length).toBe(1)
     expect(new TextDecoder().decode(z.find((e) => e.name === 'word/document.xml')!.data)).toMatch(/Seller: Hong Gildong <\/w:t><w:drawing>[\s\S]*<\/w:drawing><w:t xml:space="preserve">\(seal\)<\/w:t>/)
+  })
+})
+
+describe('insert_picture: a file counts as the asker\'s own only if they uploaded it (review of #448)', () => {
+  const pandoc = which('pandoc')
+  const png = () => {
+    const c = (t: string, d: Buffer) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const b = Buffer.concat([Buffer.from(t), d]); const x = Buffer.alloc(4); x.writeUInt32BE(zlib.crc32(b) >>> 0); return Buffer.concat([l, b, x]) }
+    const i = Buffer.alloc(13); i.writeUInt32BE(8, 0); i.writeUInt32BE(8, 4); i[8] = 8; i[9] = 2
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), c('IHDR', i), c('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: 8 }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(24, 90)]))))), c('IEND', Buffer.alloc(0))]))
+  }
+  const abs = (rel: string) => path.join(h.team, ...rel.split('/'))
+  const put = (rel: string, b: Uint8Array) => { fs.mkdirSync(path.dirname(abs(rel)), { recursive: true }); fs.writeFileSync(abs(rel), b) }
+  const form = (rel: string) => put(rel, new Uint8Array(Bun.spawnSync([pandoc!, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Form\n\nSeller: Hong Gildong (seal)\n') }).stdout))
+  const stamp = (doc: string, image: string) => [{ tool: 'read', args: { file_path: doc } }, { tool: 'edit_office', args: { file_path: doc, changes: [{ insert_picture: { image, over: '(seal)' } }] }, sayResult: true }]
+  const copy = (from: string, to: string) => ({ tool: 'copy_files', args: { paths: [from], to_folder: to } })
+  const newChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id as string
+  const asked = (r: { cards: Card[] }) => r.cards.some((c) => /did not upload|직접 올린/.test(c.question))
+  const t = pandoc ? test : test.skip
+
+  t('copied by the AI into the person\'s folder and stamped in the same answer: a card, nothing saved', async () => {
+    put('shared/brand/ceo-seal-a.png', png()); form('users/alice/same.docx')
+    const before = fs.readFileSync(abs('users/alice/same.docx'))
+    const r = await run('alice', await newChat(), fake(copy('shared/brand/ceo-seal-a.png', 'users/alice'), ...stamp('users/alice/same.docx', 'users/alice/ceo-seal-a.png')))
+    expect(asked(r)).toBe(true)
+    expect(fs.readFileSync(abs('users/alice/same.docx')).equals(before)).toBe(true)
+  })
+  t('copied in one answer and stamped in a later chat: still a card, nothing saved', async () => {
+    put('shared/brand/ceo-seal-b.png', png()); form('users/alice/later.docx')
+    await run('alice', await newChat(), fake(copy('shared/brand/ceo-seal-b.png', 'users/alice'), { say: 'ok' }))
+    expect(fs.existsSync(abs('users/alice/ceo-seal-b.png'))).toBe(true)
+    const before = fs.readFileSync(abs('users/alice/later.docx'))
+    const r = await run('alice', await newChat(), fake(...stamp('users/alice/later.docx', 'users/alice/ceo-seal-b.png')))
+    expect(asked(r)).toBe(true)
+    expect(fs.readFileSync(abs('users/alice/later.docx')).equals(before)).toBe(true)
+  })
+  t('copied by the AI into the chat\'s files: a card', async () => {
+    put('shared/brand/ceo-seal-c.png', png()); form('users/alice/inchat.docx')
+    const chat = await sharedChat()
+    const up = new FormData(); up.set('chatId', chat); up.set('file', new File([fs.readFileSync(abs('users/alice/inchat.docx'))], 'inchat.docx'))
+    const doc = (await (await h.req('alice', '/api/uploads', { method: 'POST', body: up })).json()) as Attachment
+    await run('alice', chat, `the form\n${fake({ say: 'ok' })}`, [doc.id])
+    await run('alice', chat, fake(copy('shared/brand/ceo-seal-c.png', 'chat:files/'), { say: 'ok' }))
+    const row = db().query("SELECT id FROM chat_files WHERE chat_id = ? AND name = 'ceo-seal-c.png'").get(chat) as { id: string }
+    expect(asked(await run('alice', chat, fake(...stamp(chatFilePath(doc.id, 'inchat.docx'), chatFilePath(row.id, 'ceo-seal-c.png')))))).toBe(true)
+    expect(versionsOf(chat, doc.id)).toBe(1)
+  })
+  t('really uploaded to the person\'s own folder: no card; once other bytes are written over it, a card again', async () => {
+    form('users/alice/real.docx')
+    const f = new FormData(); f.set('folder', 'users/alice'); f.set('name', 'my-seal.png'); f.set('onExists', 'replace'); f.set('file', new File([png() as Uint8Array<ArrayBuffer>], 'my-seal.png'))
+    expect((await h.req('alice', '/api/files/upload', { method: 'POST', body: f })).status).toBe(201)
+    const ok = await run('alice', await newChat(), fake(...stamp('users/alice/real.docx', 'users/alice/my-seal.png')))
+    expect(ok.cards).toHaveLength(0)
+    expect(ok.content).toContain('Saved a new version')
+    const other = Buffer.concat([Buffer.from(png()), Buffer.from([0])])
+    put('users/alice/my-seal.png', other)
+    expect(asked(await run('alice', await newChat(), fake(...stamp('users/alice/real.docx', 'users/alice/my-seal.png'))))).toBe(true)
   })
 })
 
