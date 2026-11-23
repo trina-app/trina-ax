@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 12:16
 - Branch: `fix/history-filter-place`
-- Status: in progress
+- Status: done
 - Where: `web/` (Team AX core). Why: the Trina panel and the phone drawer are core UI (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a control moves on existing screens; no new feature and no API change
 
@@ -53,4 +53,7 @@ menu open, filter active, folded.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The filter and a "⋯" with New section are on the 트리나 기록 header on the panel and the drawer
+(`HistoryHeadActions`), and the filtered line is its own line under it (`HistoryFilterLine`). The panel's filtered list
+now renders inside `TrinaList`, so the open menu survives a choice. Added to the plan: the drawer's clear button and
+fold toggle are now 44px. PR: branch `fix/history-filter-place` into `dev`.

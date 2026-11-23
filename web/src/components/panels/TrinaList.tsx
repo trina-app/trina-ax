@@ -2,7 +2,9 @@
 // "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
 //   고정 (my pinned chats) ·
 //   my sections (nav/HistorySections.tsx; docs/decisions/20261122-trina-history-sections.md), each a section of its own ·
-//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, by date (Today, Yesterday …, each folding: the menu's default "Group by: Date", the owner 2026-11-22): a project's chat with its project's name small
+//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; on its header the filter and a "⋯"
+//   with New section and 삭제한 기록, docs/decisions/20261123-history-filter-place.md; with a filter on, the filtered
+//   history is under it, pins included; every other chat of mine, newest first, by date (Today, Yesterday …, each folding: the menu's default "Group by: Date", the owner 2026-11-22): a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
 // Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx). A section is my own
 // way to sort my list (only I see it, it changes nobody's access); a project is a shared place with its own files,
@@ -11,9 +13,9 @@
 // (store/chats.ts, as the filtered history reads it), so its rows and marks are live. A chat that waits on me has no row
 // or group of its own on top (QA TC-ask1-18): it stays where it is with its "?", the rail's icon carries the same mark.
 import clsx from 'clsx'
-import { Pin, Trash2 } from 'lucide-react'
+import { Pin } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/chatGroups'
@@ -23,12 +25,12 @@ import { readProjectList } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
-import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { aiName } from '../../lib/tabs'
+import { useFolds } from './folds'
 import { PanelSection, panelRowBox } from './PanelFrame'
-import { HistorySections, useSectionRows } from '../nav/HistorySections'
-import { DateGroups } from '../nav/HistoryList'
+import { HistorySections } from '../nav/HistorySections'
+import { DateGroups, HistoryFilterLine, HistoryHeadActions, HistoryList, useHistorySections, type RecentsViewState } from '../nav/HistoryList'
 import { DROP_OVER } from '../nav/NavFolders'
 import { leftSectionToast, useSectionDrop } from '../nav/SidebarSections'
 import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
@@ -37,6 +39,8 @@ export { useFolds } from './folds'
 
 /** how long a window coming back to the front waits before the groups are read again */
 const REFOCUS_READ_MS = 60_000
+/** "Group by: Project" chosen by hand: five projects, three rows each (docs/DECISIONS.md "Trina history by project") */
+const GROUP_CAPS = { projects: 5, rows: 3 }
 
 /** how old a read of the groups may be when the list shows again (the rail's 트리나 after another place, the phone's
  * tab): a change of my chats or folders meanwhile marks it stale (store/chatGroups.ts), so the list reads at once then */
@@ -66,7 +70,7 @@ export function useGroupsRead() {
   return { groups, error }
 }
 
-export function TrinaList({ peek }: { peek: ChatPeek }) {
+export function TrinaList({ peek, viewState }: { peek: ChatPeek; viewState: RecentsViewState }) {
   const t = useT()
   const { groups, error } = useGroupsRead()
   // the chats store: 최근 기록's rows and every row's live copy (marks); the session marker count elsewhere reads it too
@@ -108,33 +112,47 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
   // 최근 기록: every chat of my list that is not pinned, newest first (a chat made only to hold attachments is not a
   // conversation yet)
-  const sections = useSectionRows()
+  // my sections as the filter shows them; with Group by Project the projects stand alone
+  const filtered = viewState.changed.length > 0
+  const byProject = viewState.view.group === 'project'
+  const sectionState = useHistorySections(viewState.view)
+  const sections = useMemo(() => (byProject ? { ...sectionState, sections: [] } : sectionState), [sectionState, byProject])
+  const folded = useFolds().folds['section:trina:recent'] === 'folded'
   const recent = useMemo(() => chats.filter((c) => !isUnused(c) && !c.pinnedAt && !sections.sectioned.has(c.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats, sections.sectioned])
   // a chat dragged onto 트리나 기록 leaves its section
   const dropOut = useSectionDrop(null, 'chats')
 
-  if (!groups) {
+  // the filtered list reads the chats itself: a filter on never waits for the groups
+  if (!groups && !filtered) {
     if (error) return <LoadError error={error} onRetry={() => void readChatGroups()} what="chats" minor className="mx-1 mt-2" />
     return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   }
 
   const row = (c: Chat) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} />
-  const empty = loaded && !groups.pinned.length && !recent.length && !sections.sectioned.size
+  const pinned = groups?.pinned ?? []
+  const empty = loaded && !pinned.length && !recent.length && !sections.sectioned.size
 
   return (
     <div ref={listRef} data-testid="trina-list">
-      {groups.pinned.length > 0 && (
-        <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
-          <ul>{groups.pinned.map(row)}</ul>
+      {!filtered && pinned.length > 0 && (
+        <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
+          <ul>{pinned.map(row)}</ul>
         </PanelSection>
       )}
 
-      <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} className="mb-0 [&>section]:mt-4 [&>section:first-child]:mt-4" />
+      <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} filtered={filtered} className="mb-0 [&>section]:mt-4 [&>section:first-child]:mt-4" />
 
-      {/* always there once read, empty or not: its "⋯" holds 삭제한 기록 and its "더 보기" the next page (the first page may
-          be all pinned chats) */}
-      {loaded && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
+      {/* always there once read, empty or not: its header has the filter and the "⋯", its "더 보기" the next page (the first
+          page may be all pinned chats). One tree with or without a filter, so the filter's open menu survives a choice */}
+      {(loaded || filtered) && (
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<HistoryHeadActions state={viewState} folded={folded} trash />} keep={filtered ? <HistoryFilterLine state={viewState} /> : undefined} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
+          {filtered ? (
+            <>
+              <HistoryFilterLine state={viewState} />
+              <HistoryList onNavigate={noop} peek={peek} viewState={viewState} caps={GROUP_CAPS} sections={byProject ? undefined : sections} />
+            </>
+          ) : (
+            <>
           {/* nothing yet: said under the section's heading, not above it */}
           {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
           {/* by date, each date folding, as the menu's default "Group by: Date" (the owner, 2026-11-22); the runs of one
@@ -154,6 +172,8 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
               {moreLoading ? t('common.loading') : t('sidebar.more')}
             </button>
           )}
+            </>
+          )}
         </PanelSection>
       )}
 
@@ -163,22 +183,3 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 }
 
 const noop = () => {}
-
-/** 최근 기록's "⋯": 삭제한 기록 (the deleted AI chats, /trash), rarely needed, so not a row of its own */
-function RecentMenu() {
-  const t = useT()
-  const navigate = useNavigate()
-  return (
-    <MenuButton
-      label={t('trinaList.recentMenu', { name: aiName(t) })}
-      tip={t('trinaList.recentMenu', { name: aiName(t) })}
-      compact
-      muted
-      items={[{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }]}
-      testId="trina-recent-menu"
-      // a touch screen wider than a phone (touch-hit is phones' only): 44 px to tap, as the panel's other controls
-      buttonClassName="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-    />
-  )
-}
-
