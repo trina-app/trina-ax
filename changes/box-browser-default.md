@@ -1,0 +1,1 @@
+- Asking Trina for a screenshot of a website now works in a chat: the usual `chromium` command starts the browser that comes with the server, and reaches allowed sites. It used to stop at launch, and Trina said it was blocked.

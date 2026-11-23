@@ -45,8 +45,9 @@ import { projectZoneFolders } from '../../policy/zone'
 import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
+import { writeBoxBrowser } from './box-browser'
 import { sweepAfterRun } from './browser-profiles'
-import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
@@ -619,6 +620,8 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   const p = devenvPaths(c.base)
   for (const d of [p.root, p.run, p.home, p.logs, p.homeProject]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   writeGitWrapper(c, runPlatform())
+  // `chromium` and the names people expect start the pinned browser (box-browser.ts); a failure leaves the system's
+  try { writeBoxBrowser(p.bin, boxBrowser(runPlatform()), SRT_PATHS.node) } catch (e) { void e }
   // a font preference never stops a command (runEnv leaves the fonts out when fonts.conf is missing)
   try { writeBoxFonts(c, runPlatform()) } catch { /* the system's fonts */ }
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
@@ -794,7 +797,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
       // a killed browser's profile in a private chat's TMPDIR (a shared chat's TMPDIR goes as a whole)
       const tmp = runTmp(c.base, own)
       // (runs tracked again after a restart whose row has ended no longer count; if that cannot be read, nothing is removed)
-      if (!s.space.shared) try { pruneLive(ctx); sweepAfterRun(tmp, s.runId, s.space.userId, liveSweeps) } catch { /* a later run's end */ }
+      if (!s.space.shared) try { pruneLive(ctx); sweepAfterRun(tmp, runHome(c.base, own), s.runId, s.space.userId, liveSweeps) } catch { /* a later run's end */ }
     }), hash, net }
   } catch (e) { release(); releaseSkills(); dropGuard(); unsweep(); throw e }
 }

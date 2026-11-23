@@ -82,23 +82,19 @@ export const boxLibsText = (platform: DevPlatform = runPlatform()) => (platform 
     // the box's default fonts (srt/config.ts BOX_FONTS_CONF, QA TC-7043)
     + 'Text a command draws (ffmpeg drawtext, matplotlib, LibreOffice) uses Noto Sans CJK by default, which has Korean, Japanese and Chinese letters; a font file you name yourself must have them too. ')
   + 'For anything else use the folder: npm install, or a venv (python3 -m venv .venv && .venv/bin/pip install <package>); a plain pip install has nowhere to write. '
-/** How a command gets a browser (docs/decisions/20261123-chat-browser-render.md). On Linux only the pinned headless shell
- * starts in a run; the AI must not tell a person a browser render is impossible while it is there. */
+/** How a command gets a browser (docs/decisions/20261123-box-browser-default.md). First in the tool text: the pinned
+ * engine cuts a tool description at 4,096 characters and the API engine at 1,024 (BOX_TEXT_KEPT). */
+export const BOX_TEXT_KEPT = 1024
 export const boxBrowserText = (platform: DevPlatform = runPlatform(), browser: string | null = boxBrowser(platform)) => {
   if (platform === 'darwin') return 'For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  const fallback = 'If a render still fails after that, give the exact error and offer to make the video with ffmpeg; do not say it is impossible. '
-  if (!browser) return 'This server has no headless browser that starts in a command (the system chromium stops at launch here, and downloading another does not help). For a video, offer to make it with ffmpeg. '
-  return 'For a headless browser use $TRINA_BROWSER (chrome-headless-shell) with --no-sandbox --disable-dev-shm-usage; the system chromium and google-chrome stop at launch here, so do not run them and do not download a browser. '
-    + 'HyperFrames, Puppeteer and tools that read CHROME_PATH already use it (give Puppeteer args: ["--no-sandbox", "--disable-dev-shm-usage"]); for Playwright pass executablePath: process.env.TRINA_BROWSER and the same args. '
-    + 'Remote pages go through the run\'s proxy, which needs the login inside $HTTPS_PROXY, and Chromium does not take it from that address: without it every remote page answers 407, also an allowed site. Never print these values. With const u = new URL(process.env.HTTPS_PROXY), username = decodeURIComponent(u.username), password = decodeURIComponent(u.password): '
-    + 'in Puppeteer call await page.authenticate({ username, password }) before page.goto; in Playwright add proxy: { server: u.origin, username, password } to chromium.launch. '
-    + 'A plain browser command line cannot log in: fetch the page with curl first and open the file. HyperFrames fetches the remote files of a composition by itself. '
-    + 'With the login, a site that is not allowed answers 403 over http and fails with net::ERR_TUNNEL_CONNECTION_FAILED over https: then use request_sites as above. '
-    + 'A render is a long command: use job=true. ' + fallback
+  if (!browser) return 'This server has no headless browser for commands: for a video, offer ffmpeg. '
+  return 'A headless browser works here: chromium --headless --screenshot=out.png URL (also --dump-dom, --print-to-pdf=f.pdf), Puppeteer and HyperFrames as they are, Playwright with executablePath: process.env.TRINA_BROWSER. Do not download a browser. '
+    + 'A site off the allowed list fails (403 or ERR_TUNNEL_CONNECTION_FAILED): use request_sites. If a render still fails, give the exact error and offer ffmpeg; never say a browser is impossible here. '
 }
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, a headless browser) on the team server. '
+  + boxBrowserText()
   + boxLibsText()
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files (for a file in $TRINA_WORK its path is chat:work/<path>). '
@@ -114,7 +110,6 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
   + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. '
-  + boxBrowserText()
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
@@ -125,6 +120,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
  * command and its output, so it sees only what all of them may open; no login. Jobs and dev servers too, with the same
  * folders (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). */
 export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, a headless browser) on the team server. '
+  + boxBrowserText()
   + boxLibsText()
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
@@ -136,7 +132,6 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
   + 'Jobs and dev servers run here too, with the same folders: everyone in this chat sees their results, and they stop when the people of this chat or what they may open change. '
   + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. '
-  + boxBrowserText()
   + devServerText(previewReady())
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '

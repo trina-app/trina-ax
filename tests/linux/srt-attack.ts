@@ -272,7 +272,7 @@ const [url, ...o] = process.argv.slice(1), px = new URL(process.env.HTTPS_PROXY)
 const dir = fs.mkdtempSync(path.join(process.env.TMPDIR, "br-"));
 const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-pipe", "--user-data-dir=" + dir, "--allow-file-access-from-files"];
 if (o.includes("force")) args.push("--proxy-server=" + px.origin, "--proxy-bypass-list=<-loopback>");
-const b = spawn(process.env.TRINA_BROWSER, [...args, "about:blank"], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+const b = spawn(process.env.HYPERFRAMES_BROWSER_PATH, [...args, "about:blank"], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
 let id = 0, buf = "", status = "", sid; const wait = new Map();
 const send = (method, params = {}, s = sid) => new Promise((r) => { const m = ++id; wait.set(m, r); b.stdio[3].write(JSON.stringify({ id: m, method, params, ...(s ? { sessionId: s } : {}) }) + "\0"); });
 const end = (t) => { console.log(t); try { b.kill("SIGKILL"); } catch {} setTimeout(() => { fs.rmSync(dir, { recursive: true, force: true }); process.exit(0); }, 200); };
@@ -296,7 +296,7 @@ setTimeout(() => end("timeout status=" + status), 25000);
   end("status=" + status + " body=" + String(t.result && t.result.value).slice(0, 400));
 })();
 `
-const browse = (url: string, ...o: ('auth' | 'force')[]) => `test -x "$TRINA_BROWSER" || { echo NO-BROWSER; exit 9; }; node -e "$(echo ${Buffer.from(BROWSER_DRIVER).toString('base64')} | base64 -d)" ${JSON.stringify(url)} ${o.join(' ')} 2>&1 | grep -v -E 'UNDICI|trace-warnings'`
+const browse = (url: string, ...o: ('auth' | 'force')[]) => `test -x "$HYPERFRAMES_BROWSER_PATH" || { echo NO-BROWSER; exit 9; }; node -e "$(echo ${Buffer.from(BROWSER_DRIVER).toString('base64')} | base64 -d)" ${JSON.stringify(url)} ${o.join(' ')} 2>&1 | grep -v -E 'UNDICI|trace-warnings'`
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
@@ -407,6 +407,21 @@ for addr in ('${unixSock}', '\\0trina-attack'):
   { id: 'BR5', what: 'browser: a private address through the proxy, logged in, is 403', cmd: browse('http://10.11.12.13/', 'auth', 'force'), check: has('status=403') },
   { id: 'BR6', what: 'browser: the metadata address through the proxy, logged in, is 403', cmd: browse('http://169.254.169.254/latest/meta-data/', 'auth', 'force'), check: has('status=403') },
   { id: 'BR7', what: 'browser: a denied file by file:// is not there', cmd: browse(`file://${BASE}/secrets/master.key`), check: (r) => (r.out.includes(CANARY) || r.out.includes('NO-BROWSER') || !/status=|error=/.test(r.out) ? r.out.slice(0, 300) : null) },
+  // the plain commands of a run (config.ts, box-browser.ts): the script adds the flags and logs in through a relay
+  { id: 'BR8', what: 'plain chromium --dump-dom of an allowed site works through the run proxy', cmd: 'chromium --headless --dump-dom https://registry.npmjs.org/chalk/latest 2>/dev/null', check: has('"name":"chalk"') },
+  { id: 'BR9', what: 'plain chromium: a site not on the list stays refused', cmd: 'chromium --headless --dump-dom https://example.com/ 2>/dev/null; chromium --headless --dump-dom http://example.com/ 2>/dev/null; true', check: (r) => (r.out.includes('Example Domain') ? r.out.slice(0, 200) : null) },
+  { id: 'BR10', what: 'plain chromium: the server port, a private address and metadata stay out of reach', cmd: 'for u in http://127.0.0.1:8099/ http://10.11.12.13/ http://169.254.169.254/latest/meta-data/; do chromium --headless --timeout=4000 --dump-dom "$u" 2>/dev/null; done; true', check: (r) => (r.out.includes(CANARY) ? r.out.slice(0, 200) : null) },
+  { id: 'BR11', what: 'the browser commands and the relay are read-only in a run', cmd: 'R=$(dirname "$(command -v chromium)"); for f in chromium chrome browser-proxy-relay.cjs; do echo x >> "$R/$f" && echo WROTE; done; rm -f "$R/chromium" && echo WROTE; true', check: (r) => (r.out.includes('WROTE') ? r.out.slice(0, 200) : null) },
+  { id: 'BR12', what: 'the proxy login is in no process argument while the browser and relay run', cmd: `chromium --headless --remote-debugging-port=0 about:blank >/dev/null 2>&1 & sleep 2; python3 -c "
+import glob,os,urllib.parse
+p=urllib.parse.unquote(urllib.parse.urlparse(os.environ['HTTPS_PROXY']).password)
+n=0;hit=0
+for f in glob.glob('/proc/[0-9]*/cmdline'):
+    try: c=open(f,'rb').read()
+    except OSError: continue
+    if b'chrome-headless-shell' in c or b'browser-proxy-relay' in c: n+=1
+    if c and p.encode() in c: hit+=1
+print('procs',n>=2,'hits',hit)"; kill %1 2>/dev/null; true`, check: has('procs True hits 0') },
   // the sandbox has its own pid space: the same number names one of its own processes, never the server
   { id: 'A18', what: 'see the server process', cmd: `ps axww; cat /proc/${process.pid}/cmdline; ls /proc/${process.pid}/root/opt/mycel`, check: (r) => (r.out.includes('srt-attack.ts') ? 'the server process is visible' : null) },
   { id: 'A19', what: 'new namespaces, mount, chroot', cmd: 'unshare -U true || unshare -Urm true || mount -t tmpfs x /mnt || chroot / true', check: failsQuietly },
