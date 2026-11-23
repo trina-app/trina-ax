@@ -279,7 +279,11 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a share word, every person or group named, every file named
         // or attached by them. Our own text match, not the person's choice: never where other people's words are in the
         // chat (others, content: the person did not choose to skip the card there), never in a run nobody watches
-        const marked = others || content
+        // Since 2026-11-23 (docs/decisions/20261123-do-then-undo.md) a shared or project chat and content others wrote no
+        // longer stop it: every file and every person is still named in the person's own words, the files are theirs, and
+        // the share card offers Undo. Still never in a chat another person wrote in or after a room read (their words could
+        // have picked the files), never with a guest among the people
+        const marked = exec.otherAuthors || readRooms(exec) || strict
         const said = ownWords(askerText(db, askerMessageId(exec)))
         const mine = attachedPaths(db, askerMessageId(exec))
         // a file or a person the AI learned from looking_at in this turn is not the asker's word (chat/looking-at.ts): unless

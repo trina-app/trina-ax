@@ -4789,6 +4789,10 @@ export class TurnExec {
     // 20261122-ask-less-explicit-save.md, QA TC-ask2-2, -8, -13): no card, as after any explicit ask. Only the main AI,
     // never a publication's binding, never where other people's words are in the chat (chat/explicit-place.ts)
     if (!binding && call && call.main !== false && explicitPlaceAsk(this, need.dir)) return null
+    // a project chat saving into its own project's folder what was made from the person's own files: no card when the
+    // people who would newly see it are all people of this chat (docs/decisions/20261123-do-then-undo.md); the file keeps
+    // its versions and the trash
+    if (!binding && call && call.main !== false && this.ownProjectSave(need)) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
     // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
     // anything else that saves)
@@ -4806,6 +4810,32 @@ export class TurnExec {
     const no = await this.askWidening(need, { binding })
     if (no && !binding && (no.end === 'declined' || no.end === 'timeout')) this.widenRefused.set(need.dir, no.text)
     return no?.text ?? null
+  }
+
+  /**
+   * The project save without a card (docs/decisions/20261123-do-then-undo.md, idea "내 프로젝트에 내 파일로 만든 것"): in a
+   * project chat the person watches (not a run, Slack, a draft or a confidential chat), a save inside that project's
+   * folder whose narrower sources are only the person's own files (their personal folder or the in-app browser; never a
+   * personal connection, a share of their folder, a room, a teammate's file or anything else), where everyone who can
+   * see the target is someone who sees this chat now and nobody of them is a guest. Fails closed.
+   */
+  private ownProjectSave(need: WidenNeed): boolean {
+    try {
+      if (this.spec.clientKind === 'schedule' || this.spec.clientKind === 'slack' || this.restricted || this.templateRun) return false
+      const chat = this.rt.db.query('SELECT project_id FROM chats WHERE id = ?').get(this.spec.chatId) as { project_id: string | null } | null
+      const p = chat?.project_id ? this.rt.store.projectRow(chat.project_id) : null
+      if (!p || isConfidentialChat(this.rt.db, this.spec.chatId)) return false
+      const project = p.folder_path.split('/').filter(Boolean)
+      const fx = this.rt.files.fx
+      const fold = (x: string) => { const n = x.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      const dir = need.segs.slice(0, -1)
+      if (!project.length || dir.length < project.length || project.some((x, i) => fold(x) !== fold(dir[i]!))) return false
+      const me = this.spec.userId
+      if (!need.narrower.every((s) => s.type === 'user' && s.id === me && s.via !== 'connection' && !s.share)) return false
+      const readers = readersOf(this.rt.db, this.rt.files.rules(), need.segs)
+      const here = new Set(this.shared ? this.sharedAudience() : [me])
+      return readers.every((id) => here.has(id) && !isGuestUser(this.rt.db, id))
+    } catch { return false }
   }
 
   /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */

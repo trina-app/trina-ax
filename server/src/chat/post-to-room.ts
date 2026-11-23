@@ -55,7 +55,8 @@
 import { askerMessageId, askerSpec, askingAnswerId, madeHere } from './asked-in'
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK } from './shared-actions'
+import { floorFree, inOwnFolder } from './explicit-send'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
@@ -65,7 +66,7 @@ export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, labeledPath, listWords, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step, StepFix } from '@mycel/shared/api'
 import { carriesAddress, opaqueParts } from '../tools/url-gate'
-import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
+import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllIn, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
 import { redactorFor } from '../integrations/connections/redact'
@@ -207,6 +208,26 @@ export async function provenanceSaid(exec: Pick<TurnExec, 'rt' | 'spec' | 'files
   } catch {
     return true
   }
+}
+
+/** The provenance as the floor reads it (chat/explicit-send.ts): a team folder the read scope holds (this answer's own
+ * reads, whose source list is not written yet) gets the files read there in this chat, when every read of it is recorded
+ * file by file and no listing showed its other names (as provenanceSaid); else none, so it asks. */
+async function floorProv<P extends { counted?: import('./answer-share').CountedSource[] }>(exec: Pick<TurnExec, 'rt' | 'spec' | 'files'>, pv: P): Promise<P> {
+  const counted = pv.counted ?? []
+  if (!counted.some((c) => c.source.type === 'folder' && c.fromScope)) return pv
+  const db = exec.rt.db
+  const scope = scopeWithListing(db, exec.spec.chatId)
+  const rules = exec.rt.files.rules()
+  const keyOf = (rel: string) => sourceKey(sourceOf(db, rules, rel))
+  const earlier = (db.query('SELECT DISTINCT s.path FROM message_sources s JOIN messages m ON m.id = s.message_id WHERE m.chat_id = ?').all(exec.spec.chatId) as { path: string }[]).map((r) => r.path)
+  const read = [...new Set([...earlier, ...exec.files.sources.entries().map((e) => e.path)])]
+  const listed = [...exec.files.namePaths, ...exec.files.listedNames]
+  return { ...pv, counted: counted.map((c) => {
+    if (c.source.type !== 'folder' || !c.fromScope) return c
+    const ok = !!scope && scope.listed(c.source) && !listed.some((rel) => keyOf(rel) === c.key)
+    return { ...c, files: new Set(ok ? read.filter((rel) => keyOf(rel) === c.key) : []) }
+  }) }
 }
 
 export function postToRoomTool(exec: TurnExec): Tool {
@@ -444,6 +465,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         }
         // the person's own "Always allow" let it go without its card: the result says so (never "you approved it")
         let byAlways = false
+        // the person's own message named the place and asked to send it: it went without the card, with Undo on its step
+        let byWords = false
         const sent = (r: Extract<ShareAnswerToRoomResult, { status: 'sent' }>, again: boolean, cannotOpen = '', canOpenNow = '') => {
           const fileCount = r.message.files?.length ?? 0
           // who it mentions, as the room keeps the message (never the AI's words); in a shared chat only how many (who is
@@ -475,7 +498,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...(chatCopies.length ? { chat_files_copied: `${chatCopies.map((c) => `"${neutralizeTags(oneLine(c.name, 120))}"`).join(', ')} ${chatCopies.length === 1 ? 'is a file' : 'are files'} of this chat, which only its people open: a copy of each was kept in the user's own downloads folder and the post links that copy${fileCount ? '' : ' (it did not go as a file: see cannot_open)'}` } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${r.videoAsPage ? ' The video\'s MP4 file was not ready, so the video went as its web page (it plays in the room): say so plainly.' : ''}${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
+                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${r.videoAsPage ? ' The video\'s MP4 file was not ready, so the video went as its web page (it plays in the room): say so plainly.' : ''}${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}${byWords && !again ? ' It went without a confirmation card because the user\'s own message named where to send it and asked to send it; the card under your answer shows Undo for a few seconds and Delete after. Say it was sent, to whom, in one short sentence.' : ''}`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -622,9 +645,6 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const strict = guestInShared(exec)
         const mineNamed = () => namesPlace(ownWords(askerText(db, askerMessageId(exec))), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
         const alwaysOk = !strict || (!plain && mineNamed() && asksToSend(db, askerMessageId(exec)) && (!all || fromAsker(db, askerSpec(exec), copies)))
-        // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
-        // othersWordsIn) the explicit-ask skip below (our own text match, not the person's choice) never applies
-        const marked = othersWordsIn(exec)
         // no card when the asker's own message of this turn asked for exactly this post (docs/decisions/
         // 20261116-no-card-after-explicit-ask.md, QA TC-3812): a post word and the place in their words (or, in a room's
         // side chat, no place given: that room), and the card would tell nothing more (no line about people who cannot see
@@ -641,7 +661,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // the card's to ask)
         // (each person: the asker's words name them in full, or say the name the AI found exactly that one member by, when
         // that word is not part of another member's name the asker also wrote: "tell Erin Yoo" is no ask to tag Erin)
-        const mentionsSaid = !mentionAll && mentionIds.every((id) => {
+        // (everyone there only when the asker's own words hold the room's "@everyone" word, never with a guest in the chat)
+        const everyoneSaid = !mentionAll || (!strict && roomMentionAllIn(said))
+        const mentionsSaid = everyoneSaid && mentionIds.every((id) => {
           const p = canMention.find((x) => x.id === id)
           if (!p) return false
           if (namesPerson(said, p) && namedInFull(said, soleNames(db, id))) return true
@@ -653,13 +675,27 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
         // (chat/looking-at.ts): unless their own message names it, the explicit ask does not skip the card
         const fromLook = (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return lookedPlace(exec, { roomId: roomId || null, threadRootId: threadRootId ?? null, names: r.names, person: r.person }, said) })()
-        // where other people's words are (marked) the explicit ask never skips the card; nor for a screen target (fromLook)
-        // (a post whose yes would also let people open a file always shows its card: that card is the widening's yes)
-        // (nor when what the answer made goes with it as a file: the card names it)
-// (never while a waiting call runs again with the person's press, exec.askedIn: that run always reaches the card the
+        // never for a screen target (fromLook)
+        // (never while a waiting call runs again with the person's press, exec.askedIn: that run always reaches the card the
         // press is checked against, docs/decisions/20261122-late-card-answer-resumes.md)
-        const explicit = !exec.askedIn && !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !first.check.artifacts.length && !lines.length && !viewNone && !laterLine && !guestLine && asksFor(POST_ASK, said)
-          && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && mentionsSaid && place
+        // Since 2026-11-23 (docs/decisions/20261123-do-then-undo.md, the owner: "질문수도 줄어야해") it also holds with files
+        // that go as copies, what the answer made, people who cannot open a linked file, in a shared or project chat and a
+        // chat that read content others wrote: the send goes as under "Always allow" (copies, no view grant: the "Let them
+        // view" button follows the post) and its step offers Undo. What still asks (the floor, chat/explicit-send.ts):
+        // content some there cannot see from a source the person did not name (a room, a 1:1 or group chat, a connection,
+        // the browser, a file shared with them, a team file nobody named, anything not known); a copy that is not theirs,
+        // made here or named; a chat another person wrote in or one that read rooms (their words could be in the text or pick
+        // the place); a guest 1:1 chat or a room
+        // with a guest when files go; a screen target; a vague place
+        const said0 = askerMessageId(exec)
+        const brought = attachedPaths(db, said0)
+        const namedRel = (rel: string) => brought.has(rel) || namesFileLoose(said, rel) || madeHere(db, exec, rel)
+        const guestRoom = !!roomId && !!db.query('SELECT 1 FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? AND u.guest = 1 LIMIT 1').get(roomId)
+        const wordsAsk = !exec.askedIn && !exec.otherAuthors && !readRooms(exec) && !strict && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !guestLine && asksFor(POST_ASK, said)
+          && (plain ? theirText : true) && noteOk && mentionsSaid && place
+          && [...attached].every((rel) => inOwnFolder(rel, spec.userId) || namedRel(rel))
+          && !(guestRoom && (attached.size > 0 || first.check.artifacts.length > 0))
+        const explicit = wordsAsk && await (async () => { try { return floorFree(await floorProv(exec, await first.check.provenance(attached)), spec.userId, namedRel) } catch { return false } })()
         // (the card offers "Always allow" on its first showing. Once on it is final, Rule A (#1143): a screen target only
         // stops the explicit-ask skip above.) The people it mentions, everyone there too ("@everyone", which only the
         // person's own message may ask for, above), are under the person's own "Always allow" (Rule A; docs/decisions/
@@ -689,7 +725,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
           return no('Nothing was posted: a scheduled run has nobody to answer the card this post needs (the user\'s "Always allow" does not cover this kind of post here). Tell the user to ask for it in one of their own chats.', 'refused: scheduled run (card needed)')
         }
         // (why it asks, and what "Always allow" covers: the small line under the buttons, so the question stays one line)
-        const reply = explicit || byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => exec.waitForPerson({
+        if (explicit) byWords = true
+        const reply = explicit ? yes : byChat ? 'send' : await withAlways(place1, all ? 'post_files' : 'post_to_room', options, yes, (opts, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question,
           options: opts, multiple: false, allowText: false, ...(whyLine || more.note ? { note: [whyLine, more.note ?? ''].filter(Boolean).join(' ') } : {}),
           details: [
@@ -920,7 +957,9 @@ export function recipientNames(db: import('bun:sqlite').Database, me: string, ro
   }
   if (!room) return { names: [], person: false }
   if (room.kind === 'dm') return { names: (db.query('SELECT m.user_id AS id FROM room_members m WHERE m.room_id = ? AND m.user_id <> ?').all(room.id, me) as { id: string }[]).flatMap((u) => soleNames(db, u.id)), person: true }
-  return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : ''].filter(Boolean), person: false }
+  // the everyone room with no name of its own: by its word in every language (as the app shows it: "#전체", "#Everyone")
+  const everyone = room.kind === 'all' && !room.name ? (['ko', 'en', 'id', 'ja', 'es', 'zh'] as const).map((l) => tr('postRoomEveryone', l)) : []
+  return { names: [room.name ?? '', room.kind === 'team' ? groupName(db, room) ?? '' : '', ...everyone].filter(Boolean), person: false }
 }
 
 /** The questions above an answer on its branch, the nearest first: the first line or so of each (all a quote's thread

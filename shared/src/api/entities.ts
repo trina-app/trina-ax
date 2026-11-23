@@ -539,6 +539,10 @@ export const Step = z.object({
     preview: z.string().max(120).optional(),
     files: z.array(z.string().max(255)).max(10).optional(),
   }).optional(),
+  /** a schedule_create step that made a task (server/src/tools/schedules.ts): its card says it was made, when it first
+   * runs, with Pause and Delete (docs/decisions/20261123-do-then-undo.md). `quiet`: made without its card, because the
+   * person's own words asked for it. Only for the person whose turn it was (ChatStore.viewSteps) */
+  scheduled: z.object({ id: z.string().max(64), title: z.string().max(200), nextRunAt: IsoTime.nullable(), quiet: z.literal(true).optional() }).optional(),
   /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
    * turn it was; absent for every other viewer of a shared chat */
   shared: StepShared.optional(),

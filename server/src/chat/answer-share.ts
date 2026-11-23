@@ -53,6 +53,7 @@
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
+import { floorFree, inOwnFolder } from './explicit-send'
 import { instructionFiles } from './prompt'
 import type { Database } from 'bun:sqlite'
 import { createHmac } from 'node:crypto'
@@ -470,7 +471,7 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
   const peopleWithout = async (): Promise<number> => unablePeople({ audience, rows }, new Set(), await provenance(new Set()))
 
-  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts }
+  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts, userId }
 }
 
 /** An artifact that goes with a shared answer as a file: the version the answer made (or the newest on its branch), the
@@ -907,8 +908,13 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   const provenance: AnswerShareProvenance | null = people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null
   const hidden = c.rows.some((r) => r.rel === null)
   const none = await c.provenance(new Set())
+  // the person picked the room and the answer themselves: the app sends at once (with the files offered) when nothing in
+  // it is the floor (chat/explicit-send.ts), and shows Undo instead of this step (docs/decisions/20261123-do-then-undo.md).
+  // Only on a first ask: one asked again (changed, or another choice of files) is always shown. Every file that would go
+  // as a copy is the person's own (their folder), so nothing of a team folder rides along unseen
+  const direct = !reason && !hidden && floorFree(prov, c.userId) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
   return {
-    status: 'confirm', people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
+    status: 'confirm', ...(direct ? { direct: true as const } : {}), people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
     files, provenance, confirmKey, ...(reason ? { reason } : {}), ...(c.artifacts.length ? { artifacts: c.artifacts.map((a) => ({ name: a.name })) } : {}),
   }
 }

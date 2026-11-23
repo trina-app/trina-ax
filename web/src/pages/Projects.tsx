@@ -97,7 +97,7 @@ import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ShareCopyLink, useCopyProjectLink } from '../components/ShareCopyLink'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { leaveItems, useLeaveProject } from '../components/LeaveProject'
-import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, pageColumn, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -1461,8 +1461,11 @@ function ShareProjectDialog({ project, chats, onClose, onShared }: { project: Pr
       // its skills/ holds skills: copied into projects/<name> they switch on in this project's chats once the person says yes
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
+        // nothing to choose there (the person saved it): said in one line with their names, and it goes ahead
+        // (docs/decisions/20261123-do-then-undo.md)
         setBusy(false)
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('projects.shareConfirm') })) await share(true)
+        toast({ level: 'info', text: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }) })
+        await share(true)
         return
       }
       setError(errorText(e, locale, t('error.network')))

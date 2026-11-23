@@ -23,7 +23,7 @@ import { useLocale, useT } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { isAdmin, useMe } from '../store/session'
 import { usePeople, usePeopleList } from '../store/people'
-import { Button, confirmDialog, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
+import { Button, Field, inputCls, Modal, Skeleton, useCopy } from './ui'
 import { projectSkillsOn } from '../lib/bulkFiles'
 import { aiName } from '../lib/tabs'
 import { useProjects } from '../store/projects'
@@ -316,11 +316,12 @@ export function GuestInviteDialog({ place, onClose, onCancel = onClose, onFull }
         setPersonal(false)
         return true
       }
-      // its skills/ holds skills: they switch on in this project's chats once I say yes (as the page's share asks)
+      // its skills/ holds skills: they switch on in this project's chats. Nothing to choose there (I asked for the link), so
+      // it is said in one line with their names and the share goes ahead (docs/decisions/20261123-do-then-undo.md)
       const skills = projectSkillsOn(e)
       if (skills && !skillsOk) {
-        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }), confirm: t('guest.invite.create') })) return share(true)
-        return false
+        toast({ level: 'info', text: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', '), ai: aiName(t) }) })
+        return share(true)
       }
       throw e
     }

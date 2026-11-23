@@ -5,7 +5,7 @@
 // a chat), and where it may be dropped.
 import { describe, expect, test } from 'bun:test'
 import { ApiError, type FileEntry } from '@mycel/shared/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, sendWidening, widenedBy, selectable, selectionState, shareMany, toggleAll, trashAsksFirst, trashMany } from '../../src/lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, narrowedBy, projectSkillsOn, sendWidening, widenedBy, selectable, selectionState, shareMany, toggleAll, trashMany } from '../../src/lib/bulkFiles'
 import { TEAM_FILE_DRAG_TYPE } from '../../src/lib/teamAttach'
 
 const entry = (path: string, o: Partial<FileEntry> = {}): FileEntry => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type: 'file', size: 1, mtime: '2026-10-28T00:00:00.000Z', mime: null, access: 'write', ...o })
@@ -69,16 +69,17 @@ describe('moveMany', () => {
 
   test('items that would become private are asked about once, then only those move with confirm', async () => {
     const calls: { from: string; to: string; confirm?: boolean }[] = []
-    const asked: [number, number][] = []
+    const asked: [number, number, number][] = []
     const r = await moveMany(items, 'users/me', {
       move: async (body) => {
         calls.push(body)
         if (!body.confirm && body.from !== 'm/a.png') throw narrowing(body.from === 'm/b.pdf' ? 2 : 3)
         return {}
       },
-      confirmNarrow: async (count, lost) => (asked.push([count, lost]), true),
+      confirmNarrow: async (count, lost, linked) => (asked.push([count, lost, linked]), true),
     })
-    expect(asked).toEqual([[2, 3]])
+    // (no link shares among them: 0, so the Files screen moves them without asking and offers Undo)
+    expect(asked).toEqual([[2, 3, 0]])
     expect(calls.map((c) => [c.from, c.to, !!c.confirm])).toEqual([
       ['m/a.png', 'users/me/a.png', false],
       ['m/b.pdf', 'users/me/b.pdf', false],
@@ -88,6 +89,18 @@ describe('moveMany', () => {
     ])
     expect(r.done.map((e) => e.path)).toEqual(['m/a.png', 'm/b.pdf', 'm/c.pdf'])
     expect(r.failed).toEqual([])
+    // the ones made private, with where they went: what the toast's Undo moves back
+    expect(r.narrowed.map((x) => [x.entry.path, x.path])).toEqual([['m/b.pdf', 'users/me/b.pdf'], ['m/c.pdf', 'users/me/c.pdf']])
+  })
+
+  test('the most people who lose files by link is passed on (those moves still ask: Undo cannot bring the links back)', async () => {
+    const linked = (lost: number, people: number) => new ApiError(409, { code: 'conflict', message: 'narrowed', params: { reason: 'audience_narrowed', lostViewers: lost, linkPeople: people } })
+    const asked: number[] = []
+    await moveMany(items, 'users/me', {
+      move: async (body) => { if (!body.confirm) throw body.from === 'm/a.png' ? linked(1, 4) : narrowing(2); return { entry: { path: body.to } } },
+      confirmNarrow: async (_c, _l, people) => (asked.push(people), true),
+    })
+    expect(asked).toEqual([4])
   })
 
   test('"no" leaves those where they were; other errors are failures and ask nothing', async () => {
@@ -302,32 +315,3 @@ describe('copies and restores into a shared folder', () => {
   })
 })
 
-describe('trashAsksFirst (QA TC-ask1-16)', () => {
-  const me = 'u1'
-  /** rows of a listing of my own folder (GET /api/files/tree fills `shared` there) */
-  const L = { fromListing: true }
-  test('my own unshared file outside any project: no question', () => {
-    expect(trashAsksFirst([entry('users/u1/notes.md'), entry('users/u1/a/b.txt')], me, [], L)).toBe(false)
-    // a project only I see does not count
-    expect(trashAsksFirst([entry('users/u1/p/b.txt')], me, [{ folderPath: 'users/u1/p', audience: 1 }], L)).toBe(false)
-  })
-  test('anything someone else could open, or the client cannot know, asks', () => {
-    expect(trashAsksFirst([entry('users/u1/a.md', { shared: 'own' })], me, [], L)).toBe(true)
-    expect(trashAsksFirst([entry('users/u1/a.md', { shared: 'through' })], me, [], L)).toBe(true)
-    expect(trashAsksFirst([entry('shared/a.md')], me, [], L)).toBe(true)
-    expect(trashAsksFirst([entry('users/u2/a.md')], me, [], L)).toBe(true)
-    // a folder may hold a file shared one by one
-    expect(trashAsksFirst([entry('users/u1/docs', { type: 'folder' })], me, [], L)).toBe(true)
-    // in a project with members (or of unknown audience), and before the projects are read
-    expect(trashAsksFirst([entry('users/u1/P/b.txt')], me, [{ folderPath: 'users/u1/p', audience: 3 }], L)).toBe(true)
-    expect(trashAsksFirst([entry('users/u1/p/b.txt')], me, [{ folderPath: 'users/u1/p' }], L)).toBe(true)
-    expect(trashAsksFirst([entry('users/u1/a.md')], me, null, L)).toBe(true)
-    // one such item among many: the batch asks
-    expect(trashAsksFirst([entry('users/u1/a.md'), entry('users/u1/b.md', { shared: 'own' })], me, [], L)).toBe(true)
-  })
-  test('a row not known to come from a listing (search, recent files): `shared` is unknown there, so it asks', () => {
-    expect(trashAsksFirst([entry('users/u1/notes.md')], me, [])).toBe(true)
-    expect(trashAsksFirst([entry('users/u1/notes.md')], me, [], { fromListing: false })).toBe(true)
-    expect(trashAsksFirst([entry('users/u1/notes.md')], me, [], L)).toBe(false)
-  })
-})

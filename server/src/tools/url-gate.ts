@@ -43,7 +43,8 @@
 //     watches, a plain address (no random-looking part) with a long query still opens under ①b and ①d, never in a run
 //     nobody watches (docs/decisions/20261120-url-gate-camelcase-params.md);
 //   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts), except a plain
-//     address under ①d (the person's own switch; the card offers it).
+//     address under ①d (the person's own switch; the card offers it) and a plain address the person typed, in a turn
+//     they watch (docs/decisions/20261123-do-then-undo.md).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
 // host name can carry data to the attacker's name server even when the person declines.
 // Not done here (follow-up): the "32 characters in common with a file read in this chat" check of ③ and the admin
@@ -225,7 +226,7 @@ export interface WebPageLog { start(url: string): WebPageEntry; /** web_fetch ke
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
  * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a
  * rollback) writes its runs unmarked. */
-function typedUrls(db: Database, chatId: string, userId?: string | null): Set<string> {
+export function typedUrls(db: Database, chatId: string, userId?: string | null): Set<string> {
   const seen = new Set<string>()
   // a shared project chat (chat/shared.ts): only what the person whose turn it is typed (another person's message is
   // information for this turn, not an address this person gave)
@@ -855,7 +856,14 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     // cannot refuse while the address is unknown is a public name that leads back to this server's own exit address
     // (the card's "a device inside your network"), which the person's switch accepts as it accepts any site
     // (an echo is never plain: it keeps the card, with no "Allow all websites" on it)
-    plain = plainAddress(site, marks, userinfo, originOf(db, chatId, url, person, o))
+    const from = originOf(db, chatId, url, person, o)
+    plain = plainAddress(site, marks, userinfo, from)
+    // an address the person typed in this chat themselves, or allowed on a card (their schedule's card for its runs),
+    // opens without the card (docs/decisions/20261123-do-then-undo.md): the card's risk (a name that leads back to this
+    // server) is one the person took by typing or allowing it, and private addresses stay refused on every hop after the
+    // lookup. Only a plain one (no random-looking part, no long name, no user name or password), never a long query
+    // (above); in a run nobody watches only the person's own scheduled run, whose card listed it
+    if (!long && plain && (from?.origin === 'typed' || from?.origin === 'allowed') && (!unattended || !!person?.scheduledRun?.())) return 'seen'
     if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened

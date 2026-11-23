@@ -35,7 +35,6 @@ import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, PreviewLoading, Spinner } from './ui'
 import { PanelExpandButton } from './SidePanelFrame'
-import { confirmChatRestore } from './chat/restoreConfirm'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -54,7 +53,6 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [asked, setAsked] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState<string | null>(null)
-  const asking = useRef(false)
   const [pickFolder, setPickFolder] = useState(false)
   // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
   const scripts = useFrameScripts(chatId)
@@ -125,22 +123,18 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   }
 
   // an earlier version back as the newest (nothing is deleted); the panel then follows the newest, which the server's
-  // artifact.updated brings. First the chat file panel's confirm (chat/restoreConfirm.ts, QA b3s S-033): whose later
-  // versions drop out of the newest (who asked for them, by name: a page's versions carry no id) and who in the chat sees
-  // the change; the server then writes the chat's line, and the others' windows get the new version and the line
-  // (a second press while the confirm is open opens no second one)
-  const restore = async (v: ArtifactSummary) => {
-    if (restoring !== null || asking.current) return
-    asking.current = true
-    const later = new Map<string, { id: string; name: string }>()
-    for (const x of [...versions].reverse()) if (x.version > v.version && x.byName && x.byName !== me.user.name && !later.has(x.byName)) later.set(x.byName, { id: x.byName, name: x.byName })
-    const yes = await confirmChatRestore({ chatId, n: v.version, dropouts: [...later.values()], t, locale }).finally(() => { asking.current = false })
-    if (!yes) return
+  // artifact.updated brings; the server writes the chat's line, and the others' windows get the new version and the
+  // line. No confirm first: the page it replaces stays a version, so the toast's Undo restores the one that was newest
+  // (docs/decisions/20261123-do-then-undo.md)
+  const restore = async (v: ArtifactSummary, undo = false) => {
+    if (restoring !== null) return
+    const was = versions.at(-1)
     setRestoring(v.id)
     try {
       await api.call(API.restoreArtifact, { params: { id: v.id } })
       setPicked(null)
-      toast({ level: 'success', text: t('chatFile.restored', { n: v.version }) })
+      const back = !undo && was && was.id !== v.id ? was : null
+      toast({ level: 'success', text: undo ? t('chatFile.restoreUndone') : t('chatFile.restored', { n: v.version }), ...(back ? { action: { label: t('common.undo'), run: () => void restore(back, true) } } : {}) })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {

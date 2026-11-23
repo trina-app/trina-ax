@@ -202,8 +202,13 @@ describe('with the switch on', () => {
 
   test('the exit address unknown (FL-05): the card offers it, and once on a plain address opens without the card', async () => {
     const chat = await chatOf('alice', 'https://typed.example/ 이 페이지 뭐하는 데야?')
+    // an address the person typed opens without the card in a turn they watch, also while the exit address is unknown
+    // (docs/decisions/20261123-do-then-undo.md); one the AI found (not typed) still asks
+    const typed: Asked[] = []
+    expect(await gate(chat, 'https://typed.example/', person(null, typed), { egressKnown: false })).toBe('seen')
+    expect(typed).toEqual([])
     const asked: Asked[] = []
-    expect(await gate(chat, 'https://typed.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
+    expect(await gate(chat, 'https://found.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
     expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
     // no "this site in this conversation" (①b stays off while the address is unknown), "Allow all websites" offered
     expect(values(asked[0])).toEqual(['allow', ALL_SITES_ANSWER, 'deny'])
