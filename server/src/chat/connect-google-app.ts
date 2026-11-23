@@ -4,8 +4,9 @@
 // unknown service at calendarmcp.googleapis.com (which cannot sign in without the team's own Google app,
 // docs/INTEGRATIONS.md "Your own app"), cited "Calendar MCP server" pages to the person and asked for the event's length
 // and place before anything was connected (AI scenario CON-01.calendar, 2026-11-17). The tool now answers for these
-// four by name, or by a Google API address, with the app's real state and the one next step; no card.
-import type { GoogleAppId, GoogleAppView, Locale } from '@mycel/shared/api'
+// four by name, or by a Google API address, with the app's real state and the one next step. Where the next step is a
+// person's own Connect, a card carries it as a button (googleAppTeamCard, googleAppOwnCard); the sign-in stays on the page.
+import type { GoogleAppId, GoogleAppView, Locale, Role } from '@mycel/shared/api'
 import { SCREEN } from '../policy/refusal'
 
 /** What people type for each app (spaces, dots and dashes ignored, any letter case): English and Korean names. */
@@ -56,9 +57,17 @@ export function googleAppWay(app: { name: string; status: GoogleAppView['status'
 
 /** An owner or admin asked for one that is not connected for them and can be connected now: a card offers Connect for
  * the team (the dialog of Admin › Connected apps, a shared Google account) beside their own on its page (#253), as the
- * welcome tools step does. A member keeps the words above (their own on its page); so does an app that is connected
- * (for them, or through the team's account they may use), not answering, needing their own new sign-in, or not
- * available. A team account that needs a new sign-in gets the card too: its dialog signs it in again. */
+ * welcome tools step does. A member gets googleAppOwnCard below; an app that is connected (for them, or through the
+ * team's account they may use), not answering, needing their own new sign-in, or not available keeps the words above.
+ * A team account that needs a new sign-in gets the card too: its dialog signs it in again. */
 export function googleAppTeamCard(app: { status: GoogleAppView['status']; reason: GoogleAppView['reason']; shared?: { status: 'connected' | 'needs_reconnect' } | null }, admin: boolean): boolean {
   return admin && app.status === 'disconnected' && app.reason === null && app.shared?.status !== 'connected'
+}
+
+/** A member asked for one they can connect themselves now (QA TC-8034): a card with their own Connect, which opens the
+ * app's page in Settings › Connectors, the same personal sign-in as there. Never the team's way, and no card while a
+ * team account covers them, even one that needs a new sign-in (an admin's to fix: the words above say so). A guest uses
+ * no connections, so never. */
+export function googleAppOwnCard(app: { status: GoogleAppView['status']; reason: GoogleAppView['reason']; shared?: { status: 'connected' | 'needs_reconnect' } | null }, role: Role): boolean {
+  return role === 'member' && app.status === 'disconnected' && app.reason === null && !app.shared
 }

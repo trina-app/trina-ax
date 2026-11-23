@@ -934,6 +934,7 @@ export const en: Record<MessageKey, string> = {
   "connect.teamConnect": "Connect for the team",
   "connect.teamWay": "Connect it once for the whole team with one shared Google account, or connect your own.",
   "connect.ownConnect": "Connect my own",
+  "connect.ownConnectApp": "Connect my {name}",
   "connect.ownWhere": "Your own account connects on its page in Settings › Connectors. Come back here when it is done.",
   "connect.ownDone": "I've connected it",
   'connect.access': "Who may use it",

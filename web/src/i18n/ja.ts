@@ -915,6 +915,7 @@ export const ja: Record<MessageKey, string> = {
   "connect.teamConnect": "チームで接続",
   "connect.teamWay": "共有の Google アカウント 1 つでチーム全体にまとめて接続するか、自分のアカウントを接続します。",
   "connect.ownConnect": "自分のアカウントを接続",
+  "connect.ownConnectApp": "自分の{name}を接続",
   "connect.ownWhere": "自分のアカウントは 設定 › コネクター のページで接続します。終わったらここに戻ってください。",
   "connect.ownDone": "接続しました",
   'connect.access': "使える人",

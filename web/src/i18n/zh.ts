@@ -914,6 +914,7 @@ export const zh: Record<MessageKey, string> = {
   "connect.teamConnect": "为团队连接",
   "connect.teamWay": "用一个共享的 Google 账号为整个团队一次连接好，或连接你自己的账号。",
   "connect.ownConnect": "连接我自己的账号",
+  "connect.ownConnectApp": "连接我的 {name}",
   "connect.ownWhere": "你自己的账号在 设置 › 连接器 的页面上连接。完成后回到这里。",
   "connect.ownDone": "我已连接",
   "connect.access": "谁可以使用",
