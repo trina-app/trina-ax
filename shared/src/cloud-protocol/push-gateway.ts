@@ -32,6 +32,17 @@
 //           `title` and `message`, with `channelId` and `tag` (the notice id) (expo-notifications shows them when the app cannot ask). The team server sends it only
 //           for a device that registered a label key (an app with push-label-v1 on Android). A gateway from before it
 //           refuses the key (invalid_body); the team server then sends the same push without it (the generic line).
+// Sync:     `sync: true` (optional) with code PUSH_SYNC_CODE is a silent push after the person read things on another
+//           device: never an alert, a sound or text. `clear` (Android only) lists the notice ids (sent to this phone
+//           before) to take off the tray; `badge` is the iPhone's new number. APNs: `aps` has only `badge` and
+//           `content-available` (push type alert with a badge, background without), priority 5, expiry 0 (now or
+//           never: never in place of a waiting real alert); FCM: data-only with
+//           `clear` as "id,id", priority NORMAL, no title or message (expo-notifications never shows a data-only
+//           message without them, so an app from before sync shows nothing). PUSH_SYNC_CODE without `sync`, and `sync`
+//           with `path` or `label`, are refused, so a sync can never become a visible notification. Syncs count in their
+//           own, smaller (key, token) limit (4 a minute, 120 a day). What the provider gets must fit 4096 bytes
+//           (413 body_too_large). A gateway from before it refuses the key (invalid_body); the team server then sends
+//           no sync there for a while and never sends one without `sync`.
 
 export const PUSH_GATEWAY_SEND_PATH = '/v1/send'
 export const PUSH_GATEWAY_HEALTH_PATH = '/health'
@@ -42,6 +53,10 @@ export const PUSH_GATEWAY_DEDUPE_MS = 10 * 60_000
 export const PUSH_GATEWAY_MAX_TTL_SECONDS = 86_400
 /** the largest `badge` (the app icon's number) */
 export const PUSH_GATEWAY_MAX_BADGE = 9999
+/** the code of a silent sync push (`sync: true`) */
+export const PUSH_SYNC_CODE = 'phone.sync'
+/** at most this many ids in a sync's `clear` */
+export const PUSH_SYNC_MAX_CLEAR = 40
 
 export const PUSH_PLATFORMS = ['ios', 'android'] as const
 export type PushPlatform = (typeof PUSH_PLATFORMS)[number]
@@ -73,6 +88,10 @@ export interface PushGatewaySend {
   badge?: number
   /** Android: the app builds the notification itself from a data-only message (Label above); never sent for iOS */
   label?: true
+  /** a silent sync push (Sync above): code is PUSH_SYNC_CODE, no path or label */
+  sync?: true
+  /** with `sync`: the notice ids to take off the phone (at most PUSH_SYNC_MAX_CLEAR) */
+  clear?: string[]
 }
 
 /** Error codes and their HTTP status. Every answer is JSON: { ok: true } (200) or { ok: false, error: <code> }. */
@@ -112,7 +131,7 @@ const CODE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/
 const CODE_MAX = 64
 const PATH_RE = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 const PATH_MAX = 200
-const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag', 'badge', 'label']
+const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag', 'badge', 'label', 'sync', 'clear']
 
 export function validPushToken(platform: PushPlatform, token: unknown): boolean {
   if (typeof token !== 'string') return false
@@ -173,6 +192,19 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
   if ('label' in o) {
     if (o.label !== true || platform !== 'android') return null
     out.label = true
+  }
+  // a sync is silent: only with its own code, never with a path or a label; its code never without it
+  if ('sync' in o) {
+    // a number only for an iPhone (Android launchers count the tray)
+    if (o.sync !== true || out.code !== PUSH_SYNC_CODE || 'path' in out || 'label' in out || (platform === 'android' && 'badge' in out)) return null
+    out.sync = true
+  } else if (out.code === PUSH_SYNC_CODE || 'clear' in o) return null
+  if ('clear' in o) {
+    // Android only: the iPhone app takes nothing off while closed, so an iPhone gets the number alone
+    if (platform !== 'android') return null
+    const c = o.clear
+    if (!Array.isArray(c) || c.length > PUSH_SYNC_MAX_CLEAR || !c.every((id) => typeof id === 'string' && NOTIFICATION_ID_RE.test(id))) return null
+    out.clear = [...c] as string[]
   }
   return out
 }

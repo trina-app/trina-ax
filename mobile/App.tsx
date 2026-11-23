@@ -18,9 +18,10 @@ import { PhotoPicks } from './src/photos'
 import { httpFailure, probeAnswer, Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_SYNC_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { appBadge, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
+import { takesSync } from './src/badge'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
@@ -364,11 +365,11 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         {ask.kind === 'switch' && current && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current) })}</Text>}
         <View style={s.askRow}>
           <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={() => setAsk(null)} disabled={busy} testID="setup-ask-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, s.askButtonText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
-          <Pressable style={[s.button, s.askButton]} onPress={() => void yes(ask)} disabled={busy} testID="setup-ask-yes" accessibilityRole="button">
+          <Pressable style={[s.button, s.askButton]} onPress={() => void yes(ask)} disabled={busy} testID="setup-ask-yes" accessibilityRole="button" accessibilityLabel={ask.kind === 'switch' ? t.switchYes : t.outsideConnect} accessibilityState={{ disabled: busy, busy }}>
             {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{ask.kind === 'switch' ? t.switchYes : t.outsideConnect}</Text>}</Pressable>
         </View>
       </View>
-      : <Pressable style={s.button} onPress={() => void submit()} disabled={busy} testID="team-connect" accessibilityRole="button">
+      : <Pressable style={s.button} onPress={() => void submit()} disabled={busy} testID="team-connect" accessibilityRole="button" accessibilityLabel={t.connect} accessibilityState={{ disabled: busy, busy }}>
         {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{t.connect}</Text>}
       </Pressable>}
       <View style={s.helpRow}>
@@ -455,7 +456,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
         <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && !waking && s.off]} onPress={no} disabled={busy && !waking} testID="link-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy && !waking }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
-        {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
+        {(!error || again) && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityLabel={again ? t.retry : switching ? t.switchYes : t.outsideConnect} accessibilityState={{ disabled: busy || !ready, busy }}>
           {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{again ? t.retry : switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>
     </View>
@@ -505,7 +506,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, ...(BUILD ? { appBuild: BUILD } : {}), platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, ...(BUILD ? { appBuild: BUILD } : {}), platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
     // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
     const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
@@ -673,12 +674,12 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   // reloads would install the bridge on the relay's page) and not "Could not reach your team"
   if (failed && starting) return <Center>
     {starting === 'waking' ? <WakingNote /> : <ActivityIndicator color={product.accent} testID="team-checking" />}
-    <Pressable style={s.link} onPress={changeTeam} testID="waking-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
+    <Pressable style={s.link} onPress={changeTeam} testID="waking-change-team" accessibilityRole="button"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   if (failed) return <Center>
     <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header" testID={failed === 'updating' ? 'updating-title' : undefined}>{failed === 'offline' ? t.offlineTitle : failed === 'updating' ? t.updatingTitle : t.unreachableTitle}</Text>
     <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : failed === 'updating' ? t.updatingHint : t.unreachableHint}</Text>
-    <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
-    <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
+    <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry" accessibilityRole="button"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
+    <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team" accessibilityRole="button"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   // the team address the app connected to (drawn here: a page can draw anything) and "another team": on the sign-in
   // pages, and on every page until the team said someone is signed in
   const showFooter = hostLineNow({ path: pathname, signedIn, answered, waited })
