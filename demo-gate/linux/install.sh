@@ -33,8 +33,18 @@ case "$STAGE" in /*) ;; *) die "--stage must be an absolute path" ;; esac
 O=/opt/trina-demo G=/var/demo-gate FS=/srv/tdg IMG=/var/lib/trina-demo/tdg.xfs SIZE_GB=60
 LOCALES="en ko ja zh es id"
 
-# ---- the stage, copied to root's own folder; everything below reads only the copy ----
+# ---- room for the copies, checked while the site is still up ----
 install -d -o root -g root -m 755 /var/lib/trina-demo
+mb_of() { du -sm "$@" 2>/dev/null | awk '{s+=$1} END {print s+0}'; }
+want_mb=$(( $(mb_of "$STAGE/dl" "$STAGE/app") * 2 + $(mb_of "$O/app") + 2048 ))
+free_mb=$(df -Bm --output=avail /var/lib/trina-demo | tail -1 | tr -dc 0-9)
+[ "$free_mb" -ge "$want_mb" ] || die "only $free_mb MB free, this install needs $want_mb MB: nothing was changed"
+if mountpoint -q "$FS"; then
+  fs_mb=$(df -Bm --output=avail "$FS" | tail -1 | tr -dc 0-9)
+  [ "$fs_mb" -ge 4096 ] || die "only $fs_mb MB free on $FS, snapshots need 4096 MB: nothing was changed"
+fi
+
+# ---- the stage, copied to root's own folder; everything below reads only the copy ----
 ST=/var/lib/trina-demo/install
 rm -rf "${ST:?}"; install -d -o root -g root -m 700 "$ST"
 cp -a "$STAGE/dl" "$STAGE/app" "$ST/"
@@ -81,8 +91,12 @@ for u in trina-demo-tunnel.service trina-demo-gate.service; do
   if systemctl is-active --quiet "$u"; then die "$u is still active"; fi
 done
 # the nightly build also writes as tdgate
-systemctl stop trina-demo-snapshots.timer trina-demo-snapshots.service >/dev/null 2>&1 || true
+systemctl disable --now trina-demo-snapshots.timer >/dev/null 2>&1 || true
+systemctl stop trina-demo-snapshots.service trina-demo-snapshots-deploy.service >/dev/null 2>&1 || true
+systemctl reset-failed trina-demo-snapshots-deploy.service >/dev/null 2>&1 || true
 if pgrep -u tdgate >/dev/null 2>&1; then die "tdgate still has processes: nothing was changed"; fi
+if pgrep -u tdbuild >/dev/null 2>&1; then die "tdbuild still has processes (a snapshot build): nothing was changed"; fi
+rm -rf "$O/app-next"
 
 # ---- paths in folders a role user owns: root never follows a link there ----
 safe_dir() { if [ -L "$1" ] || { [ -e "$1" ] && [ ! -d "$1" ]; }; then die "$1 must be a plain folder"; fi; }
@@ -142,6 +156,11 @@ if [ -n "$CUR" ] && [ -f "$G/gate.json" ] && { [ -z "$GOOD" ] || { [ "$PROVED" =
   printf '%s\n' "$n" > "$RB/GOOD.new"; mv "$RB/GOOD.new" "$RB/GOOD"
   say "kept for rollback: $n"
 fi
+# only the known-good copy stays
+GOOD=$(cat "$RB/GOOD" 2>/dev/null || true)
+for d in "$RB"/app-*; do
+  if [ -d "$d" ] && [ ! -L "$d" ] && [ -n "$GOOD" ] && [ "${d##*/}" != "$GOOD" ]; then rm -rf "$d"; say "removed the older rollback copy ${d##*/}"; fi
+done
 
 # ---- programs, unpacked from the checked downloads, and the app ----
 fresh() { rm -rf "${1:?}.new"; install -d -o root -g root -m 755 "$1.new"; }
@@ -305,8 +324,6 @@ say "reflink clone ok"
 runuser -u tdrun -- sh -c 'd=/srv/tdg/i/.bwrap-check; rm -rf "$d"; mkdir -m 700 "$d" && /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind "$d" "$d" --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /opt/trina-demo/bin/tdscope /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; r=$?; rm -rf "$d"; exit $r' || die "the instance sandbox (bwrap, with a nested bwrap) does not run as tdrun"
 say "bwrap ok as tdrun (instance sandbox and a nested one)"
 
-systemctl enable trina-demo-snapshots.timer >/dev/null
-systemctl start trina-demo-snapshots.timer
 # the login copy only where someone signed in as tdcred: a host on a long-lived token (claude setup-token, handed to
 # tdgate-set-credential) keeps the timer off, so a later install does not turn it back on
 if [ -f /var/lib/trina-demo-cred/.claude/.credentials.json ]; then
@@ -342,6 +359,7 @@ except Exception: print(0)')
   else
     systemctl enable trina-demo-gate.service >/dev/null
   fi
+  systemctl enable --now trina-demo-snapshots.timer >/dev/null
   say "started: systemctl status trina-demo-gate trina-demo-tunnel; curl -s 127.0.0.1:19190/__demo/health"
 else
   say "--no-start: the gate and the tunnel are stopped and disabled. To open them, in this order:"
@@ -349,5 +367,6 @@ else
   say "  $O/bin/tdfw-check"
   say "  systemctl start trina-demo-tunnel"
   say "  systemctl enable trina-demo-gate trina-demo-tunnel"
+  say "  systemctl enable --now trina-demo-snapshots.timer"
 fi
 say "all done"

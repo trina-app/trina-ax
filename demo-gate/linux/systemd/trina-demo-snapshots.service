@@ -6,6 +6,8 @@ RequiresMountsFor=/srv/tdg
 
 [Service]
 Type=oneshot
+# 75: another build holds the lock (tdsnap-rebuild), so this one did nothing
+SuccessExitStatus=75
 ExecStart=/opt/trina-demo/bin/tdsnap-rebuild
 PrivateNetwork=yes
 PrivateTmp=yes

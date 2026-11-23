@@ -149,6 +149,7 @@ Two scripts hold the order, so nobody retypes it. A gate restart ends every live
 # on the operator's machine, in a checkout: the source, .git-head and the app build (no root, nothing running changes)
 sh demo-gate/linux/stage-remote.sh <ssh host> <commit>
 # on the host, as root
+sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy prebuild --stage /var/tmp/trina-demo-stage --expect <full commit>
 sh /var/tmp/trina-demo-stage/app/demo-gate/linux/tddeploy deploy --stage /var/tmp/trina-demo-stage --expect <full commit>
 sh /var/lib/trina-demo/tddeploy rollback --expect <good commit>      # back to the kept version
 sh /var/lib/trina-demo/tddeploy status
@@ -158,11 +159,14 @@ sh /var/lib/trina-demo/tddeploy status
   with a backup in `/var/lib/trina-demo/gate-backups` and refuses any command but the exact template), gate started,
   every instance warm, `tdfw-check`, tunnel started, both enabled. A failure leaves both stopped and disabled, also
   after a reboot.
-- **Snapshots:** the gate uses only snapshots of its own code version and removes older ones after an hour. When a
-  deploy or rollback changes the version, `tddeploy` builds the missing ones before the gate starts (about a minute per
-  language, with the site off) and stays off if any is missing.
-- **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` keeps the running app and its `gate.json`
-  there once. A retry of a failed deploy keeps that copy; only a version a deploy proved replaces it at the next deploy.
+- **Snapshots:** the gate uses only snapshots of its own code version. `tddeploy prebuild` builds the next version's
+  while the site stays up (from a root copy, `/opt/trina-demo/app-next`; refused from 03:45 to 06:00 and when the running
+  gate is on that version, since it would use them at once), so a deploy only swaps. Without it, `deploy` and `rollback`
+  build what is missing with the site off. The gate's sweeper leaves other versions alone, for a fast rollback; a proved
+  deploy keeps this version and the newest of the rollback copy's version, and removes the rest. One build runs at a
+  time (a lock, one unit `trina-demo-snapshots-deploy`), and an install stops a build a lost connection left behind.
+- **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` checks free space while the site is up,
+  keeps the running app and its `gate.json` there once, and removes any other copy. A retry of a failed deploy keeps that copy; only a version a deploy proved replaces it at the next deploy.
 - **Rollback:** refuses a copy whose `.git-head` is not the expected commit, then tunnel off, gate off, app and
   `gate.json` (tdgate, 600) restored, gate started, every instance warm, `tdfw-check`, tunnel started, both enabled.
 

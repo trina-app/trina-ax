@@ -119,4 +119,8 @@ it. The failure paths were rehearsed in a throwaway fake root with stubbed syste
 `tddeploy` also builds the snapshots a version change needs, for a deploy and for a rollback: the gate refuses other
 versions and sweeps older snapshots.
 
+Fourth review: `.git-head` only after a stage built; one build at a time with a lock and a named unit an install can
+stop; an unknown live count refuses; `tddeploy prebuild` makes the next version's snapshots with the site up. The gate's
+sweeper leaves other versions alone and a proved deploy prunes them.
+
 PR: https://github.com/trina-app/trina-ax/pull/446

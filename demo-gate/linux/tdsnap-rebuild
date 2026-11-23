@@ -7,6 +7,8 @@
 # of that language (setgid tdrun: the instance user can read it, through its group). The gate's sweeper removes older
 # snapshots.
 #   TD_LOCALES="en ko" tdsnap-rebuild      only some languages (default: all six)
+#   TD_APP=/opt/trina-demo/app-next        build from the next version (tddeploy prebuild); only that or the installed app
+# One build at a time (a lock in /run): a second one exits 75 and touches nothing.
 set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 077
@@ -18,9 +20,15 @@ SEALED=/etc/trina-demo/canary-sealed
 HOMEDIR=/var/demo-build
 NAME='^[0-9]{8}-[0-9]{6}$'
 LOCALES=${TD_LOCALES:-en ko ja zh es id}
+APP=${TD_APP:-/opt/trina-demo/app}
 log(){ echo "$(date -u +%FT%TZ) $*"; }
-as_builder() { runuser -u tdbuild -- env -i HOME=$HOMEDIR TMPDIR=$W/tmp PATH=/opt/trina-demo/bin:/usr/bin:/bin LANG=C.UTF-8 /bin/sh -c 'cd /opt/trina-demo/app && exec "$@"' sh "$@"; }
-as_gate() { runuser -u tdgate -- "$@"; }
+case "$APP" in /opt/trina-demo/app|/opt/trina-demo/app-next) ;; *) log "TD_APP must be /opt/trina-demo/app or /opt/trina-demo/app-next"; exit 2 ;; esac
+[ -d "$APP" ] && [ ! -L "$APP" ] || { log "$APP is not a plain folder"; exit 2; }
+exec 9>/run/trina-demo-snapshots.lock
+flock -n 9 || { log "another snapshot build is running: nothing done"; exit 75; }
+# shellcheck disable=SC2016
+as_builder() { runuser -u tdbuild -- env -i HOME=$HOMEDIR TMPDIR=$W/tmp PATH=/opt/trina-demo/bin:/usr/bin:/bin LANG=C.UTF-8 /bin/sh -c 'cd "$0" && exec "$@"' "$APP" "$@" 9>&-; }
+as_gate() { runuser -u tdgate -- "$@" 9>&-; }
 mountpoint -q /srv/tdg || { log "/srv/tdg is not mounted: nothing built"; exit 1; }
 [ -r "$SEALED" ] || { log "$SEALED missing: nothing built (the canary needs it)"; exit 1; }
 install -d -o root -g root -m 755 /srv/tdg/.build "$SNAP"

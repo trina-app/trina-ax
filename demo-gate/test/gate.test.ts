@@ -887,6 +887,33 @@ describe.skipIf(skip)('gate: pool', () => {
   })
 })
 
+describe.skipIf(skip)('gate: snapshots of another version', () => {
+  test('the sweeper keeps them, older or newer, for a fast rollback; an older one of its own version goes', async () => {
+    const put = (dir: string, name: string, codeVersion: string, ageMs: number) => {
+      const d = path.join(dir, 'en', name)
+      fs.mkdirSync(path.join(d, 'base'), { recursive: true })
+      fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ codeVersion, locale: 'en', createdAt: new Date(Date.now() + ageMs * -1).toISOString(), demoFile: 'demo.json' }))
+      const t = new Date(Date.now() - 2 * 3600_000)
+      fs.utimesSync(d, t, t)
+    }
+    const g = await startGate({
+      upstream: upstream.url, turnstile: turnstile.url, locales: ['en'],
+      before: ({ snapshotsDir }) => {
+        put(snapshotsDir, 'own-older', '9.9.9', 2 * 86400_000)
+        put(snapshotsDir, 'other-older', '9.9.8', 2 * 86400_000)
+        put(snapshotsDir, 'other-newer', '10.0.0', -3600_000)
+      },
+    })
+    try {
+      await until(() => !fs.existsSync(path.join(g.root, 'snap', 'en', 'own-older')), 5000, 'own older snapshot removed')
+      await Bun.sleep(800) // more sweeps
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'other-older'))).toBe(true)
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'other-newer'))).toBe(true)
+      expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+})
+
 describe.skipIf(skip)('gate: daily stats', () => {
   const today = () => new Date().toISOString().slice(0, 10)
   const stats = async (g: Gate) => (await (await fetch(`${g.base}/__demo/stats`)).json()) as { days: Record<string, Record<string, Record<string, number>>>; distinctStarters24h: number }

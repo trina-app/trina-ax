@@ -2,6 +2,7 @@
 # Deploy or roll back the free-roam demo on its Linux host, as root, in the one safe order (README "Deploy and rollback"):
 # tunnel off, gate off, change, gate on, every instance warm, firewall checked, and only then the tunnel. The units are
 # enabled again only after all of that, so a failed run stays off, also after a reboot.
+#   tddeploy prebuild --stage STAGE --expect <full commit>   the next version's snapshots, while the site stays up
 #   tddeploy deploy --stage STAGE --expect <full commit> [--drop-live]
 #   tddeploy rollback --expect <commit or its start> [--drop-live]
 #   tddeploy status
@@ -11,7 +12,7 @@ set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 022
 O=/opt/trina-demo G=/var/demo-gate RB=/var/lib/trina-demo/rollback SELF=/var/lib/trina-demo/tddeploy
-GATE=trina-demo-gate.service TUNNEL=trina-demo-tunnel.service
+GATE=trina-demo-gate.service TUNNEL=trina-demo-tunnel.service BUILD=trina-demo-snapshots-deploy.service
 say() { echo "tddeploy: $*"; }
 die() { echo "tddeploy: $*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "run as root"
@@ -29,12 +30,29 @@ done
 health() { curl -s -m 3 http://127.0.0.1:19190/__demo/health | python3 -I -c "import json,sys
 try: d=json.load(sys.stdin); print(d$1)
 except Exception: print('$2')"; }
+# an inactive gate has nobody live; an active one that does not answer is unknown, and unknown is not 0
 check_live() {
-  live=$(health '["live"]' 0)
+  if systemctl is-active --quiet "$GATE"; then live=$(health '["live"]' '?'); else live=0; fi
+  case "$live" in ''|*[!0-9]*)
+    [ "$DROP" = 1 ] || die "the gate is running but does not say how many visitors are live: try again, or pass --drop-live (their sessions end)" ;;
+  esac
   if [ "$live" != 0 ] && [ "$DROP" != 1 ]; then die "$live visitor(s) are live: wait for 0, or pass --drop-live (their sessions end)"; fi
   say "live visitors now: $live"
 }
+# the stage is the operator's own: a plain folder only they can change
+check_stage() {
+  if [ -L "$STAGE" ] || [ ! -d "$STAGE" ]; then die "$STAGE must be a plain folder"; fi
+  [ "$(stat -c %a "$STAGE")" = 700 ] || die "$STAGE must be mode 700"
+  [ "$(stat -c %u "$STAGE")" = "${SUDO_UID:-0}" ] || die "$STAGE must belong to the user who runs sudo"
+  [ "$(cat "$STAGE/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || die "the stage is not at $EXPECT (run stage-remote.sh)"
+}
+stop_builds() {
+  systemctl stop "$BUILD" trina-demo-snapshots.service >/dev/null 2>&1 || true
+  systemctl reset-failed "$BUILD" >/dev/null 2>&1 || true
+  if pgrep -u tdbuild >/dev/null 2>&1; then die "tdbuild still has processes (a snapshot build)"; fi
+}
 units_off() {
+  systemctl disable --now trina-demo-snapshots.timer >/dev/null 2>&1 || true
   for u in "$TUNNEL" "$GATE"; do
     systemctl disable --now "$u" >/dev/null 2>&1 || die "could not stop and disable $u"
     if systemctl is-active --quiet "$u"; then die "$u is still active"; fi
@@ -44,21 +62,27 @@ units_off() {
 proved() { install -d -o root -g root -m 700 "$RB"; printf '%s\n' "$1" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"; }
 # The gate uses only snapshots of its own code version, and its sweeper removes older ones after an hour, so a version
 # change (either way) needs them built before the gate starts. In the snapshot unit's sandbox: no network but loopback.
-missing_snapshots() { python3 -I -c 'import glob,json
+missing_snapshots() { python3 -I -c 'import glob,json,sys
 p=json.load(open("/var/demo-gate/gate.json"))["pool"]
+if len(sys.argv) > 1: p["codeVersion"] = sys.argv[1]
 def has(l):
     for f in glob.glob("/srv/tdg/.snapshots/%s/*/manifest.json" % l):
         try:
             if json.load(open(f)).get("codeVersion") == p["codeVersion"]: return True
         except Exception: pass
     return False
-print(" ".join(l for l in p.get("locales",["en","ko"]) if not has(l)))'; }
+print(" ".join(l for l in p.get("locales",["en","ko"]) if not has(l)))' "$@"; }
+# one build unit, so that a build left behind by a lost connection can be found and stopped
+build_unit() { # PROGRAM LOCALES [TD_APP]
+  systemd-run --quiet --wait --collect --unit="$BUILD" -p PrivateNetwork=yes -p PrivateTmp=yes -p ProtectHome=yes -p Nice=10 -p IOSchedulingClass=idle \
+    --setenv="TD_LOCALES=$2" ${3:+--setenv="TD_APP=$3"} "$1"
+}
 ensure_snapshots() {
   m=$(missing_snapshots)
   [ -n "$m" ] || { say "snapshots of this version are there"; return 0; }
   say "building snapshots for: $m (about a minute each; the site stays off)"
-  systemd-run --quiet --wait --collect -p PrivateNetwork=yes -p PrivateTmp=yes -p ProtectHome=yes -p Nice=5 \
-    --setenv="TD_LOCALES=$m" "$O/bin/tdsnap-rebuild" || say "the snapshot build reported failures"
+  stop_builds
+  build_unit "$O/bin/tdsnap-rebuild" "$m" || say "the snapshot build reported failures"
   m=$(missing_snapshots)
   [ -z "$m" ] || { units_off; die "no snapshot of this version for: $m. Both are off (/srv/tdg/.build/root/*.log)"; }
   say "snapshots built"
@@ -81,14 +105,67 @@ bring_up() {
   sleep 5
   systemctl is-active --quiet "$TUNNEL" || { units_off; die "the tunnel did not stay up: both are off"; }
   systemctl enable "$GATE" "$TUNNEL" >/dev/null
+  systemctl enable --now trina-demo-snapshots.timer >/dev/null
   say "gate and tunnel up and enabled"
 }
 
+# after a proved deploy: this version's snapshots, and the newest of the rollback copy's version; no other version
+prune_versions() {
+  keep=$(python3 -I -c 'import json,sys
+print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])')
+  rv=$(python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1]))["pool"]["codeVersion"])
+except Exception: print("")' "$RB/$(cat "$RB/GOOD" 2>/dev/null)/gate.json")
+  python3 -I -c 'import glob,json,os,re,sys
+keep,rv=sys.argv[1:3]
+for d in sorted(glob.glob("/srv/tdg/.snapshots/*")):
+    if os.path.islink(d) or not os.path.isdir(d): continue
+    old=[]
+    for s in sorted(os.listdir(d), reverse=True):
+        p=os.path.join(d,s)
+        if not re.fullmatch(r"[0-9]{8}-[0-9]{6}",s) or os.path.islink(p) or not os.path.isdir(p): continue
+        try: v=json.load(open(os.path.join(p,"manifest.json"))).get("codeVersion")
+        except Exception: continue
+        if v==keep: continue
+        if v==rv and rv not in old: old.append(rv); continue
+        print(p)' "$keep" "$rv" | while IFS= read -r p; do
+    runuser -u tdgate -- rm -rf -- "$p" && say "removed the old snapshot ${p#/srv/tdg/.snapshots/}"
+  done
+}
+
 case "$CMD" in
+  prebuild)
+    [ -n "$STAGE" ] && [ -n "$EXPECT" ] || die "prebuild needs --stage and --expect"
+    printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{40}$' || die "--expect must be the full commit"
+    check_stage
+    # the nightly build at 05:00 (and the host's reboot window at 04:10): a newer snapshot of the running version would
+    # let the running gate sweep what is built here
+    now=$(date +%H%M)
+    if [ "$now" -ge 0345 ] && [ "$now" -lt 0600 ]; then die "not between 03:45 and 06:00 (the nightly build and the reboot window)"; fi
+    systemctl is-active --quiet trina-demo-snapshots.service && die "the nightly build is running"
+    systemctl is-active --quiet "$BUILD" && die "a snapshot build is already running ($BUILD)"
+    systemctl reset-failed "$BUILD" >/dev/null 2>&1 || true
+    if pgrep -u tdbuild >/dev/null 2>&1; then die "tdbuild still has processes"; fi
+    rm -rf "$O/app-next"; cp -a "$STAGE/app" "$O/app-next"
+    chown -R root:root "$O/app-next"; chmod -R go-w "$O/app-next"; chmod -R a+rX "$O/app-next"
+    [ "$(cat "$O/app-next/.git-head" 2>/dev/null)" = "$EXPECT" ] || { rm -rf "$O/app-next"; die "the copy is not at $EXPECT"; }
+    next=$(python3 -I -c 'import json;print(json.load(open("/opt/trina-demo/app-next/server/package.json"))["version"])')
+    running=$(python3 -I -c 'import json;print(json.load(open("/var/demo-gate/gate.json"))["pool"]["codeVersion"])')
+    # of the running version, a new snapshot would go live on the old code at once
+    if [ "$next" = "$running" ]; then rm -rf "$O/app-next"; die "the running gate is on $running too: its gate would use these at once. Deploy without a prebuild"; fi
+    m=$(missing_snapshots "$next")
+    if [ -z "$m" ]; then rm -rf "$O/app-next"; say "snapshots of $next are already there"; exit 0; fi
+    say "building $next snapshots for: $m (the site stays up)"
+    build_unit "$O/app-next/demo-gate/linux/tdsnap-rebuild" "$m" /opt/trina-demo/app-next || say "the snapshot build reported failures"
+    rm -rf "$O/app-next"
+    m=$(missing_snapshots "$next")
+    [ -z "$m" ] || die "no snapshot of $next for: $m (/srv/tdg/.build/root/*.log). The site was not touched"
+    say "prebuilt $next. Deploy before the 05:00 nightly build: after it the running gate may remove them"
+    ;;
   deploy)
     [ -n "$STAGE" ] && [ -n "$EXPECT" ] || die "deploy needs --stage and --expect"
     printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{40}$' || die "--expect must be the full commit"
-    [ "$(cat "$STAGE/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || die "the stage is not at $EXPECT (run stage-remote.sh)"
+    check_stage
     # a copy of root's, so a rollback does not depend on the stage or on an install that stopped half way
     install -d -o root -g root -m 755 /var/lib/trina-demo
     install -o root -g root -m 755 "$STAGE/app/demo-gate/linux/tddeploy" "$SELF"
@@ -99,6 +176,7 @@ case "$CMD" in
     ensure_snapshots
     bring_up
     proved "$EXPECT"
+    prune_versions || say "could not remove every old snapshot (the site is up)"
     say "deployed $EXPECT"
     ;;
   rollback)
@@ -111,7 +189,7 @@ case "$CMD" in
       case "$cur" in "$EXPECT"*) ;; *) die "no rollback copy in $RB, and the app is $cur, not $EXPECT" ;; esac
       if [ -L "$G/gate.json" ] || [ ! -f "$G/gate.json" ]; then die "$G/gate.json is not a regular file"; fi
       say "no rollback copy: the app was not changed and is at $cur"
-      check_live; units_off; ensure_snapshots; bring_up
+      check_live; units_off; stop_builds; rm -rf "$O/app-next"; ensure_snapshots; bring_up
       proved "$cur"
       say "back at $cur"
       exit 0
@@ -122,6 +200,8 @@ case "$CMD" in
     python3 -I -c 'import json,sys;json.load(open(sys.argv[1]))' "$RB/$n/gate.json" || die "the rollback copy's gate.json does not read"
     check_live
     units_off
+    stop_builds
+    rm -rf "$O/app-next"
     if pgrep -u tdgate >/dev/null 2>&1; then die "tdgate still has processes"; fi
     if [ -L "$G/gate.json" ] || { [ -e "$G/gate.json" ] && [ ! -f "$G/gate.json" ]; }; then die "$G/gate.json is not a regular file"; fi
     rm -rf "$O/app.new"; cp -a "$RB/$n/app" "$O/app.new"
@@ -142,5 +222,5 @@ case "$CMD" in
     say "app $(cat "$O/app/.git-head" 2>/dev/null || echo none); proved $(cat "$RB/DEPLOYED" 2>/dev/null || echo none); rollback copy $(cat "$RB/GOOD" 2>/dev/null || echo none)"
     say "gate $(systemctl is-active "$GATE" || true)/$(systemctl is-enabled "$GATE" 2>/dev/null || true); tunnel $(systemctl is-active "$TUNNEL" || true)/$(systemctl is-enabled "$TUNNEL" 2>/dev/null || true); warm $(health '["pool"]["warm"]' '?'), live $(health '["live"]' '?')"
     ;;
-  *) die "usage: tddeploy deploy --stage STAGE --expect COMMIT | rollback --expect COMMIT | status (--drop-live)" ;;
+  *) die "usage: tddeploy prebuild|deploy --stage STAGE --expect COMMIT | rollback --expect COMMIT | status (--drop-live)" ;;
 esac

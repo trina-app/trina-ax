@@ -548,6 +548,8 @@ export class Pool {
       if (!cur) continue
       for (const s of this.snapshots(locale)) {
         if (s.createdMs >= cur.createdMs) continue
+        // another version's snapshots are a rollback's (tddeploy prunes them at the next proved deploy)
+        if (s.manifest.codeVersion !== cur.manifest.codeVersion) continue
         let mtime = 0
         try { mtime = fs.statSync(s.dir).mtimeMs } catch {}
         if (now - mtime < OLD_SNAPSHOT_MIN_AGE_MS) continue
