@@ -90,7 +90,9 @@ export function resolveCtxOf(exec: TurnExec, files: TurnFiles): ResolveCtx {
   const kind: ResolveCtx['chatKind'] = isGuestUser(rt.db, spec.userId) ? 'guest' : confidentialChat(rt.db, spec.chatId) ? 'locked'
     : spec.clientKind === 'schedule' ? 'scheduled' : exec.shared?.kind === 'people' ? 'people' : exec.shared?.kind === 'project' ? 'project' : 'personal'
   return {
-    db: rt.db, userId: spec.userId, chatId: spec.chatId, main: files === exec.files, chatKind: kind, hiddenGroup: exec.hiddenFromLater,
+    db: rt.db, userId: spec.userId, chatId: spec.chatId, main: files === exec.files, chatKind: kind,
+    // read only where a file would be attached or changed (files/places.ts): asking it there starts the next answer fresh
+    get hiddenGroup() { return exec.hiddenFromLater },
     workFolder: files.workFolder, workWhy: files.workWhy, workCopyIn: () => files === exec.files && workCopyInHere(exec),
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
@@ -434,7 +436,7 @@ async function roomCard(exec: TurnExec, files: TurnFiles, person: ToolCtx['perso
 /** Where each of these chat place sources lands in team folder `folder`, by the names copyOne gives them (a chat file
  * by its name, a work file by its last part), or null when any is not a file of this chat or its work folder that can
  * be found now (a folder of the work folder, a hidden or refused one: the card asks). */
-function landingPaths(exec: TurnExec, files: TurnFiles, from: readonly string[], folder: string): string[] | null {
+export function landingPaths(exec: TurnExec, files: TurnFiles, from: readonly string[], folder: string): string[] | null {
   const out: string[] = []
   for (const p of from) {
     const src = parsePlace(p)

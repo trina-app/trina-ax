@@ -1,6 +1,6 @@
 // Links inside documents drawn into the page (Word, PowerPoint, Excel previews; tab 5 "파일 응답 규칙"): a file can
 // carry any link target (javascript:, data:, file:, a relative path into this app). After rendering, only absolute
-// http(s) links keep their address, and a click on one asks first and opens a new window without an opener. Links
+// http(s) links keep their address, and a click on one opens a new tab without an opener (no question first). Links
 // inside the document (#bookmark) scroll within the preview. Everything else stops being a link.
 
 const XLINK = 'http://www.w3.org/1999/xlink'
@@ -48,7 +48,7 @@ export function sanitizeLinks(root: ParentNode) {
  * Keep `el` safe while a library draws into it (some draw lazily): sanitize now and on every change, and handle
  * clicks on links before the document's own handlers. Returns the cleanup.
  */
-export function guardLinks(el: HTMLElement, confirmOpen: (url: string) => boolean, open: (url: string) => void = openExternal): () => void {
+export function guardLinks(el: HTMLElement, open: (url: string) => void = openExternal): () => void {
   sanitizeLinks(el)
   const mo = new MutationObserver(() => sanitizeLinks(el))
   mo.observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ['href', 'xlink:href', 'action', 'target'] })
@@ -66,7 +66,7 @@ export function guardLinks(el: HTMLElement, confirmOpen: (url: string) => boolea
       return
     }
     const safe = safeHref(raw)
-    if (safe && confirmOpen(safe)) open(safe)
+    if (safe) open(safe)
   }
   el.addEventListener('click', onClick, true)
   el.addEventListener('auxclick', onClick, true)

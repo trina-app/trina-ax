@@ -61,7 +61,6 @@ const withRoutes = (versions: ChatFileVersions, o: Record<string, (body: unknown
 }
 const open = () => mount(<MemoryRouter><FilePanel file={file} onClose={() => {}} /><DialogHost /></MemoryRouter>)
 /** the restore's confirm (the Files screen's, QA TC-v1c-01): yes */
-const confirm = async (m: Awaited<ReturnType<typeof mount>>) => m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm'))
 /** the chat on screen holds the file's tile, last changed by `updated` */
 const tile = (updated?: { by: string; byName: string; at: string; version: number; ai?: true }) =>
   useChats.setState({ threads: { [CHAT]: { messages: [{ id: 'm1', role: 'assistant', attachments: [{ id: FILE, source: 'chat', name: 'notes.md', ...(updated ? { updated } : {}) }] }] } } } as never)
@@ -98,7 +97,6 @@ test('a restore at the cap says which version went to keep 20; below it, "Nothin
     await m.click(await m.until(() => m.find('file-versions-toggle'), 'Versions'))
     const row = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '20'), 'version 20')
     await m.click(row.querySelector('[data-testid="file-version-restore"]')!)
-    await confirm(m)
     await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
     expect(useUi.getState().toasts.at(-1)!.text).toBe('Version 20 restored as the newest. Version 9 was removed to keep 20 versions.')
     useUi.setState({ toasts: [] })
@@ -106,7 +104,6 @@ test('a restore at the cap says which version went to keep 20; below it, "Nothin
     // (the list stays open after a restore)
     const again = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '20'), 'version 20')
     await m.click(again.querySelector('[data-testid="file-version-restore"]')!)
-    await confirm(m)
     await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
     expect(useUi.getState().toasts.at(-1)!.text).toBe(en('chatFile.restored', { n: 20 }))
     // restoring the oldest kept one at the cap: its own old entry is what went, said so (not "version 20 was removed")
@@ -114,7 +111,6 @@ test('a restore at the cap says which version went to keep 20; below it, "Nothin
     pruned = [20]
     const third = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '20'), 'version 20')
     await m.click(third.querySelector('[data-testid="file-version-restore"]')!)
-    await confirm(m)
     await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
     expect(useUi.getState().toasts.at(-1)!.text).toBe('Version 20 restored as the newest. Its old entry in the list was removed to keep 20 versions.')
   } finally { await m.unmount() }
@@ -191,8 +187,7 @@ test('a deck (not text): Restore on an earlier version and on the opened one whe
         expect(!!m.container.querySelector('[data-testid="file-version-restore-shown"]')).toBe(shows)
         if (shows) {
           await m.click('file-version-restore-shown')
-          await confirm(m)
-          await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
+                await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
           expect(useUi.getState().toasts.at(-1)!.text).toBe(en('chatFile.restored', { n: 1 }))
         }
       } finally { await m.unmount(); useUi.setState({ toasts: [] }) }
@@ -201,30 +196,29 @@ test('a deck (not text): Restore on an earlier version and on the opened one whe
   expect(restored).toBe(1)
 })
 
-test('a restore asks first, naming whose later versions drop out and who in the chat sees it (QA TC-v1c-01)', async () => {
-  let restored = 0
+test('a restore goes at once (no confirm) and the toast\'s Undo restores the version that was newest (docs/decisions/20261123-do-then-undo.md)', async () => {
+  const restored: string[] = []
   const versions: ChatFileVersions = { canEdit: true, canRestore: true, items: [v(1), v(2, { by: 'jiwoo', byName: 'Jiwoo' }), v(3, { by: 'junho', byName: 'Junho', head: true })] }
   withRoutes(versions, {
-    [`POST ${BASE}/versions/1/restore`]: () => { restored++; return json({ version: v(4, { head: true }), beside: false } satisfies ChatFileSaved) },
-    [`GET /api/chats/${CHAT}/audience`]: () => json({ kind: 'people', canEdit: false, by: { id: 'junho', name: 'Junho' }, subjects: [], mentionable: [{ id: 'junho', name: 'Junho' }, { id: 'jiwoo', name: 'Jiwoo' }] }),
+    [`POST ${BASE}/versions/1/restore`]: () => { restored.push('1'); return json({ version: v(4, { head: true }), beside: false } satisfies ChatFileSaved) },
+    [`POST ${BASE}/versions/3/restore`]: () => { restored.push('3'); return json({ version: v(5, { head: true }), beside: false } satisfies ChatFileSaved) },
   })
   const m = await open()
   try {
     await m.click(await m.until(() => m.find('file-versions-toggle'), 'Versions'))
     const row = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '1'), 'version 1')
     await m.click(row.querySelector('[data-testid="file-version-restore"]')!)
-    const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
-    expect(dialog.textContent).toContain(en('chatFile.restoreTitle', { n: 1 }))
-    expect(dialog.textContent).toContain(en('files.restoreBodyNames', { names: 'Junho and Jiwoo' }))
-    expect(dialog.textContent).toContain(en('chatFile.restoreSeen', { names: 'Junho and Jiwoo' }))
-    // no: nothing restored
-    await m.click('dialog-cancel')
-    await m.until(() => !m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the dialog to close')
-    expect(restored).toBe(0)
-    await m.click(row.querySelector('[data-testid="file-version-restore"]')!)
-    await confirm(m)
-    await m.until(() => restored === 1, 'the restore')
-  } finally { await m.unmount() }
+    await m.until(() => restored.length === 1, 'the restore')
+    expect(m.container.ownerDocument!.body.querySelector('[role="dialog"]')).toBeNull()
+    const toast = await m.until(() => useUi.getState().toasts.at(-1), 'the toast')
+    expect(toast.text).toBe(en('chatFile.restored', { n: 1 }))
+    expect(toast.action?.label).toBe(en('common.undo'))
+    toast.action!.run()
+    await m.until(() => restored.length === 2, 'the undo')
+    expect(restored).toEqual(['1', '3'])
+    await m.until(() => useUi.getState().toasts.at(-1)!.text === en('chatFile.restoreUndone'), 'the undo toast')
+    expect(useUi.getState().toasts.at(-1)!.action).toBeUndefined()
+  } finally { await m.unmount(); useUi.setState({ toasts: [] }) }
 })
 
 test('a guest without AI gets no "Ask Trina" on a file; a member does (QA TC-f2-b01)', async () => {

@@ -29,6 +29,7 @@ Markdown is the canonical operating guide. Printable PDFs are optional generated
 - [Development and tests](DEVELOPMENT.md), [contributing](../CONTRIBUTING.md), [conduct](../CODE_OF_CONDUCT.md)
 - [Plans before work](AGENTS/README.md): every feature or fix starts with a plan in `AGENTS/plan/`
 - [Connections map](CONNECTIONS.md): every tool, its team and personal modes, and where each is offered; update it with any connection change
+- [Ask registry](ASKS.md): every card, confirm dialog and system prompt the product shows, its "Always allow" scope and where to take it back; add an entry with any new ask
 - [Design system](DESIGN-SYSTEM.md): colours, type, layout, components, copy and accessibility rules for every Trina screen
 - [Changelog](../CHANGELOG.md), [release CI](RELEASE-CI.md), [release channels](EDITION-RELEASE.md)
 - [Source offer](SOURCE-OFFER.md), [third-party notices](THIRD-PARTY-NOTICES.md), [release notices](RELEASE-NOTICES.md)

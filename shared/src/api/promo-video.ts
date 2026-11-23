@@ -91,8 +91,13 @@ export const PromoVideoInfo = z.object({
   style: PromoStyle,
   duration: z.number(),
   mp4: z.object({
-    /** this server can make the MP4 (a development Mac with the HyperFrames CLI; nothing else yet): else no button */
+    /** this server can make the MP4 (a Linux team server with the list's video group, or a development Mac with the
+     * HyperFrames CLI): else the panel says why instead of the button */
     available: z.boolean(),
+    /** why not (null when available): not_installed = the tools are missing or still being installed (the next server
+     * update installs them); too_small = the server has too little memory for a render; unsupported = this kind of
+     * server never makes one (an office Mac, a production Mac, no isolation) */
+    why: z.enum(['not_installed', 'too_small', 'unsupported']).nullable().optional(),
     state: PromoMp4State,
     /** seconds the last render took */
     seconds: z.number().nullable(),

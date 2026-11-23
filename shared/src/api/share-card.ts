@@ -136,6 +136,12 @@ export const StepShared = z.object({
   /** a folder's stop or removal (share_folder): the server's undo snapshot (POST /api/files/shares/undo) and until when
    * the card offers it. Only the person whose turn it was gets the record; the snapshot is theirs alone, once */
   undo: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{22}$/), until: z.string().max(40) }).optional(),
+  /** a share that went through (share_with_person, or share_folder on a folder it made from the chat's files): the
+   * server's record of exactly what this share added (POST /api/files/shares/take-back), so 취소 takes away only that
+   * and never access a person had before. Only the person whose turn it was gets it; theirs alone, once */
+  takeBack: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{22}$/), until: z.string().max(40) }).optional(),
+  /** share_folder made this folder from files that were only in the chat (its 취소 deletes the folder it made) */
+  madeFolder: z.literal(true).optional(),
   /** a folder's stop: the files and folders inside it that stay shared on their own (with people of their own) */
   keptOwn: z.object({ files: z.number().int().nonnegative(), folders: z.number().int().nonnegative() }).optional(),
   /** change_folder_access (server chat/folder-access-tool.ts): a team folder's access changed for the one person or

@@ -50,14 +50,17 @@ async function run(chatId: string, content: string, value: string) {
     await Bun.sleep(50)
   }
 }
+/** a team folder only alice may open: the private place of these tests (her own folder asks nothing in her own project
+ * chat since docs/decisions/20261123-do-then-undo.md) */
+const onlyAlice = (rel: string) => writeFolderAccess(h.ctx.db, ensureFolderRow(h.ctx.db, rel).id, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], limited: true }, null)
 const projectChat = async () => (await h.api('alice').call(API.createChat, { body: { projectId } })).id
 
 describe('a shared project chat', () => {
   test('two reads of the same place in one answer: one card', async () => {
-    put('users/alice/one-a.md', 'a'); put('users/alice/one-b.md', 'b')
+    put('shared/priv1/one-a.md', 'a'); put('shared/priv1/one-b.md', 'b'); onlyAlice('shared/priv1')
     const r = await run(await projectChat(), fake(
-      { tool: 'read', args: { file_path: 'users/alice/one-a.md' } },
-      { tool: 'read', args: { file_path: 'users/alice/one-b.md' } },
+      { tool: 'read', args: { file_path: 'shared/priv1/one-a.md' } },
+      { tool: 'read', args: { file_path: 'shared/priv1/one-b.md' } },
       { say: 'done' }), 'share')
     expect(r.cards).toHaveLength(1)
   })
@@ -74,11 +77,11 @@ describe('a shared project chat', () => {
 
   test('a file someone changed after this answer saved it reads with the card again', async () => {
     const r = await run(await projectChat(), fake(
-      { tool: 'write', args: { file_path: 'users/alice/table-two.md', content: 'mine' } },
+      { tool: 'write', args: { file_path: 'shared/priv1/table-two.md', content: 'mine' } },
       { say: 'done' }), 'share')
     expect(r.cards).toHaveLength(0)
     const r2 = await run(await projectChat(), fake(
-      { tool: 'read', args: { file_path: 'users/alice/table-two.md' } },
+      { tool: 'read', args: { file_path: 'shared/priv1/table-two.md' } },
       { say: 'done' }), 'share')
     // another answer: the file is not this one's
     expect(r2.cards).toHaveLength(1)
@@ -118,20 +121,21 @@ describe('a team folder answered once covers its subfolders (QA A/B: QA-Team3, t
 })
 
 describe('a file this chat\'s AI made in the person\'s folder, read in a later answer of the same shared chat (QA v2g)', () => {
-  test('no read card in the same chat; another chat of the project keeps the card; an edit by the person brings it back', async () => {
+  test('no read card in the same chat, nor in another chat of her project, nor after her own edit (her own folder)', async () => {
     const chat = await projectChat()
     const r1 = await run(chat, fake({ tool: 'write', args: { file_path: 'users/alice/made-here.md', content: 'made in this chat' } }, { say: 'done' }), 'share')
     expect(r1.cards).toHaveLength(0)
     const r2 = await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-here.md' }, sayResult: true }, { say: 'done' }), 'share')
     expect(r2.cards).toHaveLength(0)
     expect(r2.content).toContain('made in this chat')
+    // (her own folder in her own project chat: no card in another chat either, since docs/decisions/20261123-do-then-undo.md)
     const r3 = await run(await projectChat(), fake({ tool: 'read', args: { file_path: 'users/alice/made-here.md' } }, { say: 'done' }), 'share')
-    expect(r3.cards).toHaveLength(1)
+    expect(r3.cards).toHaveLength(0)
     // the person changed it on the Files screen: not the chat's file any more
     put('users/alice/made-here.md', 'changed by hand')
     h.ctx.db.query("INSERT INTO file_events (path, action, user_id, at, detail) VALUES ('users/alice/made-here.md', 'update', 'alice', ?, '{\"tool\":\"file-screen\"}')").run(new Date().toISOString())
     const r4 = await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-here.md' } }, { say: 'done' }), 'share')
-    expect(r4.cards).toHaveLength(1)
+    expect(r4.cards).toHaveLength(0)
   })
 })
 
@@ -141,7 +145,8 @@ describe('bytes changed outside the app (no file event): not the chat\'s file an
     await run(chat, fake({ tool: 'write', args: { file_path: 'users/alice/made-disk.md', content: 'made here' } }, { say: 'done' }), 'share')
     expect((await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-disk.md' } }, { say: 'done' }), 'share')).cards).toHaveLength(0)
     put('users/alice/made-disk.md', 'changed by a sync, no event')
-    expect((await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-disk.md' } }, { say: 'done' }), 'share')).cards).toHaveLength(1)
+    // (still her own folder in her own project chat: no card, docs/decisions/20261123-do-then-undo.md)
+    expect((await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-disk.md' } }, { say: 'done' }), 'share')).cards).toHaveLength(0)
   })
   test('wholeSavedInTurn: the newest event is this turn\'s write, but the bytes on disk differ', () => {
     const root = h.ctx.files.fx.root

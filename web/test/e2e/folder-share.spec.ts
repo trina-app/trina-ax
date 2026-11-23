@@ -167,7 +167,7 @@ test('share a folder from Files: the dialog, the Shared marks; the receiver find
   await olga.context().close()
 })
 
-test('Stop sharing names nested shares (files and folders), and Undo puts the people back', async ({ page }) => {
+test('Stop sharing goes at once naming nested shares (files and folders), and Undo puts the people back', async ({ page }) => {
   await world(page, { grants: [
     { path: WORK, to: { subjectType: 'user', subjectId: 'olga' }, by: 'bob' },
     { path: `${WORK}/Q4`, to: { subjectType: 'user', subjectId: 'dana' }, by: 'bob' },
@@ -176,22 +176,18 @@ test('Stop sharing names nested shares (files and folders), and Undo puts the pe
   expect((await post(page, '/__test/file-shares', { grants: [{ path: `${WORK}/Plan.md`, to: 'dana', by: 'bob', at: '2026-11-12T09:00:00.000Z' }] })).ok()).toBeTruthy()
   await page.goto('/files?path=users/bob')
   await rowMenu(page, 'Work', t['folderAccess.menu'])
+  // no question first (docs/decisions/20261123-do-then-undo.md): it stops, and the toast names what stays shared
   await page.getByTestId('file-share-stop').click()
-  const body = page.getByTestId('file-share-stop-body')
-  await expect(body).toContainText(tr('fileShare.stopLoses', { people: 'Olga' }))
-  await expect(page.getByTestId('file-share-stop-kept')).toHaveText(tr('fileShare.stopKeeps', { names: `Plan.md and ${tr('fileShare.theFolder', { name: 'Q4' })}` }))
-  await look(page, 'stop-confirm')
-  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('dialog-confirm')).toHaveCount(0)
   await expect(page.getByTestId('file-share-row-user-olga')).toHaveCount(0)
   const toastUndo = page.getByRole('button', { name: t['common.undo'] })
-  await expect(page.getByText(tr('fileShare.stopped', { name: 'Work' }))).toBeVisible()
+  await expect(page.getByText(`${tr('fileShare.stopped', { name: 'Work' })} ${tr('fileShare.stopKeeps', { names: `Plan.md and ${tr('fileShare.theFolder', { name: 'Q4' })}` })}`)).toBeVisible()
   await look(page, 'stop-undo-toast')
   await toastUndo.click()
   await expect(page.getByText(t['fileShare.undone'])).toBeVisible()
   await expect(page.getByTestId('file-share-row-user-olga')).toBeVisible()
   // stop again: an undo is used once
   await page.getByTestId('file-share-stop').click()
-  await page.getByTestId('dialog-confirm').click()
   await expect(page.getByTestId('file-share-row-user-olga')).toHaveCount(0)
 })
 

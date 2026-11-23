@@ -29,6 +29,12 @@ export function grantUserSite(db: Database, userId: string, host: string): 'ok' 
   return 'ok'
 }
 
+/** The person's own list of sites is full: a new site cannot be kept for good (the site card then offers no Always and
+ * says so: ask registry finding, never a silent "once"). */
+export function userSitesFull(db: Database, userId: string): boolean {
+  return (db.query('SELECT COUNT(*) AS n FROM dev_env_site_grants WHERE user_id = ?').get(userId) as { n: number }).n >= DEV_ENV_MAX_USER_SITES
+}
+
 /** Remove a site from the person's own list; false when it was not there. */
 export function removeUserSite(db: Database, userId: string, host: string): boolean {
   return db.query('DELETE FROM dev_env_site_grants WHERE user_id = ? AND host = ?').run(userId, host).changes > 0

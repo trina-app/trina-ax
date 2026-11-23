@@ -24,6 +24,11 @@ const B64 = Buffer.from(KEY).toString('base64')
 const B64URL = Buffer.from(KEY).toString('base64url')
 const PCT = [...Buffer.from(KEY)].map((b) => '%' + b.toString(16).padStart(2, '0')).join('')
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+// the fake engine's directive as JSON escapes, so the person's own words hold no schedule word or address (a schedule
+// asked for in the person's own words, with only addresses they typed, is made without its card:
+// docs/decisions/20261123-do-then-undo.md; this test is about the card)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
+const fakeQuiet = (...ds: unknown[]) => ds.map((d) => '@fake ' + opaque(JSON.stringify(d))).join('\n')
 /** the key, or one of its encoded forms, or half of one (a form cut in two) */
 const leaks = (text: string) => [KEY, B64.slice(0, 16), B64URL.slice(0, 16), KEY.slice(0, 8), KEY.slice(-8), B64.slice(0, 10), B64.slice(-10)].filter((k) => text.includes(k))
 
@@ -232,6 +237,7 @@ describe.skipIf(!native)('a turn that saves the stored key in files (TC-3041)', 
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
       { say: `Your key in base64 is ${B64} and URL-safe ${B64URL}; escaped ${PCT}.` },
+    ) + '\n' + fakeQuiet(
       { tool: 'schedule_create', args: { title: 'Ping', prompt: 'Call the RK API and report', repeat: 'daily', time: '09:00' }, sayResult: true },
     ), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const id = started.assistantMessage.id

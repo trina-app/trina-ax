@@ -23,7 +23,7 @@
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import clsx from 'clsx'
 import { composerInset } from '../components/chat/composerBox'
-import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
+import { GuestNoAi, useGuestAiOff, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -55,7 +55,7 @@ import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { useRooms } from '../store/rooms'
 import { isGuestMe } from '../lib/guests'
-import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
+import { emptyThread, rowButtonsWait, runningMessage, savedFilesFrom, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import { LinkAskAccess } from '../components/LinkAskAccess'
@@ -78,7 +78,7 @@ import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
-import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, useAnnounce, useMediaQuery } from '../components/ui'
+import { Button, CopyButton, EmptyState, IconButton, Skeleton, useAnnounce, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -205,6 +205,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
   const guestHere = isGuestMe(me)
+  // a guest whose invite gave no AI: nothing on this page offers to ask Trina (QA TC-b4s s2)
+  const guestAiOff = useGuestAiOff() && guestHere
   const [olderBusy, setOlderBusy] = useState(false)
   // the reader scrolled up far from the newest message: a round button above the box takes them back (QA AP-043)
   const [away, setAway] = useState(false)
@@ -288,7 +290,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // who sees it, beside Share (a computer; a phone's line under the box says it): a shared project chat by its project's
   // faces (they open the members, read only for whoever cannot change them), else in words
   const projectPeople = useProjectPeople(projectChat && project ? project : null)
-  const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
+  // (never a guest of the project but the chat's own creator: a guest sees no one else's shared chat, so is not among
+  // who sees it; QA TC-b4s s2, the faces showed 정하늘 while the line said 3)
+  const seers = projectChat && projectPeople ? projectPeople.people.filter((x) => !x.guest || x.id === shared?.by.id) : null
+  const faces = seers && seers.length > 1 ? seers : null
   const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
   const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
     : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
@@ -470,12 +475,10 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
 
-  /** files the AI changed in the part of the branch that is about to be replaced */
-  const changedFilesFrom = (id: string) => {
-    const i = messages.findIndex((m) => m.id === id)
-    return messages.slice(i).some((m) => (m.files?.saved.length ?? 0) > 0)
-  }
-  const confirmBranch = async (fromId: string) => !changedFilesFrom(fromId) || (await confirmDialog({ title: t('chat.branchConfirmTitle'), body: t('chat.branchConfirmBody'), confirm: t('common.continue') }))
+  // an edit or a new answer goes ahead at once (docs/decisions/20261123-ask-registry-findings.md, decision 10); when the
+  // part it replaces saved files, one line above the box says they stay as they are
+  const [branchNote, setBranchNote] = useState(false)
+  const noteBranch = (fromId: string) => setBranchNote(savedFilesFrom(messages, fromId))
 
   const stopIfRunning = async () => {
     if (running) await stop(chatId).catch(() => {})
@@ -483,7 +486,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   /** with: another engine / model ("retry with another model", people allowed to pick only) */
   const onRegenerate = async (m: ViewMessage, with_?: EnginePick) => {
-    if (!(await confirmBranch(m.id))) return
+    noteBranch(m.id)
     stick.current = true
     try {
       await stopIfRunning()
@@ -493,7 +496,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
     }
   }
   const onEdit = async (m: ViewMessage, text: string) => {
-    if (!(await confirmBranch(m.id))) return
+    noteBranch(m.id)
     stick.current = true
     try {
       await stopIfRunning()
@@ -506,6 +509,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
+    setBranchNote(false)
     const author = { id: me.user.id, name: me.user.name }
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
@@ -719,7 +723,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               I am not in): the server answers each with the same 404, so the page tells nothing about this one; the
               likely case, a teammate's link to a chat still private to them, says what to ask for (QA TC-919, TC-948;
               docs/DECISIONS.md "Team project chats shared by default") */}
-          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
+          {/* a guest: no one can share a chat with them, so not "ask them to share it" but what a guest opens (QA TC-b4s s2) */}
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t(guestHere ? 'chat.notFoundGuest' : 'chat.notFoundWhy')}</p>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}
@@ -738,8 +743,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
               ))}
             </p>
           )}
-          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
-            {t('sidebar.askAi', { name: aiName(t) })}
+          {/* a guest without AI asks nobody: their home instead (QA TC-b4s s2) */}
+          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-not-found-home">
+            {guestAiOff ? t('notFound.home') : t('sidebar.askAi', { name: aiName(t) })}
           </Link>
         </EmptyState>
       </div>
@@ -871,6 +877,8 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
           <>
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
+          {/* an edit or a new answer replaced a part that saved files: they stay as they are (no confirm before it) */}
+          {branchNote && <p className="pb-2 text-sm text-muted" role="status" data-testid="branch-files-note">{t('chat.branchNotice')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
           {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}

@@ -104,6 +104,7 @@ describe('server and relay texts', () => {
  * `t('…', 'English', 'Indonesian')` / `fail('…', …)` call) may hold Korean, plus the lines a file's own pattern names.
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
+  'server/src/chat/person-aliases.ts': { why: 'title and team words the server matches in the person\'s own message (팀장, 팀원들 …) and Korean particles after them, in every language: data, not screen text (docs/decisions/20261123-do-then-undo.md)', also: /./ },
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },

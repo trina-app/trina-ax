@@ -1,5 +1,5 @@
-// The warning before a group change (web/src/pages/admin/originKept.tsx; docs/DECISIONS.md "Folder access adds up like
-// Google Drive (P2)", C1-A): a folder inside a team project offers no Remove (its members manage it); "Remove now" acts
+// The notice with a group change (web/src/pages/admin/originKept.tsx; docs/DECISIONS.md "Folder access adds up like
+// Google Drive (P2)", C1-A): the save is not held up; a folder inside a team project offers no Remove (its members manage it); "Remove now" acts
 // at once; a folder no longer in the list is an error, never "Removed" (review of #787).
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -35,11 +35,17 @@ afterAll(() => {
   useLocaleStore.setState({ locale: localeBefore })
 })
 
-test('a project folder has no Remove; a folder gone meanwhile is an error, not "Removed"', async () => {
+test('the save goes ahead with a notice; Show lists them: a project folder has no Remove; a folder gone meanwhile is an error, not "Removed"', async () => {
   const m = await mount(<DialogHost />)
   let answer: Promise<boolean> = Promise.resolve(false)
-  await act(async () => { answer = confirmOriginKept([{ userId: 'kim', groupId: 'g' }], { title: 'T', confirm: 'Save' }) })
-  const list = await m.until(() => m.find('origin-kept'), 'the warning')
+  await act(async () => { answer = confirmOriginKept([{ userId: 'kim', groupId: 'g' }], { title: 'T', show: 'Show', close: 'Close' }) })
+  // no question before the save (docs/decisions/20261123-do-then-undo.md)
+  expect(await answer).toBe(true)
+  expect(m.find('dialog-confirm')).toBeNull()
+  const note = useUi.getState().toasts.at(-1)!
+  expect(note.text).toBe('T')
+  await act(async () => { note.action!.run() })
+  const list = await m.until(() => m.find('origin-kept'), 'the list')
   const rows = list.querySelectorAll('[data-testid="origin-kept-row"]')
   expect(rows).toHaveLength(2)
   expect(rows[0]!.querySelector('[data-testid="origin-kept-remove"]')).toBeNull()
@@ -50,6 +56,5 @@ test('a project folder has no Remove; a folder gone meanwhile is an error, not "
   expect(m.html()).not.toContain(en('groups.originRemoved'))
   expect(puts).toEqual([])
   await m.click(m.get('dialog-confirm'))
-  expect(await answer).toBe(true)
   await m.unmount()
 })

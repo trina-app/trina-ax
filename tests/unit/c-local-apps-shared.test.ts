@@ -71,7 +71,7 @@ const from = {
 type From = (typeof from)[keyof typeof from]
 
 /** a turn whose cards are answered "Allow once" (the shared chat's card to the asker) until it ends */
-async function ask(f: From, chatId: string, content: string, pick: RegExp = /once/i) {
+async function ask(f: From, chatId: string, content: string, pick: RegExp | null = /once/i) {
   const started = await h.api(f.user, { window: f.window, client: f.client }).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const answered = new Set<string>()
   const cards: { question: string }[] = []
@@ -82,6 +82,7 @@ async function ask(f: From, chatId: string, content: string, pick: RegExp = /onc
       if (d.turnId !== started.turnId || answered.has(d.request.requestId)) continue
       answered.add(d.request.requestId)
       cards.push(d.request)
+      if (!pick) continue
       const once = d.request.options.find((o) => pick.test(o.label) || pick.test(o.value)) ?? d.request.options[0]!
       void h.api(f.user).call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: d.request.requestId, answer: once.value } }).catch(() => {})
     }
@@ -108,7 +109,7 @@ const projectChat = async () => (await h.api('alice').call(API.createChat, { bod
 const privateChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id
 
 /** alice from her desktop gets her Aside; the call goes to her desktop window only, for that turn */
-async function aliceGetsIt(chatId: string, shared: boolean) {
+async function aliceGetsIt(chatId: string, shared: boolean, seen = false) {
   const r = await ask(from.desk, chatId, PROBE)
   const p = parts(r.content)
   expect(p.tools).toContain(TOOL)
@@ -116,8 +117,9 @@ async function aliceGetsIt(chatId: string, shared: boolean) {
   const mine = callsOf(r.started.turnId)
   expect(mine.some((s) => s.method === 'tools/call')).toBe(true)
   expect(mine.every((s) => s.window === DESK)).toBe(true)
-  // a shared chat: the asker is asked first, as for any personal connection there; a private chat asks nothing
-  if (shared) expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
+  // a shared chat: the asker sees the one notice first, the first time there (docs/decisions/20261123-shared-connector-
+  // warning-once.md); a private chat, or the same place again, asks nothing
+  if (shared && !seen) expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
   else expect(r.cards).toEqual([])
 }
 /** bob's turn in the same chat, from his own connected desktop window: alice's Aside is never his */
@@ -145,8 +147,8 @@ describe("an app on alice's computer in each kind of chat", () => {
     const chat = await sharedWithBob()
     await aliceGetsIt(chat, true)
     await bobNever(chat)
-    // and alice again after bob's turn: still hers
-    await aliceGetsIt(chat, true)
+    // and alice again after bob's turn: still hers (the notice was seen in this chat)
+    await aliceGetsIt(chat, true, true)
   })
 
   test('a team project chat (shared by default): the same both ways', async () => {
@@ -155,9 +157,9 @@ describe("an app on alice's computer in each kind of chat", () => {
     await bobNever(chat)
   })
 
-  test('a shared chat, Cancel on her card: nothing reaches her desktop app for that turn', async () => {
+  test('a shared chat, no press on her notice: nothing reaches her desktop app for that turn', async () => {
     const chat = await sharedWithBob()
-    const r = await ask(from.desk, chat, fake({ tool: TOOL, args: { text: 'no' }, sayResult: true }), /cancel/i)
+    const r = await ask(from.desk, chat, fake({ tool: TOOL, args: { text: 'no' }, sayResult: true }), null)
     expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
     expect(r.content).not.toContain('echo: no')
     expect(callsOf(r.started.turnId)).toEqual([])

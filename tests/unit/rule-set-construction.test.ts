@@ -20,6 +20,7 @@ const READS_RULES: Record<string, string> = {
   'admin/users.ts': 'the delete of a person\'s rules',
   'chat/members-only-once.ts': 'the one-time cleanup of role rows inside projects',
   'chat/project-access.ts': 'the rules inside a project, listed on its members screen (display)',
+  'chat/tools.ts': 'the folders a group the person just left opened, for the lost-access fact (S-118); whether they still read one is the RuleSet\'s',
   'connectors/remote-mcp/groups.ts': 'a group\'s rules, listed by the connector (display)',
   'connectors/remote-mcp/tools.ts': 'the policy hash ("Access changed": every row and every limit)',
   'skills/managers.ts': 'the skill managers list (display)',

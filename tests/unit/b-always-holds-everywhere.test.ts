@@ -2,7 +2,8 @@
 // 2026-11-22, "이렇게 또 권한을 매번 대화마다 다 해줘야하는 미친 상황 더 없겠지?"). For each item of the permission audit: the
 // person allows once, then there is no card in a new chat and none in their scheduled run (also in a shared chat a
 // teammate wrote in); they remove it in Settings › Allowed for Trina (DELETE /api/ai-allowances/:id) and the card comes
-// back. The one limit kept: a guest among the people of a shared chat keeps the per-chat scope.
+// back. A guest among the people of a shared chat changes nothing: there is one Always (docs/decisions/
+// 20261123-one-always-allow.md); only the share and post checks of what the asker named still hold there.
 // B3 a site for good ("이 사이트 항상 허용") and the in-app browser's office-network sites in Settings; B4 share, room post
 // and folder share in a shared chat whose asker's message names nobody; B5 a room post that mentions everyone; B6 a
 // scheduled run in a shared chat a teammate wrote in; M2 a dev environment command that can use a login.
@@ -20,8 +21,7 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { gateUrl, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
-import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
-import { sameCard } from '../../server/src/chat/open-questions'
+import { ALWAYS_VALUE, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
 import { steerableRun } from '../../server/src/chat/shared-run'
 import { askLoginAfterOthers } from '../../server/src/devenv/tool'
 
@@ -163,21 +163,20 @@ describe('B3: "이 사이트 항상 허용" is for good, listed and removable in
     await removeInSettings(mine.id)
   })
 
-  test('a guest among the people (or the team\'s switch off): the site counts for that chat only, and the card says so', async () => {
+  test('no site for this chat only: a turn whose sites cannot be kept (a Slack question, a draft) or the team\'s switch off offers none and keeps none', async () => {
     const asked: Asked[] = []
     const chat = await newShared()
-    await gate(chat, 'https://guestchat.example/a', person('site', asked, { forGood: false }))
-    expect(asked[0]!.options!.find((x) => x.value === 'site')!.label).toBe('Allow this site in this conversation (guestchat.example)')
+    await gate(chat, 'https://guestchat.example/a', person('allow', asked, { forGood: false }))
+    expect(asked[0]!.options?.map((x) => x.value) ?? []).not.toContain('site')
     expect(db().query("SELECT site FROM user_allowed_sites WHERE user_id = 'alice' AND site = 'guestchat.example'").get()).toBeNull()
-    expect(await gate(chat, 'https://guestchat.example/b', person(null, [], { forGood: false }))).toBe('site')
-    await expect(gate(await ownChat(), 'https://guestchat.example/c', person(null, [], { forGood: false }))).rejects.toThrow(/did not allow/)
-    // the team's "Always allow" switch off: rows for good are ignored, and the card offers this chat only
+    expect(db().query('SELECT COUNT(*) n FROM chat_allowed_sites').get()).toEqual({ n: 0 })
+    // the team's "Always allow" switch off: rows for good are ignored, and the card offers no site
     await gate(await ownChat(), 'https://switch.example/a', person('site', []))
     updateTeamSettings(db(), { roomAlwaysAllow: false })
     try {
       const off: Asked[] = []
       await expect(gate(await ownChat(), 'https://switch.example/b', person(null, off))).rejects.toThrow(/did not allow/)
-      expect(off[0]!.options!.find((x) => x.value === 'site')!.label).toBe('Allow this site in this conversation (switch.example)')
+      expect(off[0]!.options?.map((x) => x.value) ?? []).not.toContain('site')
     } finally { updateTeamSettings(db(), { roomAlwaysAllow: true }) }
     expect(await gate(await ownChat(), 'https://switch.example/c', person(null, []))).toBe('site')
   })
@@ -245,6 +244,19 @@ describe('B4: share_folder in a shared chat', () => {
   })
 })
 
+// AB4 F5: without Always, a folder named only in an answer to the AI's question ("이 폴더", "박준호에게요") went to a
+// refusal and a new question, again and again; now the card (the folder and the people on it) is the one check
+describe('AB4 F5: share_folder in a shared chat without Always', () => {
+  test('the folder and person not named in the message: one card, not a refusal', async () => {
+    db().query("DELETE FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_folder'").run()
+    const chat = await sharedChatBobWroteIn()
+    const r = await turn('alice', chat, `share this folder with my teammates\n${folderCall(2)}`)
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.options!.map((o) => o.value)).toContain('__always')
+    expect(r.content).not.toContain('by its full name in quotes')
+  })
+})
+
 describe('B4 and B5: post_to_room in a shared chat, also mentioning everyone', () => {
   test('Always allow once: no card for a post or an @everyone post in a new shared chat or the run; removed: the card', async () => {
     const chat = await sharedChatBobWroteIn()
@@ -270,7 +282,7 @@ describe('B4 and B5: post_to_room in a shared chat, also mentioning everyone', (
 
 describe('B6: the maker\'s Always in a scheduled run in a shared chat a teammate wrote in', () => {
   const place = (o: Partial<AlwaysPlace>): AlwaysPlace => ({ db: db(), userId: 'alice', chatId: '', turnId: '', locale: 'en', clientKind: 'schedule', ...o })
-  test('every kind holds there (the shared read card too); with a guest among the people, not', async () => {
+  test('every kind holds there (the shared read card too)', async () => {
     const chat = await sharedChatBobWroteIn()
     const runTurn = uuidv7()
     const bobMsg = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'user' AND author_id = 'bob' ORDER BY created_at DESC LIMIT 1").get(chat) as { id: string }).id
@@ -281,8 +293,6 @@ describe('B6: the maker\'s Always in a scheduled run in a shared chat a teammate
     try {
       expect(alwaysHere(place({ chatId: chat, turnId: runTurn }), 'shared_read')).toBe('on')
       expect(alwaysHere(place({ chatId: chat, turnId: runTurn }), 'save_wider')).toBe('on')
-      expect(alwaysHere(place({ chatId: chat, turnId: runTurn, sharedGuest: () => true }), 'save_wider')).toBeNull()
-      expect(alwaysHere(place({ chatId: chat, turnId: runTurn, sharedGuest: () => true }), 'shared_read')).toBeNull()
     } finally {
       await removeInSettings('card:shared_read')
       await removeInSettings('card:save_wider')
@@ -291,59 +301,35 @@ describe('B6: the maker\'s Always in a scheduled run in a shared chat a teammate
   })
 })
 
-// review of #412/#413: a turn the person watches with a guest among the people: no Always for good is offered, kept or
-// used there, for every card with Always (delete, remember, skills, room changes, the login card ...); the card offers
-// "Always in this chat", for the people who see it then (as the connector cards)
-describe('a live turn with a guest: Always holds for this chat only', () => {
-  test('a standing Always is not used; the card offers "Always in this chat", keeps nothing for good, and asks again for someone new or in another chat', async () => {
+// the owner, 2026-11-23 (docs/decisions/20261123-one-always-allow.md): one Always, never one for this chat only. Every
+// card with Always offers [yes] [항상 허용] [no]; an answer of the retired "Always in this chat" (a card raised before) is
+// not a yes and keeps nothing
+describe('one Always: no "Always in this chat" on any card', () => {
+  test('withAlways offers only the Always for good; the old per-chat value is a no and keeps nothing', async () => {
     const chat = await newShared()
-    const other = await newShared()
     const live = (o: Partial<AlwaysPlace> = {}): AlwaysPlace => ({ db: db(), userId: 'alice', chatId: chat, turnId: uuidv7(), locale: 'en', clientKind: 'web', ...o })
-    const guest = (o: Partial<AlwaysPlace> = {}) => live({ sharedGuest: () => true, audience: () => ['alice', 'bob'], ...o })
     const forGood = (kind: string) => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = ?").get(kind) as { n: number }).n
-    keepAlways(db(), 'alice', 'delete_files', null)
     try {
-      expect(alwaysHere(live(), 'delete_files')).toBe('on')
-      expect(alwaysHere(guest(), 'delete_files')).toBe('offer')
-      for (const kind of ['remember', 'skill_files', 'dev_login'] as const) {
+      for (const kind of ['remember', 'skill_files', 'dev_login', 'move_files', 'delete_files'] as const) {
         const asked: { options: { label: string; value: string }[]; note?: string }[] = []
-        // (the Always for good's value on this card does nothing: it is not one of its options)
-        const wrong = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_VALUE)
-        expect([kind, wrong, forGood(kind)]).toEqual([kind, ALWAYS_VALUE, 0])
-        const v = await withAlways(guest(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async (options, extra) => { asked.push({ options, ...extra }); return ALWAYS_CHAT_VALUE })
-        expect([kind, v]).toEqual([kind, 'yes'])
-        expect(asked[0]!.options.map((o) => [o.label, o.value])).toEqual([['Yes', 'yes'], ['Always in this chat', ALWAYS_CHAT_VALUE], ['No', 'no']])
-        expect(asked[0]!.note).toContain('in this chat only')
-        expect([kind, forGood(kind)]).toEqual([kind, 0])
-        // this chat, the same people: no card; someone new, another chat, or no guest any more: it asks (or the usual)
-        expect(alwaysHere(guest(), kind)).toBe('on')
-        expect(alwaysHere(guest({ audience: () => ['alice', 'bob', 'gina'] }), kind)).toBe('offer')
-        expect(alwaysHere(guest({ chatId: other }), kind)).toBe('offer')
-        expect(alwaysHere(live(), kind)).toBe('offer')
-        // the people cannot be told: it holds for nobody (fails closed)
-        expect(alwaysHere(guest({ audience: () => { throw new Error('x') } }), kind)).toBe('offer')
+        const old = await withAlways(live(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async (options, extra) => { asked.push({ options, ...extra }); return '__always_chat' })
+        expect([kind, old, forGood(kind)]).toEqual([kind, '__always_chat', 0])
+        expect(asked[0]!.options.map((o) => o.value)).toEqual(['yes', ALWAYS_VALUE, 'no'])
+        expect(asked[0]!.options.some((o) => /this chat|this conversation/i.test(o.label))).toBe(false)
+        expect(asked[0]!.note ?? '').not.toMatch(/this chat only/i)
+        const v = await withAlways(live(), kind, [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_VALUE)
+        expect([kind, v, forGood(kind)]).toEqual([kind, 'yes', 1])
+        // a new chat: no card
+        expect(alwaysHere(live({ chatId: await newShared() }), kind)).toBe('on')
       }
-      // a side chat, or a guest's own chat: the people are the person and the room's members; someone new asks again
-      const side = (people: string[]) => guest({ audience: () => people })
-      await withAlways(side(['alice', 'erin']), 'move_files', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_CHAT_VALUE)
-      expect(alwaysHere(side(['alice', 'erin']), 'move_files')).toBe('on')
-      expect(alwaysHere(side(['alice', 'erin', 'gina']), 'move_files')).toBe('offer')
-      // nothing kept when the people cannot be told
-      await withAlways(guest({ audience: () => { throw new Error('x') } }), 'video', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], 'yes', async () => ALWAYS_CHAT_VALUE)
-      expect(db().query("SELECT COUNT(*) n FROM chat_card_approvals WHERE user_id = 'alice' AND kind = 'card_always' AND target = 'video'").get()).toEqual({ n: 0 })
+      expect(db().query("SELECT COUNT(*) n FROM chat_card_approvals WHERE user_id = 'alice' AND kind = 'card_always'").get()).toEqual({ n: 0 })
     } finally { db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
-  })
-
-  test('a press of "Always in this chat" that waited is not the same card once the guest is gone (it asks again)', () => {
-    const card = (always: string) => ({ kind: 'ask_user', origin: 'server', requestId: 'r', question: 'Delete?', options: [{ label: 'Yes', value: 'yes' }, { label: 'x', value: always }, { label: 'No', value: 'no' }] }) as never
-    expect(sameCard(card(ALWAYS_CHAT_VALUE), card(ALWAYS_VALUE))).toBe(false)
-    expect(sameCard(card(ALWAYS_CHAT_VALUE), card(ALWAYS_CHAT_VALUE))).toBe(true)
   })
 })
 
-// ---------------- the one limit kept: a guest among the people of a shared chat (real turns) ----------------
-describe('a guest in the shared chat: the old per-chat scope and own-ask guards', () => {
-  test('the share asks although Always allow is on (the asker named nobody), and a site card offers this chat only', async () => {
+// ---------------- a guest among the people of a shared chat (real turns): one Always, the own-ask checks stay ----------------
+describe('a guest in the shared chat: the share checks what the asker named; the site Always is for good', () => {
+  test('the share asks although Always allow is on (the asker named nobody), and the site card offers "Always allow this site"', async () => {
     // a shared chat a guest sees: the one they made (a guest sees no other project chat); bob stands for the guest
     const chat = await newShared('bob')
     await turn('bob', chat, plainFake({ say: 'hello' }))
@@ -358,10 +344,11 @@ describe('a guest in the shared chat: the old per-chat scope and own-ask guards'
       // (no Always offered where it would not count)
       expect(r.cards[0]!.options!.map((o) => o.value)).toEqual(['share', 'no'])
       expect(shared('users/alice/ledger-6.txt')).toBe(false)
-      // the address card: "this conversation", kept for this chat only
+      // the address card: for good, a guest here too (no site for this chat only)
       const w = await turn('alice', chat, `look it up\n${fake({ tool: 'web_fetch', args: { url: 'https://guestsite.example/a' }, sayResult: true })}`)
       expect(w.cards).toHaveLength(1)
-      expect(w.cards[0]!.options!.map((o) => o.label)).toContain('Allow this site in this conversation (guestsite.example)')
+      expect(w.cards[0]!.options!.map((o) => o.label)).toContain('Always allow this site (guestsite.example)')
+      expect(w.cards[0]!.options!.map((o) => o.label).join(' ')).not.toMatch(/this conversation|this chat/i)
     } finally {
       db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run()
       db().query("DELETE FROM folder_rules WHERE id = 'holds-guest'").run()

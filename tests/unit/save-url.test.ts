@@ -89,11 +89,11 @@ const normalize = async (b: Uint8Array) => { if (Buffer.from(b).includes('BROKEN
 const OPTS: SaveUrlOptions = { lookup: LOOKUP, testAllow: (ip) => ip === '127.0.0.1', connectTimeoutMs: 3000, idleTimeoutMs: 3000, statfs: disk(() => 200 * 1024 ** 3), normalize }
 
 interface Cards { asked: string[]; kinds: (string | undefined)[]; answer: boolean; widen: string[]; widenRefusal: string | null; atCard?: () => void }
-function setup(user: Person = 'alice', o: { unattended?: boolean; locale?: 'ko' | 'en' } = {}) {
+function setup(user: Person = 'alice', o: { unattended?: boolean; locale?: 'ko' | 'en'; alwaysOn?: boolean } = {}) {
   const chat = A.chat(user)
   const turnId = A.turn(user, chat)
   const cards: Cards = { asked: [], kinds: [], answer: true, widen: [], widenRefusal: null }
-  const person: TurnPerson = { locale: o.locale ?? 'en', async confirm(q, _a, _d, e) { cards.asked.push(q); cards.kinds.push(e?.always); cards.atCard?.(); return cards.answer }, *turnUrls() {}, unattended: o.unattended }
+  const person: TurnPerson = { locale: o.locale ?? 'en', async confirm(q, _a, _d, e) { cards.asked.push(q); cards.kinds.push(e?.always); cards.atCard?.(); return cards.answer }, *turnUrls() {}, unattended: o.unattended, ...(o.alwaysOn !== undefined ? { alwaysOn: (k: string) => o.alwaysOn! && k === 'big_download' } : {}) }
   const t: ToolCtx = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles(), person, signal: new AbortController().signal, confirmWidening: async (target) => { cards.widen.push(target); return cards.widenRefusal } }
   const allow = (...urls: string[]) => rememberUrls(A.ctx.db, chat, urls, 'allowed')
   const run = (url: string, save_as?: string, extra: SaveUrlOptions = {}) => saveUrl(A.ctx, { url, ...(save_as !== undefined ? { save_as } : {}) }, t, { ...OPTS, ...extra })
@@ -267,6 +267,17 @@ describe('size: no limit, a card over the line, the disk as the only hard stop',
     s.allow(at('/big.png'))
     await expect(s.run(at('/big.png'), 'shared/big/c.png', { askAbove: 100_000 })).rejects.toThrow(/scheduled run.*skipped/)
     expect(s.cards.asked).toEqual([])
+  })
+  test('a scheduled run of a person whose Always for big downloads is on: the file is saved (Rule A, ask registry violation 4)', async () => {
+    const s = setup('alice', { unattended: true, alwaysOn: true })
+    s.allow(at('/big.png'))
+    const r = await s.run(at('/big.png'), 'shared/big/d.png', { askAbove: 100_000 })
+    expect(r.structured.size).toBe(BIG.length)
+    // (the person's confirm answers yes under Always: no card is raised in the run)
+    expect(s.cards.kinds).toEqual(['big_download'])
+    const off = setup('alice', { unattended: true, alwaysOn: false })
+    off.allow(at('/big.png'))
+    await expect(off.run(at('/big.png'), 'shared/big/e.png', { askAbove: 100_000 })).rejects.toThrow(/scheduled run.*skipped/)
   })
   test('the disk reserve (one rule with the AI\'s writes): 5% of the disk, at least 2 GiB, at most 10 GiB', () => {
     expect(diskReserve(20 * 1024 ** 3)).toBe(2 * 1024 ** 3)

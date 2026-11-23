@@ -47,6 +47,13 @@ export const ConnectorToolAllowance = z.object({
   tool: z.string(),
   /** the shared chat card's Always: what this connection returns shows to the people in a shared chat (no tool) */
   shared: z.literal(true).optional(),
+  /** "<connector> 전체 항상 허용" (docs/decisions/20261123-one-always-allow.md): every tool of this connection, one entry
+   * per connection (`tool` then reads "All tools" for an app that does not know the field) */
+  all: z.literal(true).optional(),
+  /** the one notice of a shared project or shared chat (docs/decisions/20261123-shared-connector-warning-once.md): the
+   * person went on from it there; this is the project's name or the chat's title ('' when it has none). Removing it shows
+   * the notice again (with `shared`, so an app that does not know the field still names it) */
+  warned: z.string().max(500).optional(),
   createdAt: z.string(),
 })
 export type ConnectorToolAllowance = z.infer<typeof ConnectorToolAllowance>
@@ -63,7 +70,34 @@ export const SiteAllowance = z.object({
 })
 export type SiteAllowance = z.infer<typeof SiteAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance])
+/** "Always allow" on a connection's send card (server/src/integrations/connections/tools.ts keepAlwaysAllow): the
+ * person's changes at that service go without the card. On their own connection it is its write rule ("allow"); on a
+ * team connection, their own row (never the admin's rule). Id `send:<connection id>`; taking it back sets their own
+ * connection to asking, or deletes their row (docs/decisions/20261123-ask-registry-findings.md). */
+export const ConnectorSendAllowance = z.object({
+  kind: z.literal('connector_send'),
+  id: z.string(),
+  /** the connection's name */
+  connection: z.string(),
+  /** whose connection: the person's own, or the team's */
+  scope: z.enum(['personal', 'team']),
+  createdAt: z.string(),
+})
+export type ConnectorSendAllowance = z.infer<typeof ConnectorSendAllowance>
+
+/** A name the person calls a teammate by ("팀장님" = QA Owner; docs/decisions/20261123-do-then-undo.md): kept when they
+ * answered once who a title meant, so the AI does not ask again. `ref` the title as matched ("팀장"), `person` the
+ * teammate. Deleting it means being asked again. */
+export const PersonAliasAllowance = z.object({
+  kind: z.literal('person_alias'),
+  id: z.string(),
+  ref: z.string(),
+  person: z.object({ id: z.string(), name: z.string() }),
+  createdAt: z.string(),
+})
+export type PersonAliasAllowance = z.infer<typeof PersonAliasAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance, SiteAllowance, ConnectorSendAllowance, PersonAliasAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {

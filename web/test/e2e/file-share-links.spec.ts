@@ -81,11 +81,10 @@ test('Share dialog: one press adds Bob, ✕ asks and removes him; a team file sa
   await expect(bob).toContainText(t['fileShare.canView'])
   await expect(page.getByTestId('file-share-done')).toBeVisible()
   await shots(page, 'share-dialog-shared')
-  // ✕ asks first, then removes
+  // ✕ removes at once, with Undo in the toast (docs/decisions/20261123-do-then-undo.md)
   await page.getByTestId('file-share-remove-user-bob').click()
-  await expect(page.getByRole('dialog', { name: tr('folderAccess.removeTitle', { name: 'Bob' }) })).toBeVisible()
-  await page.getByTestId('dialog-confirm').click()
   await expect(bob).toHaveCount(0)
+  await expect(page.getByRole('button', { name: t['common.undo'] })).toBeVisible()
   await page.getByTestId('file-share-done').click()
   await expect(dialog).toHaveCount(0)
 

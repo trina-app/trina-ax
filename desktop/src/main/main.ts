@@ -437,6 +437,10 @@ function registerIpc() {
   ipcMain.handle('bridge:local-running', (e) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.apps.runningIds(team) : [] })
   ipcMain.handle('bridge:local-settings', (e, id: unknown, values: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.setSettings(team, id, values) : 'unavailable' })
   ipcMain.handle('bridge:local-setting-names', (e, id: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.settingNames(team, id) : [] })
+  // Settings › Connectors' "Programs connected on this computer": the ids confirmed for this team, and Remove (the next
+  // call asks again); never a value or a command
+  ipcMain.handle('bridge:local-connected', (e) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.connected(team) : [] })
+  ipcMain.handle('bridge:local-forget', (e, id: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.forget(team, id) : false })
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
     // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)

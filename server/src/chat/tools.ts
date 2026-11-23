@@ -31,12 +31,14 @@ import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapRea
 import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
+import { skillBatch } from '../skills/lean-card'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
 import { addSources, audiencePeople, pathAudience, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { savePathArg } from '../tools/save-target'
 import { atLeast, isStaff, withMoreHiddenFolders, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
@@ -44,13 +46,13 @@ import { tr } from './i18n'
 import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
-import { alwaysHere, withAlways } from './always-allow'
+import { alwaysHere, teamAllowsAlways, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn, sameBytesAsEvent } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, KEEP_READ_LINE, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -70,7 +72,7 @@ import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_TOOLS, SHARED_UNDER_ALWAYS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
@@ -144,7 +146,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. Several skills: one call per skill, all together in the same reply, so the user answers them on one card. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** intro_deck's "read" step in a free-roam demo (demo/guard.ts freeRoamToolCallRefused) */
@@ -237,7 +239,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // (each call behind the asker's card where some people here could not see the answer:
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
+    // (a tool of SHARED_UNDER_ALWAYS too while the person's own Always for its card is on: Rule A)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom && !(Object.hasOwn(SHARED_UNDER_ALWAYS, t.name) && alwaysHere(exec.alwaysPlace?.(), SHARED_UNDER_ALWAYS[t.name]!) === 'on')) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -250,12 +253,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
   // person there (docs/decisions/20261121-ai-scratch-files.md rule 4, QA TC-7332)
   if (!exec.templateRun) add(deleteFilesTool(exec))
-  // a team project's members behind the server's card (chat/project-members.ts): not offered in
-  // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
-  // everywhere else but the person's own chat with the person there
+  // a team project's members behind the server's card (chat/project-members.ts): not offered in confidential or draft
+  // chats (add() above) nor in an approved template run; in a shared chat only under the person's own Always
+  // (SHARED_UNDER_ALWAYS); refused up front in a scheduled run or a chat others wrote in unless that Always is on
   if (!exec.templateRun) add(projectMembersTool(exec))
-  // a team folder's access for one person or group behind the server's card every time (chat/folder-access-tool.ts):
-  // only in the person's own chat (never shared, confidential, Slack, scheduled, template or restricted, a guest's)
+  // a team folder's access for one person or group behind the server's card (chat/folder-access-tool.ts): the person's
+  // own chat, or under their own Always also a shared chat, a chat others wrote in and their scheduled run (never
+  // confidential, Slack, template or restricted, a guest's)
   if (!folderAccessOff(exec)) add(folderAccessTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a shared, confidential or draft chat (add() above
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
@@ -358,8 +362,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       },
       // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
       // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
-      askSite: async (host, command) => {
-        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
+      askSite: async (host, command, o) => {
+        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, ...(o?.listFull ? { listFull: true as const } : {}), expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
         return answer === 'once' || answer === 'always' || answer === 'deny' ? answer : null
       },
     }))
@@ -798,21 +802,53 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
   // (a connected service's tools too: each asks before it reaches the service, docs/decisions/20261122-late-card-answer-
   // resumes.md; not connection_result, whose answer is kept for its own turn only, nor find_tools, which asks nothing)
-  const cardLaterTool = (name: string): boolean => CARD_LATER_TOOLS.has(name) || (serviceTools.has(name) && !NOT_LATER.has(name))
+  const cardLaterTool = (name: string, args: unknown): boolean => (CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args)) || (serviceTools.has(name) && !NOT_LATER.has(name))
   const once = set.call
   set.call = async (name, args, caller) => {
-    const track = cardLaterTool(name) && (caller?.files ?? exec.files) === exec.files
+    const track = cardLaterTool(name, args) && (caller?.files ?? exec.files) === exec.files
     // each call in its own context: a card raised by another call running beside it is never kept with this one
     // (a test's stand-in turn without runAsCall: no tracking, the card waits inside the call)
     if (!exec.runAsCall) return once(name, args, caller)
-    if (!track) return exec.runAsCall(null, () => once(name, args, caller))
+    if (!track) return exec.runAsCall(null, () => once(name, args, caller), name)
     const call = { name, args, deferred: null as string | null }
-    const out = await exec.runAsCall(call, () => once(name, args, caller))
+    const out = await exec.runAsCall(call, () => once(name, args, caller), name)
     if (!call.deferred) return out
     exec.markCallWaiting(name)
     return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
   }
+  // ...and the file tools whose checks and cards run in mcp/protocol.ts (write, edit): the same, for the main AI's own
+  // call (never a file of an edit_files batch: protocol.ts calls this only for a call of its own)
+  set.callWaiting = () => !!exec.callNow?.deferred
+  set.fileCallLater = async (name, args, caller, run, waiting) => {
+    if (!exec.runAsCall) return run()
+    if (!(CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args) && (caller?.files ?? exec.files) === exec.files)) return exec.runAsCall(null, run)
+    const call = { name, args, deferred: null as string | null }
+    const out = await exec.runAsCall(call, run)
+    if (!call.deferred) return out
+    exec.markCallWaiting(name)
+    return waiting(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE }))
+  }
   return set
+}
+
+/**
+ * May this file tool's card wait after the answer ends (docs/decisions/20261123-fewer-asks-b5.md)? A call that runs
+ * again in the next turn runs before the engine resumes its session, so a whole-file replace there has no read of the
+ * file it replaces (files/service.ts readForReplace): write and make_file only for a NEW file (nothing at the path the
+ * tool writes, as the person sees it now); edit always (an edit goes by the chat's earlier read of that very version).
+ * Any other tool of CARD_LATER_TOOLS: yes. A check that fails: no (the card waits inside the call as before).
+ */
+export function fileLaterSafe(exec: TurnExec, name: string, args: unknown): boolean {
+  if (name !== 'write' && name !== 'make_file') return true
+  try {
+    const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {}
+    const raw = name === 'write' ? a.file_path : a.output
+    if (typeof raw !== 'string' || !raw.trim() || isReservedPlace(raw)) return false
+    const p0 = savePathArg(raw)
+    const out = name === 'make_file' ? [OUTPUT_PATH_OF.make_file!(p0, a)].flat() : [p0]
+    const me = exec.livePrincipal()
+    return out.every((p) => !authorize(exec.rt.files.fx, exec.rt.files.rules(), me, p, 'write', { mustExist: false, createDirs: true }).exists)
+  } catch { return false }
 }
 
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
@@ -902,12 +938,15 @@ const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x &&
  * S-118: a file tool's answer about a place this person's own earlier answers in this chat read (the chat_reads rows
  * of their turns on this branch, TurnFiles.carried, and this answer's own reads) that the folder rules no longer let
  * them read: "not found or no access" on a path in that team folder, or a search (glob, grep) whose scope covers it
- * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Null otherwise, and
- * for a guest or a restricted run (no carried reads).
+ * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Also a folder of a
+ * group the person left lately and named themselves (leftGroupPlaces: no answer here ever read it, QA TC-b4s), for a
+ * refusal there, a search for it or a listing above it. Null otherwise; a guest gets neither (no carried reads, no
+ * groups).
  */
 export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'> & Partial<Pick<TurnExec, 'shared' | 'otherAuthors'>>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
   const earlier = [...(exec.files.carried?.hashes.keys() ?? []), ...exec.files.allReads.keys()]
-  if (!earlier.length) return null
+  // (a call that can carry the fact at all: a refusal, a search or a listing; anything else needs no look-up below)
+  if (!isError && !SEARCH_TOOLS.has(name) && name !== 'list') return null
   // other people read this chat's answers: never that a named person's access changed
   const shared = !!exec.shared || !!exec.otherAuthors
   let me: Principal
@@ -927,6 +966,13 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!gone(rel) || granted(rel)) continue
     places.set(placeKey(pl), pl)
   }
+  // ...and the folders of a group this person left lately that they named themselves in this chat (QA TC-b4s, S-118: a
+  // shared chat's first answer never read groups/영업, so no earlier read named it, and every later search and listing
+  // said nothing about it)
+  const left = new Map<string, string>()
+  // (a guest is in no group: never "you were in a group")
+  if (me.role !== 'guest') for (const pl of leftGroupPlaces(exec, me.id, gone, granted)) if (!places.has(placeKey(pl))) left.set(placeKey(pl), pl)
+  if (!places.size && !left.size) return null
   // a search a shared chat refused for having no path ("Not searched: … needs a folder", peopleSearchPlace): it would
   // have looked everywhere, so it covers the lost place like a path-less search (TC-b3s-22: after the refusal the AI
   // searched other folders, listed "/" and "groups" and asked for a path, never told that access had ended)
@@ -936,6 +982,14 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
     if (!m) return null
     const rel = relOf(m[1]!)
     const place = places.get(placeKey(teamPlaceOf(rel, gone)))
+    if (rel && !place) {
+      // a path in a folder of a group they left (or below it): that folder's fact, once a turn
+      const k = placeKey(rel)
+      const hit = [...left].filter(([pk]) => !noted.has(pk) && (k === pk || k.startsWith(pk + '/')))
+      if (!hit.length || !gone(rel)) return null
+      for (const [pk] of hit) noted.add(pk)
+      return leftGroupNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
+    }
     if (!rel || !place || !gone(rel) || !gone(place)) return null
     // the very file, still the version read: the file service already said its access ended (files/moved.ts)
     // (who can restore it, named: the file service's own line says only "whoever manages the folder")
@@ -947,15 +1001,86 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
   // listing of the place itself is refused and answered above)
   const listing = name === 'list' && !isError
   if ((!SEARCH_TOOLS.has(name) && !listing) || !args || typeof args !== 'object') return null
-  const a = args as { path?: unknown }
+  const a = args as { path?: unknown; pattern?: unknown }
   const scope = refusedSearch ? '' : !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
   const k = placeKey(scope)
   // (a listing looks only below its folder: one inside the place, still open through a deeper grant, is not it: review)
   const covers = (pk: string) => !k || pk.startsWith(k + '/') || (!listing && (pk === k || k.startsWith(pk + '/')))
   const hit = [...places].filter(([pk]) => !noted.has(pk) && covers(pk)).filter(([, pl]) => gone(pl))
-  if (!hit.length) return null
-  for (const [pk] of hit) noted.add(pk)
-  return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
+  // a folder of a group they left and named: a search for it (its name in the pattern or the folder searched), a listing
+  // of a folder above it ("/", "groups"), or a search a shared chat refused for having no path (QA TC-b4s searched
+  // "영업" in shared, then listed groups); not any search of the answer, which may be about something else (review)
+  const askedFor = (pl: string) => {
+    if (refusedSearch) return true
+    const own = pl.split('/').pop()!.normalize('NFC').toLowerCase()
+    const said = [a.pattern, (a as { query?: unknown }).query, a.path].filter((x): x is string => typeof x === 'string').join(' ').normalize('NFC').toLowerCase()
+    if (said.includes(own)) return true
+    return listing && (!k || placeKey(pl).startsWith(k + '/'))
+  }
+  const leftHit = [...left].filter(([pk, pl]) => !noted.has(pk) && askedFor(pl))
+  if (!hit.length && !leftHit.length) return null
+  for (const [pk] of [...hit, ...leftHit]) noted.add(pk)
+  return [hit.length ? lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared }) : null,
+    leftHit.length ? leftGroupNote(exec.rt.db, leftHit.map(([, pl]) => pl), exec.spec.locale, { shared }) : null].filter(Boolean).join('\n')
+}
+
+/** How long after someone left a group its folders still get the lost-access fact (S-118): long enough for the chats
+ * of that week, short enough that an old move is not news. */
+const LEFT_GROUP_DAYS = 30
+/** The person's latest messages in the chat read for the folder's name: this turn's and the one before it. */
+const LEFT_GROUP_MESSAGES = 2
+/** Korean particles and words that may follow a folder's name in a message (folder, team, group; the particles 은 는
+ * 가 을 를 의 에 도 로 와 과; not 이, which starts too many words: 영업이익): a name followed by any other letter is another word ("영업일", "인사말") */
+const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|\uD3F4\uB354|\uD300|\uBD80\uC11C|[\uC740\uB294\uAC00\uC744\uB97C\uC758\uC5D0\uB3C4\uB85C\uC640\uACFC])/u
+
+/** Is the folder name `own` written as a word of its own in `said` (both NFC lower case)? */
+export function namesFolder(said: string, own: string): boolean {
+  for (let i = said.indexOf(own); i >= 0; i = said.indexOf(own, i + 1)) {
+    const before = i > 0 ? said[i - 1]! : ''
+    if (before && /[\p{L}\p{N}]/u.test(before)) continue
+    if (AFTER_NAME.test(said.slice(i + own.length))) return true
+  }
+  return false
+}
+
+/**
+ * The team folders a group rule opens (read or write) for a group this person left within LEFT_GROUP_DAYS and is not
+ * back in (group_member_since.left_at; one edit of a group deletes and adds back within seconds, which keeps no
+ * left_at), that were open to the group before they left (a rule or folder made later was never theirs), that the rules
+ * no longer let them read and no share opens, and whose own name (the folder's last part) the person wrote as a word of
+ * its own in this turn's message or the one before. Naming it themselves is what makes saying it reveal nothing new, also to the others
+ * in a shared chat. [] on any failure.
+ */
+export function leftGroupPlaces(exec: Pick<TurnExec, 'rt' | 'spec'>, userId: string, gone: (rel: string) => boolean, granted: (rel: string) => boolean): string[] {
+  try {
+    const since = new Date(Date.now() - LEFT_GROUP_DAYS * 86400000).toISOString()
+    // (the group's own folder, groups.folder_id, and any folder a rule opens for the group; each from before they left)
+    const rows = exec.rt.db.query(`WITH left_groups AS (SELECT s.group_id, s.left_at FROM group_member_since s
+        WHERE s.user_id = ?1 AND s.left_at IS NOT NULL AND s.left_at >= ?2
+          AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = s.group_id AND gm.user_id = s.user_id))
+      SELECT f.path AS path FROM left_groups l JOIN groups g ON g.id = l.group_id JOIN folders f ON f.id = g.folder_id
+        WHERE f.created_at <= l.left_at
+      UNION SELECT f.path FROM left_groups l JOIN folder_rules r ON r.subject_type = 'group' AND r.subject_id = l.group_id
+        AND r.access IN ('read', 'write') AND r.updated_at <= l.left_at JOIN folders f ON f.id = r.folder_id`).all(userId, since) as { path: string }[]
+    if (!rows.length) return []
+    // the person's own words now: this turn's message and the one before it ("영업 폴더 단가표 열어줘", then "다시 해 봐")
+    const spec = exec.spec as { chatId?: string }
+    const said = (exec.rt.db.query(`SELECT m.content FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user'
+        AND (m.author_id = ? OR (m.author_id IS NULL AND c.user_id = ?)) ORDER BY m.created_at DESC, m.id DESC LIMIT ?`).all(spec.chatId ?? '', userId, userId, LEFT_GROUP_MESSAGES) as { content: string }[])
+      .map((r) => r.content).join('\n').normalize('NFC').toLowerCase()
+    if (!said) return []
+    const out: string[] = []
+    for (const r of rows) {
+      const rel = relOf(r.path)
+      const top = rel.split('/')[0]?.normalize('NFC').toLowerCase()
+      const own = rel.split('/').pop()?.normalize('NFC').toLowerCase() ?? ''
+      // never a personal folder (users/…: reached only through a share) or a name too short to tell apart
+      if (!rel || top === 'users' || [...own].length < 2 || !namesFolder(said, own)) continue
+      if (!gone(rel) || granted(rel)) continue
+      out.push(rel)
+    }
+    return out
+  } catch { return [] }
 }
 
 /** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a
@@ -996,7 +1121,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
       multiple: false, allowText: false, expiresAt: new Date(Date.now() + wait).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
-      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
+      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : extra?.buttons && options.length === 4 ? { buttons: true as const, row: true as const } : {}),
       ...(extra?.note ? { note: extra.note } : {}),
     } as TurnRequest, { timeoutMs: wait })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
@@ -1026,6 +1151,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
     unattended: exec.spec.clientKind === 'schedule' || exec.restricted,
+    // the person's own Always for a kind of card, as alwaysHere reads it here (their own scheduled run too, Rule A; the
+    // guest limit kept there): a tool that would refuse an unattended run at once reads it first
+    alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
     // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,
     // shared chats and chats that read rooms too (the owner's call, 2026-11-11)
@@ -1038,15 +1166,19 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the connection still goes without the card (docs/decisions/20261116-always-allow-final-rule-a.md)
     attachAsks: (paths) => othersWordsIn(exec) || !fromAsker(exec.rt.db, askerSpec(exec), paths),
     othersWords: () => othersWordsIn(exec),
+    // (read live: a teammate's message written after the turn began counts too; a check that fails counts as yes)
+    othersInChat: () => {
+      if (exec.otherAuthors || readRooms(exec) || exec.othersWords) return true
+      try { return !!exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId) } catch { return true }
+    },
     // (never while a waiting call runs again: that run reaches the card its press is checked against)
     explicitPlace: (dir, paths) => exec.askedIn ? false : paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
-    // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
-    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong()),
-    // their "Allow all websites" holds in their own scheduled run too (Rule A), except while a guest is among the people
-    // and another person's words can steer the run (the one limit Rule A keeps, as the connector cards: steerableRun)
-    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong() && steerableRun(exec.rt.db, exec.id)),
+    // run, not a draft or a Slack question; a guest among the people too (one Always: docs/decisions/20261123-one-always-allow.md)
+    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted,
+    // their "Allow all websites" holds in their own scheduled run too (Rule A), a guest among the people too
+    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted,
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
@@ -1115,6 +1247,11 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
       if (r.stepImages?.length && !callerOf(files, exec.files).helper) {
         const shown = r.stepImages
         exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
+      }
+      // a scheduled task it made (schedule_create): its step shows it with Pause and Delete (docs/decisions/20261123-do-then-undo.md)
+      if (r.stepScheduled && !r.isError && !callerOf(files, exec.files).helper) {
+        const scheduled = r.stepScheduled
+        exec.patchToolStep(t.name, () => ({ scheduled }))
       }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
@@ -1247,6 +1384,9 @@ export function copyCodeLine(plan: Pick<MovePlan, 'from' | 'to' | 'files'>, L: L
   return ''
 }
 
+/** the start of SKILL.md a move card shows (the rest opens from its file list) */
+const MOVE_CARD_TEXT = 12_000
+
 // ---------------- move_skill ----------------
 // One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
@@ -1372,9 +1512,11 @@ function moveSkillTool(exec: TurnExec): Tool {
       const cut = plan.text.length > MOVE_TEXT_MAX
       const details: ConfirmDetail[] = [
         ...(fields.length ? [{ label: skillText('moveWho', L), text: '', fields }] : []),
-        { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, MOVE_TEXT_MAX), ...(full ? {} : { collapsedAt: 600 }) },
+        // its start only (the card never carries a skill's whole text: owner 2026-11-23 "무거운것도 문제야"); every file opens
+        // on request from the list below
+        { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut || plan.text.length > MOVE_CARD_TEXT ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, Math.min(MOVE_TEXT_MAX, MOVE_CARD_TEXT)), ...(full ? {} : { collapsedAt: 600 }) },
         // where each file lands (a renamed copy: under its new name)
-        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true },
+        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true, open: plan.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size, sha: f.sha })) },
       ]
       const base = plan.source.split('/').pop()!
       const narrowHint = !copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? skillText('moveNarrowHint', L, { name: base }).slice(0, 300) : null
@@ -1384,6 +1526,10 @@ function moveSkillTool(exec: TurnExec): Tool {
         copy ? 'copy' : 'move', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
           options, details, ...more,
+          // in plain words first (the skill, what it does, who follows it), the rest behind "자세히"; several of one answer
+          // to the same place are one card (AskUserRequest.batch, skills/lean-card.ts)
+          batch: skillBatch({ tool: 'move_skill', to: plan.to, copy, name: plan.name, text: plan.text, followers: plan.afterPeople,
+            warn: [exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', plan.lost ? changeLine(plan, L) : '', plan.editorsGained ? editorsLine(plan, L) : '', plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '', copyCodeLine(plan, L)] }, L),
           ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))
@@ -1704,10 +1850,13 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         const host = u.host
         if (!host || !u.href) continue
         const office = async (): Promise<Awaited<ReturnType<Tool['call']>> | 'ok' | 'shown'> => {
-          if (exec.allowedHosts.has(host) || rt.siteGranted(spec.userId, host)) return 'ok'
-          const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
-          if (decision === 'always') rt.grantSite(spec.userId, host)
-          else if (decision === 'once') exec.allowedHosts.add(host)
+          // the team's "Always allow" switch (Admin › Team AI settings), as every other Always: off, a site kept for good
+          // does not count (kept, not deleted) and the card offers no Always (an "always" answer counts once)
+          const keep = teamAllowsAlways(rt.db)
+          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) return 'ok'
+          const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }), ...(keep ? {} : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+          if (decision === 'always' && keep) rt.grantSite(spec.userId, host)
+          else if (decision === 'once' || decision === 'always') exec.allowedHosts.add(host)
           else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
           // the office-network card showed the full address (up to 2000 characters)
           return url.length <= 2000 ? 'shown' : 'ok'
@@ -1798,6 +1947,10 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
     // new file made from it
     if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
+    // promo_video's logo and pictures may be one of this chat's own files (AB4 F11: this refusal told the AI to copy the
+    // attached photo into a team folder first, a 16-person card); the tool's own check reads it (promo-video/spec.ts)
+    if (name === 'promo_video' && place?.kind === 'chatFiles' && (key === 'logo' || key.endsWith('.picture'))) continue
+    if (name === 'promo_video' && place?.kind === 'chatFiles') return `Not done (promo_video): ${value} is a file of this chat. A picture of it goes in as one beat's picture (promise.picture or work.picture) or the logo, exactly as this path; sources are only the files whose words go on screen. Never copy it into a team folder for the video.`
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
