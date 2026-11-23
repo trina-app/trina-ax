@@ -495,6 +495,20 @@ describe('config', () => {
     expect(parseConfig(base, '/srv').limits).toMatchObject({ streamsPerInstance: 2, instanceCapMargin: 1.2 })
     expect(parseConfig(base, '/srv').ai).toMatchObject({ models: [...DEFAULT_MODELS], defaultModel: 'claude-sonnet-5-5' })
   })
+  test('the example configs load; the Linux one clones by reflink, runs instances under choom and takes 30', () => {
+    const dir = path.join(import.meta.dir, '..')
+    for (const f of ['gate.example.json', 'gate.example.linux.json']) expect(() => parseConfig(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')), dir)).not.toThrow()
+    const l = parseConfig(JSON.parse(fs.readFileSync(path.join(dir, 'gate.example.linux.json'), 'utf8')), dir)
+    expect(l.pool).toMatchObject({ instancesDir: '/srv/tdg', cloneCommand: ['cp', '--reflink=always', '-R'], maxLive: 30, portRange: [19200, 19399] })
+    expect(l.pool.command.slice(0, 4)).toEqual(['/usr/bin/choom', '-n', '800', '--'])
+    expect(l.pool.path.split(':')[0]).toBe('/opt/trina-demo/claude/bin')
+    expect(l.limits.maxStreams).toBe(12)
+    // three ports per instance: 30 live and 2 warm for each of the six languages fit the range
+    expect(l.pool.portRange[1] - l.pool.portRange[0] + 1).toBeGreaterThanOrEqual(3 * (l.pool.maxLive + l.pool.warmPerLocale * l.pool.locales.length))
+    // at least three ports: one instance's listener, model proxy and the proxy's internal server
+    expect(() => parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20001] } }, '/srv')).toThrow(ConfigError)
+    expect(parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20002] } }, '/srv').pool.portRange).toEqual([20000, 20002])
+  })
   test('how the gate runs things as the instance user', () => {
     const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')
     expect(runMode(c, 501)).toBe('sudo')

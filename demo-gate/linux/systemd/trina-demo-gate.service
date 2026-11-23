@@ -1,0 +1,33 @@
+# The free-roam demo gate (demo-gate/) as tdgate. Its instances are started through sudo as tdrun and stay in this
+# unit's cgroup, so MemoryHigh/MemoryMax hold the gate and every instance together; each instance runs under
+# `choom -n 800` (pool.command), so the kernel ends an instance before the gate or anything else on the machine.
+[Unit]
+Description=Trina free-roam demo gate
+After=network-online.target trina-demo-nft.service
+Wants=network-online.target
+RequiresMountsFor=/srv/tdg /var/demo-gate
+
+[Service]
+User=tdgate
+Group=tdgate
+WorkingDirectory=/var/demo-gate
+Environment=HOME=/var/demo-gate/state PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# the egress table first (as root): never a gate without it
+ExecStartPre=+/opt/trina-demo/bin/tdnft-load
+ExecStart=/opt/trina-demo/node/bin/node --disable-warning=ExperimentalWarning /opt/trina-demo/app/demo-gate/src/main.ts --config /var/demo-gate/gate.json
+UMask=0077
+Restart=always
+RestartSec=30
+MemoryHigh=16G
+MemoryMax=18G
+TasksMax=12000
+OOMScoreAdjust=-100
+# Not NoNewPrivileges (sudo), not ProtectKernelTunables/ProtectProc/ProtectControlGroups (they mount over /proc and
+# /sys, and the converters' bwrap then cannot mount its own /proc). /home and /root are hidden from the gate and
+# from every instance.
+ProtectHome=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

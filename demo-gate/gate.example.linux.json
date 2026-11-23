@@ -1,0 +1,88 @@
+{
+  "publicOrigin": "https://demo.trina.app",
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 19190
+  },
+  "upstreamListen": {
+    "host": "127.0.0.1",
+    "port": 19191
+  },
+  "stateDir": "/var/demo-gate/state",
+  "pauseFile": "/var/demo-gate/PAUSE",
+  "clientIpHeader": "cf-connecting-ip",
+  "turnstile": {
+    "siteKey": "<turnstile site key>",
+    "secretFile": "/var/demo-gate/secrets/turnstile-secret"
+  },
+  "ai": {
+    "mode": "claude-subscription",
+    "credentialFile": "/var/demo-gate/secrets/ai-credential",
+    "upstream": "https://api.anthropic.com"
+  },
+  "pool": {
+    "snapshotsDir": "/var/demo-gate/snapshots",
+    "instancesDir": "/srv/tdg",
+    "cloneCommand": [
+      "cp",
+      "--reflink=always",
+      "-R"
+    ],
+    "codeVersion": "0.5.21",
+    "locales": [
+      "en",
+      "ko",
+      "ja",
+      "zh",
+      "es",
+      "id"
+    ],
+    "warmPerLocale": 2,
+    "maxLive": 30,
+    "ttlHours": 24,
+    "command": [
+      "/usr/bin/choom",
+      "-n",
+      "800",
+      "--",
+      "/opt/trina-demo/bin/bun",
+      "/opt/trina-demo/app/server/src/main.ts",
+      "--config",
+      "{config}"
+    ],
+    "portRange": [
+      19200,
+      19399
+    ],
+    "startTimeoutMs": 90000,
+    "path": "/opt/trina-demo/claude/bin:/opt/trina-demo/bin:/usr/bin:/bin",
+    "runAs": {
+      "uid": 964,
+      "gid": 964
+    },
+    "diskCapMB": 1024,
+    "env": {
+      "MYCEL_LOG_LEVEL": "info",
+      "MYCEL_HTML_PDF_BROWSER": "/opt/trina-demo/chrome-headless-shell/current/chrome-headless-shell"
+    }
+  },
+  "limits": {
+    "startsPerHour": 3,
+    "startsPerDay": 6,
+    "livePerIp": 2,
+    "exemptIpHashes": [],
+    "exemptLivePerIp": 6,
+    "maxStreams": 12,
+    "streamsPerInstance": 2,
+    "instanceCapMargin": 1.2,
+    "streamWaitMs": 30000,
+    "dailyWeightedTokens": 30000000
+  },
+  "links": {
+    "scriptedDemo": "https://ax.trina.app/demo",
+    "pricing": "https://ax.trina.app/pricing",
+    "statusOrigins": [
+      "https://ax.trina.app"
+    ]
+  }
+}

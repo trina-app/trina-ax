@@ -1,0 +1,32 @@
+# The Cloudflare tunnel of the demo host (one connector of one named tunnel; README "Hosting on Linux": never add a
+# second connector to a tunnel that already serves the live hostname from another machine).
+[Unit]
+Description=Trina demo tunnel (cloudflared)
+After=network-online.target trina-demo-nft.service
+Wants=network-online.target
+
+[Service]
+User=tdtunnel
+Group=tdtunnel
+WorkingDirectory=/var/demo-tunnel
+Environment=HOME=/var/demo-tunnel
+ExecStartPre=+/opt/trina-demo/bin/tdnft-load
+ExecStart=/opt/trina-demo/bin/cloudflared --no-autoupdate --config /var/demo-tunnel/config.yml tunnel run
+UMask=0077
+Restart=always
+RestartSec=30
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/demo-tunnel
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

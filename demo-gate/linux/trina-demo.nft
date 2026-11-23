@@ -1,0 +1,79 @@
+#!/usr/sbin/nft -f
+# Trina free-roam demo on Linux: egress rules for its role users only (README "Hosting on Linux"). One table of its
+# own (inet trina_demo) on the output hook: it never flushes or touches another table, so Docker's and Tailscale's rules
+# (ip/ip6 filter, nat) stay as they are; a packet must pass every table, and this one accepts everything that is not
+# from tdgate, tdrun, tdtunnel or tdbuild. Loaded (and the Turnstile and DNS sets refilled) by tdnft-load.
+# The users must exist before this file loads (nft resolves the names once, at load).
+
+table inet trina_demo
+delete table inet trina_demo
+
+table inet trina_demo {
+  # LAN, Tailscale (CGNAT 100.64/10), link-local, multicast
+  set private4 { type ipv4_addr; flags interval; elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4 } }
+  set private6 { type ipv6_addr; flags interval; elements = { fc00::/7, fe80::/10, ff00::/8 } }
+  # api.anthropic.com (Anthropic's published ranges)
+  set anthropic4 { type ipv4_addr; flags interval; elements = { 160.79.104.0/23 } }
+  set anthropic6 { type ipv6_addr; flags interval; elements = { 2607:6bc0::/48 } }
+  # the Cloudflare edge (cloudflare.com/ips), for the tunnel
+  set cf4 { type ipv4_addr; flags interval; elements = { 173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22 } }
+  set cf6 { type ipv6_addr; flags interval; elements = { 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32 } }
+  # challenges.cloudflare.com (Turnstile siteverify): filled by tdnft-load from DNS, every 10 minutes
+  set turnstile4 { type ipv4_addr; }
+  set turnstile6 { type ipv6_addr; }
+
+  chain output {
+    type filter hook output priority filter; policy accept;
+    meta skuid != { "tdgate", "tdrun", "tdtunnel", "tdbuild" } accept
+    # answers on connections that were allowed (and the replies of the users' own listening sockets)
+    ct state established,related accept
+    meta skuid "tdrun" jump td_run
+    meta skuid "tdgate" jump td_gate
+    meta skuid "tdtunnel" jump td_tunnel
+    meta skuid "tdbuild" jump td_build
+    reject
+  }
+
+  # instances (visitor-driven work): the gate's model upstream (19191) and the instance ports on loopback; nothing
+  # else, not even DNS. The model proxy's internal server has a port in the range too (engine.proxyInnerPort).
+  chain td_run {
+    oifname "lo" ip daddr 127.0.0.1 tcp dport { 19191, 19200-19399 } ct state new accept
+    limit rate 6/minute log prefix "trina-demo run drop: "
+    reject
+  }
+
+  # the gate: the instances on loopback, the local DNS stub, Anthropic's API, Turnstile siteverify
+  chain td_gate {
+    oifname "lo" ip daddr 127.0.0.1 tcp dport 19200-19399 ct state new accept
+    oifname "lo" ip daddr 127.0.0.53 meta l4proto { tcp, udp } th dport 53 accept
+    ip daddr @private4 reject
+    ip6 daddr @private6 reject
+    ip daddr @anthropic4 tcp dport 443 ct state new accept
+    ip6 daddr @anthropic6 tcp dport 443 ct state new accept
+    ip daddr @turnstile4 tcp dport 443 ct state new accept
+    ip6 daddr @turnstile6 tcp dport 443 ct state new accept
+    limit rate 6/minute log prefix "trina-demo gate drop: "
+    reject
+  }
+
+  # the tunnel: the gate's public port on loopback, the local DNS stub, the Cloudflare edge
+  chain td_tunnel {
+    oifname "lo" ip daddr 127.0.0.1 tcp dport 19190 ct state new accept
+    oifname "lo" ip daddr 127.0.0.53 meta l4proto { tcp, udp } th dport 53 accept
+    ip daddr @private4 reject
+    ip6 daddr @private6 reject
+    ip daddr @cf4 tcp dport { 443, 7844 } ct state new accept
+    ip6 daddr @cf6 tcp dport { 443, 7844 } ct state new accept
+    ip daddr @cf4 udp dport 7844 accept
+    ip6 daddr @cf6 udp dport 7844 accept
+    limit rate 6/minute log prefix "trina-demo tunnel drop: "
+    reject
+  }
+
+  # the nightly snapshot builder: its own servers on loopback (any port), no DNS, nothing else
+  chain td_build {
+    oifname "lo" ip daddr 127.0.0.0/8 ct state new accept
+    oifname "lo" ip6 daddr ::1 ct state new accept
+    reject
+  }
+}

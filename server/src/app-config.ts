@@ -163,6 +163,9 @@ export const AppConfigFile = z.object({
      * Claude requests and Codex tunnels. pf and the launcher's sandbox allow the engine account only this port, so
      * another value here only makes the engine fail closed. */
     proxyPort: z.number().int().min(1).max(65535).optional(),
+    /** the model proxy's internal port on 127.0.0.1 (model-proxy.ts innerPort); absent = one the OS picks. The free-roam
+     * demo gate sets it per instance, so its Linux firewall allows the instance user only the instance port range. */
+    proxyInnerPort: z.number().int().min(1).max(65535).optional(),
     /** where the model proxy sends requests (tests point it at a fake upstream). The owner's token goes there, so
      * HTTPS only; plain HTTP only to this Mac (a fake upstream in tests); no user:password in the address. */
     modelUpstream: z.string().url().refine(credentialUrl, 'modelUpstream must be https:// (http:// only for 127.0.0.1 / localhost)').optional(),
@@ -259,7 +262,7 @@ export interface AppConfig {
     authMode: 'local-login' | 'managed'
     /** the older name the file used ('subscription' / 'proxy'), logged once at start */
     authModeAlias?: string
-    claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number
+    claudeBin?: string; codexBin?: string; runDir?: string; agentRoot?: string; launcherSock?: string; agentUid?: number; proxyPort?: number; proxyInnerPort?: number
     /** alias of modelUpstreams.anthropic */
     modelUpstream?: string
     /** absent = all four kinds */
@@ -384,6 +387,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.launcherSock ? { launcherSock: abs(f.engine.launcherSock) } : {}),
       ...(f.engine.agentUid !== undefined ? { agentUid: f.engine.agentUid } : {}),
       ...(f.engine.proxyPort !== undefined ? { proxyPort: f.engine.proxyPort } : {}),
+      ...(f.engine.proxyInnerPort !== undefined ? { proxyInnerPort: f.engine.proxyInnerPort } : {}),
       ...(f.engine.modelUpstream ? { modelUpstream: f.engine.modelUpstream } : {}),
       ...(f.engine.credentialKinds ? { credentialKinds: [...new Set(f.engine.credentialKinds)] } : {}),
       ...(f.engine.modelUpstreams ? { modelUpstreams: f.engine.modelUpstreams } : {}),

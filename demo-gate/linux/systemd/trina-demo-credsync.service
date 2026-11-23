@@ -1,0 +1,14 @@
+[Unit]
+Description=Trina demo: copy the tdcred Claude login into the gate
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=tdcred
+Group=tdcred
+Environment=HOME=/var/lib/trina-demo-cred
+ExecStart=/opt/trina-demo/bin/tdcred-credsync
+UMask=0077
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
