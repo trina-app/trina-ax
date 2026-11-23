@@ -290,9 +290,6 @@ export const TEXT = {
   roomAiConfirmNo: t('허용 안 함', "Don't allow", 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
   /** "Always allow" on any card (chat/always-allow.ts) and what it means, under the buttons */
   cardAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
-  // a guest is among the people of this turn: Always holds for this chat only (chat/always-allow.ts chatScoped)
-  cardAlwaysChat: t('이 대화에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に許可", "Siempre en este chat", "在此对话中始终允许"),
-  cardAlwaysChatNote: t('이 대화에서 항상 허용: 팀 밖의 사람이 함께 있어서, 이 대화에서만 다시 묻지 않아요. 새 사람이 들어오면 다시 물어요.', 'Always in this chat: someone from outside the team is among the people here, so Trina stops asking about this in this chat only. It asks again when someone new joins.', 'Selalu di obrolan ini: ada orang dari luar tim di sini, jadi Trina berhenti bertanya tentang ini hanya di obrolan ini. Trina bertanya lagi saat ada orang baru bergabung.', "この会話では常に許可：チーム外の人が一緒にいるため、この会話でのみ確認しません。新しい人が参加すると、もう一度確認します。", "Siempre en este chat: hay alguien de fuera del equipo aquí, así que Trina deja de preguntar por esto solo en este chat. Vuelve a preguntar cuando se une alguien nuevo.", "在此对话中始终允许：这里有团队外的人，所以 Trina 只在此对话中不再询问。有新成员加入时会再次询问。"),
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
   cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
@@ -614,16 +611,16 @@ export const TEXT = {
   // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
   // the label of its list of those changes (chat/tools.ts boxShellTool confirm)
   devLoginChanges: t('바뀐 파일', 'Changes', 'Perubahan', "変更されたファイル", "Cambios", "更改的文件"),
-  /** with a guest in the chat: Always holds for this chat only */
-  sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
   /** Always for good (docs/decisions/20261122-connector-always-allow.md): every shared chat, until removed in Settings */
   sharedConnectionAlwaysAll: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
-  sharedConnectionAlwaysNote: t('항상 허용: 앞으로 공유 채팅에서는 {service} 내용을 묻지 않고 함께 보여 줘요. 설정에서 지울 수 있어요.',
-    'Always allow: from now on, in shared chats, what the AI gets from {service} shows to the people in the chat without asking. You can remove it in Settings.',
-    'Selalu izinkan: mulai sekarang, di obrolan bersama, apa yang AI ambil dari {service} terlihat oleh orang di obrolan tanpa bertanya. Anda bisa menghapusnya di Pengaturan.',
-    "常に許可：今後は共有チャットで、AIが{service}から取得した内容を確認なしでチャットの人に表示します。設定で削除できます。",
-    "Permitir siempre: a partir de ahora, en los chats compartidos, lo que la IA obtenga de {service} se muestra a las personas del chat sin preguntar. Puede quitarlo en Configuración.",
-    '始终允许：从现在起，在共享对话中，AI 从{service}获取的内容会直接显示给对话里的人，不再询问。你可以在设置中移除。'),
+  /** "<connector> 전체 항상 허용" (docs/decisions/20261123-one-always-allow.md): every tool of the connection, for good */
+  connectorAllAlways: t('{service} 전체 항상 허용', 'Always allow all of {service}', 'Selalu izinkan semua {service}', "{service}をすべて常に許可", "Permitir siempre todo {service}", "始终允许{service}的全部工具"),
+  sharedConnectionAlwaysNote: t('항상 허용: 공유 채팅에서 {service} 내용을 묻지 않고 함께 보여 줘요. {service} 전체 항상 허용: {service}의 모든 도구도 모든 대화에서 묻지 않고 써요. 설정에서 지울 수 있어요.',
+    'Always allow: in shared chats, what the AI gets from {service} shows to the people without asking. Always allow all of {service}: every {service} tool also runs without asking, in every chat. You can remove either in Settings.',
+    'Selalu izinkan: di obrolan bersama, apa yang AI ambil dari {service} terlihat tanpa bertanya. Selalu izinkan semua {service}: semua alat {service} juga dipakai tanpa bertanya, di semua obrolan. Hapus di Pengaturan.',
+    "常に許可：共有チャットで、AIが{service}から取得した内容を確認なしで表示します。{service}をすべて常に許可：{service}のすべてのツールもすべての会話で確認なしで使います。設定で削除できます。",
+    "Permitir siempre: en los chats compartidos, lo que la IA obtenga de {service} se muestra sin preguntar. Permitir siempre todo {service}: todas las herramientas de {service} se usan sin preguntar, en cada chat. Puede quitarlo en Configuración.",
+    '始终允许：在共享对话中，AI 从{service}获取的内容会直接显示，不再询问。始终允许{service}的全部工具：{service}的所有工具在每个对话中都不再询问。你可以在设置中移除。'),
   sharedConnectionCancel: t('안 함', 'Don’t allow', 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
   sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal", "你的个人文件夹"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat", "其他人在这个对话中打开的位置"),

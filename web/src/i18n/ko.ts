@@ -830,6 +830,7 @@ export const ko = {
   'allowances.deleteLabel': "{place} 허용 지우기",
   'allowances.always': "항상 허용",
   'allowances.connectorShared': "공유 채팅에서 가져온 내용 보여 주기",
+  'allowances.connectorAll': "모든 도구 (모든 대화와 예약 작업)",
   "allowances.card.room_change": "대화를 읽은 뒤 바꾸기",
   'allowances.card.remember': "기억하기",
   'allowances.card.save_wider': "더 많은 사람이 보는 곳에 저장",

@@ -2,8 +2,8 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
-import { ALWAYS_CHAT_VALUE, ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, chatScoped, keepAlways, keepAlwaysAt, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
-import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { keepConnectorAllow, keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -515,7 +515,7 @@ export class TurnExec {
   private sharedConnAllowed = new Map<string, Set<string>>()
   private sharedConnRefused = new Map<string, SharedNo>()
   /** a connection card already open (parallel calls wait for that one answer) */
-  private sharedConnPending = new Map<string, { asked: string[]; p: Promise<SharedDecision | 'always'> }>()
+  private sharedConnPending = new Map<string, { asked: string[]; p: Promise<SharedDecision | 'always' | 'all'> }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
@@ -3396,8 +3396,6 @@ export class TurnExec {
     // "Always allow" here is the person's own for every change after a room read (chat/always-allow.ts), on the first
     // card, in their own chats and side chats alike; it replaces the room's folder grant ("이 방에서는 항상 허용")
     const always = roomAlways === 'offer'
-    // a guest among the people: "Always in this chat", its own value (chat/always-allow.ts ALWAYS_CHAT_VALUE)
-    const inChat = always && chatScoped(this.alwaysPlace())
     // the person's own chat: why it asks first (the room card's words after it for a new team file). A read from a
     // connected service says it reads and asks to allow it; it changes nothing (QA TC-285)
     const reads = this.readsOnly(tool, input)
@@ -3409,16 +3407,16 @@ export class TurnExec {
     if (always) this.alwaysOffer = 'room_change'
     const asked = this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
-      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [inChat ? { label: tr('cardAlwaysChat', L), value: ALWAYS_CHAT_VALUE } : { label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
+      options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L, this.alwaysPlace()) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     this.alwaysOffer = null
     const { value: answer, missing } = await asked
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-    const pressedAlways = always && (inChat ? v === ALWAYS_CHAT_VALUE : v === ALWAYS_VALUE)
-    if (pressedAlways) keepAlwaysAt(this.alwaysPlace(), 'room_change', { inChat })
+    const pressedAlways = always && v === ALWAYS_VALUE
+    if (pressedAlways) keepAlways(this.rt.db, this.spec.userId, 'room_change', this.id)
     if (v === 'allow' || pressedAlways) {
       this.roomAllowed.add(key)
       // a command's yes covers what it makes for the rest of this answer (sameAnswerTarget)
@@ -4504,8 +4502,8 @@ export class TurnExec {
    * a call fetches anything, the people who see the chat now and could not see what the connection returns
    * (missingReaders on its sources: everyone but its owner for a person's own connection, whoever a team connection's
    * rule leaves out) make the card come first, to the person whose turn it is only: "Allow once" (this answer), "Always
-   * in this chat" (chat_card_approvals kind shared_connection, with who saw the chat then: a person who joins later
-   * makes it ask again) or "Cancel". Cancel, no answer, a scheduled run or a failed check fetch nothing. What the call
+   * allow" (for good, in every shared chat: connector_tool_allow SHARED_TOOL), "<connector> 전체 항상 허용" (every tool
+   * of the connection too: ALL_TOOLS; docs/decisions/20261123-one-always-allow.md) or "Cancel". Cancel, no answer, a scheduled run or a failed check fetch nothing. What the call
    * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
    * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
    */
@@ -4533,54 +4531,52 @@ export class TurnExec {
       const once = this.sharedConnAllowed.get(c.key)
       if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
       // the person's own Always for good (docs/decisions/20261122-connector-always-allow.md, the owner: "매 대화마다
-      // 해야한다니"): any audience of teammates; a guest (someone outside the team) in the chat still asks
-      if (this.sharedConnForGood(c, audience)) return this.noteSharedReads(c.sources, audience, true, true) ? null : failed()
-      const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
-        .find((d) => Array.isArray(d.c) && covers(d.c))
-      if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
+      // 해야한다니"), or for the whole connection: any audience, a guest among it too (one Always, 20261123-one-always-allow.md)
+      if (this.sharedConnForGood(c)) return this.noteSharedReads(c.sources, audience, true, true) ? null : failed()
       // one card per connection at a time; the people it names go with it, so a parallel call whose audience is wider
       // (someone joined meanwhile) is not covered by it and asks again on the next round
       let pending = this.sharedConnPending.get(c.key)
       if (!pending) {
         const asked = [...new Set(audience)].sort()
-        const made = { asked, forGood: this.sharedConnMayKeep(c, asked), p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
         pending = made
         this.sharedConnPending.set(c.key, made)
         const decision = await made.p
-        if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
+        if (decision !== 'shared' && decision !== 'always' && decision !== 'all') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
         this.sharedConnAllowed.set(c.key, new Set(asked))
-        if (decision === 'always') {
-          if (this.sharedConnMayKeep(c, asked) && made.forGood) keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
-          else noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        // (checked again: the team's switch or the chat may have changed while the card was open)
+        if (decision !== 'shared' && this.sharedConnMayKeep(c)) {
+          if (decision === 'all') keepConnectorAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
+          else keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
         }
         continue
       }
       const decision = await pending.p
-      if (decision !== 'shared' && decision !== 'always') return this.sharedConnText(c.name, decision)
+      if (decision !== 'shared' && decision !== 'always' && decision !== 'all') return this.sharedConnText(c.name, decision)
       // (the asker of that card saved what it covers; the next round checks this call's audience against it)
     }
     return failed()
   }
 
   /** The person's Always for good on the shared connection card may be kept and used here: a turn they watch from their
-   * own app or their own scheduled run (also one a teammate's words are in: Rule A), not a confidential chat, the
-   * team's "Always allow" switch on, and nobody outside the team (a guest) among the people. */
-  private sharedConnMayKeep(c: { bind?: string }, people: readonly string[]): boolean {
+   * own app or their own scheduled run (also one a teammate's words are in, and with a guest among the people: Rule A,
+   * one Always, docs/decisions/20261123-one-always-allow.md), not a confidential chat, the team's "Always allow" switch
+   * on. Elsewhere the card offers no Always at all (there is no Always for this chat only). */
+  private sharedConnMayKeep(c: { bind?: string }): boolean {
     if (!c.bind || !teamAllowsAlways(this.rt.db) || isConfidentialChat(this.rt.db, this.spec.chatId)) return false
     const scheduled = this.spec.clientKind === 'schedule'
-    if (!scheduled && !LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
-    try { return !people.some((id) => isGuestUser(this.rt.db, id)) } catch { return false }
+    return scheduled || LIVE_CLIENTS.has(this.spec.clientKind ?? '')
   }
 
-  private sharedConnForGood(c: { id: string; bind?: string }, people: readonly string[]): boolean {
-    return this.sharedConnMayKeep(c, people) && sharedAllowed(this.rt.db, c.id, this.spec.userId, c.bind!)
+  private sharedConnForGood(c: { id: string; bind?: string }): boolean {
+    return this.sharedConnMayKeep(c) && sharedAllowed(this.rt.db, c.id, this.spec.userId, c.bind!)
   }
 
   /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
    * said: someone outside the team). */
-  private async askSharedConnection(c: { id: string; name: string; bind?: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
+  private async askSharedConnection(c: { id: string; name: string; bind?: string }, asked: readonly string[]): Promise<SharedDecision | 'always' | 'all'> {
     const L = this.spec.locale
-    const forGood = this.sharedConnMayKeep(c, asked)
+    const forGood = this.sharedConnMayKeep(c)
     const scheduled = this.spec.clientKind === 'schedule'
     const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
     let guests = 0
@@ -4590,16 +4586,17 @@ export class TurnExec {
       question: guests
         ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
         : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
-      // one press (QA TC-ask1-15): three buttons, the main one first. Always is for good where it may be kept (no
-      // guest here: sharedConnMayKeep), with one line saying what it covers; with a guest it stays for this chat
-      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr(forGood ? 'sharedConnectionAlwaysAll' : 'sharedConnectionAlways', L), value: forGood ? 'always' : 'always_chat' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
-      buttons: true, ...(forGood ? { note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
+      // one press (QA TC-ask1-15): the main one first. Where Always may be kept (sharedConnMayKeep): Always for this
+      // card, and the whole connection's ("<connector> 전체 항상 허용", every tool too), with one line saying what each
+      // covers; elsewhere only Allow / Don't allow (no Always for this chat only: 20261123-one-always-allow.md)
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, ...(forGood ? [{ label: tr('sharedConnectionAlwaysAll', L), value: 'always' }, { label: tr('connectorAllAlways', L, { service: name }), value: 'all' }] : []), { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      ...(forGood ? { buttons: true as const, row: true as const, note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(value) && value.length === 1 ? value[0] : value
-    // ("Always in this chat" has its own value: a press that waited is never taken for the Always for good, open-questions.ts sameCard)
-    const decision: SharedDecision | 'always' = (forGood ? v === 'always' : v === 'always_chat') ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
+    // (an Always the card did not offer, such as the per-chat one of a card raised before this version, is a no)
+    const decision: SharedDecision | 'always' | 'all' = forGood && v === 'always' ? 'always' : forGood && v === 'all' ? 'all' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
     try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
     catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
     return decision
@@ -4902,7 +4899,7 @@ export class TurnExec {
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
     const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
       if (!o.room) return this.askAlways('save_wider', req, 'save')
-      return this.askAlways('room_change', req, 'save', { onAlways: (inChat) => keepAlwaysAt(this.alwaysPlace(), 'save_wider', { inChat }) })
+      return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
     }
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
@@ -5304,7 +5301,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: (inChat: boolean) => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
@@ -5314,7 +5311,7 @@ export class TurnExec {
       missing = r.missing
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       const pressed = Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value
-      if (pressed === ALWAYS_VALUE || pressed === ALWAYS_CHAT_VALUE) o.onAlways?.(pressed === ALWAYS_CHAT_VALUE)
+      if (pressed === ALWAYS_VALUE) o.onAlways?.()
       return r.value
     }, o.label)
     return { value, missing }
@@ -5322,23 +5319,12 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => this.guestAmong(), audience: () => this.turnPeople(), offering: (k) => { this.alwaysOffer = k } }
-  }
-
-  /** The people of this turn (TurnExec.guestAmong's): the person, who sees this shared chat, the members of this side
-   * chat's room. Throws when they cannot be read (an "Always in this chat" then holds for nobody) */
-  turnPeople(): string[] {
-    const db = this.rt.db
-    const out = new Set<string>([this.spec.userId])
-    if (this.shared) for (const id of this.sharedAudience()) out.add(id)
-    const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
-    if (side) for (const m of db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(side) as { user_id: string }[]) out.add(m.user_id)
-    return [...out].sort()
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, offering: (k) => { this.alwaysOffer = k } }
   }
 
   /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
-   * the room of this side chat. The one scope limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md,
-   * as 20261122-connector-always-allow.md decided for the shared connection card). Fails closed. */
+   * the room of this side chat. It no longer limits "Always allow" (docs/decisions/20261123-one-always-allow.md); a share
+   * or post still checks what the asker named while a guest is here (chat/shared-actions.ts guestInShared). Fails closed. */
   guestAmong(): boolean {
     const db = this.rt.db
     try {
@@ -5485,12 +5471,11 @@ export class TurnExec {
       } catch (e) { said = 'Error: internal error'; this.rt.log.warn('running a card\'s call again failed', { err: e, turn: this.id }) }
       finally { tookLast = !!this.replaying?.answers.at(-1)?.used || !!this.replaying?.changedSaid; this.replaying = null; this.askedIn = null }
       // "Always allow" on the card the person pressed holds even when this run ended before that card (refused now, or
-      // no card needed): their choice for that kind, where it may be offered now (team switch, confidential, guest).
+      // no card needed): their choice for that kind, where it may be offered now (team switch, confidential; a guest
+      // among the people too: one Always, docs/decisions/20261123-one-always-allow.md).
       // Not when the card reads differently now (asked again: their choice waits for that card)
       const one = Array.isArray(c.answer) && c.answer.length === 1 ? c.answer[0] : c.answer
-      // (offered here now, and never while a guest is among the people of this shared chat: there each card's own rule
-      // decides whether its Always counts, which a run that never reached the card could not check)
-      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer' && !this.guestAmong()) {
+      if (!tookLast && one === ALWAYS_VALUE && c.always && alwaysHere(this.alwaysPlace(), c.always) === 'offer') {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
       }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)

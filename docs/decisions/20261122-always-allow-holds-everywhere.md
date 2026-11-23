@@ -1,13 +1,18 @@
 # Always allow holds everywhere: sites for good, shares and posts in shared chats, @everyone, shared-chat runs, dev logins
 
 - Date: 2026-11-22
-- Status: accepted
+- Status: accepted (its guest limit and every "Always in this chat" are superseded by [20261123-one-always-allow.md](20261123-one-always-allow.md))
 - Supersedes: "allow this site in this conversation" of [Allow a site for one conversation](../DECISIONS.md#allow-a-site-for-one-conversation-featexfil-followups-2026-10-30) (now for
   good, except with a guest); "Content written by others" of [20261116-always-allow-more-cards.md](20261116-always-allow-more-cards.md)
   for shares and posts in a shared chat; H1 and H2 of the security review of #1353 in
   [20261118-shared-schedules-any-frequency.md](20261118-shared-schedules-any-frequency.md) (the maker's standing yeses in
   a run a teammate's words are in)
 - Branch: fix/always-allow-holds-everywhere (on fix/connector-always-allow, which did B1, B2 and M1 of the same audit)
+
+- **Since 2026-11-23 ([20261123-one-always-allow.md](20261123-one-always-allow.md)):** there is one Always. Every
+  "Always in this chat" and per-chat site below is gone, and a guest among the people no longer limits the person's
+  Always (the shared connection card, the connector cards, the site card, scheduled runs). The connector cards also offer
+  "<connector> 전체 항상 허용". Read the guest lines below as history.
 
 - **Ask:** the owner, 2026-11-22: "이렇게 또 권한을 매번 대화마다 다 해줘야하는 미친 상황 더 없겠지?" A permission audit
   (origin/dev 834f98f) found five places where a person's "Always allow" did not hold. Rule A

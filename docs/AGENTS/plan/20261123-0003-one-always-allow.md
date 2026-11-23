@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 00:03
 - Branch: `fix/one-always-allow`
-- Status: in progress
+- Status: in progress (plan review done: must-fix items folded in)
 - Where: server (chat cards, connections, url-gate), shared (allowance type), web (Settings, ask card), docs. Why: the
   owner's decision of 2026-11-23 (docs/REPOSITORY-RULES.md: product rules live with the code that enforces them)
 - Version impact: patch (fewer cards and one remembered choice; one data-only migration that drops per-chat rows)
@@ -28,8 +28,10 @@ In:
    `shared_connection` approval rows read or written; where Always cannot be kept the card offers Allow / Don't allow
    only), and the late-Always keep in `replayCalls` (no `!this.guestAmong()`).
 3. `server/src/integrations/connections/tools.ts`: `alwaysPlaceOf` without the guest check; remove
-   `chatAlwaysPlaceOf`, `chatAllowed`, `chatAlwaysKind` and the "chat" option; drop the scheduled + guest + steerable
-   refusal in `gate` (the maker's Always holds there as in any of their runs).
+   `chatAlwaysPlaceOf`, `chatAllowed`, `chatAlwaysKind` and the "chat" option. The scheduled + guest + steerable
+   refusal in `gate` stays for everything but the maker's own Always for that call (`ownAlwaysCovers`; plan review).
+   A tool's own Always (and the connection-wide one) for a call on the person's own things also holds in their own
+   chats and scheduled runs, not only in shared chats (plan review: "every chat").
 4. `server/src/tools/url-gate.ts` + `chat/tools.ts` TurnPerson: the site option is "이 사이트 항상 허용" for good only;
    `chat_allowed_sites` is no longer read or written; where it cannot be kept for good (team switch off) the site
    option is not offered (as every other card with the switch off). `sitesForGood` and `scheduledRun` lose the guest
@@ -43,13 +45,13 @@ In:
 7. Connector-wide Always (owner's addition): one row per person and connection in `connector_tool_allow` with a
    reserved tool name (`ALL_TOOLS`, not a possible MCP tool name), bound like the others (`sharedBind`: address +
    account), pruned like the others (`pruneMemberAllows`, account disable/removal) and ignored with the team switch off.
-   It counts wherever a per-tool row counts (the read card `unsureGate`, the shared-chat own-things card in `gate`), for
-   the shared connection card (`sharedAllowed`), and as the person's own write allowance for that connection in their
-   own chats and scheduled runs (as `memberAllows` / their own connection's rule). Writes through a team connection in
-   a shared chat still ask every time (`sharedAlwaysKey` is null for them, unchanged). Offered on `cardWithAlways` and
-   on the shared connection card: four buttons [허용] [항상 허용] [<connector> 전체 항상 허용] [안 함]; the web ask card
-   shows four server buttons in one row (stacked on a phone). Settings lists it as one entry per connector
-   ("Aside · 모든 도구"), removable.
+   It counts only where a per-tool row counts (the read card `unsureGate`, a call on the person's own connection's
+   things `sharedAlwaysKey`) and for the shared connection card (`sharedAllowed`; its note says so). Never as a write
+   rule (`memberAllows`, the connection's "send without asking"; plan review). Writes through a team connection in a
+   shared chat still ask every time (`sharedAlwaysKey` is null for them, unchanged). Offered on `cardWithAlways` and on
+   the shared connection card: four buttons [허용] [항상 허용] [<connector> 전체 항상 허용] [안 함], marked with a new
+   optional `row` flag on the request (the folder access card's four choices stay radios; an older app shows radios);
+   the note stays within 300 characters. Settings lists it as one entry per connector ("Aside · 모든 도구"), removable.
 8. i18n: remove the chat-scope strings (server `chat/i18n.ts`, `connections/text.ts`, `url-gate.ts` TEXT), add the
    connector-wide label and note in 6 languages, web `allowances.connectorAll` in 6 languages.
 9. Docs: update `20261122-always-allow-holds-everywhere.md` and `20261122-connector-always-allow.md` (the guest limit is
@@ -61,7 +63,10 @@ In:
 
 Out (unchanged, still ask every time): the share recipient checks (`guestInShared` strict naming checks in
 share/post/folder), team-connection writes in shared chats, a team connection refused with a guest present, the
-private-chat write card (its Always is already connection-wide), confidential chats, Slack questions, demo servers.
+private-chat write card (its Always is already connection-wide), confidential chats, demo servers. Where an Always
+cannot be kept (the team's switch off, a Slack question, a confidential chat, a draft) the shared connection card and
+the address card now offer no Always at all, instead of one for this chat (plan review). The 12-hour "allowed once in
+this chat" records (`connector`, `file_change`, `room_post`, `save_wider`, `chatOnceStep`) are not an Always and stay.
 
 ## Steps
 

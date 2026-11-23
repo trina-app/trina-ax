@@ -41,7 +41,7 @@ import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
 import { argsReachOthers, plainName, readKind, readsHere, takesRecipient } from './read-mark'
-import { keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
+import { keepConnectorAllow, keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
@@ -243,8 +243,8 @@ async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolCo
   return now
 }
 
-/** "Always in this chat" on the shared connection card holds for the connection as it is: its version (a new address,
- * key or sign-in, a changed rule) and the account it is signed in to; reconnecting to another account asks again */
+/** The shared connection card's key for this answer ("Allow" covers the rest of it): the connection as it is, its
+ * version (a new address, key or sign-in, a changed rule) and the account it is signed in to */
 const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
 
 /** A team file handed to a connection's tool in a shared chat: refused, in plain words */
@@ -592,9 +592,10 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   }
   // a scheduled run in a shared chat that another person wrote in goes by the rules below like any of the maker's runs
   // (the team's "send without asking" with the task's card, the maker's own Always; Rule A, docs/decisions/
-  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2), except while a guest is among the
-  // people there (the one limit kept): then no change at any service, as before
-  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId)) {
+  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2). While a guest is among the people
+  // there, only the maker's own Always for this call lets it go (one Always, 20261123-one-always-allow.md); nothing
+  // else does (a task's card, pinned recipients): no change at any service, as before
+  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId) && !ownAlwaysCovers(ctx, row, sent, b)) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
       also: `this scheduled run is in a shared chat where other people wrote and a guest is among the people, so it sends nothing to a connected service`,
@@ -636,9 +637,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
   // 해야하네"). A call that reaches other people, a team connection's change, or team files ask every time.
-  if (sharedMode && sharedAlwaysKey(row, sent) && alwaysPlaceOf(ctx, b) && (toolAllowed(ctx.db, row, b.userId, sharedAlwaysKey(row, sent)!) || (teamOn && ownAllow && row.scope === 'personal'))) return false
-  // a guest among the people: the person's "Always in this chat" for that tool, for everyone who sees the chat now
-  if (sharedMode && sharedAlwaysKey(row, sent) && chatAllowed(ctx, row, b, sharedAlwaysKey(row, sent)!, 'acts')) return false
+  // The tool's own Always, or the whole connection's, holds in the person's own chats and their scheduled runs too
+  // (one Always, every chat: docs/decisions/20261123-one-always-allow.md)
+  if (ownAlwaysCovers(ctx, row, sent, b)) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -774,7 +775,6 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   unsureOnce.set(b, once)
   if (once.has(key)) return
   if (alwaysPlaceOf(ctx, b) && toolAllowed(ctx.db, row, b.userId, t.name)) return
-  if (chatAllowed(ctx, row, b, t.name, 'reads')) return
   const person = b.scheduled ? null : tc.files.person
   if (!person || person.unattended) {
     throw new CallError(refusal({
@@ -797,35 +797,23 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
 }
 
 /** Where the person's own Always for a connection tool counts and may be kept (as chat/always-allow.ts alwaysHere): a
- * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A); never a
- * Slack question, a confidential chat, or a shared chat with a guest (someone outside the team) among its people, as
- * chat/turn.ts sharedConnMayKeep: there it holds for that chat only (chatAlwaysPlaceOf) */
+ * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in, and a shared chat
+ * with a guest among its people: Rule A, one Always, docs/decisions/20261123-one-always-allow.md); never a Slack
+ * question or a confidential chat */
 function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
-  if (guestShared(b)) return false
   return (b.scheduled || LIVE_CLIENTS.has(turnClient(ctx, b))) && !isConfidentialChat(ctx.db, b.chatId)
 }
 
 const turnClient = (ctx: AppContext, b: BuildCtx) => (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? ''
 
-/** A shared chat with a guest among its people, in a turn the person watches from their own app (never a scheduled run
- * or a confidential chat): the card's Always holds for this chat only, for the people who see it now
- * (chat/card-approvals.ts) */
-function chatAlwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
-  return !!b.shared && !b.scheduled && guestShared(b) && LIVE_CLIENTS.has(turnClient(ctx, b)) && !isConfidentialChat(ctx.db, b.chatId)
-}
-const chatAlwaysKind = (mode: 'reads' | 'acts') => (mode === 'reads' ? 'shared_unsure_tool' as const : 'shared_own_act' as const)
-/** The people who see the shared chat now (none: fails closed) */
-function audienceNow(b: BuildCtx): string[] {
-  try { return b.shared?.audience() ?? [] } catch { return [] }
-}
-/** The person's "Always in this chat" for this tool of this connection covers this call: kept in this chat for everyone
- * who sees it now (a person who joined since makes it ask again) */
-function chatAllowed(ctx: AppContext, row: Row, b: BuildCtx, key: string, mode: 'reads' | 'acts'): boolean {
-  if (!chatAlwaysPlaceOf(ctx, b) || !teamAllowsAlways(ctx.db)) return false
-  const now = audienceNow(b)
-  if (!now.length) return false
-  return approvalsFor(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key) })
-    .some((d) => Array.isArray(d.c) && now.every((id) => (d.c as unknown[]).includes(id)))
+/** The person's own Always covers this call: one that acts only on their own connection's things (sharedAlwaysKey), with
+ * that tool's Always or the whole connection's ("<connector> 전체 항상 허용"), or, in a shared chat, every change at their
+ * own connection (its write rule: Rule A) */
+function ownAlwaysCovers(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx): boolean {
+  const key = sharedAlwaysKey(row, sent)
+  if (!key || !alwaysPlaceOf(ctx, b)) return false
+  if (toolAllowed(ctx.db, row, b.userId, key)) return true
+  return !!b.shared && teamAllowsAlways(ctx.db) && row.owner_user_id === b.userId && row.write_policy === 'allow'
 }
 
 /** A guest is among the people of this shared chat (fails closed) */
@@ -839,6 +827,15 @@ const sharedAlwaysKey = (row: Pick<Row, 'scope'>, sent: Sent): string | null =>
   // a change only on the person's own connection (their own account, their own app): a team connection's service holds
   // other people's things too, so a change there asks every time in a shared chat
   (sent.ownAct && sent.allowKey && !sent.request && !sent.attach?.length && row.scope === 'personal' ? sent.allowKey : null)
+
+/** The line under a card with both Always buttons: what each covers, at most NOTE_MAX characters (a card's note; a
+ * longer one is dropped by the app): the tool's line alone when both do not fit */
+const NOTE_MAX = 300
+function alwaysNoteOf(L: Locale, mode: 'reads' | 'acts', name: string, what: string): string {
+  const one = say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name, what })
+  const both = `${one} ${say('allAlwaysNote', L, { name })}`
+  return both.length <= NOTE_MAX ? both : one.slice(0, NOTE_MAX)
+}
 
 /**
  * The one card for a connector tool that the person may allow for good (docs/decisions/20261122-connector-always-allow.md):
@@ -855,18 +852,14 @@ async function cardWithAlways(ctx: AppContext, row: Row, b: BuildCtx, person: No
     next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
   }), cardEndShort(end))
   const always = alwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
-  // a guest among the people (chatAlwaysPlaceOf): Always for this chat only, never for good
-  const inChat = !always && chatAlwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
   if (person.choose) {
-    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }] : inChat ? [{ label: say('unsureAlwaysChat', L), value: 'chat' }] : []), { label: say('unsureNo', L), value: 'deny' }]
-    const note = always ? say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name: row.name, what }) : inChat ? say('unsureAlwaysChatNote', L, { name: row.name, what }) : null
+    // Allow / Always allow (this tool) / "<connector> 전체 항상 허용" (every tool of this connection, for good:
+    // docs/decisions/20261123-one-always-allow.md) / Don't allow: one press, four buttons; no Always for this chat only
+    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }, { label: say('unsureAlwaysAll', L, { name: row.name }), value: 'all' }] : []), { label: say('unsureNo', L), value: 'deny' }]
+    const note = always ? alwaysNoteOf(L, mode, row.name, what) : null
     const v = await person.choose(question, options, { details: details as never, buttons: true, ...(note ? { note } : {}) })
     if (v === 'always' && always) { keepToolAllow(ctx.db, row, b.userId, key, b.turnId); return 'always' }
-    if (v === 'chat' && inChat) {
-      const c = audienceNow(b)
-      if (c.length) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key), detail: { c } })
-      return 'always'
-    }
+    if (v === 'all' && always) { keepConnectorAllow(ctx.db, row.id, b.userId, sharedBind(row), b.turnId); return 'always' }
     if (v === 'allow') return 'once'
     throw no(v === null ? 'timeout' : 'declined')
   }
