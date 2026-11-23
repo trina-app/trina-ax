@@ -601,6 +601,31 @@ export function stashWrittenBy(db: Database, chat: Pick<ChatRow, 'engine_session
   return r?.user_id === userId
 }
 
+/**
+ * A shared chat keeps one engine session per person (docs/decisions/20261123-shared-chat-own-session.md): the stash
+ * the person's newest stashed turn in the chat wrote (turns.engine_session_blob), while its answer is on this branch
+ * (`path`: the ids of the messages up to the new message's parent, oldest first). `answers`: the person's answers
+ * that session holds (every turn of theirs that stashed this same file: a resumed turn keeps its session's id). null:
+ * none, another branch, or a file that is not the chat's own stash (`stashOf`) or is gone.
+ */
+export function ownSessionOn(db: Database, chatId: string, userId: string, path: readonly string[], stashOf: (sid: string) => string, exists: (file: string) => boolean): { sid: string; leaf: string; answers: string[] } | null {
+  const r = db.query('SELECT engine_session_blob AS file, message_id AS leaf FROM turns WHERE chat_id = ? AND user_id = ? AND engine_session_blob IS NOT NULL ORDER BY rowid DESC LIMIT 1').get(chatId, userId) as { file: string; leaf: string | null } | null
+  if (!r?.leaf || !path.includes(r.leaf)) return null
+  const m = /([0-9A-Za-z-]{8,100})\.jsonl$/.exec(r.file)
+  if (!m || stashOf(m[1]!) !== r.file || !exists(r.file)) return null
+  const answers = (db.query('SELECT message_id AS id FROM turns WHERE chat_id = ? AND user_id = ? AND engine_session_blob = ? AND message_id IS NOT NULL').all(chatId, userId, r.file) as { id: string }[]).map((x) => x.id)
+  return { sid: m[1]!, leaf: r.leaf, answers }
+}
+
+/** The stash files of a chat to keep when one person's turn stashes its own: every other person's newest (ownSessionOn
+ * resumes only that one). */
+export function othersSessionFiles(db: Database, chatId: string, userId: string): Set<string> {
+  const rows = db.query('SELECT user_id, engine_session_blob AS file FROM turns WHERE chat_id = ? AND user_id <> ? AND engine_session_blob IS NOT NULL ORDER BY rowid').all(chatId, userId) as { user_id: string; file: string }[]
+  const newest = new Map<string, string>()
+  for (const r of rows) newest.set(r.user_id, r.file)
+  return new Set(newest.values())
+}
+
 
 /**
  * Do all of `userIds` see this project now (each an active person for whom canSeeProject holds)? The set-based core of
