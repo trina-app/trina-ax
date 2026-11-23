@@ -508,13 +508,11 @@ describe('the read card', () => {
     expect(forBob).not.toContain('campaign-brief')
   })
 
-  test("the person's own folder asks; a search without a path stays in the project folder; with a wider path it asks", async () => {
+  test("the person's own folder asks nothing in their project chat; a search without a path stays in the project folder; with a wider path it asks", async () => {
     const chat = await newShared()
-    const own = await askWithCard('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }), 'skip')
-    expect((own.card as { question: string }).question).toContain('your personal folder')
-    // bob (the owner and admins are not members, so they are not counted)
-    expect((own.card as { question: string }).question).toContain("1 of the 2 people who see this chat can't open it")
-    expect(own.done.content).not.toContain('Draft Q4 campaign report')
+    // (docs/decisions/20261123-do-then-undo.md, the owner: her own folder in her own project chat, no card)
+    const own = await ask('alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' }, sayResult: true }))
+    expect(own.done.status).toBe('done')
     // no path: the project folder only (everyone who sees the chat reads it): no card, nothing from marketing
     const cards = () => audits('chat.shared_read', chat.id).length
     const before = cards()
@@ -590,9 +588,10 @@ describe('the read card', () => {
 
   test('an attached team file some people cannot read asks before the turn uses it', async () => {
     const chat = await newShared()
-    const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: 'users/alice/todo.md' } })
+    // (a group folder bob cannot open: her own folder asks nothing here since docs/decisions/20261123-do-then-undo.md)
+    const att = await h.api('alice').call(API.attachTeamFile, { body: { chatId: chat.id, path: BRIEF } })
     const r = await askWithCard('alice', chat.id, 'see the file\n' + fake({ echo: 'message' }), 'skip', [att.id])
-    expect(r.done.content).not.toContain('users/alice/todo.md')
+    expect(r.done.content).not.toContain(BRIEF)
     expect(r.done.steps.find((s) => s.tool === 'attachment')?.label).toBe('Not read: not everyone who sees this chat can open that place')
     // bob sees the attachment blanked (he cannot open it)
     const forBob = await messages('bob', chat.id)

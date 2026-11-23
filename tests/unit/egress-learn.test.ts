@@ -280,23 +280,38 @@ const day = () => new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10
 const TYPED = 'https://docs.example.org/guide'
 
 describe('while this server does not know its exit address (fail-safe, as before)', () => {
-  test('web_fetch asks even for an address the person typed, with wording for any server (no "office"); no lookup before the card', async () => {
+  // (docs/decisions/20261123-do-then-undo.md, the owner's order, confirmed by a security review: an address the person
+  // typed opens without the card also while the exit address is unknown; private addresses stay refused after the
+  // lookup. Everything else still asks with no lookup before the card.)
+  test('an address the person typed opens without the card; one they did not type asks, with wording for any server (no "office"); no lookup before the card', async () => {
     expect(egressOf(h.ctx).known).toBe(false)
     const chat = await chatWith(`please read ${TYPED}`)
+    const typed: Asked[] = []
+    expect(await gateUrl(h.ctx.db, chat, TYPED, person(null, typed), { egressKnown: false })).toBe('seen')
+    expect(typed).toEqual([])
+    const OTHER = 'https://found.example.org/page'
     const asked: Asked[] = []
     lookups.length = 0
-    const r = await call('web_fetch', { url: TYPED }, turnIn(chat), person(null, asked))
+    const r = await call('web_fetch', { url: OTHER }, turnIn(chat), person(null, asked))
     expect(r.isError).toBe(true)
     expect(asked).toHaveLength(1)
     expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
     expect(asked[0]!.question).not.toMatch(/office/i)
     expect(lookups).toEqual([])
+    // still asks while it is unknown: a quoted line someone else wrote, an address number, a random-looking part
+    const quoted = await chatWith(`> https://quoted.example.org/x\nwhat is this?`)
+    for (const [c, u] of [[quoted, 'https://quoted.example.org/x'], [await chatWith('read https://203.0.113.9/x'), 'https://203.0.113.9/x'], [await chatWith('read https://x.example.org/doc/aB3dE5fG7hJ9kL1mN3pQ5rT'), 'https://x.example.org/doc/aB3dE5fG7hJ9kL1mN3pQ5rT']] as const) {
+      const a: Asked[] = []
+      await gateUrl(h.ctx.db, c, u, person(null, a), { egressKnown: false }).catch(() => {})
+      expect([u, a.length]).toEqual([u, 1])
+    }
     // every language says it without the office
     for (const L of ['ko', 'id', 'ja', 'es'] as const) {
       const a: Asked[] = []
-      await gateUrl(h.ctx.db, chat, TYPED, person(null, a, { locale: L }), { egressKnown: false }).catch(() => {})
+      await gateUrl(h.ctx.db, chat, OTHER, person(null, a, { locale: L }), { egressKnown: false }).catch(() => {})
       expect(a[0]!.question).not.toMatch(/사무실|kantor|オフィス|oficina/)
     }
+    lookups.length = 0
   })
 
   test('a scheduled run: no card, the address stays closed, and the AI is told the real reason', async () => {
@@ -307,7 +322,7 @@ describe('while this server does not know its exit address (fail-safe, as before
     expect(asked).toEqual([])
     expect(r.text).toContain('does not know its own public internet address yet')
     expect(r.text).toContain('nobody can confirm it here')
-    expect(r.text).toContain('writing the address into a scheduled task does not change it')
+    expect(r.text).toContain('a plain address the task\'s card listed opens in its runs')
     expect(lookups).toEqual([])
     // with the address known, a scheduled run's address that was never seen: "nobody can confirm", not "declined"
     const u = await gateUrl(h.ctx.db, chat, 'https://other.example.org/x', person('allow', asked, { unattended: true }), { egressKnown: true }).catch((e: Error) => e.message)
@@ -320,18 +335,21 @@ describe('while this server does not know its exit address (fail-safe, as before
     expect(asked).toEqual([])
   })
 
+  // (a plain address the card lists opens in the task's runs also while the exit address is unknown, docs/decisions/
+  // 20261123-do-then-undo.md; one with a random-looking part still cannot: the card says so for that one)
   test('the schedule card says runs cannot open its addresses yet (create and "다시 확인"), in every language', async () => {
-    const prompt = `Every morning read ${TYPED} and summarise it into users/alice/digest.md.`
+    const MARKED = 'https://docs.example.org/guide/aB3dE5fG7hJ9kL1mN3pQ5rT'
+    const prompt = `Every morning read ${MARKED} and summarise it into users/alice/digest.md.`
     const asked: Asked[] = []
     const r = await call('schedule_create', { title: 'digest', prompt, repeat: 'once', time: '09:00', date: day() }, turnIn(await chatWith('make a task')), person('create', asked))
     expect(r.isError).toBeFalsy()
     expect(asked[0]!.question).toContain('runs cannot open the address below yet')
     expect(asked[0]!.question).not.toContain('On each run it opens')
-    expect(asked[0]!.extra!.details![1]).toMatchObject({ label: 'Addresses in the instruction (runs cannot open them yet)', text: TYPED })
+    expect(asked[0]!.extra!.details![1]).toMatchObject({ label: 'Addresses in the instruction (runs cannot open them yet)', text: MARKED })
     expect(r.text).toContain('its runs cannot open the web addresses in the prompt until it does')
     // the addresses the card showed are still the task's: they open without a card once the server knows its address
     const row = h.ctx.db.query("SELECT allowed_urls FROM schedules WHERE user_id = 'alice' ORDER BY created_at DESC LIMIT 1").get() as { allowed_urls: string }
-    expect(JSON.parse(row.allowed_urls)).toEqual([TYPED])
+    expect(JSON.parse(row.allowed_urls)).toEqual([MARKED])
     // "다시 확인": a task nobody confirmed shows the same honest card
     const id = uuidv7()
     h.ctx.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, enabled, next_run_at) VALUES (?, 'alice', 'Old digest', ?, 'daily', '09:00', 0, ?)`).run(id, prompt, new Date(Date.now() + 86400_000).toISOString())
