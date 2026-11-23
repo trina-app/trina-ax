@@ -207,7 +207,7 @@ describe('skills written with write (the real engine: one call after the other, 
     expect(has('skills/w-form/form.md')).toBe(true)
     expect(cardsIn(r.turnId).length).toBe(1)
   })
-  test('No on the skill and Save on its later file: neither is saved, and the AI is not told to write the skill again', async () => {
+  test('No on the skill and Save on its later file: the skill is not saved, only the file the person pressed Save on is', async () => {
     const files = [{ tool: 'write', args: { file_path: 'skills/w-no/SKILL.md', content: md('w-no', 'Declined') } }, { tool: 'write', args: { file_path: 'skills/w-no/references/a.md', content: '# a\n' } }]
     const w = await ask(`스킬 하나 만들어줘\n${fake(...files)}`, 2)
     const isSkill = (c: { request: Ask }) => c.request.preview?.kind === 'skill_write' && c.request.preview.path.endsWith('SKILL.md')
@@ -215,7 +215,8 @@ describe('skills written with write (the real engine: one call after the other, 
     expect((await post(w.turnId, w.cards.find((c) => !isSkill(c))!.request.requestId, 'save')).status).toBe(204)
     const next = await nextTurn(w.chatId, w.answerId)
     expect(next.done.status).toBe('done')
-    expect(has('skills/w-no')).toBe(false)
+    expect(has('skills/w-no/SKILL.md')).toBe(false)
+    expect(has('skills/w-no/references/a.md')).toBe(true)
   })
   test('any other file-tool card carries its tool as the group key', async () => {
     const calls = ['w-rule-a', 'w-rule-b'].map((n) => ({ tool: 'write', args: { file_path: `skills/${n}.md`, content: `# ${n}\n` }, sayResult: true }))
