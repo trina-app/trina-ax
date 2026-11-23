@@ -129,7 +129,7 @@ export function CopyLine({ text, label, testId, prose }: { text: string; label?:
     <div className="flex items-center gap-2 rounded-xl border border-line bg-subtle px-3 py-2" data-testid={testId}>
       <span className="min-w-0 flex-1">
         {label && <span className="block text-xs text-muted">{label}</span>}
-        {prose ? <span className="block text-sm">{text}</span> : <code className="block text-sm break-all">{text}</code>}
+        {prose ? <span className="block text-sm">{text}</span> : <code className="block text-sm [overflow-wrap:anywhere]">{text}</code>}
       </span>
       <IconButton label={copied ? t('common.copied') : t('common.copy')} className="shrink-0" onClick={() => void copy()} data-testid={testId ? `${testId}-copy` : undefined}>
         {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
