@@ -22,7 +22,7 @@ Out: every server check. `start()` and `turnstileOk()` in public.ts stay as they
 already writes `mycel_locale`, so the choice is remembered from then on.
 
 Overlap with #446: one line in public.ts (`page()` passes `cfg.pool.locales`), so the picker offers only languages this
-gate runs. #446 changes a different hunk of that file.
+gate runs, and two expected strings in test/gate.test.ts (the Try again link). #446 changes other hunks of both files.
 
 ## Steps
 
@@ -34,6 +34,10 @@ gate runs. #446 changes a different hunk of that file.
 5. Test the press orders, then check a real browser at 1440 and 390.
 6. Add the picker: plain `/?lang=` links from the fixed list, in a details menu outside the page flow. A switch during the
    wait cancels the pending start, so a late token cannot start the old language.
+
+7. After review of 4500c3e: a time limit after sending (a stopped load fires no event), Try again as a fresh GET that never
+   resends the used token, the picker on the busy page too, Try again keeps the language, Turnstile's automatic retry back
+   on, a quiet reset on an idle expiry, and a language switch that can never start the old language.
 
 ## Decisions
 

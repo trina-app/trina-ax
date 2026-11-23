@@ -1,8 +1,9 @@
 // The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), in the six languages. Static HTML.
-// Pages with Start carry Cloudflare Turnstile's widget and one script of our own (start-script.ts), allowed by hash.
+// Pages with Start carry Cloudflare Turnstile's widget and our Start script; pages with the language menu carry its script
+// (both in start-script.ts, allowed by hash).
 import { LOCALES, isLocale, type Locale } from './config.ts'
 import { WORDMARK_DARK, WORDMARK_LIGHT } from './brand.ts'
-import { START_SCRIPT, START_SCRIPT_HASH } from './start-script.ts'
+import { LANGUAGE_MENU_SCRIPT, LANGUAGE_MENU_SCRIPT_HASH, START_SCRIPT, START_SCRIPT_HASH } from './start-script.ts'
 
 export type PageKind = 'landing' | 'busy' | 'ended' | 'limit' | 'check' | 'error'
 
@@ -205,7 +206,7 @@ export function localeOf(query: string | null, acceptLanguage: string | undefine
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
-export const PAGE_CSP = `default-src 'none'; script-src '${START_SCRIPT_HASH}' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
+export const PAGE_CSP = `default-src 'none'; script-src '${START_SCRIPT_HASH}' '${LANGUAGE_MENU_SCRIPT_HASH}' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
 
 export interface PageLinks { scriptedDemo: string; pricing: string }
 
@@ -228,15 +229,15 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
   const w = WORDS[locale]
   // only languages this gate runs: any other would silently open in English. Links are built from the fixed list, never from the request
   const pickable = LOCALES.filter((l) => (o.locales ?? LOCALES).includes(l))
-  const picker = kind !== 'landing' || pickable.length < 2 ? '' : `
+  const picker = (kind !== 'landing' && kind !== 'busy') || pickable.length < 2 ? '' : `
   <details class="lang">
     <summary><span class="sr">${esc(w.language)}: </span>${ICON_GLOBE}<span lang="${locale}">${esc(LANGUAGE_NAMES[locale])}</span></summary>
     <ul>${pickable.map((l) => `<li><a data-lang-link href="/?lang=${l}" lang="${l}" hreflang="${l}"${l === locale ? ' aria-current="true"' : ''}>${esc(LANGUAGE_NAMES[l])}</a></li>`).join('')}</ul>
   </details>`
   const startForm = (label: string, turnstile: boolean) => `
-    <form method="post" action="/__demo/start" data-start data-label="${esc(label)}" data-checking="${esc(w.checking)}" data-retry="${esc(w.retry)}" data-failed="${esc(w.checkH)}">
+    <form method="post" action="/__demo/start" data-start data-label="${esc(label)}" data-checking="${esc(w.checking)}" data-retry="${esc(w.retry)}" data-failed="${esc(w.checkH)}" data-stalled="${esc(w.errorH)}" data-home="/?lang=${locale}">
       <input type="hidden" name="lang" value="${locale}">
-      ${turnstile ? `<div class="cf-turnstile" data-sitekey="${esc(o.siteKey)}" data-language="${locale}" data-callback="demoCheckDone" data-error-callback="demoCheckFailed" data-expired-callback="demoCheckExpired" data-timeout-callback="demoCheckFailed" data-unsupported-callback="demoCheckFailed" data-before-interactive-callback="demoCheckInteractive" data-retry="never" data-refresh-expired="manual" data-refresh-timeout="manual"></div>` : ''}
+      ${turnstile ? `<div class="cf-turnstile" data-sitekey="${esc(o.siteKey)}" data-language="${locale}" data-callback="demoCheckDone" data-error-callback="demoCheckFailed" data-expired-callback="demoCheckExpired" data-timeout-callback="demoCheckStopped" data-unsupported-callback="demoCheckStopped" data-before-interactive-callback="demoCheckInteractive" data-refresh-expired="manual" data-refresh-timeout="manual"></div>` : ''}
       <button type="submit" class="primary">${esc(label)}</button>
       <p class="check-error" role="alert"></p>
       <span class="check-wait" role="status"></span>
@@ -246,12 +247,12 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
       <a class="primary" href="${esc(o.links.scriptedDemo)}">${esc(w.guided)}</a>
       <a class="secondary" href="${esc(o.links.pricing)}">${esc(w.plans)}</a>
     </div>`
-  // busy and error: one more way, back to the landing page (a new Start there passes Turnstile again)
+  // busy and error: one more way, back to the landing page in this language (a new Start there passes Turnstile again)
   const awayOrRetry = `
     <div class="row">
       <a class="primary" href="${esc(o.links.scriptedDemo)}">${esc(w.guided)}</a>
       <a class="secondary" href="${esc(o.links.pricing)}">${esc(w.plans)}</a>
-      <a class="secondary" href="/">${esc(w.retry)}</a>
+      <a class="secondary" href="/?lang=${locale}">${esc(w.retry)}</a>
     </div>`
   // The three facts, a few words each. The full practice sentence opens from the third one on tap or click
   // (details/summary: no script) and is its hover title too.
@@ -278,7 +279,7 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(kind === 'landing' ? w.landingH : w.title)}</title>
-${turnstile ? `<script data-start>${START_SCRIPT}</script>
+${picker ? `<script data-lang-menu>${LANGUAGE_MENU_SCRIPT}</script>\n` : ''}${turnstile ? `<script data-start>${START_SCRIPT}</script>
 <script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
 <style>${turnstile ? `
   /* the widget's height (65 px, 71 with Cloudflare's test-key banner), held before its script loads, so Start does not move */
@@ -329,6 +330,8 @@ ${turnstile ? `<script data-start>${START_SCRIPT}</script>
   @keyframes check-spin { to { transform:rotate(360deg); } }
   /* the line is always there, empty until a check fails, so the error moves nothing */
   .check-error { margin:-4px 0 0; min-height:1.45em; font-size:14px; line-height:1.45; color:var(--orange); font-weight:500; }
+  /* a long error (Spanish) takes two lines on a narrow phone: the room is there from the start */
+  @media (max-width:420px) { .check-error { min-height:2.9em; } }
   .check-wait, .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* the language picker: out of the page's flow in the top corner, so opening it moves nothing */
   .lang { position:absolute; top:4px; inset-inline-end:12px; z-index:2; font-size:13px; }
@@ -341,6 +344,8 @@ ${turnstile ? `<script data-start>${START_SCRIPT}</script>
   .lang a { display:flex; align-items:center; min-height:38px; padding:0 10px; border-radius:7px; color:var(--text); text-decoration:none; white-space:nowrap; }
   .lang a:hover { background:color-mix(in srgb, var(--text) 7%, transparent); }
   .lang a[aria-current] { font-weight:700; }
+  /* phones: 44 px targets, and the page starts below the picker */
+  @media (max-width:480px), (pointer:coarse) { .lang { top:0; } .lang summary, .lang a { min-height:44px; } body:has(.lang) { padding-top:52px; } }
   .lang a[aria-current]::after { content:""; width:6px; height:6px; margin-inline-start:auto; border-radius:50%; background:var(--orange); }
   /* busy, limit, ended, check and error: one narrower column for the text and the buttons, the buttons stacked at its
      full width like the landing page's Start (at 1440 px the balanced text sat in a narrow column above a wider row of

@@ -698,7 +698,7 @@ describe.skipIf(skip)('gate: pool', () => {
       const html = await r.text()
       expect(html).toContain('https://ax.trina.app/demo')
       expect(html).toContain('https://ax.trina.app/pricing')
-      expect(html).toContain('<a class="secondary" href="/">Try again</a>')
+      expect(html).toContain('<a class="secondary" href="/?lang=en">Try again</a>')
       const landing = await get(g, v2, '/')
       expect(await landing.text()).not.toContain('cf-turnstile')
     } finally { await g.stop() }
@@ -811,7 +811,7 @@ describe.skipIf(skip)('gate: pool', () => {
       expect(r.status).toBe(502)
       expect(v.cookies.has('__Host-tdg')).toBe(false)
       expect(r.headers.get('clear-site-data')).toBeNull()
-      expect(await r.text()).toContain('<a class="secondary" href="/">Try again</a>')
+      expect(await r.text()).toContain('<a class="secondary" href="/?lang=en">Try again</a>')
       await until(() => !fs.existsSync(path.join(g.instancesDir, id)), 8000, 'removed')
     } finally { await g.stop() }
   })
