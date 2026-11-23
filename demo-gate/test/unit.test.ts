@@ -508,9 +508,11 @@ describe('config', () => {
     // folder, no --new-session (the gate keeps its process group)
     const bw = l.pool.command.slice(4, l.pool.command.indexOf('--', 5) + 1)
     expect(bw[0]).toBe('/usr/bin/bwrap')
-    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
+    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
     expect(bw).not.toContain('--new-session')
     expect(bw).not.toContain('--unshare-net')
+    // the abstract-socket scope wraps the server, inside the bwrap
+    expect(l.pool.command[l.pool.command.indexOf('/opt/trina-demo/bin/bun') - 1]).toBe('/opt/trina-demo/bin/tdscope')
     // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so, for the explicit browser
     // inside /opt/trina-demo only
     expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('/opt/trina-demo')

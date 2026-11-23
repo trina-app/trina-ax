@@ -101,4 +101,10 @@ ProtectHostname breaks the instance bwrap's /proc (it mounts /proc/sys/kernel/ho
 The real install also found: the canary needs its list 600 (now tdbuild's), example.com is on Cloudflare (tdfw-check
 probes off it), and the credential timer stays off on a host with a long-lived token.
 
+Review of the live host: any code running as the instance user could sign in to another instance through
+`POST /api/demo/persona`. The gate now makes a key per instance, keeps it in memory and writes only its SHA-256 to the
+clone's demo file (`gateKeySha256`); the server compares in constant time, and the gate refuses an instance that signs
+in without the key. Each instance also gets its own UTS namespace and `tdscope`, a Landlock domain scoping abstract
+unix sockets (without it an instance could connect to the desktop's X11 socket).
+
 PR: https://github.com/trina-app/trina-ax/pull/446

@@ -66,11 +66,13 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
 - **Snapshots.** `tdsnap-rebuild` builds as `tdbuild` in its own folder; root never changes, removes or follows
   anything in a folder another user can write: the snapshot leaves as a tar stream made by `tdbuild`, root checks it
   (plain files and folders, every name under the snapshot's `YYYYMMDD-HHMMSS` name) and `tdgate` unpacks it.
-- **Each instance in its own bwrap** (`pool.command`): `--die-with-parent --unshare-pid --unshare-ipc --ro-bind / /
+- **Each instance in its own bwrap** (`pool.command`): `--die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / /
   --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc`. It sees
   no other instance, no snapshot, none of the host's sockets in `/run`, and writes only its own folder. No
   `--new-session` (the gate keeps the instance's process group) and no network namespace (it reaches the gate on
-  loopback). The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
+  loopback). Inside it `tdscope` puts the server in a Landlock domain (ABI 6, Linux 6.12+; it refuses to run without)
+  that scopes abstract unix sockets, which belong to the shared network namespace: the instance reaches only its own.
+  The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
   overflow uid; `MYCEL_SANDBOX_ROOT_UNMAPPED=/opt/trina-demo` (`pool.env`) lets the HTML-to-PDF browser check count
   that uid as root for the explicit `MYCEL_HTML_PDF_BROWSER` inside that folder only, never for a fallback browser, and
   only when `/` itself shows as that uid (`server/src/files/html-pdf.ts` `rootOwnerUids`).
@@ -95,6 +97,9 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   macOS's `engine.sb` only (`server/src/context.ts` `devEngineSandbox`). On Linux the engine relies on Claude Code's
   tool lockdown (no Bash, no file tools: `server/src/engine/claude.ts`), the instance's bwrap, the nft table and the
   unit's protections.
+- **Sign-in key.** Every instance listens on loopback and the instance user may reach the instance port range, so
+  `POST /api/demo/persona` needs a key per instance. The gate makes it, keeps it in memory and writes only its SHA-256
+  to the clone's demo file (`gateKeySha256`); before an instance is warm the gate checks it refuses a sign-in without.
 - **Credential.** A person signs in once as `tdcred` (`sudo -u tdcred -H /opt/trina-demo/claude/bin/claude`, then
   `/login`). `trina-demo-credsync.timer` copies the access token into the gate's credential file every 5 minutes
   through `tdgate-set-credential` (the one command `tdcred` may run as `tdgate`), and lets Claude Code renew the login

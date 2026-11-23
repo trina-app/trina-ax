@@ -18,6 +18,11 @@ const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (c) => { body += c })
     req.on('end', () => {
+      // the real server's check (server/src/routes/demo.ts gateKeyOk)
+      let want = ''
+      try { want = (JSON.parse(fs.readFileSync(process.env.MYCEL_DEMO!, 'utf8')) as { gateKeySha256?: string }).gateKeySha256 ?? '' } catch {}
+      const shown = req.headers['x-mycel-demo-gate']
+      if (want && (typeof shown !== 'string' || crypto.createHash('sha256').update(shown).digest('hex') !== want) && !fs.existsSync('no-gate-key-check')) { res.writeHead(401, { 'content-type': 'application/json' }); return res.end('{"error":{"code":"unauthorized"}}') }
       const okOrigin = req.headers.origin === process.env.MYCEL_PUBLIC_ORIGINS && req.headers['x-mycel-csrf'] === '1'
       let key = ''
       try { key = (JSON.parse(body) as { key?: string }).key ?? '' } catch {}

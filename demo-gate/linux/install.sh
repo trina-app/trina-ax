@@ -114,7 +114,7 @@ ln -s "$CH_VERSION/$CH_DIR" $O/chrome-headless-shell.new/current; swap $O/chrome
 t=$(mktemp -d); unzip -q "$ST/dl/bun.zip" -d "$t"; install -m 755 "$t/bun-linux-x64/bun" $O/bin/bun; rm -rf "$t"
 install -m 755 "$ST/dl/cloudflared" $O/bin/cloudflared
 chk $O/claude/bin/claude "$CLAUDE_SHA256"; chk $O/bin/cloudflared "$CLOUDFLARED_SHA256"
-for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync tdfw-check; do install -m 755 "$HERE/$f" $O/bin/; done
+for f in tdnft-load tdsnap-rebuild tdgate-set-credential tdcred-credsync tdfw-check tdscope; do install -m 755 "$HERE/$f" $O/bin/; done
 install -m 644 "$HERE/trina-demo.nft" $O/etc/
 rm -rf $O/app.new; mv "$ST/app" $O/app.new
 if [ -d $O/app ]; then rm -rf $O/app-old; mv $O/app $O/app-old; fi
@@ -128,7 +128,10 @@ say "programs and app in $O (node $($O/node/bin/node --version), bun $($O/bin/bu
 visudo -cqf "$HERE/sudoers" || die "sudoers file does not check"
 install -m 440 -o root -g root "$HERE/sudoers" /etc/sudoers.d/trina-demo
 # the host's own sudo settings: I/O logging needs a pty (off for tdgate in our file); a log file only grows
-if grep -hsE '^[[:space:]]*Defaults[^#]*(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -qv 'tdgate'; then
+# (a host-wide setting is fine once this host's admin has turned both off for tdgate)
+if grep -hsE '^[[:space:]]*Defaults[[:space:]]+([^#]*[[:space:],])?(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -q . \
+   && ! { grep -hsE '^[[:space:]]*Defaults:tdgate[[:space:]][^#]*!log_output' /etc/sudoers /etc/sudoers.d/* | grep -q . \
+          && grep -hsE '^[[:space:]]*Defaults:tdgate[[:space:]][^#]*!log_input' /etc/sudoers /etc/sudoers.d/* | grep -q .; }; then
   die "this host logs sudo input/output (log_output/log_input): add Defaults:tdgate !log_output, !log_input for sudo.ws, then run install.sh again"
 fi
 if grep -hsE '^[[:space:]]*Defaults[^#]*logfile' /etc/sudoers /etc/sudoers.d/* >/dev/null; then
@@ -140,7 +143,9 @@ S=$ST/secrets
 OWNER=$(stat -c %U "$STAGE")
 gone() { runuser -u "$OWNER" -- rm -f -- "$STAGE/secrets/$1"; }
 if [ -f "$S/turnstile-secret" ]; then install -o tdgate -g tdgate -m 600 "$S/turnstile-secret" $G/secrets/turnstile-secret; gone turnstile-secret; say "Turnstile secret in place"; fi
-# the canary reads its list only when no one else can (600): tdbuild's, in root's folder (tdbuild cannot replace it)
+# the canary refuses a list others can read, so it is tdbuild's, mode 600, in root's folder: tdbuild cannot rename or
+# replace the file, but as its owner it CAN change its contents. The list is a check on the builder's output, not a
+# boundary against the builder.
 if [ -f "$S/canary-sealed" ]; then install -o tdbuild -g tdbuild -m 600 "$S/canary-sealed" /etc/trina-demo/canary-sealed; gone canary-sealed; say "canary list in place"; fi
 if [ -f /etc/trina-demo/canary-sealed ] && [ ! -L /etc/trina-demo/canary-sealed ]; then chown tdbuild:tdbuild /etc/trina-demo/canary-sealed; chmod 600 /etc/trina-demo/canary-sealed; fi
 if [ -f "$S/tunnel-creds.json" ]; then
@@ -215,8 +220,8 @@ $PROPS
 EOF
 runuser -u tdrun -- sh -c 'rm -rf /srv/tdg/i/.unit-check && mkdir -m 700 /srv/tdg/i/.unit-check'
 if ! systemd-run --quiet --wait --pipe --collect --uid=tdgate --gid=tdgate "$@" /usr/bin/sudo -n -u "#$RUN_UID" -g "#$RUN_GID" -- \
-     /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind /srv/tdg/i/.unit-check /srv/tdg/i/.unit-check \
-     --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; then
+     /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind /srv/tdg/i/.unit-check /srv/tdg/i/.unit-check \
+     --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /opt/trina-demo/bin/tdscope /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; then
   runuser -u tdrun -- rm -rf /srv/tdg/i/.unit-check
   die "the gate unit's sandbox cannot start an instance through sudo (NoNewPrivileges, sudoers or bwrap): nothing of the demo was started"
 fi
@@ -234,7 +239,7 @@ $O/bin/tdfw-check || die "the firewall checks failed: nothing of the demo was st
 runuser -u tdrun -- sh -c 'set -e; t=/srv/tdg/i/.reflink-check; rm -rf "$t" "$t.c"; mkdir -m 700 "$t"; head -c 1048576 /dev/urandom > "$t/f"; cp --reflink=always -R "$t" "$t.c"; rm -rf "$t" "$t.c"' || die "cp --reflink=always failed as tdrun"
 say "reflink clone ok"
 # shellcheck disable=SC2016
-runuser -u tdrun -- sh -c 'd=/srv/tdg/i/.bwrap-check; rm -rf "$d"; mkdir -m 700 "$d" && /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind "$d" "$d" --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; r=$?; rm -rf "$d"; exit $r' || die "the instance sandbox (bwrap, with a nested bwrap) does not run as tdrun"
+runuser -u tdrun -- sh -c 'd=/srv/tdg/i/.bwrap-check; rm -rf "$d"; mkdir -m 700 "$d" && /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind "$d" "$d" --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /opt/trina-demo/bin/tdscope /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; r=$?; rm -rf "$d"; exit $r' || die "the instance sandbox (bwrap, with a nested bwrap) does not run as tdrun"
 say "bwrap ok as tdrun (instance sandbox and a nested one)"
 
 systemctl enable trina-demo-snapshots.timer trina-demo-gate.service >/dev/null

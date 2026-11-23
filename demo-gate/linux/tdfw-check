@@ -27,6 +27,7 @@ for u in tdrun tdgate tdtunnel; do
   # not a Cloudflare-hosted site (example.com is one now): the tunnel may reach the whole Cloudflare edge by design
   want $u closed https://www.google.com/ "the internet (www.google.com, not on Cloudflare)"
   want $u closed https://8.8.8.8/ "the internet by address (8.8.8.8)"
+  want $u closed "https://[2001:4860:4860::8888]/" "the internet over IPv6 (2001:4860:4860::8888)"
   want $u closed http://127.0.0.1:5432/ "Postgres on loopback (5432)"
   [ -n "$gw" ] && want $u closed "http://$gw/" "the LAN gateway ($gw)"
   [ -n "$ts" ] && want $u closed "http://$ts:22/" "this host's Tailscale address"

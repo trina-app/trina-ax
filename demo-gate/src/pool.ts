@@ -32,6 +32,9 @@ export interface Instance {
   /** the model proxy's internal port (engine.proxyInnerPort): fixed, so a host firewall can allow the instance user
    * pool.portRange on loopback and nothing else (demo-gate/linux/trina-demo.nft) */
   innerPort: number
+  /** the key that signs a visitor in on this instance (POST /api/demo/persona). Only in the gate's memory: the instance's
+   * demo file holds its SHA-256, so no code on any instance can sign in to another one */
+  gateKey: string
   /** the path secret in the instance's model upstream address (/i/<id>.<secret>) */
   secret: string
   state: InstanceState
@@ -377,7 +380,7 @@ export class Pool {
   private async create(locale: Locale, snap: Snapshot): Promise<void> {
     const id = newId()
     const dir = path.join(this.cfg.pool.instancesDir, id)
-    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, innerPort: 0, secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
+    const inst: Instance = { id, locale, dir, port: 0, proxyPort: 0, innerPort: 0, gateKey: newSecret(), secret: newSecret(), state: 'starting', proc: null, pgids: [], snapshot: snap.name, startedAt: Date.now(), tokens: 0, cap: 0 }
     this.instances.set(id, inst)
     try {
       ;[inst.port, inst.proxyPort, inst.innerPort] = await this.allocPorts()
@@ -395,6 +398,8 @@ export class Pool {
       // the server refuses a group-readable key file (credentials/vault.ts key_unsafe; Gmail then reads "sign in again")
       this.runAs(['/bin/sh', '-c', 'chmod -R go-rwx "$0" && mkdir -p "$0/tmp"', dir])
       this.runAs(['/bin/sh', '-c', 'umask 077 && cat > "$0" && chmod 600 "$0"', configFile], { input: config })
+      const demoJson = { ...JSON.parse(fs.readFileSync(snapDemo, 'utf8')) as Record<string, unknown>, gateKeySha256: crypto.createHash('sha256').update(inst.gateKey).digest('hex') }
+      this.runAs(['/bin/sh', '-c', 'umask 077 && cat > "$0" && chmod 600 "$0"', demoFile], { input: JSON.stringify(demoJson, null, 2) + '\n' })
       const sub = (s: string) => s.replaceAll('{dir}', dir).replaceAll('{config}', configFile).replaceAll('{port}', String(inst.port)).replaceAll('{proxyPort}', String(inst.proxyPort))
       const argv = this.cfg.pool.command.map(sub)
       const env = this.instanceEnv(dir, configFile, demoFile)
@@ -448,6 +453,17 @@ export class Pool {
       this.badSnapshots.add(snap.dir)
       this.log.error('snapshot refused: not a fenced free-roam demo', { snapshot: snap.name, locale: inst.locale, kind: typeof info?.kind === 'string' ? info.kind.slice(0, 20) : null, builder: info?.builder === true, cap: !!cap })
       throw new Error('the instance is not a fenced free-roam demo')
+    }
+    // and it must refuse a sign-in without this instance's key (an older server would let any local process in)
+    const open = await fetch(`http://127.0.0.1:${inst.port}/api/demo/persona`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: this.cfg.publicOrigin, 'x-mycel-csrf': '1', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ key: this.cfg.pool.personaKey }), redirect: 'manual', signal: AbortSignal.timeout(10_000),
+    })
+    await open.body?.cancel().catch(() => {})
+    if (open.status !== 401) {
+      this.badSnapshots.add(snap.dir)
+      this.log.error('snapshot refused: the instance does not check the gate key', { snapshot: snap.name, locale: inst.locale, status: open.status })
+      throw new Error('the instance does not check the gate key')
     }
     return Math.round(cap * this.cfg.limits.instanceCapMargin)
   }

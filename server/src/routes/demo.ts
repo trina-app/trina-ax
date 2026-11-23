@@ -10,7 +10,8 @@
 // be entered this way, and neither can the owner or an admin (the demo people are members; the owner has a password of
 // its own, scripts/demo/company/start.ts). The sign-in page's failure counters are not used: the switch takes no password
 // from the caller, so there is nothing to guess, and a stranger's wrong guesses there must not lock the demo.
-import { API, type DemoFile, type DemoInfo, type DemoPersonaKey } from '@mycel/shared/api'
+import crypto from 'node:crypto'
+import { API, DEMO_GATE_KEY_HEADER, type DemoFile, type DemoInfo, type DemoPersonaKey } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { isLoopback } from '../http/tunnel'
@@ -30,6 +31,15 @@ import { registerDemoBuilder } from './demo-builder'
 export function demoOf(ctx: AppContext): DemoFile | null {
   const d = ctx.config.demo
   return d && ctx.config.mode === 'dev' && ctx.config.deployment !== 'hosted' && !ctx.config.office ? d : null
+}
+
+/** A free-roam instance behind demo-gate signs in only the gate: its demo file holds the hash of a key per instance, and
+ * the caller must show that key. Every instance listens on loopback, so without this any code running as the instance
+ * user could sign in to another visitor's instance. No hash (the guided demo, the snapshot builder's own check): open. */
+export function gateKeyOk(demo: Pick<DemoFile, 'gateKeySha256'>, key: string | undefined): boolean {
+  if (!demo.gateKeySha256) return true
+  if (!key) return false
+  return crypto.timingSafeEqual(crypto.createHash('sha256').update(key).digest(), Buffer.from(demo.gateKeySha256, 'hex'))
 }
 
 function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInfo {
@@ -69,6 +79,7 @@ export const demoRoutes: RouteModule = {
     kit.handle(API.demoSwitch, async ({ c, body, auth }) => {
       const demo = demoOf(ctx)
       if (!demo) return fail('not_found')
+      if (!gateKeyOk(demo, c.req.header(DEMO_GATE_KEY_HEADER))) return fail('unauthorized', msg('badLogin', c.get('locale')))
       const persona = demo.personas.find((p) => p.key === body.key)
       if (!persona) return fail('not_found')
       const u = getUserByUsername(ctx.db, persona.username)

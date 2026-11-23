@@ -1,0 +1,26 @@
+#!/usr/bin/python3 -I
+# Runs a demo instance in a Landlock domain that scopes abstract unix sockets (ABI 6, Linux 6.12+). Abstract sockets
+# belong to the network namespace, which the instances share with the host so they can reach the gate on loopback;
+# with this scope the instance and what it starts can connect only to abstract sockets made inside its own domain, not
+# to the desktop's X11, udev's or another instance's. No file or network rule is added. Refuses to run without the scope.
+#   tdscope PROGRAM [ARGS...]
+import ctypes, os, struct, sys
+SYS_CREATE, SYS_RESTRICT = 444, 446      # the same numbers on x86-64 and arm64
+VERSION, SCOPE_ABSTRACT, NO_NEW_PRIVS = 1, 1, 38
+def die(msg):
+    print(f'tdscope: {msg}', file=sys.stderr, flush=True)
+    sys.exit(126)
+if len(sys.argv) < 2: die('usage: tdscope PROGRAM [ARGS...]')
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+call = lambda *a: libc.syscall(*[ctypes.c_long(x) if isinstance(x, int) else x for x in a])
+abi = call(SYS_CREATE, 0, 0, VERSION)
+if abi < 6: die(f'Landlock ABI 6 is needed for the abstract socket scope (this kernel: {abi})')
+if libc.prctl(NO_NEW_PRIVS, 1, 0, 0, 0) != 0: die('no_new_privs failed')
+attr = ctypes.create_string_buffer(struct.pack('=QQQ', 0, 0, SCOPE_ABSTRACT))   # handled fs, handled net, scoped
+fd = call(SYS_CREATE, attr, len(attr.raw), 0)
+if fd < 0: die(f'landlock_create_ruleset: {os.strerror(ctypes.get_errno())}')
+if call(SYS_RESTRICT, int(fd), 0) != 0: die(f'landlock_restrict_self: {os.strerror(ctypes.get_errno())}')
+os.close(fd)
+try: os.execv(sys.argv[1], sys.argv[1:])
+except OSError as e: die(f'{sys.argv[1]}: {e.strerror}')
