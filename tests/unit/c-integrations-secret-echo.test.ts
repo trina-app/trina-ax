@@ -228,13 +228,15 @@ describe('a turn that repeats the stored key', () => {
   })
 
   test.skipIf(!native)('schedule_create: the card and the saved task have the key hidden in the title and the prompt', async () => {
-    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and save the answer in my folder.`, repeat: 'daily', time: '07:00' }
+    // (a task that sends keeps its card: one asked in the person's own words that sends nowhere is made without it,
+    // docs/decisions/20261123-do-then-undo.md, and this test is about the card)
+    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and send me the answer.`, repeat: 'daily', time: '07:00' }
     const t = await turn(fake({ tool: 'schedule_create', args, sayResult: true }), 'create')
     const card = published.find((p) => p.ev.type === 'turn.request' && JSON.stringify(p.ev.data.request).includes('Every morning call QA API'))
     expect(card).toBeTruthy()
     expect(leaks(JSON.stringify(card!.ev))).toEqual([])
     const row = h.ctx.db.query("SELECT title, prompt FROM schedules WHERE user_id = 'alice' AND prompt LIKE 'Every morning call QA API%'").get() as { title: string; prompt: string }
-    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and save the answer in my folder.` })
+    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and send me the answer.` })
     expect(leaks(t.done.content + JSON.stringify(t.done.steps))).toEqual([])
   })
 
