@@ -193,6 +193,30 @@ describe('skills written with write (the real engine: one call after the other, 
     expect(has('skills/w-two/SKILL.md')).toBe(true)
     expect(has('skills/w-two/references/a.md')).toBe(true)
   })
+  test('a form, then SKILL.md, then the form again: its card waits in the call, one press saves both, no second card', async () => {
+    const form = { tool: 'write', args: { file_path: 'skills/w-form/form.md', content: '# form\n' } }
+    const chatId = (await h.api('carol').call(API.createChat, { body: {} })).id as string
+    const r = await h.api('carol').call(API.sendMessage, { params: { id: chatId }, body: { content: `양식 있는 스킬 만들어줘\n${fake(form, { tool: 'write', args: { file_path: 'skills/w-form/SKILL.md', content: md('w-form', 'Fills the form') } }, form)}`, clientMessageId: cm(), attachmentIds: [] } })
+    const f = await ws.next('turn.request', (x) => (x as { data: { turnId?: string } }).data.turnId === r.turnId, 30_000)
+    const q = (f as { data: { request: Ask } }).data.request
+    expect(q.expiresAt).toBeTruthy()
+    expect(q.preview?.kind === 'skill_write' && q.preview.files?.length).toBe(1)
+    expect((await post(r.turnId, q.requestId, 'save')).status).toBe(204)
+    await ws.next('message.done', (x) => x.data.messageId === r.assistantMessage.id, 30_000)
+    expect(has('skills/w-form/SKILL.md')).toBe(true)
+    expect(has('skills/w-form/form.md')).toBe(true)
+    expect(cardsIn(r.turnId).length).toBe(1)
+  })
+  test('No on the skill and Save on its later file: neither is saved, and the AI is not told to write the skill again', async () => {
+    const files = [{ tool: 'write', args: { file_path: 'skills/w-no/SKILL.md', content: md('w-no', 'Declined') } }, { tool: 'write', args: { file_path: 'skills/w-no/references/a.md', content: '# a\n' } }]
+    const w = await ask(`스킬 하나 만들어줘\n${fake(...files)}`, 2)
+    const isSkill = (c: { request: Ask }) => c.request.preview?.kind === 'skill_write' && c.request.preview.path.endsWith('SKILL.md')
+    expect((await post(w.turnId, w.cards.find(isSkill)!.request.requestId, 'skip')).status).toBe(204)
+    expect((await post(w.turnId, w.cards.find((c) => !isSkill(c))!.request.requestId, 'save')).status).toBe(204)
+    const next = await nextTurn(w.chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(has('skills/w-no')).toBe(false)
+  })
   test('any other file-tool card carries its tool as the group key', async () => {
     const calls = ['w-rule-a', 'w-rule-b'].map((n) => ({ tool: 'write', args: { file_path: `skills/${n}.md`, content: `# ${n}\n` }, sayResult: true }))
     const w = await ask(`규칙 두 개 올려줘\n${fake(...calls)}`, 2)

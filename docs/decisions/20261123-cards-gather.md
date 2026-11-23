@@ -7,9 +7,10 @@
 
 - **Ask:** one card per answer per kind, also when the engine runs its write calls one after the other.
 - **Rule:** every file-tool card carries its tool as the group key, and a skill save leads in plain words like a skill
-  move (path and diff behind 자세히; a file that does not load or a taken name keeps its whole card). A group of cards
-  that wait after the answer takes no press while the answer runs and its latest card is under 8 seconds old, so one
-  press covers them all. A card a running call waits on is never held.
+  move (path and diff behind 자세히; a file that does not load or a taken name keeps its whole card). A group of save cards
+  (files and skills; a delete, share or post stands alone) that wait after the answer takes no press while the answer runs and its latest card is under 8 seconds old, so one
+  press covers them all. A card a running call waits on is never held. A new skill's card that shows held files waits
+  inside its call, because what it approves lives in that answer. Overwrites of existing files still ask one by one.
 - **Why:** Claude Code runs write calls in order, so the cards of one answer arrive seconds apart. A press on the first
   would answer only that one.
 - **Version impact:** patch.

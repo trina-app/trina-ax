@@ -5358,6 +5358,9 @@ export class TurnExec {
     // Never in a scheduled run (nobody sees a card there) or with "Always allow" for skill saves on (no card to show it)
     if (tool === 'write' && after !== null && !r.exists && folder && !manifest && this.spec.clientKind !== 'schedule' && alwaysHere(this.alwaysPlace(), 'skill_save') !== 'on'
       && !this.skillSaved?.has(folder) && !this.skillWaiting?.has(folder) && !fs.existsSync(path.join(fs_.fx.root, folder)) && heldFileOk(folder, r.rel, after)) {
+      // a waiting card's call running again after the person's answer, and its SKILL.md was not saved: never hold it and
+      // ask for the skill the person may have declined
+      if (this.replaying) return { refusal: `Nothing was saved to '${r.rel}': the new skill it belongs to was not saved (its SKILL.md is not there). Do not write that skill again unless the user asks.`, summary: `${tool} -> not saved: its skill was not saved` }
       const held = (this.skillHeld ??= new Map()).get(folder) ?? new Map<string, HeldFile<WidenNeed>>()
       if (held.has(r.rel) || held.size < HELD_MAX_FILES) {
         held.set(r.rel, heldFile(r.rel, after, need))
@@ -5639,6 +5642,9 @@ export class TurnExec {
     // (callNow is set only for a call of a tool whose cards may wait: chat/tools.ts cardLaterTool)
     if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !this.rt.safetyCardsWait) return false
     if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
+    // a new skill's card that also shows files held for it: what it approves lives in this answer (skillHeld), so its
+    // card waits inside the call and the AI's second write of those files follows the press
+    if (request.kind === 'ask_user' && request.preview?.kind === 'skill_write' && request.preview.files?.length) return false
     // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
     // inside the call as before (with its time limit)
     const r = this.redactor()

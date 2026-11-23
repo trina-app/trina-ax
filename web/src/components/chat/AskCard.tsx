@@ -414,7 +414,7 @@ export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike &
       <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
         <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
       </p>
-      {changed && <p className="mt-1 text-xs text-warn" data-testid="ask-batch-changed">{changed}</p>}
+      {changed && (lean || n > 1) && <p className="mt-1 text-xs text-warn" data-testid="ask-batch-changed">{changed}</p>}
       <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]" data-testid="ask-batch-head">{lean ? head : n === 1 ? <QuestionText r={first} /> : head}</p>
       <ul className="mt-2 space-y-1.5" data-testid="ask-batch-items">
         {asks.map((r) => {
