@@ -8,7 +8,8 @@
 
 ## Answer
 
-**Feasible, with conditions.** `agy` 1.5.15 ran headless in a non-TTY, inside a copy of the Trina Linux engine
+**Feasible, with conditions**, and one open check: all runs used a mock model, so one short run with a real
+Gemini API key (through a local proxy) must pass before the build starts. `agy` 1.5.15 ran headless in a non-TTY, inside a copy of the Trina Linux engine
 sandbox (bubblewrap + Landlock `required-scoped` + seccomp + `--net-proxy`), with a placeholder API key and all model
 traffic sent to a local stand-in for the model proxy. Team tools worked through the real `mycel-bridge`. The deny
 rules stopped every built-in tool that we forced the model to call.
@@ -28,7 +29,7 @@ nothing. Build the `agy` engine only if the team needs agy's own agent behaviour
 
 ## How we tested
 
-All runs were on this Mac, in throwaway OrbStack containers (Linux 7.2, arm64, Landlock ABI 10). The containers and
+All runs were on this Mac, in throwaway OrbStack containers (Linux 7.2, arm64, Landlock ABI 10). The containers, the volume and
 the image were deleted after the spike. No account and no real API key were used. Model spend: 0.
 
 - `agy` 1.5.15, `linux_arm64` build, from Google's release manifest, SHA-512 checked. It is one 257 MB dynamically
@@ -53,7 +54,7 @@ the image were deleted after the spike. No account and no real API key were used
 
 | # | Check | Result | Evidence |
 |---|-------|--------|----------|
-| 1 | Headless, non-TTY, in the Trina sandbox, no hang | **Pass** (API key mode) | `agy -p ... --output-format stream-json < /dev/null` ended in 0.2–0.3 s in the sandbox, 0.8 s without it. 20 of 20 sandboxed turns with a team-tool call ended with exit 0. `--input-format stream-json` (two turns, one process) also ended. Needs `--allow-listen` (see C3). Issue #318 (hang) did not show in API key mode. We could not test the Google-account mode, where #318 was reported (1.2.x Linux, 1.4.10 Windows). |
+| 1 | Headless, non-TTY, in the Trina sandbox, no hang | **Pass against a mock model.** Real-model run pending. | `agy -p ... --output-format stream-json < /dev/null` ended in 0.2–0.3 s in the sandbox, 0.8 s without it. 20 of 20 sandboxed turns with a team-tool call ended with exit 0. `--input-format stream-json` (two turns, one process) also ended. Needs `--allow-listen` (see C3). Issue #318 (hang) did not show with the mock. But #318 is in print mode's "turn complete" check after the model stream ends, and the mock sends a simple stream (no thought parts, no `thoughtSignature`). A real Gemini stream can differ, so this check is not closed until one real-key run passes. #318 was reported in Google-account mode (1.2.x Linux, 1.4.10 Windows). |
 | 2 | Auth through the model proxy, real key outside the sandbox | **Pass** | `settings.json` `{"modelProvider":"gemini"}` + `GEMINI_API_KEY=<placeholder>` + `GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<proxy port>`. Every model call went to the base URL with header `x-goog-api-key: <placeholder>`. No browser, no keyring, no login. Headless use with an API key is billed per token on the Gemini API. It does not use a subscription. |
 | 3 | Built-in tools off or allow-listed; permissions decided by Trina | **Pass with conditions** | No allow-list exists (`--settings` refuses `disableBuiltInTools`, `excludeTools`, `browserEnabled`). Deny rules work, also with `--dangerously-skip-permissions` and in sub-agents. See [Tool lock-down](#tool-lock-down). |
 | 4 | Trina's MCP server for team tools | **Pass** | `mcp_config.json` → `mycel-bridge --turn-dir . --sock <tools.sock>`. The bridge read and deleted `.turn/token`. `enabledTools` (allow-list per server) and `tools.<name>.eager: true` give the model `mcp_team_<tool>` directly. `allow: ["mcp(team/*)"]` lets the calls run without a prompt. `timeoutSeconds: 1800` was accepted. |
@@ -73,7 +74,7 @@ Forced calls. "Deny set" = `command(*)`, `unsandboxed(*)`, `write_file(*)`, `rea
 | Forced tool | No rules, no flag | No rules + `--dangerously-skip-permissions` | Deny set (+ flag or not) | In the Trina sandbox, no rules + flag |
 |---|---|---|---|---|
 | `run_command` | soft-denied, turn ends with no answer | **ran** (`id` wrote a file) | denied, model gets the error | ran, but failed: no `bash` in the sandbox |
-| `run_workflow` (Python) | soft-denied (`unsandboxed`) | **ran** (Python wrote a file) | denied only with `unsandboxed(*)` | failed: no system Python; the bundled interpreter did not unpack |
+| `run_workflow` (Python) | soft-denied (`unsandboxed`) | **ran** (Python wrote a file) | denied only with `unsandboxed(*)` | stopped by Landlock, see the note below |
 | `write_file` | – | – | denied, also inside the workspace | outside the chat folder: read-only file system |
 | `read_file` | – | – | denied, also inside the workspace | outside the binds: "file does not exist" |
 | `search_web` | – | – | **not stopped** by `read_url(*)` | ran: a second model call with `tools: [{googleSearch: {}}]` to the model proxy |
@@ -82,6 +83,19 @@ Forced calls. "Deny set" = `command(*)`, `unsandboxed(*)`, `write_file(*)`, `rea
 
 Findings:
 
+- `run_workflow` does not need a system Python: `agy` has an embedded Python and unpacks it (68 MB) into
+  `~/.cache/antigravity/python`, which is in the chat folder. We tested it with `/var/lib/mycel` on a Docker volume,
+  as in compose:
+  - Landlock `required-scoped` (the product setting): the unpack failed at the rename with EXDEV ("invalid
+    cross-device link"). This is Landlock's REFER rule, not the file system: with Landlock off, on the same volume,
+    the unpack worked.
+  - Landlock off (helper refuses this with `--net-proxy`, so the run used the container network): the bundled
+    Python ran the model's script (`wf-ran uid 1001`).
+  - Interpreter already unpacked in the chat folder (copied in before the turn), Landlock on: `fork/exec
+    .../bin/python3: permission denied`. The exec-allow list holds.
+
+  So in Trina, two Landlock rules stop it. Without Landlock, the deny set is the only stop. Keep Landlock
+  `required` for this engine on every host, and keep `unsandboxed(*)` in the deny set.
 - `--dangerously-skip-permissions` without deny rules gives the model a shell and Python on the host. Never use it.
   With the deny set, the flag has no effect on the tools above.
 - Without the flag (mode `request-review`), a tool that needs a permission is "soft-denied": the turn ends at once,
@@ -227,7 +241,8 @@ sbx-x5.stdout | session tool_start(mcp__team__file_read) tool_end(true) text usa
 | Soft-deny ends the turn with an empty answer | Medium | Explicit deny rules (the model then gets an error and continues) |
 | `listen()` must be allowed | Medium | Per-engine `--allow-listen`; per-turn network namespace |
 | Context files in the chat folder change the model's instructions | Medium | Read-only empty binds (C4) |
-| #318 hang (seen in account mode) | Medium | API key mode only; `--print-timeout`; turn timeout |
+| #318 hang (seen in account mode; not shown with a mock in API key mode; not known with a real model) | High until the real-key run | One real-key run before the build; `--print-timeout`; turn timeout |
+| Embedded Python (68 MB) unpacks into every chat folder that calls `run_workflow` | Low | Landlock stops the unpack and the exec; disk use only if a later version unpacks in a different way |
 | Closed source, 257–274 MB binary, Google can change behaviour | Medium | Pin, checksum, test per version |
 | Web search through `googleSearch` grounding | Low | Model proxy keeps or removes the tool per team setting |
 | Not tested: real Gemini API (thought signatures, real model choices), amd64, macOS (Seatbelt `engine.sb`) | Unknown | One short real-key run (with an approved key, through the proxy) and a macOS run before the build starts |
@@ -252,6 +267,8 @@ endpoint. That is a QA task of about 1–2 days, not a new engine.
 ## Recommendation
 
 1. Now: offer Gemini through the existing `api` engine. Measure if teams use it.
-2. Build the `agy` engine only if teams need agy's own agent behaviour. Then build it under C1–C6, start with
-   `-p --output-format stream-json`, and do the real-key and macOS checks first.
-3. Keep Gemini CLI as the fallback if the security review refuses a deny-list-only engine.
+2. Before any build: one real-key run (approved key, through a local proxy, cost of cents) to close check 1, and
+   one macOS run under `engine.sb`.
+3. Build the `agy` engine only if teams need agy's own agent behaviour. Then build it under C1–C6 and start with
+   `-p --output-format stream-json`.
+4. Keep Gemini CLI as the fallback if the security review refuses a deny-list-only engine.
