@@ -27,6 +27,7 @@ function checkExpoNotifications(projectRoot) {
     && delegate.includes('open class FirebaseMessagingDelegate(protected val context: Context)')
     && /protected open fun createNotificationRequest\(\s*identifier: String,\s*content: INotificationContent,\s*notificationTrigger: FirebaseNotificationTrigger\s*\)/.test(delegate)
     && delegate.includes('NotificationsService.receive(context, notification)')
+    && /\n  override fun onMessageReceived\(remoteMessage: RemoteMessage\)/.test(delegate)
     && remote.includes('val isDataOnly = remoteMessage.notification == null')
     && trigger.includes('class FirebaseNotificationTrigger(val remoteMessage: RemoteMessage)') && trigger.includes('remoteMessage.data["channelId"]')
     && receiver.includes('open class NotificationsService : BroadcastReceiver()') && /protected open fun getPresentationDelegate\(context: Context\): PresentationDelegate/.test(receiver)

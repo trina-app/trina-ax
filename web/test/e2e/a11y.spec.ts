@@ -239,24 +239,32 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await audit(page, 'admin (phone)')
 })
 
-// Every admin section, the other settings tabs, projects, trash, an ask card and the file preview panel, in both
-// themes: the screens an owner configures the team on are as readable as the chat.
+// Every admin section, the other settings tabs, scheduled tasks, projects, trash, an ask card and the file preview
+// panel, in both themes: the screens an owner configures the team on are as readable as the chat.
 for (const scheme of ['light', 'dark'] as const) {
   test(`the remaining screens have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
-    for (const s of ['groups', 'folders', 'providers', 'usage', 'audit', 'settings', 'system']) {
+    for (const s of ['groups', 'folders', 'providers', 'connectors', 'ai-apps', 'plugins', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(`/admin/${s}`)
       await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'providers', 'memory', 'allowances', 'apps']) {
+    for (const s of ['security', 'usage', 'providers', 'memory', 'export', 'allowances', 'ai-apps', 'notifications', 'apps', 'about']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)
     }
+    // the old address of Google Drive: its page under Connectors
+    await page.goto('/settings/drive')
+    await expect(page).not.toHaveURL(/\/settings\/drive$/)
+    await page.waitForTimeout(300)
+    await audit(page, 'settings/drive (Connectors › Google Drive)')
+    await page.goto('/scheduled')
+    await page.waitForTimeout(300)
+    await audit(page, 'scheduled')
     await page.goto('/projects')
     await page.waitForTimeout(300)
     await audit(page, 'projects')

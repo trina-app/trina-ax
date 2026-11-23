@@ -243,13 +243,19 @@ describe('the answer\'s notices and the unread read stay bounded (review of #362
 
 describe('threads ring only on a mention', () => {
   let root: string
-  beforeAll(async () => { root = (await say('alice', 'root answer')).assistantMessage.id })
+  // these tests read the switch off for alice and bob (on by default since 2026-11-23,
+  // docs/decisions/20261123-thread-replies-default-on.md): with it off, a thread rings only on a mention
+  beforeAll(async () => {
+    root = (await say('alice', 'root answer')).assistantMessage.id
+    for (const u of ['alice', 'bob']) savePreferences(db(), u, { roomThreadReplies: false })
+  })
   const reply = (user: string, text: string, mentions?: string[]) =>
     h.api(user).call(API.sendChatThreadReply, { params: { id: chatId, messageId: root }, body: { text, clientId: cm(), ...(mentions ? { mentions } : {}) } })
   const notice = (user: string) => db().query('SELECT id, mention_id, created_at, read_at FROM chat_thread_notices WHERE user_id = ? AND source_id = ? AND read_at IS NULL').get(user, root) as { id: string; mention_id: string | null; created_at: string } | null
   const threadEvents = (user: string) => ws[user]!.frames.filter((f): f is Extract<ServerFrame, { type: 'chat.thread' }> => f.type === 'chat.thread' && f.data.rootId === root)
 
-  test('"Replies in threads I\'m part of" is off by default; the push of a chat thread is decided per notice', () => {
+  test('"Replies in threads I\'m part of" is on by default (as in Slack); the push of a chat thread is decided per notice', () => {
+    expect(getPreferences(db(), 'nobody-saved-settings').roomThreadReplies).toBe(true)
     expect(getPreferences(db(), 'alice').roomThreadReplies).toBe(false)
     expect(pushEventEnabled(getPreferences(db(), 'alice'), 'chat.thread_reply')).toBe(true)
   })

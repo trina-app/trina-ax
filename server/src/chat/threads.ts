@@ -11,7 +11,7 @@
 // chat/shared-answers.ts) sees none of it, with the same 404 as a missing thread. Followers are the answer's asker and
 // everyone who replied; each gets one unread notice per thread (updated in place by later replies, listed in Mentions &
 // threads) and a push, a desktop notice and the sound only when a reply mentions them, or while "Replies in threads
-// I'm part of" is on (off by default since 2026-11-22: docs/decisions/20261122-project-chat-notices-threads-mention-only.md).
+// I'm part of" is on (on by default, as in Slack: docs/decisions/20261123-thread-replies-default-on.md).
 //
 // @mentions (docs/decisions/20261118-chat-thread-mentions.md, migration 417): the reply box may mention the people who
 // see the thread now (threadPeople, sent with the page). A send keeps only the ids that are among them at that moment
@@ -309,7 +309,7 @@ export function sendReply(ctx: AppContext, rt: ChatRuntime, userId: string, chat
   const followers = db.query('SELECT user_id FROM chat_thread_follows WHERE root_id = ? AND user_id <> ?').all(r.root_id, userId) as { user_id: string }[]
   // who the desktop app tells (the chat.thread event's `notice`), as a room tells (rooms/service.ts notify): once per
   // unread run (a new notice, or its first mention), outside quiet hours, a plain reply only while "Replies in threads
-  // I'm part of" is on (off by default: a thread rings only on a mention; the push's own rules: chatThreadWanted)
+  // I'm part of" is on (on by default; the push's own rules: chatThreadWanted)
   const notices = new Map<string, 'mention' | 'reply'>()
   const tz = teamTimeZone(db), now = Date.parse(at)
   for (const f of followers) {
@@ -400,8 +400,8 @@ function mentionerOf(db: Database, n: NoticeRow): { by: string | null } | null {
 const replyThere = (db: Database, n: NoticeRow) => !!db.query('SELECT 1 FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.reply_id, n.source_id)
 
 /** Asked before and after each send (push-service.ts SOURCES wanted): unread, its reply still there, a reply there that
- * still mentions the person, or "Replies in threads I'm part of" on (off by default: a thread rings only on a mention,
- * docs/decisions/20261122-project-chat-notices-threads-mention-only.md), outside the person's quiet hours, and the
+ * still mentions the person, or "Replies in threads I'm part of" on (on by default,
+ * docs/decisions/20261123-thread-replies-default-on.md), outside the person's quiet hours, and the
  * thread still theirs to see. */
 export function chatThreadWanted(ctx: AppContext, notificationId: string, now = Date.now()): boolean {
   const n = noticeOf(ctx.db, notificationId)

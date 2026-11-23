@@ -93,3 +93,17 @@ test('the app sets the icon number on the iPhone only; Android never calls setBa
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   expect(app).not.toContain('setBadgeCountAsync')
 })
+
+test('silent syncs: offered by an iPhone and an Android build with its own messaging service; never listed in the foreground', async () => {
+  const { takesSync, SYNC_CODE } = await import('../../mobile/src/badge')
+  const { PUSH_SYNC_CODE } = await import('../../shared/src/cloud-protocol/push-gateway')
+  expect(SYNC_CODE).toBe(PUSH_SYNC_CODE)
+  expect([takesSync('ios', false), takesSync('android', true), takesSync('android', false), takesSync('web', true)]).toEqual([true, true, false, false])
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8'), push = fs.readFileSync(path.join(import.meta.dir, '../../mobile/src/push.ts'), 'utf8')
+  expect(app).toContain('...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : [])')
+  expect(push).toContain('shouldShowList: n.request.content.data?.code !== SYNC_CODE')
+  // the page's count never clears delivered notifications: a stale count on return to the foreground (or 0 before the
+  // lists load at sign-in) would wipe a new one (review of #442); reads elsewhere come by id in a sync
+  expect(app).toContain('badge: n => appBadge.show(n),')
+  expect(push).not.toContain('dismissNotificationAsync')
+})

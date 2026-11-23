@@ -48,3 +48,12 @@ export class AppBadge {
     }
   }
 }
+
+/** The code of a silent sync push (the gateway contract's PUSH_SYNC_CODE): never listed, never a banner. */
+export const SYNC_CODE = 'phone.sync'
+
+/** Whether this app takes silent syncs (push-sync-v1): an iPhone (APNs sets its number, nothing is listed) and an
+ * Android build with the app's own messaging service (modules/push-label, which handles them before expo-notifications;
+ * without it expo-notifications would list an empty notification while the app is open). */
+export const takesSync = (platform: string, androidService: boolean): boolean => platform === 'ios' || (platform === 'android' && androidService)
+
