@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 17:11
 - Branch: `fix/shared-chat-waiting`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/chat`, `shared/src/api`, `web/src`. Why: chat and its permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in what a shared chat tells its members; one optional API field, no migration
 
@@ -16,12 +16,14 @@ confirm" within a couple of seconds, and the right state again once it is answer
 
 1. A question or safety card that outlives its answer (`open_questions`) has no running turn, so `shared.answering` is null: teammates see nothing.
 2. A card for one desktop window is not counted by `waitsForPerson`, and its open and close are published to that window only.
-3. `answering.waiting` asks "does anyone's card wait" but prints the runner's name, so a kept card of A under B's turn can name B.
+3. The step line of a card tool (`ask_user`, a command, an address, a service) repeated the card's content to everyone.
+4. `answering.waiting` asks "does anyone's card wait" but prints the runner's name, so a kept card of A under B's turn can name B.
 
 ## Scope
 
 In: one server answer to "who does the AI wait for" for every card kind; the composer note; the history, sidebar and phone drawer marker (not counted as needing me); live update, reload, reconnect, two windows, offline.
-Out: who may answer a card; what a message sent meanwhile does to an open card.
+Also in: other members read only the verb of a step line that repeats a card; file steps keep their existing path rule.
+Out: who may answer a card; what a message sent meanwhile does to an open card (a teammate's message still closes an open AI question, as before).
 
 ## Steps
 
@@ -37,4 +39,4 @@ None beyond this plan: the name is the only thing told, as `shared.answering` al
 
 ## Result
 
-(filled in at the end)
+`Chat.waitsFor` carries the name only. Checked with two accounts in a browser on a local server (live, reload, reconnect, asker offline, answer, 1440 and 390), and by tests for every card kind, timeout, stop, one-window cards and no card content reaching others.
