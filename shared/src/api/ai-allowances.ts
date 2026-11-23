@@ -47,6 +47,9 @@ export const ConnectorToolAllowance = z.object({
   tool: z.string(),
   /** the shared chat card's Always: what this connection returns shows to the people in a shared chat (no tool) */
   shared: z.literal(true).optional(),
+  /** "<connector> 전체 항상 허용" (docs/decisions/20261123-one-always-allow.md): every tool of this connection, one entry
+   * per connection (`tool` then reads "All tools" for an app that does not know the field) */
+  all: z.literal(true).optional(),
   createdAt: z.string(),
 })
 export type ConnectorToolAllowance = z.infer<typeof ConnectorToolAllowance>

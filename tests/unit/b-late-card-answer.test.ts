@@ -128,8 +128,9 @@ describe('Always allow pressed on a waiting card', () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
   })
 
-  // review of #412: a ✦ side chat is not a shared chat, but a guest in its room is among the people (TurnExec.guestAmong)
-  test('not kept in a side chat whose room has a guest', async () => {
+  // one Always (docs/decisions/20261123-one-always-allow.md, replacing #412's guest guard): a guest in the room of a ✦
+  // side chat does not stop the person's Always from being kept
+  test('kept in a side chat whose room has a guest too', async () => {
     db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run()
     put('users/alice/QA-late/side-guest.txt', 'x')
     const chatId = await ownChat()
@@ -143,7 +144,7 @@ describe('Always allow pressed on a waiting card', () => {
     try {
       expect((await post(w.turnId, w.card.requestId, ALWAYS_VALUE)).status).toBe(204)
       await nextTurn(chatId, w.answerId)
-      expect(always()).toBe(0)
+      expect(always()).toBe(1)
     } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
   })
 

@@ -1118,7 +1118,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
       multiple: false, allowText: false, expiresAt: new Date(Date.now() + wait).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
-      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
+      ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : extra?.buttons && options.length === 4 ? { buttons: true as const, row: true as const } : {}),
       ...(extra?.note ? { note: extra.note } : {}),
     } as TurnRequest, { timeoutMs: wait })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
@@ -1164,11 +1164,10 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     explicitPlace: (dir, paths) => exec.askedIn ? false : paths ? explicitPlaceFor(exec, dir, paths) : explicitPlaceAsk(exec, dir),
     webAccessChanged: () => exec.rt.hub.publish(exec.spec.userId, WEB_ACCESS_CHANGED),
     // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
-    // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
-    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong()),
-    // their "Allow all websites" holds in their own scheduled run too (Rule A), except while a guest is among the people
-    // and another person's words can steer the run (the one limit Rule A keeps, as the connector cards: steerableRun)
-    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong() && steerableRun(exec.rt.db, exec.id)),
+    // run, not a draft or a Slack question; a guest among the people too (one Always: docs/decisions/20261123-one-always-allow.md)
+    sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted,
+    // their "Allow all websites" holds in their own scheduled run too (Rule A), a guest among the people too
+    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted,
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }

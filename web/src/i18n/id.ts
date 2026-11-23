@@ -831,6 +831,7 @@ export const id: Record<MessageKey, string> = {
   'allowances.deleteLabel': "Hapus izin untuk {place}",
   'allowances.always': "Selalu izinkan",
   'allowances.connectorShared': "Tampilkan hasilnya di obrolan bersama",
+  'allowances.connectorAll': "Semua alat (semua obrolan dan tugas terjadwal)",
   'allowances.card.room_change': "Perubahan setelah membaca percakapan",
   'allowances.card.remember': "Mengingat sesuatu",
   'allowances.card.save_wider': "Menyimpan di tempat yang dilihat lebih banyak orang",

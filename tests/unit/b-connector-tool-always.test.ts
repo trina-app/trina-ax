@@ -91,7 +91,8 @@ describe('a read-only connector tool in a shared chat', () => {
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.question).toBe('Read this page with Bright Data · m.example.com/acme/222')
     expect(r.cards[0]!.question).not.toContain('can’t tell')
-    expect(r.cards[0]!.options.map((o) => [o.label, o.value])).toEqual([['Allow', 'allow'], ['Always allow', 'always'], ['Don’t allow', 'deny']])
+    // and the whole connection's Always (docs/decisions/20261123-one-always-allow.md)
+    expect(r.cards[0]!.options.map((o) => [o.label, o.value])).toEqual([['Allow', 'allow'], ['Always allow', 'always'], ['Always allow all of Bright Data', 'all'], ['Don’t allow', 'deny']])
     expect(r.cards[0]!.note).toContain('in every chat')
     expect(callsOf('get_post')).toBe(n)
     // with no web address: the tool by its title

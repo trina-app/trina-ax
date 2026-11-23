@@ -196,6 +196,10 @@ export const AskUserRequest = z.object({
   /** a server check whose three choices are buttons in this order, the first the main one and the last the "no" (a
    * room's change card: 이번만 허용, 이 방에서는 항상 허용, 허용 안 함); absent: two choices are buttons, more are radios */
   buttons: z.literal(true).optional(),
+  /** with `buttons`: four choices shown as one row of buttons too (a connector card: 허용, 항상 허용, <connector> 전체 항상
+   * 허용, 안 함; docs/decisions/20261123-one-always-allow.md); absent, four choices are radios (the folder access card). A
+   * client that does not know this shows radios. */
+  row: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
   /** a server check: a part of `question` (its first match) that shows `title` on hover: the wider-audience card's

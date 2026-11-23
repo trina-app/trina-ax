@@ -15,8 +15,8 @@
 //     needs the person, whatever is left of the budget;
 //   ①b addresses on a site the person allowed on an address card ("이 사이트 항상 허용", user_allowed_sites: for good,
 //     in every chat they ask in and their scheduled runs, until they remove it in Settings › Allowed for Trina; Rule A,
-//     docs/decisions/20261122-always-allow-holds-everywhere.md B3. Per chat, chat_allowed_sites, where a guest is among
-//     the people of a shared chat or the team's "Always allow" switch is off, and for the rows kept before): the same
+//     docs/decisions/20261122-always-allow-holds-everywhere.md B3; a guest among the people too, and no per-chat site
+//     any more: docs/decisions/20261123-one-always-allow.md, migration 445 emptied chat_allowed_sites): the same
 //     registrable domain (eTLD+1, Public Suffix List with its private
 //     section: news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io are two), for this
 //     person, outside the link budget. Never for an address with a long random-looking part (opaqueParts:
@@ -191,12 +191,11 @@ export interface TurnPerson {
   /** the person's "Allow all websites" changed on this turn's card: tell their open windows */
   webAccessChanged?(): void
   /** the person's sites for good (user_allowed_sites) count and may be kept in this turn: one they ask from their app or
-   * their own scheduled run, not a Slack question or a draft, and nobody outside the team (a guest) in it (the guest rule
-   * of docs/decisions/20261122-connector-always-allow.md: then a site counts for this chat only). Absent: never */
+   * their own scheduled run, not a Slack question or a draft (a guest among the people too: one Always,
+   * docs/decisions/20261123-one-always-allow.md). Absent: never */
   sitesForGood?(): boolean
   /** the person's own scheduled run: their "Allow all websites" (①d) holds there too (Rule A, docs/decisions/
-   * 20261122-always-allow-holds-everywhere.md), except while a guest is among the people and another person's words
-   * can steer the run (read at every call) */
+   * 20261122-always-allow-holds-everywhere.md; a guest among the people too: 20261123-one-always-allow.md) */
   scheduledRun?(): boolean
 }
 
@@ -421,7 +420,7 @@ export function rememberUrls(db: Database, chatId: string, urls: Iterable<string
 }
 
 /**
- * The site of an address for "allow this site in this conversation": its registrable domain (eTLD+1) by the Public
+ * The site of an address for "이 사이트 항상 허용": its registrable domain (eTLD+1) by the Public
  * Suffix List, private section included (tldts), in the address's ASCII (punycode) form: news.example.co.kr ->
  * example.co.kr, x.alice.github.io -> alice.github.io. From the name alone, never DNS. null = nothing to allow: an IP
  * address, a single-label name, or a name that is itself a public suffix (co.kr, github.io, s3.amazonaws.com).
@@ -474,8 +473,9 @@ function siteScope(db: Database, chatId: string | null, userId: string | null | 
   return !!chatId && !!userId && !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
 }
 
-/** "이 사이트 항상 허용" keeps the site for good (user_allowed_sites) unless a guest is among the people of this shared
- * chat or the team's "Always allow" switch is off: then for this chat (chat_allowed_sites), as before. */
+/** "이 사이트 항상 허용" keeps the site for good (user_allowed_sites) and the person's sites count here: the team's
+ * "Always allow" switch on and a turn that may use them (TurnPerson.sitesForGood). Elsewhere no site is offered or
+ * used (there is no site for this chat only: docs/decisions/20261123-one-always-allow.md). */
 function sitesForGood(db: Database, person: TurnPerson | null): boolean {
   if (getTeamSettings(db).roomAlwaysAllow === false) return false
   try { return !!person?.sitesForGood?.() } catch { return false }
@@ -497,26 +497,18 @@ function allSitesChat(db: Database, chatId: string | null, userId: string | null
   return !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
 }
 
-/** The sites the person allowed: for good (while the team's "Always allow" switch is on and the account is active), and
- * in this chat; none in a confidential chat or without a person. Only the turn's own person's rows. */
+/** The sites the person allowed for good (while the team's "Always allow" switch is on and the account is active); none
+ * in a confidential chat or without a person. Only the turn's own person's rows. */
 function allowedSites(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): Set<string> {
-  if (!siteScope(db, chatId, userId)) return new Set()
-  const here = (db.query('SELECT site FROM chat_allowed_sites WHERE chat_id = ? AND user_id = ?').all(chatId, userId!) as { site: string }[]).map((r) => r.site)
-  const good = !sitesForGood(db, person) ? []
-    : (db.query("SELECT s.site FROM user_allowed_sites s JOIN users u ON u.id = s.user_id WHERE s.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(userId!) as { site: string }[]).map((r) => r.site)
-  return new Set([...here, ...good])
+  if (!siteScope(db, chatId, userId) || !sitesForGood(db, person)) return new Set()
+  return new Set((db.query("SELECT s.site FROM user_allowed_sites s JOIN users u ON u.id = s.user_id WHERE s.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(userId!) as { site: string }[]).map((r) => r.site))
 }
 
-/** Remember the site the person allowed on an address card: for good (`forGood`, "이 사이트 항상 허용"), else in this chat
- * only. Audited. */
-export function allowSite(db: Database, chatId: string, userId: string, site: string, turnId: string | null, forGood = false) {
+/** Remember the site the person allowed for good on an address card ("이 사이트 항상 허용"). Audited. */
+export function allowSite(db: Database, chatId: string, userId: string, site: string, turnId: string | null) {
   if (!siteScope(db, chatId, userId)) return
-  if (forGood) {
-    const r = db.query('INSERT OR IGNORE INTO user_allowed_sites (user_id, site, chat_id, created_at) VALUES (?, ?, ?, ?)').run(userId, site, chatId, new Date().toISOString())
-    if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'web_site', site, on: true, via: 'card', turnId } })
-    return
-  }
-  db.query('INSERT OR IGNORE INTO chat_allowed_sites (chat_id, user_id, site, turn_id) VALUES (?, ?, ?, ?)').run(chatId, userId, site, turnId)
+  const r = db.query('INSERT OR IGNORE INTO user_allowed_sites (user_id, site, chat_id, created_at) VALUES (?, ?, ?, ?)').run(userId, site, chatId, new Date().toISOString())
+  if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'web_site', site, on: true, via: 'card', turnId } })
 }
 
 /** Long random-looking parts of a text (base32 / hex / base64 of something): an address can carry data in them. 20+
@@ -751,15 +743,6 @@ export const TEXT = {
     es: "Si permite siempre el sitio, otras direcciones de {site} se abren sin preguntar en todos sus chats a partir de ahora. Las direcciones con cadenas largas difíciles de leer siguen preguntando. Puede quitarlo en Configuración › Permisos para Trina.",
     zh: "如果始终允许此网站，今后在你所有的对话中，{site} 上的其他地址都会不经询问直接打开。带有难以看懂的长字符串的地址仍会询问。可以在设置 › 允许Trina做的事中删除。",
   },
-  /** the per-chat line: a shared chat with a guest among its people, or the team's "Always allow" switch off */
-  site: {
-    ko: "사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자가 있는 주소는 계속 물어봐요.",
-    en: "If you allow the site, other addresses on {site} open without asking, in this chat only. Addresses with long hard-to-read strings still ask.",
-    id: "Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di obrolan ini. Alamat dengan teks panjang yang sulit dibaca tetap ditanyakan.",
-    ja: "サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列があるアドレスは引き続き確認します。",
-    es: "Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en este chat. Las direcciones con cadenas largas difíciles de leer siguen preguntando.",
-    zh: "如果允许此网站，{site} 上的其他地址会不经询问直接打开，仅限此对话。带有难以看懂的长字符串的地址仍会询问。",
-  },
   /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
   all: {
     en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations, until you turn it off in Settings. Addresses with long hard-to-read strings still ask, but that only catches what is easy to spot.',
@@ -779,10 +762,6 @@ export const TEXT = {
     ko: '이 사이트 항상 허용 ({site})', en: 'Always allow this site ({site})', id: 'Selalu izinkan situs ini ({site})',
     ja: 'このサイトを常に許可（{site}）', es: 'Permitir siempre este sitio ({site})', zh: '始终允许此网站（{site}）',
   },
-  allowSite: {
-    ko: '이 대화에서 이 사이트 허용 ({site})', en: 'Allow this site in this conversation ({site})', id: 'Izinkan situs ini di percakapan ini ({site})',
-    ja: 'この会話でこのサイトを許可（{site}）', es: 'Permitir este sitio en esta conversación ({site})', zh: '在此对话中允许此网站（{site}）',
-  },
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir", zh: "不打开" },
 } satisfies Record<string, Record<Locale, string>>
 
@@ -792,7 +771,7 @@ export type GateResult = 'seen' | 'site' | 'all' | 'confirmed'
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
- * person of the turn; the sites they allowed (①b: for good or in this chat) and their "Allow all websites" (①d) count only for them
+ * person of the turn; the sites they allowed (①b: for good) and their "Allow all websites" (①d) count only for them
  * (none without it). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
 export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
@@ -837,7 +816,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
     plain = plainAddress(site, marks, userinfo, from)
-    // ①b: a site the person allowed in this conversation, outside the link budget (never for an echo)
+    // ①b: a site the person allowed for good, outside the link budget (never for an echo)
     if (plain && allowedSites(db, chatId, o.userId, person).has(site!)) return 'site'
     if (from?.origin === 'learned') {
       if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from, unattended)) return 'seen'
@@ -882,15 +861,15 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   const lines = [TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)]
   if (longName.length) lines.push(TEXT.longName[L])
   if (opaque.length) lines.push(TEXT.opaque[L])
-  // "allow this site in this conversation": only where an allowance could ever apply (not while the exit address is
+  // "이 사이트 항상 허용": only where an allowance could ever apply (not while the exit address is
   // unknown, never in a confidential chat or without a chat and person to keep it for), and never on
   // the card of an address that looks like it carries data (a marked part, a user name or password): that is the card
   // an AI's first try to send something out raises, and one click there would trust the whole site for the rest of the
   // chat. The next plain address of the site offers it.
-  const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
-  // for good in every chat (Rule A, B3), per chat with a guest in this shared chat or the team's switch off
-  const forGood = offerSite && sitesForGood(db, person)
-  if (offerSite) lines.push((forGood ? TEXT.siteAlways : TEXT.site)[L].replace('{site}', () => siteLabel(site!)))
+  // For good in every chat (Rule A, B3), a shared chat with a guest too; not offered where it cannot be kept (the team's
+  // switch off, a Slack question, a draft): there is no site for this chat only (docs/decisions/20261123-one-always-allow.md)
+  const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId)) && sitesForGood(db, person)
+  if (offerSite) lines.push(TEXT.siteAlways[L].replace('{site}', () => siteLabel(site!)))
   // "Allow all websites (turn off in Settings)": on the first card already (the owner's call, 2026-11-11, as Claude's own
   // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
   // echo, in a turn ①d applies to), while the team allows it and the person's switch is off. Picking it opens this
@@ -902,7 +881,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   const answer = offerSite || offerAll
     ? await person.choose!(question, [
       { label: TEXT.allow[L], value: 'allow' },
-      ...(offerSite ? [{ label: (forGood ? TEXT.allowSiteAlways : TEXT.allowSite)[L].replace('{site}', () => siteLabel(site!)), value: 'site' }] : []),
+      ...(offerSite ? [{ label: TEXT.allowSiteAlways[L].replace('{site}', () => siteLabel(site!)), value: 'site' }] : []),
       ...(offerAll ? [{ label: TEXT.allowAll[L], value: ALL_SITES_ANSWER }] : []),
       { label: TEXT.deny[L], value: 'deny' },
     ], extra)
@@ -911,7 +890,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     throw new ToolError('the user did not allow opening this address. Do not try other addresses to get around this; tell the user what you could not do')
   }
   if (chatId && !long && !noEgress) rememberUrls(db, chatId, [url], 'allowed')
-  if (answer === 'site' && offerSite) allowSite(db, chatId!, o.userId!, site!, o.turnId ?? null, forGood)
+  if (answer === 'site' && offerSite) allowSite(db, chatId!, o.userId!, site!, o.turnId ?? null)
   if (answer === ALL_SITES_ANSWER && offerAll && setWebAllowAll(db, o.userId!, true, { via: 'card', turnId: o.turnId ?? null })) person.webAccessChanged?.()
   return 'confirmed'
 }
