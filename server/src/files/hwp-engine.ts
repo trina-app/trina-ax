@@ -1,4 +1,5 @@
-// Narrow native backend: preflight, info and one raster page. No editing, scripts, shells or arbitrary argv.
+// Narrow native backend: preflight, info, one raster page, and the page layout (the render tree's text lines and
+// table cells, for placing a picture: files/hwp-picture.ts). No editing, scripts, shells or arbitrary argv.
 // The renderer bytes (rhwp executable, Noto font, notices) come from the HWP Preview plugin package
 // (server/src/plugins); this driver, its preflight, limits, isolation and pins stay in core (docs/PLUGINS.md).
 import fs from 'node:fs'
@@ -10,12 +11,18 @@ import { ToolError } from '../policy/errors'
 import { sha256 } from './store'
 import { isolation, isPlainDir, makeWorkDir, readOutput, runIsolated, type IsolatedRun } from '../tools/isolate'
 import { converterCgroup } from '../system/cgroups'
+import { LAYOUT_LIMITS, parsePagination, parseRenderTree, type HwpLayout } from './hwp-picture'
 
 export class HwpError extends ToolError {
   constructor(readonly reason: HwpReason) { super(`HWP preview unavailable: ${reason}. Download the original to open it.`, 'hwp_' + reason) }
 }
 export interface RenderedPage { bytes: Buffer; meta: HwpPage }
-export interface HwpEngine { readonly identity: string; render(bytes: Buffer, ext: 'hwp' | 'hwpx', page: number, signal?: AbortSignal): Promise<RenderedPage> }
+export interface HwpEngine {
+  readonly identity: string
+  render(bytes: Buffer, ext: 'hwp' | 'hwpx', page: number, signal?: AbortSignal): Promise<RenderedPage>
+  /** where each page's text lines and table cells are drawn (edit_hwp's image change) */
+  layout?(bytes: Buffer, ext: 'hwp' | 'hwpx', signal?: AbortSignal): Promise<HwpLayout>
+}
 const root = [path.resolve(import.meta.dir, '../../..'), path.resolve(import.meta.dir, '../..')].find(p => fs.existsSync(path.join(p, 'resources/hwp/manifest.json'))) ?? path.resolve(import.meta.dir, '../../..')
 let worker: Promise<string> | undefined
 async function workerScript() {
@@ -108,10 +115,71 @@ export class NativeHwpEngine implements HwpEngine {
     } catch (e) { throw e instanceof HwpError ? e : new HwpError('engine') }
   }
   async render(bytes: Buffer, ext: 'hwp' | 'hwpx', page: number, signal?: AbortSignal): Promise<RenderedPage> {
+    if (!Number.isInteger(page) || page < 1 || page > L.pages) throw new HwpError('limit')
+    return this.job(bytes, ext, signal, async ({ run, input, fontDir, output, pageCount }) => {
+      if (page > pageCount) throw new HwpError('limit')
+      const rendered = await run(this.bin, ['export-png', input, '--page', String(page - 1), '--max-dimension', String(L.edge), '--font-path', fontDir, '-o', output])
+      if (rendered.code !== 0) throw new HwpError('damaged')
+      // Known progress lines are stdout. Parser warnings on stderr mean possible structural loss.
+      if (diagnostics(rendered.stderr).length) throw new HwpError('loss')
+      // the renderer could swap pages/ for a link to another folder, or the PNG for a link to another file: neither is
+      // followed (tools/isolate.ts readOutput)
+      if (!isPlainDir(output)) throw new HwpError('damaged')
+      const files = fs.readdirSync(output)
+      // the name is the renderer's: one readOutput takes (no backslash), so a strange one is 'damaged', not a crash
+      if (files.length !== 1 || !/^[^\\]+\.png$/.test(files[0]!)) throw new HwpError('damaged')
+      const got = readOutput(output, files[0], L.outputBytes)
+      if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
+      const png = got.bytes
+      if (png.length < 24 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || png.toString('ascii', 12, 16) !== 'IHDR') throw new HwpError('damaged')
+      const meta = HwpPage.safeParse({ page, pageCount, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+        sourceHash: sha256(bytes), engine: `rhwp-${manifest.version}`, fonts: this.fontHash,
+        warnings: ['font_substitution', 'layout_approximation', ...(!converterCgroup() ? ['memory_watchdog'] : [])] })
+      if (!meta.success) throw new HwpError('limit')
+      return { bytes: png, meta: meta.data }
+    })
+  }
+
+  /** Every page's render tree (export-render-tree), read as lines and cells (hwp-picture.ts parseRenderTree): one JSON
+   * file per page, named by the renderer, each read without following links and within the output cap. */
+  async layout(bytes: Buffer, ext: 'hwp' | 'hwpx', signal?: AbortSignal): Promise<HwpLayout> {
+    return this.job(bytes, ext, signal, async ({ run, input, fontDir, output, pageCount }) => {
+      if (pageCount > LAYOUT_LIMITS.pages) throw new HwpError('limit')
+      const r = await run(this.bin, ['export-render-tree', input, '-o', output])
+      if (r.code !== 0) throw new HwpError('damaged')
+      if (diagnostics(r.stderr).length) throw new HwpError('loss')
+      if (!isPlainDir(output)) throw new HwpError('damaged')
+      const files = fs.readdirSync(output).sort()
+      if (files.length !== pageCount || files.some((f, i) => f !== `render_tree_${String(i + 1).padStart(3, '0')}.json`)) throw new HwpError('damaged')
+      let left = L.outputBytes
+      const pages = files.map((f) => {
+        const got = readOutput(output, f, left)
+        if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
+        left -= got.bytes.length
+        let tree: unknown
+        try { tree = JSON.parse(got.bytes.toString('utf8')) } catch { throw new HwpError('damaged') }
+        try { return parseRenderTree(tree) } catch { throw new HwpError('damaged') }
+      })
+      // which body paragraphs start on each page (an anchor for a picture in a table)
+      const d = await run(this.bin, ['dump-pages', input, '--json'], { maxStdout: L.outputBytes })
+      if (d.code !== 0) throw new HwpError('damaged')
+      let starts: ReturnType<typeof parsePagination>
+      try { starts = parsePagination(JSON.parse(d.stdout.toString('utf8')), pages.length) } catch { throw new HwpError('damaged') }
+      pages.forEach((p, i) => Object.assign(p, starts[i]!))
+      return { pages }
+    })
+  }
+
+  /** One isolated run of the renderer on a copy of the document: the preflight, `info`, then `body` with the work
+   * folder's paths and the page count; the folder is removed afterwards. */
+  private async job<T>(bytes: Buffer, ext: 'hwp' | 'hwpx', signal: AbortSignal | undefined, body: (j: {
+    run: (cmd: string, args: string[], extra?: Partial<IsolatedRun>) => Promise<Awaited<ReturnType<typeof runIsolated>>>
+    input: string; fontDir: string; output: string; pageCount: number
+  }) => Promise<T>): Promise<T> {
     await this.ready
     if (signal?.aborted) throw new HwpError('cancelled')
     this.checkBinary()
-    if (bytes.length > L.inputBytes || !Number.isInteger(page) || page < 1 || page > L.pages) throw new HwpError('limit')
+    if (bytes.length > L.inputBytes) throw new HwpError('limit')
     const work = makeWorkDir()
     const deadline = Date.now() + L.timeoutMs
     const run = async (cmd: string, args: string[], extra: Partial<IsolatedRun> = {}) => {
@@ -139,29 +207,10 @@ export class NativeHwpEngine implements HwpEngine {
       if (info.code !== 0) throw new HwpError('damaged')
       let data: { pageCount: number; warnings?: unknown[] }
       try { data = JSON.parse(info.stdout.toString()) } catch { throw new HwpError('damaged') }
-      if (info.stderr.trim() || data.warnings?.length) throw new HwpError('loss')
+      if (diagnostics(info.stderr).length || data.warnings?.length) throw new HwpError('loss')
       if (!Number.isInteger(data.pageCount) || data.pageCount < 1) throw new HwpError('damaged')
-      if (data.pageCount > L.pages || page > data.pageCount) throw new HwpError('limit')
-      const rendered = await run(this.bin, ['export-png', input, '--page', String(page - 1), '--max-dimension', String(L.edge), '--font-path', fontDir, '-o', output])
-      if (rendered.code !== 0) throw new HwpError('damaged')
-      // Known progress lines are stdout. Parser warnings on stderr mean possible structural loss.
-      const diagnostics = rendered.stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line))
-      if (diagnostics.length) throw new HwpError('loss')
-      // the renderer could swap pages/ for a link to another folder, or the PNG for a link to another file: neither is
-      // followed (tools/isolate.ts readOutput)
-      if (!isPlainDir(output)) throw new HwpError('damaged')
-      const files = fs.readdirSync(output)
-      // the name is the renderer's: one readOutput takes (no backslash), so a strange one is 'damaged', not a crash
-      if (files.length !== 1 || !/^[^\\]+\.png$/.test(files[0]!)) throw new HwpError('damaged')
-      const got = readOutput(output, files[0], L.outputBytes)
-      if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
-      const png = got.bytes
-      if (png.length < 24 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || png.toString('ascii', 12, 16) !== 'IHDR') throw new HwpError('damaged')
-      const meta = HwpPage.safeParse({ page, pageCount: data.pageCount, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
-        sourceHash: sha256(bytes), engine: `rhwp-${manifest.version}`, fonts: this.fontHash,
-        warnings: ['font_substitution', 'layout_approximation', ...(!converterCgroup() ? ['memory_watchdog'] : [])] })
-      if (!meta.success) throw new HwpError('limit')
-      return { bytes: png, meta: meta.data }
+      if (data.pageCount > L.pages) throw new HwpError('limit')
+      return await body({ run, input, fontDir, output, pageCount: data.pageCount })
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 }
@@ -169,4 +218,9 @@ export class NativeHwpEngine implements HwpEngine {
 /** The engine when HWP preview is not usable here (no plugin, plugin off, not supported on this server, revoked): every
  * page refused. Since the founder cleared the renderer (docs/DECISIONS.md "HWP Preview cleared"), the HWP Preview
  * plugin turned on is the only switch; the old MYCEL_HWP_PREVIEW release gate is gone and ignored. */
-export const disabledHwpEngine: HwpEngine = { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') } }
+export const disabledHwpEngine: HwpEngine = { identity: 'hwp-disabled', async render() { throw new HwpError('disabled') }, async layout() { throw new HwpError('disabled') } }
+
+/** stderr lines that say more than the renderer's known notes: its progress note, and a table a few pixels past the page
+ * body in its own layout (LAYOUT_OVERFLOW: a page-filling form after a picture went into a cell; the preview is marked
+ * layout_approximation anyway). Other parser warnings mean possible structural loss. */
+const diagnostics = (stderr: string) => stderr.split('\n').filter(line => line.trim() && !/^\d{4}-\d{2}-\d{2} [\d:.]+ rhwp[^ ]*\[\d+:\d+\] CoreText: System LastResort not available, using built-in copy\.$/.test(line) && !/^LAYOUT_OVERFLOW: page=\d+, sec=\d+, col=\d+, para=\d+, type=\w+, first=(true|false), y=[\d.]+, bottom=[\d.]+, overflow=[\d.]+px$/.test(line))

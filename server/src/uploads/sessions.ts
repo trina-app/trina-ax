@@ -5,6 +5,7 @@
 // completing needs no assembly. While chunks arrive in order the sha256 is computed on the way, so complete only
 // hashes what came out of order. A session with no chunk yet is removed after an hour; an unfinished session is removed 24 hours after its last chunk (a laptop that slept
 // overnight resumes where it stopped), and at the latest 7 days after it started (its part file holds disk room).
+import { BY_PERSON } from '../files/own-upload'
 import { isGuestUser } from '../credentials/guest-ai'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -228,7 +229,7 @@ export class UploadSessions {
     if (target.kind === 'path') {
       const slash = target.path.lastIndexOf('/')
       // the same file at that name already (picked again after its first upload ended): kept, no "(2)"
-      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha, undefined, { keepSame: true })
+      const entry = await this.files.placeUpload(userId, slash < 0 ? '' : target.path.slice(0, slash), target.path.slice(slash + 1), this.part(id), target.onExists, sha, { action: 'upload', detail: BY_PERSON }, { keepSame: true })
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }

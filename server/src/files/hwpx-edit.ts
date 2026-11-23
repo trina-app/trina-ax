@@ -11,7 +11,11 @@
 // - { add_rows }: rows added to a table, each a copy of one row's cells (borders, sizes, paragraph and character shape)
 //   with new text; the rows below move down, the table's row count, height and cell zones follow. Refused when the
 //   table cannot continue on the next page and would grow taller than the page body (hp:pagePr).
-// Paragraph text only: no new styles, the header is not touched.
+// - { image }: a picture (files/hwp-picture.ts) floating at a place found from a label: a new zip part BinData/imageN
+//   with its bytes, an opf:item for it in Contents/content.hpf (only that line added there), and an hp:pic at the end
+//   of a body paragraph on the label's page (its text and layout cache stay), placed on the paper of that page, behind
+//   or in front of the text.
+// No new styles, the header is not touched.
 //
 // The patch: each section is tokenized with the offsets of every tag (after the XML parser of hwpx-write.ts has
 // checked it), and only these bytes change: the text replaced, an empty cell's text, the rows put in, the cell
@@ -31,13 +35,14 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpxOutline, hwpxText } from './hwp'
 import {
-  decodeHwpEditRequest, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX,
+  decodeHwpEditRequest, decodeVerifyInput, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX,
   hwpxReadLines, applyLineEdits, type HwpChange, type HwpEditReport,
 } from './hwpx-check'
-import { asChanges, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
+import { asChanges, pictureInput, type PictureInput, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
 import { NS_ATTRS } from './hwpx-template'
 import { assertKnown, assertPlainPackage, escText, isCompoundFile, parseXml, type Refuse } from './hwpx-write'
 import { checkZip, isZip } from './zip-guard'
+import { PICTURE_LIMITS, sanitizeImage, type CleanImage, type PictureSpot } from './hwp-picture'
 import { readZip, writeZip, type ZipEntry, type ZipRead } from './zip-write'
 
 const MIB = 1024 * 1024
@@ -401,8 +406,85 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
   /** paragraphs whose layout cache goes */
   readonly dropCache = new Set<Para>()
   private freshIds = new Map<number, () => string>()
+  /** the pictures' new parts (BinData/imageN.ext) and their manifest items, in order */
+  readonly newParts: { name: string; id: string; data: Uint8Array; kind: 'png' | 'jpg'; image: CleanImage }[] = []
+  private zOrders = new Map<number, number>()
+  private openedRuns = new Map<El, Edit>()
 
-  constructor(private doc: Doc) { super(doc.paras, doc.tables) }
+  constructor(private doc: Doc, private pkg: Package) { super(doc.paras, doc.tables) }
+
+  // ---- a picture
+  private tops: Para[][] | null = null
+  protected topParagraph(section: number, index: number): Para | null {
+    this.tops ??= this.doc.sections.map((_, si) => this.doc.paras.filter((q) => q.sec === si && q.el.parent?.local === 'sec'))
+    return this.tops[section]?.[index] ?? null
+  }
+  protected hasLayoutCache(p: Para): boolean { return !!p.lineseg }
+  protected topIndex(p: Para): number {
+    this.topParagraph(0, 0)
+    return this.tops![p.sec]?.indexOf(p) ?? -1
+  }
+
+  protected pictureAt(p: Para, spot: PictureSpot, image: CleanImage, layer: 'behind' | 'front', i: number): string {
+    const xml = this.doc.sections[p.sec]!.xml
+    if (p.el.name !== 'hp:p') refuseChange(i, 'the place is not in an ordinary paragraph')
+    const tracked = p.segs.find((s) => s.kind === 'other' && TRACKED.has(s.el!.local))
+    if (tracked) refuseChange(i, `the paragraph ${clip(p.text, 60)} has tracked changes; accept or reject them in Hangul first`)
+    const part = this.newParts.find((x) => x.image === image) ?? this.newPart(image, i)
+    const pic = this.picXml(p.sec, spot, image, layer, part.id)
+    // at the end of the paragraph's last run: its text and layout cache stay as they are
+    const runs = kidEls(p.el, 'hp:run')
+    const run = runs[runs.length - 1] ?? refuseChange(i, `the paragraph ${clip(p.text, 60)} has no text run to hold a picture`)
+    // (an empty run written as <hp:run/> is opened once; more pictures in it go after the first)
+    const open = this.openedRuns.get(run)
+    if (open) open.text = open.text.replace(/<\/hp:run>$/, `${pic}</hp:run>`)
+    else if (run.self) { this.edit(p, run.start, run.end, `${xml.slice(run.start, run.openEnd - 2).trimEnd()}>${pic}</hp:run>`, i); this.openedRuns.set(run, this.edits[this.edits.length - 1]!) }
+    else this.edit(p, run.closeStart, run.closeStart, pic, i)
+    return part.name
+  }
+
+  /** a new part for the picture: BinData/imageN with an id no manifest item and no part has */
+  private newPart(image: CleanImage, i: number) {
+    if (this.newParts.length >= PICTURE_LIMITS.images) refuseChange(i, `more than ${PICTURE_LIMITS.images} pictures in one call`)
+    const hpf = this.manifestName()
+    const ids = new Set([...(this.pkg.xml.get(hpf) ?? '').matchAll(/\sid\s*=\s*"([^"]*)"/g)].map((m) => m[1]!.toLowerCase()))
+    const names = new Set([...this.pkg.parts.keys(), ...this.newParts.map((x) => x.name)].map((n) => n.toLowerCase()))
+    for (const x of this.newParts) ids.add(x.id.toLowerCase())
+    let n = 1
+    while (ids.has(`image${n}`) || [...names].some((k) => k.startsWith(`bindata/image${n}.`))) n++
+    const id = `image${n}`
+    const part = { name: `BinData/${id}.${image.kind}`, id, data: image.bytes, kind: image.kind, image }
+    this.newParts.push(part)
+    return part
+  }
+
+  /** Contents/content.hpf, the package's manifest (assertPlainPackage made sure it is there) */
+  manifestName(): string {
+    return [...this.pkg.parts.keys()].find((n) => /^Contents\/content\.hpf$/i.test(n)) ?? refuseDoc('it has no manifest (Contents/content.hpf)')
+  }
+
+  /** An hp:pic as Hangul writes one (its children in Hangul's order): `spot`'s size and place on the paper,
+   * the original picture's size in pixels x 75 (96 dpi), a fresh id and the section's next z-order. */
+  private picXml(sec: number, spot: PictureSpot, image: CleanImage, layer: 'behind' | 'front', item: string): string {
+    const xml = this.doc.sections[sec]!.xml
+    let z = this.zOrders.get(sec)
+    if (z === undefined) z = Math.max(0, ...[...xml.matchAll(/\szOrder="(\d{1,9})"/g)].map((m) => Number(m[1]))) + 1
+    this.zOrders.set(sec, z + 1)
+    const id = this.ids(sec)()
+    const { w, h } = spot.box
+    const dw = image.width * 75, dh = image.height * 75
+    const m = (name: string) => `<hc:${name} e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>`
+    return `<hp:pic id="${id}" zOrder="${z}" numberingType="NONE" textWrap="${layer === 'front' ? 'IN_FRONT_OF_TEXT' : 'BEHIND_TEXT'}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0">` +
+      `<hp:offset x="0" y="0"/><hp:orgSz width="${w}" height="${h}"/><hp:curSz width="${w}" height="${h}"/><hp:flip horizontal="0" vertical="0"/>` +
+      `<hp:rotationInfo angle="0" centerX="${w >> 1}" centerY="${h >> 1}" rotateimage="1"/><hp:renderingInfo>${m('transMatrix')}${m('scaMatrix')}${m('rotMatrix')}</hp:renderingInfo>` +
+      `<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${w}" y="0"/><hc:pt2 x="${w}" y="${h}"/><hc:pt3 x="0" y="${h}"/></hp:imgRect>` +
+      `<hp:imgClip left="0" right="${dw}" top="0" bottom="${dh}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${dw}" dimheight="${dh}"/>` +
+      `<hc:img binaryItemIDRef="${item}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>` +
+      `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${h}" heightRelTo="ABSOLUTE" protect="0"/>` +
+      // from the paper, or vertically from the anchor paragraph (an offset above it written as Hangul does: 32-bit unsigned)
+      `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1" holdAnchorAndSO="0" vertRelTo="${spot.fromPara === undefined ? 'PAPER' : 'PARA'}" horzRelTo="PAPER" vertAlign="TOP" horzAlign="LEFT" vertOffset="${(spot.fromPara ?? spot.box.y) >>> 0}" horzOffset="${spot.box.x}"/>` +
+      '<hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:pic>'
+  }
 
   private edit(p: { sec: number }, start: number, end: number, text: string, change: number) {
     this.edits.push({ sec: p.sec, start, end, text, change, seq: this.edits.length })
@@ -651,7 +733,7 @@ function cfbParts(bytes: Uint8Array): Map<string, Uint8Array> {
 
 /** Changes the text of a .hwpx; the new file and what the read-back needs. ToolError for a change or a document it
  * refuses, and then nothing is written. */
-export function editHwpx(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8Array; report: HwpEditReport } {
+export function editHwpx(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWPX_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWPX_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
   const pkg = openPackage(bytes)
@@ -661,7 +743,8 @@ export function editHwpx(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8
   const read = hwpxReadLines(hwpxText(bytes))
   const differs = firstDifference(read, before.lines)
   if (differs) refuseDoc(`its text could not be mapped exactly (${differs})`)
-  const ed = new Editor(doc)
+  const ed = new Editor(doc, pkg)
+  if (extra) { ed.layout = extra.layout; ed.images = extra.images }
   changes.forEach((c, i) => ed.apply(c, i))
   // the expected text: each changed paragraph's new text, the new rows' paragraphs where they go; each line edit names
   // the changes it comes from, for the server's read-back
@@ -684,17 +767,31 @@ export function editHwpx(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8
     parseXml(xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml, sec.name, { refuse: (part, why) => { throw new ToolError(`the changed ${part} is not well-formed XML (${why}); nothing was saved`) }, maxNodes: HWPX_EDIT_LIMITS.nodes * 2 })
     out.set(sec.name, new TextEncoder().encode(xml))
   }
+  // the pictures: their manifest items (only those lines added to content.hpf) and their parts at the end of the zip
+  if (ed.newParts.length) {
+    const name = ed.manifestName()
+    const hpf = pkg.xml.get(name) ?? refuseDoc('its manifest is not readable')
+    const close = [...hpf.matchAll(/<\/((?:[\w.-]+:)?)manifest\s*>/g)]
+    const empty = [...hpf.matchAll(/<((?:[\w.-]+:)?)manifest(\s[^>]*)?\/>/g)]
+    if (close.length + empty.length !== 1) refuseDoc('its manifest (content.hpf) does not have one list of parts')
+    const pre = (close[0] ?? empty[0])![1]!
+    const items = ed.newParts.map((x) => `<${pre}item id="${x.id}" href="${x.name}" media-type="image/${x.kind === 'png' ? 'png' : 'jpg'}" isEmbeded="1"/>`).join('')
+    const m = (close[0] ?? empty[0])!
+    const next = close[0] ? hpf.slice(0, m.index!) + items + hpf.slice(m.index!) : hpf.slice(0, m.index!) + m[0].replace(/\/>$/, '>') + items + `</${pre}manifest>` + hpf.slice(m.index! + m[0].length)
+    out.set(name, new TextEncoder().encode(next))
+  }
   const entries: ZipEntry[] = pkg.entries.map((e) => {
     const data = out.get(e.name)
     return data ? { name: e.name, data, utf8: e.utf8, time: e.time, date: e.date, store: e.raw.method === 0 } : e
   })
+  for (const x of ed.newParts) entries.push({ name: x.name, data: x.data, store: true })
   let file: Uint8Array
   try { file = writeZip(entries) } catch (e) { throw new ToolError(`the changed document could not be written (${String((e as Error).message).slice(0, 120)}); nothing was saved`) }
 
   // read back: every part as hwp.ts's zip reader sees it is the old one, or the changed section; the text is the old
   // text with the changes, nothing else
   const got = cfbParts(file)
-  for (const e of pkg.entries) {
+  for (const e of [...pkg.entries, ...ed.newParts.map((x) => ({ name: x.name, data: x.data }))]) {
     if (!e.data.length) continue
     const want = out.get(e.name) ?? e.data
     const have = got.get(e.name)
@@ -704,23 +801,56 @@ export function editHwpx(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8
   const after = hwpxReadLines(hwpxText(file))
   const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
   if (diff) throw new ToolError(`the changed document did not read back as expected (${diff}); nothing was saved`)
-  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after) } }
+  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after), ...(ed.pictures.length ? { pictures: ed.pictures } : {}) } }
 }
 
 /** The office worker's `hwpx-verify` mode: a file the editor made goes through every check of a document to change
  * again, in a fresh worker (the server does not trust the one that made it): the package rules and the text model
- * agreeing with hwp.ts. "ok" out, or the refusal. */
+ * agreeing with hwp.ts. With the old file too (new pictures): the new one has only the pictures' parts added, each a
+ * clean PNG or JPEG, content.hpf only their items added, and one more hp:pic per part. "ok" out, or the refusal. */
 export function hwpxVerifyRequest(input: Uint8Array): Uint8Array {
-  const doc = new Doc(openPackage(input))
-  const differs = firstDifference(hwpxReadLines(hwpxText(input)), doc.lines().lines)
+  let v: ReturnType<typeof decodeVerifyInput>
+  try { v = decodeVerifyInput(input) } catch { throw new ToolError('the .hwpx checker got a damaged request') }
+  const pkg = openPackage(v.file)
+  const doc = new Doc(pkg)
+  const differs = firstDifference(hwpxReadLines(hwpxText(v.file)), doc.lines().lines)
   if (differs) refuseDoc(`its text could not be mapped exactly (${differs})`)
+  if (v.old) picturesOnly(openPackage(v.old), pkg)
   return new TextEncoder().encode('ok')
+}
+
+function picturesOnly(was: Package, now: Package) {
+  const bad = (why: string): never => { throw new ToolError(`the changed document did not pass the checks again (${why}); nothing was saved`) }
+  const added = now.entries.slice(was.entries.length)
+  if (!added.length || was.entries.some((e, i) => now.entries[i]?.name !== e.name)) bad('its parts are not the old ones and the pictures')
+  const hpf = [...was.parts.keys()].find((n) => /^Contents\/content\.hpf$/i.test(n)) ?? bad('no manifest')
+  let text = new TextDecoder().decode(now.parts.get(hpf))
+  for (const e of added) {
+    const m = /^BinData\/(image\d+)\.(png|jpg)$/.exec(e.name) ?? bad(`${e.name} is not a picture part`)
+    const clean = sanitizeImage(e.data, e.name)
+    if (clean.kind !== m[2] || !Buffer.from(clean.bytes).equals(Buffer.from(e.data))) bad(`${e.name} is not a clean ${m[2]} picture`)
+    const item = new RegExp(`<((?:[\\w.-]+:)?)item id="${m[1]}" href="${e.name.replace('.', '\\.')}" media-type="image/${m[2]}" isEmbeded="1"/>`)
+    const found = item.exec(text) ?? bad(`${e.name} has no manifest item`)
+    text = text.slice(0, found.index) + text.slice(found.index + found[0].length)
+  }
+  if (text !== new TextDecoder().decode(was.parts.get(hpf))) bad('content.hpf changed more than its list of pictures')
+  for (const e of was.entries) {
+    if (e.name === hpf || /^Contents\/section\d+\.xml$/i.test(e.name)) continue
+    if (!Buffer.from(now.parts.get(e.name)!).equals(Buffer.from(e.data))) bad(`${e.name} changed`)
+  }
+  // the body: every old picture still there, and each added one shows a NEW part; every new part is shown
+  const refs = (p: Package) => [...p.parts.keys()].filter((n) => /^Contents\/section\d+\.xml$/i.test(n)).flatMap((k) => [...new TextDecoder().decode(p.parts.get(k)).matchAll(/<hp:pic[\s>][\s\S]*?<\/hp:pic>/g)].map((m) => /binaryItemIDRef="([^"]*)"/.exec(m[0])?.[1] ?? ''))
+  const left = refs(now)
+  for (const id of refs(was)) { const at = left.indexOf(id); if (at < 0) bad('an old picture is gone from the body'); left.splice(at, 1) }
+  const fresh = added.map((e) => /^BinData\/(image\d+)\./.exec(e.name)![1]!)
+  if (left.some((id) => !fresh.includes(id))) bad('a new picture does not show a new picture part')
+  if (fresh.some((id) => !left.includes(id))) bad('a new picture part is not shown in the body')
 }
 
 /** The office worker's `hwpx-edit` mode: the framed request of hwpx-check.ts in, the framed report and file out. */
 export function hwpxEditRequest(input: Uint8Array): Uint8Array {
   let req: ReturnType<typeof decodeHwpEditRequest>
   try { req = decodeHwpEditRequest(input) } catch { throw new ToolError('the .hwpx editor got a damaged request') }
-  const { file, report } = editHwpx(req.doc, asChanges(req.changes, '.hwpx'))
+  const { file, report } = editHwpx(req.doc, asChanges(req.changes, '.hwpx'), pictureInput(req, '.hwpx'))
   return encodeHwpEditResult(report, file)
 }

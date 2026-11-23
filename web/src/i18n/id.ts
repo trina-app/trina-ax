@@ -851,6 +851,7 @@ export const id: Record<MessageKey, string> = {
   'allowances.alias': "Orang yang Anda maksud dengan sebutan ini",
   'allowances.siteOffice': "Membuka alamat jaringan kantor ini di browser dalam aplikasi",
   "allowances.connectorSend": "Kirim tanpa bertanya",
+  "allowances.picture": "Taruh ke dokumen tanpa bertanya",
   "allowances.deviceSite": "Browser di komputer ini",
   "allowances.deviceOffice": "Jaringan kantor di browser komputer ini",
   'allowances.card.share_files': "Membagikan file saya kepada orang lain",

@@ -29,7 +29,7 @@ const titles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^
 const section = (scope: ReturnType<Page['locator']>, name: string) => scope.getByTestId('history-section').filter({ has: scope.page().getByTestId('panel-section-name').getByText(name, { exact: true }) })
 
 async function newSectionFromMenu(page: Page, name: string) {
-  await page.getByTestId('recents-filter').first().click()
+  await page.getByTestId('trina-recent-menu').first().click()
   await page.getByTestId('recents-new-section').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText(t['sidebarSections.onlyYou'])
@@ -133,6 +133,48 @@ test('an empty section says how to fill it; a filter hides it', async ({ page })
   await page.getByTestId('recents-sort-title').click()
   await expect(p.getByTestId('recents-list')).toBeVisible()
   await expect(p.getByTestId('history-section')).toHaveCount(0)
+})
+
+test('the filter is on the 트리나 기록 header; New section is in its "⋯", not in the filter; folded it hides unless a filter is on', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page)
+  await navRail(page)
+  await signIn(page)
+  await chat(page, 'Alpha')
+  await page.reload()
+  const p = panel(page)
+  const head = p.getByTestId('trina-other').getByTestId('trina-label').first()
+  // on the list's header, none on the panel's title row
+  await expect(head.getByTestId('recents-filter')).toBeVisible()
+  await expect(p.getByTestId('recents-filter')).toHaveCount(1)
+  // the filter's menu is only about the view
+  await head.getByTestId('recents-filter').click()
+  await expect(page.getByTestId('recents-filter-menu')).toBeVisible()
+  await expect(page.getByTestId('recents-new-section')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(head.getByTestId('recents-filter')).toBeFocused()
+  // the "⋯" has New section, with no section yet
+  await head.getByTestId('trina-recent-menu').click()
+  await expect(page.getByTestId('recents-new-section')).toBeVisible()
+  await expect(page.getByTestId('nav-trash')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // a choice keeps the menu open although the list under it changes
+  await head.getByTestId('recents-filter').click()
+  await page.getByTestId('recents-view-sort').click()
+  await page.getByTestId('recents-sort-title').click()
+  await expect(page.getByTestId('recents-filter-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(p.getByTestId('recents-filter-dot')).toBeVisible()
+  // folded with a filter on: the filter, its dot and the line stay
+  await p.getByTestId('trina-other').getByTestId('panel-section-fold').first().click()
+  await expect(p.getByTestId('recents-filter')).toBeVisible()
+  await expect(p.getByTestId('recents-filter-label')).toBeVisible()
+  // cleared while folded: the filter hides, the keyboard is on the "⋯"
+  await p.getByTestId('recents-filter-clear').click()
+  await expect(p.getByTestId('recents-filter')).toBeHidden()
+  await expect(p.getByTestId('trina-recent-menu')).toBeFocused()
+  await p.getByTestId('trina-other').getByTestId('panel-section-fold').first().click()
+  await expect(p.getByTestId('recents-filter')).toBeVisible()
 })
 
 test('a phone (390): the drawer shows my sections above 트리나 기록; Move to section from the sheet', async ({ page }) => {

@@ -831,6 +831,7 @@ export const zh: Record<MessageKey, string> = {
   'allowances.alias': "这个称呼指的人",
   'allowances.siteOffice': "在应用内浏览器中打开此内网地址",
   "allowances.connectorSend": "无需询问直接发送",
+  "allowances.picture": "无需询问直接放进文档",
   "allowances.deviceSite": "此电脑上的浏览器",
   "allowances.deviceOffice": "此电脑浏览器中的内网地址",
   'allowances.card.share_files': "与他人共享我的文件",

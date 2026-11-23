@@ -52,7 +52,7 @@
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
 import { getDomain, parse } from 'tldts'
-import { ROOM_REF_RE, type CardAlwaysKind, type ConfirmDetail, type Locale } from '@mycel/shared/api'
+import { ROOM_REF_RE, type CardAlwaysKind, type ConfirmDetail, type Locale, type PictureAlwaysKey } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import type { CardOutcome } from '../policy/refusal'
@@ -136,6 +136,8 @@ export interface ConfirmExtra {
   /** the kind of card this is for "Always allow" (chat/always-allow.ts): a yes / no card of the turn's person offers it,
    * and once picked, the card is not raised again (confirm and confirmWhy answer yes at once) */
   always?: CardAlwaysKind
+  /** the card names these pictures (tools/own-picture.ts): its "Always allow" keeps exactly them, not a kind of card */
+  pictures?: readonly PictureAlwaysKey[]
   /** a shorter wait than the turn's card timeout (no answer by then: the card ends as unanswered) */
   timeoutMs?: number
 }
@@ -159,6 +161,8 @@ export interface TurnPerson {
    * also in their own scheduled run, where no card can be raised (Rule A; docs/decisions/
    * 20261123-ask-registry-findings.md). Absent: never */
   alwaysOn?(kind: CardAlwaysKind): boolean
+  /** the person's own "Always allow" for this one picture holds in this turn (alwaysHere 'on'; their scheduled run too) */
+  pictureAlwaysOn?(key: PictureAlwaysKey): boolean
   /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own
    * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
    * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */

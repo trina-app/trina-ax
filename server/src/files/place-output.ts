@@ -62,7 +62,7 @@ export interface ChatVersionMade { id: string; name: string; path: string; versi
 
 /** The produce tools whose output may be chat:files/<name> (attached to the answer); only their results get the chat
  * file link (chatLinksInText): another tool's text (a web page, a mail, a Drive file) is never rewritten into one */
-export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
+export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_hwp', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
 
 /** What the AI is told after a new version: where it is, that the old one stays, and a save beside someone else's */
 export function versionText(m: ChatVersionMade, how: string): string {
