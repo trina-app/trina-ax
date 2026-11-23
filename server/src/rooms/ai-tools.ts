@@ -262,7 +262,8 @@ export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read
 /**
  * Tools whose own card shows everything the call does: after a room read in the person's own chat the room card is
  * not raised for them; their card is the call's only one, carries the room card's line and asks every time
- * (TurnPerson.roomsSeen; chat/turn.ts ownCard). A connection's tools join them by provider (chat/tools.ts connection).
+ * (TurnPerson.roomsSeen; chat/turn.ts ownCard), unless the person chose "Always allow" for it (Rule A, also in their
+ * scheduled run). A connection's tools join them by provider (chat/tools.ts connection).
  * A tool listed here must never act without asking when TurnPerson.roomsSeen is set.
  */
 export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule_create', 'generate_video', 'move_files', 'copy_files', 'move_skill', 'connect_service'])

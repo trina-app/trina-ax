@@ -1742,7 +1742,9 @@ export function HistoryModal({ path, onClose, onRestored }: { path: string; onCl
     // the people whose later versions drop out of the latest content are named first (QA TC-7246); when nobody else's
     // edits drop out, the restore goes at once: the current content is kept as a version anyway
     // (docs/decisions/20261123-ask-registry-findings.md, decision 11)
-    const dropouts = restoreDropouts(items ?? [], now, v.version, me.user.id)
+    // (the history not loaded yet: nothing to restore from, never taken as nobody else's edits)
+    if (!items) return
+    const dropouts = restoreDropouts(items, now, v.version, me.user.id)
     if (dropouts.length && !(await confirmDialog({ title: t('files.restoreTitle', { version: v.version }), body: t('files.restoreBodyNames', { names: nameList(locale, dropouts) }), confirm: t('common.restore') }))) return
     setBusy(v.id)
     try {

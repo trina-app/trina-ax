@@ -44,6 +44,7 @@ import { z } from 'zod'
 import { audit } from '../admin/audit'
 import { explainEdit } from '../admin/access-explain'
 import { getFolderByPath, rulesOf } from '../admin/folders'
+import { missingReaders, sourceOf } from './read-scope'
 import { saveFolderAccess } from '../admin/folder-save'
 import { guestsAmong } from '../auth/guests'
 import { isGuestUser } from '../credentials/guest-ai'
@@ -123,7 +124,7 @@ const SCREEN = 'Admin › Folder permissions, or Share on the folder in Files'
 const NOT_FOUND = refusal({ done: NONE, why: { kind: 'failed', what: 'no team folder of that name was found, or the user cannot open it (the same answer for both, on purpose)' }, next: 'check the folder\'s path with list, or ask the user which folder they mean' })
 
 type FolderExec = Pick<TurnExec, 'spec' | 'rt' | 'shared' | 'restricted' | 'templateRun' | 'otherAuthors' | 'fromSlack' | 'files' | 'roomsSeen' | 'askPerson' | 'openRequests' | 'livePrincipal' | 'patchToolStep'>
-  & Partial<Pick<TurnExec, 'othersWords' | 'tainted' | 'alwaysPlace'>>
+  & Partial<Pick<TurnExec, 'othersWords' | 'tainted' | 'alwaysPlace' | 'sharedAudience'>>
 
 /** Why change_folder_access is not offered in this turn (and refused when reached anyway), or null: the person's own
  * chat with them there. */
@@ -518,7 +519,18 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
     if (segs[0] === 'users') return { reason: 'personal_folder', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a folder in someone\'s own files', why: 'folder access rules apply to team folders only' }, next: 'a folder in the user\'s own files is shared from Share on the folder in Files' }) }
     if (inZone(path) || (segs.length === 1 && isProjectsName(segs[0]!))) return { reason: 'project', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a project\'s folder', why: 'its members are changed on the project\'s page' }, next: 'use change_project_members, or the user changes them on the project\'s page' }) }
     if (segs[0]!.toLowerCase() === 'skills') return { reason: 'skills', path, text: refusal({ done: NONE, why: { kind: 'mode', mode: 'the team skills folder', why: 'who may change the team\'s skills is picked on Admin › Members (skill managers)' }, next: 'the user can pick skill managers on Admin › Members' }) }
+    // a shared chat (only under the person's own Always, folderAccessOff): its result names the folder and who gains or
+    // loses it for everyone here, so only a folder everyone here can open (fails closed; independent review)
+    if (exec.shared && !everyoneHereSees(path)) return { reason: 'shared_hidden', text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a shared chat', why: 'some people in this chat cannot open that folder, and they would see the change' }, next: 'the user can ask in a chat of their own, or change it on ' + SCREEN }) }
     return { path }
+  }
+  /** everyone who sees this shared chat can open `path` now; false when they cannot be told */
+  function everyoneHereSees(path: string): boolean {
+    try {
+      const audience = exec.sharedAudience?.()
+      if (!audience) return false
+      return missingReaders(db, rt.files.rules(), [sourceOf(db, rt.files.rules(), path)], audience).length === 0
+    } catch { return false }
   }
 
   /** The person or group a change names (one match, or the candidates), and after outside content the admin's own message

@@ -536,6 +536,12 @@ export function projectMembersTool(exec: MembersExec): Tool {
   function findProject(user: Principal, name: string | undefined): { r: ProjectRow; own: boolean } | { reason: string; text: string } {
     const L = spec.locale
     const mine = chatProject()
+    // a shared chat (only under the person's own Always): this chat's own project only, so no other project's name or
+    // members reach the people here (independent review); its members see this project already
+    if (exec.shared) {
+      const sameAsMine = !!mine && (name === undefined || [mine.name, mine.folder_path, mine.folder_path.slice(mine.folder_path.lastIndexOf('/') + 1)].some((x) => compactName(x) === compactName(name.replace(/^\/+|\/+$/g, ''))))
+      if (!sameAsMine) return { reason: 'shared_other_project', text: refusal({ done: NONE, why: { kind: 'mode', mode: 'a shared chat', why: 'here only this chat\'s own project\'s members can be changed' }, next: `${ownChat}, or change them on ${panel(L)}` }) }
+    }
     // the projects the person reads, and those they manage without reading (the owner and admins: its name is theirs
     // to know; nothing of what is in it is read here)
     const visible = () => (db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as ProjectRow[]).filter((x) => canSeeProject(rt.files, user, x) || mayManageProject(rt.files, user, x))
