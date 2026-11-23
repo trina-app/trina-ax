@@ -90,6 +90,10 @@ export const boxBrowserText = (platform: DevPlatform = runPlatform(), browser: s
   if (!browser) return 'This server has no headless browser that starts in a command (the system chromium stops at launch here, and downloading another does not help). For a video, offer to make it with ffmpeg. '
   return 'For a headless browser use $TRINA_BROWSER (chrome-headless-shell) with --no-sandbox --disable-dev-shm-usage; the system chromium and google-chrome stop at launch here, so do not run them and do not download a browser. '
     + 'HyperFrames, Puppeteer and tools that read CHROME_PATH already use it (give Puppeteer args: ["--no-sandbox", "--disable-dev-shm-usage"]); for Playwright pass executablePath: process.env.TRINA_BROWSER and the same args. '
+    + 'Remote pages go through the run\'s proxy, which needs the login inside $HTTPS_PROXY, and Chromium does not take it from that address: without it every remote page answers 407, also an allowed site. Never print these values. With const u = new URL(process.env.HTTPS_PROXY), username = decodeURIComponent(u.username), password = decodeURIComponent(u.password): '
+    + 'in Puppeteer call await page.authenticate({ username, password }) before page.goto; in Playwright add proxy: { server: u.origin, username, password } to chromium.launch. '
+    + 'A plain browser command line cannot log in: fetch the page with curl first and open the file. HyperFrames fetches the remote files of a composition by itself. '
+    + 'With the login, a site that is not allowed answers 403 over http and fails with net::ERR_TUNNEL_CONNECTION_FAILED over https: then use request_sites as above. '
     + 'A render is a long command: use job=true. ' + fallback
 }
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command

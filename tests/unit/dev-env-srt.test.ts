@@ -17,6 +17,7 @@ import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView }
 import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { BOX_BROWSER, boxBrowser, runEnv as runEnvForBrowser } from '../../server/src/devenv/srt/config'
 import { PINNED_BROWSER } from '../../server/src/files/html-pdf'
+import { sweepBrowserProfiles, tmpInUse } from '../../server/src/devenv/srt/browser-profiles'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -523,18 +524,38 @@ describe('the srt settings file', () => {
     expect(boxBrowser('darwin', process.execPath)).toBeNull()
     expect(boxBrowser('linux', process.execPath)).toBe(process.execPath)
     expect(boxBrowser('linux', '/nonexistent/chrome-headless-shell')).toBeNull()
+    expect(boxBrowser('linux', process.execPath, { MYCEL_HTML_PDF_BROWSER: 'none' })).toBeNull() // the admin's off switch
+    expect(boxBrowser('linux', process.execPath, { MYCEL_HTML_PDF_BROWSER: '/some/other' })).toBe(process.execPath)
     expect(boxBrowser('linux', os.tmpdir())).toBeNull() // a folder is not a browser
+  })
+  test('a killed browser\'s profile goes when the run ends, never through a link or under another live run', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-')), tmp = path.join(d, 'tmp'), outside = path.join(d, 'outside')
+    for (const x of ['puppeteer_dev_chrome_profile-a/Default', 'playwright_chromiumdev_profile-b/Default', 'my-work']) fs.mkdirSync(path.join(tmp, x), { recursive: true })
+    fs.mkdirSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'), { recursive: true })
+    fs.symlinkSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'), path.join(tmp, 'puppeteer_dev_chrome_profile-link'))
+    expect(sweepBrowserProfiles(tmp)).toBe(2)
+    expect(fs.readdirSync(tmp).sort()).toEqual(['my-work', 'puppeteer_dev_chrome_profile-link'])
+    expect(fs.existsSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'))).toBe(true)
+    // a TMPDIR the run swapped for a link is left alone
+    const swapped = path.join(d, 'swapped'); fs.symlinkSync(outside, swapped)
+    expect(sweepBrowserProfiles(swapped)).toBe(0)
+    expect(fs.existsSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'))).toBe(true)
+    // another live run that can write this TMPDIR (through the home above it) may be using a profile; this run does not count
+    expect(tmpInUse(tmp, 'me', new Map([['me', { roots: [d] }]]))).toBe(false)
+    expect(tmpInUse(tmp, 'me', new Map([['other', { roots: [d] }]]))).toBe(true)
+    expect(tmpInUse(tmp, 'me', new Map([['other', { roots: [`${d}-x`] }]]))).toBe(false)
+    fs.rmSync(d, { recursive: true, force: true })
   })
   test('the tool text: the browser that starts, no dead end, and the truth when there is none', () => {
     const t = boxBrowserText('linux', BOX_BROWSER)
-    for (const w of ['$TRINA_BROWSER', '--no-sandbox', 'executablePath', 'do not download', 'job=true', 'ffmpeg', 'do not say it is impossible']) expect(t).toContain(w)
+    for (const w of ['$TRINA_BROWSER', '--no-sandbox', 'executablePath', 'do not download', 'job=true', 'ffmpeg', 'do not say it is impossible', 'page.authenticate', 'proxy: { server: u.origin, username, password }', '407', '403', 'ERR_TUNNEL_CONNECTION_FAILED', 'Never print']) expect(t).toContain(w)
     const no = boxBrowserText('linux', null)
     expect(no).toContain('ffmpeg'); expect(no).not.toContain('$TRINA_BROWSER')
     expect(boxBrowserText('darwin', null)).toContain('--no-sandbox')
     for (const d of [srtShellDescription(true), sharedShellDescription(true), sharedShellDescription(false)]) expect(d).toContain(boxBrowserText())
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
-    const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
+    const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null, browser: null, nodeLibs: null })
     // (and git's, npm's and Python's settings that run nothing by themselves: git-guard.ts gitEnv, QA TC-4939)
     expect(Object.keys(e).filter((k) => !(k in gitEnv())).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
     for (const [k, v] of Object.entries(gitEnv())) expect(e[k]).toBe(v)

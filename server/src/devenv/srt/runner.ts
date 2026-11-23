@@ -45,6 +45,7 @@ import { projectZoneFolders } from '../../policy/zone'
 import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
+import { sweepBrowserProfiles, tmpInUse } from './browser-profiles'
 import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
@@ -788,7 +789,12 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop(); sweepAfter() }), hash, net }
+    return { ...sp, exited: sp.exited.finally(() => {
+      release(); releaseSkills(); dropGuard(); bridges?.stop(); sweepAfter()
+      // a killed browser's profile in a private chat's TMPDIR (a shared chat's TMPDIR goes as a whole)
+      const tmp = runTmp(c.base, own)
+      if (!s.space.shared && !tmpInUse(tmp, s.runId, liveSweeps)) sweepBrowserProfiles(tmp)
+    }), hash, net }
   } catch (e) { release(); releaseSkills(); dropGuard(); unsweep(); throw e }
 }
 

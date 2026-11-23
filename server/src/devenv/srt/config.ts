@@ -491,9 +491,10 @@ const there = (p: string) => { try { return fs.statSync(p).isDirectory() } catch
  * them). The one browser that starts in a Linux run: srt's seccomp filter refuses socket(AF_UNIX), and Debian's chromium
  * aborts on that in ProcessSingleton. The headless shell has none, and that filter stays as it is. */
 export const BOX_BROWSER = '/opt/trina/chrome-headless-shell/current/chrome-headless-shell'
-/** The browser a run is told about, or null (a Mac, or a Linux server without the browser group). */
-export const boxBrowser = (platform: DevPlatform = devPlatform(), file: string = BOX_BROWSER): string | null => {
-  if (platform !== 'linux') return null
+/** The browser a run is told about, or null (a Mac, a Linux server without the browser group, or one that turned it off). */
+export const boxBrowser = (platform: DevPlatform = devPlatform(), file: string = BOX_BROWSER, env: NodeJS.ProcessEnv = process.env): string | null => {
+  // an admin's "no headless browser on this server" (files/html-pdf.ts findPdfBrowser) holds for runs too
+  if (platform !== 'linux' || env.MYCEL_HTML_PDF_BROWSER === 'none') return null
   try { fs.accessSync(file, fs.constants.X_OK); return fs.statSync(file).isFile() ? file : null } catch { return null }
 }
 

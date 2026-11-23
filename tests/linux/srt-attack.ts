@@ -264,6 +264,39 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
 /** a git repo in a team folder changed: a hook was added, or .git/config names another hooks folder */
 const gitChanged = (rel: string) => (fs.readdirSync(`${TEAM}/${rel}/.git/hooks`).length || fs.readFileSync(`${TEAM}/${rel}/.git/config`, 'utf8').includes('hooksPath') ? `${rel}/.git changed` : null)
 type Check = (r: { code: number | null; out: string; refused?: string }) => string | null
+// The pinned browser in a run, driven over its debugging pipe with no library (tests/linux/box-libs-install.sh installs it
+// from the one list). argv: url, then "auth" to log in to the run's proxy, "force" to send even local addresses to it.
+const BROWSER_DRIVER = String.raw`
+const { spawn } = require("child_process"), fs = require("fs"), path = require("path");
+const [url, ...o] = process.argv.slice(1), px = new URL(process.env.HTTPS_PROXY);
+const dir = fs.mkdtempSync(path.join(process.env.TMPDIR, "br-"));
+const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-pipe", "--user-data-dir=" + dir, "--allow-file-access-from-files"];
+if (o.includes("force")) args.push("--proxy-server=" + px.origin, "--proxy-bypass-list=<-loopback>");
+const b = spawn(process.env.TRINA_BROWSER, [...args, "about:blank"], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+let id = 0, buf = "", status = "", sid; const wait = new Map();
+const send = (method, params = {}, s = sid) => new Promise((r) => { const m = ++id; wait.set(m, r); b.stdio[3].write(JSON.stringify({ id: m, method, params, ...(s ? { sessionId: s } : {}) }) + "\0"); });
+const end = (t) => { console.log(t); try { b.kill("SIGKILL"); } catch {} setTimeout(() => { fs.rmSync(dir, { recursive: true, force: true }); process.exit(0); }, 200); };
+let loaded; const load = new Promise((r) => { loaded = r; });
+b.stdio[4].on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\0")) >= 0) { const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+  if (m.id && wait.has(m.id)) { wait.get(m.id)(m.result || { error: m.error }); wait.delete(m.id); continue; }
+  if (m.method === "Fetch.requestPaused") send("Fetch.continueRequest", { requestId: m.params.requestId });
+  if (m.method === "Fetch.authRequired") send("Fetch.continueWithAuth", { requestId: m.params.requestId, authChallengeResponse: o.includes("auth") ? { response: "ProvideCredentials", username: decodeURIComponent(px.username), password: decodeURIComponent(px.password) } : { response: "CancelAuth" } });
+  if (m.method === "Network.responseReceived" && m.params.type === "Document" && !status) status = String(m.params.response.status);
+  if (m.method === "Page.loadEventFired") loaded();
+} });
+setTimeout(() => end("timeout status=" + status), 25000);
+(async () => {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" }, null);
+  sid = (await send("Target.attachToTarget", { targetId, flatten: true }, null)).sessionId;
+  await send("Page.enable"); await send("Network.enable"); await send("Fetch.enable", { handleAuthRequests: true });
+  const n = await send("Page.navigate", { url });
+  if (n.errorText) return end("error=" + n.errorText + " status=" + status);
+  await Promise.race([load, new Promise((r) => setTimeout(r, 6000))]);
+  const t = await send("Runtime.evaluate", { expression: "document.documentElement.outerHTML" });
+  end("status=" + status + " body=" + String(t.result && t.result.value).slice(0, 400));
+})();
+`
+const browse = (url: string, ...o: ('auth' | 'force')[]) => `test -x "$TRINA_BROWSER" || { echo NO-BROWSER; exit 9; }; node -e "$(echo ${Buffer.from(BROWSER_DRIVER).toString('base64')} | base64 -d)" ${JSON.stringify(url)} ${o.join(' ')} 2>&1 | grep -v -E 'UNDICI|trace-warnings'`
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
@@ -366,6 +399,14 @@ for addr in ('${unixSock}', '\\0trina-attack'):
         s=socket.socket(socket.AF_UNIX); s.connect(addr); print('REACHED', addr)
     except PermissionError: print('refused')
 "`, check: (r) => (r.code === 0 && r.out.split('refused').length === 3 && !r.out.includes('REACHED') ? null : `code ${r.code}: ${r.out.slice(0, 200)}`) },
+  // the pinned browser in a run (docs/decisions/20261123-chat-browser-render.md). A missing browser fails these: never a skip
+  { id: 'BR1', what: 'browser: an allowed site, logged in to the proxy, answers 200', cmd: browse('https://registry.npmjs.org/-/ping', 'auth'), check: has('status=200') },
+  { id: 'BR2', what: 'browser: without the login the proxy answers 407, also for an allowed site', cmd: browse('https://registry.npmjs.org/-/ping'), check: has('status=407') },
+  { id: 'BR3', what: 'browser: a site not on the list is refused (http 403, https no tunnel)', cmd: `${browse('http://example.com/', 'auth')}; ${browse('https://example.com/', 'auth')}`, check: both(has('status=403'), has('ERR_TUNNEL_CONNECTION_FAILED')) },
+  { id: 'BR4', what: 'browser: the host loopback through the proxy, logged in, is 403', cmd: browse('http://127.0.0.1:8099/', 'auth', 'force'), check: (r) => (r.out.includes('status=403') && !r.out.includes(CANARY) ? null : r.out.slice(0, 300)) },
+  { id: 'BR5', what: 'browser: a private address through the proxy, logged in, is 403', cmd: browse('http://10.11.12.13/', 'auth', 'force'), check: has('status=403') },
+  { id: 'BR6', what: 'browser: the metadata address through the proxy, logged in, is 403', cmd: browse('http://169.254.169.254/latest/meta-data/', 'auth', 'force'), check: has('status=403') },
+  { id: 'BR7', what: 'browser: a denied file by file:// is not there', cmd: browse(`file://${BASE}/secrets/master.key`), check: (r) => (r.out.includes(CANARY) || r.out.includes('NO-BROWSER') || !/status=|error=/.test(r.out) ? r.out.slice(0, 300) : null) },
   // the sandbox has its own pid space: the same number names one of its own processes, never the server
   { id: 'A18', what: 'see the server process', cmd: `ps axww; cat /proc/${process.pid}/cmdline; ls /proc/${process.pid}/root/opt/mycel`, check: (r) => (r.out.includes('srt-attack.ts') ? 'the server process is visible' : null) },
   { id: 'A19', what: 'new namespaces, mount, chroot', cmd: 'unshare -U true || unshare -Urm true || mount -t tmpfs x /mnt || chroot / true', check: failsQuietly },
