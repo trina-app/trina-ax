@@ -223,7 +223,9 @@ describe('a room post card', () => {
     const chatId = await ownChat()
     const dmHas = () => (db().query("SELECT COUNT(*) n FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE r.kind = 'dm' AND m.author_id = 'alice' AND m.body LIKE '%sum of the note%'").get() as { n: number }).n
     const text = 'The sum of the note is 8: [sum.pdf](/files/view?path=users%2Falice%2FQA-late%2Fsum.pdf)'
-    const w = await askAndWait(chatId, `Send the sum to Bob\n${fake({ tool: 'read', args: { file_path: 'users/alice/QA-late/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
+    // (the recipient not named in the person's own words, so the post card shows: a named one from their own folder
+    // goes without a card since docs/decisions/20261123-do-then-undo.md)
+    const w = await askAndWait(chatId, `Send the sum to my teammate\n${fake({ tool: 'read', args: { file_path: 'users/alice/QA-late/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
     expect(w.card.question).toContain("can't see some of the sources")
     expect(dmHas()).toBe(0)
     await Bun.sleep(1800)

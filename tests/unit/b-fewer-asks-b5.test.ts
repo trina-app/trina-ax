@@ -211,7 +211,9 @@ describe('4. a running answer counts its sources as the saved answer will', () =
     const chatId = await ownChat()
     const dmHas = () => (db().query("SELECT COUNT(*) n FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE r.kind = 'dm' AND m.author_id = 'alice' AND m.body LIKE '%b5 sum of the note%'").get() as { n: number }).n
     const text = 'The b5 sum of the note is 8: [sum.pdf](/files/view?path=users%2Falice%2Fb5%2Fsum.pdf)'
-    const w = await askAndWait(chatId, `Send the sum to Bob\n${fake({ tool: 'read', args: { file_path: 'users/alice/b5/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
+    // (the recipient not named in the person's own words, so the post card shows: a named one from their own folder
+    // goes without a card since docs/decisions/20261123-do-then-undo.md)
+    const w = await askAndWait(chatId, `Send the sum to my teammate\n${fake({ tool: 'read', args: { file_path: 'users/alice/b5/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
     expect(w.card.question).toContain('1 file in My folder')
     expect((await post(w.turnId, w.card.requestId, w.card.options![0]!.value)).status).toBe(204)
     const next = await nextTurn(chatId, w.answerId)
