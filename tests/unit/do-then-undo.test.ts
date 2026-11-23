@@ -289,6 +289,18 @@ describe('a title names one person (chat/person-aliases.ts)', () => {
       expect((await messagesAs('carol', dm.id)).at(-1)!.body).toBe('회의 10시')
     } finally { h.ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run('carol') }
   })
+  test('"팀장님한테 보내줘" again, the AI giving the name it learned: still the person the title names, no card; another name asks', async () => {
+    title('carol', '팀장')
+    try {
+      const r = await turn('alice', `이거 팀장님한테 보내줘\n${post({ room: 'Carol Park', text: '회의 10시 (다시)' })}`)
+      expect(r.card).toBeNull()
+      expect(r.content).toContain('"status":"sent"')
+      // the title names carol, not erin: a post to erin on "팀장님" asks
+      const other = await turn('alice', `이거 팀장님한테 보내줘\n${post({ room: 'Erin Yoo', text: 'x' })}`, { answer: 'no' }).catch(() => null)
+      expect(other === null || other.card !== null).toBe(true)
+    } finally { h.ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run('carol') }
+  })
+
   test('two people with the title: nothing is sent to either without the person\'s pick', async () => {
     title('carol', '팀장'); title('dana', '팀장')
     try {

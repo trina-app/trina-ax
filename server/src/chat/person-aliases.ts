@@ -169,3 +169,11 @@ export function saysTeam(said: string): boolean {
   }
   return false
 }
+
+/** The person's own words call exactly this teammate by a title (QA F5 shared1-sh2: "이거 팀장님한테 보내줘" again, and
+ * the AI passed the teammate's name it learned the first time): a title in their words that resolves to one teammate,
+ * and that teammate is `targetId`. `resolve`: rooms/reader.ts resolvedByTitle (passed in: no import cycle). */
+export function titleNames(said: string, targetId: string, resolve: (ref: string) => { one: { id: string } } | { many: unknown[] } | null): boolean {
+  const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
+  return titlesIn(own).some((k) => { const r = resolve(k); return !!r && 'one' in r && r.one.id === targetId })
+}
