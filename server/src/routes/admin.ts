@@ -3,6 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
+import { mailInOf } from '../rooms/apps/mail/service'
 import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import { linkPeopleIn } from '../files/shares'
 import { editableRow as editableRowOf, onlyGrants as onlyGrantsOf, saveFolderAccess } from '../admin/folder-save'
@@ -409,6 +410,8 @@ export const adminRoutes: RouteModule = {
       // ...and everyone's quiet hours are read in it: the web app's sound takes the zone from the rooms list again
       if ('timeZone' in changed) ctx.services.realtime.publishEach(() => ROOM_ALERTS_CHANGED)
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
+      // "Let rooms get email": the mail service gets every room's address, or none (mail to them is refused)
+      if ('roomEmail' in changed) void mailInOf(ctx).sync()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed || 'webAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
       // composers show or hide the mic (Me.team.voiceInput)

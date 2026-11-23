@@ -1,0 +1,27 @@
+# Reference only. NOT deployed from this repository. The hosting service copies this into its own repository, fills
+# in the placeholders and deploys it (docs/runbooks/room-email-mailbox.md). Every value below is a placeholder.
+name = "<mailbox-worker-name>"
+main = "src/worker.ts"
+compatibility_date = "<yyyy-mm-dd>"
+
+[vars]
+# the mail domain of the room addresses (lowercase), e.g. a separate apex domain only for mail in
+MAIL_DOMAIN = "<mail-domain>"
+# the authserv-id of the receiving service's own Authentication-Results header
+AUTHSERV_ID = "mx.cloudflare.net"
+
+[[durable_objects.bindings]]
+name = "MAILBOX"
+class_name = "Mailbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Mailbox"]
+
+# the hosting service's registry: POST /internal/mail-in/team {key} -> {teamId} or 404
+[[services]]
+binding = "TEAMS"
+service = "<registry-worker-or-control-plane-binding>"
+
+# the API for team servers (MYCEL_MAIL_IN_URL on a team server is this route's origin)
+# routes = [{ pattern = "<mailbox-api-host>/api/mail-in/v1/*", zone_name = "<zone>" }]
