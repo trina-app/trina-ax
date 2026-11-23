@@ -175,7 +175,7 @@ function drawingXml(d: Drawing): string {
     `<pic:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="${d.cx}" cy="${d.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
     '</pic:pic></a:graphicData></a:graphic>'
   if (!d.float) return `<w:drawing><wp:inline${d.ns.wp} distT="0" distB="0" distL="0" distR="0">${graphic}</wp:inline></w:drawing>`
-  return `<w:drawing><wp:anchor${d.ns.wp} distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251_658_240 + d.id}" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">` +
+  return `<w:drawing><wp:anchor${d.ns.wp} distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251_658_240 + (d.id % 1_000_000)}" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">` +
     '<wp:simplePos x="0" y="0"/>' +
     `<wp:positionH relativeFrom="character"><wp:posOffset>${d.float.dx}</wp:posOffset></wp:positionH>` +
     `<wp:positionV relativeFrom="line"><wp:posOffset>${d.float.dy}</wp:posOffset></wp:positionV>` +
@@ -225,6 +225,9 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
   // stored once), ids above every wp:docPr id of the document
   const dir = main.slice(0, main.lastIndexOf('/') + 1)
   let nextId = 0
+  let freeIds: Set<number> | null = null
+  /** where each picture goes in a paragraph's text, checked against text edits of the same call at the end */
+  const picAt: { change: number; para?: Para; pos?: number }[] = []
   const media = new Map<number, { rid: string; w: number; h: number }>()
   const rootHead = (() => { const r = tree.kids.find((k) => !k.name.startsWith('?')); return r ? r.head : '' })()
   const defaultPt = (() => {
@@ -244,13 +247,22 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       const part = pkg.free(`${dir}media/image`, `.${info.ext}`, 1)
       pkg.add(part, img)
       ensureContentType(pkg, { ext: info.ext, type: info.type })
-      m = { rid: addRel(pkg, main, IMAGE_REL, `media/${part.slice(dir.length + 'media/'.length)}`), w: info.w, h: info.h }
+      const pointed = [...xml.matchAll(/\s[A-Za-z_][\w.-]*:(?:embed|link|id)\s*=\s*["']([^"']*)["']/g)].map((q) => q[1]!)
+      m = { rid: addRel(pkg, main, IMAGE_REL, `media/${part.slice(dir.length + 'media/'.length)}`, pointed), w: info.w, h: info.h }
       media.set(Number(x.image), m)
     }
-    if (!nextId) nextId = Math.max(0, ...docPrIds(pkg, dir)) + 1
+    if (!nextId) {
+      const used = docPrIds(pkg, dir)
+      nextId = Math.max(0, ...used) + 1
+      // docPr ids are 32-bit: past a safe bound, the lowest free ids
+      if (nextId > 2_000_000_000) { const taken = new Set(used); nextId = 1; while (taken.has(nextId)) nextId++; freeIds = taken }
+    }
+    const id = nextId++
+    if (freeIds) { freeIds.add(id); while (freeIds.has(nextId)) nextId++ }
     const { cx, cy } = pictureSize(m.w, m.h, x, where)
     const size = `${(cx / EMU_MM).toFixed(1).replace(/\.0$/, '')} x ${(cy / EMU_MM).toFixed(1).replace(/\.0$/, '')} mm`
-    return { rid: m.rid, id: nextId++, cx, cy, ns: nsDecls(rootHead, where), size }
+    picAt.push({ change: i })
+    return { rid: m.rid, id, cx, cy, ns: nsDecls(rootHead, where), size }
   }
   /** a floating picture's offset from the top of its line: centred on a line of the text's size */
   const lineDy = (pt: number, cy: number) => Math.round((pt * 1.2 * EMU_PT) / 2 - cy / 2)
@@ -364,6 +376,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
         const d = picture(i, x)
         const pt = runPt(pieceAt(hit.para, hit.at)?.run ?? null, defaultPt)
         d.float = { dx: Math.round(textWidthEmu(label, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy) }
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, pos: hit.at })
         splices.get(main)!.push(splitAt(hit.para, hit.at, false, drawingXml(d), where, i))
         notes.push({ change: i, where: `picture over ${q}, behind the text (${d.size})` })
         return
@@ -371,6 +384,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       if (x.after !== undefined) {
         const d = picture(i, x)
         if (x.behind_text) d.float = { dx: 0, dy: lineDy(runPt(pieceAt(hit.para, hit.at + label.length - 1)?.run ?? null, defaultPt), d.cy) }
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, pos: hit.at + label.length })
         splices.get(main)!.push(splitAt(hit.para, hit.at + label.length, true, drawingXml(d), where, i))
         notes.push({ change: i, where: `picture after ${q}${x.behind_text ? ', behind the text' : ''} (${d.size})` })
         return
@@ -407,6 +421,12 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     refuse(`change ${i + 1} is not a change edit_office makes in a Word document (find/replace, insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows, insert_picture)`)
   })
 
+  // a picture at text that a find/replace of the same call changes would land next to text that is gone
+  for (const p of picAt) {
+    if (!p.para) continue
+    const e = (textEdits.get(p.para) ?? []).find((x) => p.pos! >= x.at && p.pos! <= x.at + x.len)
+    if (e) refuse(`changes ${Math.min(e.change, p.change) + 1} and ${Math.max(e.change, p.change) + 1} touch the same text; put the picture in a separate call`)
+  }
   for (const [para, edits] of textEdits) {
     const pxml = xmls.get(para.part)!
     splices.get(para.part)!.push(...textSplices(pxml, para, edits, (piece, text) => wText(piece.node.head, text)))

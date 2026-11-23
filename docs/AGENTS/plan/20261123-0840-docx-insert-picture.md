@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 08:40
 - Branch: `feat/docx-insert-image`
-- Status: in progress
+- Status: done
 - Where: server (`server/src/tools/edit-office.ts`, `server/src/files/docx-edit.ts`, `server/src/files/office-edit.ts`). Why: edit_office changes Office files in place; this adds one Word change to it (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new thing the AI can do (a new edit_office change)
 
@@ -87,4 +87,13 @@ none (a new change of an existing tool, same rules as replace_picture).
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the plan review's points: `wp:simplePos` first in an anchor, `name` on docPr and cNvPr; one
+media part and relationship per distinct picture of a call; docPr ids scanned in every `word/*.xml`; the read-back
+checks only NEW docPr ids (a document that already repeats ids still edits) and that every new `r:embed` is an internal
+image relationship to a part this edit added, with a content type; the MAY widening (relationships part changed or
+added, content types, `word/media/imageN.(png|jpeg)`) only for a call with insert_picture; namespaces declared on the
+picture only when the root does not bind them; a picture file is a team file or `chat:files/` (not `chat:work/`),
+quarantine-checked, at most 20 MB, keyed by its resolved place. Differences: `next_to` makes an inline picture smaller
+when it is wider than the target cell's set width (dxa), and says so; several matches without `occurrence` are refused
+(no `all` for pictures). Rendered with LibreOffice: the `over` seals land on "(인)" and the page is pixel-identical
+outside them; inline pictures take room in their line, as expected. Excel pictures: left out (see Scope).

@@ -65,9 +65,9 @@ export const EditOfficeInput = z.strictObject({
     z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture: a team path, or a chat file chat:files/<file_id>/<name>') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
     z.strictObject({ insert_picture: z.strictObject({
       image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture (a signature, a seal, a logo): a team path, or a chat file chat:files/<file_id>/<name>'),
-      over: text(5000).min(1).optional().describe('Floats the picture behind this text, centred on it: a seal or signature over "(인)", "(서명)", "(seal)"'),
+      over: text(5000).min(1).optional().describe('Floats the picture behind this text, centred on it: a seal or signature over "(seal)" or "(signature)" on a form'),
       after: text(5000).min(1).optional().describe('Puts the picture in the line right after this text'),
-      next_to: text(5000).min(1).optional().describe('Puts the picture into the table cell right of the cell holding this text (a form row "서명 | ")'),
+      next_to: text(5000).min(1).optional().describe('Puts the picture into the table cell right of the cell holding this text (a form row "Signature | ")'),
       occurrence: occ.occurrence,
       width_mm: z.number().min(1).max(300).optional().describe('Width in mm; the picture keeps its shape (a seal is usually 15-20, a signature 30-40)'),
       height_mm: z.number().min(1).max(300).optional().describe('Height in mm; with width_mm, the picture fits inside both. Neither: 20 mm wide, at most 20 mm high'),
@@ -83,7 +83,7 @@ export const EDIT_OFFICE_DESCRIPTION =
   'comments, tracked changes, other sheets and slides) stays exactly as it was. Use it whenever the person wants an existing Office file changed; ' +
   'use make_file only for a new file or when they ask to rebuild one. Read the file in this chat first. ' +
   'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows, ' +
-  'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(인)"; ' +
+  'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(seal)" next to a name; ' +
   'after puts it in the line after the text; next_to puts it into the table cell right of the label). When someone asks to sign or stamp a Word document, use insert_picture with their signature or seal picture, ' +
   'never a rebuilt document; ask for the picture only when none can be found in the team folder or this chat. ' +
   'Pictures are not added to Excel workbooks here. ' +
