@@ -936,7 +936,7 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   // Only on a first ask: one asked again (changed, or another choice of files) is always shown. Every file that would go
   // as a copy is the person's own (their folder), so nothing of a team folder rides along unseen
   // (never with a guest among the people who would see it: someone from outside the team, as post_to_room keeps)
-  const direct = !reason && !hidden && floorFree(prov, c.userId) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
+  const direct = !reason && !hidden && floorFree(prov, c.userId, () => false, new Set(), (id) => (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === c.userId) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
     && !c.audience.some((id) => isGuestUser(c.db, id))
   return {
     status: 'confirm', ...(direct ? { direct: true as const } : {}), people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,

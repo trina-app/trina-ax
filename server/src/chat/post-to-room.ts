@@ -712,13 +712,19 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const guestRoom = !!roomId && !!db.query('SELECT 1 FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? AND u.guest = 1 LIMIT 1').get(roomId)
         const wordsAsk = !exec.askedIn && !exec.otherAuthors && !readRooms(exec) && !strict && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !guestLine && asksFor(POST_ASK, said)
           && (plain ? theirText : true) && noteOk && mentionsSaid && place
-          && [...attached].every((rel) => inOwnFolder(rel, spec.userId) || namedRel(rel))
+          && [...attached].every((rel) => inOwnFolder(rel, spec.userId) || namedRel(rel) || canShareOf(rel))
           && !(guestRoom && (attached.size > 0 || first.check.artifacts.length > 0))
         // (one card per source in this chat: content from a source the person already sent on a card here goes to the next
         // place their words name without a card again; noted on the yes below)
         const pvNow = await (async () => { try { return await floorProv(exec, await first.check.provenance(attached)) } catch { return null } })()
         const earlier = (() => { try { return approvedSources(db, spec.chatId, spec.userId, first.check.audience) } catch { return new Set<string>() } })()
-        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, namedRel, earlier) } catch { return false } })()
+        // (a team file the person may share themselves is theirs to send; a chat they are in is their own work: the owner,
+        // 2026-11-23, the floor is only someone else's private place)
+        const chatMine = (id: string) => id === spec.chatId || (db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === spec.userId
+        // (a project chat: its own project folder is the person's work with their project, the owner's F10 "견적서")
+        const projectFolder = (() => { const p = db.query('SELECT p.folder_path AS f FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(spec.chatId) as { f: string } | null; return p?.f ? p.f.replace(/\/+$/, '') : null })()
+        const projectFolderId = projectFolder ? (db.query('SELECT id FROM folders WHERE path = ?').get(projectFolder) as { id: string } | null)?.id ?? null : null
+        const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, (rel) => namedRel(rel) || canShareOf(rel), earlier, chatMine, projectFolderId) } catch { return false } })()
         // after a room read (a DM or a private channel read in this chat: QA F5 #2 and #3 sent the same content
         // twice): the second post of the same sources to a place the person's own words name goes on the first card's yes
         // (one card per source; the person's "Always allow" covers the first too, Rule A)

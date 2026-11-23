@@ -35,7 +35,8 @@ import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type Scop
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
-import { chatFor, isSharedRow } from './shared'
+import { Audiences, chatFor, isSharedRow } from './shared'
+import { isGuestUser } from '../credentials/guest-ai'
 import type { ChatRow } from './store'
 import { updateWaitingFor } from '../system/update-wait'
 import { CronError, describeTiming, isOnce, MAX_EVERY_MINUTES, nextOf, parseCron, REPEATS, storedTiming, timingOf, type LegacyRepeat, type Timing, type TimingSource } from './schedule-timing'
@@ -574,7 +575,11 @@ export class Schedules {
       chat: () => {
         const runs = (this.db.query("SELECT count(*) AS n FROM turns WHERE user_id = ? AND client_kind = 'schedule' AND status IN ('queued','running')").get(s.user_id) as { n: number }).n
         if (runs >= RUNS_AT_ONCE) throw new HttpError('conflict', tr('scheduleTooMany', locale), { params: { reason: 'schedule_too_many' } })
-        const into = this.postsInto(s) ?? (frequent ? this.ownRunChat(s) : null)
+        // a task made without its card (quiet) posts into its shared chat only while no guest is among the people there
+        // (a guest added since: the run is a new chat of its owner's, as when they cannot continue it; fails closed)
+        const shared = this.postsInto(s)
+        const guestNow = (c: ChatRow) => { if (!(s as { quiet?: number }).quiet) return false; try { return new Audiences(this.db, this.rt.files).ofChat(c).some((u) => isGuestUser(this.db, u)) } catch { return true } }
+        const into = (shared && !guestNow(shared) ? shared : null) ?? (frequent ? this.ownRunChat(s) : null)
         if (into) { rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed'); return into }
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)

@@ -28,12 +28,15 @@ describe('the floor (chat/explicit-send.ts)', () => {
   test('only the person\'s own folder files, and team files they named, pass', () => {
     expect(floorFree(prov([]), 'alice')).toBe(true)
     expect(floorFree(prov([src({ type: 'user', id: 'alice' })]), 'alice')).toBe(true)
+    // (the owner, 2026-11-23: only someone else's private place is the floor: my own browser, connection and shares too)
+    for (const s of [src({ type: 'user', id: 'alice', via: 'connection' }), src({ type: 'user', id: 'alice', via: 'browser' }), src({ type: 'user', id: 'alice', share: 's1' })]) expect(floorFree(prov([s]), 'alice')).toBe(true)
+    // a chat I am in: the AI's work there is mine; another chat: not
+    expect(floorFree(prov([src({ type: 'chat', id: 'c1' })]), 'alice', () => false, new Set(), (id) => id === 'c1')).toBe(true)
     expect(floorFree(prov([src({ type: 'folder', id: 'f1' }, ['groups/finance/budget.md'])]), 'alice', (r) => r === 'groups/finance/budget.md')).toBe(true)
   })
   test('everything else asks: a room, a chat, a connection, the browser, a share, another person, a team file nobody named, anything not known', () => {
     for (const s of [
       src({ type: 'room', id: 'r1' }), src({ type: 'chat', id: 'c1' }), src({ type: 'integration', id: 'i1' }),
-      src({ type: 'user', id: 'alice', via: 'connection' }), src({ type: 'user', id: 'alice', via: 'browser' }), src({ type: 'user', id: 'alice', share: 's1' }),
       src({ type: 'user', id: 'bob' }), src({ type: 'folder', id: 'f1' }, ['groups/finance/budget.md']), src({ type: 'folder', id: 'f1' }),
       src({ type: 'slack', id: 's', userId: 'alice', kind: 'dm' }), src({ type: 'root' }),
     ]) expect([s.source, floorFree(prov([s]), 'alice', () => false)]).toEqual([s.source, false])
@@ -95,7 +98,7 @@ beforeAll(async () => {
   const list = async (u: string) => (await h.api(u).call(API.listRooms)).items as Room[]
   const alice = await list('alice')
   rooms = { all: alice.find((r) => r.kind === 'all')!.id, marketing: alice.find((r) => r.kind === 'team' && r.name === 'Marketing')!.id }
-  for (const u of ['alice', 'carol']) {
+  for (const u of ['alice', 'carol', 'bob']) {
     socks[u] = await h.ws(u, { windowId: `win-dtu-${u}` })
     await socks[u]!.next('hello')
   }
@@ -146,10 +149,11 @@ describe('a post the person named: no card, then undo', () => {
   test('the floor: a team file the person did not name, which some there cannot see, keeps the card; named, it goes', async () => {
     put('groups/finance/budget-q4.md', '# Budget\nsecret')
     const read = fake({ tool: 'read', args: { file_path: 'groups/finance/budget-q4.md' } })
-    // carol (admin) reads finance's file and posts a summary to #전체: alice and erin cannot see finance
-    const asked = await turn('carol', `요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight' })].join('\n')}`, { answer: 'no' })
+    // bob (finance, a member who may not share the group's file) reads it and posts a summary to #전체: alice and erin
+    // cannot see finance
+    const asked = await turn('bob', `요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight' })].join('\n')}`, { answer: 'no' })
     expect(asked.card).not.toBeNull()
-    const named = await turn('carol', `budget-q4.md 요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight (2)' })].join('\n')}`)
+    const named = await turn('bob', `budget-q4.md 요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight (2)' })].join('\n')}`)
     expect(named.card).toBeNull()
     expect(JSON.parse(named.content)).toMatchObject({ status: 'sent' })
   })
@@ -203,6 +207,27 @@ describe('a schedule the person asked for in their own words', () => {
   })
 })
 
+describe('the AI\'s work in my own chat is mine (the owner, 2026-11-23)', () => {
+  test('a file the AI made in a shared chat I am in goes to the person I named, with no card; then to a room I named', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await turn('alice', 'hello', { chat: c })
+    let sh = await h.api('alice').call(API.putChatAudience, { params: { id: c }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }] } }) as { status?: string; confirmKey?: string }
+    if (sh.status === 'confirm') sh = await h.api('alice').call(API.putChatAudience, { params: { id: c }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }], confirmKey: sh.confirmKey! } }) as never
+    const made = await turn('alice', fake({ tool: 'make_file', args: { format: 'docx', content: '# Proposal\n', output: 'chat:files/proposal-dtu.docx' }, sayResult: true }), { chat: c })
+    expect(made.card).toBeNull()
+    const att = (h.ctx.db.query("SELECT id FROM chat_files WHERE chat_id = ? AND name = 'proposal-dtu.docx'").get(c) as { id: string } | null)?.id
+    expect(att).toBeTruthy()
+    const link = `/c/${c}?file=${att}`
+    const dm = await turn('alice', `이거 Carol Park한테 보내줘\n${post({ room: 'Carol Park', text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    expect(dm.card).toBeNull()
+    expect(dm.content).toContain('"status":"sent"')
+    expect(dm.content).toContain('"files_attached":1')
+    const room = await turn('alice', `이거 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    expect(room.card).toBeNull()
+    expect(room.content).toContain('"status":"sent"')
+  })
+})
+
 describe('a quiet task never sends (security review)', () => {
   const create = (args: Record<string, unknown>) => fake({ tool: 'schedule_create', args: { repeat: 'daily', time: '09:00', ...args }, sayResult: true })
   test('its run posts nothing even under the person\'s "Always allow" for posts', async () => {
@@ -224,14 +249,16 @@ describe('a quiet task never sends (security review)', () => {
       expect((await messagesAs('erin', rooms.marketing)).length).toBe(before)
     } finally { dropAlways(h.ctx.db, 'alice', 'card:post_to_room') }
   })
-  test('a schedule asked for in a shared chat keeps its card', async () => {
+  test('a schedule asked for in a shared chat (no guest) is made too; its runs post only there', async () => {
     const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
     const hello = await turn('alice', 'hello', { chat: chatId })
     expect(hello.card).toBeNull()
     let sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }] } }) as { status?: string; confirmKey?: string }
     if (sh.status === 'confirm') sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }], confirmKey: sh.confirmKey! } }) as never
-    const r = await turn('alice', `매일 아침 9시에 정리해줘\n${create({ title: 'Shared one', prompt: 'summarize this chat' })}`, { chat: chatId, answer: 'deny' })
-    expect(r.card).not.toBeNull()
+    const r = await turn('alice', `매일 아침 9시에 정리해줘\n${create({ title: 'Shared one', prompt: 'summarize this chat' })}`, { chat: chatId })
+    expect(r.card).toBeNull()
+    const id = r.steps.find((x) => x.tool === 'schedule_create')!.scheduled!.id
+    expect((h.ctx.db.query('SELECT quiet, chat_id FROM schedules WHERE id = ?').get(id) as { quiet: number; chat_id: string })).toEqual({ quiet: 1, chat_id: chatId })
   })
 })
 

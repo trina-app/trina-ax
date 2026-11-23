@@ -10,7 +10,11 @@
 
 - **Ask:** 34 asks in the owner's 14 flows were too many. Act on what the person clearly asked for and show undo, as
   Gmail (undo send), Google Drive (undo toast), ChatGPT Tasks and Cursor do. Keep asking only where undo cannot help.
-- **Floor (never removed without the person's Always):** sending to someone the person did not name or clearly refer
+- **Floor, narrowed 2026-11-23 (the owner: "8번 저건 진짜 개너무 한데?? 견적서 2번도 개많아"):** only content from someone
+  else's private place (their DM, a private channel, a team file the person may not share) whose source the person did
+  not name. The person's own folder, browser and connections, a chat they are in (the AI's work there is theirs) and a
+  team file they may share themselves are not on it. Their own folder read in their own project chat asks nothing.
+- **Floor (as first written):** sending to someone the person did not name or clearly refer
   to; showing people content they could not see from a source the person did not name (a 1:1 or group chat, a room, a
   connected service, the in-app browser, a file shared with the person, a team file nobody named, anything not known);
   real money; permanent delete with no trash; a schedule that sends to others with nobody watching. Rule A still holds:
@@ -38,7 +42,7 @@
   allowed on a card, also their schedule's) opens without the card. Private addresses stay refused after the lookup.
 - **Rule: schedules.** A task the person asked for in their own words (when it runs, or the word schedule) that sends
   nowhere (no connection, no pinned recipient, no save folder), with only addresses they typed and no random-looking
-  part, in a turn they watch, in their own chat (not shared), after no room read, whose words do not say to send, post or
+  part, in a turn they watch (also in a shared chat with no guest, whose runs post only there), after no room read, whose words do not say to send, post or
   share, is made without its card ("tomorrow" needs a time). Its runs send, post and share nothing whatever the
   person's Always says (`schedules.quiet`, migration 446). Its step shows the next run with Pause and Delete. Anything
   else keeps the card.
