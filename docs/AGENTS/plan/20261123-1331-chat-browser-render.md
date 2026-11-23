@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 13:31
 - Branch: `fix/chat-browser-render`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/devenv`. Why: the run environment of the dev environment is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in what a run is told and given; no root update (the browser group is already on the list, and the list does not change)
 
@@ -29,4 +29,4 @@ docs/decisions/20261123-chat-browser-render.md
 
 ## Result
 
-(filled in at the end)
+A real srt 0.0.81 run (Debian, arm64) rendered a 3.0 s MP4 with HyperFrames 0.9.85 using only the new environment, with `socket(AF_UNIX)` still refused. Puppeteer works from the variable; Playwright with `executablePath`. Attack suite: 136 attacks, 19 sub-agent cases and 8 work-folder cases held, including the new A16b. amd64 was not run with a browser.
