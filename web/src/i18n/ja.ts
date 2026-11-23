@@ -6176,6 +6176,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.page.importNone": "取り込める会話はありません。",
   "projects.page.chatsEmpty": "まだありません。ここで質問すると、このプロジェクトにまとまります。",
   "chat.notFoundWhy": "作成した人だけが見られるチャットか、削除されたチャットか、自分がメンバーではないプロジェクトのチャットかもしれません。リンクを送った人に、あなたと共有してもらってください。",
+  "chat.notFoundGuest": "ゲストが開けるのは、招待された場所と自分で始めたチャットだけです。ほかの人のチャットは開けません。",
   "chat.goneDraft": "ここで入力していた内容は下に残っています。コピーして自分のチャットで使えます。",
   "chat.share.keepsThrough": "{name}さんは{groups}のメンバーなので、引き続き見られます。",
   "chat.share.sharedToMeAlone": "{name}さんがあなたと共有したチャットです。今はほかの人は見られません。",

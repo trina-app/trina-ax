@@ -6176,6 +6176,7 @@ export const es: Record<MessageKey, string> = {
   "projects.page.importNone": "No hay chats para traer.",
   "projects.page.chatsEmpty": "Nada todavía. Pregunte aquí y quedará en este proyecto.",
   "chat.notFoundWhy": "Puede ser un chat que solo ve quien lo creó, puede haberse eliminado o puede ser de un proyecto del que no es miembro. Pida a quien le envió el enlace que lo comparta con usted.",
+  "chat.notFoundGuest": "Como invitado, solo puede abrir el lugar al que le invitaron y los chats que usted inició. Los chats de otras personas no se abren para usted.",
   "chat.goneDraft": "Lo que estaba escribiendo aquí se guardó abajo. Cópielo para usarlo en un chat propio.",
   "chat.share.keepsThrough": "{name} sigue teniendo acceso a través de {groups}.",
   "chat.share.sharedToMeAlone": "{name} compartió este chat con usted. Ahora nadie más puede verlo.",

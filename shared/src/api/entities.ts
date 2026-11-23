@@ -229,6 +229,10 @@ export const Project = z.object({
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
   audience: z.number().int().nonnegative().optional(),
+  /** how many would see a new shared chat of the viewer's in it: `audience` without the project's guests (a guest sees
+   * no shared chat but their own; the viewer counts when a guest). The new-chat box says this number. Absent: an older
+   * server (`audience` then). */
+  chatAudience: z.number().int().nonnegative().optional(),
   /** `audience` apart (AudienceSplit): a team project, for the owner and admins only. Its 멤버 row says "멤버 3명".
    * While its folder is in the trash nobody sees it by a rule. Absent: anyone else, a personal project, an older server */
   audienceSplit: AudienceSplit.optional(),

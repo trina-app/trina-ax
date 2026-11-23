@@ -6220,6 +6220,7 @@ export const id: Record<MessageKey, string> = {
   "projects.page.importNone": "Tidak ada obrolan untuk dibawa.",
   "projects.page.chatsEmpty": "Belum ada. Tanyakan di sini dan obrolan tetap di proyek ini.",
   "chat.notFoundWhy": "Mungkin ini obrolan yang hanya bisa dilihat pembuatnya, sudah dihapus, atau milik proyek yang Anda bukan anggotanya. Minta orang yang mengirim tautan untuk membagikannya dengan Anda.",
+  "chat.notFoundGuest": "Sebagai tamu, Anda hanya bisa membuka tempat yang Anda diundang dan obrolan yang Anda mulai. Obrolan orang lain tidak bisa Anda buka.",
   "chat.goneDraft": "Yang sedang Anda ketik di sini masih ada di bawah. Salin untuk dipakai di obrolan Anda sendiri.",
   "chat.share.keepsThrough": "{name} tetap punya akses lewat {groups}.",
   "chat.share.sharedToMeAlone": "Dibagikan kepada Anda oleh {name}. Saat ini tidak ada orang lain yang bisa melihatnya.",

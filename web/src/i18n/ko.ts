@@ -6220,6 +6220,7 @@ export const ko = {
   "projects.page.importNone": "가져올 대화가 없어요.",
   "projects.page.chatsEmpty": "아직 없어요. 여기서 물어보면 이 프로젝트에 모여요.",
   "chat.notFoundWhy": "만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.",
+  "chat.notFoundGuest": "게스트는 초대받은 곳과 내가 만든 채팅만 열 수 있어요. 다른 사람이 만든 채팅은 열리지 않아요.",
   "chat.goneDraft": "여기 입력하던 내용은 아래에 남아 있어요. 복사해서 내 채팅에 쓰세요.",
   "chat.share.keepsThrough": "{name} 님은 {groups}에 있어서 계속 볼 수 있어요.",
   "chat.share.sharedToMeAlone": "{name}님이 나와 공유한 채팅이에요. 지금은 다른 사람은 볼 수 없어요.",

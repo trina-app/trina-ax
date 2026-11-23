@@ -429,7 +429,9 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
   return {
     kind: 'project',
     by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
-    audience: project ? aud.of(project).length : 0,
+    // who sees this chat (Audiences.ofChat): never a guest of the project but the chat's own creator, as its cards and
+    // notices count them (QA TC-b4s s2: "4명이 이 채팅을 볼 수 있어요" counted a guest who cannot open it)
+    audience: project ? aud.ofChat(r).length : 0,
     answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
     ...othersWaiting(rt, r.id, viewer),
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
@@ -517,7 +519,7 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
-export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
+export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; chatAudience: number; sharedChats: number; chatUploads?: boolean } {
   const a = aud ?? new Audiences(db, files)
   // a guest counts only their own shared chats (the others' are never theirs to know of)
   const mine = !!viewer && a.isGuest(viewer)
@@ -525,7 +527,11 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
   // every team project (docs/DECISIONS.md "Team project chats shared by default")
   const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
-  return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
+  // a new shared chat of the viewer's is seen by the project's people but its guests (the viewer too, when a guest:
+  // Audiences.ofChat), not by everyone who reads its folder (QA TC-b4s s2)
+  const all = a.of(p)
+  const chatAudience = all.filter((id) => id === viewer || !a.isGuest(id)).length
+  return { shareChats, audience: all.length, chatAudience, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**
