@@ -1,7 +1,7 @@
-// What a confirm card shows before anyone opens 자세히 (docs/decisions/20261124-card-no-raw-payload.md). The owner: "코드를
-// 보여주면 뭐 어케 하라는거냐". Complete JSON is the one shape the client can fold by itself, because it can be read back into
-// plain lines: every key and value, a long value by its start. No pattern decides what may hide. JSON with too many
-// values to summarise, prose, and anything else stay as they were; code is folded by the server's own mark.
+// What a confirm card shows of a connected service's call before anyone opens 자세히 (docs/decisions/20261124-card-no-raw-
+// payload.md). The owner: "코드를 보여주면 뭐 어케 하라는거냐". Only the JSON the server itself wrote for a call (`callJson`)
+// folds, and only when it reads back into plain lines: every key and value, a long value by its start. A file's content,
+// a scheduled task's instruction, a message or code that runs stay as sent.
 
 /** a value longer than this shows its start (and any address found further on) */
 const SHORT_VALUE = 120

@@ -54,13 +54,11 @@ for (const [which, testId, value] of [['no', 'ask-no', 'deny'], ['yes', 'ask-yes
   })
 }
 
-test('without exact (the lines could not show all of it, or an older server): raw JSON is behind Details, every character of it there', async () => {
+test('without exact (the lines could not show all of it, or an older server): the text open as before, no button', async () => {
   installDom()
   const m = await mount(<AskCard req={{ request: card(false) }} onAnswer={async () => {}} />)
   try {
     expect(m.find('ask-detail-exact')).toBeNull()
-    expect(m.find('ask-detail-text')).toBeNull()
-    await m.click('ask-detail-folded')
     expect(m.get('ask-detail-text').textContent).toBe(json)
     expect(m.get('ask-detail-size').textContent).toBe(translate('en', 'ask.detailSize', { n: json.length }))
   } finally {

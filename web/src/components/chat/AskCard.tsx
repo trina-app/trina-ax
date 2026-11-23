@@ -685,11 +685,11 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
   )
 }
 
-/** A detail as the card opens it (lib/cardPayload.ts): complete JSON folds when it can be read back into plain lines.
- * Everything else is as the server sent it (code it marked `folded` folds; with marks it stays open). */
+/** A detail as the card opens it (lib/cardPayload.ts): a service call's JSON (`callJson`, the server's own) folds when it
+ * reads back into plain lines. Everything else is as the server sent it. */
 const byShape = (d: ConfirmDetail): ConfirmDetail => {
-  if (!d.text || d.keepOpen || d.folded || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact || d.fullChars) return d
-  return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true, jsonFold: true } as ConfirmDetail : d
+  if (!d.callJson || !d.text || d.folded || d.exact || d.fullChars || d.alerts?.length) return d
+  return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true } : d
 }
 
 function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
@@ -709,7 +709,7 @@ function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; pla
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
-                      {foldsField(f) ? (
+                      {d.callJson && foldsField(f) ? (
                         <dd className="min-w-0" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></dd>
                       ) : f.code ? (
                         <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
@@ -765,7 +765,7 @@ function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; pla
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
-                  {foldsField(f) ? (
+                  {d.callJson && foldsField(f) ? (
                     <span className="min-w-0 flex-1" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></span>
                   ) : f.code ? (
                     <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
@@ -861,8 +861,8 @@ function FoldedValue({ f, marks }: { f: { name: string; value: string; code?: tr
 function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  // (the server's own fold of code stays open with marks; JSON read back into lines shows them below)
-  if (!d.folded || d.markdown || d.alerts?.length || (d.marks?.length && !(d as { jsonFold?: boolean }).jsonFold)) return <>{children}</>
+  // (the server's own fold of code stays open with marks; a call's JSON shows them below)
+  if (!d.folded || d.markdown || d.alerts?.length || (d.marks?.length && !d.callJson)) return <>{children}</>
   const known = (d.fields ?? []).map((f) => f.value)
   return (
     <div className={plain ? undefined : clsx('border-t border-line', !open && 'px-3 pb-1.5')}>
