@@ -14,6 +14,7 @@
 //   their own latest message names the recipient (namedByAsker / namesRecipient); several matches are picked on a card
 //   only the asker gets (askerPicks), never listed to the AI (it writes where everyone in the chat reads); and a
 //   refusal carries no server words (which could name a room or a person) into that transcript.
+import { quietRun } from './explicit-send'
 import type { Database } from 'bun:sqlite'
 import { sha256Regular } from '../files/store'
 import fs from 'node:fs'
@@ -34,6 +35,8 @@ type ScheduleKind = 'post_to_room' | 'post_files' | 'share_files' | 'share_folde
 export function actionOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>, scheduleKind: ScheduleKind | readonly ScheduleKind[] | null): ActionOff | null {
   const kinds = scheduleKind === null ? [] : typeof scheduleKind === 'string' ? [scheduleKind] : scheduleKind
   if (exec.spec.clientKind === 'schedule' && !kinds.some((k) => alwaysHere(exec.alwaysPlace?.(), k) === 'on')) return 'schedule'
+  // a task made without its card sends nothing, whatever the person's Always (docs/decisions/20261123-do-then-undo.md)
+  if (exec.spec.clientKind === 'schedule' && quietRun(exec.rt.db, exec.spec.turnId)) return 'schedule'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
   if (exec.spec.clientKind === 'slack') return 'slack'
   if (exec.restricted || exec.templateRun) return 'restricted'

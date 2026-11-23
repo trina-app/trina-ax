@@ -4815,7 +4815,7 @@ export class TurnExec {
   /**
    * The project save without a card (docs/decisions/20261123-do-then-undo.md, idea "내 프로젝트에 내 파일로 만든 것"): in a
    * project chat the person watches (not a run, Slack, a draft or a confidential chat), a save inside that project's
-   * folder whose narrower sources are only the person's own files (their personal folder or the in-app browser; never a
+   * folder whose narrower sources are only the person's own files in their personal folder (never the in-app browser, a
    * personal connection, a share of their folder, a room, a teammate's file or anything else), where everyone who can
    * see the target is someone who sees this chat now and nobody of them is a guest. Fails closed.
    */
@@ -4831,7 +4831,10 @@ export class TurnExec {
       const dir = need.segs.slice(0, -1)
       if (!project.length || dir.length < project.length || project.some((x, i) => fold(x) !== fold(dir[i]!))) return false
       const me = this.spec.userId
-      if (!need.narrower.every((s) => s.type === 'user' && s.id === me && s.via !== 'connection' && !s.share)) return false
+      // (only files: never the in-app browser or a connection, which can be a mailbox; never where another person wrote
+      // in the chat or rooms were read, whose words could pick what goes: security review)
+      if (this.otherAuthors || readRooms(this)) return false
+      if (!need.narrower.every((s) => s.type === 'user' && s.id === me && !s.via && !s.share)) return false
       const readers = readersOf(this.rt.db, this.rt.files.rules(), need.segs)
       const here = new Set(this.shared ? this.sharedAudience() : [me])
       return readers.every((id) => here.has(id) && !isGuestUser(this.rt.db, id))

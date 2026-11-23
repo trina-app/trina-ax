@@ -232,14 +232,23 @@ export function resolvedByTitle(db: Database, userId: string, ref: string, o: { 
   const aliased = alias ? people.find((p) => p.id === alias) : undefined
   if (aliased) return { one: out(aliased, 'alias') }
   const pick = (list: typeof people, how: TitleHow) => (list.length === 1 ? { one: out(list[0]!, how) } : list.length ? { many: list.slice(0, 10).map((p) => out(p, how)), total: list.length } : null)
+  // an owner word is the team's owner, whatever anyone's profile says (security review: a member sets their own title)
+  if (isOwnerTitle(key)) return pick(people.filter((p) => p.role === 'owner'), 'owner')
   let titled: typeof people = []
   try {
     const rows = db.query("SELECT user_id, title FROM user_profiles WHERE title <> ''").all() as { user_id: string; title: string }[]
-    const has = new Set(rows.filter((r) => titlesIn(r.title).includes(key) || r.title.normalize('NFC').toLowerCase().replace(/\s+/g, '') === key).map((r) => r.user_id))
+    const has = new Set(rows.filter((r) => titlesIn(`${r.title}님`).includes(key) || r.title.normalize('NFC').toLowerCase().replace(/\s+/g, '') === key).map((r) => r.user_id))
     titled = people.filter((p) => has.has(p.id))
   } catch { titled = [] }
-  if (titled.length) return pick(titled, 'title')
-  if (isOwnerTitle(key)) return pick(people.filter((p) => p.role === 'owner'), 'owner')
+  // a profile title is the person's own words: it names them alone only for an owner or admin (whose title the team set
+  // up); a member who calls themselves "팀장" is one of the people the AI asks about, never sent to unasked
+  if (titled.length) {
+    const staff = titled.filter((p) => p.role === 'owner' || p.role === 'admin')
+    if (titled.length === 1 && staff.length === 1) return { one: out(staff[0]!, 'title') }
+    return { many: titled.slice(0, 10).map((p) => out(p, 'title')), total: titled.length }
+  }
+  // the fallbacks below only for a word that means "the one above me", never a rank nobody holds ("과장님", "이사님")
+  if (!GENERIC_LEAD.has(key)) return null
   if (o.projectId) {
     const c = (db.query('SELECT created_by FROM projects WHERE id = ?').get(o.projectId) as { created_by: string | null } | null)?.created_by
     const creator = c ? people.find((p) => p.id === c) : undefined
@@ -247,6 +256,9 @@ export function resolvedByTitle(db: Database, userId: string, ref: string, o: { 
   }
   return pick(people.filter((p) => p.role === 'owner' || p.role === 'admin'), 'staff')
 }
+/** Words that mean whoever is above the person, with no rank of their own: the project's creator or the one owner or
+ * admin may be meant */
+const GENERIC_LEAD = new Set(['상사', '사수', 'manager', 'boss', 'supervisor', '上司', '领导', 'jefe', 'jefa', 'atasan', 'bos'])
 const isGuestRow = (db: Database, id: string) => !!db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(id)
 
 /**

@@ -13,3 +13,7 @@ CREATE TABLE person_aliases (
   created_at TEXT NOT NULL,
   PRIMARY KEY (user_id, ref)
 );
+-- A scheduled task made without its card because the person's own words asked for it (server/src/tools/schedules.ts
+-- askedInOwnWords): its runs never send, post or share anything, whatever the person's "Always allow" says (security
+-- review of 20261123-do-then-undo: a quiet task never sends to others with nobody watching). An older build ignores it.
+ALTER TABLE schedules ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0;

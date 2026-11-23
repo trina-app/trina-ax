@@ -711,7 +711,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (one card per source in this chat: content from a source the person already sent on a card here goes to the next
         // place their words name without a card again; noted on the yes below)
         const pvNow = await (async () => { try { return await floorProv(exec, await first.check.provenance(attached)) } catch { return null } })()
-        const earlier = (() => { try { return approvedSources(db, spec.chatId, spec.userId) } catch { return new Set<string>() } })()
+        const earlier = (() => { try { return approvedSources(db, spec.chatId, spec.userId, first.check.audience) } catch { return new Set<string>() } })()
         const explicitNew = wordsAsk && !!pvNow && (() => { try { return floorFree(pvNow, spec.userId, namedRel, earlier) } catch { return false } })()
         // after a room read (a DM or a private channel read in this chat: QA F5 #2 and #3 sent the same content
         // twice): the second post of the same sources to a place the person's own words name goes on the first card's yes
@@ -825,7 +825,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (v === 'send' && !explicit && !byChat && !byAlways && !pendingTo && roomId && exec.mayUseApprovals?.()) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'room_post', target: postTarget })
         // the sources it showed people who could not see them, sent on the card: a later post of them in this chat to a
         // place the person's words name needs no card again (explicit above)
-        if (!explicit && !byChat && !byAlways && pvNow?.counted?.length && !exec.otherAuthors) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'post_sources', target: '', detail: { keys: pvNow.counted.map((c) => c.key) } })
+        if (!explicit && !byChat && !byAlways && pvNow?.counted?.length && !exec.otherAuthors) noteApproval(db, { chatId: spec.chatId, userId: spec.userId, kind: 'post_sources', target: '', detail: { keys: pvNow.counted.map((c) => c.key), people: [...first.check.audience] } })
         // the card said who would be able to open which file, and the person said yes on it: now that the post went, the
         // same people get view access to the same files (saved as the server's own let_view offer and run at once, so
         // every check of a tap applies: the person may still share it, only people still in the room who still cannot

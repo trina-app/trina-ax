@@ -506,11 +506,20 @@ function scopeNote(db: Database, userId: string, save: SaveFolder | null, source
  * none has a random-looking part or a long query; and no guest sees the shared chat it runs in. Anything else: the card
  * (a task that sends to others with nobody watching stays on the floor).
  */
+/** Words of a task that send, post or share (then it keeps its card) */
+const SENDS_IN_TASK = /\b(send|post|share|e-?mail|mail|message|notify|forward|invite|publish|upload|tweet|slack|kirim|enviar|compartir)\b|\uBCF4\uB0B4|\uC62C\uB824|\uACF5\uC720|\uC804\uB2EC|\uAC8C\uC2DC|\u9001|\u5171\u6709|\u53D1|\u5206\u4EAB/iu
+const REPEAT_WORDS = new RegExp(['\uB9E4\uC77C', '\uB9E4\uC8FC', '\uB9E4\uB2EC', '\uB9E4\uC6D4', '\uB9E4\uB144', '\uD3C9\uC77C', '\uB9C8\uB2E4', '\u6BCE\u65E5', '\u6BCE\u9031', '\u6BCE\u6708', '\u6BCE\u671D', '\u5B9A\u671F', '\u6BCF\u5929', '\u6BCF\u5468', '\u6BCF\u6708', '\u5B9A\u65F6', '\\b(every|daily|weekly|monthly|hourly|weekdays|setiap|cada|todos los)\\b'].join('|'), 'iu')
+const ONCE_WORDS = new RegExp(['\uB0B4\uC77C', '\uBAA8\uB808', '\u660E\u65E5', '\u660E\u5929', '\\b(tomorrow|besok|ma\u00F1ana)\\b'].join('|'), 'iu')
+const TIME_CUE = new RegExp(['\\d', '\uC544\uCE68', '\uC800\uB141', '\uC624\uC804', '\uC624\uD6C4', '\uC810\uC2EC', '\u671D', '\u591C', '\u65E9\u4E0A', '\u665A\u4E0A', '\\b(morning|evening|noon|night|pagi|sore|malam|tarde|noche)\\b'].join('|'), 'iu')
+
 export function askedInOwnWords(ctx: AppContext, turnId: string | null | undefined, userId: string, person: TurnPerson, task: { prompt: string; title: string }, o: { sends: boolean; urls: readonly string[]; longQuery: number; sharedChat: ChatRow | null }): boolean {
   if (!turnId || person.unattended || !person.allSitesHere?.() || person.roomsSeen) return false
-  if (o.sends || o.longQuery) return false
+  // only in the person's own chat (a shared chat's runs post there, for its people), never for a task that says to send
+  if (o.sends || o.longQuery || o.sharedChat || SENDS_IN_TASK.test(`${task.title}\n${task.prompt}`)) return false
   const m = ctx.db.query('SELECT m.content, m.auto_sent, t.chat_id FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null; chat_id: string } | null
-  if (!m || m.auto_sent || !asksFor(SCHEDULE_ASK, ownWords(m.content ?? ''))) return false
+  const said = ownWords(m?.content ?? '')
+  // (a repeat word, or "tomorrow" with a time: a bare "tomorrow" in a message is no schedule)
+  if (!m || m.auto_sent || !asksFor(SCHEDULE_ASK, said) || !(REPEAT_WORDS.test(said) || (ONCE_WORDS.test(said) && TIME_CUE.test(said)))) return false
   if (opaqueParts(`${task.title}\n${task.prompt}`).length) return false
   if (o.urls.length) {
     const typed = typedUrls(ctx.db, m.chat_id, userId)
@@ -608,6 +617,14 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
+      // made without its card: its runs send, post and share nothing (schedules.quiet, chat/explicit-send.ts quietRun)
+      if (quiet) {
+        try { ctx.db.query('UPDATE schedules SET quiet = 1 WHERE id = ?').run(s.id) } catch (e) {
+          // not marked: the task goes again, so no unmarked task made without its card is left to run
+          rt.schedules.delete(t.user.id, s.id)
+          throw new ToolError(`the scheduled task could not be saved (${e instanceof Error ? e.message : 'error'}), so it was not created. Tell the user to try again.`)
+        }
+      }
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''

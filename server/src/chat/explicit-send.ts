@@ -32,10 +32,16 @@ export function floorFree(prov: FloorProv, userId: string, named: (rel: string) 
   })
 }
 
-/** `approved` for floorFree: the sources the person sent on a card in this chat (12 h, card-approvals.ts post_sources) */
-export function approvedSources(db: import('bun:sqlite').Database, chatId: string, userId: string): Set<string> {
+/** `approved` for floorFree: the sources the person sent on a card in this chat (12 h, card-approvals.ts post_sources),
+ * only those whose card showed them to everyone `audience` holds (a new place's people all saw it then: security review,
+ * so one yes never widens to new people) */
+export function approvedSources(db: import('bun:sqlite').Database, chatId: string, userId: string, audience: readonly string[]): Set<string> {
   const out = new Set<string>()
-  for (const d of approvalsFor(db, { chatId, userId, kind: 'post_sources', target: '' })) for (const k of Array.isArray(d.keys) ? d.keys : []) if (typeof k === 'string') out.add(k)
+  for (const d of approvalsFor(db, { chatId, userId, kind: 'post_sources', target: '' })) {
+    const seen = new Set(Array.isArray(d.people) ? d.people.filter((x): x is string => typeof x === 'string') : [])
+    if (!audience.every((id) => seen.has(id))) continue
+    for (const k of Array.isArray(d.keys) ? d.keys : []) if (typeof k === 'string') out.add(k)
+  }
   return out
 }
 
@@ -43,4 +49,14 @@ export function approvedSources(db: import('bun:sqlite').Database, chatId: strin
 export function inOwnFolder(rel: string, userId: string): boolean {
   const segs = rel.normalize('NFC').replace(/^\/+/, '').split('/')
   return segs.length > 2 && segs[0]!.toLowerCase() === 'users' && segs[1] === userId
+}
+
+/** A run of a scheduled task made without its card (schedules.quiet, tools/schedules.ts askedInOwnWords): it sends,
+ * posts and shares nothing, whatever the person's Always says. Fails closed (an unreadable row counts as quiet). */
+export function quietRun(db: import('bun:sqlite').Database, turnId: string | null | undefined): boolean {
+  if (!turnId) return false
+  try {
+    const r = db.query('SELECT s.quiet AS q FROM turns t JOIN schedules s ON s.id = t.schedule_id WHERE t.id = ?').get(turnId) as { q: number } | null
+    return !!r?.q
+  } catch { return true }
 }

@@ -203,6 +203,38 @@ describe('a schedule the person asked for in their own words', () => {
   })
 })
 
+describe('a quiet task never sends (security review)', () => {
+  const create = (args: Record<string, unknown>) => fake({ tool: 'schedule_create', args: { repeat: 'daily', time: '09:00', ...args }, sayResult: true })
+  test('its run posts nothing even under the person\'s "Always allow" for posts', async () => {
+    const { keepAlways, dropAlways } = await import('../../server/src/chat/always-allow')
+    const runPrompt = post({ room: rooms.marketing, text: 'from a quiet task' })
+    const r = await turn('alice', `매일 아침 9시에 내 메모 정리해줘\n${create({ title: 'Quiet one', prompt: runPrompt })}`)
+    expect(r.card).toBeNull()
+    const id = r.steps.find((x) => x.tool === 'schedule_create')!.scheduled!.id
+    expect((h.ctx.db.query('SELECT quiet FROM schedules WHERE id = ?').get(id) as { quiet: number }).quiet).toBe(1)
+    keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
+    try {
+      const before = (await messagesAs('erin', rooms.marketing)).length
+      const rt = h.rt()
+      h.ctx.db.query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), id)
+      expect(rt.schedules.runDue(new Date())).toContain(id)
+      const chatId = () => rt.schedules.get('alice', id)!.last_chat_id
+      const { waitFor } = await import('../lib/wait')
+      await waitFor(() => !!chatId() && (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId()!) as { status: string } | null)?.status !== 'streaming', { timeoutMs: 30_000 })
+      expect((await messagesAs('erin', rooms.marketing)).length).toBe(before)
+    } finally { dropAlways(h.ctx.db, 'alice', 'card:post_to_room') }
+  })
+  test('a schedule asked for in a shared chat keeps its card', async () => {
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const hello = await turn('alice', 'hello', { chat: chatId })
+    expect(hello.card).toBeNull()
+    let sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }] } }) as { status?: string; confirmKey?: string }
+    if (sh.status === 'confirm') sh = await h.api('alice').call(API.putChatAudience, { params: { id: chatId }, body: { subjects: [{ subjectType: 'user', subjectId: 'erin' }], confirmKey: sh.confirmKey! } }) as never
+    const r = await turn('alice', `매일 아침 9시에 정리해줘\n${create({ title: 'Shared one', prompt: 'summarize this chat' })}`, { chat: chatId, answer: 'deny' })
+    expect(r.card).not.toBeNull()
+  })
+})
+
 describe('a title names one person (chat/person-aliases.ts)', () => {
   const title = (id: string, t: string) => h.ctx.db.query('INSERT INTO user_profiles (user_id, title) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET title = excluded.title').run(id, t)
   test('"팀장님한테 보내줘" with one 팀장 in the directory: sent to them with no card and no question', async () => {

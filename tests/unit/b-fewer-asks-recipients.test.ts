@@ -67,68 +67,78 @@ describe('titles and roles', () => {
     expect(saysTeam('팀장님한테 보내줘')).toBe(false)
   })
 
-  test('one teammate with the title in their profile: found, and counted as named', () => {
-    title('tess', '재무팀 팀장')
+  test('one owner or admin with the title in their profile: found, and counted as named; a member\'s own title is asked about', () => {
+    title('carol', '재무팀 팀장')
     const r = resolvedByTitle(h.ctx.db, 'bob', '팀장님')
-    expect(r && 'one' in r && r.one).toMatchObject({ id: 'tess', exact: true, via: { how: 'title', ref: '팀장' } })
+    expect(r && 'one' in r && r.one).toMatchObject({ id: 'carol', exact: true, via: { how: 'title', ref: '팀장' } })
     const p = findPeople(h.ctx.db, 'bob', '팀장님')
-    expect(p && 'one' in p && p.one.id).toBe('tess')
+    expect(p && 'one' in p && p.one.id).toBe('carol')
+    h.ctx.db.query("DELETE FROM user_profiles WHERE user_id = 'carol'").run()
+    // (security review: a member sets their own title, so it never names them alone)
+    title('tess', '팀장')
+    const m = resolvedByTitle(h.ctx.db, 'bob', '팀장님')
+    expect(m && 'many' in m && m.many.map((x) => x.id)).toEqual(['tess'])
     h.ctx.db.query("DELETE FROM user_profiles WHERE user_id = 'tess'").run()
+    // a rank nobody holds is nobody (never the owner by default); a name before the title is a name ("김팀장님")
+    expect(resolvedByTitle(h.ctx.db, 'bob', '과장님')).toBeNull()
+    expect(titlesIn('김팀장님한테 보내줘')).toEqual([])
+    expect(titlesIn('과장된 표현 고쳐줘')).toEqual([])
+    expect(saysTeam('팀 회의록 폴더 민수한테 공유해줘')).toBe(false)
   })
 
-  test('an owner word: the team owner; a lead word with no title: the one owner or admin, else several (asked)', () => {
+  test('an owner word: the team owner; a word for "the one above me" with no title: the one owner or admin, else several (asked)', () => {
     const owner = resolvedByTitle(h.ctx.db, 'bob', '대표님')
     expect(owner && 'one' in owner && owner.one.id).toBe('dana')
     // carol (admin) and dana (owner): several could be meant
-    const lead = resolvedByTitle(h.ctx.db, 'bob', '팀장님')
+    const lead = resolvedByTitle(h.ctx.db, 'bob', '상사님')
     expect(lead && 'many' in lead && lead.many.map((x) => x.id).sort()).toEqual(['carol', 'dana'])
     // a project chat: the project's creator
     const pid = (h.ctx.db.query("INSERT INTO projects (id, name, folder_path, created_by) VALUES ('p-far', 'Far', 'projects/Far', 'carol') RETURNING id").get() as { id: string }).id
-    const inProject = resolvedByTitle(h.ctx.db, 'bob', '팀장님', { projectId: pid })
+    const inProject = resolvedByTitle(h.ctx.db, 'bob', '상사님', { projectId: pid })
     expect(inProject && 'one' in inProject && inProject.one).toMatchObject({ id: 'carol', via: { how: 'creator' } })
   })
 })
 
 describe('share_folder: who, which folder, and no card for what the person asked', () => {
   test('a title that resolves to one teammate: shared with no card, and the result names them as the person called them', async () => {
-    title('tess', '팀장')
+    title('carol', '팀장')
     const dir = folder('bob', 'Title')
     const r = await turn('bob', `${dir} 폴더 팀장님한테 공유해줘\n${sf({ folder: dir, add: ['팀장님'] })}`)
     expect(cardsTo('bob', r.turnId)).toBe(0)
-    expect(peopleOn('bob', dir)).toEqual(['tess'])
+    expect(peopleOn('bob', dir)).toEqual(['carol'])
     const out = JSON.parse(r.content)
     expect(out.found_by).toContain('"팀장"')
     expect(out.note).toContain('without a confirmation card')
-    h.ctx.db.query("DELETE FROM user_profiles WHERE user_id = 'tess'").run()
+    h.ctx.db.query("DELETE FROM user_profiles WHERE user_id = 'carol'").run()
   })
 
   test('an ambiguous title asks once; the answer is kept as an alias and the next time nobody is asked; Settings lists and deletes it', async () => {
     const dir = folder('bob', 'Ask')
     const chat = (await h.api('bob').call(API.createChat, { body: {} })).id
     // carol and dana could be meant: nothing is shared, the AI gets who could be meant
-    const first = await turn('bob', `${dir} 폴더 팀장님한테 공유해줘\n${sf({ folder: dir, add: ['팀장님'] })}`, { chat })
+    const first = await turn('bob', `${dir} 폴더 상사님한테 공유해줘\n${sf({ folder: dir, add: ['상사님'] })}`, { chat })
     expect(first.content).toContain('several people or groups match')
     expect(peopleOn('bob', dir)).toEqual([])
     // the person's answer: the next call names one of them
-    const second = await turn('bob', `Carol\n${sf({ folder: dir, add: ['person:carol'] })}`, { chat, answer: 'yes' })
+    const second = await turn('bob', `Carol Park\n${sf({ folder: dir, add: ['person:carol'] })}`, { chat, answer: 'yes' })
     expect(peopleOn('bob', dir)).toEqual(['carol'])
     expect(JSON.parse(second.content).found_by).toContain('remembered now')
-    expect(aliasOf(h.ctx.db, 'bob', '팀장님')).toBe('carol')
+    expect(aliasOf(h.ctx.db, 'bob', '상사님')).toBe('carol')
     // another chat, another folder: the title is carol, with no question and no card
     const dir2 = folder('bob', 'Again')
-    const third = await turn('bob', `${dir2} 폴더 팀장님한테 공유해줘\n${sf({ folder: dir2, add: ['팀장님'] })}`)
+    const third = await turn('bob', `${dir2} 폴더 상사님한테 공유해줘\n${sf({ folder: dir2, add: ['상사님'] })}`)
     expect(cardsTo('bob', third.turnId)).toBe(0)
     expect(peopleOn('bob', dir2)).toEqual(['carol'])
     expect(JSON.parse(third.content).found_by).toContain('saved name')
     // Settings › Allowed for Trina: the alias is a row, deleted with its button
     const list = await h.api('bob').call(API.listAiAllowances)
     const row = list.items.find((x) => x.kind === 'person_alias')
-    expect(row).toMatchObject({ kind: 'person_alias', ref: '팀장', person: { id: 'carol' } })
+    expect(row).toMatchObject({ kind: 'person_alias', ref: '상사', person: { id: 'carol' } })
     await h.api('bob').call(API.deleteAiAllowance, { params: { id: row!.id } })
-    expect(aliasOf(h.ctx.db, 'bob', '팀장님')).toBeNull()
+    expect(aliasOf(h.ctx.db, 'bob', '상사님')).toBeNull()
     expect((await h.api('bob').call(API.listAiAllowances)).items.some((x) => x.kind === 'person_alias')).toBe(false)
     // another person's alias is not mine to delete
-    expect(await h.api('alice').call(API.deleteAiAllowance, { params: { id: 'alias:팀장' } }).then(() => 'ok', () => 'refused')).toBe('refused')
+    expect(await h.api('alice').call(API.deleteAiAllowance, { params: { id: 'alias:상사' } }).then(() => 'ok', () => 'refused')).toBe('refused')
   })
 
   test('no folder given: the one this chat used, shared with no card, the result says it was picked; none at all: asked', async () => {

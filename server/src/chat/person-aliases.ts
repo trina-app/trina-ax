@@ -6,9 +6,9 @@
 // once; the person's answer is kept as an alias (person_aliases, migration 445) and used before asking next time, in
 // every chat, until the person deletes it in Settings › Allowed for Trina (kind person_alias).
 //
-// Learning the answer, without a tool of its own: the call that could not tell (notePending) and the person's own words
-// of the last few messages are the server's; the next call that names exactly one teammate by name or id in that chat,
-// within a short time, is the answer (learnAlias). A wrong one is one press to delete in Settings, and a send to the
+// Learning the answer, from the person alone (security review: never the AI's pick or guess): their pick on a shared
+// chat's card (keepPick), or their own next message that names exactly one teammate in full after their message with the
+// title, in a chat only they write in (learnAlias). A wrong one is one press to delete in Settings, and a send to the
 // person it names still shows who it went to with its undo.
 //
 // Matching data, not screen text (no Korean on screen from here).
@@ -47,6 +47,9 @@ export function titlesIn(text: string): string[] {
     // a Latin word as a whole word (in the text with its spaces), any other script as a part of the words
     // (a title of two words, "team lead", with its space or hyphen)
     if (/^[a-z]+$/.test(w)) { if (new RegExp(`(?<![a-z])${MULTI[w] ?? w}(?![a-z])`).test(t)) out.add(w) }
+    // Hangul: a title as a word of its own with an honorific or a recipient particle after it ("팀장님", "팀장한테"),
+    // never right after another Hangul letter ("김팀장님" is a name) nor part of a word ("과장된", "이사 준비")
+    else if (/\p{Script=Hangul}/u.test(w)) { if (new RegExp(`(?<!\\p{Script=Hangul})${w}(?=\\s?(님|씨|께|한테|에게|더러))`, 'u').test(t)) out.add(w) }
     else if (squashed.includes(w)) out.add(w)
   }
   // a shorter word inside a longer one found ("이사" in "대표이사") is that one
@@ -93,34 +96,27 @@ export function notePending(userId: string, key: string, candidates: readonly st
 }
 
 /**
- * Exactly one teammate was named by name or id (not by a title): if that answers a title the server could not tell for
- * this person a moment ago (notePending), or a title in the person's own last few messages of this chat that does not
- * resolve to one teammate, keep it as their alias. Returns the title kept, or null. `unique(key)`: does the title resolve
+ * Exactly one teammate was named by name or id (not by a title): if the person's own latest message names them in full
+ * and only that, and their message before it used a title that does not resolve to one teammate, keep it as their alias. Returns the title kept, or null. `unique(key)`: does the title resolve
  * to exactly one teammate now (then nothing is learned: the directory already says who).
  */
 export function learnAlias(db: Database, userId: string, target: { id: string; name: string }, o: { chatId?: string | null; unique: (key: string) => boolean }): string | null {
-  if (target.id === userId) return null
-  const p = pending.get(userId)
-  if (p && Date.now() - p.at < PENDING_MS && (!p.candidates.length || p.candidates.includes(target.id))) {
-    pending.delete(userId)
-    if (aliasOf(db, userId, p.key) !== target.id) setAlias(db, userId, p.key, target.id)
-    return p.key
-  }
-  if (!o.chatId) return null
+  // (security review: never the AI's own pick or guess; only the person's own answer, below)
+  if (target.id === userId || !o.chatId) return null
   let rows: { content: string }[] = []
   try {
+    // a chat only this person writes in, asked from their app (no Slack question, no scheduled run's message)
+    if (db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(o.chatId, userId)) return null
     const since = new Date(Date.now() - PENDING_MS).toISOString()
-    rows = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0 AND (author_id IS NULL OR author_id = ?) AND created_at >= ? ORDER BY created_at DESC LIMIT 2").all(o.chatId, userId, since) as { content: string }[]
+    rows = db.query("SELECT m.content FROM messages m LEFT JOIN turns t ON t.user_message_id = m.id WHERE m.chat_id = ? AND m.role = 'user' AND m.auto_sent = 0 AND (t.client_kind IS NULL OR t.client_kind NOT IN ('slack', 'schedule')) AND m.created_at >= ? ORDER BY m.created_at DESC LIMIT 2").all(o.chatId, since) as { content: string }[]
   } catch { return null }
   // (quoted lines are someone else's words)
   const own = (t: string) => t.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
   const open = (t: string) => titlesIn(own(t)).filter((k) => !o.unique(k) && !aliasOf(db, userId, k))
   const names = (t: string) => { const n = target.name.normalize('NFC').toLowerCase().replace(/\s+/g, ''); return n.length >= 2 && own(t).normalize('NFC').toLowerCase().replace(/\s+/g, '').includes(n) }
   const latest = rows[0]?.content ?? ''
-  const here = open(latest)
-  // the title is in this turn's message and the teammate is not: the person answered the AI's question on a card
-  if (here.length === 1 && titlesIn(own(latest)).length === 1 && !names(latest)) { setAlias(db, userId, here[0]!, target.id); return here[0]! }
-  // this message only names the teammate (an answer: no title, no ask to send), the one before used the title
+  // this message only names the teammate in full (their answer to "who is that?": no title, no ask to send), the one
+  // before used the title
   const before = rows[1] ? open(rows[1].content) : []
   if (!titlesIn(own(latest)).length && !SENDS.test(own(latest)) && names(latest) && before.length === 1) { setAlias(db, userId, before[0]!, target.id); return before[0]! }
   return null
@@ -130,9 +126,12 @@ const SENDS = /보내|올려|전달|공유|send|post|share|forward|kirim|bagikan
 
 /** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the project's
  * people, the one group, or the shared chat's people: chat/share-folder.ts teamPeople). */
-const TEAM_WORDS = new Set(['팀원', '팀원들', '팀원분들', '우리팀', '팀사람들', '팀전체', '동료', '동료들', '팀', 'teammates', 'teammembers', 'myteam', 'theteam', 'ourteam', 'team', 'everyoneontheteam',
-  'チームメンバー', 'チームのみんな', 'メンバー', '团队成员', '同事', '团队', 'compañeros', 'miequipo', 'elequipo', 'equipo', 'anggotatim', 'timsaya', 'tim'].map((w) => w.normalize('NFC').toLowerCase()))
+// (plural or "my team" forms only: a bare "team" is a topic as often, "팀 회의록 폴더 민수한테 공유해줘": security review)
+const TEAM_WORDS = new Set(['팀원', '팀원들', '팀원분들', '우리팀', '팀사람들', '팀전체', '동료들', 'teammates', 'teammembers', 'myteam', 'ourteam', 'everyoneontheteam',
+  'チームメンバー', 'チームのみんな', '团队成员', 'compañeros', 'miequipo', 'anggotatim', 'timsaya'].map((w) => w.normalize('NFC').toLowerCase()))
 export function isTeamRef(ref: string): boolean {
+  // ("my team" as written, before "my" is taken off as it is for a title)
+  if (TEAM_WORDS.has(ref.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ''))) return true
   let v = ref.normalize('NFC').trim().toLowerCase().replace(BEFORE, '')
   for (let i = 0; i < 2; i++) v = v.replace(AFTER, '').trim()
   v = v.replace(/\s+/g, '')

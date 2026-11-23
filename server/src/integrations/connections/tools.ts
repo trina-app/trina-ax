@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { quietRun } from '../../chat/explicit-send'
 import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
 import { steerableRun } from '../../chat/shared-run'
 import { isConfidentialChat } from '../../safe-ops/confidential'
@@ -310,6 +311,8 @@ export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
  * schema or the call; never a Google app (Trina's own list decides there). Anything else: change, delete or send, asked. */
 const CREATE_VERBS = new Set(['create', 'new', 'add', 'make', 'generate', 'build'])
 const MONEY = /pay|charg|order|invoice|purchas|checkout|subscri|refund|transfer|billing|price|buy|sell|book|reserv|donat|wallet|card/i
+/** a new thing that others can reach, or that grants access (security review): never the create tier */
+const REACHES = /public|publish|webhook|hook|key|token|secret|credential|password|user|member|role|permission|access|repo|gist|issue|pull|release|deploy|dns|domain|link|invit|guest|account|org|team|workspace|channel|group|campaign|broadcast|newsletter|ticket/i
 export function createTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title' | 'nonDestructive'> & { inputSchema?: unknown }, args: unknown): boolean {
   if (!t.nonDestructive || row.google_app) return false
   const name = plainName(t.name), title = plainName(t.title)
@@ -320,7 +323,7 @@ export function createTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
   // nothing after the verb that is another change ("create_and_send", "add_member", "create_or_update")
   const rest = w.slice(at + 1).join('_')
   if (rest && namedAsChange(rest)) return false
-  if (TO_OTHERS.test(name) || TO_OTHERS.test(title) || MONEY.test(name) || MONEY.test(title)) return false
+  if (TO_OTHERS.test(name) || TO_OTHERS.test(title) || MONEY.test(name) || MONEY.test(title) || REACHES.test(name) || REACHES.test(title)) return false
   if (title && nameWords(title).some((x, i) => i > 0 && namedAsChange(x) && !CREATE_VERBS.has(x))) return false
   return !takesRecipient(t.inputSchema) && !argsReachOthers(args)
 }
@@ -626,6 +629,14 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
     }), 'refused (nobody to ask: scheduled run in a shared chat with a guest)')
   }
+  // a run of a task made without its card changes nothing at any service (docs/decisions/20261123-do-then-undo.md)
+  if (b.scheduled && quietRun(ctx.db, b.turnId)) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: 'this scheduled task was made without its confirmation card, so its runs send and change nothing at connected services',
+      next: 'say so in the summary; the user can ask for it in a chat, or make the task again with its card', names: [row.name],
+    }), 'refused (quiet scheduled task)')
+  }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
     if (scheduleMayWrite(ctx, b.turnId, row.id)) return false
@@ -660,7 +671,10 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // the create tier (createTool): a tool that only makes something new runs without the card in a turn the person
   // watches from their own app, also in a shared chat (it reaches nobody and deletes nothing; the result says what was
   // made). Never api_request, team files, a scheduled run or after a room read (there every change asks on its card)
-  if (sent.create && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended) return false
+  // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
+  // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
+  if (sent.create && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
+    && !outsideSeen(ctx.db, b.chatId) && !tc.files.person?.othersWords?.() && !(sharedMode && guestShared(b))) return false
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다

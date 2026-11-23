@@ -149,7 +149,12 @@ export default function ShareCard({ shared, fixes, endedAt }: { shared: StepShar
     setBusy(true)
     setError(null)
     try {
-      const remove = shared.who.map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
+      // only the people this share added: a person told of it (notified: newly given access), a group not among those who
+      // could open it already; never someone who had it before (security review)
+      const told = new Set(shared.notified ?? [])
+      const had = new Set((shared.already ?? []).map((w) => `${w.subjectType}:${w.subjectId}`))
+      const remove = shared.who.filter((w) => (w.subjectType === 'user' ? told.has(w.subjectId) : !had.has(`${w.subjectType}:${w.subjectId}`))).map((w) => ({ subjectType: w.subjectType, subjectId: w.subjectId }))
+      if (!remove.length) { setTaken(true); setUndoLeft(0); return }
       for (const f of mine) await api.call(API.putFileShares, { body: { path: f.path, add: [], remove } })
       fileSharesChanged.emit()
       setTaken(true)

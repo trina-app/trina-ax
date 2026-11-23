@@ -27,6 +27,7 @@
 //   folder and, for an add, every person or group.
 // - The record (`Step.shared`, the share card) comes from the server's records only: the folder's name, its place in
 //   words, what it holds. Only the person whose turn it was ever gets it (M7: ChatStore.viewSteps).
+import { readRooms } from './read-rooms'
 import { askerMessageId } from './asked-in'
 import { ShareFolderInput, uuidv7 } from '@mycel/shared'
 import { plainLabel, type FileShareRow, type FileShares as FileSharesView, type FolderShareBlock, type ShareCardFile, type Step, type StepShared, type TurnRequest } from '@mycel/shared/api'
@@ -291,7 +292,7 @@ export function shareFolderTool(exec: TurnExec): Tool {
         }
         // (nor where another person wrote in this chat: their words may have shaped the call, as for post_to_room)
         const explicitAdd = adding && !exec.askedIn && !strict && !exec.otherAuthors && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack'
-          && (folderNamed || guessed) && asksFor(SHARE_ASK, said) && who.length > 0 && who.every(referred)
+          && (folderNamed || (guessed && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen)) && asksFor(SHARE_ASK, said) && who.length > 0 && who.every(referred)
         if (!narrowOk && !explicitAdd) {
           const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
           const one = who.length === 1 ? who[0]! : null
@@ -408,7 +409,7 @@ function teamPeople(exec: TurnExec, me: { groups: string[] }): Who[] {
 /**
  * The folder a share_folder call without one means (docs/decisions/20261123-do-then-undo.md, QA F5: "이 폴더 팀원들한테
  * 공유해줘" asked "which folder?" four times): the folder of the asker's own files this chat used last — this answer's
- * reads and writes, then the files this chat's answers read — else the one they used last in any chat. Only a folder
+ * reads and writes, then the files this chat's answers read (never another chat: security review). Only a folder
  * the Share dialog could share (theirs, not their whole folder, not one Trina keeps, not a project's). Null: none.
  */
 function guessFolder(exec: TurnExec, shares: ReturnType<typeof fileSharesOf>): string | null {
@@ -417,7 +418,9 @@ function guessFolder(exec: TurnExec, shares: ReturnType<typeof fileSharesOf>): s
   const paths: string[] = [...exec.files.allReads.keys()].reverse()
   try {
     paths.push(...(db.query('SELECT s.path FROM message_sources s JOIN messages m ON m.id = s.message_id WHERE m.chat_id = ? ORDER BY m.created_at DESC, s.ord LIMIT 200').all(exec.spec.chatId) as { path: string }[]).map((r) => r.path))
-    paths.push(...(db.query('SELECT s.path FROM message_sources s JOIN messages m ON m.id = s.message_id JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND c.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 200').all(userId) as { path: string }[]).map((r) => r.path))
+    // and the files this chat's answers wrote in the person's folder (a file it made there), never the downloads folder
+    // that keeps copies of what was sent (QA of 20261123-do-then-undo: "이 폴더" after a file made in this chat)
+    paths.push(...(db.query("SELECT e.path FROM file_events e JOIN turns t ON t.id = e.turn_id WHERE t.chat_id = ? AND e.user_id = ? AND e.action IN ('create','update') ORDER BY e.id DESC LIMIT 200").all(exec.spec.chatId, userId) as { path: string }[]).map((r) => r.path).filter((p) => !/^users\/[^/]+\/downloads(\/|$)/i.test(p)))
   } catch { /* the chat's own reads alone */ }
   const tried = new Set<string>()
   for (const raw of paths) {
