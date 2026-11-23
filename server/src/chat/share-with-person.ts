@@ -338,7 +338,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const told = new Set<string>()
         /** somebody newly got access to some file (nobody: everyone named could already open every file) */
         let fresh = false
-        // exactly the grants this share wrote, per file: what its card's 취소 takes back on the server (never access a
+        // exactly the grants this share wrote, per file: what its card's Undo takes back on the server (never access a
         // person had before: files/share-take-back.ts)
         const wrote: TakeBackGrant[] = []
         let tb: { id: string; until: string } | null | undefined

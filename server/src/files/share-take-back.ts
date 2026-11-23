@@ -2,7 +2,7 @@
 //
 // A share that went through records, on the server, exactly the grants it wrote (FileShares.change `inserted`: never a
 // grant that was there before), and, for share_folder on a folder it made from files that were only in the chat, that
-// folder and the copies it put there. Its card's 취소 sends the record's id (POST /api/files/shares/take-back):
+// folder and the copies it put there. Its card's Undo sends the record's id (POST /api/files/shares/take-back):
 //   - only for the person who shared, once, within SHARE_UNDO_MS (the same table and window as a removal's undo,
 //     file_share_undos, with a JSON object in `grants` instead of a list, so undoShares never reads one);
 //   - each recorded grant is taken off only while it is still the one this share wrote (the same person gave it at
@@ -75,10 +75,16 @@ export function takeBackShares(ctx: AppContext, userId: string, id: string, L: L
     skipped += gs.length - ours.length
     if (!ours.length && shareId !== folderShare) continue
     try {
+      // (a folder this share made: everyone off it, also someone added by hand since, as the folder goes too)
       if (shareId === folderShare) shares.put(userId, s.path, [], [], L, 'ai', { stop: true })
       else shares.change(userId, s.path, [], ours, L, 'ai', { quiet: true })
       removed += ours.length
-    } catch { skipped += ours.length }
+    } catch (e) {
+      // the folder's sharing could not be stopped: nothing of it is deleted and the record can be pressed again (the
+      // card says it failed), never "taken back" while the folder stays shared (security review P3)
+      if (shareId === folderShare) { db.query('UPDATE file_share_undos SET used_at = NULL WHERE id = ?').run(id); throw e instanceof HttpError ? e : new HttpError('conflict') }
+      skipped += ours.length
+    }
   }
 
   // a folder this share made from the chat's files: the copies it made (unchanged), then its folders while empty

@@ -706,8 +706,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // no card when the person's own message of this turn asked for this change and everything it writes is in their words
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
-  // (our own text match, not the person's choice: never where other people's words are in the chat)
-  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  // (our own text match, not the person's choice: never where other people's words are in the chat; a create on a team
+  // connection whose admin chose "ask" asks there too: createTierOk)
+  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && !(sent.create && !createTierOk(row)) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
