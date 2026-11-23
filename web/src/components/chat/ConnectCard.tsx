@@ -13,7 +13,9 @@
 // and the welcome tools step (integrations/GoogleTeam.tsx: a shared Drive, or the team's shared Google account), beside
 // the person's own Drive sign-in; for Gmail, Calendar, Docs or Sheets (google_app) their own connects on its page in
 // Settings › Connectors, as for everyone, and "I've connected it" then finishes the card. Not in the phone app (no
-// Google sign-in there). Members never get these cards' team way.
+// Google sign-in there). Members never get these cards' team way: a member's Gmail, Calendar, Docs or Sheets card has only
+// "Connect my Gmail", to the same page (QA TC-8034). In the phone app, where that page cannot sign in, the card says to
+// connect on a computer and "I've connected it" finishes it afterwards.
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
 // Trust (lib/connectCard.ts cardTrust): a service in the app's list at exactly its official address says so; any other
@@ -184,13 +186,13 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
       </Button>
     )
   ) : kase === 'google_app' ? (
-    ownOpened ? (
+    ownOpened || phone ? (
       <Button size="sm" variant="primary" busy={busy === 'done'} disabled={working} onClick={() => void finish()} data-testid="connect-own-done">
         {t('connect.ownDone')}
       </Button>
     ) : r.googleApp && (
       <Button size="sm" variant={teamWay ? 'secondary' : 'primary'} disabled={working} onClick={() => { setOwnOpened(true); navigateTo(connectorHref(r.googleApp as GoogleAppId)) }} data-testid="connect-own">
-        {t('connect.ownConnect')}
+        {r.teamOffer ? t('connect.ownConnect') : t('connect.ownConnectApp', { name })}
       </Button>
     )
   ) : (
@@ -363,7 +365,9 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
           <>
             <p className="text-muted">{t(lineKey(googleId))}</p>
             {teamWay && <p className="text-muted" data-testid="connect-team-way">{t('connect.teamWay')}</p>}
-            <p className="text-xs text-muted" data-testid="connect-own-where">{t('connect.ownWhere')}</p>
+            {phone
+              ? <p className="text-muted" data-testid="connect-own-on-computer">{t('integrations.onComputer', { name: builtInName(googleId) })}</p>
+              : <p className="text-xs text-muted" data-testid="connect-own-where">{t('connect.ownWhere')}</p>}
           </>
         )}
 

@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { LANGUAGE_NAMES, PAGE_CSP, WORDS, renderPage } from '../src/pages.ts'
 import {
-  CHECK_MAX_ERRORS, CHECK_WAIT_MS, LANGUAGE_MENU_SCRIPT, LANGUAGE_MENU_SCRIPT_HASH, START_SCRIPT, START_SCRIPT_HASH, START_WAIT_MS,
+  CHECK_MAX_ERRORS, CHECK_RETRYABLE_110, CHECK_WAIT_MS, LANGUAGE_MENU_SCRIPT, LANGUAGE_MENU_SCRIPT_HASH, START_SCRIPT, START_SCRIPT_HASH, START_WAIT_MS, WANTED_MS,
 } from '../src/start-script.ts'
 import { LOCALES } from '../src/config.ts'
 
@@ -13,7 +13,7 @@ const CHECK_ERROR = "We couldn't finish the browser check"
 const START_ERROR = "The demo couldn't start"
 const KO_URL = 'https://demo.trina.app/?lang=ko'
 
-function fakePage() {
+function fakePage(words: Record<string, string> = {}) {
   const attrs = (init: Record<string, string> = {}) => {
     const a = new Map(Object.entries(init))
     return { getAttribute: (k: string) => a.get(k) ?? null, setAttribute: (k: string, v: string) => void a.set(k, v), removeAttribute: (k: string) => void a.delete(k) }
@@ -24,14 +24,14 @@ function fakePage() {
   const sends: string[] = [], replaced: string[] = [], assigned: string[] = []
   let hasInput = false
   const form = {
-    ...attrs({ 'data-label': 'Start', 'data-checking': 'Checking…', 'data-retry': 'Try again', 'data-failed': CHECK_ERROR, 'data-stalled': START_ERROR, 'data-home': '/?lang=en' }),
+    ...attrs({ 'data-label': 'Start', 'data-checking': 'Checking…', 'data-retry': 'Try again', 'data-failed': CHECK_ERROR, 'data-stalled': START_ERROR, 'data-home': '/?lang=en', ...words }),
     querySelector: (s: string) => s.includes('button') ? button : s === '.check-error' ? error : s === '.check-wait' ? wait : hasInput ? input : null,
     appendChild: () => { hasInput = true },
     submit: () => { sends.push(input.value) },
   }
   const listeners: Record<string, (e: unknown) => void> = {}
   const timers = new Map<number, { f: () => void; ms: number }>()
-  let nextTimer = 1, resets = 0, widget = true
+  let nextTimer = 1, resets = 0, widget = true, now = 1_000_000
   const win: Record<string, any> = {
     addEventListener: (t: string, f: (e: unknown) => void) => { listeners[`win:${t}`] = f },
     turnstile: { reset: () => { if (!widget) throw new Error('no widget'); resets++ } },
@@ -41,16 +41,18 @@ function fakePage() {
     createElement: () => input,
     addEventListener: (t: string, f: (e: unknown) => void) => { listeners[t] = f },
   }
-  new Function('window', 'document', 'location', 'setTimeout', 'clearTimeout', START_SCRIPT)(
+  new Function('window', 'document', 'location', 'setTimeout', 'clearTimeout', 'Date', START_SCRIPT)(
     win, doc, { replace: (u: string) => { replaced.push(u) }, assign: (u: string) => { assigned.push(u) } },
     (f: () => void, ms: number) => { timers.set(nextTimer, { f, ms }); return nextTimer++ },
     (id: number) => { timers.delete(id) },
+    { now: () => now },
   )
   return {
     win, button, error, wait, sends, replaced, assigned,
     press: () => { let prevented = false; listeners.submit!({ target: form, preventDefault: () => { prevented = true } }); return prevented },
     runTimers: () => { const due = [...timers.values()]; timers.clear(); for (const t of due) t.f() },
     timerMs: () => [...timers.values()].map((t) => t.ms),
+    advance: (ms: number) => { now += ms },
     chooseLanguage: (mods: Record<string, boolean> = {}) => {
       let prevented = false
       listeners.click!({ ...mods, target: { closest: () => ({ href: KO_URL }) }, preventDefault: () => { prevented = true } })
@@ -289,6 +291,126 @@ describe('a start that never comes back (stopped or hung load)', () => {
     p.press()
     expect(p.assigned).toEqual([KO_URL])
     expect(p.sends).toEqual(['used'])
+  })
+})
+
+describe('Start edge cases (review of #461)', () => {
+  test('Cloudflare\'s retryable 110xxx timeouts wait for the retry; the token still starts the demo', () => {
+    expect(CHECK_RETRYABLE_110).toEqual(['110600', '110620'])
+    for (const code of CHECK_RETRYABLE_110) {
+      const p = fakePage()
+      p.press()
+      expect(p.win.demoCheckFailed(code)).toBe(true)
+      expect(p.error.textContent, code).toBe('')
+      expect(p.button.textContent, code).toBe('Checking…')
+      p.win.demoCheckDone('tok-1')
+      expect(p.sends, code).toEqual(['tok-1'])
+    }
+  })
+
+  test('retryable timeouts that keep coming still end in the error', () => {
+    const p = fakePage()
+    p.press()
+    for (let i = 0; i < CHECK_MAX_ERRORS; i++) p.win.demoCheckFailed('110600')
+    expect(p.error.textContent).toBe(CHECK_ERROR)
+  })
+
+  test('the other 110xxx codes still show at once', () => {
+    for (const code of ['110100', '110110', '110200']) {
+      const p = fakePage()
+      p.press()
+      p.win.demoCheckFailed(code)
+      expect(p.error.textContent, code).toBe(CHECK_ERROR)
+    }
+  })
+
+  test('an interactive callback after the send keeps the 60 s limit', () => {
+    const p = fakePage()
+    p.win.demoCheckDone('used')
+    p.press()
+    p.win.demoCheckInteractive()
+    expect(p.timerMs()).toEqual([START_WAIT_MS])
+    p.runTimers()
+    expect(p.error.textContent).toBe(START_ERROR)
+    p.win.demoCheckInteractive() // after the stall too: nothing changes
+    expect(p.error.textContent).toBe(START_ERROR)
+    expect(p.timerMs()).toEqual([])
+  })
+
+  test('an error after an interactive challenge puts the 45 s limit back on a waiting press', () => {
+    const p = fakePage()
+    p.press()
+    p.win.demoCheckInteractive()
+    expect(p.timerMs()).toEqual([])
+    p.win.demoCheckFailed('600010')
+    expect(p.timerMs()).toEqual([CHECK_WAIT_MS])
+    expect(p.button.textContent).toBe('Checking…')
+    p.runTimers()
+    expect(p.error.textContent).toBe(CHECK_ERROR)
+    expect(p.button.textContent).toBe('Try again')
+  })
+
+  test('a brief error with no challenge leaves the running 45 s limit alone', () => {
+    const p = fakePage()
+    p.press()
+    p.win.demoCheckFailed('600010')
+    expect(p.timerMs()).toEqual([CHECK_WAIT_MS])
+  })
+
+  test('an error after a challenge with no press arms nothing, and a later press has its limit', () => {
+    const p = fakePage()
+    p.win.demoCheckInteractive()
+    p.win.demoCheckFailed('600010')
+    expect(p.timerMs()).toEqual([])
+    p.press()
+    expect(p.timerMs()).toEqual([CHECK_WAIT_MS])
+  })
+
+  test('a token inside the limit after Try again showed still starts by itself', () => {
+    const p = fakePage()
+    p.press()
+    p.runTimers()
+    p.advance(WANTED_MS - 1)
+    p.win.demoCheckDone('late')
+    expect(p.sends).toEqual(['late'])
+  })
+
+  test('a token after the limit starts nothing: Start is back and one press sends it', () => {
+    const p = fakePage()
+    p.press()
+    p.runTimers()
+    p.advance(WANTED_MS)
+    p.win.demoCheckDone('late')
+    expect(p.sends).toEqual([])
+    expect(p.button.textContent).toBe('Start')
+    expect(p.error.textContent).toBe('')
+    p.press()
+    expect(p.sends).toEqual(['late'])
+  })
+
+  test('Try again starts a new limit', () => {
+    const p = fakePage()
+    p.press()
+    p.runTimers()
+    p.advance(WANTED_MS)
+    p.press()
+    p.runTimers()
+    p.advance(WANTED_MS - 1)
+    p.win.demoCheckDone('tok-2')
+    expect(p.sends).toEqual(['tok-2'])
+  })
+
+  test('the Korean page shows its own waiting text on an early press, then starts', () => {
+    const html = renderPage('landing', 'ko', { siteKey: 'k', links })
+    const checking = /data-checking="([^"]+)"/.exec(html)?.[1]
+    expect(checking).toBe('확인하는 중…')
+    const p = fakePage({ 'data-checking': checking! })
+    p.press()
+    expect(p.button.textContent).toBe('확인하는 중…')
+    expect(p.wait.textContent).toBe('확인하는 중…')
+    expect(p.sends).toEqual([])
+    p.win.demoCheckDone('tok-1')
+    expect(p.sends).toEqual(['tok-1'])
   })
 })
 
