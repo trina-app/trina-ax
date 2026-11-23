@@ -14,7 +14,7 @@
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
@@ -331,7 +331,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   )
 }
 
-interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
+interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string; disabled?: boolean }
 
 /** the first paragraph of a card that reads differently since the press (server open-questions.ts CHANGED_MARK) */
 const CHANGED = '⁣'
@@ -378,7 +378,8 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
       for (const a of pressPlan(cards, v, ticked)) {
         // a card another press of the same answer closed (an "Always allow" answers its kind): nothing to send
         if (!useChats.getState().requests[a.requestId]) continue
-        await answer(a.requestId, { kind: 'ask_user', answer: a.answer })
+        // (closed meanwhile: an Always on an earlier item answered it on the server)
+        try { await answer(a.requestId, { kind: 'ask_user', answer: a.answer }) } catch (e) { if (!isApiError(e, 'conflict')) throw e }
       }
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
@@ -450,7 +451,7 @@ export function BatchCard({ cards }: { cards: (CardLike & { turnId: string })[] 
         </div>
       ) : (
         <ChoiceRow className="mt-3" busy={!!busy} error={error}
-          choices={options.map((o) => ({ ...choice(o), ...(noneTicked && o.value !== noValue ? { onClick: () => {} } : {}) })) as [Choice, Choice, Choice]} />
+          choices={options.map((o) => ({ ...choice(o), ...(noneTicked && o.value !== noValue ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
       )}
       {first.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{first.note}</p>}
     </div>
@@ -483,7 +484,7 @@ function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choi
     <div className={className}>
       <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center" data-testid="ask-choices">
         {choices.map((c, i) => (
-          <Button key={i} size="sm" variant={CHOICE_LOOKS[i]} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
+          <Button key={i} size="sm" variant={CHOICE_LOOKS[i]} className="max-sm:w-full" disabled={busy || c.disabled} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
             {c.label}
           </Button>
         ))}

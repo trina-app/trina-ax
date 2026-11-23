@@ -5607,7 +5607,7 @@ export class TurnExec {
     const one = Array.isArray(value) && value.length === 1 ? value[0] : value
     if ((one === ALWAYS_VALUE || one === ALWAYS_CHAT_VALUE) && r.always) {
       for (const [id, x] of [...this.requests]) {
-        if (x.always !== r.always || x.request.kind !== 'ask_user' || !(x.request.options ?? []).some((o) => o.value === one)) continue
+        if (x.always !== r.always || x.window !== r.window || x.request.kind !== 'ask_user' || !(x.request.options ?? []).some((o) => o.value === one)) continue
         this.closeRequest(id, value, 'answered')
       }
     }

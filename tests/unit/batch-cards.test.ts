@@ -137,6 +137,8 @@ describe('a skill of 15 reference files (~150k characters)', () => {
     expect(chars).toBeLessThan(40_000)
     const list = card.details!.find((d) => d.open?.length)
     expect(list!.open!.length).toBe(16)
+    // each file's hash: a waiting card whose files changed reads differently and is asked again
+    expect(list!.open!.every((f) => /^[0-9a-f]{64}$/.test(f.sha ?? ''))).toBe(true)
     expect((await post(w.turnId, card.requestId, 'yes')).status).toBe(204)
     await nextTurn(w.chatId, w.answerId)
     expect(has(`skills/${name}/references/ref-14.md`)).toBe(true)
@@ -171,5 +173,9 @@ describe('the group key', () => {
     expect(showsAsBatch(g[0]!)).toBe(true)
     // the card's own no: every item gets it
     expect(pressPlan(g[0]!, 'n', new Set(['a'])).map((p) => p.answer)).toEqual(['n', 'n'])
+    // one card alone is the one pressed, ticked or not (a group shrunk to one)
+    expect(pressPlan(g[1]!, 'y', new Set()).map((p) => p.answer)).toEqual(['y'])
+    // another note (what Always covers) is another group
+    expect(groupCards([c('a', 'm1', 'k'), { ...c('b', 'm1', 'k'), request: { ...c('b', 'm1', 'k').request, note: 'other' } as TurnRequest }]).length).toBe(2)
   })
 })

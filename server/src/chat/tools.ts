@@ -1380,7 +1380,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         // on request from the list below
         { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut || plan.text.length > MOVE_CARD_TEXT ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, Math.min(MOVE_TEXT_MAX, MOVE_CARD_TEXT)), ...(full ? {} : { collapsedAt: 600 }) },
         // where each file lands (a renamed copy: under its new name)
-        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true, open: plan.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size })) },
+        { label: skillText(copy ? 'copyFiles' : 'moveFiles', L), text: plan.files.map((f) => `${plan.target}${f.path.slice(plan.source.length)} (${size(f.size)})`).join('\n'), noSize: true, open: plan.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size, sha: f.sha })) },
       ]
       const base = plan.source.split('/').pop()!
       const narrowHint = !copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? skillText('moveNarrowHint', L, { name: base }).slice(0, 300) : null
@@ -1393,7 +1393,7 @@ function moveSkillTool(exec: TurnExec): Tool {
           // in plain words first (the skill, what it does, who follows it), the rest behind "자세히"; several of one answer
           // to the same place are one card (AskUserRequest.batch, skills/lean-card.ts)
           batch: skillBatch({ tool: 'move_skill', to: plan.to, copy, name: plan.name, text: plan.text, followers: plan.afterPeople,
-            warn: [exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '', copyCodeLine(plan, L)] }, L),
+            warn: [exec.ownCard('move_skill') ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : '', plan.lost ? changeLine(plan, L) : '', plan.editorsGained ? editorsLine(plan, L) : '', plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '', copyCodeLine(plan, L)] }, L),
           ...(narrowHint ? { note: more.note ? `${narrowHint}\n${more.note}`.slice(0, 300) : narrowHint } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() }))

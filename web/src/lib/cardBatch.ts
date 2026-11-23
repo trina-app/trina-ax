@@ -12,10 +12,12 @@ const groupable = (r: TurnRequest): r is Ask & { batch: NonNullable<Ask['batch']
   r.kind === 'ask_user' && r.origin === 'server' && !!r.batch && !r.multiple && !r.allowText &&
   ((r.options?.length ?? 0) === 2 || ((r.options?.length ?? 0) === 3 && !!r.buttons))
 
-const groupKey = (c: CardLike): string | null => {
+/** the group a card shows in (null: a card of its own); also the grouped card's React key, stable while items close */
+export const groupKey = (c: CardLike): string | null => {
   const r = c.request
   if (!groupable(r)) return null
-  return JSON.stringify([c.messageId, r.batch.key, (r.options ?? []).map((o) => [o.value, o.label]), !!r.buttons])
+  // (the note says what Always allow covers: cards with another note never share one press)
+  return JSON.stringify([c.messageId, r.batch.key, (r.options ?? []).map((o) => [o.value, o.label]), !!r.buttons, r.note ?? ''])
 }
 
 /** The cards in order, each group where its first card was. */
@@ -42,8 +44,10 @@ export const showsAsBatch = (g: readonly CardLike[]): boolean => g.length > 1 ||
  * then the ticked ones the pressed value.
  */
 export function pressPlan(cards: readonly CardLike[], value: string, ticked: ReadonlySet<string>): { requestId: string; answer: string }[] {
-  const no = cards.filter((c) => !ticked.has(c.request.requestId))
-  const yes = cards.filter((c) => ticked.has(c.request.requestId))
+  // one card alone has no tick: it is the one pressed
+  const on = (c: CardLike) => cards.length === 1 || ticked.has(c.request.requestId)
+  const no = cards.filter((c) => !on(c))
+  const yes = cards.filter(on)
   const lastOf = (c: CardLike) => (c.request.kind === 'ask_user' ? c.request.options?.at(-1)?.value ?? null : null)
   const noValue = cards[0] ? lastOf(cards[0]) : null
   // pressing the card's own "no": every item gets it

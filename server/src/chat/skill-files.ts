@@ -118,6 +118,8 @@ export function skillFilesTool(exec: TurnExec) {
           plan.shadow ? st('fileShadow', L, { n: String(plan.shadow.people), where: plan.shadow.projects.length ? ` (${plan.shadow.projects.map((x) => st('whereProject', L, { project: x })).join(', ')})` : '' }) : '',
           plan.hiddenFor ? st('fileHidden', L, { n: String(plan.hiddenFor) }) : '',
           plan.replaces ? st('fileReplaces', L, { n: String(plan.replaces), name: s0.name }) : '',
+          // who newly may change it: never only behind 자세히
+          plan.editorsGainedIds.length ? st('fileEditorsNew', L, { n: String(plan.editorIds.length), gained: String(plan.editorsGainedIds.length) }) : '',
         ]
         return skillBatch({ tool: SKILL_FILES_TOOL, to: plan.level!, copy: a.action === 'copy', name: s0.name, text: skillMd, followers: s0.followers.length, warn }, L)
       })() : null
@@ -197,7 +199,7 @@ function skillInDetails(p: FolderPlan, L: Locale): ConfirmDetail[] {
   const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
   return [
     ...(md ? [{ label: 'SKILL.md', text: md.text.length > SKILL_MD_SHOWN ? `${md.text.slice(0, SKILL_MD_SHOWN)}\n…` : md.text, collapsedAt: 600 }] : []),
-    { label: st('fileList', L, { n: String(p.files.length) }), text: p.files.map((f) => `${f.path} (${size(f.size)})`).join('\n'), noSize: true, open: p.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size })) },
+    { label: st('fileList', L, { n: String(p.files.length) }), text: p.files.map((f) => `${f.path} (${size(f.size)})`).join('\n'), noSize: true, open: p.files.slice(0, 500).map((f) => ({ path: f.path, size: f.size, sha: f.sha })) },
   ]
 }
 

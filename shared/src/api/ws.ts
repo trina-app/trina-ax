@@ -174,8 +174,8 @@ export const ConfirmDetail = z.object({
   alerts: z.array(z.object({ text: z.string(), note: z.string() })).max(50).optional(),
   /** files this detail lists by name and size, each opened on request in the file viewer (a skill's files: the card
    * never carries their whole text, owner 2026-11-23 "무거운것도 문제야"). A client that does not know this shows the
-   * text as before. */
-  open: z.array(z.object({ path: z.string().max(1024), size: z.number().int().nonnegative() })).max(500).optional(),
+   * text as before. `sha`: each file's hash, so a waiting card whose files changed reads differently (sameCard). */
+  open: z.array(z.object({ path: z.string().max(1024), size: z.number().int().nonnegative(), sha: z.string().max(128).optional() })).max(500).optional(),
 })
 export type ConfirmDetail = z.infer<typeof ConfirmDetail>
 
