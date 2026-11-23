@@ -13,7 +13,7 @@ import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { api } from '../../lib/api'
 import { AI_APPS, aiAppLogo, type AiApp } from '../../lib/connectors'
-import { useT } from '../../i18n'
+import { useT, type MessageKey, type Params } from '../../i18n'
 import { Button, IconButton, Modal } from '../ui'
 import { LogoTile } from './ConnectorsView'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
@@ -21,6 +21,48 @@ import { ConnectionRow, connectionLogo } from './ConnectionRow'
 export const CONNECTOR_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/site/agents/mcp-connector.md`
 /** The name the app shows for this server (Claude Code: `claude mcp add … <name> <url>`). */
 export const CONNECTOR_NAME = PRODUCT.artifactBase.toLowerCase()
+/** The commands the steps show and the copied prompt holds, built once so the two never differ. */
+export function connectorCommands(resource: string) {
+  return {
+    claudeCode: `claude mcp add --transport http --scope user ${CONNECTOR_NAME} ${resource}`,
+    codex: `codex mcp add ${CONNECTOR_NAME} --url ${resource}`,
+    codexLogin: `codex mcp login ${CONNECTOR_NAME}`,
+  }
+}
+
+type Translate = (key: MessageKey, params?: Params) => string
+
+/** The prompt to paste into an agent app (Claude Code, Codex, Other apps): it adds this server with the real command or
+ * address, says how to finish sign-in, and ends with a check that lists the team folder. Claude (web, desktop, phone)
+ * has none: a prompt cannot add a connector there, so its dialog has the steps and tryPrompt. */
+export function connectPrompt(app: AiApp, resource: string, t: Translate): string | null {
+  const c = connectorCommands(resource)
+  if (app.id === 'claude-code') return t('aiApps.prompt.claude-code', { command: c.claudeCode, server: CONNECTOR_NAME })
+  if (app.id === 'codex') return t('aiApps.prompt.codex', { command: c.codex, login: c.codexLogin, server: CONNECTOR_NAME })
+  if (app.id === 'other') return t('aiApps.prompt.other', { url: resource, server: CONNECTOR_NAME })
+  return null
+}
+
+/** A first ask to try once an app is connected. */
+export const tryPrompt = (t: Translate) => t('aiApps.tryPrompt')
+
+/** A text button that copies `text` and says Copied for a moment (the prompt: too long to show as a line). */
+function CopyButton({ text, label, testId }: { text: string; label: string; testId?: string }) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setCopied(true); clearTimeout(timer.current); timer.current = setTimeout(() => setCopied(false), 1500) } catch { /* nothing to select: the steps below stay */ }
+  }
+  return (
+    <Button variant="primary" size="sm" className="shrink-0 max-md:h-11" onClick={() => void copy()} data-testid={testId} data-copied={copied || undefined}>
+      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+      {copied ? t('common.copied') : label}
+    </Button>
+  )
+}
+
 const POLL_MS = 4000
 const POLL_FOR_MS = 10 * 60_000
 
@@ -74,8 +116,8 @@ export function AiAppRows({ on, onConnect, connected = [] }: { on: boolean; onCo
   )
 }
 
-/** A line to copy: the connector address, a command or a setting. */
-export function CopyLine({ text, label, testId }: { text: string; label?: string; testId?: string }) {
+/** A line to copy: the connector address, a command or a setting (code), or a sentence to ask (prose). */
+export function CopyLine({ text, label, testId, prose }: { text: string; label?: string; testId?: string; prose?: boolean }) {
   const t = useT()
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -87,7 +129,7 @@ export function CopyLine({ text, label, testId }: { text: string; label?: string
     <div className="flex items-center gap-2 rounded-xl border border-line bg-subtle px-3 py-2" data-testid={testId}>
       <span className="min-w-0 flex-1">
         {label && <span className="block text-xs text-muted">{label}</span>}
-        <code className="block text-sm break-all">{text}</code>
+        {prose ? <span className="block text-sm">{text}</span> : <code className="block text-sm break-all">{text}</code>}
       </span>
       <IconButton label={copied ? t('common.copied') : t('common.copy')} className="shrink-0" onClick={() => void copy()} data-testid={testId ? `${testId}-copy` : undefined}>
         {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
@@ -156,9 +198,8 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
     // the known list is read once, when the dialog opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, round])
-  const command = `claude mcp add --transport http ${CONNECTOR_NAME} ${resource}`
-  const codexCommand = `codex mcp add ${CONNECTOR_NAME} --url ${resource}`
-  const codexLogin = `codex mcp login ${CONNECTOR_NAME}`
+  const { claudeCode: command, codex: codexCommand, codexLogin } = connectorCommands(resource)
+  const prompt = connectPrompt(app, resource, t)
   return (
     <Modal open title={t('aiApps.connectTitle', { name })} onClose={onClose} width={520}
       footer={<div className="flex justify-end"><Button variant={connected ? 'primary' : 'secondary'} onClick={onClose} data-testid="ai-app-done">{t('common.done')}</Button></div>}>
@@ -167,6 +208,12 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
           <AiAppLogo app={app} className="size-10" />
           <p className="text-sm text-muted">{t('aiApps.intro', { name })}</p>
         </div>
+        {prompt && (
+          <div className="flex items-center gap-3 rounded-xl border border-line bg-subtle px-3 py-2" data-testid="ai-app-prompt">
+            <p className="min-w-0 flex-1 text-sm">{t('aiApps.promptHint', { name })}</p>
+            <CopyButton text={prompt} label={t('aiApps.copyPrompt')} testId="ai-app-prompt-copy" />
+          </div>
+        )}
         <ol className="space-y-4" data-testid="ai-app-steps">
           {app.id === 'claude' && (
             <>
@@ -196,6 +243,7 @@ export function AiAppDialog({ app, resource, known, onClose, onConnected }: {
             </>
           )}
         </ol>
+        {app.id === 'claude' && <CopyLine prose label={t('aiApps.tryLabel')} text={tryPrompt(t)} testId="ai-app-try" />}
         <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="ai-app-status" data-state={connected ? 'connected' : stopped ? 'stopped' : 'waiting'}>
           {connected
             ? <><Check size={15} className="shrink-0 text-ok" aria-hidden />{t('aiApps.connected', { name: connected.clientName })}</>

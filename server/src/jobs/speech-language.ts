@@ -24,13 +24,20 @@ const WHISPER_LANGUAGES: Record<string, string> = {
   moldavian: 'ro', moldovan: 'ro', sinhalese: 'si', castilian: 'es', mandarin: 'zh',
 }
 const CODES = new Set(Object.values(WHISPER_LANGUAGES))
+/** ISO 639-3 (and 639-2/B) codes of the languages people here speak, as whisper's code: ElevenLabs Scribe names its
+ * language that way ("kor", "eng"); a code not here is no language (the caller's fallback) */
+const ISO_639_3: Record<string, string> = {
+  kor: 'ko', eng: 'en', ind: 'id', jpn: 'ja', zho: 'zh', chi: 'zh', cmn: 'zh', yue: 'yue', spa: 'es', fra: 'fr',
+  fre: 'fr', deu: 'de', ger: 'de', por: 'pt', rus: 'ru', vie: 'vi', tha: 'th', msa: 'ms', may: 'ms', zsm: 'ms',
+  tgl: 'tl', fil: 'tl', hin: 'hi', ara: 'ar', tur: 'tr', ita: 'it', nld: 'nl', dut: 'nl', jav: 'jw', sun: 'su',
+}
 
 /** A provider's language -> whisper's code ("Korean" and "ko" -> "ko"); null for anything else. */
 export function languageCode(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const s = v.trim().toLowerCase()
   if (CODES.has(s) || /^[a-z]{2}$/.test(s)) return s
-  return WHISPER_LANGUAGES[s] ?? null
+  return WHISPER_LANGUAGES[s] ?? ISO_639_3[s] ?? null
 }
 
 /** The writing system most of a text's letters are in: a told language that changes it gave a translation, not a
