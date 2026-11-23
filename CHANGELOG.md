@@ -5,6 +5,77 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.16.0 — 2026-11-24
+
+- Admin notes: 0.16.0 changes root files (the system package list gains a `video` group: `xz-utils`, Node and the HyperFrames CLI, for promo videos as MP4), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: older versions can read the database after the two new migrations (450 one Always allow, 451 person aliases) and the reader level stays 9. Migration 450 removes the old per-chat choices ("Always in this chat" and sites allowed for one conversation), so people may be asked once more; permanent Always allow choices stay. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).
+- Admin notes, going back: going back to 0.15.0 or any release back to 0.7.0 needs no backup (reader level 9), but the per-chat choices removed by migration 450 do not come back. Going back to 0.5.x still needs the backup taken before 0.6.0.
+- A card that appears just as you press a grouped card is no longer approved by that press. It stays open with its own question.
+- Several skills saved in one answer now ask on one card, in plain words, and one press saves them all.
+- After the AI posts or shares without asking, Undo shows at once with a countdown.
+- English working notes no longer appear in a Korean answer when the request mentions Korean (for example, "subtitles in Korean").
+- In a shared chat, a change through a team connection now says in plain words why it asks each time, and keeps the code and data behind "자세히" instead of showing them on the card.
+- Sharing a folder from a shared chat no longer asks "which folder, who?" and then refuses the answer: the answer goes straight to one share card.
+- A promo video can use a photo attached in the chat as it is: Trina no longer copies it into a team folder (and asks to) first. People in a shared chat see the photo in the video too.
+- The scheduled task card no longer says an address "cannot be opened" when your "Allow all websites" lets the run open it, and says plainly how to change it when it really cannot.
+- A scheduled task's result in a shared chat or a project chat now tells the other people there, like a new message.
+- "Always allow" now also counts in your own scheduled tasks for moving and copying files, large downloads and AI videos, and in shared chats for deleting files, skill folders, project members and folder access. Who may change what is still checked.
+- Settings › 트리나에게 허용한 것 now lists connectors you let send without asking, and in the desktop app the sites its browser may open. You can remove each one there.
+- Settings › 커넥터 in the desktop app lists the programs connected on this computer, with Remove.
+- Fewer confirms: editing or regenerating an earlier message shows a short note instead of a dialog, restoring a version asks only when someone else's edits would be lost, skipping invites in team setup asks nothing, and links in Office previews open in a new tab.
+- The scheduled task card says it shows every time, and the skill-save button says "Always allow skill saves".
+- In a shared chat or shared project, the first time you use a connected service there, Trina shows one short notice that the others in the chat can see what it brings back, with one button, **Continue**. After that it does not ask again in that project or chat. You can reset it in Settings › Allowed for Trina.
+- Making something new with your own connected service (such as an app in Repl) in a shared chat no longer asks each time, and the same request is never shown on two cards or run twice.
+- When one answer asks several things of the same kind (three skills to the team, two room posts, several shares), you now get **one card**: what happens to how many, each item on its own line with a tick, and one set of buttons. One press does them all, also when you press it hours later; untick an item to leave it out.
+- **Always allow** on one card now covers every other open card of the same kind from that answer: they run at once, no further asks.
+- The skill card leads in plain words: each skill's name and description and one line for who follows it ("팀 모두의 AI가 이 스킬을 따르게 돼요 (12명)"). Paths, names, SKILL.md and the files (each opens on its own) are behind **자세히**.
+- A large skill (many reference files) is no longer refused because "the card cannot hold it": it moves on one card, or with no card under Always allow.
+- A scheduled task made without its card no longer changes who can open a folder or a project, even under "Always allow".
+- Under "Always allow", Trina changes folder access or project members only for people your own message names when a guest is in the shared chat, or when a scheduled run read other people's words.
+- "Send this to my manager" now asks first when Trina only guessed who your manager is; your yes is remembered.
+- Undo on a folder share keeps people you added to that folder by hand.
+- Asking Trina for a screenshot of a website now works in a chat: the usual `chromium` command starts the browser that comes with the server, and reaches allowed sites. It used to stop at launch, and Trina said it was blocked.
+- Confirm cards no longer open on raw JSON. You see its values as plain lines, with the full content behind **Details**.
+- Trina can now render browser-based videos and screenshots in a chat (HyperFrames, Puppeteer, Playwright) with the browser that comes with the server. It used to try a browser that cannot start there and then say the video was impossible.
+- Demo landing: **Start** no longer shows an error at once when the browser check only timed out and can retry. If a check fails after a challenge, the wait is limited again, and a tab left open no longer starts a demo by itself more than 3 minutes after the press.
+- The live demo's **Start** button no longer fails when pressed during the browser check. It shows that it is checking and starts the demo by itself when the check is done. If the check really fails, the page says so and offers **Try again**.
+- The live demo's landing page has a language picker, so a visitor can choose their language whatever their browser is set to. The demo then opens in that language.
+- Free-roam demo: the AI can use only tools on an approved list, so a tool added later stays closed until it is approved. Sharing an answer to a room no longer starts a video render there.
+- Trina can now put a signature or seal picture into an existing Word document: over a label such as "(인)" or "(seal)" (behind the text, centred on it, so the page layout stays), right after a label, or in the table cell next to one. The picture can be a PNG, JPEG or WebP in the team folder or a file sent in the chat; everything else in the document stays as it was. Pictures are not added to Excel workbooks yet.
+- In a ✦ side chat, Trina no longer offers to share a file it made with the room's people unless you ask to share or send it.
+- Copying a file Trina made into your own folder, and reading it back, no longer asks "AI가 내 개인 폴더를 읽으려고 해요" in a shared chat.
+- A card to save a new file or change a file now waits until you answer, even long after the answer ended, and your late press saves it.
+- A late press on a post card is no longer asked again because the first card counted its sources differently.
+- Trina asks far less. When your own message names who gets it and what, a post, a file share or a folder share goes at once, and its card offers **취소** for 10 seconds (then **지우기**). Content from a DM, a private channel or someone else's folder you didn't name still asks, once per source in a chat.
+- "팀장님한테 보내줘" finds your team lead from the team directory. When it can't tell who you mean it asks once and remembers your answer (Settings › 트리나에게 허용한 것, where you can remove it). "팀원들" means your project's or group's members, and "이 폴더 공유해줘" picks the folder you just used.
+- A scheduled task you asked for in your own words is made without a card when it sends nowhere; its card shows the next run with **멈추기** and **지우기**.
+- Addresses you type yourself open without a card, also on a server that doesn't know its own internet address yet.
+- Connector tools that only create something new (a new app, page or document) run without a card. Changes, deletes and sends still ask, with **항상 허용**.
+- In a project chat, saving something made from your own files into the project's folder no longer asks.
+- Moving to the trash, removing or stopping a share, restoring a version, removing a folder-sharing row and signing out no longer show a confirm: they happen with an Undo toast. The "project skills switch on" confirms are now a notice.
+- The Trina history's filter is now on the **Trina history** header, right above the list it controls, on the computer and the phone. **New section** moved out of the filter into that header's **⋯** menu, so the filter menu is only about the view.
+- The AI can now put a signature or seal picture into a Hangul document (.hwp or .hwpx): ask "sign this form" and it places your signature or seal image (PNG or JPG from the team folder or a chat attachment) over the seal mark or in the signature cell, behind the text, and saves a new version with everything else unchanged. Without a picture it asks you to attach one. Needs the HWP Preview plugin running on the server.
+- Promo videos can now be downloaded as an MP4 on Linux team servers too (hosted teams and `install-linux.sh` servers), by the person who made the video and by everyone the chat is shared with. The AI can save and send the video file there. Where a server cannot make the file (still being updated, too little memory), the video panel says so instead of hiding the button. Docker images get it with `--build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser video"`.
+- In a chat, a member who asks the AI to connect Gmail, Google Calendar, Docs or Sheets now gets a card with **Connect my Gmail** (or that app's name), which opens their own page in **Settings › Connectors**. Before, the AI only told them where to go. On the phone app the card says to connect on a computer.
+- **One "Always allow".** No card offers "Always in this chat" or "Allow this site in this conversation" any more. Each card has Allow, Always allow and Don't allow; Always allow holds for you in every chat (a shared chat with a guest too) and in your scheduled tasks, until you remove it in Settings › Allowed for Trina.
+- **"Always allow all of <connector>".** The first card of a connected service also offers it, for example "Aside 전체 항상 허용": every tool of that connection runs without asking you, in every chat and your scheduled tasks. Settings lists it as one entry per connection. It ends when the connection's address or account changes, when you lose access to a team connection, or when an admin turns "Always allow" off. Changes through a team connection in a shared chat still ask every time.
+- The card for a signature or seal you did not upload now lists every picture and offers Always allow for exactly those pictures. Take one back in Settings › Allowed for Trina.
+- When you press Send on a card that waited, it no longer comes back with "Something changed since you answered" just because it now counts how many of your files it read. It sends.
+- A project chat's "N people can see this chat", its header faces and a new chat's count no longer include the project's guests, who never see someone else's shared chat. A guest who opens such a chat's link reads what a guest can open, and a guest without AI no longer gets "Ask Trina" there.
+- After someone left a group, asking about that group's folder by name now gets "you can no longer open it" and who can give access again, instead of "couldn't find it, tell me where it is". In a shared chat it only says the folder cannot be opened from this chat.
+- Step lines say more in plain words: a page by its title (not its internal key), a search without its pattern syntax, and the team folders (team folder, groups, projects) by their names on the Files screen.
+- After restoring an earlier version of a team file, an open preview shows the restored content at once.
+- A signature or seal in a Word or Hangul file now goes to the right printed mark such as (인) or (서명 또는 인), even when the AI names the whole line. When a line has marks for two people, it asks which one.
+- When a Hangul seal cannot be placed reliably, nothing is saved and the AI says why.
+- In a shared or project chat the AI now continues its own conversation across your turns, as in a private chat, also after it read something only you can open. It remembers what it did and answers faster and cheaper (the prompt cache works again). Other people's messages since your last turn come with your message.
+- In a shared chat the AI also knows what it did for the others (which file it made, where, with which tool), so you can say "change the amount in the quote you made earlier" after a teammate asked for it. Their private reads and their own connections show only as a step name.
+- The Word preview in the file panel now shows a signature or seal placed over text. The file always had it; the preview drew it with no width.
+- Asked to sign or stamp a Hangul file while Hangul editing is off, the AI now says so, says who can turn it on, and offers a Word copy instead of making one unasked.
+- After **Don't** on the card for a picture, the AI uses the words of the button you pressed.
+- On a phone, Escape in the history filter closes only the open menu, not the whole drawer.
+- **취소** on a file share now takes back only what that share gave. Someone who could already open one of the files keeps it.
+- "이 폴더 공유해줘" when the files are only in the chat: Trina makes a folder in your files with them, shares it and says "<폴더>를 만들고 공유했어요" with **취소**, which deletes the folder again.
+- Connector tools that only create something still ask on a team connection whose admin chose to ask.
+
 ## 0.15.0 — 2026-11-23
 
 - Admin notes: 0.15.0 changes a root file (`mycel-ctl`, for the hosting service's new `tenant mail-in-set` command), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the three new database migrations (445 room email, 448 phone read sync, 449 thread replies default) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).

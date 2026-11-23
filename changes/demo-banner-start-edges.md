@@ -1,1 +1,0 @@
-- Demo landing: **Start** no longer shows an error at once when the browser check only timed out and can retry. If a check fails after a challenge, the wait is limited again, and a tab left open no longer starts a demo by itself more than 3 minutes after the press.

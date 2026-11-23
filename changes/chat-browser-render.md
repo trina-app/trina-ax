@@ -1,1 +1,0 @@
-- Trina can now render browser-based videos and screenshots in a chat (HyperFrames, Puppeteer, Playwright) with the browser that comes with the server. It used to try a browser that cannot start there and then say the video was impossible.

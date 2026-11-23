@@ -1,4 +1,0 @@
-- The Word preview in the file panel now shows a signature or seal placed over text. The file always had it; the preview drew it with no width.
-- Asked to sign or stamp a Hangul file while Hangul editing is off, the AI now says so, says who can turn it on, and offers a Word copy instead of making one unasked.
-- After **Don't** on the card for a picture, the AI uses the words of the button you pressed.
-- On a phone, Escape in the history filter closes only the open menu, not the whole drawer.

@@ -1,1 +1,0 @@
-- In a chat, a member who asks the AI to connect Gmail, Google Calendar, Docs or Sheets now gets a card with **Connect my Gmail** (or that app's name), which opens their own page in **Settings › Connectors**. Before, the AI only told them where to go. On the phone app the card says to connect on a computer.
