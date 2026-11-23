@@ -709,6 +709,10 @@ pk_node_install() {
       else pk_err "node $v: not downloaded, or not the tarball the list pins"; rc=1; fi
       rm -rf "$tmp"
     fi
+  elif [ "$(id -u)" = 0 ] && [ -n "$(find "$dir" \( ! -user 0 -o -perm -g+w -o -perm -o+w \) ! -type l -print -quit 2>/dev/null)" ]; then
+    # a node that runs but is not wholly root's (a tarball unpacked as root keeps the archive's owner, uid 1001): the
+    # server never runs it (render.ts trustedPath), so it is made root's here
+    chown -R 0:0 "$dir" && chmod -R go-w "$dir" || rc=1
   fi
   # (install-srt.sh writes the same absolute target)
   if [ "$rc" = 0 ] && [ "$(readlink "$PK_OPT/node" 2>/dev/null || true)" != "$dir" ]; then pk__swap_link "$dir" "$PK_OPT/node" || rc=1; fi
