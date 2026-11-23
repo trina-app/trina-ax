@@ -53,8 +53,11 @@
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
+import { floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
+import { isGuestUser } from '../credentials/guest-ai'
 import { instructionFiles } from './prompt'
 import type { Database } from 'bun:sqlite'
+import type { SourceLog } from '../files/sources'
 import { createHmac } from 'node:crypto'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
@@ -85,7 +88,7 @@ import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
 import { ownPaste } from './own-paste'
-import { roomMessagesSeen } from './read-rooms'
+import { quotesOnBranch, roomMessagesSeen } from './read-rooms'
 import { alwaysOn } from './always-allow'
 import { fileSharesOf } from '../files/shares'
 
@@ -156,10 +159,28 @@ function turnsOf(db: Database, answerIds: readonly string[]): string[] {
  * they had), and the scope's other sources when the scope describes it (`known`). */
 export interface BranchUse { answers: string[]; files: { path: string; sha256: string | null }[]; other: ReadSource[]; known: boolean; roomsUnseen: boolean }
 
-/** The files these answers read (message_sources, with the sha256 each had), skills/ and .system left out. */
+/** The files these answers read (message_sources, with the sha256 each had), skills/ and .system left out. An answer
+ * being written now reads from its turn's live list (liveSources): the very list the end of its turn saves. */
 export function filesRead(db: Database, ids: readonly string[]): BranchUse['files'] {
-  return ids.length ? (db.query(`SELECT path, sha256 FROM message_sources WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...ids) as { path: string; sha256: string | null }[])
-    .filter((r) => !notCounted(r.path)) : []
+  const live = LIVE.get(db)
+  const saved = live ? ids.filter((id) => !live.has(id)) : [...ids]
+  const rows = saved.length ? (db.query(`SELECT path, sha256 FROM message_sources WHERE message_id IN (${saved.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...saved) as { path: string; sha256: string | null }[]) : []
+  for (const id of ids) for (const e of live?.get(id)?.entries() ?? []) rows.push({ path: e.path, sha256: e.sha256 })
+  return rows.filter((r) => !notCounted(r.path))
+}
+
+/** The source lists (files/sources.ts SourceLog) of answers being written now, by the answer's message id, per database.
+ * A post or share check of the running answer (post_to_room, share_with_person) counts its sources from this list, as a
+ * check after the turn counts them from the saved list, so the live card and the card of a late press read the same
+ * sources line (docs/decisions/20261123-fewer-asks-b5.md; before, a running answer counted as one that never ended:
+ * every place of the chat's scope counted, with no file count). */
+const LIVE = new WeakMap<Database, Map<string, SourceLog>>()
+/** Set (the running turn, before a check) or clear (its end, once the list is saved) an answer's live list. */
+export function liveSources(db: Database, messageId: string, log: SourceLog | null): void {
+  let m = LIVE.get(db)
+  if (!log) { m?.delete(messageId); return }
+  if (!m) LIVE.set(db, (m = new Map()))
+  m.set(messageId, log)
 }
 
 /** Did one of these answers run commands in the dev environment (devenv/tool.ts box_shell: a step of it or of its
@@ -182,7 +203,10 @@ export function useOf(db: Database, chatId: string, ids: readonly string[], desc
   const scope = known ? scopeWithListing(db, chatId) : null
   // a turn of the branch that never ended (the server stopped mid-answer) saved no source list: its reads are known only
   // as the scope's places, which then all count
-  const unended = ids.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (${ids.map(() => '?').join(',')}) AND status IN ('queued','running','interrupted') LIMIT 1`).get(...ids)
+  // (an answer whose live list is here is being written now: its list is known, liveSources)
+  const live = LIVE.get(db)
+  const listless = live ? ids.filter((id) => !live.has(id)) : ids
+  const unended = listless.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (${listless.map(() => '?').join(',')}) AND status IN ('queued','running','interrupted') LIMIT 1`).get(...listless)
   const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   // the chat read a room's messages and the scope does not show which: nobody else is taken to have seen them
   const roomsUnseen = roomMessagesSeen(chat?.rooms_seen) && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
@@ -470,7 +494,7 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
   const peopleWithout = async (): Promise<number> => unablePeople({ audience, rows }, new Set(), await provenance(new Set()))
 
-  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts }
+  return { audience, rows, offered, provenance, peopleWithout, linkRel, artifacts, userId, db: ctx.db, chatId }
 }
 
 /** An artifact that goes with a shared answer as a file: the version the answer made (or the newest on its branch), the
@@ -907,8 +931,20 @@ async function confirmOf(c: Check, prov: Prov, confirmKey: string, reason?: 'cha
   const provenance: AnswerShareProvenance | null = people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null
   const hidden = c.rows.some((r) => r.rel === null)
   const none = await c.provenance(new Set())
+  // the person picked the room and the answer themselves: the app sends at once (with the files offered) when nothing in
+  // it is the floor (chat/explicit-send.ts), and shows Undo instead of this step (docs/decisions/20261123-do-then-undo.md).
+  // Only on a first ask: one asked again (changed, or another choice of files) is always shown. Every file that would go
+  // as a copy is the person's own (their folder), so nothing of a team folder rides along unseen
+  // (never with a guest among the people who would see it: someone from outside the team, as post_to_room keeps)
+  // (a chat of the person's own that never read anything another person wrote and nobody else wrote in: its answers are
+  // their own work, whatever the scope can list; post-to-room.ts ownWorkOnly)
+  const ownWork = ownWorkChat(c.db, c.chatId, c.userId, null, quotesOnBranch) && (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(c.chatId) as { user_id: string } | null)?.user_id === c.userId
+  // (only where the scope cannot say what it read: a known source some member cannot see still takes the floor)
+  const notKnown = prov.unknown || prov.otherPlaces || prov.keys.length !== (prov.counted?.length ?? 0)
+  const direct = !reason && !hidden && ((ownWork && notKnown) || floorFree(prov, c.userId, () => false, new Set(), (id) => (c.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id === c.userId)) && c.rows.every((r) => r.attach !== 'yes' || (!!r.rel && inOwnFolder(r.rel, c.userId)))
+    && !c.audience.some((id) => isGuestUser(c.db, id))
   return {
-    status: 'confirm', people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
+    status: 'confirm', ...(direct ? { direct: true as const } : {}), people: Math.max(1, await c.peopleWithout()), places: none.places, otherPlaces: none.otherPlaces || hidden,
     files, provenance, confirmKey, ...(reason ? { reason } : {}), ...(c.artifacts.length ? { artifacts: c.artifacts.map((a) => ({ name: a.name })) } : {}),
   }
 }

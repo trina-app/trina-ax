@@ -8,7 +8,7 @@
 // "intro-deck", "D2") pages through its slides in the frame; its header offers one [받기 ▾] (PowerPoint, and PDF where
 // the server can make it) and no "save to the team folder": the deck never becomes team material by accident.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, History, Loader2, Presentation, RotateCcw, Shapes, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, History, Info, Loader2, Presentation, RotateCcw, Shapes, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactSummary, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
@@ -35,7 +35,6 @@ import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, PreviewLoading, Spinner } from './ui'
 import { PanelExpandButton } from './SidePanelFrame'
-import { confirmChatRestore } from './chat/restoreConfirm'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -54,7 +53,6 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [asked, setAsked] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState<string | null>(null)
-  const asking = useRef(false)
   const [pickFolder, setPickFolder] = useState(false)
   // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
   const scripts = useFrameScripts(chatId)
@@ -85,7 +83,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked). In a
   // frame that runs scripts, its team script files too (lib/frame-scripts.ts).
   const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
-  const files = useFrameFiles(inlines && sharedChat !== null ? artifact!.content : null, { folder: '', scripts: scripts === true, withholdScripts: sharedChat !== false })
+  const files = useFrameFiles(inlines && sharedChat !== null ? artifact!.content : null, { folder: '', scripts: scripts === true, withholdScripts: sharedChat !== false, chatId })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true
@@ -125,22 +123,18 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   }
 
   // an earlier version back as the newest (nothing is deleted); the panel then follows the newest, which the server's
-  // artifact.updated brings. First the chat file panel's confirm (chat/restoreConfirm.ts, QA b3s S-033): whose later
-  // versions drop out of the newest (who asked for them, by name: a page's versions carry no id) and who in the chat sees
-  // the change; the server then writes the chat's line, and the others' windows get the new version and the line
-  // (a second press while the confirm is open opens no second one)
-  const restore = async (v: ArtifactSummary) => {
-    if (restoring !== null || asking.current) return
-    asking.current = true
-    const later = new Map<string, { id: string; name: string }>()
-    for (const x of [...versions].reverse()) if (x.version > v.version && x.byName && x.byName !== me.user.name && !later.has(x.byName)) later.set(x.byName, { id: x.byName, name: x.byName })
-    const yes = await confirmChatRestore({ chatId, n: v.version, dropouts: [...later.values()], t, locale }).finally(() => { asking.current = false })
-    if (!yes) return
+  // artifact.updated brings; the server writes the chat's line, and the others' windows get the new version and the
+  // line. No confirm first: the page it replaces stays a version, so the toast's Undo restores the one that was newest
+  // (docs/decisions/20261123-do-then-undo.md)
+  const restore = async (v: ArtifactSummary, undo = false) => {
+    if (restoring !== null) return
+    const was = versions.at(-1)
     setRestoring(v.id)
     try {
       await api.call(API.restoreArtifact, { params: { id: v.id } })
       setPicked(null)
-      toast({ level: 'success', text: t('chatFile.restored', { n: v.version }) })
+      const back = !undo && was && was.id !== v.id ? was : null
+      toast({ level: 'success', text: undo ? t('chatFile.restoreUndone') : t('chatFile.restored', { n: v.version }), ...(back ? { action: { label: t('common.undo'), run: () => void restore(back, true) } } : {}) })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
@@ -353,9 +347,11 @@ function StaticArtifact({ type, content, title, files }: { type: ArtifactType; c
 }
 
 /**
- * [영상 파일로 받기] on a promo video: shown only where this server can make the MP4 (GET /api/promo-videos/:id says
- * so; never a button that cannot work). The first press makes it (about half a minute; the button says so meanwhile)
- * and the download starts when it is ready; a later press downloads the one made before.
+ * [영상 파일로 받기] on a promo video: shown where this server can make the MP4 (GET /api/promo-videos/:id says so; never
+ * a button that cannot work), for everyone who may open the chat. Where it cannot, one short muted line says why
+ * instead (docs/decisions/20261123-linux-video-mp4.md: never a silent missing button). The first press makes it (about a
+ * minute; the button says so meanwhile) and the download starts when it is ready; a later press downloads the one made
+ * before.
  */
 export function PromoMp4Button({ id }: { id: string }) {
   const t = useT()
@@ -384,7 +380,21 @@ export function PromoMp4Button({ id }: { id: string }) {
     else if (info.mp4.state === 'failed') { setWanted(false); toast({ level: 'error', text: t('promo.mp4.failed') }) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info, wanted])
-  if (!info?.mp4.available) return null
+  if (!info) return null
+  if (!info.mp4.available) {
+    const why = info.mp4.why === 'not_installed' ? t('promo.mp4.notInstalled') : info.mp4.why === 'too_small' ? t('promo.mp4.tooSmall') : t('promo.mp4.unsupported')
+    // a phone: the line would push the title out, so an info button that says it (the tooltip, and a toast on a tap)
+    return (
+      <>
+        <span className="mr-2 hidden max-w-64 truncate text-xs text-muted sm:inline" title={why} data-testid="promo-mp4-unavailable">
+          {why}
+        </span>
+        <IconButton className="sm:hidden" label={why} onClick={() => toast({ level: 'info', text: why })} data-testid="promo-mp4-unavailable-info">
+          <Info size={16} />
+        </IconButton>
+      </>
+    )
+  }
   const press = async () => {
     if (info.mp4.state === 'done') return download(info)
     setWanted(true)

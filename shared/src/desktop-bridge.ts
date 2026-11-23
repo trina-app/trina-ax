@@ -395,6 +395,12 @@ export interface DesktopBridge {
     onConfirmed?(cb: (s: { id: string }) => void): () => void
     setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
     settingNames(connectionId: string): Promise<string[]>
+    /** The connections confirmed (Connect pressed) for this window's team on this computer, by id. Optional: desktop
+     * apps before this addition do not have it (Settings › Connectors then shows no list of them). */
+    connected?(): Promise<string[]>
+    /** Drop that confirm: the next call asks again on this computer, and a running program of it stops. False when
+     * there was none. Optional, like connected(). */
+    forget?(connectionId: string): Promise<boolean>
   }
   /**
    * Voice input transcribed on this Mac (docs/decisions/20261119-mac-dictation.md; DICTATION_BRIDGE_VERSION): Apple's

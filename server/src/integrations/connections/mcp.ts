@@ -59,7 +59,11 @@ export class McpError extends Error {
   constructor(readonly code: 'unauthorized' | 'forbidden' | 'session_gone' | 'rpc' | 'not_mcp' | 'http', readonly status = 0, readonly detail = '') { super(code) }
 }
 
-export interface RemoteTool { name: string; title: string | null; description: string; readOnly: boolean; inputSchema: Record<string, unknown> }
+export interface RemoteTool { name: string; title: string | null; description: string; readOnly: boolean; inputSchema: Record<string, unknown>
+  /** the service says the tool changes something but destroys nothing (destructiveHint false, not read-only): with a
+   * create name, the create tier that runs without a card (tools.ts createTool; docs/decisions/20261123-do-then-undo.md).
+   * Absent when the service does not say so (MCP's default for a change is destructive) */
+  nonDestructive?: true }
 
 /** Server-sent events in a body: the data of each complete event (blank-line terminated). */
 export function sseEvents(text: string, complete = false): string[] {
@@ -247,5 +251,5 @@ export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
   // both is taken as a change; QA TC-4900): it decides the room card and, for a scheduled run's result, whether a failed
   // call is a look-up (chat/schedule-outcome.ts). It never hides a refused change of our own tools. In a shared chat
   // the name must agree too (read-mark.ts)
-  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true && x.annotations?.destructiveHint !== true, inputSchema: JSON.parse(json) }
+  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true && x.annotations?.destructiveHint !== true, inputSchema: JSON.parse(json), ...(x.annotations?.readOnlyHint !== true && x.annotations?.destructiveHint === false ? { nonDestructive: true as const } : {}) }
 }

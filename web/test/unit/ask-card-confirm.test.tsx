@@ -66,6 +66,7 @@ test('three options from the server keep the radios and [답하기]: a pick alon
 test('four choices from the server (the team folder card asking about file shares, with Always allow): radios, and the line under them shown', async () => {
   installDom()
   const note = '1 person has files in it shared one by one.\n\nFrom now on Trina changes who can open team folders without asking.'
+  // (buttons without `row`: four choices stay radios)
   const card: Ask = { ...serverCard([{ label: 'Change and remove file shares', value: 'change_remove' }, { label: 'Change, keep file shares', value: 'change_keep' }, { label: 'Always allow', value: '__always' }, { label: 'Cancel', value: 'no' }]), buttons: true, note }
   const m = await mount(<AskCard req={{ request: card }} onAnswer={async () => {}} />)
   try {
@@ -104,6 +105,28 @@ test('three choices the server marks as buttons: in the page in its order (main,
     expect(m.get('ask-detail-text').textContent).toBe('hello')
     await m.click(buttons[1]!)
     expect(answers).toEqual([{ kind: 'ask_user', answer: 'always' }])
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
+test('a connector card\'s four choices marked as buttons (docs/decisions/20261123-one-always-allow.md): one row, main first, both Always secondary, the no quiet; one press answers', async () => {
+  installDom()
+  const answers: unknown[] = []
+  const card: Ask = { ...serverCard([{ label: '허용', value: 'allow' }, { label: '항상 허용', value: 'always' }, { label: 'Aside 전체 항상 허용', value: 'all' }, { label: '안 함', value: 'deny' }]), buttons: true, row: true, note: '항상 허용: 앞으로 모든 대화에서 이 도구는 묻지 않고 써요.' }
+  const m = await mount(<AskCard req={{ request: card }} onAnswer={async (_id, body) => void answers.push(body)} />)
+  try {
+    expect(m.html()).not.toContain('type="radio"')
+    expect(m.get('ask-card').getAttribute('data-kind')).toBe('buttons')
+    const buttons = m.get('ask-choices').querySelectorAll('[data-testid="ask-choice"]')
+    expect(buttons.map((b) => b.getAttribute('data-value'))).toEqual(['allow', 'always', 'all', 'deny'])
+    expect(buttons[0]!.className).toContain('bg-accent')
+    expect(buttons[1]!.className).toContain('border-field-border')
+    expect(buttons[2]!.className).toContain('border-field-border')
+    expect(buttons[3]!.className).toContain('text-muted')
+    await m.click(buttons[2]!)
+    expect(answers).toEqual([{ kind: 'ask_user', answer: 'all' }])
   } finally {
     await m.unmount()
     removeDom()

@@ -1,13 +1,18 @@
 # One card rule for every connector tool: "Always allow" holds in every chat, plain words, a plain read asks nothing
 
 - Date: 2026-11-22
-- Status: accepted
+- Status: accepted (its guest limit and every "Always in this chat" are superseded by [20261123-one-always-allow.md](20261123-one-always-allow.md))
 - Supersedes: the "can't tell" card of [Read-only marks in shared chats](20261118-shared-readonly-tools.md) (its
   "Always in this chat", and the card for a read-only tool whose verb is not known); in
   [Connected services in shared chats](20261118-shared-chat-connections.md) "Always in this chat" on the shared card
   (now for good, except with a guest) and "every change asks every time, no Always" (now: only a change that reaches
   other people or a team connection's service)
 - Branch: fix/connector-always-allow (the owner, 2026-11-22, four live cards in one day)
+
+- **Since 2026-11-23 ([20261123-one-always-allow.md](20261123-one-always-allow.md)):** there is one Always. Every
+  "Always in this chat" and per-chat site below is gone, and a guest among the people no longer limits the person's
+  Always (the shared connection card, the connector cards, the site card, scheduled runs). The connector cards also offer
+  "<connector> 전체 항상 허용". Read the guest lines below as history.
 
 - **Ask:** the owner, on four cards: Bright Data's Scrape as Markdown in a shared project chat ("트리나는 이름만으로는
   확인할 수 없어요…", [이 대화에서 항상]): "진짜 의심이 너무 많아. 그리고 이 세션에서만 항상 허용이니깐 이걸 매 세션마다

@@ -9,7 +9,7 @@ import { offersFolderShare, SHARE_KEPT_NAMES } from '@mycel/shared'
 import type { FileShares, Me } from '@mycel/shared/api'
 import { FileShareDialog } from '../../src/components/FileShareDialog'
 import { FolderAccessChip } from '../../src/components/FolderAccess'
-import { blockedKey, confirmStop, holdsText, keptText, peopleText } from '../../src/components/FolderShareParts'
+import { blockedKey, holdsText, keptText, peopleText } from '../../src/components/FolderShareParts'
 import { EveryoneLine } from '../../src/components/ShareEveryone'
 import { FolderShareNotice } from '../../src/pages/admin/FolderShareNotice'
 import { DialogHost } from '../../src/components/ui'
@@ -142,38 +142,21 @@ test('each reason it cannot be shared: one line, no picker, no link, no Stop', a
   }
 })
 
-test('shared: the rows with ✕, Stop sharing asks naming files and folders that stay shared, then Undo puts them back', async () => {
+test('shared: the rows with ✕, Stop sharing stops at once (no question) naming files and folders that stay shared, then Undo puts them back', async () => {
   answer = base({ people: [OLGA], ownShares: { files: 1, folders: 1, people: 1, names: [{ name: 'Plan.md', folder: false }, { name: 'Q4', folder: true }] } })
   const m = await dialog()
   try {
     expect(m.find('file-share-remove-user-olga')).not.toBeNull()
     await m.click('file-share-stop')
-    const body = await m.until(() => m.find('file-share-stop-body'), 'the question')
-    expect(body.textContent).toContain(en('fileShare.stopLoses', { people: 'Olga' }))
-    expect(m.get('file-share-stop-kept').textContent).toBe(en('fileShare.stopKeeps', { names: 'Plan.md and the folder Q4' }))
-    await m.click('dialog-confirm')
+    expect(document.body.querySelector('[role="alertdialog"], [data-testid="dialog-confirm"]')).toBeNull()
     await m.until(() => calls.some((c) => c.method === 'PUT' && (c.body as { stop?: boolean })?.stop === true), 'the stop')
     const toast = await m.until(() => useUi.getState().toasts.at(-1), 'the toast')
-    expect(toast.text).toBe(en('fileShare.stopped', { name: 'Work' }))
+    expect(toast.text).toBe(`${en('fileShare.stopped', { name: 'Work' })} ${en('fileShare.stopKeeps', { names: 'Plan.md and the folder Q4' })}`)
     expect(toast.action?.label).toBe(en('common.undo'))
     await m.until(() => !m.find('file-share-row-user-olga'), 'Olga gone')
     toast.action!.run()
     await m.until(() => calls.some((c) => c.url.startsWith('/api/files/shares/undo') && (c.body as { id: string }).id === 'u'.repeat(22)), 'the undo')
     await m.until(() => m.find('file-share-row-user-olga'), 'Olga back')
-  } finally {
-    await m.unmount()
-  }
-})
-
-test('the Stop question without nested shares names only who loses it', async () => {
-  const ask = confirmStop(t, 'en', 'Work', base({ people: [OLGA, DANA] }))
-  const m = await mount(<DialogHost />)
-  try {
-    const body = await m.until(() => m.find('file-share-stop-body'), 'the question')
-    expect(body.textContent).toBe(en('fileShare.stopLoses', { people: 'Olga and Dana' }))
-    expect(m.find('file-share-stop-kept')).toBeNull()
-    await m.click('dialog-cancel')
-    expect(await ask).toBe(false)
   } finally {
     await m.unmount()
   }

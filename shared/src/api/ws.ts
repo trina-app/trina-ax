@@ -172,6 +172,10 @@ export const ConfirmDetail = z.object({
    * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
    * still shows every line. */
   alerts: z.array(z.object({ text: z.string(), note: z.string() })).max(50).optional(),
+  /** files this detail lists by name and size, each opened on request in the file viewer (a skill's files: the card
+   * never carries their whole text, owner 2026-11-23 "무거운것도 문제야"). A client that does not know this shows the
+   * text as before. `sha`: each file's hash, so a waiting card whose files changed reads differently (sameCard). */
+  open: z.array(z.object({ path: z.string().max(1024), size: z.number().int().nonnegative(), sha: z.string().max(128).optional() })).max(500).optional(),
 })
 export type ConfirmDetail = z.infer<typeof ConfirmDetail>
 
@@ -196,6 +200,10 @@ export const AskUserRequest = z.object({
   /** a server check whose three choices are buttons in this order, the first the main one and the last the "no" (a
    * room's change card: 이번만 허용, 이 방에서는 항상 허용, 허용 안 함); absent: two choices are buttons, more are radios */
   buttons: z.literal(true).optional(),
+  /** with `buttons`: four choices shown as one row of buttons too (a connector card: 허용, 항상 허용, <connector> 전체 항상
+   * 허용, 안 함; docs/decisions/20261123-one-always-allow.md); absent, four choices are radios (the folder access card). A
+   * client that does not know this shows radios. */
+  row: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
   /** a server check: a part of `question` (its first match) that shows `title` on hover: the wider-audience card's
@@ -205,9 +213,31 @@ export const AskUserRequest = z.object({
   /** a server check before files are shared or a share is stopped (api/share-card.ts): the files and people as rows.
    * The card shows these in place of `question` and `details`, and turns into the result (`Step.shared`) */
   share: ShareCardAsk.optional(),
+  /** server cards of one kind that one answer raised (three skills to the team, two room posts): the app shows the
+   * cards of one answer with the same `key` and the same options as ONE card, each item on a line and one set of
+   * buttons; one press answers each of them (an unticked item gets the last option, the "no"). Presentation only: the
+   * question and details stay what the press binds to (chat/open-questions.ts sameCard ignores this). `item` set: the
+   * card leads in plain words (`one` / `many`, the items, `summary`) and its question and details are behind "자세히",
+   * also when it is alone; without it the items keep their whole question and details. A client that does not know
+   * this shows each card as before. */
+  batch: z.object({
+    key: z.string().min(1).max(200),
+    /** the question for this card alone, and for n of them ("{n}": the count) */
+    one: z.string().max(300).optional(),
+    many: z.string().max(300).optional(),
+    /** this item in plain words: its name, a line about it (a skill's description), a line it must not hide */
+    item: z.string().max(200).optional(),
+    about: z.string().max(300).optional(),
+    warn: z.string().max(600).optional(),
+    /** what it does, once for the whole card (the same line of several items shown once); `summaryMany` for n */
+    summary: z.string().max(300).optional(),
+    summaryMany: z.string().max(300).optional(),
+  }).optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
-export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
+export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional(),
+  /** the team's "Always allow" switch is off (Admin › Team AI settings): the card offers no Always; older servers omit it */
+  noAlways: z.literal(true).optional() })
 /** The AI filled in a connection for the person to finish (connect_service, docs/INTEGRATIONS.md "Connecting from a chat").
  * The card shows where a key or sign-in goes (`service.host`). The person pastes the key into the card or signs in; the
  * key goes from the card to POST /api/turns/:id/connect sealed in the browser ('integration.secret'), never through
@@ -261,6 +291,9 @@ export const DevEnvSiteRequest = z.object({
   host: z.string(),
   /** the command that needs it, secrets hidden */
   command: z.string().optional(),
+  /** the person's own list of allowed sites is full (DEV_ENV_MAX_USER_SITES): the card offers no Always and says so,
+   * with where to remove sites; older servers omit it */
+  listFull: z.literal(true).optional(),
   expiresAt: z.string().optional(),
 })
 export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest, DevEnvSiteRequest])

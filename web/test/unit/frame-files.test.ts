@@ -182,3 +182,21 @@ test('pageKey: short, stable, different for different pages', () => {
   expect(pageKey(a)).not.toBe(pageKey(a + ' '))
   expect(pageKey(a).length).toBeLessThan(20)
 })
+
+// AB4 F11: a promo video's photo attached in a shared chat is named by its chat place in the page (chat:files/<id>/<name>,
+// server/src/promo-video/spec.ts chatSrc); the artifact's chat fetches it as the person looking
+describe("an artifact's chat files", () => {
+  const id = '01a2059b-1d6a-7210-883b-0a01b2bf1bb4'
+  test('a chat file reference is fetched only with the chat of the artifact; never another scheme or a path in it', () => {
+    expect(classifyRef(`chat:files/${id}/photo.png`, '', 'chat-1')).toEqual({ kind: 'team', path: `chat:files/${id}/photo.png` })
+    expect(classifyRef(`chat:files/${id}/photo.png`, '')).toEqual({ kind: 'blocked' })
+    expect(classifyRef(`chat:work/a.png`, '', 'chat-1')).toEqual({ kind: 'blocked' })
+    expect(classifyRef(`chat:files/${id}/../x.png`, '', 'chat-1')).toEqual({ kind: 'blocked' })
+  })
+  test('inlined as a data: URL when the person may open it; the placeholder when not', async () => {
+    const html = `<img src="chat:files/${id}/photo.png"><img src="chat:files/${id.replace('4', '5')}/gone.png">`
+    const r = await run(html, '', { [`chat:files/${id}/photo.png`]: PNG }, { chatId: 'chat-1' })
+    expect(srcs(r.html)).toEqual([PNG_URL, PLACEHOLDER])
+    expect(r.missing).toBe(1)
+  })
+})

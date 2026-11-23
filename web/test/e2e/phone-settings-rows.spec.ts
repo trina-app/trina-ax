@@ -250,15 +250,11 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     expect(await audit(page)).toEqual([])
   })
 
-  test('6. Sign out — asks first', async ({ page }) => {
+  test('6. Sign out — at once, as on a computer (docs/decisions/20261123-do-then-undo.md)', async ({ page }) => {
     await me(page)
     await page.getByTestId('settings-logout').click()
-    await expect(page.getByTestId('dialog-confirm')).toBeVisible()
-    await page.getByRole('button', { name: t['common.cancel'] }).last().click()
-    await expect(page.getByTestId('settings-me')).toBeVisible()
-    await page.getByTestId('settings-logout').click()
-    await page.getByTestId('dialog-confirm').click()
     await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByTestId('dialog-confirm')).toHaveCount(0)
   })
 })
 

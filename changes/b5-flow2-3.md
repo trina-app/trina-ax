@@ -1,0 +1,2 @@
+- In a shared chat or shared project, the first time you use a connected service there, Trina shows one short notice that the others in the chat can see what it brings back, with one button, **Continue**. After that it does not ask again in that project or chat. You can reset it in Settings › Allowed for Trina.
+- Making something new with your own connected service (such as an app in Repl) in a shared chat no longer asks each time, and the same request is never shown on two cards or run twice.

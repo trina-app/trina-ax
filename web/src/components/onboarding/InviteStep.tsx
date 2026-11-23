@@ -3,9 +3,7 @@
 // its settings and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). For the owner walking the
 // welcome steps (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2").
 // Once the message (or the link) was copied or sent, "다 했어요" is the step's primary: the one thing left to press.
-// Skipping on a computer asks once, softly, whether to invite one or two people first, because a team skill is only a
-// team's once others use it; on a phone, or once something was sent, "나중에" just skips (a dialog over a bottom sheet
-// is one layer too many, and someone who already sent the invite needs no nudge).
+// "나중에" just skips, with no question first (docs/decisions/20261123-ask-registry-findings.md, decision 13).
 // A team with no skills and no documents yet gets one quiet line above the message (docs/DECISIONS.md "W6.3"): "지금
 // 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기"; it never blocks. No "이 사람이 팀장이에요" here: one link
 // invites many people, so the owner hands the role over after people join (Admin › Members, a person's "…").
@@ -22,7 +20,7 @@ import { canShareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
-import { Button, Modal, useMediaQuery } from '../ui'
+import { Button, useMediaQuery } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
 import { quietLink } from './SkillShareReview'
 import { useTeamPrepared } from './TeamPrepared'
@@ -47,7 +45,7 @@ export function sharedForInvite(progress: WelcomeProgress | null): InviteShared 
 export interface InviteStepProps {
   /** the person is done with this step (copied the link or the message, or just moves on) */
   onDone: () => void
-  /** "later": shown only when given; asks once before it is called */
+  /** "later": shown only when given; it skips at once */
   onSkip?: () => void
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
@@ -76,7 +74,6 @@ export interface InviteStepProps {
 
 export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared, steps, guestLine = true }: InviteStepProps) {
   const t = useT()
-  const [asking, setAsking] = useState(false)
   // copied or sent: "다 했어요" takes over as the primary (the panel's copy button was the one before)
   const [sent, setSent] = useState(false)
   // "Invite a guest" (docs/DECISIONS.md "Guests from Invite people"): the place first, then the guest form
@@ -102,7 +99,7 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
       {guest && <GuestInviteFlow onClose={() => setGuest(false)} />}
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
-          <Button variant="ghost" onClick={() => (phone || sent ? onSkip() : setAsking(true))} data-testid="invite-step-skip">
+          <Button variant="ghost" onClick={onSkip} data-testid="invite-step-skip">
             {t('teamLink.later')}
           </Button>
         )}
@@ -112,7 +109,6 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
           {t('teamLink.stepDone')}
         </Button>
       </div>
-      {asking && <SkipDialog onInvite={() => setAsking(false)} onLater={() => { setAsking(false); onSkip?.() }} />}
     </div>
   )
 }
@@ -141,30 +137,6 @@ export function EmptyTeamLine({ steps }: { steps?: EmptyTeamSteps }) {
         ? <button type="button" className={link} onClick={steps.files} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</button>
         : <Link to={teamFolderPath()} className={link} data-testid="invite-empty-files">{t('home.prepared.addFiles')}</Link>}
     </p>
-  )
-}
-
-/** "Most teams start with one or two": [초대하기] goes back to the link, [나중에] skips. */
-export function SkipDialog({ onInvite, onLater }: { onInvite: () => void; onLater: () => void }) {
-  const t = useT()
-  return (
-    <Modal
-      open
-      onClose={onInvite}
-      title={t('teamLink.skipTitle')}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onLater} data-testid="invite-step-later">
-            {t('teamLink.later')}
-          </Button>
-          <Button variant="primary" onClick={onInvite} data-testid="invite-step-invite">
-            {t('teamLink.invite')}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-sm text-muted">{t('teamLink.skipBody')}</p>
-    </Modal>
   )
 }
 

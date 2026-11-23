@@ -26,6 +26,10 @@ import { migrate, MIGRATIONS_DIR, openDb, readMigrations } from '../../server/sr
 import { searchSources } from '../../server/src/chat/turn'
 import { ClaudeStreamParser, webSearchHits } from '../../server/src/engine/claude-parse'
 import { WORK } from '../lib/env'
+// the fake engine's directive as JSON escapes, so the person's own words hold no schedule word or address (a schedule
+// asked for in the person's own words, with only addresses they typed, is made without its card:
+// docs/decisions/20261123-do-then-undo.md; this test is about the card)
+const opaque = (j: string) => j.replace(/"(?:[^"\\]|\\.)*"/g, (q) => q.replace(/\\.|[\p{L}\p{N}]/gu, (c) => (c.length > 1 ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)))
 
 setDefaultTimeout(60_000)
 
@@ -491,7 +495,7 @@ describe('the card carries its details to the person (web chat)', () => {
   test('schedule_create in a chat turn: the card has the instruction in full', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const args = { title: 'night', prompt: 'Each night read https://feeds.example/x and save a summary.', repeat: 'daily', time: '23:00' }
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: '@fake ' + JSON.stringify({ tool: 'schedule_create', args, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: '@fake ' + opaque(JSON.stringify({ tool: 'schedule_create', args, sayResult: true })), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     const req = card.data.request as Extract<TurnRequest, { kind: 'ask_user' }>
     expect(req.origin).toBe('server')

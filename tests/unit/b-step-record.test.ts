@@ -6,10 +6,11 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { contentTool, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
+import { contentTool, notePaths, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
 import { historyBlock, historyWindow } from '../../server/src/chat/prompt'
 import type { StoredStep } from '../../server/src/chat/store'
 import { BROWSER_TOOL_NAMES } from '../../server/src/realtime/browser-tools'
+import { resetEngineSessions } from '../../server/src/chat/runtime'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -183,14 +184,17 @@ describe('a fresh session gets its own earlier steps', () => {
     const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'ALICEPATTERN*', path: 'projects/falcon' } }, { say: 'Looked.' }))
     const b = await ask('bob', chat.id, 'my look\n' + fake({ tool: 'glob', args: { pattern: 'BOBPATTERN*', path: 'projects/falcon' } }, { say: 'Bob looked.' }))
     expect([a.done.status, b.done.status]).toEqual(['done', 'done'])
-    // bob wrote after alice: her next turn starts fresh (only her own session resumes)
+    // a fresh session (here: her sessions reset; each person's own session resumes otherwise,
+    // docs/decisions/20261123-shared-chat-own-session.md) gets the record of her own steps
+    resetEngineSessions(h.ctx, 'alice')
     const ra = await ask('alice', chat.id, 'what did you do?\n' + fake({ echo: 'system' }))
     // (their messages hold the words too: the record's own line is what counts)
     expect(records(ra.done.content)).toContain('args: pattern="ALICEPATTERN*" path="projects/falcon"')
-    expect(records(ra.done.content)).not.toContain('BOBPATTERN')
+    // and bob's answers' steps too (docs/decisions/20261123-shared-chat-others-steps.md): a folder both may list
+    expect(records(ra.done.content)).toContain('args: pattern="BOBPATTERN*" path="projects/falcon"')
     const rb = await ask('bob', chat.id, 'what did you do?\n' + fake({ echo: 'system' }))
     expect(records(rb.done.content)).toContain('args: pattern="BOBPATTERN*" path="projects/falcon"')
-    expect(records(rb.done.content)).not.toContain('ALICEPATTERN')
+    expect(records(rb.done.content)).toContain('ALICEPATTERN')
     // an answer hidden from the asker gets no record, even their own; another person's never
     const items: RecordItem[] = [{ id: a.started.userMessage!.id, role: 'user', content: 'look around' }, { id: a.done.id, role: 'assistant', content: 'Looked.' }]
     const view = { asker: 'alice', several: true, canList: () => true }
@@ -244,5 +248,13 @@ describe('a fresh session gets its own earlier steps', () => {
     // shared once (made private again since): unknown, so left out
     h.ctx.db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'chat.share', ?, '{}', ?)").run(chat.id, new Date().toISOString())
     expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toBeUndefined()
+  })
+})
+
+describe('another person\'s note: the paths its words name (security review of batch 5)', () => {
+  test('quoted values and words with a "/" count; web addresses and chat places do not', () => {
+    expect(notePaths({ i: 'path="shared/quote.pdf" to_folder="users/alice/drafts"', o: 'Saved users/alice/drafts/quote v2.pdf.' }).sort())
+      .toEqual(['shared/quote.pdf', 'users/alice/drafts', 'users/alice/drafts/quote'].sort())
+    expect(notePaths({ i: 'url="https://example.com/a/b"', o: 'chat:files/x.pdf done' })).toEqual([])
   })
 })

@@ -641,21 +641,16 @@ describe('on screen', () => {
     expect(m.find('team-link-url')).not.toBeNull()
     expect(m.find('team-link-qr')).not.toBeNull()
     expect(m.find('team-link-revoke')).toBeNull()
-    // later → the soft dialog; 초대하기 goes back, 나중에 skips
+    // later skips at once, with no question first (docs/decisions/20261123-ask-registry-findings.md, decision 13)
     await m.click('invite-step-skip')
-    expect(m.html()).toContain('대부분의 팀은 1~2명부터 초대해요')
-    await m.click('invite-step-invite')
-    expect(m.find('invite-step-invite')).toBeNull()
-    expect(skipped).toBe(0)
-    await m.click('invite-step-skip')
-    await m.click('invite-step-later')
+    expect(m.container.ownerDocument!.body.querySelector('[role="dialog"]')).toBeNull()
     expect(skipped).toBe(1)
     await m.click('invite-step-done')
     expect(done).toBe(1)
     } finally { await m.unmount() }
   })
 
-  test('InviteStep: after Copy message, "Done" is the one primary and "Later" no longer asks; on a phone "Later" skips with no dialog', async () => {
+  test('InviteStep: after Copy message, "Done" is the one primary; "Later" skips with no dialog, on a phone too', async () => {
     routes = {
       'GET /api/admin/groups': () => json(200, { items: [] }),
       'GET /api/admin/team-link': () => json(200, LINK),

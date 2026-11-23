@@ -78,8 +78,9 @@ describe('generate_video refusals say the real reason', () => {
   const reg = new ToolRegistry()
   registerHiggsfield({ engineConfig: { dataDir }, db } as never, reg)
   const args = { prompt: 'waves at sunset', duration: 5, aspect_ratio: '16:9', resolution: '720p' }
-  const person = (o: { unattended?: boolean; end?: 'declined' | 'timeout' }) => ({
+  const person = (o: { unattended?: boolean; end?: 'declined' | 'timeout'; alwaysOn?: boolean }) => ({
     locale: 'ko' as const, unattended: o.unattended, asked: 0,
+    ...(o.alwaysOn ? { alwaysOn: (k: string) => k === 'video' } : {}),
     async confirm() { this.asked++; return false },
     kinds: [] as (string | undefined)[],
     async confirmWhy(_q: string, _a: string, _d: string, e?: { always?: string }) { this.asked++; this.kinds.push(e?.always); return o.end ?? 'declined' },
@@ -95,6 +96,19 @@ describe('generate_video refusals say the real reason', () => {
     expect(r.text).toContain('No video was made and no credits were spent. Why: nobody could be asked: this is a scheduled run')
     expect(r.text).not.toContain('did not allow')
     expect(r.text).toContain('Next step: the user can ask for the video in a chat, where they confirm it.')
+  })
+
+  // ask registry decision 3 (Rule A): the person's own Always for videos holds in their scheduled run; the daily limit stays
+  test('a scheduled run under the person\'s Always for videos: past the unattended refusal, and the daily limit still counts', async () => {
+    const at = new Date(Date.now() - 3600_000).toISOString()
+    for (let i = 0; i < 10; i++) db.query("INSERT INTO tool_events VALUES ('alice', 'generate_video', 1, ?)").run(at)
+    try {
+      const p = person({ unattended: true, alwaysOn: true })
+      const r = await run(p)
+      expect(p.asked).toBe(0)
+      expect(r.text).not.toContain('nobody could be asked')
+      expect(r.text).toContain('10 videos per person in any 24 hours')
+    } finally { db.query("DELETE FROM tool_events WHERE user_id = 'alice'").run() }
   })
 
   // docs/DECISIONS.md "Always allow on every card": the card is the "video" kind (turnPerson offers Always allow, and

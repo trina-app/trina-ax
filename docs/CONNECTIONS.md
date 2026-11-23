@@ -1,7 +1,8 @@
 # Connections: what each tool can do and where it is offered
 
 One map of every connectable tool. Read it before you change a connection mode or a surface that offers one; **update
-it in the same PR**. Built from the code on `dev` (2026-11-21; the welcome tools step's rows and the chat's Google card 2026-11-22); file:line points at where the mode lives.
+it in the same PR**. The cards each connection raises (read, write, shared chat, sign-in) are entries in
+[ASKS.md](ASKS.md) "Connectors". Built from the code on `dev` (2026-11-21; the welcome tools step's rows and the chat's Google card 2026-11-22); file:line points at where the mode lives.
 
 Words: **Team** = one connection the owner or an admin makes once, used by the people the admin picks. **Personal** =
 each person signs in with their own account. **Ask everyone to connect their own** (the switch; the tag people see is "Team asks you to connect", earlier "Team pick" / "팀 추천") = the

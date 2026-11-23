@@ -13,6 +13,7 @@ import { LINUX_ROOT_SCRIPTS, linuxBundleFiles } from '../../scripts/build-bundle
 import { bundleManifest } from '../../scripts/build-office'
 import { rootManaged } from '../../scripts/release/publish-server'
 import { SRT_VERSION } from '../../server/src/devenv/srt/config'
+import { HYPERFRAMES_VERSION } from '../../server/src/promo-video/render'
 import { officeBrowserEnv } from '../../server/src/office/cli'
 import { officePaths } from '../../server/src/office/settings'
 import { osIdentity, SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic, type SyncBy } from '../../server/src/system/system-packages'
@@ -94,7 +95,12 @@ describe('the list (scripts/system/packages.json)', () => {
 
   test('the always groups are what every install needs; the image and the dev environment groups are on request', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
-    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser', 'google-apps'])
+    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser', 'video', 'google-apps'])
+    // the promo video's MP4 (docs/decisions/20261123-linux-video-mp4.md): node and the HyperFrames CLI on every default
+    // install; it draws with the browser group's chrome-headless-shell and encodes with the media group's ffmpeg
+    expect(LIST.groups.video!.artifacts).toEqual(['node', 'hyperframes'])
+    expect(groupsFor(LIST, ['default'])).toEqual(expect.arrayContaining(['browser', 'media']))
+    expect(Object.keys(LIST.groups.media!.packages!)).toContain('ffmpeg')
     // Gmail, Calendar, Docs and Sheets (the Google Workspace library): every default install, never --minimal
     // and the dev environment's Python (a venv with the system's site-packages: docs/decisions/20261121-box-python-libs.md)
     expect(pythonsFor(LIST, ['default'])).toEqual(['python-pptx', 'workspace-mcp'])
@@ -169,7 +175,7 @@ pk_artifacts default; pk_artifacts minimal; pk_artifacts srt`, { PK_BUN: process
     expect(r.out.trim().split('\n')).toEqual([
       `linux-amd64 ${v} chrome-headless-shell-linux64`, `linux-arm64 ${v} chrome-headless-shell-linux-arm64`,
       `darwin-arm64 ${v} chrome-headless-shell-mac-arm64`, `darwin-amd64 ${v} chrome-headless-shell-mac-x64`,
-      'none', 'darwin-arm64', 'linux-amd64', 'linux-arm64', 'chrome-headless-shell', 'node', 'srt',
+      'none', 'darwin-arm64', 'linux-amd64', 'linux-arm64', 'chrome-headless-shell', 'node', 'hyperframes', 'node', 'srt',
     ])
     // the list's systems by /etc/os-release names; another release is refused
     expect(lib('pk_load; pk_distro debian 13; pk_distro ubuntu 24.04; pk_distro debian 11 || echo refused', { PK_BUN: process.execPath }).out.trim().split('\n')).toEqual(['debian-13', 'ubuntu-24.04', 'refused'])
@@ -541,6 +547,7 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     // the distribution packages, the browser, the Python programs and the engine downloads: before the stop
     for (const step of ['pk_apt_install -- "${PKGS[@]}"', 'pk_browser_prepare "$PK_OPT/chrome-headless-shell"',
       'pk_python_prepare "$PK_OPT/python/$PY" "$PY" || PY_NOT_READY+="$PY "', 'download "$url" "$sha" "$size" "$stage"',
+      'if pk_video_prepare "$PK_OPT/hyperframes" "linux-$ARCH"; then VIDEO_READY=1;',
       'download "$url" "$sha" "$size" "$DL_WORK/codex.tar.gz"']) {
       expect(`${step}: ${s.indexOf(step) > 0 && s.indexOf(step) < stop}`).toBe(`${step}: true`)
       expect(`${step}: ${s.indexOf(step, stop)}`).toBe(`${step}: -1`)
@@ -548,6 +555,10 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     // after it: the switches, and no download
     expect(s.indexOf('pk_browser_switch "$PK_OPT/chrome-headless-shell"')).toBeGreaterThan(stop)
     expect(s.indexOf('PYPATH=$(pk_python_install "$PK_OPT/python/$PY" "$PY")')).toBeGreaterThan(stop)
+    expect(s.indexOf('VIDEO=$(pk_video_install "$PK_OPT/hyperframes" "linux-$ARCH")')).toBeGreaterThan(stop)
+    // a tree that failed before the stop is not built again while the server is stopped
+    expect(s).toContain('if [ "$VIDEO_READY" = 1 ] && VIDEO=$(pk_video_install')
+    expect(s).not.toMatch(/\$\(pk_video_prepare/)
     expect(s.indexOf('mv "$DL_WORK/engine-$name" "$stage"')).toBeGreaterThan(stop)
     expect(s.slice(stop)).not.toMatch(/curl --proto|pk_fetch|apt-get|from_cache /)
     // a venv that failed before the stop is not built again while the server is stopped
@@ -721,6 +732,55 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(fs.existsSync(path.join(p.dest, pyKey(l3)))).toBe(false)
     fs.rmSync(p.d, { recursive: true, force: true })
   }, 120_000)
+
+  test('the video group: node and the HyperFrames tree; current only to a tree whose CLI answers the pin; prepare leaves current', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-video-'))
+    const opt = path.join(d, 'opt'), v = LIST.artifacts.node!.version, hf = LIST.artifacts.hyperframes!.version
+    const nbin = path.join(opt, `node-v${v}`, 'bin')
+    fs.mkdirSync(nbin, { recursive: true })
+    // a stand-in node: `-e` (the version check) passes, `<cli> --version` prints the CLI file; a stand-in npm writes the
+    // CLI from the file "answer" (what the next install's CLI says)
+    fs.writeFileSync(path.join(nbin, 'node'), '#!/bin/sh\ncase "$1" in -e) exit 0 ;; *) cat "$1" ;; esac\n', { mode: 0o755 })
+    fs.writeFileSync(path.join(nbin, 'npm'), `#!/bin/sh\n[ "$1" = ci ] || exit 9\nmkdir -p node_modules/hyperframes/bin && cat ${JSON.stringify(path.join(d, 'answer'))} > node_modules/hyperframes/bin/hyperframes.mjs\n`, { mode: 0o755 })
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'curl'), '#!/bin/sh\necho "curl ran" >&2\nexit 9\n', { mode: 0o755 })
+    const env = { PK_BUN: process.execPath, PATH: `${bin}:${PATH}`, PK_OPT: opt }
+    const dest = path.join(opt, 'hyperframes')
+    try {
+      fs.writeFileSync(path.join(d, 'answer'), hf)
+      let r = lib(`pk_load; pk_video_install "${dest}" linux-amd64`, env)
+      expect(r.err).toBe('')
+      expect(r.out.trim()).toBe(`${dest}/current`)
+      const first = fs.readlinkSync(path.join(dest, 'current'))
+      expect(first).toMatch(new RegExp(`^${hf.replace(/\./g, '\\.')}-[0-9a-f]{12}$`))
+      // node from the list's folder, linked as /opt/trina/node (the layout install-srt.sh uses), nothing downloaded
+      expect(fs.readlinkSync(path.join(opt, 'node'))).toBe(path.join(opt, `node-v${v}`))
+      expect((fs.statSync(path.join(dest, first)).mode & 0o022)).toBe(0)
+      // a new lock whose CLI does not answer the pin: not switched to, nothing of it left, the old one stays current
+      const src = path.join(d, 'src'); fs.mkdirSync(src)
+      fs.copyFileSync(path.join(REPO, 'scripts/promo-video/hyperframes/package.json'), path.join(src, 'package.json'))
+      fs.writeFileSync(path.join(src, 'package-lock.json'), read('scripts/promo-video/hyperframes/package-lock.json') + '\n')
+      fs.writeFileSync(path.join(d, 'answer'), 'something else')
+      r = lib(`pk_load; pk_video_install "${dest}" linux-amd64 || echo refused`, { ...env, PK_VIDEO_SRC: src })
+      expect(r.out.trim()).toBe('refused')
+      expect(r.err).toContain('does not start here')
+      expect(fs.readlinkSync(path.join(dest, 'current'))).toBe(first)
+      expect(fs.readdirSync(dest).filter((n) => !n.startsWith('.')).sort()).toEqual([first, 'current'])
+      // prepare builds the new tree and leaves current; install then only switches, and keeps the one before
+      fs.writeFileSync(path.join(d, 'answer'), hf)
+      r = lib(`pk_load; pk_video_prepare "${dest}" linux-amd64 && readlink "${dest}/current" && pk_video_install "${dest}" linux-amd64 >/dev/null && readlink "${dest}/current"`, { ...env, PK_VIDEO_SRC: src })
+      const [kept, now] = r.out.trim().split('\n')
+      expect(kept).toBe(first)
+      expect(now).not.toBe(first)
+      expect(fs.readdirSync(dest).filter((n) => !n.startsWith('.')).sort()).toEqual([first, now, 'current'].sort())
+      // a lock that does not pin the list's tarball is refused before anything runs
+      fs.writeFileSync(path.join(src, 'package-lock.json'), '{}\n')
+      r = lib(`pk_load; pk_video_install "${dest}" linux-amd64 || echo refused`, { ...env, PK_VIDEO_SRC: src })
+      expect(r.out.trim()).toBe('refused')
+      expect(r.err).toContain("does not pin the list's hyperframes")
+      expect(r.err).not.toContain('curl ran')
+    } finally { fs.rmSync(d, { recursive: true, force: true }) }
+  })
 
   test('python programs: pip fails, the program does not start, Python is too old: nothing new, current stays', () => {
     const p = fakePython()
@@ -906,7 +966,11 @@ describe('every install path reads the list', () => {
     expect(shell).toBeLessThan(source) // sh (dash) cannot source packages.sh
     expect(d).toContain('ARG TRINA_AX_PACKAGE_GROUPS=""')
     expect(d).toContain('groups="minimal docker"; \\')
-    expect(d).toContain('case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here')
+    expect(d).toContain('case "$g" in fonts|browser|video) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here')
+    // the promo video's MP4 by build argument too, never without the browser it draws with
+    expect(d).toContain('TRINA_AX_PACKAGE_GROUPS: video needs browser')
+    expect(d).toContain('pk_video_install /opt/trina/hyperframes "linux-$(pk_arch)"')
+    expect(groupsFor(LIST, ['minimal', 'docker'])).not.toContain('video')
     expect(d).toContain('pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)"')
     // the Google Workspace library is in the default image (when the kit's list has its group)
     expect(d).toContain('if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi')
@@ -1023,6 +1087,22 @@ describe('every install path reads the list', () => {
     expect(m).not.toBeNull()
     expect(m![1]!.split('|').sort()).toEqual(Object.values(LIST.distros).map((d) => `${d.id}:${d.version}`).sort())
     expect(read('scripts/install-linux.sh')).toContain('DISTRO=$(pk_distro "$OSID" "$OSVER") || die')
+  })
+
+  test('hyperframes: one version in the list, the server, package.json and the lockfile; the lock ships as root files', () => {
+    const hf = LIST.artifacts.hyperframes!
+    expect(hf.version).toBe(HYPERFRAMES_VERSION)
+    expect(JSON.parse(read('scripts/promo-video/hyperframes/package.json')).dependencies.hyperframes).toBe(hf.version)
+    const lock = JSON.parse(read('scripts/promo-video/hyperframes/package-lock.json')).packages['node_modules/hyperframes']
+    expect(lock.version).toBe(hf.version)
+    expect(lock.resolved).toBe(hf.platforms.any!.url)
+    // the sha512 integrity of the lock and the list's sha256 name one file: its size and version agree with the url
+    expect(hf.platforms.any!.url).toContain(`hyperframes-${hf.version}.tgz`)
+    for (const f of ['package.json', 'package-lock.json']) expect(LINUX_ROOT_SCRIPTS).toContainEqual([`scripts/promo-video/hyperframes/${f}`, `hyperframes/${f}`])
+    // the sync runs from a private copy of packages.sh: it reads the lock from <base>/root/hyperframes/
+    expect(read('scripts/system/packages.sh')).toContain('PK_VIDEO_SRC=$base/root/hyperframes')
+    // turning the dev environment off keeps node while the video needs it
+    expect(read('scripts/dev-env/srt/uninstall-srt.sh')).toContain('[ -d /opt/trina/hyperframes ] || rm -rf /opt/trina/node /opt/trina/node-v*')
   })
 
   test('srt: one version in the list, the server, package.json and the lockfile', () => {

@@ -86,7 +86,10 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   // what the new chat will be: the draft chat's own state when there is one, else the switch
   const privateNow = team && (drafted === null ? onlyMe : !drafted)
   const shared = known && sharesNewChats(project, safeOps) && !privateNow
-  const who = known && !team ? <WhoSeesLine shared={shared ? project : null} place="new" onOpen={shared && project.membersEditable ? onMembers : undefined} /> : undefined
+  // how many see the new chat: the project's people but its guests (Project.chatAudience; QA TC-b4s s2: a guest of the
+  // project was counted though they never see someone else's shared chat)
+  const forChat = known ? chatCount(project) : null
+  const who = known && !team ? <WhoSeesLine shared={shared ? forChat : null} place="new" onOpen={shared && project.membersEditable ? onMembers : undefined} /> : undefined
   const send = useChats((s) => s.send)
   const upsertChat = useChats((s) => s.upsertChat)
   const models = useEngines((s) => s.models)
@@ -169,7 +172,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       focusKey={focusKey}
       placeholder={placeholder}
       who={who}
-      sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
+      sharedUploads={shared ? { audience: forChat!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
       // a project's box (Home's ?project=) sends only once the project is known: before, nothing says who will see the
       // chat, and a team project would share it (security review S3)
       hold={projectId && !known ? t('common.loading') : undefined}
@@ -201,12 +204,17 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
  * see the chat you're starting …") is its tooltip and its description for screen readers (the name stays the words in
  * sight). Safe operations, or a project an older build left unshared: a fixed "🔒 Only me" saying why, with no switch.
  * A chat made already for attachments keeps how it was made (disabled). */
+/** The project as a new shared chat of mine counts it: its people but its guests (Project.chatAudience; an older server:
+ * Project.audience) */
+const chatCount = (p: Project): Project => (p.chatAudience !== undefined ? { ...p, audience: p.chatAudience } : p)
+
 function ChatVisibilityChip({ project, shares, safeOps, onlyMe, locked, onToggle, t }: { project: Project; shares: boolean; safeOps: boolean; onlyMe: boolean; locked: boolean; onToggle: () => void; t: ReturnType<typeof useT> }) {
   const whyId = useId()
   const mine = safeOps || onlyMe || !shares
-  // shared: how many members (alone, or with only the owner and admins: the box's words as before, WhoSees.tsx)
-  const who = whoSees(project)
-  const sentence = safeOps ? t('projects.newChatSafeOps') : !shares ? t('projects.newChatMe') : onlyMe ? t('projects.onlyMeOn') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, project, 'new')
+  // shared: how many members (alone, or with only the owner and admins: the box's words as before, WhoSees.tsx), never
+  // counting the project's guests (chatCount)
+  const who = whoSees(chatCount(project))
+  const sentence = safeOps ? t('projects.newChatSafeOps') : !shares ? t('projects.newChatMe') : onlyMe ? t('projects.onlyMeOn') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, chatCount(project), 'new')
   const Icon = mine || who.kind === 'me' ? Lock : Users
   const label = mine ? (
     t('projects.onlyMe')

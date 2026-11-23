@@ -19,6 +19,7 @@ RUN case "$TARGETARCH" in \
  && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-$A.tar.xz \
  && echo "$S  /tmp/node.tar.xz" | sha256sum -c - \
  && mkdir -p /opt/trina && tar -xJf /tmp/node.tar.xz -C /opt/trina && mv /opt/trina/node-v22.23.4-linux-$A /opt/trina/node-v22.23.4 \
+ && chown -R root:root /opt/trina/node-v22.23.4 && chmod -R go-w /opt/trina/node-v22.23.4 \
  && ln -s /opt/trina/node-v22.23.4 /opt/trina/node && rm /tmp/node.tar.xz
 COPY scripts/dev-env/srt/package.json scripts/dev-env/srt/package-lock.json /opt/trina/srt/0.0.81/
 RUN cd /opt/trina/srt/0.0.81 && PATH=/opt/trina/node/bin:$PATH npm ci --ignore-scripts --omit=dev --no-audit --no-fund >/dev/null \

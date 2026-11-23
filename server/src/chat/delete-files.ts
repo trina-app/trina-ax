@@ -2,7 +2,8 @@
 // the Files screen's delete does (TeamFiles.remove, never FileService.deleteFile), after the person's yes on the
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
 // scheduled run, an approved template run, a shared project chat, a chat other people wrote in or a Slack thread, a
-// confidential chat, a draft or judge chat, and for a sub-agent. A chat that has read rooms (chat/read-rooms.ts: a room
+// confidential chat, a draft or judge chat, and for a sub-agent; the person's own "Always allow" for deletes lifts the
+// scheduled run, the shared chat and the chat others wrote in (Rule A, docs/decisions/20261123-ask-registry-findings.md). A chat that has read rooms (chat/read-rooms.ts: a room
 // read, a side chat, a quoted message) or a file someone shared asks on the card, the room line first; the person's own
 // "Always allow" for deletes is final there too, as for members and folder access (the owner, 2026-11-11; docs/decisions/
 // 20261118-api-images-connector-cap-delete-cards.md). The card shows
@@ -38,7 +39,7 @@ import { emptyFolderMadeHere, ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from 
 export const DELETE_FILES_TOOL = 'delete_files'
 
 export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them, or to clean up files you made yourself in this chat (downloads, tools, previews that should not have gone into a team folder). ' +
-  'Files you made yourself in this chat, which nobody else changed, go to the trash without a card, in a shared chat too, up to 50,000 files and folders per call; in a shared chat only those can go. ' +
+  'Files you made yourself in this chat, which nobody else changed, go to the trash without a card, in a shared chat too, up to 50,000 files and folders per call; in a shared chat only those can go, unless the user chose "Always allow" for deletes (then any file they may delete, as in their own chat). ' +
   'Give their full paths, all of them in one call when several go: one card lists them all. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
   'who loses them and until when they can be restored. Nothing is deleted for good: the trash keeps them for the team\'s set number of days. ' +
   'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders, for anything else.'
@@ -105,16 +106,19 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'r
   // confidential before scheduled and shared: a confidential chat always says 'confidential', which the AI's own files
   // never go past (OWN_OVERRIDES); review of the TC-7332 fix
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
-  if (exec.shared) return 'shared'
-  // kept (the one part that protects other people's data): in a chat other people write in, anyone there could ask for
-  // a delete of files only the asker may delete, and the asker's yes would answer someone else's request
-  if (exec.otherAuthors) return 'others'
+  const always = alwaysHere(exec.alwaysPlace?.(), 'delete_files') === 'on'
+  if (exec.spec.clientKind === 'schedule' && !always) return 'scheduled'
+  // a shared chat, or a chat other people write in: anyone there could ask for a delete of files only the asker may
+  // delete, so without Always it is refused; the person's own Always for deletes holds there too (Rule A, decision 1 of
+  // docs/decisions/20261123-ask-registry-findings.md): to the trash, with their own rights, restorable
+  if (exec.shared && !always) return 'shared'
+  if (exec.otherAuthors && !always) return 'others'
   if (exec.fromSlack) return 'slack'
   // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts):
   // the card every time (deleteFilesTool), so only a scheduled run, which shows no card, is refused here
   // (words only: a mark that came from a file shared with the person alone says so, chat/grant-reads.ts)
-  if (exec.spec.clientKind === 'schedule' && readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
+  // (the person's own Always for deletes is final after a room read too: Rule A)
+  if (exec.spec.clientKind === 'schedule' && !always && readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
   return null
 }
 

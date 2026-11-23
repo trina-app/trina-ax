@@ -25,6 +25,7 @@ import { useFolderName } from '../../lib/folderLabels'
 import { markBusy } from '../../lib/busy'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, Skeleton, Switch, confirmDialog } from '../../components/ui'
+import { toast } from '../../store/ui'
 import { Avatar } from '../../components/Avatar'
 import { GroupTile } from '../../components/GroupTile'
 import { useFaceOf } from '../../store/people'
@@ -254,11 +255,17 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   const hint = !data ? '' : level === 'none' ? t(anyone ? 'folderAccess.restrictedHint' : 'folderAccess.hintAdminsOnly')
     : t(level === 'read' ? (listed ? 'folderAccess.teamHintViewElse' : 'folderAccess.teamHintView') : listed ? 'folderAccess.teamHintEditElse' : 'folderAccess.teamHintEdit', { team })
   const folderWord = (f: string) => (f === '' ? team : nameOf(f))
-  /** Remove access (the role menu), asked first: a native menu's arrow keys would otherwise remove a row on the way */
-  const removeRow = async (i: number, label: string) => {
-    if (!(await confirmDialog({ title: t('folderAccess.removeTitle', { name: label }), confirm: t('folderAccess.removeAccess'), danger: true }))) return
+  /** Remove access (the role menu): the row goes from the draft at once, and the toast's Undo puts it back where it was
+   * (a native menu's arrow keys can remove a row on the way; nothing is saved before Save, which still shows who loses
+   * what: docs/decisions/20261123-do-then-undo.md) */
+  const removeRow = (i: number, label: string) => {
+    const row = draft.named[i]
+    if (!row) return
     setDraft((x) => removeNamed(x, i))
     search.current?.focus()
+    // back at its place, unless the same person or group was added again meanwhile
+    const undo = () => setDraft((x) => (x.named.some((n) => n.subjectType === row.subjectType && n.subjectId === row.subjectId) ? x : { ...x, named: [...x.named.slice(0, i), row, ...x.named.slice(i)] }))
+    toast({ level: 'info', text: t('folderAccess.removedRow', { name: label }), action: { label: t('common.undo'), run: undo } })
   }
   const isStaff = (u: User | undefined) => !!u && (u.role === 'owner' || u.role === 'admin')
   // the owner and admins open every team folder, except projects (only as members) and personal folders
@@ -461,7 +468,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
                   value={always ? STAFF : n.access}
                   aria-label={`${t('folderAccess.levelOf', { name: label })}: ${always ? t('folderAccess.manager') : t(n.access === 'write' ? 'folderAccess.canEdit' : 'folderAccess.canView')}`}
                   onChange={(e) => {
-                    if (e.target.value === REMOVE) void removeRow(i, label)
+                    if (e.target.value === REMOVE) removeRow(i, label)
                     else if (e.target.value !== STAFF) setDraft((x) => setNamed(x, i, e.target.value as Access))
                   }}
                   className={roleSelect}
