@@ -1,7 +1,7 @@
 #!/bin/bash
 # The dev environment's libraries in the srt test image (tests/linux/Dockerfile.srt), from the one list as install-srt.sh
 # installs them (docs/decisions/20261121-box-python-libs.md): the devenv group's python3-* packages (not its build tools
-# or Debian's chromium: the image stays small), the browser group's pinned chrome-headless-shell (attacks BR1-BR7), the group's Python programs with pk_python_install, and the Node libraries from
+# or Debian's chromium: the image stays small), the browser group's pinned chrome-headless-shell (attacks BR1-BR12), the group's Python programs with pk_python_install, and the Node libraries from
 # scripts/dev-env/srt/node-libs.package-lock.json with npm ci --ignore-scripts. tests/linux/srt-attack.ts LIB1-LIB3 import
 # each library inside srt.
 #   box-libs-install.sh <dir with system/ and srt/>
