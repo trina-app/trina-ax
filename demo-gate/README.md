@@ -71,18 +71,22 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
   no other instance, no snapshot, none of the host's sockets in `/run`, and writes only its own folder. No
   `--new-session` (the gate keeps the instance's process group) and no network namespace (it reaches the gate on
   loopback). The converters' bwrap runs nested inside it. Root is not mapped in there, so root's files show as the
-  overflow uid; `MYCEL_SANDBOX_ROOT_UNMAPPED=1` (`pool.env`) lets the HTML-to-PDF browser check count that uid as root
-  (`server/src/files/html-pdf.ts` `rootOwnerUids`, only when `/` itself shows as that uid).
+  overflow uid; `MYCEL_SANDBOX_ROOT_UNMAPPED=/opt/trina-demo` (`pool.env`) lets the HTML-to-PDF browser check count
+  that uid as root for the explicit `MYCEL_HTML_PDF_BROWSER` inside that folder only, never for a fallback browser, and
+  only when `/` itself shows as that uid (`server/src/files/html-pdf.ts` `rootOwnerUids`).
 - **Memory and CPU.** The instances stay in the gate unit's cgroup: `MemoryHigh=12G`, `MemoryMax=14G` hold all of them
   together; `CPUWeight=50`, `IOWeight=50` put them behind the box's other services. Each instance runs under
   `choom -n 800`, so when memory runs out the kernel ends an instance, not the gate or another service.
 - **The gate unit.** `ProtectSystem=strict` (writes only `/var/demo-gate`, `/srv/tdg`, `/run/sudo`),
-  `ProtectHome=yes`, `PrivateTmp=yes`, `PrivateDevices=yes`, `InaccessiblePaths=` for the host's Postgres, Docker,
-  containerd and Tailscale sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders),
-  `ProtectKernelModules`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `LockPersonality`,
-  `RestrictRealtime`, `RestrictSUIDSGID`, `SystemCallArchitectures=native`. Not `NoNewPrivileges` (the gate uses sudo),
-  and not `ProtectKernelTunables`, `ProtectKernelLogs` or `ProtectProc`: they mount over parts of `/proc`, and the
-  kernel then refuses the new `/proc` each instance's bwrap mounts.
+  `ProtectHome=yes`, `PrivateTmp=yes`, `InaccessiblePaths=` for the host's Postgres, Docker, containerd and Tailscale
+  sockets and data (plus a drop-in `install.sh` writes with this host's CI runner folders), `ProtectControlGroups`,
+  `ProtectHostname`. The gate starts every instance through sudo, so the unit must keep `NoNewPrivileges` off: for a
+  unit that is not root, systemd turns it on with any of `PrivateDevices`, `ProtectKernelModules`,
+  `ProtectKernelTunables`, `ProtectKernelLogs`, `ProtectClock`, `LockPersonality`, `RestrictRealtime`,
+  `RestrictSUIDSGID`, `RestrictNamespaces`, `RestrictAddressFamilies`, `MemoryDenyWriteExecute`, `SystemCallFilter`
+  or `SystemCallArchitectures`, and none of those is set (`ProtectProc` is left out too: it mounts over `/proc`, and
+  the kernel then refuses the new `/proc` each instance's bwrap mounts). `install.sh` checks sudo inside a transient
+  unit with the gate unit's properties before it starts the gate, and that the gate warms an instance after.
 - **bwrap and AppArmor.** Ubuntu 24.04+ restricts user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`);
   its AppArmor profile for `/usr/bin/bwrap` (`bwrap-userns-restrict`, or a host's own replacement) allows bwrap and
   nothing else. `install.sh` checks the instance sandbox with a nested bwrap as `tdrun` and stops when it fails;

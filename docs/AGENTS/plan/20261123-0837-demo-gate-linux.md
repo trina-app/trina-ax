@@ -79,12 +79,19 @@ root in a folder another user can write (the snapshot leaves as a checked tar st
 unit has its own network namespace (no nft chain for the builder); `nofail,discard` in fstab, fallocate after a
 free-space check; `tdfw-check` before any unit starts and again after (stops the gate and tunnel on a failure);
 install.sh reads only a root-owned copy of the stage and unpacks the checked downloads itself; each instance in its
-own bwrap (`pool.command`); the gate unit hardened (ProtectSystem=strict, PrivateDevices, InaccessiblePaths for the
+own bwrap (`pool.command`); the gate unit hardened (ProtectSystem=strict, InaccessiblePaths for the
 host's other services and CI runners, IPAddressDeny/Allow backstop, MemoryMax 14G, lower CPU and IO weight); the nft
 refresh every minute. Inside the instance bwrap root is not mapped, so the HTML-to-PDF browser check would refuse the
 root-owned browser: `MYCEL_SANDBOX_ROOT_UNMAPPED=1` makes `rootOwnerUids` (server/src/files/html-pdf.ts) count the
 overflow uid as root when "/" itself shows as that uid. Checked on the host as an unprivileged user: the same-user gate
 with the bwrap command (warm, start, a chat turn to Anthropic answered "busy", the instances ended with the gate) and
 the HTML-to-PDF prints nested inside the instance bwrap.
+
+Re-review: the gate unit keeps NoNewPrivileges off (sudo): no PrivateDevices, ProtectKernelModules, ProtectClock,
+LockPersonality, RestrictRealtime, RestrictSUIDSGID or SystemCallArchitectures, which turn it on for a unit that is not
+root; install.sh checks sudo plus the instance sandbox in a transient unit with the gate unit's properties before the
+start, and that the gate warms an instance after (else it stops the units). The overflow uid counts as root only for
+the explicit MYCEL_HTML_PDF_BROWSER inside the folder MYCEL_SANDBOX_ROOT_UNMAPPED names (/opt/trina-demo). Secrets
+must be plain files; I/O logging of sudo is off for tdgate.
 
 PR: https://github.com/trina-app/trina-ax/pull/446

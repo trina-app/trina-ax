@@ -34,7 +34,13 @@ install -d -o root -g root -m 755 /var/lib/trina-demo
 ST=/var/lib/trina-demo/install
 rm -rf "${ST:?}"; install -d -o root -g root -m 700 "$ST"
 cp -a "$STAGE/dl" "$STAGE/app" "$ST/"
-[ -d "$STAGE/secrets" ] && cp -a "$STAGE/secrets" "$ST/"
+if [ -e "$STAGE/secrets" ] || [ -L "$STAGE/secrets" ]; then
+  # secrets are plain files only: a link could make root copy (and later move into place) a file it should not
+  [ -d "$STAGE/secrets" ] && [ ! -L "$STAGE/secrets" ] || die "$STAGE/secrets must be a plain folder"
+  [ -z "$(find "$STAGE/secrets" -mindepth 1 ! -type f -print -quit)" ] || die "$STAGE/secrets may hold plain files only (no links, folders or devices)"
+  cp -P -R "$STAGE/secrets" "$ST/"
+  [ -z "$(find "$ST/secrets" -mindepth 1 ! -type f -print -quit)" ] || die "$STAGE/secrets changed while it was copied"
+fi
 chown -R root:root "$ST"; chmod -R go-w "$ST"
 HERE=$ST/app/demo-gate/linux
 # shellcheck source=demo-gate/linux/pins.env
@@ -119,6 +125,13 @@ say "programs and app in $O (node $($O/node/bin/node --version), bun $($O/bin/bu
 # ---- sudoers (checked first) ----
 visudo -cqf "$HERE/sudoers" || die "sudoers file does not check"
 install -m 440 -o root -g root "$HERE/sudoers" /etc/sudoers.d/trina-demo
+# the host's own sudo settings: I/O logging needs a pty (off for tdgate in our file); a log file only grows
+if grep -hsE '^[[:space:]]*Defaults[^#]*(log_output|log_input)' /etc/sudoers /etc/sudoers.d/* | grep -qv 'tdgate'; then
+  say "note: this host logs sudo input/output; /etc/sudoers.d/trina-demo turns it off for tdgate"
+fi
+if grep -hsE '^[[:space:]]*Defaults[^#]*logfile' /etc/sudoers /etc/sudoers.d/* >/dev/null; then
+  say "note: this host's sudo writes a log file; every instance the gate starts or checks adds lines to it"
+fi
 
 # ---- secrets (from root's copy; never printed; the stage's own copies removed as the stage's owner) ----
 S=$ST/secrets
@@ -184,6 +197,24 @@ D=/etc/systemd/system/trina-demo-gate.service.d; install -d -m 755 $D
 } > $D/10-runners.conf
 systemctl daemon-reload
 
+# ---- sudo as the gate unit runs it: a transient unit with the gate unit's sandbox properties, as tdgate, starts the
+# instance sandbox (and a nested bwrap) as tdrun through sudo. Fails when a property turns NoNewPrivileges on. ----
+install -d -m 0711 /run/sudo; install -d -m 0700 /run/sudo/ts
+PROPS=$(grep -hE '^(ProtectSystem|ReadWritePaths|ProtectHome|PrivateTmp|PrivateDevices|InaccessiblePaths|Protect(Kernel[A-Za-z]*|Clock|ControlGroups|Hostname|Proc)|LockPersonality|Restrict[A-Za-z]*|SystemCall[A-Za-z]*|MemoryDenyWriteExecute|NoNewPrivileges|IPAddress(Deny|Allow))=' /etc/systemd/system/trina-demo-gate.service $D/10-runners.conf)
+set --
+while IFS= read -r line; do [ -n "$line" ] && set -- "$@" -p "$line"; done <<EOF
+$PROPS
+EOF
+runuser -u tdrun -- sh -c 'rm -rf /srv/tdg/i/.unit-check && mkdir -m 700 /srv/tdg/i/.unit-check'
+if ! systemd-run --quiet --wait --pipe --collect --uid=tdgate --gid=tdgate "$@" /usr/bin/sudo -n -u "#$RUN_UID" -g "#$RUN_GID" -- \
+     /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind /srv/tdg/i/.unit-check /srv/tdg/i/.unit-check \
+     --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; then
+  runuser -u tdrun -- rm -rf /srv/tdg/i/.unit-check
+  die "the gate unit's sandbox cannot start an instance through sudo (NoNewPrivileges, sudoers or bwrap): nothing of the demo was started"
+fi
+runuser -u tdrun -- rm -rf /srv/tdg/i/.unit-check
+say "sudo and the instance sandbox work inside the gate unit's properties"
+
 # ---- the firewall, checked before anything of the demo runs ----
 systemctl stop trina-demo-gate.service trina-demo-tunnel.service 2>/dev/null || true
 systemctl enable --now trina-demo-nft.timer >/dev/null
@@ -206,7 +237,20 @@ if [ "$START" = 1 ]; then
   if ! ls $FS/.snapshots/*/*/manifest.json >/dev/null 2>&1; then say "no snapshots yet: building them (several minutes)"; systemctl start trina-demo-snapshots.service || say "snapshot build had failures: journalctl -u trina-demo-snapshots"; fi
   systemctl restart trina-demo-gate.service
   [ -f /var/demo-tunnel/config.yml ] && systemctl restart trina-demo-tunnel.service
-  sleep 10
+  # the gate must warm at least one instance (through sudo, in the unit) within 5 minutes
+  i=0; warm=0
+  while [ $i -lt 60 ]; do
+    warm=$(curl -s -m 3 http://127.0.0.1:19190/__demo/health | python3 -I -c 'import json,sys
+try: print(json.load(sys.stdin)["pool"]["warm"])
+except Exception: print(0)')
+    [ "$warm" -ge 1 ] 2>/dev/null && break
+    i=$((i + 1)); sleep 5
+  done
+  if ! [ "$warm" -ge 1 ] 2>/dev/null; then
+    systemctl stop trina-demo-tunnel.service trina-demo-gate.service
+    die "the gate warmed no instance in 5 minutes: the tunnel and the gate were stopped (journalctl -u trina-demo-gate)"
+  fi
+  say "the gate warmed $warm instance(s)"
   if ! $O/bin/tdfw-check; then
     systemctl stop trina-demo-tunnel.service trina-demo-gate.service
     die "the firewall checks failed with the gate running: the tunnel and the gate were stopped"

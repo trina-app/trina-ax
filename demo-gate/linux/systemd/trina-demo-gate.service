@@ -33,7 +33,7 @@ IOWeight=50
 # A backstop for the nft table (if it were flushed): this cgroup reaches only loopback, Anthropic's API ranges and
 # the Cloudflare ranges Turnstile answers from. nft stays the precise rule (per user, per port).
 IPAddressDeny=any
-IPAddressAllow=localhost 160.79.104.0/23 2607:6bc0::/48 104.16.0.0/12 2606:4700::/32
+IPAddressAllow=localhost 160.79.104.0/23 2607:6bc0::/48 104.16.0.0/12 172.64.0.0/13 2606:4700::/32
 
 # File system: read-only but for the gate's state and the instances; /home, /root and the box's other services'
 # sockets and data hidden (install.sh adds a drop-in with this host's CI runner folders).
@@ -41,19 +41,15 @@ ProtectSystem=strict
 ReadWritePaths=/var/demo-gate /srv/tdg /run/sudo
 ProtectHome=yes
 PrivateTmp=yes
-PrivateDevices=yes
 InaccessiblePaths=-/run/postgresql -/run/tailscale -/run/docker.sock -/var/run/docker.sock -/run/containerd -/var/lib/postgresql -/var/lib/docker -/var/lib/containerd -/var/lib/tailscale
-ProtectKernelModules=yes
 ProtectControlGroups=yes
-ProtectClock=yes
 ProtectHostname=yes
-LockPersonality=yes
-RestrictRealtime=yes
-RestrictSUIDSGID=yes
-SystemCallArchitectures=native
-# Not NoNewPrivileges (the gate uses sudo). Not ProtectKernelTunables, ProtectKernelLogs or ProtectProc: they mount
-# over parts of /proc, and the kernel then refuses the new /proc that each instance's bwrap and the converters'
-# nested bwrap mount (the same reason bwrap fails in a container with masked /proc paths).
+# NoNewPrivileges must stay off: the gate starts every instance through sudo. For a unit that is not root, systemd
+# turns it on with any of PrivateDevices, ProtectKernelModules, ProtectKernelTunables, ProtectKernelLogs, ProtectClock,
+# LockPersonality, RestrictRealtime, RestrictSUIDSGID, RestrictNamespaces, RestrictAddressFamilies,
+# MemoryDenyWriteExecute, SystemCallFilter or SystemCallArchitectures, so none of them is here (install.sh checks sudo
+# in a transient unit with these properties). ProtectProc is out too: it mounts over /proc, and the kernel then refuses
+# the new /proc each instance's bwrap mounts.
 
 [Install]
 WantedBy=multi-user.target

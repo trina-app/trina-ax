@@ -511,8 +511,10 @@ describe('config', () => {
     expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
     expect(bw).not.toContain('--new-session')
     expect(bw).not.toContain('--unshare-net')
-    // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so
-    expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('1')
+    // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so, for the explicit browser
+    // inside /opt/trina-demo only
+    expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('/opt/trina-demo')
+    expect(l.pool.env.MYCEL_HTML_PDF_BROWSER!.startsWith('/opt/trina-demo/')).toBe(true)
     expect(l.pool.path.split(':')[0]).toBe('/opt/trina-demo/claude/bin')
     expect(l.limits.maxStreams).toBe(12)
     // three ports per instance: 30 live and 2 warm for each of the six languages fit the range

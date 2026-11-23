@@ -87,7 +87,7 @@
     "env": {
       "MYCEL_LOG_LEVEL": "info",
       "MYCEL_HTML_PDF_BROWSER": "/opt/trina-demo/chrome-headless-shell/current/chrome-headless-shell",
-      "MYCEL_SANDBOX_ROOT_UNMAPPED": "1"
+      "MYCEL_SANDBOX_ROOT_UNMAPPED": "/opt/trina-demo"
     }
   },
   "limits": {
