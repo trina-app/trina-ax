@@ -237,8 +237,13 @@ say "reflink clone ok"
 runuser -u tdrun -- sh -c 'd=/srv/tdg/i/.bwrap-check; rm -rf "$d"; mkdir -m 700 "$d" && /usr/bin/bwrap --die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind "$d" "$d" --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc -- /usr/bin/bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true; r=$?; rm -rf "$d"; exit $r' || die "the instance sandbox (bwrap, with a nested bwrap) does not run as tdrun"
 say "bwrap ok as tdrun (instance sandbox and a nested one)"
 
-systemctl enable trina-demo-snapshots.timer trina-demo-credsync.timer trina-demo-gate.service >/dev/null
-systemctl start trina-demo-snapshots.timer trina-demo-credsync.timer
+systemctl enable trina-demo-snapshots.timer trina-demo-gate.service >/dev/null
+systemctl start trina-demo-snapshots.timer
+# the login copy only where someone signed in as tdcred: a host on a long-lived token (claude setup-token, handed to
+# tdgate-set-credential) keeps the timer off, so a later install does not turn it back on
+if [ -f /var/lib/trina-demo-cred/.claude/.credentials.json ]; then
+  systemctl enable --now trina-demo-credsync.timer >/dev/null
+fi
 [ -f /var/demo-tunnel/config.yml ] && systemctl enable trina-demo-tunnel.service >/dev/null
 
 if [ "$START" = 1 ]; then

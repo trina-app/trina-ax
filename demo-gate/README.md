@@ -98,7 +98,9 @@ the Cloudflare ranges), and `trina-demo-nft.timer` loads the table again within 
 - **Credential.** A person signs in once as `tdcred` (`sudo -u tdcred -H /opt/trina-demo/claude/bin/claude`, then
   `/login`). `trina-demo-credsync.timer` copies the access token into the gate's credential file every 5 minutes
   through `tdgate-set-credential` (the one command `tdcred` may run as `tdgate`), and lets Claude Code renew the login
-  when less than 20 minutes are left. Never copy a token from another machine.
+  when less than 20 minutes are left. `install.sh` turns that timer on only when this login exists. Or use a long-lived
+  token from `claude setup-token`, piped on stdin to `sudo -u tdgate /opt/trina-demo/bin/tdgate-set-credential`, with
+  the timer left off.
 - **Tunnel.** One named tunnel per host, created for it, with one connector. **Never add a second connector to a tunnel
   that serves the live hostname from another machine**: Cloudflare spreads requests over connectors, and a visitor's
   next request would reach a gate that does not know their instance ("session ended"). To move the live hostname,
@@ -127,7 +129,7 @@ placeholder and every AI answer is "busy".
 | `trina-demo-tunnel.service` | cloudflared, `/var/demo-tunnel/config.yml` |
 | `trina-demo-nft.timer` | `tdnft-load` every minute: the table when it is missing or changed, Turnstile's addresses |
 | `trina-demo-snapshots.timer` | `tdsnap-rebuild` at 05:00: build, canary scan, move in (`TD_LOCALES="en ko"` for some) |
-| `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes |
+| `trina-demo-credsync.timer` | `tdcred-credsync` every 5 minutes (only with a `tdcred` login) |
 
 `tdfw-check` (root) checks the table from each user (the internet, the LAN, Tailscale, Postgres on loopback, DNS, and
 what each may reach).

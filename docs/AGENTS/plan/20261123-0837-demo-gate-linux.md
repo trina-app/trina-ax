@@ -98,4 +98,7 @@ logs I/O. The first install run also found that install.sh read its hosting file
 the app out of it (fixed), that systemd-run takes no `localhost` in IPAddressAllow (spelled out), and that
 ProtectHostname breaks the instance bwrap's /proc (it mounts /proc/sys/kernel/hostname read-only; removed).
 
+The real install also found: the canary needs its list 600 (now tdbuild's), example.com is on Cloudflare (tdfw-check
+probes off it), and the credential timer stays off on a host with a long-lived token.
+
 PR: https://github.com/trina-app/trina-ax/pull/446
