@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_SYNC_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -618,6 +618,12 @@ test('push-label-v1: the page registers the hash of the app\'s label key with th
     setMobilePushSession('user:labels-4')
     await settle(() => messages.some(m => m.type === 'push-registered'))
     expect(bodies.at(-1)).toEqual({ consent: true, ...androidToken, labelHash })
+    // push-sync-v1: an app that takes silent syncs registers with sync: true (notices read elsewhere leave its tray)
+    messages = []
+    win.mycelMobile = { ...config, platform: 'android', capabilities: [...today, PUSH_LABEL_CAPABILITY, PUSH_SYNC_CAPABILITY] }
+    setMobilePushSession('user:labels-5')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...androidToken, labelHash, sync: true })
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })
 

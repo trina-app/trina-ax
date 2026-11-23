@@ -2,6 +2,7 @@
 // `fetch` given here must do HTTP/2 to api.push.apple.com (bun.ts: node:http2).
 //
 // Payload: { aps: { alert, sound, badge?, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
+// (a sync: { aps: { badge?, content-available }, body: { notificationId, code, device? } }, no alert or sound, expiry 0)
 // (device = the request's tag, see fcm.ts appData). expo-notifications reads a remote notification's data on iOS from
 // userInfo["body"]. A room notice (code room.*) is mutable: the phone app's notification service extension may replace
 // the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"); so is a
@@ -50,6 +51,14 @@ export const APNS_CREDENTIAL_REASONS = new Set([
  * the person by name (chat.shared): who shared it. Nothing else. */
 export const mutableCode = labelCode
 
+/** The APNs payload. A sync (contract "Sync"): no alert, no sound; the icon's number and content-available (an app
+ * built to clean its list in the background may run), never the ids (the iPhone app takes nothing off while closed). */
+export function apnsPayload(msg: PushGatewaySend, alert: { title: string; body: string }): Record<string, unknown> {
+  const badge = validPushBadge(msg.badge)
+  if (msg.sync === true) return { aps: { ...(badge ? { badge: msg.badge } : {}), 'content-available': 1 }, body: appData(msg) }
+  return { aps: { alert, sound: 'default', ...(badge ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
+}
+
 /** APNs apns-collapse-id is at most 64 bytes; a longer notification id collapses by its hash. */
 async function collapseId(notificationId: string): Promise<string> {
   return notificationId.length <= 64 ? notificationId : await sha256Hex(notificationId)
@@ -76,17 +85,22 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
 
   async function post(msg: PushGatewaySend, alert: { title: string; body: string }, jwt: string): Promise<{ status: number; reason: string | null }> {
     const origin = msg.environment === 'sandbox' ? deps.sandbox ?? APNS_SANDBOX : deps.production ?? APNS_PRODUCTION
-    const body = { aps: { alert, sound: 'default', ...(validPushBadge(msg.badge) ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
+    const sync = msg.sync === true, badge = validPushBadge(msg.badge)
+    const body = apnsPayload(msg, alert)
     const nowS = Math.floor(deps.now() / 1000)
     const res = await deps.fetch(`${origin}/3/device/${msg.token}`, {
       method: 'POST',
       headers: {
         authorization: `bearer ${jwt}`,
         'apns-topic': cfg.topic,
-        'apns-push-type': 'alert',
-        'apns-priority': '10',
-        'apns-expiration': String(msg.ttlSeconds ? nowS + msg.ttlSeconds : 0),
-        'apns-collapse-id': await collapseId(msg.notificationId),
+        // a sync with a number is an alert-type push without an alert (Apple: alert covers badges); without one it is a
+        // background push. Both at priority 5 (never wakes the screen), collapsed: only the newest number matters
+        'apns-push-type': sync && !badge ? 'background' : 'alert',
+        'apns-priority': sync ? '5' : '10',
+        // a sync is now or never (0): Apple keeps one notification per app for an offline phone, and a sync must never
+        // take a waiting real alert's place, nor land after a newer push with an older number
+        'apns-expiration': String(!sync && msg.ttlSeconds ? nowS + msg.ttlSeconds : 0),
+        'apns-collapse-id': sync ? 'phone.sync' : await collapseId(msg.notificationId),
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),

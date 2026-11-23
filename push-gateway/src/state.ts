@@ -23,6 +23,9 @@ export const LIMITS = {
   /** per (key, token) pair */
   tokenPerMinute: 20,
   tokenPerDay: 200,
+  /** silent syncs (`sync: true`) per (key, token) pair, a bucket of their own: they never use up the real pushes' */
+  syncPerMinute: 4,
+  syncPerDay: 120,
   /** per client address (an IPv6 address counts by its /64), before the signature is checked */
   clientPerMinute: 600,
   dedupeMs: PUSH_GATEWAY_DEDUPE_MS,
@@ -48,8 +51,8 @@ export interface GatewayState {
   admitKey(keyId: string, dedupeId: string, now: number): Promise<KeyAdmission>
   /** a send was delivered for this key: keep its first-seen record */
   confirmKey(keyId: string): Promise<void>
-  /** the (key, token) pair's minute and day limits */
-  admitPair(pairId: string, now: number): Promise<Admission>
+  /** the (key, token) pair's minute and day limits (a sync's own, smaller ones with `sync`) */
+  admitPair(pairId: string, now: number, sync?: boolean): Promise<Admission>
   /** drop a dedupe reservation: nothing was delivered, a retry must send */
   release(keyId: string, dedupeId: string): Promise<void>
 }
@@ -100,11 +103,11 @@ export async function confirmKeyOn(st: ShardStorage): Promise<void> {
   if (seen && seen.until !== undefined) await st.put('seen', { firstSeenMs: seen.firstSeenMs } satisfies Seen)
 }
 
-export async function admitPairOn(st: ShardStorage, now: number, limits: Limits = LIMITS): Promise<Admission> {
+export async function admitPairOn(st: ShardStorage, now: number, limits: Limits = LIMITS, sync = false): Promise<Admission> {
   const min = await windowCount(st, 'b:min', MINUTE, now)
   const day = await windowCount(st, 'b:day', DAY, now)
-  if (day.n >= limits.tokenPerDay) return { kind: 'limited', retryAfterSec: retryAfter(day.until, now) }
-  if (min.n >= limits.tokenPerMinute) return { kind: 'limited', retryAfterSec: retryAfter(min.until, now) }
+  if (day.n >= (sync ? limits.syncPerDay : limits.tokenPerDay)) return { kind: 'limited', retryAfterSec: retryAfter(day.until, now) }
+  if (min.n >= (sync ? limits.syncPerMinute : limits.tokenPerMinute)) return { kind: 'limited', retryAfterSec: retryAfter(min.until, now) }
   await bump(st, 'b:min', min)
   await bump(st, 'b:day', day)
   return { kind: 'ok' }
@@ -168,7 +171,7 @@ export class ShardedState implements GatewayState {
   isBlocked(keyId: string) { return this.blocked(keyId) }
   admitKey(keyId: string, dedupeId: string, now: number) { return this.on(`k:${keyId}`, (st) => admitKeyOn(st, dedupeId, now, this.limits)) }
   confirmKey(keyId: string) { return this.on(`k:${keyId}`, (st) => confirmKeyOn(st)) }
-  admitPair(pairId: string, now: number) { return this.on(`t:${pairId}`, (st) => admitPairOn(st, now, this.limits)) }
+  admitPair(pairId: string, now: number, sync = false) { return this.on(`t:${pairId}`, (st) => admitPairOn(st, now, this.limits, sync)) }
   release(keyId: string, dedupeId: string) { return this.on(`k:${keyId}`, (st) => releaseOn(st, dedupeId)) }
   /** drop expired client windows (the persistent storage sweeps itself, see bun.ts) */
   sweep(now: number) { this.clients.sweep(now) }

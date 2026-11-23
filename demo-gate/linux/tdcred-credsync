@@ -1,0 +1,30 @@
+#!/usr/bin/python3 -I
+# Trina demo: copy the Claude Code login of the tdcred user (~/.claude/.credentials.json, made by a person with
+# `sudo -u tdcred -H /opt/trina-demo/claude/bin/claude` and /login) into the gate's credential file through the narrow
+# sudo helper. Runs as tdcred (trina-demo-credsync.timer, every 5 minutes). When the access token has less than 20
+# minutes left, Claude Code itself is run once (a one-word answer on the small model), which renews the login the way
+# it always does; this script never calls the token endpoint. Never prints a token.
+import json, os, subprocess, sys, time
+HOME = os.path.expanduser('~')
+CRED = os.path.join(HOME, '.claude', '.credentials.json')
+CLAUDE = '/opt/trina-demo/claude/bin/claude'
+def log(msg): print(time.strftime('%Y-%m-%dT%H:%M:%S%z'), msg, flush=True)
+def read():
+    try:
+        with open(CRED) as f: o = json.load(f)['claudeAiOauth']
+        return o.get('accessToken') or '', (o.get('expiresAt') or 0) / 1000
+    except FileNotFoundError: return None, 0
+    except Exception: return '', 0
+tok, exp = read()
+if tok is None: log('no Claude login yet: run `sudo -u tdcred -H /opt/trina-demo/claude/bin/claude` and /login'); sys.exit(1)
+if not tok: log('the login file has no Claude login'); sys.exit(1)
+if exp and exp - time.time() < 20 * 60:
+    r = subprocess.run([CLAUDE, '-p', 'Reply with the single word ok.', '--model', 'haiku', '--max-turns', '1'],
+                       capture_output=True, text=True, timeout=180, cwd=HOME, env={'HOME': HOME, 'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
+    tok, exp = read()
+    log(f'renewal run: rc {r.returncode}, now {((exp - time.time()) / 3600):.1f} h left' if exp else f'renewal run: rc {r.returncode}')
+if not tok or (exp and exp <= time.time()): log('the login is expired: sign in again as tdcred'); sys.exit(1)
+w = subprocess.run(['/usr/bin/sudo', '-n', '-u', 'tdgate', '/opt/trina-demo/bin/tdgate-set-credential'], input=tok + '\n', capture_output=True, text=True, timeout=20)
+left = f' (expires in {(exp - time.time()) / 3600:.1f} h)' if exp else ''
+log(((w.stdout or w.stderr).strip()[:60]) + left)
+sys.exit(w.returncode)
