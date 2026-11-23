@@ -1,0 +1,11 @@
+{
+  "name": "@mycel/mailbox-ses",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "The room email mailbox on AWS: SES receiving, S3, Lambda, DynamoDB (shared/src/cloud-protocol/mail-in.ts).",
+  "scripts": {
+    "build": "bun build src/lambda.ts --target=node --format=esm --outfile dist/index.mjs"
+  }
+}

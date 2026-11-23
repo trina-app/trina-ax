@@ -28,19 +28,37 @@ export class MemoryKv implements KvLike {
 
 /** One queued item: the item without its `ct` (kept in chunks), its lease and size. */
 interface ItemHead { item: Omit<MailInItem, 'sealed'> & { sealed: Omit<MailInItem['sealed'], 'ct'> }; chunks: number; bytes: number; leaseUntil: number; at: number }
-interface TeamDoc { sealKey: string | null; hashes: string[]; expired: number; items?: number; bytes?: number }
+interface TeamDoc { sealKey: string | null; hashes: string[] }
+/** Kept apart from TeamDoc: the gateway writes these per mail, and a mailbox whose gateway and API run in separate
+ * processes (mailbox-ses) must not write back an old seal key or address set with them. */
+interface StatsDoc { expired: number; items: number; bytes: number }
 
 /** A Durable Object value is at most 2 MB (SQLite storage): chunks well under it. */
 const CHUNK = 1_000_000
 
+export interface MailStoreOptions {
+  /** the largest `ct` part in one value (characters); DynamoDB items are at most 400 KB, so mailbox-ses uses less */
+  chunk?: number
+}
+
 export class MailStore {
-  constructor(readonly kv: KvLike) {}
+  private readonly chunk: number
+  constructor(readonly kv: KvLike, o: MailStoreOptions = {}) {
+    this.chunk = o.chunk ?? CHUNK
+    if (!Number.isInteger(this.chunk) || this.chunk < 1024) throw new Error('chunk: an integer of at least 1024')
+  }
 
   // ---------- teams ----------
   async team(teamId: string): Promise<TeamDoc> {
-    return (await this.kv.get<TeamDoc>(`t:${teamId}`)) ?? { sealKey: null, hashes: [], expired: 0 }
+    const d = await this.kv.get<TeamDoc>(`t:${teamId}`)
+    return d ? { sealKey: d.sealKey ?? null, hashes: d.hashes ?? [] } : { sealKey: null, hashes: [] }
   }
   private async saveTeam(teamId: string, d: TeamDoc) { await this.kv.put(`t:${teamId}`, d) }
+  private async stats(teamId: string): Promise<StatsDoc> {
+    const d = await this.kv.get<Partial<StatsDoc>>(`s:${teamId}`)
+    return { expired: d?.expired ?? 0, items: d?.items ?? 0, bytes: d?.bytes ?? 0 }
+  }
+  private async saveStats(teamId: string, d: StatsDoc) { await this.kv.put(`s:${teamId}`, d) }
   async setSealKey(teamId: string, sealKey: string) { const d = await this.team(teamId); d.sealKey = sealKey; await this.saveTeam(teamId, d) }
   /** The team's whole set of address hashes, replaced at once. A hash another team holds is not taken. Answers the set. */
   async syncHashes(teamId: string, hashes: string[]): Promise<string[]> {
@@ -61,9 +79,9 @@ export class MailStore {
   async teamOfHash(hash: string): Promise<string | null> { return (await this.kv.get<string>(`h:${hash}`)) ?? null }
   /** Items dropped unread since the last poll: read and reset. */
   async takeExpired(teamId: string): Promise<number> {
-    const d = await this.team(teamId)
+    const d = await this.stats(teamId)
     const n = d.expired
-    if (n) { d.expired = 0; await this.saveTeam(teamId, d) }
+    if (n) { d.expired = 0; await this.saveStats(teamId, d) }
     return n
   }
 
@@ -96,23 +114,23 @@ export class MailStore {
   // ---------- items ----------
   private async heads(teamId: string): Promise<Map<string, ItemHead>> { return this.kv.list<ItemHead>({ prefix: `q:${teamId}:` }) }
   async queueStats(teamId: string): Promise<{ items: number; bytes: number }> {
-    // kept in the team's record (put and drop move them): no list of the queue per mail
-    const d = await this.team(teamId)
-    return { items: d.items ?? 0, bytes: d.bytes ?? 0 }
+    // kept in the team's stats (put and drop move them): no list of the queue per mail
+    const d = await this.stats(teamId)
+    return { items: d.items, bytes: d.bytes }
   }
   async putItem(teamId: string, item: MailInItem, at: number) {
     const ct = item.sealed.ct
-    const chunks = Math.max(1, Math.ceil(ct.length / CHUNK))
-    for (let i = 0; i < chunks; i++) await this.kv.put(`b:${teamId}:${item.id}:${i}`, ct.slice(i * CHUNK, (i + 1) * CHUNK))
+    const chunks = Math.max(1, Math.ceil(ct.length / this.chunk))
+    for (let i = 0; i < chunks; i++) await this.kv.put(`b:${teamId}:${item.id}:${i}`, ct.slice(i * this.chunk, (i + 1) * this.chunk))
     const { ct: _drop, ...sealed } = item.sealed
     // the key sorts by arrival time, so a poll hands out the oldest first
     await this.kv.put(`q:${teamId}:${String(at).padStart(15, '0')}:${item.id}`, { item: { ...item, sealed }, chunks, bytes: ct.length, leaseUntil: 0, at } satisfies ItemHead)
     await this.moveStats(teamId, 1, ct.length)
   }
   private async moveStats(teamId: string, items: number, bytes: number) {
-    const d = await this.team(teamId)
-    d.items = Math.max(0, (d.items ?? 0) + items); d.bytes = Math.max(0, (d.bytes ?? 0) + bytes)
-    await this.saveTeam(teamId, d)
+    const d = await this.stats(teamId)
+    d.items = Math.max(0, d.items + items); d.bytes = Math.max(0, d.bytes + bytes)
+    await this.saveStats(teamId, d)
   }
   private async full(teamId: string, key: string, h: ItemHead): Promise<MailInItem> {
     let ct = ''
@@ -135,7 +153,7 @@ export class MailStore {
     let n = 0
     // the keys sort by arrival: the first one still young ends the walk
     for (const [k, h] of await this.heads(teamId)) { if (h.at > now - ttlMs) break; await this.drop(teamId, k, h); n++ }
-    if (n) { const d = await this.team(teamId); d.expired += n; await this.saveTeam(teamId, d) }
+    if (n) { const d = await this.stats(teamId); d.expired += n; await this.saveStats(teamId, d) }
     return n
   }
   /** Hand out waiting items (not leased now), oldest first, within the limits (one item always goes when one waits);
@@ -151,6 +169,11 @@ export class MailStore {
       await this.kv.put(k, { ...h, leaseUntil: now + leaseMs })
     }
     return out
+  }
+  /** An item waits that is not leased now (a poll would hand it out). */
+  async ready(teamId: string, now: number): Promise<boolean> {
+    for (const h of (await this.heads(teamId)).values()) if (h.leaseUntil <= now) return true
+    return false
   }
   /** The earliest time a leased item comes free (for a held poll), or null. */
   async nextLeaseEnd(teamId: string, now: number): Promise<number | null> {

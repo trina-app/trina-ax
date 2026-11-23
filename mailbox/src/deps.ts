@@ -13,15 +13,22 @@ export interface MailboxDeps {
   domain: string | null
   teams: TeamLookup
   now: () => number
-  waiters: Waiters
+  waiters: WaitersLike
   /** the authserv-id whose Authentication-Results header is the receiving service's own (Cloudflare Email Routing) */
   authServId?: string
   /** never given an address or a mail: only a hash prefix and a reason */
   log?: (event: string, fields: Record<string, string | number>) => void
 }
 
+/** What a held poll waits on: `wait` ends after `ms`, or earlier when `wake` is called for the team (or, in a store
+ * shared by many processes, when the waiter sees an item come). */
+export interface WaitersLike {
+  wait(teamId: string, ms: number): { done: Promise<void>; cancel: () => void }
+  wake(teamId: string): void
+}
+
 /** Held polls, per team: a new item (or a newer poll of the same team) wakes them. One process (one Durable Object). */
-export class Waiters {
+export class Waiters implements WaitersLike {
   private m = new Map<string, Set<() => void>>()
   wait(teamId: string, ms: number): { done: Promise<void>; cancel: () => void } {
     let wake!: () => void
