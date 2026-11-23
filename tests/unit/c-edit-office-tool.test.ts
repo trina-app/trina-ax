@@ -11,7 +11,7 @@ import ExcelJS from '../../server/node_modules/exceljs'
 import { API } from '@mycel/shared/api'
 import { which } from '../../server/src/config'
 import { outsideContentTool } from '../../server/src/chat/team-content-tools'
-import { EDIT_OFFICE_DESCRIPTION, editOffice, editOfficeOutput, editOfficeText, officePartsMismatch, PICTURES_TOTAL_MAX, countPictureBytes } from '../../server/src/tools/edit-office'
+import { EDIT_OFFICE_DESCRIPTION, EditOfficeInput, editOffice, editOfficeOutput, editOfficeText, officePartsMismatch, PICTURES_TOTAL_MAX, countPictureBytes } from '../../server/src/tools/edit-office'
 import type { ToolCtx } from '../../server/src/files/service'
 import { fileEvent, sha256 } from '../../server/src/files/store'
 import { BY_PERSON } from '../../server/src/files/own-upload'
@@ -217,7 +217,7 @@ describe('edit_office: the security review\'s cases', () => {
     await editOffice(A.ctx, yes, { file_path: 'users/alice/form.docx', changes: [{ insert_picture: { image: 'shared/brand/ceo-seal.png', over: '(seal)' } }] } as any)
     expect(asked[0]).toContain("The AI wants to put 'shared/brand/ceo-seal.png' into 'form.docx'. You did not upload this picture yourself")
     write('users/alice/b.xlsx', await workbook())
-    await expect(editOffice(A.ctx, ctxRead('users/alice/b.xlsx'), { file_path: 'users/alice/b.xlsx', changes: [{ insert_picture: { image: 'users/alice/seal.png', after: 'Rent' } }] } as any)).rejects.toThrow(/insert_picture is for Word documents \(a picture cannot be added to a workbook here\)/)
+    await expect(editOffice(A.ctx, ctxRead('users/alice/b.xlsx'), { file_path: 'users/alice/b.xlsx', changes: [{ insert_picture: { image: 'users/alice/seal.png', after: 'Rent' } }] } as any)).rejects.toThrow('after is not for this kind of file')
     // the server's part check lets the relationships and content types change only for a call that adds pictures
     const before = docx('# Form\n\nBuyer: Example Trading Co. (seal)\n')
     const rels = writeZip(readZip(before).map((e) => (e.name === 'word/_rels/document.xml.rels' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data) + ' ') } : e)))
@@ -225,6 +225,25 @@ describe('edit_office: the security review\'s cases', () => {
     expect(officePartsMismatch('docx', before, rels, rep)).toContain('not changed here')
     expect(officePartsMismatch('docx', before, rels, rep, true)).toBeNull()
     expect(officePartsMismatch('docx', before, writeZip([...readZip(before), { name: 'word/media/image9.gif', data: new Uint8Array([1]) }]), { changed: [], added: ['word/media/image9.gif'], removed: [] }, true)).toContain('not added here')
+  })
+
+  test('a picture in a deck and a workbook: re-encoded, the card for one not your own, and the result says how to look', async () => {
+    write('users/alice/logo.png', png(30, 30, [200, 0, 0]))
+    fileEvent(A.ctx.db, { turnId: null, userId: 'alice', path: 'users/alice/logo.png', action: 'upload', sha256: sha256(png(30, 30, [200, 0, 0])), detail: BY_PERSON })
+    write('users/alice/deck.pptx', new Uint8Array(fs.readFileSync(path.join(import.meta.dir, '../../server/assets/safe-reference.pptx'))))
+    const d = await editOffice(A.ctx, ctxRead('users/alice/deck.pptx'), EditOfficeInput.parse({ file_path: 'users/alice/deck.pptx', changes: [{ insert_picture: { image: 'users/alice/logo.png', slide: 1, x_mm: 10, y_mm: 10, width_mm: 20 } }] }))
+    expect(editOfficeText(d)).toContain('with pages: "1"; if it is off, call move_picture')
+    const media = readZip(new Uint8Array(fs.readFileSync(path.join(A.ctx.config.teamRoot, d.path)))).find((e) => /^ppt\/media\/image\d+\.png$/.test(e.name) && d.report.added.includes(e.name))!
+    expect(Buffer.from(media.data).equals(Buffer.from(png(30, 30, [200, 0, 0])))).toBe(false)
+    write('users/alice/b2.xlsx', await workbook())
+    const b = await editOffice(A.ctx, ctxRead('users/alice/b2.xlsx'), EditOfficeInput.parse({ file_path: 'users/alice/b2.xlsx', changes: [{ insert_picture: { image: 'users/alice/logo.png', cell: 'C2', width_mm: 20 } }] }))
+    expect(editOfficeText(b)).toContain('No picture of the sheet is drawn here')
+    write('shared/brand/other.png', png(30, 30, [0, 0, 200]))
+    await expect(editOffice(A.ctx, ctxRead('users/alice/b2.xlsx'), { file_path: 'users/alice/b2.xlsx', changes: [{ insert_picture: { image: 'shared/brand/other.png', cell: 'A1' } }] } as any)).rejects.toThrow()
+    const asked: string[] = []
+    const yes = ctxRead('users/alice/b2.xlsx'); yes.person = { locale: 'en', confirm: async (q: string) => { asked.push(q); return true }, turnUrls: () => [] } as any
+    await editOffice(A.ctx, yes, { file_path: 'users/alice/b2.xlsx', changes: [{ insert_picture: { image: 'shared/brand/other.png', cell: 'A1' } }] } as any)
+    expect(asked[0]).toContain("The AI wants to put 'shared/brand/other.png' into 'b2.xlsx'")
   })
 
   withPandoc('the picture card names every picture a yes covers, each with its full path, past the fifth too (TC-8263)', async () => {

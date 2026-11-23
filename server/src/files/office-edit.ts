@@ -14,6 +14,7 @@ import { SaxesParser } from 'saxes'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { xmlSafe } from './docx-comment'
+import { shapeIds } from './office-picture'
 import { tags, unescapeXml } from './ooxml'
 import { checkZip, isZip, ZIP_TOTAL_MAX } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
@@ -602,6 +603,34 @@ function assertNewPictures(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
   }
 }
 
+/** A deck or workbook after an edit: every new relationship points at a part that is there, every added part has a
+ * content type, and in every changed slide or drawing the shape ids stay unique and each new image reference resolves. */
+function assertPackageRefs(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
+  const bad = (why: string): never => refuse(`the changed file did not pass the checks (${why})`)
+  const touched = [...r.changed, ...r.added]
+  for (const name of touched) {
+    if (!name.endsWith('.rels')) continue
+    const owner = name.replace(/_rels\/([^/]+)\.rels$/, '$1')
+    const was = new Set((readRels(oldPkg, owner)?.rels ?? []).map((x) => x.id))
+    for (const x of readRels(neu, owner)?.rels ?? []) if (!was.has(x.id) && !x.external && !neu.has(x.target)) bad(`${x.target} is missing`)
+  }
+  const ct = neu.need('[Content_Types].xml')
+  for (const name of r.added) {
+    if (name.endsWith('.rels')) continue
+    if (!ct.includes(`PartName="/${name}"`) && !new RegExp(`Extension="${name.split('.').pop()}"`, 'i').test(ct)) bad(`${name} has no content type`)
+  }
+  for (const name of touched) {
+    if (!/^(ppt\/slides|xl\/drawings)\/[^/]+\.xml$/.test(name)) continue
+    const x = neu.need(name), was = oldPkg.has(name) ? counted(shapeIds(oldPkg.need(name))) : new Map<number, number>()
+    for (const [id, n] of counted(shapeIds(x))) if (n > 1 && n > (was.get(id) ?? 0)) bad(`a shape id ${id} is used twice in ${name}`)
+    const rels = new Map((readRels(neu, name)?.rels ?? []).map((e) => [e.id, e]))
+    for (const m of x.matchAll(/\s[A-Za-z_][\w.-]*:embed\s*=\s*["']([^"']*)["']/g)) {
+      const e = rels.get(m[1]!)
+      if ((!e || e.external || !neu.has(e.target)) && !(oldPkg.has(name) && oldPkg.need(name).includes(m[0]))) bad(`a picture in ${name} points at nothing`)
+    }
+  }
+}
+
 export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newBytes: Uint8Array): void {
   const neu = new Pkg(newBytes, r.kind)
   for (const name of [...r.changed, ...r.added]) {
@@ -609,6 +638,7 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     assertWellFormed(neu.need(name), name)
   }
   assertUniqueRelIds(neu, [...r.changed, ...r.added])
+  if (r.kind !== 'docx') assertPackageRefs(new Pkg(oldBytes, r.kind), neu, r)
   if (r.kind === 'xlsx') {
     const before = cellsOf(oldBytes), after = cellsOf(newBytes)
     const written = new Map((r.cells ?? []).map((w) => [`${w.sheet}!${w.ref}`, w]))

@@ -46,6 +46,13 @@ export const EDIT_OFFICE_TOOL = 'edit_office'
 const text = (max: number) => z.string().max(max)
 const occ = { occurrence: z.number().int().min(1).max(100_000).optional().describe('Which place (1-based, reading order) when the text is in several'), all: z.boolean().optional().describe('Every place the text is in') }
 const cellV = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()])
+const picturePlace = {
+  x_mm: z.number().min(-5000).max(5000).optional().describe('PowerPoint: from the left edge of the slide to the picture\'s left edge'),
+  y_mm: z.number().min(-5000).max(5000).optional().describe('PowerPoint: from the top edge of the slide to the picture\'s top edge'),
+  center: z.boolean().optional().describe('PowerPoint: centred on the slide'),
+  offset_x_mm: z.number().min(0).max(5000).optional().describe('Excel: right of the cell\'s left edge'),
+  offset_y_mm: z.number().min(0).max(5000).optional().describe('Excel: below the cell\'s top edge'),
+}
 export const EditOfficeInput = z.strictObject({
   file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this chat first): a team path, or a chat file chat:files/<file_id>/<name>'),
   changes: z.array(z.union([
@@ -68,6 +75,10 @@ export const EditOfficeInput = z.strictObject({
     z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture: a team path, or a chat file chat:files/<file_id>/<name>') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
     z.strictObject({ insert_picture: z.strictObject({
       image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture (a signature, a seal, a logo): a team path, or a chat file chat:files/<file_id>/<name>'),
+      slide: z.number().int().min(1).optional().describe('PowerPoint: the slide (required there)'),
+      sheet: text(200).optional().describe('Excel: the sheet (default: the first sheet)'),
+      cell: text(20).min(2).optional().describe('Excel: the cell its top-left corner is tied to, e.g. B7 (required there)'),
+      ...picturePlace,
       over: text(5000).min(1).optional().describe('Floats the picture behind this text, centred on it: a seal or signature over "(seal)" or "(signature)" on a form'),
       after: text(5000).min(1).optional().describe('Puts the picture in the line right after this text'),
       next_to: text(5000).min(1).optional().describe('Puts the picture into the table cell right of the cell holding this text (a form row "Signature | ")'),
@@ -75,7 +86,16 @@ export const EditOfficeInput = z.strictObject({
       width_mm: z.number().min(1).max(300).optional().describe('Width in mm; the picture keeps its shape (a seal is usually 15-20, a signature 30-40)'),
       height_mm: z.number().min(1).max(300).optional().describe('Height in mm; with width_mm, the picture fits inside both. Neither: 20 mm wide, at most 20 mm high'),
       behind_text: z.boolean().optional().describe('after / next_to: float behind the text instead of taking room in the line'),
-    }).describe('Word: put a new picture at a label (give exactly one of over, after, next_to: exact text of one paragraph of the body, as read shows it)') }),
+    }).describe('A new picture. Word: at a label (exactly one of over, after, next_to: exact text of one paragraph of the body, as read shows it). PowerPoint: slide, with x_mm and y_mm from the top-left corner (without them, centred). Excel: cell, with an optional offset') }),
+    z.strictObject({ move_picture: z.strictObject({
+      picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide or sheet'),
+      slide: z.number().int().min(1).optional().describe('PowerPoint: the slide it is on (required there)'),
+      sheet: text(200).optional().describe('Excel: the sheet it is on (default: the first sheet)'),
+      cell: text(20).min(2).optional().describe('Excel: the new cell for its top-left corner'),
+      ...picturePlace,
+      width_mm: z.number().min(1).max(5000).optional().describe('New width; alone it keeps the picture\'s shape'),
+      height_mm: z.number().min(1).max(5000).optional().describe('New height; with width_mm, the picture fits inside both'),
+    }).describe('PowerPoint, Excel: move or resize a picture the file has; what you leave out stays') }),
   ])).min(1).max(OFFICE_EDIT_LIMITS.changes).describe('Applied together, each to the file as you read it (slide, table and row numbers as read; never the result of another change in the same call)'),
   output: z.string().min(1).max(1000).optional().describe('Save as a new file (same format) instead of a new version of file_path'),
 })
@@ -89,10 +109,9 @@ export const EDIT_OFFICE_DESCRIPTION =
   'insert_picture (a signature, seal or logo picture at a label: over floats it behind the text, centred, which keeps the layout, e.g. a seal over "(seal)" next to a name; ' +
   'after puts it in the line after the text; next_to puts it into the table cell right of the label). When someone asks to sign or stamp a Word document, use insert_picture, never a rebuilt document, ' +
   'with the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use. ' +
-  'Pictures are not added to Excel workbooks here. ' +
-  'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row); rows are never inserted in the middle. ' +
+  'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row), insert_picture at a cell, move_picture; rows are never inserted in the middle. ' +
   'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +
-  'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture. ' +
+  'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture, insert_picture (slide + x/y mm, or centred), move_picture (read the slide as an image, then move or resize the same picture). ' +
   'Pictures (insert_picture, replace_picture) are PNG, JPEG or WebP files in the team folder or this chat. ' +
   'Slide, table and row numbers are as you read them, never after another change in the same call. When a change cannot be made exactly, ' +
   'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
@@ -145,6 +164,11 @@ const MAY: Record<OfficeKind, { changed: RegExp; added: RegExp | null; removed: 
 
 /** a .docx call with insert_picture may also change the document's relationships and the content types and add pictures
  * (the relationships part is added when the document had none) */
+const XLSX_PICTURES = {
+  changed: /^(xl\/(workbook\.xml|worksheets\/[^/]+\.xml|worksheets\/_rels\/[^/]+\.xml\.rels|tables\/[^/]+\.xml|drawings\/[^/]+\.xml|drawings\/_rels\/[^/]+\.xml\.rels|_rels\/workbook\.xml\.rels)|\[Content_Types\]\.xml)$/,
+  added: /^xl\/(media\/image\d+\.(png|jpeg|gif)|drawings\/drawing\d+\.xml|drawings\/_rels\/drawing\d+\.xml\.rels|worksheets\/_rels\/[^/]+\.xml\.rels)$/,
+  removed: /^xl\/calcChain\.xml$/,
+}
 const DOCX_PICTURES = {
   changed: /^(word\/[^/]+\.xml|word\/_rels\/document\.xml\.rels|\[Content_Types\]\.xml)$/,
   added: /^word\/(media\/image\d+\.(png|jpeg)|_rels\/document\.xml\.rels)$/,
@@ -162,7 +186,7 @@ export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Arr
   // two entries with one name: readers disagree about which one is the part
   if (A.size !== ea.length) return 'the original has two parts with one name'
   if (B.size !== eb.length) return 'the result has two parts with one name'
-  const may = kind === 'docx' && pictures ? DOCX_PICTURES : MAY[kind]
+  const may = pictures && kind === 'docx' ? DOCX_PICTURES : pictures && kind === 'xlsx' ? XLSX_PICTURES : MAY[kind]
   for (const n of r.changed) if (!may.changed.test(n) || !A.has(n) || !B.has(n)) return `a part that is not changed here: ${n}`
   for (const n of r.added) if (!may.added?.test(n) || A.has(n) || !B.has(n)) return `a part that is not added here: ${n}`
   for (const n of r.removed) if (!may.removed?.test(n) || !A.has(n) || B.has(n)) return `a part that is not removed here: ${n}`
@@ -178,7 +202,7 @@ export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Arr
   return null
 }
 
-export interface EditedOffice { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; report: EditReport; kind: OfficeKind; chatVersion?: ChatVersionMade }
+export interface EditedOffice { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; report: EditReport; kind: OfficeKind; chatVersion?: ChatVersionMade; look?: string }
 
 /** edit_office's document when it is a chat file: in place (no output) the chain's head as a new version's writer may
  * have it (ChatPlaces.head), else a server-only copy read through the resolver (readPlaceFile). `rel` is its chat place
@@ -208,6 +232,20 @@ function excelValue(v: unknown, i: number): unknown {
   if (typeof cv === 'string') return cv.trim().startsWith('=') ? `'${cv}` : cv
   if ('error' in cv) throw new ToolError(`change ${i + 1}: ${cv.error}; nothing was saved. Start the value with '= to keep it as text.`)
   return `=${cv.formula}`
+}
+
+/** The fields of a picture change that fit this kind of file; the error names what to give. */
+function pictureTarget(kind: OfficeKind, p: Record<string, unknown>, move: boolean, i: number) {
+  const fields: Record<OfficeKind, string[]> = {
+    docx: ['over', 'after', 'next_to', 'occurrence', 'behind_text'],
+    pptx: ['slide', 'x_mm', 'y_mm', 'center'],
+    xlsx: ['sheet', 'cell', 'offset_x_mm', 'offset_y_mm'],
+  }
+  if (move && kind === 'docx') throw new ToolError(`change ${i + 1}: move_picture is for PowerPoint decks and Excel workbooks`)
+  const wrong = Object.keys(fields).flatMap((k) => (k === kind ? [] : fields[k as OfficeKind])).filter((f) => p[f] !== undefined)
+  if (wrong.length) throw new ToolError(`change ${i + 1}: ${wrong.join(', ')} ${wrong.length === 1 ? 'is' : 'are'} not for this kind of file; here a picture takes ${fields[kind].join(', ')}`)
+  if (kind === 'pptx' && p.slide === undefined) throw new ToolError(`change ${i + 1}: give the slide`)
+  if (kind === 'xlsx' && !move && p.cell === undefined) throw new ToolError(`change ${i + 1}: give the cell, e.g. B7`)
 }
 
 export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise<EditedOffice> {
@@ -292,7 +330,9 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   for (const [i, ch] of a.changes.entries()) changes.push(await (async () => {
     const x = ch as Record<string, any>
     if (kind !== 'xlsx' && (x.cell || x.append_rows)) throw new ToolError(`change ${i + 1}: cell and append_rows are for Excel workbooks`)
-    if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows || x.insert_picture)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents${x.insert_picture && kind === 'xlsx' ? ' (a picture cannot be added to a workbook here)' : ''}`)
+    if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents`)
+    const pic = x.insert_picture ?? x.move_picture
+    if (pic) pictureTarget(kind, pic, !!x.move_picture, i)
     if (kind !== 'pptx' && (x.shape_text || x.duplicate_slide || x.add_slide || x.replace_picture || x.slide !== undefined)) throw new ToolError(`change ${i + 1}: ${x.slide !== undefined ? 'slide' : Object.keys(x)[0]} is for PowerPoint decks`)
     if (kind === 'xlsx' && typeof x.find === 'string') throw new ToolError(`change ${i + 1}: in a workbook, set cells with cell (find and replace is for Word and PowerPoint)`)
     if (x.cell) return { cell: { ...x.cell, value: excelValue(x.cell.value, i) } }
@@ -321,7 +361,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     file = r.blobs[0]!
     if (!file || !Array.isArray(report.notes) || !Array.isArray(report.changed) || !Array.isArray(report.added) || !Array.isArray(report.removed)) throw new Error('bad')
   } catch { throw new ToolError('the Office editor gave a damaged answer; nothing was saved') }
-  const parts = officePartsMismatch(kind, bytes, file, report, a.changes.some((ch) => 'insert_picture' in ch))
+  const parts = officePartsMismatch(kind, bytes, file, report, a.changes.some((ch) => 'insert_picture' in ch || 'move_picture' in ch))
   if (parts) throw new ToolError(`the changed file did not read back as expected (${parts}); nothing was saved`)
   try {
     await officeWorkerWrite(OFFICE_VERIFY_MODE, frame({ kind, changed: report.changed, added: report.added, notes: report.notes, cells: report.cells ?? [] }, [bytes, file]), c.signal)
@@ -339,11 +379,21 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       c.user = ctx.files.principal(c.user.id)
       c.beforePlace?.()
       const v = await c.places!.version(head.id, { bytes: file }, seen, c.files)
-      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report, kind, chatVersion: v }
+      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report, kind, chatVersion: v, look: pictureLook(kind, a, v.path) }
     }
     const made = await placeProduced(ctx, files, c, out.segs, produced, EDIT_OFFICE_TOOL)
-    return { path: made.path, size: made.size, sha256: made.sha256, conflictCopyOf: made.conflictCopyOf, source: src.rel, inPlace, report, kind }
+    return { path: made.path, size: made.size, sha256: made.sha256, conflictCopyOf: made.conflictCopyOf, source: src.rel, inPlace, report, kind, look: pictureLook(kind, a, made.path) }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/** after a picture was placed or moved: how the AI sees the result, or that it cannot */
+function pictureLook(kind: OfficeKind, a: Input, file: string): string | undefined {
+  const placed = a.changes.flatMap((ch) => { const x = ch as Record<string, { slide?: number } | undefined>; return x.insert_picture ?? x.move_picture ?? [] })
+  if (!placed.length || kind === 'docx') return undefined
+  if (kind === 'xlsx') return ' No picture of the sheet is drawn here, so where the picture landed has not been seen: say so, and ask the person to check it in Excel.'
+  const shifted = a.changes.some((ch) => 'add_slide' in ch || 'duplicate_slide' in ch)
+  const pages = shifted ? 'as_images: true' : `pages: "${[...new Set(placed.map((p) => p.slide))].join(',')}"`
+  return ` To see it, read ${file} with ${pages}; if it is off, call move_picture with the same picture.`
 }
 
 const APP: Record<OfficeKind, string> = { docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint' }
@@ -360,8 +410,8 @@ export function editOfficeText(r: EditedOffice): string {
     return `- change ${n.change + 1}, ${n.where}${n.before !== undefined ? `: ${q(n.before)}${after ? ` -> ${after}` : ' (removed)'}` : after ? `: ${after}` : ''}`
   })
   if (r.report.notes.length > 200) lines.push(`- … and ${r.report.notes.length - 200} more`)
-  const calc = r.kind === 'xlsx' ? ' Formulas are calculated again when the file is opened in Excel or LibreOffice; until then a preview shows a formula cell as its formula.' : ''
-  return `${where}\n${lines.join('\n')}\nThe file was read back: the changes are there and everything else reads as before; the rest of the file is unchanged.${calc} Layout in ${APP[r.kind]} is not checked.`
+  const calc = r.kind === 'xlsx' && r.report.cells?.length ? ' Formulas are calculated again when the file is opened in Excel or LibreOffice; until then a preview shows a formula cell as its formula.' : ''
+  return `${where}\n${lines.join('\n')}\nThe file was read back: the changes are there and everything else reads as before; the rest of the file is unchanged.${calc}${r.look ?? ` Layout in ${APP[r.kind]} is not checked.`}`
 }
 
 export function registerEditOffice(ctx: AppContext, reg: ToolRegistry): void {
