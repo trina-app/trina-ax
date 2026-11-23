@@ -266,15 +266,16 @@ describe('the copy counts as the chat\'s only when it is this chat\'s untouched 
     expect(fs.existsSync(path.join(h.team, 'users/bob/k/k-report.txt'))).toBe(false)
   })
 
-  test("another chat's copy, and a copy of an upload not sent yet, still ask", async () => {
+  test("another chat's copy still asks; a copy of my own upload not sent yet, in my own chat, does not", async () => {
     const a = await sent('a-file.txt', 'QA A FILE')
     const b = await sent('b-file.txt', 'QA B FILE')
     await run('bob', a.chat, `${fake({ tool: 'save_chat_file', args: { file: a.file, save_as: 'users/bob/a/' }, sayResult: true })}`)
     expect(await readCard('bob', b.chat, { file_path: 'users/bob/a/a-file.txt' })).toBe(1)
-    // alice's own upload, not sent: she may copy it, but it is hers alone, so reading the copy in the chat asks
+    // alice's own upload, not sent: she may copy it; reading the copy in her own chat she shared asks nothing (her own
+    // folder in her own chat, docs/decisions/20261123-do-then-undo.md); bob's read of his copy above still asks
     const up = await upload('alice', b.chat, 'not-sent.txt', 'QA NOT SENT ' + crypto.randomUUID())
     await run('alice', b.chat, `${fake({ tool: 'save_chat_file', args: { file: up.body.id, save_as: 'users/alice/ns/' }, sayResult: true })}`)
     expect(fs.existsSync(path.join(h.team, 'users/alice/ns/not-sent.txt'))).toBe(true)
-    expect(await readCard('alice', b.chat, { file_path: 'users/alice/ns/not-sent.txt' })).toBe(1)
+    expect(await readCard('alice', b.chat, { file_path: 'users/alice/ns/not-sent.txt' })).toBe(0)
   })
 })
