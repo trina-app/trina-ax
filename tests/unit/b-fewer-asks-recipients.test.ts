@@ -238,8 +238,8 @@ describe('share_folder: who, which folder, and no card for what the person asked
   })
 
   test('the team word counts only as who it goes to', () => {
-    for (const w of ['팀원들한테 공유해줘', '우리 팀에게 보내줘', 'share it with my team', 'comparte con mi equipo', 'チームメンバーに共有して', '给团队成员']) expect([w, saysTeam(w)]).toEqual([w, true])
-    for (const w of ['"우리 팀 자료" 폴더 Bob Lee한테 공유해줘', '팀원들 말고 Bob Lee한테만 공유해줘', '팀원 Bob Lee한테 공유해줘', '팀원들한테 말고 Bob Lee한테', 'not to my team, only Bob', 'my team notes to Bob']) expect([w, saysTeam(w)]).toEqual([w, false])
+    for (const w of ['팀원들한테 공유해줘', '우리 팀에게 보내줘', 'share it with my team', 'comparte con mi equipo', 'チームメンバーに共有して', '分享给团队成员']) expect([w, saysTeam(w)]).toEqual([w, true])
+    for (const w of ['"우리 팀 자료" 폴더 Bob Lee한테 공유해줘', '팀원들 말고 Bob Lee한테만 공유해줘', '팀원 Bob Lee한테 공유해줘', '팀원들한테 말고 Bob Lee한테', 'not to my team, only Bob', 'my team notes to Bob', '팀원들한테 받은 자료 Bob Lee한테 공유해줘', '팀원들한테 안 보이게 Bob Lee한테만 공유해줘', 'notes I sent to my team: share them with Bob Lee', 'share the notes I sent to my team with Bob Lee']) expect([w, saysTeam(w)]).toEqual([w, false])
   })
   test('the AI adding the team word to a named person: the card shows; after someone else\'s words too', async () => {
     const dir = folder('bob', '우리 팀 자료')

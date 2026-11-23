@@ -165,13 +165,18 @@ export function keepPick(db: Database, userId: string, ref: string, pickedId: st
 
 /** The team word stands as who it goes to in the person's own words ("팀원들한테", "with my team", "a mi equipo",
  * "チームメンバーに", "给团队成员"), in its plural or "my team" form. A word that only names something ("우리 팀 자료 폴더"), a
- * singular before a name ("팀원 민수") or one they leave out ("팀원들 말고", "not my team") is no recipient: another
+ * singular before a name ("팀원 민수") one they leave out ("팀원들 말고") or something that only came from them ("팀원들한테 받은 자료", "notes I sent to my team") is no recipient: another
  * person's words could otherwise widen a share to everyone here (security review). */
+const END = '(?=\\s*(?:please\\b|por favor|ya\\b)?\\s*[.!?\\u3002]*\\s*(?:$|\\n))'
 const TEAM_AS_RECIPIENT = new RegExp([
-  '(?:\\uD300\\uC6D0(?:\\uB4E4|\\uBD84\\uB4E4)|\\uC6B0\\uB9AC\\s?\\uD300|\\uD300\\s?\\uC0AC\\uB78C\\uB4E4|\\uD300\\s?\\uC804\\uCCB4|\\uB3D9\\uB8CC\\uB4E4)\\s?(?:\\uAED8|\\uD55C\\uD14C|\\uC5D0\\uAC8C|\\uB354\\uB7EC)(?!\\s?(?:\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uB294|\\uC740))',
-  "(?<!\\b(?:not|except|but|without)\\s)\\b(?:with|to)\\s+(?:my team|our team|my teammates|our teammates|teammates|team members|everyone on the team)\\b",
-  '\\b(?:con|a)\\s+(?:mi equipo|mis compa\\u00F1eros)\\b', '\\b(?:dengan|ke|kepada)\\s+(?:tim saya|anggota tim)\\b',
-  '\\u30C1\\u30FC\\u30E0(?:\\u30E1\\u30F3\\u30D0\\u30FC|\\u306E\\u307F\\u3093\\u306A)\\u306B', '[\\u7ED9\\u5411]\\u56E2\\u961F\\u6210\\u5458',
+  // Korean: the team word, its particle, and the request to share or send right after it (공유해, 보내, 전달해, 올려 + 줘/주세요)
+  '(?:\\uD300\\uC6D0(?:\\uB4E4|\\uBD84\\uB4E4)|\\uC6B0\\uB9AC\\s?\\uD300|\\uD300\\s?\\uC0AC\\uB78C\\uB4E4|\\uD300\\s?\\uC804\\uCCB4|\\uB3D9\\uB8CC\\uB4E4)\\s?(?:\\uAED8|\\uD55C\\uD14C|\\uC5D0\\uAC8C|\\uB354\\uB7EC)\\s?(?:\\uACF5\\uC720\\s?\\uD574|\\uBCF4\\uB0B4|\\uC804\\uB2EC\\s?\\uD574|\\uC62C\\uB824)\\s?(?:\\uC918|\\uC8FC|\\uB2EC\\uB77C)',
+  // the others: the verb before it in the same sentence and the team word ending that sentence ("share the notes I sent to my team with Bob" is no)
+  `\\b(?:share|send|post)\\b[^.!?\\n]{0,80}\\b(?:with|to)\\s+(?:my team|our team|my teammates|our teammates|teammates|team members|everyone on the team)${END}`,
+  `\\b(?:comparte|compartir|env\\u00EDa|enviar)\\b[^.!?\\n]{0,80}\\b(?:con|a)\\s+(?:mi equipo|mis compa\\u00F1eros)${END}`,
+  `\\b(?:bagikan|kirim(?:kan)?)\\b[^.!?\\n]{0,80}\\b(?:dengan|ke|kepada)\\s+(?:tim saya|anggota tim)${END}`,
+  '\\u30C1\\u30FC\\u30E0(?:\\u30E1\\u30F3\\u30D0\\u30FC|\\u306E\\u307F\\u3093\\u306A)\\u306B(?:\\u5171\\u6709|\\u9001)(?:\\u3057\\u3066|\\u3063\\u3066)',
+  '(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)\\u7ED9\\u56E2\\u961F\\u6210\\u5458', '\\u7ED9\\u56E2\\u961F\\u6210\\u5458(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)',
 ].join('|'), 'iu')
 export function saysTeam(said: string): boolean {
   return TEAM_AS_RECIPIENT.test(said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC'))

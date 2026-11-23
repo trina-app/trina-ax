@@ -195,6 +195,17 @@ describe('"share this folder" with a file the AI made in the chat (chat:files)',
     expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
     expect(folders()).toEqual(before)
   })
+  test('a source attached before the AI made the document never goes in its place', async () => {
+    const c = await sharedWithBob()
+    const src = await upload(c, 'salary-source.txt', 'private source')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c, [src.id])
+    await makeQuote(c, 'quote-src.docx')
+    const before = folders()
+    const r = await share(c)
+    // (the document may hold what the source said, so nothing is made on a guess: the AI asks which folder)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
   test('nothing is made when the chat took in a team file by a tool the marks do not see (a department\'s PDF merged into the chat)', async () => {
     const c = await sharedWithBob()
     await makeQuote(c, 'scope-f5.docx')
