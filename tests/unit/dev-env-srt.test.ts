@@ -17,7 +17,7 @@ import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView }
 import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { BOX_BROWSER, boxBrowser, runEnv as runEnvForBrowser } from '../../server/src/devenv/srt/config'
 import { PINNED_BROWSER } from '../../server/src/files/html-pdf'
-import { sweepBrowserProfiles, tmpInUse } from '../../server/src/devenv/srt/browser-profiles'
+import { sweepAfterRun, sweepBrowserProfiles, tmpInUse, type LiveRun } from '../../server/src/devenv/srt/browser-profiles'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -541,9 +541,26 @@ describe('the srt settings file', () => {
     expect(sweepBrowserProfiles(swapped)).toBe(0)
     expect(fs.existsSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'))).toBe(true)
     // another live run that can write this TMPDIR (through the home above it) may be using a profile; this run does not count
-    expect(tmpInUse(tmp, 'me', new Map([['me', { roots: [d] }]]))).toBe(false)
-    expect(tmpInUse(tmp, 'me', new Map([['other', { roots: [d] }]]))).toBe(true)
-    expect(tmpInUse(tmp, 'me', new Map([['other', { roots: [`${d}-x`] }]]))).toBe(false)
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['me', { userId: 'bob', roots: [d] }]]))).toBe(false)
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['other', { userId: 'bob', roots: [d] }]]))).toBe(true)
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['other', { userId: 'bob', roots: [`${d}-x`] }]]))).toBe(false)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('a job tracked again after a restart keeps its browser profile until it ends', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-restart-')), tmp = path.join(d, 'home', 'bob', 'tmp')
+    const profile = path.join(tmp, 'puppeteer_dev_chrome_profile-live')
+    fs.mkdirSync(path.join(profile, 'Default'), { recursive: true })
+    // the exact shape reconcile() tracks: the row's root and users/<id>, neither the home nor the TMPDIR
+    const live = new Map<string, LiveRun>([['job1', { userId: 'bob', roots: [path.join(d, 'team', 'shared'), path.join(d, 'team', 'users', 'bob')], rowId: 'row-1' }]])
+    expect(sweepAfterRun(tmp, 'cmd2', 'bob', live)).toBe(0)
+    expect(fs.existsSync(profile)).toBe(true)
+    // another person's restart-tracked job says nothing about this TMPDIR
+    const others = new Map<string, LiveRun>([['job9', { userId: 'erin', roots: [path.join(d, 'team', 'users', 'erin')], rowId: 'row-9' }]])
+    expect(tmpInUse(tmp, 'cmd2', 'bob', others)).toBe(false)
+    // the job ended (pruneLive removed it): the next run's end sweeps
+    live.delete('job1')
+    expect(sweepAfterRun(tmp, 'cmd3', 'bob', live)).toBe(1)
+    expect(fs.existsSync(profile)).toBe(false)
     fs.rmSync(d, { recursive: true, force: true })
   })
   test('the tool text: the browser that starts, no dead end, and the truth when there is none', () => {

@@ -9,12 +9,21 @@ export const BROWSER_PROFILE_RE = /^(?:puppeteer_dev_chrome_profile-|playwright_
 /** Is `dir` the same as or inside one of `roots`? */
 const under = (dir: string, roots: readonly string[]) => roots.some((r) => dir === r || dir.startsWith(r.endsWith('/') ? r : `${r}/`))
 
-/** Another live run that can write this TMPDIR may be using a profile there: then nothing is removed, and a later run's
- * end does it. */
-export const tmpInUse = (tmp: string, runId: string, live: Iterable<[string, { roots: readonly string[] }]>) => {
-  for (const [id, l] of live) if (id !== runId && under(tmp, l.roots)) return true
+/** A live run as the runner tracks it. `rowId`: tracked again after a server restart, when its roots are the row's folders
+ * and do not name the person's home or TMPDIR. */
+export interface LiveRun { userId: string; roots: readonly string[]; rowId?: string }
+
+/** Another live run may be using a profile in this TMPDIR: one that can write it, or any run of the same person tracked
+ * again after a restart (its roots cannot tell, so this fails closed). Then nothing is removed, and a later run's end
+ * does it. */
+export const tmpInUse = (tmp: string, runId: string, userId: string, live: Iterable<[string, LiveRun]>) => {
+  for (const [id, l] of live) if (id !== runId && (under(tmp, l.roots) || (l.rowId !== undefined && l.userId === userId))) return true
   return false
 }
+
+/** A private chat's run ended: its browser profiles go, unless another live run may be using them. */
+export const sweepAfterRun = (tmp: string, runId: string, userId: string, live: Iterable<[string, LiveRun]>) =>
+  (tmpInUse(tmp, runId, userId, live) ? 0 : sweepBrowserProfiles(tmp))
 
 /** Removes the profile folders in `tmp`, and returns how many. A run can swap its TMPDIR for a link, so a `tmp` that is
  * a link is left alone; an entry that is a link is not a profile. Call it only when no run can write `tmp` (tmpInUse). */
