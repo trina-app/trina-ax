@@ -116,4 +116,7 @@ refuses links in the folders role users own. The instance command must equal one
 rollback, status) and `stage-remote.sh` hold the order, and the first app is kept for rollback; a retry never replaces
 it. The failure paths were rehearsed in a throwaway fake root with stubbed systemd.
 
+`tddeploy` also builds the snapshots a version change needs, for a deploy and for a rollback: the gate refuses other
+versions and sweeps older snapshots.
+
 PR: https://github.com/trina-app/trina-ax/pull/446

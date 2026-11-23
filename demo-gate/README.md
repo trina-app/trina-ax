@@ -158,6 +158,9 @@ sh /var/lib/trina-demo/tddeploy status
   with a backup in `/var/lib/trina-demo/gate-backups` and refuses any command but the exact template), gate started,
   every instance warm, `tdfw-check`, tunnel started, both enabled. A failure leaves both stopped and disabled, also
   after a reboot.
+- **Snapshots:** the gate uses only snapshots of its own code version and removes older ones after an hour. When a
+  deploy or rollback changes the version, `tddeploy` builds the missing ones before the gate starts (about a minute per
+  language, with the site off) and stays off if any is missing.
 - **Rollback copy:** `/var/lib/trina-demo/rollback` (root, 700). `install.sh` keeps the running app and its `gate.json`
   there once. A retry of a failed deploy keeps that copy; only a version a deploy proved replaces it at the next deploy.
 - **Rollback:** refuses a copy whose `.git-head` is not the expected commit, then tunnel off, gate off, app and

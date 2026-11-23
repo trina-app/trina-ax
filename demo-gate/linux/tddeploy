@@ -42,6 +42,27 @@ units_off() {
 }
 # this commit ran through every check (install.sh may keep it as the next rollback copy)
 proved() { install -d -o root -g root -m 700 "$RB"; printf '%s\n' "$1" > "$RB/DEPLOYED.new"; mv "$RB/DEPLOYED.new" "$RB/DEPLOYED"; }
+# The gate uses only snapshots of its own code version, and its sweeper removes older ones after an hour, so a version
+# change (either way) needs them built before the gate starts. In the snapshot unit's sandbox: no network but loopback.
+missing_snapshots() { python3 -I -c 'import glob,json
+p=json.load(open("/var/demo-gate/gate.json"))["pool"]
+def has(l):
+    for f in glob.glob("/srv/tdg/.snapshots/%s/*/manifest.json" % l):
+        try:
+            if json.load(open(f)).get("codeVersion") == p["codeVersion"]: return True
+        except Exception: pass
+    return False
+print(" ".join(l for l in p.get("locales",["en","ko"]) if not has(l)))'; }
+ensure_snapshots() {
+  m=$(missing_snapshots)
+  [ -n "$m" ] || { say "snapshots of this version are there"; return 0; }
+  say "building snapshots for: $m (about a minute each; the site stays off)"
+  systemd-run --quiet --wait --collect -p PrivateNetwork=yes -p PrivateTmp=yes -p ProtectHome=yes -p Nice=5 \
+    --setenv="TD_LOCALES=$m" "$O/bin/tdsnap-rebuild" || say "the snapshot build reported failures"
+  m=$(missing_snapshots)
+  [ -z "$m" ] || { units_off; die "no snapshot of this version for: $m. Both are off (/srv/tdg/.build/root/*.log)"; }
+  say "snapshots built"
+}
 # gate on, every instance warm, firewall, tunnel on, then enabled. Any failure: both off and disabled.
 bring_up() {
   want=$(python3 -I -c 'import json;p=json.load(open("/var/demo-gate/gate.json"))["pool"];print(p.get("warmPerLocale",2)*len(p.get("locales",["en","ko"])))')
@@ -75,6 +96,7 @@ case "$CMD" in
     sh "$STAGE/app/demo-gate/linux/install.sh" --stage "$STAGE" --no-start </dev/null \
       || die "install failed: the gate and the tunnel are off. Fix it and run deploy again, or: sudo sh $SELF rollback --expect <good commit>"
     [ "$(cat "$O/app/.git-head" 2>/dev/null)" = "$EXPECT" ] || { units_off; die "the installed app is not $EXPECT: both are off"; }
+    ensure_snapshots
     bring_up
     proved "$EXPECT"
     say "deployed $EXPECT"
@@ -89,7 +111,7 @@ case "$CMD" in
       case "$cur" in "$EXPECT"*) ;; *) die "no rollback copy in $RB, and the app is $cur, not $EXPECT" ;; esac
       if [ -L "$G/gate.json" ] || [ ! -f "$G/gate.json" ]; then die "$G/gate.json is not a regular file"; fi
       say "no rollback copy: the app was not changed and is at $cur"
-      check_live; units_off; bring_up
+      check_live; units_off; ensure_snapshots; bring_up
       proved "$cur"
       say "back at $cur"
       exit 0
@@ -111,6 +133,7 @@ case "$CMD" in
     install -T -o tdgate -g tdgate -m 600 "$RB/$n/gate.json" "$G/gate.json.new"
     mv -T "$G/gate.json.new" "$G/gate.json"
     say "app and gate.json are back at $head"
+    ensure_snapshots
     bring_up
     proved "$head"
     say "rolled back to $head"
