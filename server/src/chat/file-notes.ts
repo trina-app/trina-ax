@@ -3,7 +3,9 @@
 //   (files/store.ts saveVersion), but the result only said "Edited <path>", so the answer never told the person that
 //   the old text is still there (EDIT-17);
 // - a Hangul document read while Hangul writing is off (the HWP plugin, tools/hwp-writing.ts): the AI read the
-//   agreement, saw it could not change it, and asked "shall I make a Word copy?" instead of making it (EDIT-07).
+//   agreement, saw it could not change it, and asked "shall I make a Word copy?" instead of making it (EDIT-07). A
+//   signature or seal is the exception (QA TC-8341): a signed form in another format is a different document, so that
+//   one is the person's choice.
 // Each note once a turn, so a batch of edits (edit_files runs each file as an edit) does not repeat it.
 import type { Locale } from '@mycel/shared/api'
 import { isReservedPlace } from '@mycel/shared/places'
@@ -17,7 +19,7 @@ export const versionKeptNote = (L: Locale) =>
 
 /** The note on a Hangul document read while Hangul writing is off. */
 export const hangulReadNote = () =>
-  'Hangul writing is off for this team, so this file cannot be changed or filled here. If the user asked for a change to it, do not ask first: make a Word copy with the change now (make_file, format docx, next to the original, with the same content and only the asked change), then say in one sentence that Hangul writing is off and the owner or an admin can turn it on.'
+  'Hangul writing is off for this team, so this file cannot be changed or filled here. If the user asked to sign or stamp it (put their signature or seal picture in), make nothing yet: say that Hangul editing is off and that the owner or an admin can turn it on, and offer a Word copy with the picture as a choice; make it only after they say yes. If the user asked for any other change to it, do not ask first: make a Word copy with the change now (make_file, format docx, next to the original, with the same content and only the asked change), then say in one sentence that Hangul writing is off and the owner or an admin can turn it on.'
 
 /** A file tool's note for this turn, or null: `name`, its arguments and its result text as the file layer gave them. */
 export function fileNote(o: { name: string; isError: boolean; args: unknown; text?: string; hangulOff: () => boolean; makeFile: boolean }): FileNoteKind | null {

@@ -39,6 +39,12 @@ describe('refusal()', () => {
   test('a card that ended without a yes: never "did not allow" unless the person said no', () => {
     for (const end of ['timeout', 'unattended', 'ended'] as const) expect(reasonText(cardReason(end))).not.toContain('did not allow')
     expect(reasonText(cardReason('declined'))).toContain('did not allow')
+    // a card whose No has its own words: the AI is told the button the person pressed (QA TC-8340)
+    const pressed = reasonText(cardReason('declined', { pressed: '넣지 않기' }))
+    expect(pressed).toContain('pressed "넣지 않기"')
+    expect(pressed).toContain('call it exactly "넣지 않기"')
+    expect(pressed).not.toContain('did not allow')
+    expect(cardReason('timeout', { pressed: 'x' })).toEqual({ kind: 'timeout' })
     expect(cardEndShort('declined')).toBe('not allowed by the user')
     expect(cardEndShort('timeout')).toBe('no answer in time')
     expect(cardEndShort('unattended')).toBe('nobody to ask (scheduled run)')

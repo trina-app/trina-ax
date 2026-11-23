@@ -26,8 +26,9 @@ export type RefusalReason =
   | { kind: 'permission'; what?: string; grant?: readonly string[]; how?: string }
   /** nobody could be asked: no card was shown (a scheduled run, or `run`) */
   | { kind: 'unattended'; run?: string }
-  /** the person said no on the card (`who`: in a shared chat, the person whose turn it is) */
-  | { kind: 'declined'; who?: string }
+  /** the person said no on the card (`who`: in a shared chat, the person whose turn it is; `pressed`: the words of the
+   * button they pressed, in their language, for a card whose No is not a plain "not allowed") */
+  | { kind: 'declined'; who?: string; pressed?: string }
   /** the card got no answer in time */
   | { kind: 'timeout'; who?: string }
   /** the answer stopped before the card was answered */
@@ -75,6 +76,7 @@ export function reasonText(r: RefusalReason): string {
     case 'unattended':
       return `nobody could be asked: this is ${r.run ?? 'a scheduled run'} with nobody watching, so no confirmation card was shown and nobody can confirm it here. The user did not refuse anything; never say they did`
     case 'declined':
+      if (r.pressed) return `${r.who ?? 'the user'} pressed "${r.pressed}" on the confirmation card. If you mention that choice, call it exactly "${r.pressed}", in no other words`
       return `${r.who ?? 'the user'} did not allow it: they said no on the confirmation card`
     case 'timeout':
       return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused. Do not ask again in this answer whether to do it, in words or with the same card`
@@ -104,9 +106,9 @@ export function refusal(r: Refusal): string {
 
 /** The reason for a card that ended without a yes. `who`: who was asked (a shared chat names its asker); `run`: how an
  * unattended run is named. */
-export function cardReason(end: CardEnd, o: { who?: string; run?: string } = {}): RefusalReason {
+export function cardReason(end: CardEnd, o: { who?: string; run?: string; pressed?: string } = {}): RefusalReason {
   switch (end) {
-    case 'declined': return { kind: 'declined', ...(o.who ? { who: o.who } : {}) }
+    case 'declined': return { kind: 'declined', ...(o.who ? { who: o.who } : {}), ...(o.pressed ? { pressed: o.pressed } : {}) }
     case 'timeout': return { kind: 'timeout', ...(o.who ? { who: o.who } : {}) }
     case 'unattended': return { kind: 'unattended', ...(o.run ? { run: o.run } : {}) }
     case 'ended': return { kind: 'ended' }
