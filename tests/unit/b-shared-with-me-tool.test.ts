@@ -285,7 +285,7 @@ describe('a file read through a grant is other people\'s words', () => {
     const seen = { ...(exec(chat) as object), roomsSeen: true } as never
     expect(othersSource(seen, 'ROOM')).toBe(SHARED_FILE_SOURCE)
     expect(deleteFilesRefusal(seen)).toBeNull()
-    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBe('sharedFile')
+    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBeNull() // the person's Always holds after a room or shared-file read (Rule A, decision 20261123-ask-registry-findings)
     expect(DELETE_REFUSAL.sharedFile).toContain('a file someone shared with the user')
     expect(DELETE_REFUSAL.sharedFile).not.toContain('chat room')
     const intoSkills = { path: 'users/bob/payroll.md', to_folder: 'skills' }
@@ -293,7 +293,7 @@ describe('a file read through a grant is other people\'s words', () => {
     addSources(h.ctx.db, chat, [{ type: 'room', id: financeRoom }])
     expect(othersSource(seen, 'ROOM')).toBe('ROOM')
     expect(deleteFilesRefusal(seen)).toBeNull()
-    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBe('roomsSeen')
+    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBeNull() // the person's Always holds after a room or shared-file read (Rule A, decision 20261123-ask-registry-findings)
     expect(skillFilesRefusal({ ...(seen as object), spec: { userId: 'bob', chatId: chat, assistantId: '', clientKind: 'web' } } as never, intoSkills)!.text).toContain('read a team chat room')
 
     // end to end: bob's AI reads alice's shared file, then tries to delete one of his files; then a change whose card nobody answers
