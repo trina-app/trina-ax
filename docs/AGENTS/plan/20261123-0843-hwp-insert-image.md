@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-23 08:43
 - Branch: `feat/hwp-insert-image`
-- Status: in progress
+- Status: done
 - Where: core (`server/src/files`, `server/src/tools`, `shared/src/tools.ts`). Why: Hangul writing is core code behind the
   HWP plugin switch (docs/REPOSITORY-RULES.md).
 - Version impact: minor, edit_hwp gets a new kind of change (an image), a new user-visible capability.
@@ -23,12 +23,11 @@ In:
   10 MB, at most 10 images per call. `at`: label text inside one paragraph, `place` "over" (default), "after" or
   "before". `cell`: `{ next_to, direction?, occurrence? }` as for a filled cell; the image is centred in that cell.
   `layer`: "behind" the text (default, 글 뒤로) or "front".
-- Placement: the label's position on the page comes from the HWP renderer's layout (`rhwp export-render-tree`, a new
-  read-only engine call next to `export-png`, same isolation, preflight and limits). The worker matches the n-th
-  occurrence the document model finds with the n-th one the layout shows (counts and the line's text must agree, else
-  refused), and places a floating picture relative to the paper at that spot. The picture's anchor (its control) goes
-  into the label's paragraph (right before the label; a cell target: its first paragraph), so it is on the same page.
-  Floating, no text wrap: nothing else on the page moves.
+- Placement: the label's position on the page comes from the HWP renderer's layout (`rhwp export-render-tree` and
+  `dump-pages`, a new read-only engine call next to `export-png`, same isolation, preflight and limits). The worker
+  matches the n-th occurrence the document model finds with the n-th one the layout shows (counts and the line's text
+  must agree, else refused), and places a floating picture relative to the paper at that spot, anchored at the end of a
+  body paragraph on that page (see the decision file for why). Nothing else on the page moves.
 - .hwpx: the image as a new zip part `BinData/imageN.(png|jpg)`, an `opf:item` in `Contents/content.hpf`, an `hp:pic`
   inside the paragraph's run (Hangul's element order). Every other part copied with its compressed bytes.
 - .hwp: a new stream `BinData/BIN%04X.(png|jpg)` (raw-deflated when the document is compressed), a BIN_DATA record and
@@ -64,7 +63,7 @@ replacing an existing picture, HWP → PDF export.
 
 ## Decisions
 
-- `docs/decisions/20261123-hwp-image-placement.md`: the editors stay core code, but placing an image reads the page
+- `docs/decisions/20261123-hwp-insert-image.md`: the editors stay core code, but placing an image reads the page
   layout from the renderer (read-only render tree), so an image change needs the HWP renderer to run on the server;
   without it the change is refused with the reason (text changes are unaffected).
 
@@ -84,4 +83,9 @@ replacing an existing picture, HWP → PDF export.
 
 ## Result
 
-(filled in at the end)
+Built as planned, with two changes found while testing with the renderer and Hancom Docs: the picture is anchored at the
+end of a body paragraph (not before the label, and never inside a cell: a cell grows around it), and it is placed from
+the paper, not from the paragraph (the renderer collapses a paragraph with a behind-text picture placed from it). Hancom
+Docs opens both formats with both pictures; on the renderer-made test form the picture sat one line higher in Hancom,
+because Hancom wraps an earlier paragraph differently (decision file: limit). Decision:
+docs/decisions/20261123-hwp-insert-image.md. HWP to PDF is not available (the engine only draws PNG pages).
