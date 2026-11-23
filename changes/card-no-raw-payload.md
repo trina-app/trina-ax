@@ -1,1 +1,1 @@
-- Confirm cards no longer open on raw JSON, code or long content. You see a short summary and where it goes, with everything else behind **Details**.
+- Confirm cards no longer open on raw JSON. You see its values as plain lines, with the full content behind **Details**.

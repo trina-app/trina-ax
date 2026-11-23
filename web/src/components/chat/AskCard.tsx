@@ -30,7 +30,7 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
-import { destinations, foldsField, isPayload, LONG_TEXT, LONG_TEXT_SHOWN, payloadLines } from '../../lib/cardPayload'
+import { destinations, foldsField, isPayload, payloadLines } from '../../lib/cardPayload'
 import { gathers, joinLock, pressPlan, type CardLike } from '../../lib/cardBatch'
 import { openTeamFile } from '../../lib/sidePanel'
 import { formatSize } from '../../lib/format'
@@ -685,15 +685,11 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
   )
 }
 
-/** A detail as the card opens it (lib/cardPayload.ts): JSON or markup folded when its values and destinations can stay in
- * view as plain lines, long prose showing its start when no destination or mark would go out of view. A list of names, a
- * message formatted for reading and red alert lines stay as they are. */
+/** A detail as the card opens it (lib/cardPayload.ts): complete JSON folds when it can be read back into plain lines.
+ * Everything else is as the server sent it (code it marked `folded` folds; with marks it stays open). */
 const byShape = (d: ConfirmDetail): ConfirmDetail => {
-  if (!d.text || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact) return d
-  const known = (d.fields ?? []).map((f) => f.value)
-  if (d.folded) return d.marks?.length && payloadLines(d.text, known) === null ? { ...d, folded: undefined } : d
-  if (isPayload(d.text, !!d.fullChars)) return payloadLines(d.text, known) === null ? d : { ...d, folded: true }
-  return d.collapsedAt === undefined && d.text.length > LONG_TEXT && !d.marks?.length && !destinations(d.text).length ? { ...d, collapsedAt: LONG_TEXT_SHOWN } : d
+  if (!d.text || d.folded || d.markdown || d.alerts?.length || d.open?.length || d.noSize || d.exact || d.fullChars) return d
+  return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true, jsonFold: true } as ConfirmDetail : d
 }
 
 function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
@@ -865,7 +861,8 @@ function FoldedValue({ f, marks }: { f: { name: string; value: string; code?: tr
 function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  if (!d.folded || d.markdown || d.alerts?.length) return <>{children}</>
+  // (the server's own fold of code stays open with marks; JSON read back into lines shows them below)
+  if (!d.folded || d.markdown || d.alerts?.length || (d.marks?.length && !(d as { jsonFold?: boolean }).jsonFold)) return <>{children}</>
   const known = (d.fields ?? []).map((f) => f.value)
   return (
     <div className={plain ? undefined : clsx('border-t border-line', !open && 'px-3 pb-1.5')}>

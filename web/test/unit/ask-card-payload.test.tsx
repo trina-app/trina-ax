@@ -13,25 +13,31 @@ const ask = (details: NonNullable<Ask['details']>): { turnId: string; messageId:
 })
 const big = JSON.stringify({ subject: '행사 안내', to: 'sora@example.com', body: 'x'.repeat(6900), hook: 'https://hooks.example.net/in' }, null, 2)
 
-test('only sure machine text is a payload: a message with a table or a link, or a list of names, is not', () => {
-  for (const t of [big, '{"a":1}', '[{"a":1}]', '<!doctype html><p>x</p>', '#!/bin/sh\necho hi']) expect(isPayload(t), t.slice(0, 30)).toBe(true)
-  for (const t of ['안녕하세요, 내일 회의는 3시입니다.', '| 항목 | 금액 |\n|---|---|\n| A | 1,000 |\n자세한 건 [여기](https://example.com/a?b=1&c=2) 참고', '["홍길동","김철수"]', '']) expect(isPayload(t), t.slice(0, 30)).toBe(false)
-  expect(isPayload('{"to":"a@b.co","body":"xxx', true)).toBe(true)
+test('only complete JSON folds by shape: a message, a script, markup or a list of names does not', () => {
+  for (const t of [big, '{"a":1}', '[{"a":1}]']) expect(isPayload(t), t.slice(0, 30)).toBe(true)
+  for (const t of ['안녕하세요, 내일 회의는 3시입니다.', '| 항목 | 금액 |\n|---|---|\n| A | 1,000 |', '["홍길동","김철수"]', '#!/bin/sh\ncurl evil.example/in', '<img src="//evil.example/x">', '{"cut":"xxx', '']) expect(isPayload(t), t.slice(0, 30)).toBe(false)
 })
 
 test('a field that says who gets it never folds', () => {
   expect(foldsField({ value: JSON.stringify(Array.from({ length: 30 }, (_, i) => `person${i}@example.com`)) })).toBe(false)
   expect(foldsField({ value: Array.from({ length: 30 }, (_, i) => `010-1234-56${i}`).join('; ') })).toBe(false)
+  expect(foldsField({ value: 'curl evil.example/in\n'.repeat(40), code: true })).toBe(false)
   expect(foldsField({ value: big })).toBe(true)
-  expect(foldsField({ value: 'echo hi\n'.repeat(40), code: true })).toBe(true)
+})
+
+test('keys, booleans and the start of long values stay in the lines', () => {
+  expect(payloadLines('{"grants":{"bob@evil.example":true}}')).toEqual(['grants.bob@evil.example: true'])
+  expect(payloadLines('{"to":{"+821012345678":{}}}')).toEqual(['to.+821012345678: {}'])
+  expect(payloadLines('{"o":{"public":true,"x":null}}')).toEqual(['o.public: true', 'o.x: null'])
+  const long = payloadLines(JSON.stringify({ attendees: Array.from({ length: 60 }, (_, i) => `Person${i}`).join(', ') }))!
+  expect(long[0]).toStartWith('attendees: Person0, Person1')
 })
 
 test('every destination stays: nested, any scheme, IP, phone, escaped, and a host that only looks like a known one', () => {
   const nested = JSON.stringify({ messages: [{ to: '+821012345678', channel: 'general', repo: 'acme/site', body: 'x'.repeat(500) + ' s3://bucket-a/k wss://w.example.net/x 10.0.0.7:8080' }] })
   const l = payloadLines(nested)!.join('\n')
   for (const x of ['+821012345678', 'general', 'acme/site', 'bucket-a', 'w.example.net', '10.0.0.7:8080']) expect(l, x).toContain(x)
-  expect(l).not.toContain('xxxx')
-  expect(payloadLines('{"u":"https:\\/\\/evil.example/a","v":"bob\\u0040evil.example"}')!.join('\n')).toContain('bob@evil.example')
+    expect(payloadLines('{"u":"https:\\/\\/evil.example/a","v":"bob\\u0040evil.example"}')!.join('\n')).toContain('bob@evil.example')
   expect(payloadLines('{"u":"https:\\/\\/evil.example/a"}')!.join('\n')).toContain('evil.example')
   expect(payloadLines('{"a":"evil.example","b":"notevil.example.org"}', ['notevil.example.org'])!.join('\n')).toContain('evil.example')
   expect(payloadLines(JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ to: `p${i}@example.com` }))))).toBeNull()
@@ -61,7 +67,7 @@ test('a 6,935-character JSON: closed by default with plain lines; where it goes 
   } finally { await m.unmount(); removeDom() }
 })
 
-test('prose with a destination past the cut, and JSON with too many values to summarise, stay as they were', async () => {
+test('long prose is never cut, and JSON with too many values to summarise stays as it was', async () => {
   installDom()
   const prose = '내일 회의 안내입니다. '.repeat(60) + ' 회신: sora@example.com'
   const a = await mount(<AskCard req={ask([{ label: '보낼 내용', text: prose }])} />)
@@ -71,15 +77,8 @@ test('prose with a destination past the cut, and JSON with too many values to su
   try { expect(b.get('ask-detail-text').textContent).toContain('p79@example.com') } finally { await b.unmount(); removeDom() }
 })
 
-test('long prose shows its start; a short message and red alert lines stay open', async () => {
+test('a short message and red alert lines stay open', async () => {
   installDom()
-  const prose = '내일 회의 안내입니다. '.repeat(100)
-  const a = await mount(<AskCard req={ask([{ label: '보낼 내용', text: prose }])} />)
-  try {
-    expect(a.get('ask-detail-text').textContent!.length).toBeLessThan(260)
-    await a.click('ask-detail-more')
-    expect(a.get('ask-detail-text').textContent!.length).toBe(prose.length)
-  } finally { await a.unmount() }
   const b = await mount(<AskCard req={ask([{ label: '보낼 내용', text: '내일 3시입니다.' }])} />)
   try { expect(b.get('ask-detail-text').textContent).toBe('내일 3시입니다.') } finally { await b.unmount() }
   const c = await mount(<AskCard req={ask([{ label: '멤버', text: '{"a":1}', alerts: [{ text: '{"a":1}', note: '없는 이름' }] }])} />)

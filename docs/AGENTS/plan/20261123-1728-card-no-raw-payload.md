@@ -18,8 +18,8 @@ Out: the phone app's card; the diff on a change to an existing skill, which stay
 ## Steps
 
 1. Detect a machine payload by its shape, with no per-tool list.
-2. Fold it behind 자세히 with its label, size and a one-line summary; shorten long prose.
-3. Tests for JSON, code, prose, recipients, addresses and marks.
+2. Fold complete JSON behind 자세히 with its label, size and plain lines of every key and value.
+3. Tests for JSON, prose, scripts, recipients, addresses and marks.
 
 ## Decisions
 

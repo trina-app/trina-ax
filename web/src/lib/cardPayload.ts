@@ -1,12 +1,11 @@
 // What a confirm card shows before anyone opens 자세히 (docs/decisions/20261124-card-no-raw-payload.md). The owner: "코드를
-// 보여주면 뭐 어케 하라는거냐". Only what is surely machine text folds: JSON, markup, a script. It folds only when its short
-// values and every destination in it can stay in view as plain lines; when they cannot, the card shows it as before.
+// 보여주면 뭐 어케 하라는거냐". Complete JSON is the one shape the client can fold by itself, because it can be read back into
+// plain lines: every key and value, a long value by its start. No pattern decides what may hide. JSON with too many
+// values to summarise, prose, and anything else stay as they were; code is folded by the server's own mark.
 
-/** prose longer than this shows its start, unless a destination in it would go out of view */
-export const LONG_TEXT = 600
-export const LONG_TEXT_SHOWN = 240
-/** a value at most this long is shown as a line: who gets it, a channel, a repo, a title */
+/** a value longer than this shows its start (and any address found further on) */
 const SHORT_VALUE = 120
+const VALUE_START = 80
 /** more lines than this is not a summary: the payload stays as it was */
 const MAX_LINES = 60
 
@@ -16,15 +15,10 @@ const parsed = (t: string): unknown => {
 }
 const isStringList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string')
 
-/** JSON (not a plain list of names), markup or a script. `cut`: only the start of a longer text is here, so JSON that no
- * longer parses still counts by its opening. */
-export function isPayload(text: string, cut = false): boolean {
-  const t = text.trim()
-  if (!t) return false
-  const v = parsed(t)
-  if (v !== undefined) return !isStringList(v)
-  if (cut && /^(?:\{\s*"|\[\s*\{)/.test(t)) return true
-  return /^(?:<!doctype\b|<html\b|<\?xml\b|<svg\b|#!)/i.test(t)
+/** Complete JSON that is not a plain list of names. */
+export function isPayload(text: string): boolean {
+  const v = parsed(text.trim())
+  return v !== undefined && !isStringList(v)
 }
 
 /** Every email, address of any scheme, IP address and phone number in a text. Bounded and anchored: linear on 100,000 characters. */
@@ -39,8 +33,8 @@ export function destinations(text: string): string[] {
 
 /**
  * The plain lines that stay in view of a folded payload, or null when there are too many to be a summary. JSON is read by
- * its values (so an escaped address counts): each short value as "path: value", and any destination inside a long one.
- * `known`: values the card already shows on their own rows.
+ * its parsed keys and values (so an escaped address counts): "path: value" for each, a long value by its start plus any
+ * address further on. `known`: values the card already shows on their own rows.
  */
 export function payloadLines(text: string, known: readonly string[] = []): string[] | null {
   const have = new Set(known)
@@ -49,21 +43,29 @@ export function payloadLines(text: string, known: readonly string[] = []): strin
   if (v === undefined) { for (const d of destinations(text)) if (!have.has(d)) out.add(d) }
   else {
     const stack: [string, unknown][] = [['', v]]
+    const line = (path: string, s: string) => out.add(path ? `${path}: ${s}` : s)
     while (stack.length) {
       const [path, x] = stack.pop()!
-      if (typeof x === 'string' || typeof x === 'number') {
-        const s = String(x)
-        if (!s.trim() || have.has(s)) continue
-        if (s.length <= SHORT_VALUE && !s.includes('\n')) out.add(path ? `${path}: ${s}` : s)
-        else for (const d of destinations(s)) if (!have.has(d)) out.add(path ? `${path}: ${d}` : d)
-      } else if (Array.isArray(x)) { for (let i = x.length - 1; i >= 0; i--) stack.push([path ? `${path}.${i}` : String(i), x[i]]) }
-      else if (x && typeof x === 'object') { const e = Object.entries(x); for (let i = e.length - 1; i >= 0; i--) stack.push([path ? `${path}.${e[i]![0]}` : e[i]![0], e[i]![1]]) }
+      if (typeof x === 'string') {
+        if (!x.trim() || have.has(x)) continue
+        if (x.length <= SHORT_VALUE && !x.includes('\n')) line(path, x)
+        else {
+          line(path, `${[...x.replace(/\s+/g, ' ').trim()].slice(0, VALUE_START).join('')}…`)
+          for (const d of destinations(x)) if (!have.has(d)) line(path, d)
+        }
+      } else if (Array.isArray(x)) {
+        if (!x.length) line(path, '[]')
+        for (let i = x.length - 1; i >= 0; i--) stack.push([path ? `${path}.${i}` : String(i), x[i]])
+      } else if (x && typeof x === 'object') {
+        const e = Object.entries(x)
+        if (!e.length) line(path, '{}')
+        for (let i = e.length - 1; i >= 0; i--) stack.push([path ? `${path}.${e[i]![0]}` : e[i]![0], e[i]![1]])
+      } else line(path, String(x))
       if (out.size > MAX_LINES) return null
     }
   }
   return out.size > MAX_LINES ? null : [...out]
 }
 
-/** Does a field's value fold? JSON or a script, long, whose short values and destinations can stay in view. A plain list
- * of names or numbers, in any form, never does: it says who gets it. */
-export const foldsField = (f: { value: string; code?: true }) => f.value.length > 200 && (!!f.code || isPayload(f.value)) && payloadLines(f.value) !== null
+/** Does a field's value fold? Long complete JSON that can be read back into lines. Anything else stays: it may say who gets it. */
+export const foldsField = (f: { value: string; code?: true }) => !f.code && f.value.length > 200 && isPayload(f.value) && payloadLines(f.value) !== null
