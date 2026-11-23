@@ -1,0 +1,5 @@
+- In a shared chat, a change through a team connection now says in plain words why it asks each time, and keeps the code and data behind "자세히" instead of showing them on the card.
+- Sharing a folder from a shared chat no longer asks "which folder, who?" and then refuses the answer: the answer goes straight to one share card.
+- A promo video can use a photo attached in the chat as it is: Trina no longer copies it into a team folder (and asks to) first. People in a shared chat see the photo in the video too.
+- The scheduled task card no longer says an address "cannot be opened" when your "Allow all websites" lets the run open it, and says plainly how to change it when it really cannot.
+- A scheduled task's result in a shared chat or a project chat now tells the other people there, like a new message.

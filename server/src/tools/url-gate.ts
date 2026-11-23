@@ -497,6 +497,26 @@ function allSitesChat(db: Database, chatId: string | null, userId: string | null
   return !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
 }
 
+/**
+ * Would the person's own scheduled run in `chatId` open `rawUrl` with no card while this server's public exit address is
+ * unknown (①d, as gateUrl reads it there): a plain address (a site name, no long random-looking part, no user name)
+ * under the person's "Allow all websites", in a chat that is not confidential, with no guest among its people (where a
+ * teammate's words may steer the run). For the schedule card's words (tools/schedules.ts, AB4: the card said "cannot
+ * open" and the run then opened it); read again at run time, so the card says "while it is on".
+ */
+export function opensUnderAllSites(db: Database, chatId: string | null, userId: string, rawUrl: string, o: { guest?: boolean } = {}): boolean {
+  if (o.guest) return false
+  const url = normUrl(rawUrl)
+  if (!url) return false
+  if (new URL(url).search.slice(1).length > MAX_UNCONFIRMED_QUERY) return false
+  if (chatId && (!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) || isConfidentialChat(db, chatId))) return false
+  const site = siteOf(url)
+  const longName = longSubdomain(url, site)
+  const opaque = opaqueParts(decodedUrl(url).replace(/^https?:\/\//i, '')).filter((m) => !longName.some((n) => n.includes(m)))
+  const parsed = new URL(url)
+  return plainAddress(site, [...longName, ...opaque], !!(parsed.username || parsed.password), null) && webAllowAll(db, userId)
+}
+
 /** The sites the person allowed: for good (while the team's "Always allow" switch is on and the account is active), and
  * in this chat; none in a confidential chat or without a person. Only the turn's own person's rows. */
 function allowedSites(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): Set<string> {

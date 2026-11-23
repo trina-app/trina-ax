@@ -686,12 +686,15 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // code that an app on the person's computer runs (Aside's Repl): what it does in plain words, the code under its lines
   // a call that acts on the person's own things (Sent.ownAct, no team files): one plain sentence of what happens, the
   // tool's title ("Create a task in Tasks"); code an app on the computer runs (Aside's repl): the title the AI gave it, else
-  // a generic line, and its code, parameters and ids behind "자세히" (the owner: "코드를 보여주면 뭐 어케 하라는거냐").
+  // a generic line; and for every such call its code, parameters and ids behind "자세히" (the owner: "코드를 보여주면 뭐
+  // 어케 하라는거냐"; AB4 F3: a team connection's create_app showed the app's whole HTML open on the card).
   // A call that reaches other people keeps "send" and its recipients in view (security review of #1338, L2)
   const plain = !!sent.ownAct && !sent.request && !sent.attach?.length
   const sentence = sent.runs ? (sent.title ? say('actTitled', L, { name: row.name, title: sent.title }) : say('runCode', L, { name: row.name })) : say('actTool', L, { name: row.name, what: what(L) })
+  // a shared chat's change on a team connection asks every time (sharedAlwaysKey): the card says why, in one line
+  const teamLine = plain && sharedMode && row.scope === 'team' ? `\n\n${say('teamEachTime', L)}` : ''
   const question = plain
-    ? `${practice}${lead}${sentence}`
+    ? `${practice}${lead}${sentence}${teamLine}`
     : `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
@@ -700,7 +703,13 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const shown = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
-  const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}), ...(plain && sent.runs ? { hidden: true as const } : {}) }]
+  // a team connection's change (its account is everyone's): the labelled lines stay in view, each long value (code, a page)
+  // as its length only, the exact text one click away; the person's own connection or app: everything behind "자세히"
+  const teamPlain = plain && row.scope === 'team' && !sent.runs
+  const cut = teamPlain ? shown.fields.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
+  const folded = cut.some((f, i) => f !== shown.fields[i])
+  const hide = plain && !(teamPlain && cut.length)
+  const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
@@ -736,6 +745,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   if (!sharedMode) keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
   return true
 }
+
+/** A team connection's change card shows a value up to this long on its line; a longer one (code, a page) by its length */
+const CARD_VALUE_SHOWN = 200
 
 /** "Allow" on a read card: this tool of this connection for the rest of the answer (per turn) */
 const unsureOnce = new WeakMap<BuildCtx, Set<string>>()

@@ -27,7 +27,8 @@ import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { AUDIO_DIR, audioCues, soundDuration } from './audio'
 import { DURATION, type VideoDoc } from './layout'
-import { pictureExt, teamPathOf } from './spec'
+import { chatFileOf, pictureExt, teamPathOf } from './spec'
+import { chatFilesOf } from '../chat/chat-files'
 import { PROMO_FONT_FILE, renderDocument } from './template'
 
 /** The pinned HyperFrames release (versions.json "hyperframes"; scripts/promo-video/hyperframes/package-lock.json). */
@@ -70,6 +71,15 @@ function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const d = (JSON.parse(r.spec) as StoredSpec).doc
   for (const p of [d.logo, d.promise.picture, d.work.picture, d.proof.picture]) {
     if (!p) continue
+    // one of the chat's own files (spec.ts chatSrc; AB4 F11): theirs to open as a file of this chat they see (ChatFiles
+    // open: sent in a message, not one only answers hidden from them carry), never on the safety check's list
+    const fileId = chatFileOf(p.src)
+    if (fileId) {
+      let held = false
+      try { held = chatFilesOf(ctx).open(userId, r.chat_id, fileId, false).quarantined } catch { throw new HttpError('not_found') }
+      if (held) throw new HttpError('not_found')
+      continue
+    }
     // (mustExist false: a picture gone since is left out of the owner's render too, never a reason to refuse)
     try { authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(p.src), 'read', { mustExist: false }) } catch { throw new HttpError('not_found') }
   }
@@ -137,6 +147,15 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     let n = 0
     const local = (src: string): string | null => {
       try {
+        // one of the chat's own files (spec.ts chatSrc), opened as the chat's owner; one held by the safety check is left out
+        const fileId = chatFileOf(src)
+        if (fileId) {
+          const f = chatFilesOf(ctx).open(r.owner_id, r.chat_id, fileId, false)
+          if (f.quarantined) return null
+          const name = `img/${++n}.${pictureExt(f.name)}`
+          fs.writeFileSync(path.join(work, name), readRegular(f.abs, 20 * 1024 * 1024).bytes)
+          return name
+        }
         const a = authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(src), 'read', { mustExist: true })
         const name = `img/${++n}.${pictureExt(a.rel)}`
         fs.writeFileSync(path.join(work, name), readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes)

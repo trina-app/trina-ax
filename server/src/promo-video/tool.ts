@@ -50,7 +50,7 @@ export const PROMO_TOOL_DESCRIPTION =
   'The story: 1 hook — the customer\'s outcome as before → after (e.g. "time to write one quote": "half a day" → "14 s"); 2 promise — what the company gives, over a brand picture; ' +
   '3 work — what it does, on its own picture in a window; 4 proof — one or two numbers written in the material (or, without any, the most concrete fact); 5 end card — logo, one line, the site\'s real offer, the website. ' +
   'Rules the server checks: every number on screen is written in the sources (proof numbers exactly as written, with sign and unit); every line fits (about 11 Korean characters or 20 Latin letters per headline line; a line too wide comes back as a problem); ' +
-  'pictures come only from the team\'s brand images folder, each at most once, at least 600 px on the short side; a beat without a fitting picture is made with type and light (leave `picture` out; never invent one). ' +
+  'pictures come from the team\'s brand images folder, or are a picture the person attached in this chat (pass the path shown with it in the conversation, chat:files/… or their own …/.attachments/…, as it is: never copy a picture into a team folder for the video), each at most once, at least 600 px on the short side; a beat without a fitting picture is made with type and light (leave `picture` out; never invent one). ' +
   'If the result lists problems, fix all of them and call once more; if it fails again, stop and tell the person why in one plain sentence. ' +
   `The length is always ${DURATION} s: when the person asks for another length, do not ask; make it and say in one plain sentence after it that the video is ${DURATION} s because that is the length this tool makes.`
 
@@ -133,8 +133,8 @@ export function sameAsEarlier(ctx: AppContext, t: ToolCtx, chatId: string, a: Pr
     if (!same) continue
     const problems: string[] = []
     const pics = [a.promise.picture, a.work.picture, a.proof.picture].filter((p): p is string => !!p)
-    for (const p of pics) readPicture(ctx, t, p, PICTURE_MIN_PX, 'picture', problems)
-    if (a.logo) readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems)
+    for (const p of pics) readPicture(ctx, t, p, PICTURE_MIN_PX, 'picture', problems, { attached: true })
+    if (a.logo) readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems, { attached: true })
     if (problems.length) return null
     // (the earlier asker's source paths are not carried under this person's version)
     return { doc: s.doc!, sources: [], pictures: [] }

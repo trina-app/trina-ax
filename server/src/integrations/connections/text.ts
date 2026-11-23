@@ -37,6 +37,11 @@ export const TEXT = {
   // AI's ({title}: the call carries it, so it is never stated as fact; code review)
   actTitled: t('{name}에서 작업을 실행해요 · AI 설명: {title}', 'Run a task in {name} · the AI calls it: {title}', 'Menjalankan tugas di {name} · kata AI: {title}', "{name}で作業を実行します · AIの説明：{title}", "Ejecutar una tarea en {name} · la IA lo llama: {title}", "在{name}中运行任务 · AI 的说明：{title}"),
   actTool: t('{name}에서 “{what}” 작업을 해요', '{what} in {name}', '{what} di {name}', "{name}で{what}をします", "{what} en {name}", "在{name}中{what}"),
+  // a shared chat's change card on a team connection (tools.ts gate): why it has no Always allow, in plain words (a team
+  // account is everyone's, so a change there is asked each time in a chat other people write in; AB4 F3)
+  teamEachTime: t('팀이 함께 쓰는 연결이라, 공유 대화에서는 바꿀 때마다 물어봐요.', 'This connection is shared by the team, so in a shared chat the AI asks before every change.', 'Koneksi ini dipakai bersama oleh tim, jadi di obrolan bersama AI bertanya sebelum setiap perubahan.', "チームで共有している接続なので、共有の会話では変更のたびに確認します。", "Esta conexión la comparte el equipo, así que en un chat compartido la IA pregunta antes de cada cambio.", "这是团队共用的连接，所以在共享对话中，每次更改前 AI 都会询问。"),
+  // a long value (code, a page) on a team connection's change card: its length; the whole text is one click away
+  longValue: t('(긴 내용 {n}자 · 아래 “보내는 내용 그대로 보기”에서 볼 수 있어요)', '(long, {n} characters · see it in full below)', '(panjang, {n} karakter · lihat lengkapnya di bawah)', "（長い内容 {n}文字 · 下で全体を見られます）", "(largo, {n} caracteres · véalo completo abajo)", "（较长，{n}个字符 · 可在下方查看全部）"),
   runCode: t('{name}에서 작업을 실행해요', 'Run a task in {name}', 'Menjalankan tugas di {name}', "{name}で作業を実行します", "Ejecutar una tarea en {name}", "在{name}中运行任务"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing

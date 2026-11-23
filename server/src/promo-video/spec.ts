@@ -5,7 +5,8 @@
 //   number exactly as written there, sign and unit included (whitespace aside); a number only the AI's arithmetic
 //   made is refused;
 // - pictures and the logo: team files the person can read, inside a brand folder (groups/<team>/브랜드/… or
-//   shared/브랜드/…, the folder name in any language), PNG, JPEG or WebP by their bytes, big enough, each picture once;
+//   shared/브랜드/…, the folder name in any language), or a picture the person attached in this chat (their own upload,
+//   or one of the chat's own files, chat:files/…; AB4 F11), PNG, JPEG or WebP by their bytes, big enough, each once;
 // - the style: one that fits the brand colour (palette.ts); another one is replaced, not refused;
 // - colours: "#rrggbb" only (the schema), the website: written in the material or the saved company profile.
 import path from 'node:path'
@@ -15,6 +16,8 @@ import type { ToolCtx } from '../files/service'
 import { extractText } from '../files/extract'
 import { readRegular } from '../files/store'
 import { authorize } from '../policy/authorize'
+import { chatFilePath, parsePlace } from '@mycel/shared/places'
+import { resolvePlace } from '../files/places'
 import { imageSize } from '../uploads/image'
 import { readCompanyProfile } from '../onboarding/profile'
 import { fitDoc, plain, type LogoPic, type Pic, type VideoDoc } from './layout'
@@ -91,28 +94,53 @@ export async function sourceText(ctx: AppContext, t: ToolCtx, list: string[], pr
   return { text: spaced(all), tight: squash(all), paths, parts: paths.map((p, i) => ({ path: p, text: parts[i]! })) }
 }
 
-export interface Read { rel: string; bytes: Buffer; kind: 'png' | 'jpg' | 'webp'; width: number; height: number }
-/** A picture or the logo: readable, in a brand folder, a real PNG / JPEG / WebP of at least `min` px. `into` and
- * `without` word the problems for what is being made (the video by default). */
-export function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: number, what: string, problems: string[], o: { into?: string; without?: string } = {}): Read | null {
+/** `src`: what the video's page names it by: "/<team path>", or a chat file's place (chatSrc) */
+export interface Read { rel: string; src: string; bytes: Buffer; kind: 'png' | 'jpg' | 'webp'; width: number; height: number }
+
+/** A chat file's place in a video's page: chat:files/<id>/<name>, its name without the characters an address would cut
+ * at (web/src/lib/frame-files.ts CHAT_FILE_REF reads the id back) */
+export const chatSrc = (id: string, name: string) => chatFilePath(id, name.replace(/[?#%\s]+/g, '_'))
+/** The chat file id behind a picture's `src` (chatSrc), or null for a team path */
+export const chatFileOf = (src: string): string | null => /^chat:files\/([0-9a-f-]{8,64})\//i.exec(src)?.[1] ?? null
+
+/** A picture or the logo the person may use: a team file in a brand folder; with `attached` (the promo video; AB4 F11,
+ * docs/decisions/20261123-ab4-asks-left.md) also the person's own upload (users/<me>/.attachments/…: a file they attached in a chat only they see), or one of
+ * this chat's own files (chat:files/…: everyone who sees the chat sees it already, so it is never copied to a team
+ * folder for the video); a real PNG / JPEG / WebP of at least `min` px. `into` and `without` word the problems for what
+ * is being made (the video by default). */
+export function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: number, what: string, problems: string[], o: { into?: string; without?: string; attached?: boolean } = {}): Read | null {
   const p = raw.replace(/^\/+/, '')
   let rel: string
+  let src: string
   let bytes: Buffer
-  try {
-    const r = authorize(ctx.files.fx, ctx.files.rules(), t.user, p, 'read', { mustExist: true })
-    if (!r.st?.isFile()) throw new Error('not a file')
-    rel = r.rel
-    bytes = Buffer.from(readRegular(r.abs, PICTURE_MAX_BYTES, r.st).bytes)
-  } catch {
-    problems.push(`${what}: "${raw}" is not a picture this person can open; use a file from the brand images folder or leave it out`)
-    return null
+  const notOpen = () => problems.push(`${what}: "${raw}" is not a picture this person can open; use a file from the brand images folder${o.attached ? ' or one attached in this chat' : ''}, or leave it out`)
+  if (o.attached && parsePlace(p)) {
+    // one of this chat's own files, through the chat's places (the main AI of a chat turn only; never a team folder)
+    const places = t.places
+    const r = places ? resolvePlace(p, places.ctx, 'read') : null
+    if (!places || !r || r.refused || r.storage?.kind !== 'chatFile') { notOpen(); return null }
+    try {
+      const f = places.open(r.storage.id, r.storage.name)
+      if (f.quarantined) { problems.push(`${what}: "${raw}" is held by the team's safety check; leave it out`); return null }
+      bytes = Buffer.from(readRegular(f.abs, PICTURE_MAX_BYTES).bytes)
+      rel = chatFilePath(f.id, f.name)
+      src = chatSrc(f.id, f.name)
+    } catch { notOpen(); return null }
+  } else {
+    try {
+      const r = authorize(ctx.files.fx, ctx.files.rules(), t.user, p, 'read', { mustExist: true })
+      if (!r.st?.isFile()) throw new Error('not a file')
+      rel = r.rel
+      src = '/' + r.rel
+      bytes = Buffer.from(readRegular(r.abs, PICTURE_MAX_BYTES, r.st).bytes)
+    } catch { notOpen(); return null }
+    if (!inBrandFolder(rel) && !(o.attached && rel.startsWith(`users/${t.user.id}/.attachments/`))) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/)${o.attached ? ' or a picture attached in this chat' : ''} can go into the ${o.into ?? 'video'}`); return null }
   }
-  if (!inBrandFolder(rel)) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/) can go into the ${o.into ?? 'video'}`); return null }
   const kind = kindOf(bytes)
   const size = kind ? imageSize(bytes) : null
   if (!kind || !size) { problems.push(`${what}: "${raw}" is not a PNG, JPEG or WebP picture`); return null }
   if (Math.min(size.width, size.height) < min) { problems.push(`${what}: "${raw}" is too small (${size.width}×${size.height}; at least ${min} px on the short side); leave it out${what === 'logo' ? '' : ` and ${o.without ?? 'that beat is made with type and light'}`}`); return null }
-  return { rel, bytes, kind, ...size }
+  return { rel, src, bytes, kind, ...size }
 }
 const FOCUS: Record<string, string> = { center: 'center', top: 'center 20%', bottom: 'center 80%', left: '20% center', right: '80% center' }
 
@@ -145,16 +173,16 @@ export async function checkPromoInput(ctx: AppContext, t: ToolCtx, a: PromoVideo
   const used = new Set<string>()
   const pic = (raw: string | undefined, focus: string | undefined, what: string): Pic | null => {
     if (!raw) return null
-    const r = readPicture(ctx, t, raw, PICTURE_MIN_PX, what, problems)
+    const r = readPicture(ctx, t, raw, PICTURE_MIN_PX, what, problems, { attached: true })
     if (!r) return null
     if (used.has(r.rel)) { problems.push(`${what}: "${raw}" is already used by another beat; use another picture or none`); return null }
     used.add(r.rel)
-    return { src: '/' + r.rel, width: r.width, height: r.height, focus: FOCUS[focus ?? 'center'] ?? 'center' }
+    return { src: r.src, width: r.width, height: r.height, focus: FOCUS[focus ?? 'center'] ?? 'center' }
   }
   let logo: LogoPic | null = null
   if (a.logo) {
-    const r = readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems)
-    if (r) logo = { src: '/' + r.rel, width: r.width, height: r.height, focus: 'center', treat: await logoTreat(r.bytes, r.kind, paletteFor(family, brand).ground) }
+    const r = readPicture(ctx, t, a.logo, LOGO_MIN_PX, 'logo', problems, { attached: true })
+    if (r) logo = { src: r.src, width: r.width, height: r.height, focus: 'center', treat: await logoTreat(r.bytes, r.kind, paletteFor(family, brand).ground) }
   }
   const h = a.hook
   const before = h.before.trim(), after = h.after.trim()
@@ -196,9 +224,9 @@ export async function checkPromoInput(ctx: AppContext, t: ToolCtx, a: PromoVideo
   }
   problems.push(...fitDoc(doc).problems)
   if (problems.length) return { ok: false, problems: [...new Set(problems)] }
-  return { ok: true, spec: { doc, sources: src.paths, pictures: [...used, ...(logo ? [logo.src.slice(1)] : [])] } }
+  return { ok: true, spec: { doc, sources: src.paths, pictures: [...used, ...(logo ? [teamPathOf(logo.src)] : [])] } }
 }
 
-/** The team path behind a picture's `src` ("/groups/…" → "groups/…"). */
+/** The team path behind a picture's `src` ("/groups/…" → "groups/…"); a chat file's src stays its place (chat:files/…). */
 export const teamPathOf = (src: string) => src.replace(/^\/+/, '')
 export const pictureExt = (rel: string) => path.extname(rel).toLowerCase().replace(/^\./, '') || 'jpg'
