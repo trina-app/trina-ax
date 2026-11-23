@@ -1004,12 +1004,13 @@ export type AuditEntry = z.infer<typeof AuditEntry>
  * whisper.cpp on this server (private, slow on small servers). docs/DECISIONS.md "Voice input through OpenRouter". */
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
-/** whisper large-v3 turbo on OpenRouter (DeepInfra, Groq): the default until 2026-11-23, $0.012 an hour of sound */
+/** whisper large-v3 turbo on OpenRouter (DeepInfra, Groq): the default, $0.012 an hour of sound */
 export const WHISPER_TURBO_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** ElevenLabs Scribe v2 on OpenRouter (ElevenLabs, zero data retention): the default since 2026-11-23, the owner's pick
- * for better words than whisper (docs/decisions/20261123-speech-scribe-v2.md), $0.22 an hour of sound */
+/** ElevenLabs Scribe v2 on OpenRouter (ElevenLabs, zero data retention): a team with its own key can pick it in Team
+ * settings (docs/decisions/20261123-speech-scribe-v2.md), $0.22 an hour of sound. It becomes the default only after the
+ * hosting key's guardrail at OpenRouter allows it (the owner, 2026-11-23). */
 export const SCRIBE_V2_SPEECH_MODEL = 'elevenlabs/scribe-v2'
-export const DEFAULT_SPEECH_MODEL = SCRIBE_V2_SPEECH_MODEL
+export const DEFAULT_SPEECH_MODEL = WHISPER_TURBO_SPEECH_MODEL
 /** the models Admin › Team settings › Voice input suggests for the team's own key (any OpenRouter STT model may be typed) */
 export const SPEECH_MODEL_SUGGESTIONS: readonly string[] = [SCRIBE_V2_SPEECH_MODEL, WHISPER_TURBO_SPEECH_MODEL]
 /** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and

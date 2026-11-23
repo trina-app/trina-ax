@@ -113,23 +113,24 @@ describe('OpenRouter transcription', () => {
     expect(hits.length).toBe(1)
     const h = hits[0]!
     expect(h.auth).toBe(`Bearer ${KEY}`)
-    // the default model since 2026-11-23: ElevenLabs Scribe v2, only through ElevenLabs, without audio-event tags
-    expect(h.body.model).toBe('elevenlabs/scribe-v2')
+    // the default model: whisper turbo, through DeepInfra then Groq (Scribe v2 becomes the default only after the
+    // hosting key's guardrail allows it)
+    expect(h.body.model).toBe('openai/whisper-large-v3-turbo')
     expect(h.body.input_audio.format).toBe('wav')
     expect(Buffer.from(h.body.input_audio.data, 'base64').equals(Buffer.from(bytes))).toBe(true)
     expect(h.body.language).toBe('ko')
     expect(h.body.response_format).toBe('verbose_json')
-    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['elevenlabs'], only: ['elevenlabs'], allow_fallbacks: true, options: { elevenlabs: { tag_audio_events: false } } })
+    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
   })
-  test('whisper chosen in Team settings: DeepInfra then Groq, no ElevenLabs option', async () => {
-    updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' })
+  test('Scribe v2 chosen in Team settings: only ElevenLabs, without audio-event tags (whisper\'s list gave 404)', async () => {
+    updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' })
     try {
-      reply = () => Response.json({ text: 'Hello team.', language: 'en', duration: 1, segments: [{ start: 0, end: 1, text: 'Hello team.' }] })
+      reply = () => Response.json({ text: 'Hello team.', language: 'eng', duration: 1, segments: [{ start: 0, end: 1, text: 'Hello team.' }] })
       const job = await run(wav())
       expect(job.status, JSON.stringify(job.error)).toBe('done')
-      expect(hits[0]!.body.model).toBe('openai/whisper-large-v3-turbo')
-      expect(hits[0]!.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
-    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+      expect(hits[0]!.body.model).toBe('elevenlabs/scribe-v2')
+      expect(hits[0]!.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['elevenlabs'], only: ['elevenlabs'], allow_fallbacks: true, options: { elevenlabs: { tag_audio_events: false } } })
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('the providers the request asks for are constants per model (whisper: DeepInfra first, Groq when it is down; Scribe: ElevenLabs)', () => {
     expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
@@ -154,6 +155,7 @@ describe('OpenRouter transcription', () => {
   })
   test('a model that refuses verbose_json (400 naming it): the same request once more as json, and json from then on', async () => {
     resetPlainJsonModelsForTests()
+    updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' })
     try {
       reply = (b) => (b?.response_format === 'verbose_json'
         ? Response.json({ error: { message: 'response_format verbose_json is not supported for this model' } }, { status: 400 })
@@ -168,7 +170,7 @@ describe('OpenRouter transcription', () => {
       hits.length = 0
       await run(wav())
       expect(hits.map((h) => h.body.response_format)).toEqual(['json'])
-    } finally { resetPlainJsonModelsForTests() }
+    } finally { resetPlainJsonModelsForTests(); updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('whisper: a 400 that does not name the answer format keeps verbose_json (one request, the usual failure)', async () => {
     resetPlainJsonModelsForTests()
@@ -183,7 +185,7 @@ describe('OpenRouter transcription', () => {
       reply = () => Response.json({ text: 'Hello team.' })
       await run(wav())
       expect(hits.map((h) => h.body.response_format)).toEqual(['verbose_json'])
-    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('another model: any 400 to verbose_json goes once more as json; json is kept only after an answer', async () => {
     resetPlainJsonModelsForTests()
@@ -203,7 +205,7 @@ describe('OpenRouter transcription', () => {
       hits.length = 0
       await run(wav())
       expect(hits.map((h) => h.body.response_format)).toEqual(['json'])
-    } finally { resetPlainJsonModelsForTests(); updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+    } finally { resetPlainJsonModelsForTests(); updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('404 (no zero-data-retention endpoint for the model, or no such model): a clear failure naming another model, no second try', async () => {
     updateTeamSettings(A.ctx.db, { speechModel: 'google/gemini-3.5-transcribe' })
@@ -214,14 +216,17 @@ describe('OpenRouter transcription', () => {
       expect(job.error!.message).toContain('zero data retention')
       expect(job.error!.message).toContain('elevenlabs/scribe-v2')
       expect(hits.length).toBe(1)
-    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('a Scribe answer without whisper scores: the text is kept and nothing is sent twice', async () => {
-    reply = () => Response.json({ text: '안녕하세요. 회의를 시작합니다.', language: 'kor', duration: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
-    const job = await run(wav())
-    expect(job.status, JSON.stringify(job.error)).toBe('done')
-    expect(job.result).toEqual({ text: '안녕하세요. 회의를 시작합니다.', language: 'ko', durationSec: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
-    expect(hits.length).toBe(1)
+    updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' })
+    try {
+      reply = () => Response.json({ text: '안녕하세요. 회의를 시작합니다.', language: 'kor', duration: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
+      const job = await run(wav())
+      expect(job.status, JSON.stringify(job.error)).toBe('done')
+      expect(job.result).toEqual({ text: '안녕하세요. 회의를 시작합니다.', language: 'ko', durationSec: 3.2, segments: [{ start: 0, end: 3.2, text: '안녕하세요. 회의를 시작합니다.' }] })
+      expect(hits.length).toBe(1)
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('the answer\'s language as whisper\'s code: Groq\'s "Korean" / "English" are ko / en', async () => {
     expect(['Korean', 'English', 'japanese', ' Chinese ', 'ko', 'EN', 'haw', 'Cantonese', 'Mandarin'].map(languageCode)).toEqual(['ko', 'en', 'ja', 'zh', 'ko', 'en', 'haw', 'yue', 'zh'])
@@ -246,7 +251,7 @@ describe('OpenRouter transcription', () => {
       expect(hits[0]!.body.model).toBe('openai/whisper-1')
       expect(hits[0]!.body.input_audio.format).toBe('m4a')
       expect('language' in hits[0]!.body).toBe(false)
-    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'elevenlabs/scribe-v2' }) }
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
   test('401 bad key, 402 no credits, 429 rate limited, 5xx provider down (tried twice): localized failures without the key', async () => {
     const cases: [number, string, number][] = [[401, 'refused the key', 1], [402, 'no credits', 1], [429, 'Too many requests', 1], [503, 'did not answer, twice', 2]]
