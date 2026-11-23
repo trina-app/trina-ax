@@ -1,8 +1,9 @@
 # /etc/sudoers.d/trina-demo (install.sh checks it with visudo before it is put in place)
 # The gate (tdgate) touches instances only as the instance user (demo-gate README "Hosting users"). No pty: the gate
-# runs sudo without a terminal and keeps the process groups it starts; no I/O logging (it needs a pty, and the
-# instances' output is the gate's own log).
-Defaults:tdgate !use_pty, !requiretty, !log_output, !log_input
+# runs sudo without a terminal and keeps the process groups it starts. Only settings both sudo-rs (Ubuntu 25.10+'s
+# sudo: it never asks for a tty and has no I/O logging) and sudo.ws accept; a host that turned sudo.ws's I/O logging on
+# must turn it off for tdgate itself (install.sh says so).
+Defaults:tdgate !use_pty
 tdgate ALL=(tdrun:tdrun) NOPASSWD: ALL
 # the credential user may hand the gate its token through this one helper
 tdcred ALL=(tdgate) NOPASSWD: /opt/trina-demo/bin/tdgate-set-credential

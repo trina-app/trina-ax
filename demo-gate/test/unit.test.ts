@@ -1,5 +1,6 @@
 // The gate's pure parts: header allowlist, beta handling, error shapes, prompt-too-long, weighted counting, the stream
 // rewrite, the deny list, cookies, languages, start limits, config checks and log hygiene.
+import { LANGUAGE_MENU_SCRIPT, START_SCRIPT } from '../src/start-script.ts'
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -12,7 +13,8 @@ import {
 } from '../src/model.ts'
 import { WORDMARK_DARK, WORDMARK_LIGHT } from '../src/brand.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
-import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
+import { LINUX_BUN, LINUX_COMMAND, LINUX_COMMAND_V1, LINUX_INSTANCES_DIR, LINUX_TDSCOPE, linuxCommandProblems, migrateLinuxCommand } from '../src/linux-command.ts'
+import { Pool, asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
 import { GateStats, KEEP_DAYS, durationBucket } from '../src/stats.ts'
@@ -275,7 +277,8 @@ describe('pages', () => {
       const summary = html.slice(html.indexOf('<summary'), html.indexOf('</summary><p>'))
       expect(summary, l).toContain(`<span>${w.factPractice}</span>`)
       expect(html, l).toContain(`<p>${w.practice}</p></details>`)
-      expect(html, l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
+      // scripts: Turnstile's, and our own Start script, which the CSP allows by its hash
+      expect(html.replace(`<script data-start>${START_SCRIPT}</script>`, '').replace(`<script data-lang-menu>${LANGUAGE_MENU_SCRIPT}</script>`, ''), l).not.toMatch(/<script(?![^>]*challenges\.cloudflare\.com)/)
     }
     for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
   })
@@ -320,17 +323,17 @@ describe('pages', () => {
     expect(html).toContain('url(#wm-d)')
     expect(html).not.toContain('id="m"')
   })
-  test('busy and error pages have a Try again link to /; the limit page does not', () => {
+  test('busy and error pages have a Try again link to the landing in their language; the limit page does not', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
     expect(WORDS.en.retry).toBe('Try again')
     expect(WORDS.ko.retry).toBe('다시 해 보기')
     for (const l of LOCALES) {
       for (const k of ['busy', 'error'] as const) {
         const html = renderPage(k, l, { siteKey: 'k', links })
-        expect(html, `${l} ${k}`).toContain(`<a class="secondary" href="/">${WORDS[l].retry}</a>`)
+        expect(html, `${l} ${k}`).toContain(`<a class="secondary" href="/?lang=${l}">${WORDS[l].retry}</a>`)
         expect(html, `${l} ${k}`).toContain('https://ax.trina.app/demo')
       }
-      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' })).not.toContain('href="/"')
+      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' })).not.toContain('/?lang=')
     }
   })
   test('the limit page says "about an hour" only for the per-hour limit; the day and live-copy limits say tomorrow', () => {
@@ -450,6 +453,44 @@ describe('start limits', () => {
   })
 })
 
+describe('which snapshot a bad newest one falls back to', () => {
+  const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-pick-'))
+  const pool = (dir: string) => {
+    const cfg = parseConfig({
+      stateDir: path.join(dir, 'state'), turnstile: { siteKey: 'k', secretFile: 'ts' }, ai: { credentialFile: 'cred' },
+      pool: { snapshotsDir: path.join(dir, 'snap'), instancesDir: '/tmp/tdg-p', codeVersion: '1.0.0', locales: ['en'], allowSameUser: true, command: ['node', 'x.ts', '--config', '{config}'] },
+    }, dir)
+    fs.mkdirSync(cfg.stateDir, { recursive: true })
+    return new Pool(cfg, createLog(() => {}), () => 'http://127.0.0.1:1', () => false)
+  }
+  const put = (dir: string, name: string, at: number, git: string | null, codeVersion = '1.0.0') => {
+    const d = path.join(dir, 'snap', 'en', name)
+    fs.mkdirSync(path.join(d, 'base'), { recursive: true })
+    fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ codeVersion, locale: 'en', createdAt: new Date(at).toISOString(), demoFile: 'demo.json', git }))
+    return d
+  }
+  const bad = (p: Pool, d: string) => (p as unknown as { badSnapshots: Set<string> }).badSnapshots.add(d)
+  const A = 'a'.repeat(40), B = 'b'.repeat(40)
+  test('the newest of its version, whatever commit', () => {
+    const d = root(); put(d, 'old', 1000, A); put(d, 'new', 2000, B); put(d, 'other', 3000, A, '2.0.0')
+    expect(pool(d).currentSnapshot('en')?.name).toBe('new')
+  })
+  test('a bad newest: an older one of the same commit stands in', () => {
+    const d = root(); put(d, 'old', 1000, B); const n = put(d, 'new', 2000, B); const p = pool(d); bad(p, n)
+    expect(p.currentSnapshot('en')?.name).toBe('old')
+  })
+  test('a bad newest: never one of another commit, nor one without a commit', () => {
+    for (const other of [A, null]) {
+      const d = root(); put(d, 'old', 1000, other); const n = put(d, 'new', 2000, B); const p = pool(d); bad(p, n)
+      expect(p.currentSnapshot('en')).toBeNull()
+    }
+  })
+  test('snapshots of older builds (no commit) still stand in for each other', () => {
+    const d = root(); put(d, 'old', 1000, null); const n = put(d, 'new', 2000, null); const p = pool(d); bad(p, n)
+    expect(p.currentSnapshot('en')?.name).toBe('old')
+  })
+})
+
 describe('config', () => {
   const base = {
     stateDir: 'state', turnstile: { siteKey: 'k', secretFile: 'ts' }, ai: { credentialFile: 'cred' },
@@ -508,9 +549,11 @@ describe('config', () => {
     // folder, no --new-session (the gate keeps its process group)
     const bw = l.pool.command.slice(4, l.pool.command.indexOf('--', 5) + 1)
     expect(bw[0]).toBe('/usr/bin/bwrap')
-    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
+    expect(bw.join(' ')).toContain('--die-with-parent --unshare-pid --unshare-ipc --unshare-uts --hostname demo --ro-bind / / --tmpfs /srv/tdg --bind {dir} {dir} --tmpfs /run --tmpfs /tmp --tmpfs /dev/shm --dev /dev --proc /proc --')
     expect(bw).not.toContain('--new-session')
     expect(bw).not.toContain('--unshare-net')
+    // the abstract-socket scope wraps the server, inside the bwrap
+    expect(l.pool.command[l.pool.command.indexOf('/opt/trina-demo/bin/bun') - 1]).toBe('/opt/trina-demo/bin/tdscope')
     // root's files show as the overflow uid in there: the HTML-to-PDF browser check is told so, for the explicit browser
     // inside /opt/trina-demo only
     expect(l.pool.env.MYCEL_SANDBOX_ROOT_UNMAPPED).toBe('/opt/trina-demo')
@@ -522,6 +565,43 @@ describe('config', () => {
     // at least three ports: one instance's listener, model proxy and the proxy's internal server
     expect(() => parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20001] } }, '/srv')).toThrow(ConfigError)
     expect(parseConfig({ ...base, pool: { ...base.pool, portRange: [20000, 20002] } }, '/srv').pool.portRange).toEqual([20000, 20002])
+  })
+  test('the Linux instance command: exactly the template; the one older command is migrated', () => {
+    const now = (JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'gate.example.linux.json'), 'utf8')) as { pool: { command: string[]; instancesDir: string } }).pool
+    expect(now.command).toEqual([...LINUX_COMMAND])
+    expect(now.instancesDir).toBe(LINUX_INSTANCES_DIR)
+    expect(linuxCommandProblems(LINUX_COMMAND)).toEqual([])
+    expect(migrateLinuxCommand(LINUX_COMMAND)).toEqual([...LINUX_COMMAND])
+    // the only variables are {dir} and {config}
+    expect([...new Set(LINUX_COMMAND.filter((x) => x.includes('{')))].sort()).toEqual(['{config}', '{dir}'])
+    expect(linuxCommandProblems(LINUX_COMMAND_V1).length).toBe(1)
+    expect(migrateLinuxCommand(LINUX_COMMAND_V1)).toEqual([...LINUX_COMMAND])
+  })
+  test('the Linux instance command: every way around the sandbox is refused and never migrated', () => {
+    const c = () => [...LINUX_COMMAND]
+    const without = (flag: string, value: string) => { const x = c(); const i = x.findIndex((v, n) => v === flag && x[n + 1] === value); expect(i).toBeGreaterThan(-1); x.splice(i, 2); return x }
+    const bypass: Record<string, string[]> = {
+      'no --tmpfs /srv/tdg': without('--tmpfs', '/srv/tdg'),
+      'no --tmpfs /run': without('--tmpfs', '/run'),
+      'no --tmpfs /tmp': without('--tmpfs', '/tmp'),
+      'no --tmpfs /dev/shm': without('--tmpfs', '/dev/shm'),
+      '--bind / /': c().map((x, i, a) => (x === '--ro-bind' && a[i + 1] === '/' ? '--bind' : x)),
+      'a wider bind after the sandbox': (() => { const x = c(); x.splice(x.indexOf('--proc'), 0, '--bind', '/home', '/home'); return x })(),
+      '--unshare-uts only as a --setenv value': (() => { const x = c(); x.splice(x.indexOf('--unshare-uts'), 1, '--setenv', 'X', '--unshare-uts'); return x })(),
+      'no choom': c().slice(4),
+      'choom with another score': c().map((x) => (x === '800' ? '0' : x)),
+      'no --unshare-pid': c().filter((x) => x !== '--unshare-pid'),
+      'no tdscope': c().filter((x) => x !== LINUX_TDSCOPE),
+      'tdscope after bun': (() => { const x = c().filter((v) => v !== LINUX_TDSCOPE); x.splice(x.indexOf(LINUX_BUN) + 1, 0, LINUX_TDSCOPE); return x })(),
+      '--new-session': (() => { const x = c(); x.splice(5, 0, '--new-session'); return x })(),
+      'a third variable': c().map((x) => (x === '{config}' ? '{port}' : x)),
+      'another server': c().map((x) => (x.endsWith('/main.ts') ? '/tmp/main.ts' : x)),
+      'an extra argument': [...c(), '--extra'],
+    }
+    for (const [what, argv] of Object.entries(bypass)) {
+      expect(linuxCommandProblems(argv).length, what).toBe(1)
+      expect(migrateLinuxCommand(argv), what).toEqual(argv)
+    }
   })
   test('how the gate runs things as the instance user', () => {
     const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')
