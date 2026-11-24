@@ -58,7 +58,7 @@ import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
 import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { guessedTitle, keepPick, saysTitle, titleNames } from './person-aliases'
-import { broadcastIn, everyoneAsked, isTheirQuote, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
+import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -67,7 +67,7 @@ export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, labeledPath, listWords, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step, StepFix } from '@mycel/shared/api'
 import { carriesAddress, opaqueParts } from '../tools/url-gate'
-import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
+import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllIn, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
 import { redactorFor } from '../integrations/connections/redact'
@@ -670,17 +670,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // a note goes as the person's own words: only one they wrote; after a room read only the side chat's own room
         // with no thread the AI chose (a room message must not pick where the person's post goes); never a thread the AI
         // picked elsewhere either
-        // (the everyone mention apart: the post checks it below, everyoneSaid; where the person put it in their sentence is
-        // not part of their text, QA b5 F6 "\"<text>\" 이라고 @everyone 으로 올려줘" went as "@전체 <text>")
-        const everyoneQuote = plain && mentionAll && everyoneAsked(said) && isTheirQuote(said, shown)
-        const theirText = plain && (mentionAll ? everyoneQuote : fold(said).includes(fold(shown)))
+        const theirText = plain && fold(said).includes(fold(shown))
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
         // (each person: the asker's words name them in full, or say the name the AI found exactly that one member by, when
         // that word is not part of another member's name the asker also wrote: "tell Erin Yoo" is no ask to tag Erin)
         // (everyone there only when the asker's own words hold the room's "@everyone" word, never with a guest in the chat)
-        const everyoneSaid = !mentionAll || (!strict && everyoneQuote)
+        const everyoneSaid = !mentionAll || (!strict && roomMentionAllIn(said))
         const mentionsSaid = everyoneSaid && mentionIds.every((id) => {
           const p = canMention.find((x) => x.id === id)
           if (!p) return false
