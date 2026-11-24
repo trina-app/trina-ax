@@ -51,12 +51,14 @@ import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
-import AskCard from './AskCard'
+import AskCard, { BatchCard } from './AskCard'
+import { gathers, groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
 import TodoCard, { todoStepOf } from './TodoCard'
 import ShareCard from './ShareCard'
 import TeamFolderCard from './TeamFolderCard'
 import MyFoldersCard from './MyFoldersCard'
 import PostedCard from './PostedCard'
+import ScheduledCard from './ScheduledCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
@@ -891,8 +893,14 @@ export function AssistantMessage({
         )}
         {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
             confirmation card was, so that card reads as turning into this one */}
-        {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : s.folders?.length && !s.parentId ? <MyFoldersCard key={s.id} folders={s.folders} more={s.moreFolders} /> : null))}
-        {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
+        {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} endedAt={s.endedAt} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} endedAt={s.endedAt} /> : s.scheduled && !s.parentId ? <ScheduledCard key={s.id} scheduled={s.scheduled} /> : s.folders?.length && !s.parentId ? <MyFoldersCard key={s.id} folders={s.folders} more={s.moreFolders} /> : null))}
+        {/* cards of one kind from this answer show as one card, one press (lib/cardBatch.ts) */}
+        {groupCards(requests).map((g) => {
+          const r = g[0]!
+          // (a first card alone too while the answer runs: the rest of its group may still come, and one press must cover them)
+          if (showsAsBatch(g) || (streaming && gathers(r.request))) return <BatchCard key={groupKey(r) ?? r.request.requestId} cards={g} answerRunning={streaming} />
+          return r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />
+        })}
         {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
         <StepFixes steps={m.steps} />
         {/* files the AI attached to this answer for the chat's people (a chat shared with people: server

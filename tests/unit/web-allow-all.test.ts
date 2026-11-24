@@ -60,6 +60,8 @@ const db = () => h.ctx.db
 beforeEach(() => {
   updateTeamSettings(db(), { browserAllowAll: true, webAllowAll: true })
   for (const u of ['alice', 'bob', 'erin']) setWebAllowAll(db(), u, false, { via: 'settings' })
+  // a site allowed in one test is for good: every test starts without it
+  db().query('DELETE FROM user_allowed_sites').run()
 })
 
 type Asked = { question: string; options?: { label: string; value: string }[]; extra?: ConfirmExtra }
@@ -72,6 +74,8 @@ function person(answer: string | null, asked: Asked[] = [], o: { here?: boolean;
     async choose(question, options, extra) { asked.push({ question, options, extra }); return answer },
     turnUrls: () => [],
     allSitesHere: () => o.here ?? true,
+    // the person's sites for good count and may be kept (chat/tools.ts turnPerson: their own app's turn)
+    sitesForGood: () => !o.unattended,
     ...(o.unattended ? { unattended: true } : {}),
     ...(o.changed ? { webAccessChanged: o.changed } : {}),
   }
@@ -104,7 +108,7 @@ describe('the card', () => {
     expect(asked[0]!.question).toContain('Addresses with long hard-to-read strings still ask, but that only catches what is easy to spot.')
     expect(asked[0]!.question).not.toMatch(/token/i)
     // in Korean too: "긴 글자" as on the lines beside it, never "긴 문자열" or "토큰"; every language without "token"
-    for (const k of ['opaque', 'site', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
+    for (const k of ['opaque', 'siteAlways', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
     for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect([l, /토큰|문자열|token|トークン|令牌/i.test(GATE_TEXT.all[l])]).toEqual([l, false])
     expect(asked[0]!.question).toContain(WEB_ALLOW_ALL_RISK.en)
     // the team key off, or the browser switch above it off: not offered
@@ -202,8 +206,13 @@ describe('with the switch on', () => {
 
   test('the exit address unknown (FL-05): the card offers it, and once on a plain address opens without the card', async () => {
     const chat = await chatOf('alice', 'https://typed.example/ 이 페이지 뭐하는 데야?')
+    // an address the person typed opens without the card in a turn they watch, also while the exit address is unknown
+    // (docs/decisions/20261123-do-then-undo.md); one the AI found (not typed) still asks
+    const typed: Asked[] = []
+    expect(await gate(chat, 'https://typed.example/', person(null, typed), { egressKnown: false })).toBe('seen')
+    expect(typed).toEqual([])
     const asked: Asked[] = []
-    expect(await gate(chat, 'https://typed.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
+    expect(await gate(chat, 'https://found.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
     expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
     // no "this site in this conversation" (①b stays off while the address is unknown), "Allow all websites" offered
     expect(values(asked[0])).toEqual(['allow', ALL_SITES_ANSWER, 'deny'])
@@ -410,13 +419,13 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
   const summaries = (turnId: string) => (db().query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(turnId) as { summary: string }[]).map((r) => r.summary).join('\n')
   const doneOf = (turnId: string) => alice.next('message.done', (f) => f.data.message.turnId === turnId, 30_000)
 
-  test('a Slack question and a turn with no client kind: a card, without the fourth answer', async () => {
+  test('a Slack question and a turn with no client kind: a card, without the fourth answer, and no site for good there (never one for this chat)', async () => {
     on()
     for (const kind of ['slack', null]) {
       const host = `kind-${kind ?? 'none'}.example`
       const t = await turnWith(kind, `https://${host}/a`)
       const card = await alice.next('turn.request', (f) => f.data.turnId === t.turnId, 20_000)
-      expect([kind, req(card).options!.map((o) => o.value)]).toEqual([kind, ['allow', 'site', 'deny']])
+      expect([kind, req(card).options?.map((o) => o.value) ?? ['allow', 'deny']]).toEqual([kind, ['allow', 'deny']])
       expect(looked(host)).toBe(0)
       await h.api('alice').call(API.answerTurn, { params: { id: t.turnId }, body: { kind: 'ask_user', requestId: req(card).requestId, answer: 'deny' } })
       await doneOf(t.turnId)
@@ -437,9 +446,9 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
     expect(looked('draft-scope.example')).toBe(0)
   })
 
-  // review of #403: the one limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md): with a guest
-  // among the people and another person's words on the run's branch, the switch does not hold in a scheduled run
-  test('a scheduled run in a chat shared with a guest, where another person wrote: the switch does not hold; without the guest it does', async () => {
+  // one Always (docs/decisions/20261123-one-always-allow.md, replacing #403's guest limit): with a guest among the people
+  // and another person's words on the run's branch, the switch holds in the person's scheduled run too
+  test('a scheduled run in a chat shared with a guest, where another person wrote: the switch holds, as without the guest', async () => {
     on()
     // a shared project chat (the finance group reads projects/falcon) that bob made: a guest is never in a people-shared
     // chat, and sees only the project chat they made (chat/shared.ts chatAudienceOf)
@@ -463,8 +472,8 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
     try {
       const g = await scheduled('https://kind-guest-run.example/a')
       await doneOf(g.turnId)
-      expect(summaries(g.turnId)).toContain('does not apply in a run the user does not answer step by step')
-      expect(looked('kind-guest-run.example')).toBe(0)
+      expect(summaries(g.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
+      expect(looked('kind-guest-run.example')).toBeGreaterThan(0)
     } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run(); db().query("DELETE FROM folder_rules WHERE id = 'wa-guest'").run(); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
     const t = await scheduled('https://kind-team-run.example/a')
     await doneOf(t.turnId)

@@ -37,6 +37,7 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { keptFolder } from '../store/teamFiles'
+import { filesChanged } from '../store/live'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
@@ -48,8 +49,6 @@ import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
 import { openFileShare } from './FileShareDialog'
 import { isGuestMe } from '../lib/guests'
-import { chatRestoreDropouts } from '../lib/restoreDropouts'
-import { confirmChatRestore } from './chat/restoreConfirm'
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
@@ -192,6 +191,19 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     if (seen.current !== null && seen.current !== live && !editing) setRev((v) => v + 1)
     seen.current = live
   }, [live, editing])
+  // a team file that changed on the server (a version brought back in 버전 기록, someone's or the AI's save): read it
+  // again, unless I am editing or saving it (my own save reads it again itself) (QA TC-f2-d03: after a restore the
+  // preview kept the old text until a reload)
+  const holding = useRef(false)
+  useEffect(() => { holding.current = !!editing || saving }, [editing, saving])
+  useEffect(() => {
+    if (file.source !== 'team') return
+    const at = file.path.normalize('NFC')
+    return filesChanged.on((changes) => {
+      if (holding.current) return
+      if (changes.some((c) => c.path.normalize('NFC') === at && (c.action === 'update' || c.action === 'restore' || c.action === 'create'))) setRev((v) => v + 1)
+    })
+  }, [file])
 
   /** "PDF로 저장": the server prints the page and saves the PDF next to it; a read-only folder gets it as a download */
   const savePdf = async () => {
@@ -264,24 +276,23 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     }
   }
   /** "Restore this version": a new newest version with its bytes; at the cap the oldest after the first goes, and the
-   * notice says which (QA TC-6949) */
-  // (a second press while its confirm is being asked opens no second one)
-  const asking = useRef(false)
-  const restore = async (n: number) => {
-    if (file.source !== 'chat' || restoring !== null || asking.current) return
-    asking.current = true
-    // the Files screen's confirm (QA TC-v1c-01, TC-f2-d01): whose later versions drop out of the newest, and who in the
-    // chat sees the change (chat/restoreConfirm.ts, a page's panel asks the same)
-    const dropouts = chatRestoreDropouts(versions?.items ?? [], n, me?.user.id ?? '')
-    const yes = await confirmChatRestore({ chatId: file.chatId, n, dropouts, t, locale }).finally(() => { asking.current = false })
-    if (!yes) return
+   * notice says which (QA TC-6949). No confirm first: nothing is lost (the content it replaces stays a version), so the
+   * toast's Undo restores the version that was newest (docs/decisions/20261123-do-then-undo.md) */
+  const restore = async (n: number, undoOf?: number) => {
+    if (file.source !== 'chat' || restoring !== null) return
+    // the newest before this restore: what Undo brings back
+    const head = versions?.items.find((v) => v.head) ?? versions?.items[versions.items.length - 1]
+    const was = head?.version
     setRestoring(n)
     try {
       const r = await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
       // (restoring the oldest kept one at the cap: its own old entry is what goes)
-      toast({ level: 'success', text: !r.pruned?.length ? t('chatFile.restored', { n })
+      const text = undoOf !== undefined ? t('chatFile.restoreUndone') : !r.pruned?.length ? t('chatFile.restored', { n })
         : r.pruned.includes(n) ? t('chatFile.restoredMoved', { n, kept: CHAT_FILE_VERSIONS_KEPT })
-        : t('chatFile.restoredPruned', { n, old: r.pruned.join(t('rooms.nameSep')), kept: CHAT_FILE_VERSIONS_KEPT }) })
+        : t('chatFile.restoredPruned', { n, old: r.pruned.join(t('rooms.nameSep')), kept: CHAT_FILE_VERSIONS_KEPT })
+      // (an Undo's own toast has no Undo; a version the cap took away cannot come back)
+      const back = undoOf === undefined && was !== undefined && was !== n && !r.pruned?.includes(was) ? was : undefined
+      toast({ level: 'success', text, ...(back !== undefined ? { action: { label: t('common.undo'), run: () => void restore(back, n) } } : {}) })
       setShownVersion(null)
       setRev((v) => v + 1)
     } catch (e) {

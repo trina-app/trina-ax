@@ -59,7 +59,15 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // since docs/decisions/20261122-late-card-answer-resumes.md: each asks before it changes anything (a room post, members,
   // folder access, a skill's files or place, a scheduled task, a memory). A connected service's tools join by their
   // provider (chat/tools.ts: every tool of the integrations provider but connection_result and find_tools)
-  'post_to_room', 'change_project_members', 'change_folder_access', 'skill_files', 'move_skill', 'schedule_create', 'remember'])
+  'post_to_room', 'change_project_members', 'change_folder_access', 'skill_files', 'move_skill', 'schedule_create', 'remember',
+  // since docs/decisions/20261123-fewer-asks-b5.md: the file tools whose every card (the shared read or save card, the
+  // card after a room read, a skill's, the wider-audience card) comes before they write anything. Not with arguments
+  // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
+  'write', 'edit', 'make_file'])
+
+/** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
+ * its card inside the call, with its time limit, as before */
+export const CARD_LATER_ARGS_MAX = 1024 * 1024
 
 /** Turns of these apps keep the card inside the tool call (see the header): null is a turn the server started itself. */
 export const questionsWaitInCall = (clientKind: string | null): boolean => clientKind === null || clientKind === 'schedule' || clientKind === 'slack'
@@ -95,6 +103,16 @@ export function saveQuestion(db: Database, o: { request: TurnRequest; chatId: st
   db.query('INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, answer, created_at, call_tool, call_args, window_id, call_meta) VALUES (?,?,?,?,?,?,NULL,?,?,?,?,?)')
     .run(o.request.requestId, o.chatId, o.messageId, o.turnId, o.userId, JSON.stringify(o.request), new Date().toISOString(),
       o.call?.tool ?? null, o.call ? JSON.stringify(o.call.args ?? {}) : null, o.call?.window ?? null, meta && Object.keys(meta).length ? JSON.stringify(meta) : null)
+}
+
+/** The open card of this person in this chat that a call of the same tool with the same arguments left waiting, and
+ * that reads the same as `request` (sameCard): its request id, or null. One card per call (QA batch 5 flow 3): the AI
+ * that calls the very same thing again while its card waits gets that card, not a second one that would run it twice. */
+export function waitingTwin(db: Database, o: { chatId: string; userId: string; tool: string; args: unknown; request: TurnRequest; window?: string | null }): string | null {
+  const args = JSON.stringify(o.args ?? {})
+  const rows = db.query('SELECT request_id, request FROM open_questions WHERE chat_id = ? AND user_id = ? AND answer IS NULL AND call_tool = ? AND call_args = ? AND window_id IS ?').all(o.chatId, o.userId, o.tool, args, o.window ?? null) as { request_id: string; request: string }[]
+  for (const r of rows) { const q = parse(r.request); if (q && sameCard(q, o.request)) return r.request_id }
+  return null
 }
 
 /** The person's open cards in this chat, oldest first, as GET /api/chats/:id/requests lists cards: a card for one
@@ -159,15 +177,36 @@ export function reopenAnswers(db: Database, messageId: string, userId: string): 
  * with the last one); 'ready': all of them are answered now, in the order they were asked; 'closed': not open any more.
  * undo() takes the answer back (the next turn could not start: the card stays open).
  */
-export function recordAnswer(db: Database, requestId: string, value: unknown): { state: 'closed' } | { state: 'waiting' } | { state: 'ready'; answers: AnsweredQuestion[]; requests: TurnRequest[]; window: string | null; undo(): void } {
+export function recordAnswer(db: Database, requestId: string, value: unknown): { state: 'closed' } | { state: 'waiting'; also: string[] } | { state: 'ready'; answers: AnsweredQuestion[]; requests: TurnRequest[]; window: string | null; also: string[]; undo(): void } {
   return db.transaction(() => {
     const r = db.query('SELECT * FROM open_questions WHERE request_id = ? AND answer IS NULL').get(requestId) as Row | null
     if (!r) return { state: 'closed' as const }
-    db.query('UPDATE open_questions SET answer = ? WHERE request_id = ?').run(JSON.stringify(value ?? null), requestId)
+    const set = db.query('UPDATE open_questions SET answer = ? WHERE request_id = ?')
+    set.run(JSON.stringify(value ?? null), requestId)
+    // "Always allow" on one waiting card answers every other waiting card of the same kind of this answer with it (the
+    // owner, 2026-11-23: "항상 허용하면 뒤에것들은 안해도 되어야지"): their calls run with it, no further card
+    const also = alwaysAlso(db, r, value)
+    for (const id of also) set.run(JSON.stringify(value ?? null), id)
     const ready = readyAnswers(db, r.message_id, r.user_id)
-    if (!ready) return { state: 'waiting' as const }
-    return { state: 'ready' as const, ...ready, undo: () => { db.query('UPDATE open_questions SET answer = NULL WHERE request_id = ?').run(requestId) } }
+    if (!ready) return { state: 'waiting' as const, also }
+    const undoIds = [requestId, ...also]
+    return { state: 'ready' as const, ...ready, also, undo: () => { for (const id of undoIds) db.query('UPDATE open_questions SET answer = NULL WHERE request_id = ?').run(id) } }
   })()
+}
+
+/** The other open waiting cards of the same answer and person that offer the same "Always allow" as `r`, when `value`
+ * is that Always (each takes it: chat/turn.ts replayCalls keeps the choice once and runs every call). */
+function alwaysAlso(db: Database, r: Row, value: unknown): string[] {
+  const one = Array.isArray(value) && value.length === 1 ? value[0] : value
+  if (one !== ALWAYS_VALUE) return []
+  const kind = metaOf(r.call_meta).always
+  if (!kind) return []
+  const rows = db.query('SELECT * FROM open_questions WHERE message_id = ? AND user_id = ? AND answer IS NULL AND request_id <> ?').all(r.message_id, r.user_id, r.request_id) as Row[]
+  return rows.filter((x) => {
+    if (metaOf(x.call_meta).always !== kind || (x.window_id ?? null) !== (r.window_id ?? null)) return false
+    const card = parse(x.request)
+    return card?.kind === 'ask_user' && (card.options ?? []).some((o) => o.value === one)
+  }).map((x) => x.request_id)
 }
 
 /** A new turn starts in the chat: the AI's own questions still there go (answered ones with their turn, the rest because
@@ -404,6 +443,14 @@ export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
     const x = { ...rest } as Record<string, unknown>
     if (Array.isArray(x.options)) x.options = (x.options as { value: string }[]).map((o) => o.value).filter((v) => v !== ALWAYS_VALUE).sort()
     delete x.note
+    // how the app groups the card (AskUserRequest.batch) is presentation; what its plain words told the person is not (a
+    // skill now followed by 30 people, not the 3 the card said, is asked again)
+    if (x.batch && typeof x.batch === 'object') {
+      const { item, about, warn, summary, summaryMany } = x.batch as Record<string, unknown>
+      const said = Object.fromEntries(Object.entries({ item, about, warn, summary, summaryMany }).filter(([, v]) => v !== undefined))
+      if (Object.keys(said).length) x.batch = said
+      else delete x.batch
+    }
     if (x.share && typeof x.share === 'object') { const { why: _w, ...share } = x.share as Record<string, unknown>; x.share = share }
     const question = typeof x.question === 'string' ? x.question : null
     delete x.question
@@ -422,7 +469,29 @@ export function sameCard(answered: TurnRequest, now: TurnRequest): boolean {
 }
 /** The first paragraph of a card re-raised because it reads differently since the person's press (chat/turn.ts) */
 export const CHANGED_MARK = '\u2063'
-const paragraphs = (q: string) => q.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p && !p.startsWith(CHANGED_MARK))
+const paragraphs = (q: string) => q.split(/\n{2,}/).map((p) => placeCountsOff(p.trim())).filter((p) => p && !p.startsWith(CHANGED_MARK))
+/** A place of a post card's sources line with how many files were read there ("내 파일의 파일 1개", "1 file in My
+ * folder": chat/post-to-room.ts placeName), in every language: the count shows only when the answer's saved list holds
+ * every file read there, so the run after a press (which reads that saved list) counts a source the live run named
+ * without one. The same place for the same people is the same card (QA of #414: a post re-asked "Something changed"
+ * for that alone). The people count and the places are still compared. */
+const PLACE_COUNTS: readonly RegExp[] = (() => {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const out = new Map<string, RegExp>()
+  for (const L of Object.keys(TEXT.postRoomPlaceFiles) as Locale[]) {
+    for (const n of ['1', '2']) {
+      const s = tr('postRoomPlaceFiles', L, { place: '\uE000', n })
+      const src = `^${esc(s).replace('\uE000', '(.+)').replace(n, '\\d+')}$`
+      out.set(src, new RegExp(src, 'u'))
+    }
+  }
+  return [...out.values()]
+})()
+/** `p` with each place inside the sources line's brackets "(…)" / "（…）" named without its file count */
+function placeCountsOff(p: string): string {
+  return p.replace(/([(（])([^()（）]*)([)）])/g, (_m, open: string, inside: string, close: string) =>
+    open + inside.split(', ').map((x) => { for (const re of PLACE_COUNTS) { const m = re.exec(x); if (m) return m[1]! } return x }).join(', ') + close)
+}
 /** The lines a server card leads with to say why it asks first (rooms read here, a file someone shared, a target taken
  * from the screen), in every language: the only paragraphs a card may have lost since the press and still be the same
  * card (that reason no longer holds now; the card asked more carefully when it was pressed). Any other paragraph, and
@@ -442,3 +511,8 @@ export function declined(card: TurnRequest, answer: unknown): boolean {
 const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(',')}]`
   : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`
   : JSON.stringify(v ?? null)
+
+/** The turn a waiting card was raised in (null: no such card). */
+export function turnOfQuestion(db: Database, requestId: string): string | null {
+  return (db.query('SELECT turn_id FROM open_questions WHERE request_id = ?').get(requestId) as { turn_id: string } | null)?.turn_id ?? null
+}

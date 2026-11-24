@@ -64,10 +64,21 @@ function task(prompt: string, o: { save?: string | null; sources?: ScopeSource[]
     { allowedUrls: [], writeConnections: o.writeConnections ?? [], save, sources: withRules(db(), h.ctx.files.rules(), o.sources ?? [MINE]), personalSends: o.sends ?? [] })
 }
 type Event = { tool: string; summary: string; ok: number }
-/** "지금 실행" of a task, to the end */
-async function run(id: string) {
+/** how a run's turn stands, for a failure's output: its state and error, the tool calls and the saved steps */
+function runReport(chatId: string) {
+  const turn = db().query('SELECT id, status, error, stop_reason, run_outcome FROM turns WHERE chat_id = ?').get(chatId) as { id: string } | null
+  const events = turn ? db().query('SELECT tool, summary, ok FROM tool_events WHERE turn_id = ? ORDER BY rowid').all(turn.id) : []
+  const msg = db().query("SELECT content, steps FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { content: string; steps: string | null } | null
+  return JSON.stringify({ turn, events, steps: msg?.steps ? JSON.parse(msg.steps) : null, answer: msg?.content.slice(0, 500) ?? null }, null, 2)
+}
+/** "지금 실행" of a task, to the end. `saves`: files the caller expects; one missing prints the run's report (expectations stay in the test) */
+async function run(id: string, o: { saves?: string[] } = {}) {
   const r = h.rt().schedules.runNow('alice', id)
-  await waitFor(() => { const t = db().query('SELECT status FROM turns WHERE chat_id = ?').get(r.chatId) as { status: string } | null; return !!t && ['done', 'error', 'stopped', 'interrupted'].includes(t.status) }, { timeoutMs: 60_000 })
+  const ended = await waitFor(() => { const t = db().query('SELECT status FROM turns WHERE chat_id = ?').get(r.chatId) as { status: string } | null; return !!t && ['done', 'error', 'stopped', 'interrupted'].includes(t.status) }, { timeoutMs: 60_000 })
+  if (!ended) throw new Error(`schedule ${id}: the run did not end within 60 s\n${runReport(r.chatId)}`)
+  const status = (db().query('SELECT status FROM turns WHERE chat_id = ?').get(r.chatId) as { status: string }).status
+  const missing = (o.saves ?? []).filter((f) => !fs.existsSync(abs(f)))
+  if (status !== 'done' || missing.length) console.error(`schedule ${id}: the run ended ${status}${missing.length ? `, missing ${missing.join(', ')}` : ''}\n${runReport(r.chatId)}`)
   const turnId = (db().query('SELECT id FROM turns WHERE chat_id = ?').get(r.chatId) as { id: string }).id
   const events = db().query("SELECT tool, summary, ok FROM tool_events WHERE turn_id = ? AND tool <> '(connect)' ORDER BY rowid").all(turnId) as Event[]
   const msg = db().query("SELECT content, steps FROM messages WHERE chat_id = ? AND role = 'assistant'").get(r.chatId) as { content: string; steps: string | null }
@@ -329,7 +340,7 @@ describe('saves in a run', () => {
   test('a new file in the save folder is saved without a card, its step says why, audited once; a file this run made may change', async () => {
     clear()
     const s = task(fake(read('users/alice/todo.md'), write(`${SAVE}/w1.md`, 'one'), write(`${SAVE}/sub/w2.md`, 'two'), { tool: 'edit', args: { file_path: `${SAVE}/w1.md`, old_string: 'one', new_string: 'one, edited' } }, { echo: 'message' }))
-    const r = await run(s.id)
+    const r = await run(s.id, { saves: [`${SAVE}/w1.md`, `${SAVE}/sub/w2.md`] })
     expect(fs.readFileSync(abs(`${SAVE}/w1.md`), 'utf8')).toBe('one, edited')
     expect(fs.readFileSync(abs(`${SAVE}/sub/w2.md`), 'utf8')).toBe('two')
     expect(r.events.filter((e) => e.tool === 'write' || e.tool === 'edit').map((e) => e.ok)).toEqual([1, 1, 1])

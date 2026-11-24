@@ -15,6 +15,10 @@ import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
 import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_BROWSER, boxBrowser, devenvPaths, runEnv as runEnvForBrowser } from '../../server/src/devenv/srt/config'
+import { PINNED_BROWSER } from '../../server/src/files/html-pdf'
+import { sweepAfterRun, sweepBrowserProfiles, sweepCrashDumps, tmpInUse, type LiveRun } from '../../server/src/devenv/srt/browser-profiles'
+import { BOX_BROWSER_ALIASES, BOX_BROWSER_RELAY, browserWrapperSource, writeBoxBrowser } from '../../server/src/devenv/srt/box-browser'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -22,7 +26,7 @@ import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } f
 import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, REQUEST_DONE, REQUEST_SOURCE, REQUEST_WHY, requestNoticeText, runResultsForAI, tellHeldJobs, type RequestStop } from '../../server/src/devenv/jobs'
 import { closeChatQuestions } from '../../server/src/chat/open-questions'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
-import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
+import { BOX_TEXT_KEPT, boxBrowserText, boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
@@ -511,8 +515,109 @@ describe('the srt settings file', () => {
     const copy = /export const LOCAL_SUFFIXES = (\[[^\]]*\])/.exec(w)?.[1]
     expect(copy && JSON.parse(copy.replace(/'/g, '"'))).toEqual([...LOCAL_SUFFIXES])
   })
+  test('the browser of a run: the command that adds the flags, the real shell for HyperFrames, only where it is', () => {
+    expect(BOX_BROWSER).toBe(PINNED_BROWSER)
+    const base = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null }
+    const names = ['TRINA_BROWSER', 'HYPERFRAMES_BROWSER_PATH', 'PUPPETEER_EXECUTABLE_PATH', 'CHROME_PATH']
+    const e = runEnvForBrowser({ ...base, platform: 'linux', browser: BOX_BROWSER }) // no command written yet: the shell
+    for (const k of names) expect(e[k]).toBe(BOX_BROWSER)
+    const none = runEnvForBrowser({ ...base, platform: 'linux', browser: null })
+    for (const k of names) expect(none[k]).toBeUndefined()
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'box-browser-')), bin = devenvPaths(d).bin
+    writeBoxBrowser(bin, BOX_BROWSER, '/opt/trina/node/bin/node')
+    const w = runEnvForBrowser({ ...base, base: d, platform: 'linux', browser: BOX_BROWSER })
+    for (const k of ['TRINA_BROWSER', 'PUPPETEER_EXECUTABLE_PATH', 'CHROME_PATH']) expect(w[k]).toBe(path.join(bin, 'chromium'))
+    expect(w.HYPERFRAMES_BROWSER_PATH).toBe(BOX_BROWSER)
+    for (const a of BOX_BROWSER_ALIASES) expect(fs.readlinkSync(path.join(bin, a))).toBe('chromium')
+    expect(fs.statSync(path.join(bin, 'chromium')).mode & 0o777).toBe(0o755)
+    expect(fs.statSync(path.join(bin, BOX_BROWSER_RELAY)).mode & 0o777).toBe(0o644)
+    writeBoxBrowser(bin, null, '/opt/trina/node/bin/node') // MYCEL_HTML_PDF_BROWSER=none: every command goes
+    for (const n of ['chromium', ...BOX_BROWSER_ALIASES, BOX_BROWSER_RELAY]) expect(fs.existsSync(path.join(bin, n))).toBe(false)
+    fs.rmSync(d, { recursive: true, force: true })
+    expect(boxBrowser('darwin', process.execPath)).toBeNull()
+    expect(boxBrowser('linux', process.execPath)).toBe(process.execPath)
+    expect(boxBrowser('linux', '/nonexistent/chrome-headless-shell')).toBeNull()
+    expect(boxBrowser('linux', process.execPath, { MYCEL_HTML_PDF_BROWSER: 'none' })).toBeNull() // the admin's off switch
+    expect(boxBrowser('linux', process.execPath, { MYCEL_HTML_PDF_BROWSER: '/some/other' })).toBe(process.execPath)
+    expect(boxBrowser('linux', os.tmpdir())).toBeNull() // a folder is not a browser
+  })
+  test('the browser command: no login in an argument, no crash reports, a clear refusal with nothing to output', () => {
+    const src = browserWrapperSource({ browser: '/b/shell', node: '/n/node', relay: '/r/relay.cjs' })
+    for (const f of ['--no-sandbox', '--disable-crash-reporter', '--disable-breakpad']) expect(src).toContain(f)
+    expect(src).toContain('"$$"') // the relay gets the browser's pid and nothing of the proxy address
+    expect(src).not.toMatch(/relay\.cjs'[^\n]*\$P/)
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'box-cmd-')), fake = path.join(d, 'shell'), cmd = path.join(d, 'chromium')
+    fs.writeFileSync(fake, '#!/bin/bash\nprintf "%s\\n" "$@"\n', { mode: 0o755 }); fs.writeFileSync(cmd, browserWrapperSource({ browser: fake, node: process.execPath, relay: '/none' }), { mode: 0o755 })
+    const run = (...a: string[]) => Bun.spawnSync([cmd, ...a], { env: { PATH: '/usr/bin:/bin' } })
+    const shot = run('--headless', '--screenshot=o.png', 'https://a.test/')
+    expect(shot.exitCode).toBe(0)
+    expect(shot.stdout.toString().split('\n')).toEqual(expect.arrayContaining(['--no-sandbox', '--headless', '--screenshot=o.png', 'https://a.test/']))
+    expect(run('https://a.test/').exitCode).toBe(64)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('the browser rule is inside what every engine keeps of the tool text', () => {
+    const rule = boxBrowserText('linux', BOX_BROWSER)
+    expect(rule.length).toBeLessThan(500)
+    for (const w of ['chromium --headless --screenshot', 'TRINA_BROWSER', 'request_sites', 'Do not download', 'ffmpeg', 'never say']) expect(rule).toContain(w)
+    expect(boxBrowserText('linux', null)).not.toContain('chromium --headless')
+    for (const d of [srtShellDescription(true), srtShellDescription(false), sharedShellDescription(true), sharedShellDescription(false)]) {
+      const own = boxBrowserText(), at = d.indexOf(own)
+      expect(at).toBeGreaterThan(-1)
+      expect(at + Math.max(own.length, rule.length)).toBeLessThanOrEqual(BOX_TEXT_KEPT) // also where this host has no browser
+    }
+  })
+  test('crash dumps go when the run ends, never through a link or under another live run', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'crash-')), home = path.join(d, 'home'), tmp = path.join(home, 'tmp'), dump = path.join(home, '.config/chromium/Crash Reports/pending')
+    fs.mkdirSync(dump, { recursive: true }); fs.mkdirSync(tmp); fs.writeFileSync(path.join(dump, 'a.dmp'), 'x')
+    expect(sweepAfterRun(tmp, home, 'me', 'bob', new Map([['job', { userId: 'bob', roots: [home] }]]))).toBe(0)
+    expect(fs.existsSync(dump)).toBe(true)
+    expect(sweepAfterRun(tmp, home, 'me', 'bob', new Map())).toBe(1)
+    expect(fs.existsSync(path.join(home, '.config/chromium/Crash Reports'))).toBe(false)
+    // a link anywhere on the way is left alone, and what it points at stays
+    const outside = path.join(d, 'outside', 'Crash Reports'); fs.mkdirSync(outside, { recursive: true }); fs.writeFileSync(path.join(outside, 'keep'), 'k')
+    fs.symlinkSync(path.dirname(outside), path.join(home, '.config/google-chrome'))
+    fs.rmSync(path.join(home, '.config/chromium'), { recursive: true, force: true }); fs.symlinkSync(outside, path.join(home, '.config/chromium'))
+    expect(sweepCrashDumps(home)).toBe(0)
+    expect(fs.existsSync(path.join(outside, 'keep'))).toBe(true)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('a killed browser\'s profile goes when the run ends, never through a link or under another live run', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-')), tmp = path.join(d, 'tmp'), outside = path.join(d, 'outside')
+    for (const x of ['puppeteer_dev_chrome_profile-a/Default', 'playwright_chromiumdev_profile-b/Default', 'my-work']) fs.mkdirSync(path.join(tmp, x), { recursive: true })
+    fs.mkdirSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'), { recursive: true })
+    fs.symlinkSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'), path.join(tmp, 'puppeteer_dev_chrome_profile-link'))
+    expect(sweepBrowserProfiles(tmp)).toBe(2)
+    expect(fs.readdirSync(tmp).sort()).toEqual(['my-work', 'puppeteer_dev_chrome_profile-link'])
+    expect(fs.existsSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'))).toBe(true)
+    // a TMPDIR the run swapped for a link is left alone
+    const swapped = path.join(d, 'swapped'); fs.symlinkSync(outside, swapped)
+    expect(sweepBrowserProfiles(swapped)).toBe(0)
+    expect(fs.existsSync(path.join(outside, 'puppeteer_dev_chrome_profile-keep'))).toBe(true)
+    // another live run that can write this TMPDIR (through the home above it) may be using a profile; this run does not count
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['me', { userId: 'bob', roots: [d] }]]))).toBe(false)
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['other', { userId: 'bob', roots: [d] }]]))).toBe(true)
+    expect(tmpInUse(tmp, 'me', 'bob', new Map([['other', { userId: 'bob', roots: [`${d}-x`] }]]))).toBe(false)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('a job tracked again after a restart keeps its browser profile until it ends', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'profiles-restart-')), tmp = path.join(d, 'home', 'bob', 'tmp')
+    const profile = path.join(tmp, 'puppeteer_dev_chrome_profile-live')
+    fs.mkdirSync(path.join(profile, 'Default'), { recursive: true })
+    // the exact shape reconcile() tracks: the row's root and users/<id>, neither the home nor the TMPDIR
+    const live = new Map<string, LiveRun>([['job1', { userId: 'bob', roots: [path.join(d, 'team', 'shared'), path.join(d, 'team', 'users', 'bob')], rowId: 'row-1' }]])
+    expect(sweepAfterRun(tmp, path.dirname(tmp), 'cmd2', 'bob', live)).toBe(0)
+    expect(fs.existsSync(profile)).toBe(true)
+    // another person's restart-tracked job says nothing about this TMPDIR
+    const others = new Map<string, LiveRun>([['job9', { userId: 'erin', roots: [path.join(d, 'team', 'users', 'erin')], rowId: 'row-9' }]])
+    expect(tmpInUse(tmp, 'cmd2', 'bob', others)).toBe(false)
+    // the job ended (pruneLive removed it): the next run's end sweeps
+    live.delete('job1')
+    expect(sweepAfterRun(tmp, path.dirname(tmp), 'cmd3', 'bob', live)).toBe(1)
+    expect(fs.existsSync(profile)).toBe(false)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
-    const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
+    const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null, browser: null, nodeLibs: null })
     // (and git's, npm's and Python's settings that run nothing by themselves: git-guard.ts gitEnv, QA TC-4939)
     expect(Object.keys(e).filter((k) => !(k in gitEnv())).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
     for (const [k, v] of Object.entries(gitEnv())) expect(e[k]).toBe(v)

@@ -1,14 +1,16 @@
-// Trina history as one list, filtered and sorted (the Trina panel and the phone's 트리나 tab show it while the filter in
-// their header is not at its default; panels/TrinaList.tsx otherwise): my pins first, then the chats by project, by date
+// Trina history as one list, filtered and sorted (the Trina panel and the phone's 트리나 tab show it while the filter on
+// the 트리나 기록 header is not at its default; panels/TrinaList.tsx otherwise): my pins first, then the chats by project, by date
 // or in one list, and "더 보기" for the next page. What the list holds and why: docs/DECISIONS.md "Trina history by
-// project", "Pinned chats", "Session markers". The filter's menu (RecentsMenu) and its state (useRecentsView) are here too.
+// project", "Pinned chats", "Session markers". The header's controls (HistoryHeadActions: the filter's menu and the "⋯"),
+// the line that says what is filtered (HistoryFilterLine) and the filter's state (useRecentsView) are here too.
 import clsx from 'clsx'
-import { Check, ChevronDown, ChevronRight, ListFilter, ListPlus, Loader2, RotateCcw } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, ListFilter, ListPlus, Loader2, RotateCcw, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Chat, HistoryViewChoice } from '@mycel/shared/api'
 import { dateBucket, type DateBucket } from '../../lib/format'
 import { useT, type MessageKey } from '../../i18n'
+import { aiName } from '../../lib/tabs'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
 import { useMe, useSession } from '../../store/session'
@@ -20,7 +22,8 @@ import { isUnused, SessionMarker } from '../chat/ChatState'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
-import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE } from '../rooms/MenuButton'
+import { headBox } from '../list/List'
+import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE, type MenuItem } from '../rooms/MenuButton'
 import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
 import { Tooltip } from '../Tooltip'
@@ -28,7 +31,7 @@ import { ChatItem, type ChatPeek } from './ChatItem'
 import { HistorySections, useSectionRows, type SectionRows } from './HistorySections'
 import { leftSectionToast, useSectionActions } from './SidebarSections'
 import { foldRuns, newestRunsOnly } from './TaskRunsRow'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
@@ -216,7 +219,7 @@ export function useHistorySections(view: RecentsView, on = true) {
 }
 
 /**
- * The whole history as the filter and sort in the panel's header choose it (`viewState`; the list has no title row of
+ * The whole history as the filter and sort on the 트리나 기록 header choose it (`viewState`; the list has no title row of
  * its own). `peek` is the hover quick view of the column it sits in.
  */
 /** `caps`: the Trina panel's grouped view (by hand, "Group by: Project"): at most five projects and three rows each,
@@ -343,7 +346,63 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
   )
 }
 
-/** Filter and sort in the Trina list's header, like Claude's: a square button (a dot when something is not at its default) that
+/** The 트리나 기록 header's two controls, on the computer's panel and the phone's drawer (the owner, 2026-11-23:
+ * docs/decisions/20261123-history-filter-place.md): the filter, right above the list it controls, and the "⋯" with New
+ * section (then Add chats). `trash`: the "⋯" also holds 삭제한 기록 (the drawer has a row of its own for it). `folded`: the
+ * section is folded, so the filter has no list to act on and hides, unless a filter is on: that must never be out of
+ * sight. It stays mounted when hidden, so a reset from its own menu closes that menu as usual. */
+export function HistoryHeadActions({ state, folded = false, trash = false }: { state: RecentsViewState; folded?: boolean; trash?: boolean }) {
+  const t = useT()
+  const navigate = useNavigate()
+  const sections = useSectionActions('chats')
+  const more = useRef<HTMLButtonElement>(null)
+  const changed = state.changed.length > 0
+  // cleared while folded: the control the keyboard was on is gone, so it goes to the "⋯" beside it, not to the page
+  const wasChanged = useRef(changed)
+  useEffect(() => {
+    if (folded && wasChanged.current && !changed && (!document.activeElement || document.activeElement === document.body)) more.current?.focus()
+    wasChanged.current = changed
+  }, [changed, folded])
+  const items: MenuItem[] = [
+    { label: t('sidebarSections.new'), icon: <ListPlus size={14} aria-hidden />, onSelect: () => void sections.create({ thenAdd: true }), testId: 'recents-new-section' },
+    ...(trash ? [{ label: t('sidebar.trash'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => navigate('/trash'), testId: 'nav-trash' }] : []),
+  ]
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <div className={folded && !changed ? 'hidden' : 'contents'}>
+        <RecentsMenu view={state.view} onChange={state.setView} changed={changed} base={state.base} />
+      </div>
+      <MenuButton
+        label={t('trinaList.recentMenu', { name: aiName(t) })}
+        tip={t('trinaList.recentMenu', { name: aiName(t) })}
+        compact
+        muted
+        items={items}
+        buttonRef={more}
+        testId="trina-recent-menu"
+        // 44 px to tap: a phone, and a touch screen wider than a phone (touch-hit is phones' only)
+        buttonClassName="max-md:min-h-11 max-md:min-w-11 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+      />
+    </div>
+  )
+}
+
+/** What the filter shows, in words, with a way back: a line of its own under the 트리나 기록 header */
+export function HistoryFilterLine({ state }: { state: RecentsViewState }) {
+  const t = useT()
+  return (
+    <div className={clsx(headBox, 'pr-1 pl-3 text-meta text-faint')} data-testid="recents-filter-label">
+      <span className="min-w-0 flex-1 truncate">{viewWords(state, t)}</span>
+      <Tooltip label={t('sidebar.filter.clear')}>
+        <button type="button" onClick={() => state.setView(state.base)} aria-label={t('sidebar.filter.clear')} className="touch-hit flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink md:pointer-coarse:size-11" data-testid="recents-filter-clear">
+          <X size={12} aria-hidden />
+        </button>
+      </Tooltip>
+    </div>
+  )
+}
+
+/** Filter and sort on the 트리나 기록 header, like Claude's: a square button (a dot when something is not at its default) that
  * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
  * menus sit in <body> (the list scrolls and would clip them); on a narrow screen a submenu takes the menu's
@@ -360,13 +419,12 @@ type MenuProps = { view: RecentsView; onChange: (v: RecentsView) => void; change
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
 function RecentsSheet({ view, onChange, changed, confidential, base }: MenuProps) {
   const t = useT()
-  const sections = useSectionActions('chats')
   const [sub, setSub] = useState<ViewKey | null>(null)
   const [ask, setAsk] = useState(0)
   const button = useRef<HTMLButtonElement>(null)
   const value = (k: ViewKey) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])
   return (
-    <div className="ml-auto">
+    <div>
       <MenuButton
         label={t('sidebar.filter')}
         heading={t('sidebar.filter')}
@@ -389,7 +447,6 @@ function RecentsSheet({ view, onChange, changed, confidential, base }: MenuProps
             },
             testId: `recents-view-${k}`,
           })),
-          { label: t('sidebarSections.new'), icon: <ListPlus size={16} aria-hidden />, onSelect: () => void sections.create({ thenAdd: true }), testId: 'recents-new-section' },
           ...(changed ? [{ label: t('sidebar.filter.reset'), icon: <RotateCcw size={16} aria-hidden />, onSelect: () => onChange(base), testId: 'recents-reset' }] : []),
         ]}
       />
@@ -416,7 +473,6 @@ function RecentsSheet({ view, onChange, changed, confidential, base }: MenuProps
 
 function RecentsDropdown({ view, onChange, changed, confidential, base }: MenuProps) {
   const t = useT()
-  const sections = useSectionActions('chats')
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
   /** the submenu does not fit beside the menu (a narrow window): it takes the menu's place, with a way back */
@@ -527,7 +583,7 @@ function RecentsDropdown({ view, onChange, changed, confidential, base }: MenuPr
   const row = clsx(menuRowCls, 'hover:bg-hover focus-visible:-outline-offset-2')
   const panel = clsx('fixed z-50', menuBoxCls)
   return (
-    <div className="ml-auto" onKeyDown={onKey}>
+    <div onKeyDown={onKey}>
       <Tooltip label={t('sidebar.filter')}>
         <button
           ref={button}
@@ -536,7 +592,7 @@ function RecentsDropdown({ view, onChange, changed, confidential, base }: MenuPr
           aria-expanded={open}
           aria-label={t('sidebar.filter')}
           onClick={() => (open ? close(false) : setOpen(true))}
-          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink', open && 'bg-hover text-ink')}
+          className={clsx('relative flex size-7 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-ink pointer-coarse:size-11', open && 'bg-hover text-ink')}
           data-testid="recents-filter"
         >
           <ListFilter size={15} aria-hidden />
@@ -568,21 +624,7 @@ function RecentsDropdown({ view, onChange, changed, confidential, base }: MenuPr
                     </button>
                   </div>
                 ))}
-                {/* my sections of the history (docs/decisions/20261122-trina-history-sections.md): New section, then Add chats */}
-                <div role="separator" className="mx-1 my-1 border-t border-line" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    close(false)
-                    void sections.create({ thenAdd: true })
-                  }}
-                  className={clsx(row, 'text-ink')}
-                  data-testid="recents-new-section"
-                >
-                  <ListPlus size={14} className="shrink-0 text-faint" aria-hidden />
-                  <span>{t('sidebarSections.new')}</span>
-                </button>
+                {changed && <div role="separator" className="mx-1 my-1 border-t border-line" />}
                 {/* only while the view is not this surface's default; my sections and folds stay as they are */}
                 {changed && (
                   <button

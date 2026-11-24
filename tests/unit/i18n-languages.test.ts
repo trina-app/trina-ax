@@ -104,8 +104,10 @@ describe('server and relay texts', () => {
  * `t('…', 'English', 'Indonesian')` / `fail('…', …)` call) may hold Korean, plus the lines a file's own pattern names.
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
+  'server/src/chat/person-aliases.ts': { why: 'title and team words the server matches in the person\'s own message (팀장, 팀원들 …) and Korean particles after them, in every language: data, not screen text (docs/decisions/20261123-do-then-undo.md)', also: /./ },
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
+  'server/src/tools/edit-office.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a Word document (ko next to en/id/ja/es)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },
   'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
@@ -181,6 +183,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/pdf-tools.ts': { why: 'the words of made PDFs\' names, "견적서 (합침).pdf" (ko next to en/id/ja/es)' },
   'server/src/tools/resize-images.ts': { why: 'the word of a photo copy\'s name, "IMG_2041-작게.jpg" (ko next to en/id/ja/es)' },
   'server/src/tools/stamp-pdf.ts': { why: 'the word of a stamped PDF\'s name, "견적서 (날인).pdf" (ko next to en/id/ja/es)' },
+  'server/src/tools/own-picture.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a document (ko next to en/id/ja/es)' },
   'server/src/tools/make-file.ts': { why: 'a wide-character range for table widths', also: /가-힣|\\uAC00|ᄀ/ },
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'shared/src/web-allow-all.ts': { why: 'the "Allow all websites" risk sentence, one versioned text for the address card, Settings and the desktop window (ko next to en/id/ja/es)' },
@@ -242,7 +245,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
   'server/src/skills/folder-actions.ts': { why: 'a skill folder name in another language, as the example the AI gets when a name is refused (#1069: any language), not screen text', also: /suggest a name like "estimate-docs" or "견적-문서"/ },
   'server/src/chat/connect-google-app.ts': { why: 'the Korean names people type for Gmail, Google Calendar, Docs and Sheets (지메일, 구글 캘린더 …), matched to tell a built-in Google app (not screen text)', also: /^\s*(gmail|calendar|docs|sheets): \[/ },
-  'server/src/chat/narration.ts': { why: 'the Hangul letter range that tells a Korean answer, and the Korean words of a message asking for another language or English copy (matched, not screen text; #1066), and of one that asks for Korean copy (demo re-test 11-22)', also: /^\s*ko: \/\[|^\s*'(영어|영작)'|^const OFTEN_ENGLISH = \/|^\s*return script === 'ko' && \// },
+  'server/src/chat/narration.ts': { why: 'the Hangul letter range that tells a Korean answer, and the Korean words of a message asking for another language or English copy (matched, not screen text; #1066), and of one that asks for Korean copy (demo re-test 11-22)', also: /^\s*ko: \/\[|^\s*'(영어|영작)'|^\s*'한국어', '한국말'|^const OFTEN_ENGLISH = \/|^\s*return script === 'ko' && \// },
   'server/src/demo/fakes/higgsfield.ts': { why: 'the demo photo matcher\'s words in every demo language (common words that never pick a scene, scene elements no photo has: matched, not screen text), and the no-photo line (ko next to en/id/ja/es/zh)', also: /^\s+'(foto|유자|함께|product)', |^const ABSENT_KO = \// },
   'server/src/engine/api-honest.ts': { why: 'Korean words that tell an API engine answer already says a step failed (실패, 못 했 …), so the server adds no line (matched, not screen text; TC-4829)', also: /^\s*'실패했', / },
   'server/src/chat/room-hint.ts': { why: 'Korean words the room hint skips when it matches a request to room messages (a stop-word list, not screen text; #1078)', also: /^const STOP = new Set\(/ },

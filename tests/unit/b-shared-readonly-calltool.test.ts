@@ -10,6 +10,7 @@ import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { warnedIn } from '../lib/shared-warned'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -49,7 +50,8 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); svc?.stop(); await h?.close() })
 
 const db = () => h.ctx.db
-const newShared = async (user = 'alice') => h.api(user).call(API.createChat, { body: { projectId } })
+// every person has seen the project's one notice (docs/decisions/20261123-shared-connector-warning-once.md): the cards here are the tools' own
+const newShared = async (user = 'alice') => { warnedIn(h.ctx.db, `p:${projectId}`); return h.api(user).call(API.createChat, { body: { projectId } }) }
 const send = (user: string, chatId: string, content: string) =>
   h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
 const done = async (user: string, chatId: string, messageId: string) => {

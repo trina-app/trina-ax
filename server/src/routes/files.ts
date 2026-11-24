@@ -1,6 +1,7 @@
 // Route module "files" — owner: component C (docs/WORKPLAN.md).
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
 // team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
+import { BY_PERSON } from '../files/own-upload'
 import { registerConnectionsAccountCleanup } from '../integrations/account-cleanup'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
@@ -10,6 +11,7 @@ import { componentC } from '../team-files/component'
 import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
 import { folderSharesOf } from '../files/folder-shares'
 import { undoShares } from '../files/share-undo'
+import { takeBackShares } from '../files/share-take-back'
 import { streamChecked } from '../team-files/stream-checked'
 import { shareFixesOf } from '../files/share-fixes'
 import { contentDisposition, streamFile } from '../team-files/download'
@@ -197,7 +199,7 @@ export const filesRoutes: RouteModule = {
       assertStorageRoom(body.file.size)
       // the body is on disk already, hashed on the way (http/multipart.ts); the kit removes what is left of the temp file
       // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
-      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, undefined, { keepSame: true })
+      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, { action: 'upload', detail: BY_PERSON }, { keepSame: true })
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
@@ -218,6 +220,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.fileLink, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.linkFor(auth.user.id, body.path)))
     kit.handle(API.fileShares, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.view(auth.user.id, query.path, c.get('locale'))))
     kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.put(auth.user.id, body.path, body.add, body.remove, c.get('locale'), 'dialog', { stop: body.stop, resume: body.resume }).view))
+    kit.handle(API.takeBackFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => takeBackShares(ctx, auth.user.id, body.id, c.get('locale'))))
     kit.handle(API.undoFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => undoShares(ctx, auth.user.id, body.id, c.get('locale'))))
     kit.handle(API.shareCards, ({ c, body, auth }) => mapErrors(c.get('locale'), () => ({ items: shares.cards(auth.user.id, body.ids, c.get('locale')) })))
     kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))

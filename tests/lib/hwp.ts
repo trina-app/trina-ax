@@ -203,6 +203,8 @@ export interface DocOpts {
   extra?: Record<string, Uint8Array | string>
   /** Hangul's default script streams (Scripts/), and DocOptions/_LinkDoc with an empty path; default true */
   hangulStreams?: boolean
+  /** pictures already in the document (a letterhead logo): BIN_DATA 1..n right after ID_MAPPINGS, its count, the streams */
+  pictures?: Uint8Array[]
   /** a version other than 5.1.0.1 */
   version?: [number, number, number, number]
   /** streams written under another name (path -> path) */
@@ -220,11 +222,14 @@ export function fileHeader(flags = 1, version: [number, number, number, number] 
   b.writeUInt32LE(flags >>> 0, 36)
   return b
 }
-export function defaultDocInfo(extra: Buffer[] = []): Buffer {
+export function defaultDocInfo(extra: Buffer[] = [], pictures = 0): Buffer {
+  const ids = Buffer.alloc(72); ids.writeUInt32LE(pictures, 0)
+  const bins = Array.from({ length: pictures }, (_, k) => { const d = Buffer.alloc(12); d.writeUInt16LE(0x0101, 0); d.writeUInt16LE(k + 1, 2); d.writeUInt16LE(3, 4); d.write('png', 6, 'utf16le'); return rec(TAG.BIN_DATA, 1, d) })
   const paraShape = (outline: number | null) => { const d = Buffer.alloc(54); if (outline !== null) d.writeUInt32LE(((1 << 23) | (outline << 25)) >>> 0, 0); return rec(TAG.PARA_SHAPE, 1, d) }
   return Buffer.concat([
     rec(TAG.DOC_PROPS, 0, Buffer.from('0100010001000100010001000100000000000000000000000000', 'hex')),
-    rec(TAG.ID_MAPPINGS, 0, Buffer.alloc(72)),
+    rec(TAG.ID_MAPPINGS, 0, ids),
+    ...bins,
     ...[0, 1, 2, 3].map(() => rec(TAG.CHAR_SHAPE, 1, Buffer.alloc(72))),
     paraShape(null), paraShape(null), paraShape(null), paraShape(0), paraShape(1),
     ...extra,
@@ -244,7 +249,7 @@ export function hwpDoc(sections: Buffer[], o: DocOpts = {}): Uint8Array {
   const z = (b: Buffer) => (flags & 1 ? zlib.deflateRawSync(b) : b)
   const files: Record<string, Uint8Array> = {
     FileHeader: fileHeader(flags, o.version),
-    DocInfo: z(defaultDocInfo(o.docInfo)),
+    DocInfo: z(defaultDocInfo(o.docInfo, o.pictures?.length ?? 0)),
     '\u0005HwpSummaryInformation': Buffer.from('feff000006020000', 'hex'),
     ...Object.fromEntries(sections.map((s, i) => [`BodyText/Section${i}`, z(s)])),
     PrvText: Buffer.from('미리보기\0', 'utf16le'),
@@ -254,6 +259,7 @@ export function hwpDoc(sections: Buffer[], o: DocOpts = {}): Uint8Array {
     files['Scripts/DefaultJScript'] = z(defaultScript())
     files['DocOptions/_LinkDoc'] = linkDoc()
   }
+  o.pictures?.forEach((b, k) => { files[`BinData/BIN${(k + 1).toString(16).toUpperCase().padStart(4, '0')}.png`] = z(Buffer.from(b)) })
   for (const [k, v] of Object.entries(o.extra ?? {})) files[k] = typeof v === 'string' ? Buffer.from(v, 'utf8') : v
   for (const [from, to] of Object.entries(o.rename ?? {})) { files[to] = files[from]!; delete files[from] }
   const c = CFB.utils.cfb_new()

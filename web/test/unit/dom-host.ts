@@ -188,7 +188,7 @@ export class FakeElement extends FakeNode {
   get scrollHeight() { return 0 }
   get clientHeight() { return 0 }
   matches(sel: string) { return matches(this, sel) }
-  closest(sel: string): FakeElement | null { for (let n: FakeNode | null = this; n; n = n.parentNode) if (n instanceof FakeElement && matches(n, sel)) return n; return null }
+  closest(sel: string): FakeElement | null { for (let n: FakeNode | null = this; n; n = n.parentNode) if (n instanceof FakeElement && sel.split(',').some((s) => matches(n as FakeElement, s.trim()))) return n; return null }
   querySelectorAll(sel: string): FakeElement[] { return all(this).filter((e) => sel.split(',').some((s) => matches(e, s.trim()))) }
   querySelector(sel: string): FakeElement | null { return this.querySelectorAll(sel)[0] ?? null }
   get innerHTML(): string { return this.childNodes.map(html).join('') }

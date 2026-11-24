@@ -123,6 +123,16 @@ describe('file tool notes', () => {
     expect(fileNoteOnce(turn, null, 'en')).toBeNull()
     expect(hangulReadNote()).toContain('do not ask first: make a Word copy with the change now (make_file, format docx')
   })
+
+  test('a Hangul file to sign or stamp while Hangul editing is off: no silent Word copy, the person chooses (QA TC-8341)', () => {
+    const note = hangulReadNote()
+    expect(note).toContain('If the user asked to sign or stamp it')
+    expect(note).toContain('make nothing yet')
+    expect(note).toContain('the owner or an admin can turn it on')
+    expect(note).toContain('offer a Word copy with the picture as a choice; make it only after they say yes')
+    // the exception comes first and every other change still gets its copy at once (EDIT-07)
+    expect(note.indexOf('sign or stamp')).toBeLessThan(note.indexOf('any other change'))
+  })
 })
 
 describe('a CSV row comes with its column names', () => {

@@ -35,7 +35,8 @@ import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type Scop
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
-import { chatFor, isSharedRow } from './shared'
+import { Audiences, chatFor, isSharedRow } from './shared'
+import { isGuestUser } from '../credentials/guest-ai'
 import type { ChatRow } from './store'
 import { updateWaitingFor } from '../system/update-wait'
 import { CronError, describeTiming, isOnce, MAX_EVERY_MINUTES, nextOf, parseCron, REPEATS, storedTiming, timingOf, type LegacyRepeat, type Timing, type TimingSource } from './schedule-timing'
@@ -122,7 +123,7 @@ export interface ScheduleRow {
 /** What the person approved on a scheduled task's card (tools/schedules.ts, chat/schedule-review.ts). Its presence is
  * the confirmation: a free-text task created without one never runs. `save`, `sources`, `personalSends`: the save
  * folder, the places and the pinned personal connections the card showed (chat/schedule-scope.ts). */
-export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
+export interface ScheduleApproval { allowedUrls: string[]; writeConnections: string[]; /** made without its card: its runs send nothing (tools/schedules.ts) */ quiet?: boolean; save?: SaveFolder | null; sources?: ScopeSource[]; personalSends?: PersonalSend[] }
 
 /** A free-text task nobody confirmed on its card: it never runs and the switch cannot resume it (unknown = paused). */
 export function needsReview(s: Pick<ScheduleRow, 'template_id' | 'confirmed_at'>): boolean {
@@ -202,10 +203,10 @@ export class Schedules {
     const id = newId()
     const scope = scopeColumns(approval?.save ?? null, approval?.sources ?? [], approval?.personalSends ?? [])
     this.db.query(`INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday, day, date, project_id, next_run_at, allowed_urls, write_connections, confirmed_at,
-      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends, rule, chat_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
+      save_folder, save_folder_id, save_rule, save_readers, save_sources, personal_sends, rule, chat_id, quiet)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, userId, input.title, input.prompt, s.repeat, s.time, s.weekday, s.day, s.date, input.projectId ?? null, next.toISOString(),
       approval?.allowedUrls.length ? JSON.stringify(approval.allowedUrls) : null, approval?.writeConnections.length ? JSON.stringify(approval.writeConnections) : null,
-      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends, s.rule, o.chatId ?? null)
+      approval ? now.toISOString() : null, scope.save_folder, scope.save_folder_id, scope.save_rule, scope.save_readers, scope.save_sources, scope.personal_sends, s.rule, o.chatId ?? null, approval?.quiet ? 1 : 0)
     return this.get(userId, id)!
   }
 
@@ -574,7 +575,11 @@ export class Schedules {
       chat: () => {
         const runs = (this.db.query("SELECT count(*) AS n FROM turns WHERE user_id = ? AND client_kind = 'schedule' AND status IN ('queued','running')").get(s.user_id) as { n: number }).n
         if (runs >= RUNS_AT_ONCE) throw new HttpError('conflict', tr('scheduleTooMany', locale), { params: { reason: 'schedule_too_many' } })
-        const into = this.postsInto(s) ?? (frequent ? this.ownRunChat(s) : null)
+        // a task made without its card (quiet) posts into its shared chat only while no guest is among the people there
+        // (a guest added since: the run is a new chat of its owner's, as when they cannot continue it; fails closed)
+        const shared = this.postsInto(s)
+        const guestNow = (c: ChatRow) => { if (!(s as { quiet?: number }).quiet) return false; try { return new Audiences(this.db, this.rt.files).ofChat(c).some((u) => isGuestUser(this.db, u)) } catch { return true } }
+        const into = (shared && !guestNow(shared) ? shared : null) ?? (frequent ? this.ownRunChat(s) : null)
         if (into) { rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed'); return into }
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)

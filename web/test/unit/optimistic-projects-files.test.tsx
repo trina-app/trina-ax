@@ -222,7 +222,27 @@ describe('the Files page', () => {
     }
   })
 
-  test("move: the server's question is asked with the row already gone; a no puts it back without an error", async () => {
+  test("move: the server's question (people lose files they have by link) is asked with the row already gone; a no puts it back without an error", async () => {
+    const m = await filesPage()
+    try {
+      await m.until(() => names(m).length === 3, 'the rows')
+      holdRe = /^POST \/api\/files\/move$/
+      await rowAction(m, 'notes.txt', 'file-move')
+      await m.click(await m.until(() => body(m).querySelectorAll('button').find((b) => b.textContent?.trim() === 'archive' && !b.closest('tr')), 'the picker folder'))
+      await m.until(() => inBody(m, 'folder-pick')?.getAttribute('disabled') === null, 'the pick button')
+      await m.click(inBody(m, 'folder-pick')!)
+      ;(await take(/^POST \/api\/files\/move$/)).answer(refused('narrowed', { reason: 'audience_narrowed', lostViewers: 3, linkPeople: 2 }))
+      await m.until(() => inBody(m, 'dialog-confirm'), 'the question')
+      expect(names(m)).toEqual(['archive', 'plan.md'])
+      await confirm(m, false)
+      await m.until(() => names(m).length === 3, 'the row back')
+      expect(toasts()).toEqual([])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('move into my folder with no link shares: no question, moved confirmed, and the toast\'s Undo moves it back (docs/decisions/20261123-do-then-undo.md)', async () => {
     const m = await filesPage()
     try {
       await m.until(() => names(m).length === 3, 'the rows')
@@ -232,11 +252,15 @@ describe('the Files page', () => {
       await m.until(() => inBody(m, 'folder-pick')?.getAttribute('disabled') === null, 'the pick button')
       await m.click(inBody(m, 'folder-pick')!)
       ;(await take(/^POST \/api\/files\/move$/)).answer(refused('narrowed', { reason: 'audience_narrowed', lostViewers: 3 }))
-      await m.until(() => inBody(m, 'dialog-confirm'), 'the question')
-      expect(names(m)).toEqual(['archive', 'plan.md'])
-      await confirm(m, false)
-      await m.until(() => names(m).length === 3, 'the row back')
-      expect(toasts()).toEqual([])
+      const again = await take(/^POST \/api\/files\/move$/)
+      expect(inBody(m, 'dialog-confirm')).toBeNull()
+      expect((again.body as { confirm?: boolean }).confirm).toBe(true)
+      again.answer(json(200, { entry: entry(`${DIR}/archive/notes.txt`) }))
+      const told = await m.until(() => (toasts() as unknown as { action?: { run: () => void } }[]).find((x) => x.action), 'the moved toast with Undo')
+      told.action!.run()
+      const back = await take(/^POST \/api\/files\/move$/)
+      expect(back.body).toEqual({ from: `${DIR}/archive/notes.txt`, to: `${DIR}/notes.txt`, onExists: 'fail', confirm: true })
+      back.answer(json(200, { entry: entry(`${DIR}/notes.txt`) }))
     } finally {
       await m.unmount()
     }
@@ -248,7 +272,6 @@ describe('the Files page', () => {
       await m.until(() => names(m).length === 3, 'the rows')
       holdRe = /^(DELETE \/api\/files|POST \/api\/files\/trash)/
       await rowAction(m, 'plan.md', 'file-trash')
-      await confirm(m)
       expect(names(m)).toEqual(['archive', 'notes.txt'])
       expect(toasts()).toEqual([])
       folders[DIR] = [entry(`${DIR}/archive`, 'folder'), entry(`${DIR}/notes.txt`)]
@@ -273,7 +296,6 @@ describe('the Files page', () => {
       await m.until(() => names(m).length === 3, 'the rows')
       holdRe = /^DELETE \/api\/files/
       await rowAction(m, 'notes.txt', 'file-trash')
-      await confirm(m)
       expect(names(m)).toEqual(['archive', 'plan.md'])
       ;(await take(/^DELETE \/api\/files/)).answer(json(403, { error: { code: 'forbidden', message: 'Only an admin can delete it.' } }))
       await m.until(() => names(m).length === 3, 'the row back')
@@ -297,7 +319,6 @@ describe('the Files page', () => {
       await m.until(() => m.find('bulk-bar'), 'the selection bar')
       holdRe = /^DELETE \/api\/files/
       await m.click('bulk-delete')
-      await confirm(m)
       expect(names(m)).toEqual(['archive'])
       folders[DIR] = [entry(`${DIR}/archive`, 'folder'), entry(`${DIR}/plan.md`)]
       ;(await take(/^DELETE \/api\/files\?path=shared%2Facme%2Fnotes/)).answer(json(200, { trashId: TRASH1, purgeAt: '2026-12-12T00:00:00.000Z' }))
@@ -326,7 +347,6 @@ describe('the Files page', () => {
       filesChanged.emit([{ path: `${DIR}/x.md`, action: 'create', by: null, turnId: null }])
       const before = await take(/^GET \/api\/files\/tree/)
       await m.click('bulk-delete')
-      await confirm(m)
       expect(names(m)).toEqual(['archive'])
       before.answer(json(200, { path: DIR, access: 'write', entries: folders[DIR], nextCursor: null }))
       await m.settle(20)

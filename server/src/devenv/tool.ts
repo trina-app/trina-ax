@@ -26,7 +26,7 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
 import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
-import { grantUserSite, siteAllowed } from './sites'
+import { grantUserSite, siteAllowed, userSitesFull } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
@@ -34,7 +34,7 @@ import { changesByOthers, markSeen, OwnNotUndoable, withChangeWindow, withOwnFol
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
-import { BOX_NODE_LIB_NAMES, BOX_PYTHON_LIBS, type DevPlatform } from './srt/config'
+import { BOX_NODE_LIB_NAMES, BOX_PYTHON_LIBS, boxBrowser, type DevPlatform } from './srt/config'
 import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
@@ -82,9 +82,19 @@ export const boxLibsText = (platform: DevPlatform = runPlatform()) => (platform 
     // the box's default fonts (srt/config.ts BOX_FONTS_CONF, QA TC-7043)
     + 'Text a command draws (ffmpeg drawtext, matplotlib, LibreOffice) uses Noto Sans CJK by default, which has Korean, Japanese and Chinese letters; a font file you name yourself must have them too. ')
   + 'For anything else use the folder: npm install, or a venv (python3 -m venv .venv && .venv/bin/pip install <package>); a plain pip install has nowhere to write. '
+/** How a command gets a browser (docs/decisions/20261123-box-browser-default.md). First in the tool text: the pinned
+ * engine cuts a tool description at 4,096 characters and the API engine at 1,024 (BOX_TEXT_KEPT). */
+export const BOX_TEXT_KEPT = 1024
+export const boxBrowserText = (platform: DevPlatform = runPlatform(), browser: string | null = boxBrowser(platform)) => {
+  if (platform === 'darwin') return 'For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  if (!browser) return 'This server has no headless browser for commands: for a video, offer ffmpeg. '
+  return 'A headless browser works here: chromium --headless --screenshot=out.png URL (also --dump-dom, --print-to-pdf=f.pdf), Puppeteer and HyperFrames as they are, Playwright with executablePath: process.env.TRINA_BROWSER. Do not download a browser. '
+    + 'A site off the allowed list fails (403 or ERR_TUNNEL_CONNECTION_FAILED): use request_sites. If a render still fails, give the exact error and offer ffmpeg; never say a browser is impossible here. '
+}
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
-export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, a headless browser) on the team server. '
+  + boxBrowserText()
   + boxLibsText()
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files (for a file in $TRINA_WORK its path is chat:work/<path>). '
@@ -99,7 +109,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
-  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. '
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
@@ -109,7 +119,8 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
  * command and its output, so it sees only what all of them may open; no login. Jobs and dev servers too, with the same
  * folders (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). */
-export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, a headless browser) on the team server. '
+  + boxBrowserText()
   + boxLibsText()
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
@@ -120,7 +131,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
   + 'Jobs and dev servers run here too, with the same folders: everyone in this chat sees their results, and they stop when the people of this chat or what they may open change. '
-  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. '
   + devServerText(previewReady())
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
@@ -206,7 +217,8 @@ export interface BoxShellHost {
   /** the person's "Always allow" for this kind is on here (no card will show): the result says so */
   alwaysOn?(kind: 'dev_login'): boolean
   /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
-  askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
+  /** `o.listFull`: the person's own list is full, so the card offers no Always and says so */
+  askSite?(host: string, command: string, o?: { listFull?: boolean }): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
   unattended?: boolean
   /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
@@ -669,7 +681,8 @@ async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>,
       denied.add(host)
       return { notes, refusal: `Nobody can answer a site card in this run (a scheduled task, for example): ${host} is not on the allowed list, so the command did not run. Sites that the person allowed with "Always allow" work here; tell the person to allow ${host} in a chat first.`, summary: `site ${host} not allowed (no person to ask)` }
     }
-    const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300))) : null
+    const full = userSitesFull(ctx.db, h.userId)
+    const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300)), full ? { listFull: true } : undefined) : null
     if (decision === 'always') {
       if (grantUserSite(ctx.db, h.userId, host) === 'full') {
         once.add(host)

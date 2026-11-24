@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { quietRun } from '../../chat/explicit-send'
 import { LIVE_CLIENTS, teamAllowsAlways } from '../../chat/always-allow'
 import { steerableRun } from '../../chat/shared-run'
 import { isConfidentialChat } from '../../safe-ops/confidential'
@@ -40,8 +41,8 @@ import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine,
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
-import { argsReachOthers, plainName, readKind, readsHere, takesRecipient } from './read-mark'
-import { keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
+import { argsReachOthers, namedAsChange, nameWords, plainName, readKind, readsHere, takesRecipient } from './read-mark'
+import { keepConnectorAllow, keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
@@ -53,7 +54,7 @@ import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
-import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
+import { sourceOf, type ReadSource } from '../../chat/read-scope'
 import { awayWords, localSpecOf, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
@@ -218,11 +219,25 @@ export function answerSources(row: Pick<Row, 'id' | 'scope' | 'google_app' | 'ow
 }
 
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
-function noteAnswer(ctx: AppContext, chat: string, row: Row) {
+function noteAnswer(ctx: AppContext, chat: string, row: Row, plain = false) {
   ctx.db.transaction(() => {
     addSources(ctx.db, chat, answerSources(row))
-    ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
+    if (!plain) ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
   })()
+}
+
+/** A create the create tier let through (gate: nothing from outside, nobody else's words) that succeeded with a short
+ * answer: the AI never gets the service's words, only a line the server builds (that it ran, and the version-like tokens
+ * of the answer: "v10", "42"), so nothing the service wrote can steer what comes next and the chat is not marked as
+ * holding outside content (QA batch 5 flow 3: every create after the first asked). It still joins the chat's sources. A
+ * longer or error answer, a file kept, an image or a link: the answer as it is, and the chat marked as before (security
+ * review: a 300-character answer can carry instructions, so it is never shown as it is without the mark). */
+const TIER_ANSWER_MAX = 2000
+const plainTierAnswer = (sent: Sent | null, text: string, isError: boolean | undefined, kept: number) => !!sent?.tier && !isError && !kept && text.length <= TIER_ANSWER_MAX
+/** the server's own line for such an answer: the tool, the service and at most five short tokens with a digit */
+function tierLine(service: string, tool: string, text: string): string {
+  const tokens = [...new Set(text.match(/(?<![\p{L}\p{N}])[vV#]?\d[\p{N}.\-]{0,15}(?![\p{L}\p{N}])/gu) ?? [])].slice(0, 5)
+  return `${tool} ran at ${service} and reported success.${tokens.length ? ` Numbers in its answer: ${tokens.join(', ')}.` : ''} (Its own words are not shown here.)`
 }
 
 /**
@@ -243,8 +258,8 @@ async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolCo
   return now
 }
 
-/** "Always in this chat" on the shared connection card holds for the connection as it is: its version (a new address,
- * key or sign-in, a changed rule) and the account it is signed in to; reconnecting to another account asks again */
+/** The shared connection card's key for this answer ("Allow" covers the rest of it): the connection as it is, its
+ * version (a new address, key or sign-in, a changed rule) and the account it is signed in to */
 const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
 
 /** A team file handed to a connection's tool in a shared chat: refused, in plain words */
@@ -273,6 +288,8 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** set by the gate: 'card' when the person said yes on this call's card, 'chat' when their yes on an earlier card in
    * this chat covered it (chat/card-approvals.ts) */
   via?: 'card' | 'chat'
+  /** it went with no card through the create tier (gate): its short answer does not mark the chat (noteAnswer) */
+  tier?: true
   /** the tool acts on the person's own things and sends nothing to other people (ownActTool): in a shared chat its card
    * offers Always allow for this tool (tool-allow.ts) */
   ownAct?: boolean
@@ -282,7 +299,9 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** an app on the person's computer runs code the call gives (codeKeyOf) */
   runs?: boolean
   /** the short title or description the AI gave the call (titleArg): the card's plain sentence */
-  title?: string | null }
+  title?: string | null
+  /** the tool only makes something new (createTool): no card in a turn the person watches */
+  create?: boolean }
 
 /** Words in a tool's name or title that say it reaches other people (a post, a mail, a message, a share, an invite …) */
 const TO_OTHERS = /send|post|mail|messag|repl(y|ies)|forward|invit|publish|tweet|comment|notif|broadcast|sms|chat|respond|answer|share|member|permission|access|grant|collaborat|visib|schedul|meeting|calendar|event/i
@@ -298,6 +317,38 @@ export function ownActTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'na
   if (!ascii(name) || !ascii(title)) return false
   // a recipient in the schema, or in the call's own arguments (extra keys still reach the service)
   return !TO_OTHERS.test(name) && !TO_OTHERS.test(title) && !takesRecipient(t.inputSchema) && !argsReachOthers(args)
+}
+
+/** The create tier (docs/decisions/20261123-do-then-undo.md; Claude.ai and Cursor run a tool that only adds without asking):
+ * a tool that makes something new and changes, deletes or sends nothing. All of: the service marks it a change that
+ * destroys nothing (RemoteTool.nonDestructive: its own destructiveHint false; MCP's default for a change is destructive,
+ * so a tool that says nothing asks); a plain ASCII name and title whose verb (first word, or the first after a service
+ * prefix) is a create verb and with no other change word, no word of TO_OTHERS and no money word; no recipient in its
+ * schema or the call; never a Google app (Trina's own list decides there). Anything else: change, delete or send, asked. */
+const CREATE_VERBS = new Set(['create', 'new', 'add', 'make', 'generate', 'build'])
+const MONEY = /pay|charg|order|invoice|purchas|checkout|subscri|refund|transfer|billing|price|buy|sell|book|reserv|donat|wallet|card/i
+/** a new thing that others can reach, or that grants access (security review): never the create tier */
+const REACHES = /public|publish|webhook|hook|key|token|secret|credential|password|user|member|role|permission|access|repo|gist|issue|pull|release|deploy|dns|domain|link|invit|guest|account|org|team|workspace|channel|group|campaign|broadcast|newsletter|ticket/i
+export function createTool(row: Pick<Row, 'google_app'>, t: Pick<RemoteTool, 'name' | 'title' | 'nonDestructive'> & { inputSchema?: unknown }, args: unknown): boolean {
+  if (!t.nonDestructive || row.google_app) return false
+  const name = plainName(t.name), title = plainName(t.title)
+  if (!name || name !== t.name.normalize('NFKC') || !/^[\x21-\x7e]+$/.test(name) || !/^[\x20-\x7e]*$/.test(title)) return false
+  const w = nameWords(name)
+  const at = CREATE_VERBS.has(w[0] ?? '') ? 0 : w.length > 2 && CREATE_VERBS.has(w[1]!) && !namedAsChange(w[0]) ? 1 : -1
+  if (at < 0) return false
+  // nothing after the verb that is another change ("create_and_send", "add_member", "create_or_update")
+  const rest = w.slice(at + 1).join('_')
+  if (rest && namedAsChange(rest)) return false
+  if (TO_OTHERS.test(name) || TO_OTHERS.test(title) || MONEY.test(name) || MONEY.test(title) || REACHES.test(name) || REACHES.test(title)) return false
+  if (title && nameWords(title).some((x, i) => i > 0 && namedAsChange(x) && !CREATE_VERBS.has(x))) return false
+  return !takesRecipient(t.inputSchema) && !argsReachOthers(args)
+}
+
+/** The admin's setting for a team connection holds for the create tier: a team connection whose admin chose "ask" (its
+ * write rule) asks for every change, a create too. A person's own connection, or a team one set to send without asking,
+ * keeps the tier. */
+export function createTierOk(row: Pick<Row, 'scope' | 'write_policy'>): boolean {
+  return !(row.scope === 'team' && row.write_policy !== 'allow')
 }
 
 /** A short "title" or "description" argument the AI gave a call (Aside's Repl: what the code is for), for the card */
@@ -592,14 +643,23 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   }
   // a scheduled run in a shared chat that another person wrote in goes by the rules below like any of the maker's runs
   // (the team's "send without asking" with the task's card, the maker's own Always; Rule A, docs/decisions/
-  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2), except while a guest is among the
-  // people there (the one limit kept): then no change at any service, as before
-  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId)) {
+  // 20261122-always-allow-holds-everywhere.md B6 ended the refusal of #1353 H2). While a guest is among the people
+  // there, only the maker's own Always for this call lets it go (one Always, 20261123-one-always-allow.md); nothing
+  // else does (a task's card, pinned recipients): no change at any service, as before
+  if (b.scheduled && guestShared(b) && steerableRun(ctx.db, b.turnId) && !ownAlwaysCovers(ctx, row, sent, b)) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
       also: `this scheduled run is in a shared chat where other people wrote and a guest is among the people, so it sends nothing to a connected service`,
       next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
     }), 'refused (nobody to ask: scheduled run in a shared chat with a guest)')
+  }
+  // a run of a task made without its card changes nothing at any service (docs/decisions/20261123-do-then-undo.md)
+  if (b.scheduled && quietRun(ctx.db, b.turnId)) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: 'this scheduled task was made without its confirmation card, so its runs send and change nothing at connected services',
+      next: 'say so in the summary; the user can ask for it in a chat, or make the task again with its card', names: [row.name],
+    }), 'refused (quiet scheduled task)')
   }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {
@@ -632,13 +692,23 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // a change (docs/decisions/20261118-shared-chat-connections.md, security review of #1276)
   const sharedMode = !!b.shared
   if (allowed && !outside && (!attachAsks || ownAllow) && !sharedMode) return false
+  // the create tier (createTool): a tool that only makes something new runs without the card in a turn the person
+  // watches from their own app, also in a shared chat (it reaches nobody and deletes nothing; the result says what was
+  // made). Never api_request, team files, a scheduled run or after a room read (there every change asks on its card)
+  // (security review: nothing read in this chat from outside it, a room, a connected service or the browser, that the new
+  // thing could carry to others; no guest among the people; no other person wrote in a shared chat)
+  // (an admin who chose "ask" for a team connection is asked of every change there, the create tier too: createTierOk)
+  // (othersInChat, not othersWords: a shared chat itself is not another person's words; their messages, a room read or
+  // content they wrote are: QA batch 5 flow 3, where every create in a shared chat nobody else wrote in still asked)
+  if (sent.create && createTierOk(row) && sent.tool && !sent.request && !sent.attach?.length && !b.scheduled && live && !roomsSeen && !tc.files.person?.unattended
+    && !outsideSeen(ctx.db, b.chatId) && tc.files.person?.othersInChat?.() === false && !(sharedMode && guestShared(b))) { sent.tier = true; return false }
   // a shared chat: a call that acts on the person's own things and sends nothing to other people (Sent.ownAct) goes
   // without its card once the person chose Always allow for that tool, or for every change at their own connection (its
   // write rule: Rule A, final everywhere) (docs/decisions/20261122-connector-always-allow.md; the owner: "매 콜마다
   // 해야하네"). A call that reaches other people, a team connection's change, or team files ask every time.
-  if (sharedMode && sharedAlwaysKey(row, sent) && alwaysPlaceOf(ctx, b) && (toolAllowed(ctx.db, row, b.userId, sharedAlwaysKey(row, sent)!) || (teamOn && ownAllow && row.scope === 'personal'))) return false
-  // a guest among the people: the person's "Always in this chat" for that tool, for everyone who sees the chat now
-  if (sharedMode && sharedAlwaysKey(row, sent) && chatAllowed(ctx, row, b, sharedAlwaysKey(row, sent)!, 'acts')) return false
+  // The tool's own Always, or the whole connection's, holds in the person's own chats and their scheduled runs too
+  // (one Always, every chat: docs/decisions/20261123-one-always-allow.md)
+  if (ownAlwaysCovers(ctx, row, sent, b)) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -655,8 +725,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // no card when the person's own message of this turn asked for this change and everything it writes is in their words
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
-  // (our own text match, not the person's choice: never where other people's words are in the chat)
-  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  // (our own text match, not the person's choice: never where other people's words are in the chat; a create on a team
+  // connection whose admin chose "ask" asks there too: createTierOk)
+  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && !(sent.create && !createTierOk(row)) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -686,12 +757,15 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // code that an app on the person's computer runs (Aside's Repl): what it does in plain words, the code under its lines
   // a call that acts on the person's own things (Sent.ownAct, no team files): one plain sentence of what happens, the
   // tool's title ("Create a task in Tasks"); code an app on the computer runs (Aside's repl): the title the AI gave it, else
-  // a generic line, and its code, parameters and ids behind "자세히" (the owner: "코드를 보여주면 뭐 어케 하라는거냐").
+  // a generic line; and for every such call its code, parameters and ids behind "자세히" (the owner: "코드를 보여주면 뭐
+  // 어케 하라는거냐"; AB4 F3: a team connection's create_app showed the app's whole HTML open on the card).
   // A call that reaches other people keeps "send" and its recipients in view (security review of #1338, L2)
   const plain = !!sent.ownAct && !sent.request && !sent.attach?.length
   const sentence = sent.runs ? (sent.title ? say('actTitled', L, { name: row.name, title: sent.title }) : say('runCode', L, { name: row.name })) : say('actTool', L, { name: row.name, what: what(L) })
+  // a shared chat's change on a team connection asks every time (sharedAlwaysKey): the card says why, in one line
+  const teamLine = plain && sharedMode && row.scope === 'team' ? `\n\n${say('teamEachTime', L)}` : ''
   const question = plain
-    ? `${practice}${lead}${sentence}`
+    ? `${practice}${lead}${sentence}${teamLine}`
     : `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
@@ -700,7 +774,18 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const shown = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
-  const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}), ...(plain && sent.runs ? { hidden: true as const } : {}) }]
+  // a team connection's change (its account is everyone's): the labelled lines stay in view, each long value (code, a page)
+  // as its length only, the exact text one click away; the person's own connection or app: everything behind "자세히"
+  const teamCall = plain && row.scope === 'team' && !sent.runs
+  // ...never folded while a long random-looking part (it can carry data) is in it: its highlight stays in view (code review)
+  const foldTeam = teamCall && !marks.length
+  // (lines that cannot show every value as sent, code with its indentation: the call's own top-level values, briefLines)
+  const brief = foldTeam && !shown.exact ? briefLines(sent.raw, L) : null
+  const base = brief ?? shown.fields
+  const cut = foldTeam ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
+  const folded = cut.some((f, i) => f !== shown.fields[i]) || base !== shown.fields
+  const hide = plain && !teamCall
+  const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}), ...(sent.runs ? {} : { callJson: true as const }) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
@@ -735,6 +820,24 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   }
   if (!sharedMode) keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
   return true
+}
+
+/** A team connection's change card shows a value up to this long on its line; a longer one (code, a page) by its length */
+const CARD_VALUE_SHOWN = 200
+
+/** A team connection's change card where the card's lines cannot show every value as sent (code with its indentation, a
+ * long page: cardLines null): the call's top-level values, a short one-line value as it is, any other by its length
+ * (AB4 F3: "견적-계산기" on its line, the app's 2,344 characters of HTML not); the exact text stays one click away */
+function briefLines(args: unknown, L: Locale): CardLine[] | null {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null
+  const all = Object.entries(args as Record<string, unknown>)
+  // more than a card shows: no lines of our own, the text stays open (never a value silently left off: code review)
+  if (!all.length || all.length > 12) return null
+  return all.map(([k, v]) => {
+    const text = typeof v === 'string' ? v : JSON.stringify(v) ?? ''
+    const short = (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') && text.length <= CARD_VALUE_SHOWN && !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text)
+    return { name: fieldWord(k.slice(0, 80), L), value: short ? text : say('longValue', L, { n: text.length.toLocaleString(L) }) }
+  })
 }
 
 /** "Allow" on a read card: this tool of this connection for the rest of the answer (per turn) */
@@ -774,7 +877,6 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   unsureOnce.set(b, once)
   if (once.has(key)) return
   if (alwaysPlaceOf(ctx, b) && toolAllowed(ctx.db, row, b.userId, t.name)) return
-  if (chatAllowed(ctx, row, b, t.name, 'reads')) return
   const person = b.scheduled ? null : tc.files.person
   if (!person || person.unattended) {
     throw new CallError(refusal({
@@ -797,35 +899,23 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
 }
 
 /** Where the person's own Always for a connection tool counts and may be kept (as chat/always-allow.ts alwaysHere): a
- * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in: Rule A); never a
- * Slack question, a confidential chat, or a shared chat with a guest (someone outside the team) among its people, as
- * chat/turn.ts sharedConnMayKeep: there it holds for that chat only (chatAlwaysPlaceOf) */
+ * turn they watch from their own app, or their own scheduled run (also one a teammate's words are in, and a shared chat
+ * with a guest among its people: Rule A, one Always, docs/decisions/20261123-one-always-allow.md); never a Slack
+ * question or a confidential chat */
 function alwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
-  if (guestShared(b)) return false
   return (b.scheduled || LIVE_CLIENTS.has(turnClient(ctx, b))) && !isConfidentialChat(ctx.db, b.chatId)
 }
 
 const turnClient = (ctx: AppContext, b: BuildCtx) => (ctx.db.query('SELECT client_kind FROM turns WHERE id = ?').get(b.turnId) as { client_kind: string | null } | null)?.client_kind ?? ''
 
-/** A shared chat with a guest among its people, in a turn the person watches from their own app (never a scheduled run
- * or a confidential chat): the card's Always holds for this chat only, for the people who see it now
- * (chat/card-approvals.ts) */
-function chatAlwaysPlaceOf(ctx: AppContext, b: BuildCtx): boolean {
-  return !!b.shared && !b.scheduled && guestShared(b) && LIVE_CLIENTS.has(turnClient(ctx, b)) && !isConfidentialChat(ctx.db, b.chatId)
-}
-const chatAlwaysKind = (mode: 'reads' | 'acts') => (mode === 'reads' ? 'shared_unsure_tool' as const : 'shared_own_act' as const)
-/** The people who see the shared chat now (none: fails closed) */
-function audienceNow(b: BuildCtx): string[] {
-  try { return b.shared?.audience() ?? [] } catch { return [] }
-}
-/** The person's "Always in this chat" for this tool of this connection covers this call: kept in this chat for everyone
- * who sees it now (a person who joined since makes it ask again) */
-function chatAllowed(ctx: AppContext, row: Row, b: BuildCtx, key: string, mode: 'reads' | 'acts'): boolean {
-  if (!chatAlwaysPlaceOf(ctx, b) || !teamAllowsAlways(ctx.db)) return false
-  const now = audienceNow(b)
-  if (!now.length) return false
-  return approvalsFor(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key) })
-    .some((d) => Array.isArray(d.c) && now.every((id) => (d.c as unknown[]).includes(id)))
+/** The person's own Always covers this call: one that acts only on their own connection's things (sharedAlwaysKey), with
+ * that tool's Always or the whole connection's ("<connector> 전체 항상 허용"), or, in a shared chat, every change at their
+ * own connection (its write rule: Rule A) */
+function ownAlwaysCovers(ctx: AppContext, row: Row, sent: Sent, b: BuildCtx): boolean {
+  const key = sharedAlwaysKey(row, sent)
+  if (!key || !alwaysPlaceOf(ctx, b)) return false
+  if (toolAllowed(ctx.db, row, b.userId, key)) return true
+  return !!b.shared && teamAllowsAlways(ctx.db) && row.owner_user_id === b.userId && row.write_policy === 'allow'
 }
 
 /** A guest is among the people of this shared chat (fails closed) */
@@ -839,6 +929,15 @@ const sharedAlwaysKey = (row: Pick<Row, 'scope'>, sent: Sent): string | null =>
   // a change only on the person's own connection (their own account, their own app): a team connection's service holds
   // other people's things too, so a change there asks every time in a shared chat
   (sent.ownAct && sent.allowKey && !sent.request && !sent.attach?.length && row.scope === 'personal' ? sent.allowKey : null)
+
+/** The line under a card with both Always buttons: what each covers, at most NOTE_MAX characters (a card's note; a
+ * longer one is dropped by the app): the tool's line alone when both do not fit */
+const NOTE_MAX = 300
+export function alwaysNoteOf(L: Locale, mode: 'reads' | 'acts', name: string, what: string): string {
+  const one = say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name, what })
+  const both = `${one} ${say('allAlwaysNote', L, { name })}`
+  return both.length <= NOTE_MAX ? both : one.slice(0, NOTE_MAX)
+}
 
 /**
  * The one card for a connector tool that the person may allow for good (docs/decisions/20261122-connector-always-allow.md):
@@ -855,18 +954,14 @@ async function cardWithAlways(ctx: AppContext, row: Row, b: BuildCtx, person: No
     next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
   }), cardEndShort(end))
   const always = alwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
-  // a guest among the people (chatAlwaysPlaceOf): Always for this chat only, never for good
-  const inChat = !always && chatAlwaysPlaceOf(ctx, b) && teamAllowsAlways(ctx.db) && !activeDemoFakes()
   if (person.choose) {
-    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }] : inChat ? [{ label: say('unsureAlwaysChat', L), value: 'chat' }] : []), { label: say('unsureNo', L), value: 'deny' }]
-    const note = always ? say(mode === 'reads' ? 'unsureAlwaysNote' : 'actsAlwaysNote', L, { name: row.name, what }) : inChat ? say('unsureAlwaysChatNote', L, { name: row.name, what }) : null
+    // Allow / Always allow (this tool) / "<connector> 전체 항상 허용" (every tool of this connection, for good:
+    // docs/decisions/20261123-one-always-allow.md) / Don't allow: one press, four buttons; no Always for this chat only
+    const options = [{ label: say('unsureOnce', L), value: 'allow' }, ...(always ? [{ label: say('unsureAlways', L), value: 'always' }, { label: say('unsureAlwaysAll', L, { name: row.name }), value: 'all' }] : []), { label: say('unsureNo', L), value: 'deny' }]
+    const note = always ? alwaysNoteOf(L, mode, row.name, what) : null
     const v = await person.choose(question, options, { details: details as never, buttons: true, ...(note ? { note } : {}) })
     if (v === 'always' && always) { keepToolAllow(ctx.db, row, b.userId, key, b.turnId); return 'always' }
-    if (v === 'chat' && inChat) {
-      const c = audienceNow(b)
-      if (c.length) noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: chatAlwaysKind(mode), target: writeKey(row, key), detail: { c } })
-      return 'always'
-    }
+    if (v === 'all' && always) { keepConnectorAllow(ctx.db, row.id, b.userId, sharedBind(row), b.turnId); return 'always' }
     if (v === 'allow') return 'once'
     throw no(v === null ? 'timeout' : 'declined')
   }
@@ -1191,7 +1286,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
@@ -1226,10 +1321,16 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         })
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
-        noteAnswer(ctx, chat, current)
         // whoever reads the attached files is who may read what the service says back about them
         if (files.length) addSources(ctx.db, chat, files.map((f) => sourceOf(ctx.db, ctx.files.rules(), f.rel)))
-        const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
+        // (the chat is marked whatever happens below: a reading that fails still counts as an answer that came in)
+        let plain = false, parsed: ReturnType<typeof mcpText>
+        try {
+          parsed = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
+          plain = plainTierAnswer(sent, parsed.text, parsed.isError, parsed.kept.length) && !parsed.links.length
+        } finally { noteAnswer(ctx, chat, current, plain) }
+        const { text: answered, isError, links, kept } = parsed
+        const raw = plain ? tierLine(current.name, t.name, h.hide(answered)) : answered
         // a draft the person said yes to on its card: sending it unchanged needs no second card (chat/card-approvals.ts)
         if (sent && !isError) keepMade(ctx, current, b, t.name, sent, raw)
         // a Gmail attachment: its bytes as text or a picture (the existing readers), never base64 to the model
@@ -1687,17 +1788,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const guestHere = !!sh?.guestHere()
       const all = integrationsOf(ctx).usable(b.userId)
       const rows = guestHere ? all.filter((r) => r.scope !== 'team') : all
-      const audience = sh ? sh.audience() : []
-      /** a shared chat: does a call ask the person on the card first (someone here could not see what it returns)? */
-      const asks = (row: Row): boolean => {
-        try { return missingReaders(ctx.db, ctx.files.rules(), answerSources(row), audience).length > 0 } catch { return true }
-      }
+      /** a shared chat: the one notice before this person's first use of a connection here (chat/turn.ts
+       * confirmSharedConnection, docs/decisions/20261123-shared-connector-warning-once.md) */
       const sharedNote = (row: Row): string => !sh ? ''
-        : asks(row)
-          ? row.scope === 'personal'
-            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow, Always allow, Don't allow; no card once they chose Always allow). Never ask in your own words first; if they cancel, answer without it and do not try another way`
-            : `; some people in this shared chat may not use it: before its first call the server asks the user on a card only they see whether what it returns may be shown to everyone here. If they cancel, answer without it and do not try another way`
-          : '; everyone in this shared chat may use it, so it works here with no extra card'
+        : row.scope === 'personal'
+          ? '; in this shared chat it is the user\'s own: what it returns shows to everyone here (the first time they use it here the server shows them a short notice; just call the tool, never ask in your own words first)'
+          : '; what it returns shows to everyone in this shared chat (the first time the user uses it here the server shows them a short notice; just call the tool)'
       const tools: TurnTool[] = []
       const taken = new Set<string>()
       const http: Row[] = []

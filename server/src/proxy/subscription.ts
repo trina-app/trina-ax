@@ -106,6 +106,8 @@ export type ProxyState = 'starting' | 'listening' | 'port_in_use' | 'stopped'
 export interface ProxyServiceOptions {
   db: Database
   port: number
+  /** the proxy's internal port (ProxyOpts.innerPort; config engine.proxyInnerPort) */
+  innerPort?: number
   /** the team's AI connections; null = no model path on this proxy (503), CONNECT tunnels only (office local-login,
    * the ChatGPT sign-in) */
   broker: CredentialBroker | null
@@ -158,6 +160,7 @@ export class ModelProxyService {
     if (this.state === 'stopped') return this
     this.started = startModelProxy({
       db: this.o.db, port: this.o.port, broker: this.o.broker,
+      ...(this.o.innerPort ? { innerPort: this.o.innerPort } : {}),
       ...(this.o.codexModels ? { codexModels: this.o.codexModels } : {}),
       ...(this.o.log ? { log: this.o.log } : {}),
       peerCheck: this.o.peerCheck,

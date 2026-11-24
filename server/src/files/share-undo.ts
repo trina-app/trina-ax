@@ -85,7 +85,8 @@ export function undoShares(ctx: AppContext, userId: string, id: string, L: Local
   // the share, can write there: devenv/srt/alive.ts). Refused before the undo is used up, so it can be pressed again
   if (s.kind === 'folder' && devRunAlive(db, me.id)) throw new HttpError('conflict', msg('folderRunActive', L), { params: { reason: 'folder_share_run_active' } })
   let grants: UndoGrant[]
-  try { grants = (JSON.parse(u.grants) as UndoGrant[]).slice(0, FILE_SHARE_MAX) } catch { throw gone() }
+  // (a take-back record, files/share-take-back.ts, is an object, never a removal's list: not this endpoint's)
+  try { const j = JSON.parse(u.grants) as unknown; if (!Array.isArray(j)) throw gone(); grants = (j as UndoGrant[]).slice(0, FILE_SHARE_MAX) } catch { throw gone() }
   const valid = (g: UndoGrant) => g.subjectType === 'user'
     ? g.subjectId !== me.id && !!db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(g.subjectId)
     : g.subjectType === 'group' && (g.subjectId === FILE_SHARE_EVERYONE || (!!db.query('SELECT 1 FROM groups WHERE id = ?').get(g.subjectId) && (isStaff(me) || me.groups.includes(g.subjectId))))

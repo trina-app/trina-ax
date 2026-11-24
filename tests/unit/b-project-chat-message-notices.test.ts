@@ -17,6 +17,8 @@ import { chatThreadWanted } from '../../server/src/chat/threads'
 import { getPreferences, pushEventEnabled, savePreferences } from '../../server/src/notifications/preferences'
 import { pushBadge } from '../../server/src/notifications/push-badge'
 import { roomsOf } from '../../server/src/rooms/service'
+import { CONFIRMED } from '../lib/schedule-card'
+import { waitFor } from '../lib/wait'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -288,5 +290,40 @@ describe('threads ring only on a mention', () => {
       expect(chatThreadWanted(h.ctx, notice('bob')!.id)).toBe(true)
       expect(threadEvents('bob').find((f) => f.data.reply?.id === r.id)!.data.notice).toBe('reply')
     } finally { savePreferences(db(), 'bob', { roomThreadReplies: false }) }
+  })
+})
+
+// AB4 (the owner-flow A/B run): a scheduled run's result in a shared chat told nobody else. It is told as a person's
+// main message is (the owner's Slack rule, docs/decisions/20261123-ab4-asks-left.md): a notice that may ring, for every
+// other member, with no person as its writer
+describe("a scheduled run's answer in a project chat", () => {
+  const farTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + 12 * 3_600_000))
+  test('every other member gets a notice that may ring (a push, the desktop notice); the task\'s owner and a muted member none', async () => {
+    await h.api('erin').call(API.muteChat, { params: { id: chatId } })
+    try {
+      const before = updates('bob').length
+      const s = h.rt().schedules.create('alice', { title: 'Morning ' + crypto.randomUUID().slice(0, 6), prompt: fake({ say: 'the morning summary' }), repeat: 'daily', time: farTime(), projectId }, undefined, CONFIRMED, { chatId })
+      db().query('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), s.id)
+      expect(h.rt().schedules.runDue(new Date())).toEqual([s.id])
+      const t = db().query('SELECT id FROM turns WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1').get(s.id) as { id: string }
+      const answerId = () => (db().query("SELECT id, status FROM messages WHERE turn_id = ? AND role = 'assistant'").get(t.id) as { id: string; status: string } | null)
+      await waitFor(() => answerId()?.status === 'done' && of('bob', answerId()!.id).length > 0, { timeoutMs: 30_000 })
+      h.rt().schedules.delete('alice', s.id)
+      const a = answerId()!.id
+      expect(of('bob', a)).toMatchObject([{ kind: 'message', quiet: 0, read_at: null }])
+      expect((db().query('SELECT by_user FROM chat_message_notices WHERE user_id = ? AND source_id = ?').get('bob', a) as { by_user: string | null }).by_user).toBeNull()
+      expect(chatMessageWanted(h.ctx, of('bob', a)[0]!.id)).toBe(true)
+      expect(of('alice', a)).toEqual([])
+      expect(of('erin', a)).toEqual([])
+      await waitFor(() => updates('bob').slice(before).some((f) => (f.data as { notice?: { messageId: string } }).notice?.messageId === a), { timeoutMs: 10_000 })
+    } finally { await h.api('erin').call(API.unmuteChat, { params: { id: chatId } }) }
+  })
+
+  test("Trina's answer to a person who watches stays the number only (never pushed)", () => {
+    const answer = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }).id
+    db().query('DELETE FROM chat_message_notices WHERE source_id = ?').run(answer)
+    const rings = noteSharedAnswer(h.ctx, h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedAnswer>[1], answer, 'alice')
+    expect(rings.size).toBe(0)
+    expect(of('bob', answer)).toMatchObject([{ kind: 'answer', quiet: 1 }])
   })
 })

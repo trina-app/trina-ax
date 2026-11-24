@@ -21,7 +21,9 @@ import { redactorFor } from '../integrations/connections/redact'
 import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
-import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
+import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, opensUnderAllSites, typedUrls, type ConfirmExtra, type TurnPerson } from './url-gate'
+import { asksFor, ownWords, SCHEDULE_ASK } from '../chat/shared-actions'
+import { isGuestUser } from '../credentials/guest-ai'
 import { cardSources, cleanPins, makeSaveFolder, MAX_PINS, MAX_SOURCES, resolveSaveFolder, saveFolderChanged, resolveSources, rowSends, rowSources, scopeKey, sourceForAi, sourceText, withRules, type PersonalSend, type SaveFolder, type SaveLapse, type ScopeSource } from '../chat/schedule-scope'
 import type { Database } from 'bun:sqlite'
 import { MAX_EVERY_MINUTES, REPEATS, timingOf, type TimingSource } from '../chat/schedule-timing'
@@ -53,6 +55,12 @@ const CreateInput = z.object({
   save_to: z.string().max(1000).optional().describe('Only when runs must save files in a team folder that more people can see than what they read (e.g. "shared/weekly-reports"): that existing folder. After the user\'s yes on the card, runs may make NEW files there and in its sub-folders without asking (never change, replace, move or delete existing files; never skills or instruction files), at most 20 per run. Leave it out for the user\'s own folder, where runs always may save.'),
   reads: z.array(z.string().max(1000)).max(MAX_SOURCES).optional().describe('The places runs read whose content may go into save_to although fewer people can see them: "my folder", team folder paths, and rooms as #[name](room:<id>) or their ids. A run that read anything else that fewer people can see does not save there. Rooms listed here also let a run that read them send to the user\'s own connections at their pinned recipients (never to a team connection after a room read).'),
 })
+
+/** An address a run opens while the server does not know its exit address (url-gate.ts: a plain one the card listed):
+ * no long random-looking part, no user name or password, a site name rather than a number. */
+const plainUrl = (u: string) => {
+  try { const x = new URL(u); return !opaqueParts(u).length && !x.username && !x.password && !/^[\d.]+$|^\[/.test(x.hostname) } catch { return false }
+}
 
 /** The turn's project, whether it is a scheduled run, and the shared chat it is in (null: the person's own chat). */
 function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean; sharedChat: string | null } {
@@ -86,6 +94,15 @@ export const TEXT = {
     es: '¿Cambiar esta tarea programada a lo siguiente? Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones.\n\nTítulo: {title}\nHorario: {when}',
     zh: '要把此定时任务改成下面这样吗？它会在无人看管的情况下自动执行下面的指令。请检查指令和其中的地址。\n\n标题：{title}\n时间：{when}',
   } satisfies L5,
+  // under the buttons: why this card has no "Always allow" (a kept exception of Rule A, docs/ASKS.md schedule.create)
+  everyTime: {
+    ko: '이 확인은 매번 나와요. 예약 작업은 아무도 보지 않을 때 실행되기 때문이에요.',
+    en: 'This card shows every time: a scheduled task runs when nobody is watching.',
+    id: 'Kartu ini muncul setiap kali: tugas terjadwal berjalan saat tidak ada yang mengawasi.',
+    ja: 'この確認は毎回表示されます。定期タスクは誰も見ていないときに実行されるためです。',
+    es: 'Esta tarjeta aparece cada vez: una tarea programada se ejecuta cuando nadie la vigila.',
+    zh: '每次都会显示此确认：定时任务会在无人看管时运行。',
+  } satisfies L5,
   project: { ko: '프로젝트: {name}', en: 'Project: {name}', id: 'Proyek: {name}', ja: 'プロジェクト：{name}', es: 'Proyecto: {name}', zh: '项目：{name}' } satisfies L5,
   question: {
     ko: 'AI가 예약 작업을 만들려고 해요. 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: {title}\n일정: {when}',
@@ -103,13 +120,15 @@ export const TEXT = {
     es: 'En cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
     zh: '每次运行时，它会不经询问打开下面的{n}个地址。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
+  // the server does not know its own exit address (tools/egress.ts) and the person's "Allow all websites" is off: runs
+  // cannot open the addresses; the way out in plain words (AB4: "공인 주소" was server talk)
   urlsBlocked: {
-    ko: '아래 주소 {n}개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 주소마다 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
-    en: 'On this server, runs cannot open the {n} addresses below yet: the team server does not know its own public address, so each address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open them without asking. An address can carry data out, so check each one in full.',
-    id: 'Di server ini, tugas belum bisa membuka {n} alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi setiap alamat perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
-    ja: 'このサーバーでは、実行時に下の{n}件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、アドレスごとに人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
-    es: 'En este servidor, las ejecuciones aún no pueden abrir las {n} direcciones de abajo: el servidor del equipo no conoce su propia dirección pública, así que cada dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
-    zh: '在此服务器上，运行时还不能打开下面的{n}个地址：团队服务器还不知道自己的公网地址，所以每个地址都需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它们。地址可能会把数据带出去，请完整检查每一个地址。',
+    ko: '아래 주소 {n}개는 지금 실행 때 열 수 없어요. 이 서버에서는 아무도 보지 않는 실행이 웹 주소를 혼자 열지 않아요. 설정 › 트리나에게 허용한 것에서 “모든 사이트 허용”을 켜면 실행 때 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'Runs cannot open the {n} addresses below now: on this server a run nobody watches does not open web addresses on its own. Turn on "Allow all websites" in Settings › Allowed for Trina and runs open them without asking. An address can carry data out, so check each one in full.',
+    id: 'Tugas belum bisa membuka {n} alamat di bawah saat berjalan: di server ini tugas yang tidak diawasi tidak membuka alamat web sendiri. Nyalakan "Izinkan semua situs" di Pengaturan › Yang diizinkan untuk Trina, maka tugas membukanya tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
+    ja: '下の{n}件のアドレスは今は実行時に開けません。このサーバーでは、誰も見ていない実行はWebアドレスを自分では開きません。設定 › トリナに許可したことで「すべてのサイトを許可」をオンにすると、実行時に確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Las ejecuciones no pueden abrir ahora las {n} direcciones de abajo: en este servidor una ejecución que nadie vigila no abre direcciones web por su cuenta. Active "Permitir todos los sitios" en Configuración › Permitido para Trina y las ejecuciones las abrirán sin preguntar. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '运行时现在还不能打开下面的{n}个地址：在此服务器上，无人看管的运行不会自己打开网址。在“设置 › 允许 Trina 做的事”中打开“允许所有网站”后，运行时会不经询问打开它们。地址可能会把数据带出去，请完整检查每一个地址。',
   } satisfies L5,
   /** one address: English and Spanish say it in the singular; Korean, Indonesian, Japanese and Chinese count it like the rest */
   urlsOne: {
@@ -121,12 +140,30 @@ export const TEXT = {
     zh: '每次运行时，它会不经询问打开下面的1个地址。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   urlsBlockedOne: {
-    ko: '아래 주소 1개는 지금 이 서버에서는 실행 때 열 수 없어요. 팀 서버가 아직 자기 공인 주소를 몰라서 이 주소를 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요. 서버가 공인 주소를 알게 되면 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
-    en: 'On this server, runs cannot open the address below yet: the team server does not know its own public address, so the address needs a person to confirm it, and nobody is there during a run. Once the server knows its public address, runs open it without asking. An address can carry data out, so check it in full.',
-    id: 'Di server ini, tugas belum bisa membuka 1 alamat di bawah saat berjalan: server tim belum mengetahui alamat publiknya sendiri, jadi alamat itu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan. Setelah server mengetahuinya, tugas membuka alamat itu tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
-    ja: 'このサーバーでは、実行時に下の1件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、このアドレスには人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
-    es: 'En este servidor, las ejecuciones aún no pueden abrir la dirección de abajo: el servidor del equipo no conoce su propia dirección pública, así que la dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
-    zh: '在此服务器上，运行时还不能打开下面的1个地址：团队服务器还不知道自己的公网地址，所以这个地址需要有人确认，而运行时没有人在场。服务器知道自己的公网地址后，运行时会不经询问打开它。地址可能会把数据带出去，请完整检查这个地址。',
+    ko: '아래 주소 1개는 지금 실행 때 열 수 없어요. 이 서버에서는 아무도 보지 않는 실행이 웹 주소를 혼자 열지 않아요. 설정 › 트리나에게 허용한 것에서 “모든 사이트 허용”을 켜면 실행 때 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'Runs cannot open the address below now: on this server a run nobody watches does not open web addresses on its own. Turn on "Allow all websites" in Settings › Allowed for Trina and runs open it without asking. An address can carry data out, so check it in full.',
+    id: 'Tugas belum bisa membuka 1 alamat di bawah saat berjalan: di server ini tugas yang tidak diawasi tidak membuka alamat web sendiri. Nyalakan "Izinkan semua situs" di Pengaturan › Yang diizinkan untuk Trina, maka tugas membukanya tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: '下の1件のアドレスは今は実行時に開けません。このサーバーでは、誰も見ていない実行はWebアドレスを自分では開きません。設定 › トリナに許可したことで「すべてのサイトを許可」をオンにすると、実行時に確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Las ejecuciones no pueden abrir ahora la dirección de abajo: en este servidor una ejecución que nadie vigila no abre direcciones web por su cuenta. Active "Permitir todos los sitios" en Configuración › Permitido para Trina y las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
+    zh: '运行时现在还不能打开下面的1个地址：在此服务器上，无人看管的运行不会自己打开网址。在“设置 › 允许 Trina 做的事”中打开“允许所有网站”后，运行时会不经询问打开它。地址可能会把数据带出去，请完整检查这个地址。',
+  } satisfies L5,
+  /** the exit address unknown, but the person's own "Allow all websites" is on (url-gate.ts opensUnderAllSites): runs
+   * open them while it stays on (it is read again at run time) */
+  urlsAllSites: {
+    ko: '“모든 사이트 허용”이 켜져 있는 동안, 실행할 때마다 아래 주소 {n}개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'While "Allow all websites" is on, each run opens the {n} addresses below without asking. An address can carry data out, so check each one in full.',
+    id: 'Selama "Izinkan semua situs" menyala, setiap kali berjalan tugas ini membuka {n} alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa masing-masing secara lengkap.',
+    ja: '「すべてのサイトを許可」がオンの間は、実行のたびに下の{n}件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Mientras "Permitir todos los sitios" esté activado, cada ejecución abre sin preguntar las {n} direcciones de abajo. Una dirección puede sacar datos; revise cada una completa.',
+    zh: '在“允许所有网站”打开期间，每次运行时会不经询问打开下面的{n}个地址。地址可能会把数据带出去，请完整检查每一个地址。',
+  } satisfies L5,
+  urlsAllSitesOne: {
+    ko: '“모든 사이트 허용”이 켜져 있는 동안, 실행할 때마다 아래 주소 1개는 묻지 않고 열어요. 주소에 내용을 실어 밖으로 보낼 수도 있으니 주소 전체를 확인해 주세요.',
+    en: 'While "Allow all websites" is on, each run opens the address below without asking. An address can carry data out, so check it in full.',
+    id: 'Selama "Izinkan semua situs" menyala, setiap kali berjalan tugas ini membuka 1 alamat di bawah tanpa bertanya. Alamat bisa membawa data keluar, jadi periksa alamat itu secara lengkap.',
+    ja: '「すべてのサイトを許可」がオンの間は、実行のたびに下の1件のアドレスを確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
+    es: 'Mientras "Permitir todos los sitios" esté activado, cada ejecución abre sin preguntar la dirección de abajo. Una dirección puede sacar datos; revísela completa.',
+    zh: '在“允许所有网站”打开期间，每次运行时会不经询问打开下面的1个地址。地址可能会把数据带出去，请完整检查这个地址。',
   } satisfies L5,
   /** addresses with a query over MAX_UNCONFIRMED_QUERY characters: a person must confirm each one every time
    * (url-gate.ts ③), and nobody is there during a run, so runs never open them */
@@ -316,24 +353,35 @@ export function scheduleWhen(src: TimingSource, L: Locale): string {
   return fill(TEXT[s.repeat][L], { time: s.time, date, day: String(s.day ?? ''), weekday })
 }
 
+/** Which addresses a run of `userId`'s task in `chatId` opens under their own "Allow all websites" while the server's
+ * exit address is unknown (url-gate.ts opensUnderAllSites), for the schedule card's words; a guest among a shared
+ * chat's people changes nothing (one Always, docs/decisions/20261123-one-always-allow.md). */
+export function runOpensUnderAllSites(ctx: AppContext, chatId: string | null, userId: string): (url: string) => boolean {
+  return (u) => opensUnderAllSites(ctx.db, chatId, userId, u)
+}
+
 /** The schedule card: what the run will do, unattended, and what it may open or send without asking. 'create': the
  * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts);
  * 'edit': the person changed a task in Settings (chat/schedule-edit.ts), with the project it runs in, if any.
  * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
  * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & TimingSource, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; project?: string | null; scope?: CardScope; why?: SaveLapse; sharedWith?: number } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
-  const open = o.urlsOpen !== false
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & TimingSource, connections: string[], L: Locale, mode: CardMode = 'create', o: { urlsOpen?: boolean; allSites?: (url: string) => boolean; project?: string | null; scope?: CardScope; why?: SaveLapse; sharedWith?: number } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
+  const known = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
   // a query over MAX_UNCONFIRMED_QUERY characters always needs a person (url-gate.ts ③): runs never open such an
   // address, wherever it came from, so the card lists them apart with their query highlighted instead of promising them
   const longQuery = urls.filter((u) => new URL(u).search.slice(1).length > MAX_UNCONFIRMED_QUERY)
   const opens = urls.filter((u) => !longQuery.includes(u))
+  // the exit address unknown: a run still opens a plain address under the person's own "Allow all websites" (url-gate.ts
+  // opensUnderAllSites, `allSites`), so the card says that, not "cannot open" (AB4: the run then opened it)
+  const allSites = !known && opens.length > 0 && !!o.allSites && opens.every(o.allSites)
+  const open = known || allSites
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
   const head = fill(TEXT[mode === 'review' ? 'reviewQuestion' : mode === 'edit' ? 'editQuestion' : mode === 'recheck' ? 'recheckQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L), why: TEXT[`lapse_${o.why ?? 'folder'}`][L] })
   // an edit can move the task into a project (its folder and instructions); the project's name is one line too
   const lines = [o.project ? `${head}\n${fill(TEXT.project[L], { name: o.project.replace(/\s+/g, ' ').trim() })}` : head]
-  if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(opens.length) }))
+  if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (known ? 'urlsOne' : allSites ? 'urlsAllSitesOne' : 'urlsBlockedOne') : known ? 'urls' : allSites ? 'urlsAllSites' : 'urlsBlocked'][L], { n: String(opens.length) }))
   if (longQuery.length) lines.push(fill(TEXT[longQuery.length === 1 ? 'longQueryOne' : 'longQuery'][L], { n: String(longQuery.length), max: String(MAX_UNCONFIRMED_QUERY) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
@@ -347,7 +395,7 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt'> & T
     // the query first, so the whole of it is highlighted (a random-looking part inside it is part of that mark)
     details.push({ label: TEXT.labelUrlsLongQuery[L], text: t, marks: [...new Set([...longQuery.map((u) => new URL(u).search), ...opaqueParts(t)])] })
   }
-  return { question: lines.join('\n\n'), urls, longQuery, extra: { details } }
+  return { question: lines.join('\n\n'), urls, longQuery, extra: { details, ...(mode === 'create' ? { note: TEXT.everyTime[L] } : {}) } }
 }
 
 /** The card's answers: with "allow" team connections or pinned own connections the person picks whether runs may send
@@ -488,6 +536,43 @@ function scopeNote(db: Database, userId: string, save: SaveFolder | null, source
   return parts.join('')
 }
 
+/**
+ * A task the person asked for in their own words is made without its card (docs/decisions/20261123-do-then-undo.md,
+ * replacing the registry's "keep as is"; ChatGPT's Tasks do the same): the step then says it was made, with Pause and
+ * Delete. Only when nothing about it reaches anyone the person did not see or name: the person's own message of this
+ * turn (not sent for them, quoted lines left out) says when it runs or asks for a schedule, in a turn they watch from
+ * their app (not Slack, a draft or a run), after no room read; the task sends nowhere (no connection it may send to,
+ * no pinned recipient, no save folder or places for one); every address in it is one the person typed in this chat and
+ * none has a random-looking part or a long query; and no guest sees the shared chat it runs in. Anything else: the card
+ * (a task that sends to others with nobody watching stays on the floor).
+ */
+/** Words of a task that send, post or share (then it keeps its card) */
+const SENDS_IN_TASK = /\b(send|post|share|e-?mail|mail|message|notify|forward|invite|publish|upload|tweet|slack|kirim|enviar|compartir)\b|\uBCF4\uB0B4|\uC62C\uB824|\uACF5\uC720|\uC804\uB2EC|\uAC8C\uC2DC|\u9001|\u5171\u6709|\u53D1|\u5206\u4EAB/iu
+const REPEAT_WORDS = new RegExp(['\uB9E4\uC77C', '\uB9E4\uC8FC', '\uB9E4\uB2EC', '\uB9E4\uC6D4', '\uB9E4\uB144', '\uD3C9\uC77C', '\uB9C8\uB2E4', '\u6BCE\u65E5', '\u6BCE\u9031', '\u6BCE\u6708', '\u6BCE\u671D', '\u5B9A\u671F', '\u6BCF\u5929', '\u6BCF\u5468', '\u6BCF\u6708', '\u5B9A\u65F6', '\\b(every|daily|weekly|monthly|hourly|weekdays|setiap|cada|todos los)\\b'].join('|'), 'iu')
+const ONCE_WORDS = new RegExp(['\uB0B4\uC77C', '\uBAA8\uB808', '\u660E\u65E5', '\u660E\u5929', '\\b(tomorrow|besok|ma\u00F1ana)\\b'].join('|'), 'iu')
+const TIME_CUE = new RegExp(['\\d', '\uC544\uCE68', '\uC800\uB141', '\uC624\uC804', '\uC624\uD6C4', '\uC810\uC2EC', '\u671D', '\u591C', '\u65E9\u4E0A', '\u665A\u4E0A', '\\b(morning|evening|noon|night|pagi|sore|malam|tarde|noche)\\b'].join('|'), 'iu')
+
+export function askedInOwnWords(ctx: AppContext, turnId: string | null | undefined, userId: string, person: TurnPerson, task: { prompt: string; title: string }, o: { sends: boolean; urls: readonly string[]; longQuery: number; sharedChat: ChatRow | null }): boolean {
+  if (!turnId || person.unattended || !person.allSitesHere?.() || person.roomsSeen) return false
+  // never for a task that says to send. In a shared chat its runs post their result there, to the people who are in it
+  // already and asked with the person (the owner, 2026-11-23: only a send to others outside asks); its runs still send,
+  // post and share nothing anywhere else (quiet), and a guest among the people keeps the card (below)
+  if (o.sends || o.longQuery || SENDS_IN_TASK.test(`${task.title}\n${task.prompt}`)) return false
+  const m = ctx.db.query('SELECT m.content, m.auto_sent, t.chat_id FROM turns t JOIN messages m ON m.id = t.user_message_id WHERE t.id = ?').get(turnId) as { content: string | null; auto_sent: number | null; chat_id: string } | null
+  const said = ownWords(m?.content ?? '')
+  // (a repeat word, or "tomorrow" with a time: a bare "tomorrow" in a message is no schedule)
+  if (!m || m.auto_sent || !asksFor(SCHEDULE_ASK, said) || !(REPEAT_WORDS.test(said) || (ONCE_WORDS.test(said) && TIME_CUE.test(said)))) return false
+  if (opaqueParts(`${task.title}\n${task.prompt}`).length) return false
+  if (o.urls.length) {
+    const typed = typedUrls(ctx.db, m.chat_id, userId)
+    if (!o.urls.every((u) => typed.has(u))) return false
+  }
+  if (o.sharedChat) {
+    try { if (new Audiences(ctx.db, ctx.files).ofChat(o.sharedChat).some((id) => isGuestUser(ctx.db, id))) return false } catch { return false }
+  }
+  return true
+}
+
 export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
   const rt = getChatRuntime(ctx)
   const local = (iso: string | null) => {
@@ -537,12 +622,18 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const offered = taskConnections(writable, parsed.data, listed.ids)
       // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
       await egressSettled(ctx)
-      const urlsOpen = egressOf(ctx).known
+      // (while it does not know its exit address, a run still opens the plain addresses the card lists: url-gate.ts gateUrl,
+      // docs/decisions/20261123-do-then-undo.md; only a marked one would wait for a person)
+      const urlsOpen = egressOf(ctx).known || extractUrls(parsed.data.prompt).every(plainUrl)
+      // a run of this person in this chat opens a plain address under their own "Allow all websites" (AB4)
+      const allSites = runOpensUnderAllSites(ctx, shared?.id ?? null, t.user.id)
       const timing = inputTiming(parsed.data, new Date(), rt.timeZone)
-      const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
+      const card = scheduleCard({ ...parsed.data, ...timing }, offered.map((r) => r.name), L, 'create', { urlsOpen, allSites, scope: cardScope(ctx.db, t.user.id, L, scope.save, scope.sources, scope.sends),
         ...(shared ? { sharedWith: new Audiences(ctx.db, ctx.files).ofChat(shared).length } : {}) })
       const options = scheduleOptions(L, offered.length > 0 || scope.sends.length > 0)
-      const answer = person.choose
+      // the person's own words asked for it and it sends nowhere: made without the card, undone from its step
+      const quiet = askedInOwnWords(ctx, t.turnId, t.user.id, person, parsed.data, { sends: offered.length > 0 || scope.sends.length > 0 || !!scope.save || scope.sources.length > 0, urls: card.urls, longQuery: card.longQuery.length, sharedChat: shared })
+      const answer = quiet ? 'create' : person.choose
         ? await person.choose(card.question, options, card.extra)
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
@@ -567,15 +658,16 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const own = answer === 'create_write' ? scope.sends : []
       let s: ScheduleRow
       try {
-        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })) }, { chatId: shared?.id ?? null })
+        s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id), save, sources: scope.sources, personalSends: own.map((x) => ({ connectionId: x.connectionId, pins: x.pins })), ...(quiet ? { quiet: true } : {}) }, { chatId: shared?.id ?? null })
       } catch (e) { made?.drop(); throw e }
       made?.record()
-      const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
+      const blocked = !urlsOpen && card.urls.length > card.longQuery.length && !card.urls.filter((u) => !card.longQuery.includes(u)).every(allSites) ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does or the user turns on "Allow all websites" (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
       const here = shared ? ' Its runs are turns in this shared chat, as this user: they read this chat\'s messages, post their results here, and skip places some people here cannot open.' : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const quietNote = quiet ? ' It was made without a confirmation card because the user asked for it in their own words; the step under your answer shows it with Pause and Delete buttons. Say in one short sentence that it is made, when it first runs, and that they can pause or delete it there.' : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${quietNote}${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (${quiet ? 'asked in the user\'s own words, no card' : 'confirmed by the user'}${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at }, stepScheduled: { id: s.id, title: s.title, nextRunAt: s.next_run_at, ...(quiet ? { quiet: true as const } : {}) } }
     },
   })
   reg.register({

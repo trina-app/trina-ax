@@ -107,7 +107,7 @@ import { say as connectionSay } from '../../../server/src/integrations/connectio
 // server's file and connection code into the browser TypeScript program)
 const URL_TEXT = {
   unseen: { ko: 'AI가 이 대화에 없던 주소를 열려고 해요. 주소에 내 정보가 들어 있지 않은지 확인해 주세요.\n\n{url}' },
-  site: { ko: '사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.' },
+  siteAlways: { ko: '사이트를 항상 허용하면 앞으로 모든 대화에서 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자가 있는 주소는 계속 물어봐요. 설정 › 트리나에게 허용한 것에서 지울 수 있어요.' },
   opaque: { ko: '주소에 알아보기 어려운 긴 글자가 있어요(강조 표시). 내 정보가 숨어 있을 수 있으니 확인해 주세요.' },
 }
 import { Sealer } from '../../../server/src/credentials/seal'
@@ -1970,8 +1970,8 @@ export class MockServer {
         })()
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
-          question: `${URL_TEXT.unseen.ko.replace('{url}', siteUrl)}\n\n${URL_TEXT.site.ko.replace('{site}', 'example.co.kr')}`,
-          options: [{ label: '열기', value: 'allow' }, { label: '이 대화에서 이 사이트 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
+          question: `${URL_TEXT.unseen.ko.replace('{url}', siteUrl)}\n\n${URL_TEXT.siteAlways.ko.replace('{site}', 'example.co.kr')}`,
+          options: [{ label: '열기', value: 'allow' }, { label: '이 사이트 항상 허용 (example.co.kr)', value: 'site' }, { label: '열지 않기', value: 'deny' }] }
         : /markask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
           question: `${URL_TEXT.unseen.ko.replace('{url}', markUrl)}\n\n${URL_TEXT.opaque.ko}`,

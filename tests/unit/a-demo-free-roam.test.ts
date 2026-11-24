@@ -4,10 +4,11 @@
 // a development server, refuse whatever its fences list whoever asks, never mark its stand-in AI connection, and count
 // the demo limit with cache reads and cache writes at 0.1, refusing sends at the limit with reason demo_limit.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoFile, type Endpoint } from '../../shared/src/api'
+import { API, DEMO_GATE_KEY_HEADER, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, DemoFile, type Endpoint } from '../../shared/src/api'
 import { cookieFor, FREE_ROAM_SESSION_COOKIE, readToken, sessionCookie } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
@@ -19,21 +20,29 @@ import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { setSetting, updateTeamSettings } from '../../server/src/admin/settings'
 import { DEMO_AI_LABEL, demoRestError, freeRoamDenyRead, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
 import { DEMO_GATE_DIR, demoDenyReadDirs, sandboxProfile, setDemoDenyRead } from '../../server/src/tools/isolate'
-import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
+import { FREE_ROAM_REFUSED_TOOLS, FREE_ROAM_TOOLS, freeRoamFenceOf, freeRoamToolFenced } from '../../server/src/demo/guard'
+import { PANE_TOOLS } from '../../server/src/realtime/browser-tools'
+import { renderTools } from '../../server/src/promo-video/render'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_TOKEN_RE, verifySecret } from '../../server/src/credentials/validate'
 import { markInvalid, markNeedsReconnect, markNoCredit } from '../../server/src/credentials/store'
+import { gateKeyOk } from '../../server/src/routes/demo'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { ask, startHarness, type Harness as BHarness, type TestSocket } from '../lib/b-harness'
 import { makeEnv } from '../lib/env'
+import { writeSteepling } from '../../scripts/demo/steepling/make'
+import { demoFakesOf } from '../../server/src/demo/fakes'
+import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { addCred, testCredCtx } from '../lib/credentials'
 
 setDefaultTimeout(60_000)
 
 const PW = 'demo public words 42'
 const SCRIPTED: DemoFile = { company: 'Steepling', password: PW, personas: [{ key: 'newHire', username: 'mina', intro: 'First day at Steepling', questions: [] }] }
-const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
+const GATE_KEY = 'the-gate-key-of-this-test'
+const FREE: DemoFile = { ...SCRIPTED, kind: 'freeRoam', fakes: {}, gateKeySha256: crypto.createHash('sha256').update(GATE_KEY).digest('hex'), limitTokens: 5000, signupUrl: 'https://example.com/start', uploadFileMax: 4000, uploadTotalMax: 6000 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a-demo-free-roam-'))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
@@ -71,6 +80,9 @@ describe('a free-roam demo file starts only where only the gate reaches it', () 
       [GOOD, { MYCEL_DEV_ENV: '1' }, /MYCEL_DEV_ENV must be off/],
       [GOOD, { MYCEL_LOG_LEVEL: 'debug' }, /no debug log level/],
     ]
+    // the connected services' tools are open only because they are the fakes
+    const { fakes: _none, ...noFakes } = FREE
+    expect(() => loadAppConfig({ argv: ['--config', write('g-nofakes.json', GOOD)], env: { MYCEL_DEMO: write('nofakes.json', noFakes) } })).toThrow(/a free-roam demo needs its fakes/)
     for (const [file, env, why] of bad) {
       let err: unknown
       try { load(file, env) } catch (e) { err = e }
@@ -106,9 +118,44 @@ describe('a free-roam demo server', () => {
     ;(h.ctx.config as { demo?: DemoFile }).demo = FREE
     startFreeRoam(h.ctx)
     mina = h.client()
-    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' })
+    await mina.call('POST', API.demoSwitch.path, { key: 'newHire' }, { [DEMO_GATE_KEY_HEADER]: GATE_KEY })
   })
   afterAll(async () => { setDemoLimit(h.ctx.db, null); await h.close() })
+
+  test('with the gate key in the demo file only the gate signs in: no key, a wrong key and another instance\'s key are refused', async () => {
+    const hash = (k: string) => crypto.createHash('sha256').update(k).digest('hex')
+    const KEY = 'this-instance-gate-key', OTHER = 'another-instance-gate-key'
+    const config = h.ctx.config as { demo?: DemoFile }
+    config.demo = { ...FREE, gateKeySha256: hash(KEY) }
+    try {
+      const sw = (key?: string) => { const c = h.client(); return c.try('POST', API.demoSwitch.path, { key: 'newHire' }, key === undefined ? {} : { [DEMO_GATE_KEY_HEADER]: key }) }
+      for (const bad of [undefined, '', 'wrong', OTHER, hash(KEY)]) {
+        const r = await sw(bad)
+        expect(r.status).toBe(401)
+        expect(r.headers.getSetCookie()).toEqual([])
+      }
+      const good = await sw(KEY)
+      expect(good.status).toBe(200)
+      expect(good.headers.getSetCookie().join()).toContain('__Host-sid=')
+      // neither the key nor its hash in what a page or the API reads
+      const info = JSON.stringify(await mina.call('GET', API.demoInfo.path))
+      expect(info).not.toContain(hash(KEY)); expect(info).not.toContain(KEY); expect(info).not.toContain('gateKey')
+    } finally { config.demo = FREE }
+  })
+
+  test('the gate key: the guided demo and the builder need none, a free-roam instance without a hash signs nobody in', () => {
+    expect(gateKeyOk({}, undefined)).toBe(true)
+    expect(gateKeyOk({ kind: 'scripted' }, undefined)).toBe(true)
+    expect(gateKeyOk({ kind: 'freeRoam', builder: true }, undefined)).toBe(true)
+    // a free-roam instance without a hash signs nobody in, whatever it is shown
+    expect(gateKeyOk({ kind: 'freeRoam' }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam' }, 'anything')).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: 'a'.repeat(64) }, undefined)).toBe(false)
+    expect(gateKeyOk({ kind: 'freeRoam', gateKeySha256: crypto.createHash('sha256').update('k').digest('hex') }, 'k')).toBe(true)
+    expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'a'.repeat(64) }).success).toBe(true)
+    expect(DemoFile.safeParse({ ...FREE, gateKeySha256: 'short' }).success).toBe(false)
+    expect(DemoFile.safeParse({ ...SCRIPTED, gateKeySha256: 'a'.repeat(64) }).success).toBe(false)
+  })
 
   test('the visitor signs in as the demo person (Mina) through the switch, and sees no development server', async () => {
     const me = await mina.call('GET', API.me.path)
@@ -321,6 +368,58 @@ describe('a free-roam demo started as one', () => {
   })
 })
 
+describe('the demo\'s fake services through the free-roam tool fence', () => {
+  let h: BHarness
+  let alice: TestSocket
+  const content = fs.mkdtempSync(path.join(os.tmpdir(), 'a-demo-free-roam-fakes-'))
+  const persona = [{ key: 'newHire' as const, username: 'alice', intro: 'x', questions: [] }]
+  const fakes = () => ({ content: path.join(content, 'fakes') })
+  const setDemo = (d: DemoFile) => { (h.ctx.config as { demo?: DemoFile }).demo = d }
+  const chat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id
+  const tools = async () => (await ask(h, alice, 'alice', await chat(), '@fake ' + JSON.stringify({ echo: 'tools' }))).done.content.split(',').map((t: string) => t.replace(/^mcp__team__/, ''))
+  beforeAll(async () => {
+    h = await startHarness({ name: 'demo-free-roam-fakes' })
+    alice = await h.ws('alice', { windowId: 'win-free-roam-fakes' })
+    await alice.next('hello')
+    writeSteepling('en', content)
+    setDemo({ ...SCRIPTED, builder: true, personas: persona, fakes: fakes() })
+    // the connections' network hook is read when the service is made: as on a server started with this demo file
+    expect(demoFakesOf(h.ctx)).toBeTruthy()
+    integrationsOf(h.ctx, {})
+    googleDriveOf(h.ctx, { config: { clientId: 'demo-fake-client', clientSecret: 'x', redirectUri: 'http://127.0.0.1/cb' } } as never)
+    const account = { name: 'Steepling', email: 'team@steepling.example' }
+    await h.api('dana').call(API.demoBuilderConnection, { body: { service: 'higgsfield', account } })
+    const gmail = await h.api('dana').call(API.demoBuilderConnection, { body: { service: 'gmail', userId: 'alice', account } })
+    // what a refresh of the connection saves from the (fake) library
+    h.ctx.db.query('UPDATE integrations SET tools_json = ? WHERE id = ?').run(JSON.stringify([{ name: 'search_gmail_messages', description: 'Search', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } }]), gmail.id)
+    integrationsOf(h.ctx).forget(gmail.id)
+    await h.api('dana').call(API.demoBuilderConnection, { body: { service: 'google-drive', userId: 'alice', account } })
+  })
+  afterAll(async () => { alice?.close(); await h?.close(); fs.rmSync(content, { recursive: true, force: true }) })
+
+  test('the allow-list takes away nothing but the refused tools', async () => {
+    setDemo({ ...SCRIPTED, personas: persona, fakes: fakes() })
+    const open = await tools()
+    setDemo({ ...FREE, personas: persona, fakes: fakes() })
+    const fenced = await tools()
+    expect(fenced).toContain('team_higgsfield__generate_image')
+    expect(fenced).toContain('change_banner_text')
+    expect(fenced).toContain('my_gmail__search_gmail_messages')
+    for (const t of ['drive_search', 'drive_list', 'drive_read']) expect(fenced).toContain(t)
+    const gone = open.filter((t: string) => !fenced.includes(t)).filter((t: string) => !Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, t))
+    expect(gone).toEqual([])
+  })
+
+  test('the fake generate_image answers through the fence, and nothing leaves the machine', async () => {
+    setDemo({ ...FREE, personas: persona, fakes: fakes() })
+    const r = await ask(h, alice, 'alice', await chat(), '@fake ' + JSON.stringify({ tool: 'team_higgsfield__generate_image', args: { prompt: 'a cafe table with iced citrus tea in morning light' }, sayResult: true }))
+    expect(r.done.status).toBe('done')
+    expect(r.done.content).not.toMatch(/unknown tool|not (offered|available)/i)
+    expect(r.done.content.length).toBeGreaterThan(0)
+    expect(r.done.content).toContain('generate_image')
+  })
+})
+
 describe('a free-roam turn: its tools, no web search or sub-agents, the demo line', () => {
   let h: BHarness
   let alice: TestSocket
@@ -339,6 +438,55 @@ describe('a free-roam turn: its tools, no web search or sub-agents, the demo lin
     const offered = done.content.split(',')
     for (const t of Object.keys(FREE_ROAM_REFUSED_TOOLS)) expect(offered).not.toContain(t)
     for (const t of ['read', 'write', 'make_file', 'remember', 'ask_user', 'post_to_room', 'share_file', 'artifact', 'intro_deck', 'skill', 'rooms', 'save_connector_file']) expect(offered).toContain(t)
+  })
+
+  test('every registered tool is in the allow-list or the refused list, so a new one has to be decided', async () => {
+    const free = h.ctx.config.demo
+    ;(h.ctx.config as { demo?: DemoFile | null }).demo = null
+    let everywhere: string[]
+    try { everywhere = (await ask(h, alice, 'alice', await chat(), fake({ echo: 'tools' }))).done.content.split(',') }
+    finally { (h.ctx.config as { demo?: DemoFile | null }).demo = free }
+    // the tool-name constants of the turn's tools, offered only in some chats (not steps of a turn: those two below)
+    const constants = new Bun.Glob('server/src/{chat,tools,promo-video,skills,rooms}/**/*.ts')
+    const named: string[] = []
+    for await (const f of constants.scan('.')) for (const m of fs.readFileSync(f, 'utf8').matchAll(/export const [A-Z_]+_TOOL = '([a-z_]+)'/g)) named.push(m[1]!)
+    const notTools = new Set(['history_summary', 'demo_replay', 'call_tool', 'get_gmail_attachment_content'])
+    const registered = new Set([...everywhere, ...(h.ctx.services.turnTools ?? []).map((t) => t.name), ...named.filter((n) => !notTools.has(n)), 'generate_video'])
+    const pane = new Set<string>(PANE_TOOLS.map((t) => t.name))
+    const undecided = [...registered].filter((n) => !FREE_ROAM_TOOLS.has(n) && !Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, n) && !pane.has(n))
+    expect(undecided).toEqual([])
+    // no tool is on both lists
+    expect([...FREE_ROAM_TOOLS].filter((n) => Object.hasOwn(FREE_ROAM_REFUSED_TOOLS, n) || pane.has(n))).toEqual([])
+  })
+
+  test('a tool nobody decided is closed; a connected service\'s are open, but never a refused name', async () => {
+    const c = h.ctx
+    expect(freeRoamToolFenced(c, 'a_tool_added_later')).toBe(true)
+    expect(freeRoamToolFenced(c, 'generate_video')).toBe(true)
+    expect(freeRoamToolFenced(c, 'generate_video', { integration: true })).toBe(true)
+    expect(freeRoamToolFenced(c, 'constructor')).toBe(true)
+    expect(freeRoamToolFenced(c, 'team_higgsfield__generate_image', { integration: true })).toBe(false)
+    expect(freeRoamToolFenced(c, 'team_higgsfield__generate_image')).toBe(true)
+    expect(freeRoamToolFenced(c, 'read')).toBe(false)
+    expect(freeRoamToolFenced({ config: { ...c.config, demo: undefined } } as typeof c, 'a_tool_added_later')).toBe(false)
+    // and in a real turn: registered, available, and not offered
+    const list = (c.services.turnTools ??= [])
+    for (const name of ['a_tool_added_later', 'generate_video']) list.push({ name, description: 'x', inputSchema: { type: 'object' }, async call() { return { content: [{ type: 'text', text: 'ran' }] } } })
+    try {
+      const offered = (await ask(h, alice, 'alice', await chat(), fake({ echo: 'tools' }))).done.content.split(',')
+      expect(offered).not.toContain('a_tool_added_later')
+      expect(offered).not.toContain('generate_video')
+      const called = (await ask(h, alice, 'alice', await chat(), fake({ tool: 'a_tool_added_later', args: {}, sayResult: true }))).done.content
+      expect(called).not.toContain('ran')
+    } finally { list.splice(-2, 2) }
+  })
+
+  test('no promo video render on a free-roam demo, whichever route asks', () => {
+    const cfg = { mode: 'dev', deployment: undefined, office: undefined }
+    expect(renderTools({ config: { ...cfg, demo: FREE } as never }, { platform: 'darwin' })).toEqual({ why: 'unsupported' })
+    expect(renderTools({ config: { ...cfg, demo: FREE } as never }, { platform: 'linux', isolation: 'bwrap', uid: 1000 })).toEqual({ why: 'unsupported' })
+    // not the demo: the same machine answers as before
+    expect(renderTools({ config: { ...cfg, demo: SCRIPTED } as never }, { platform: 'darwin', env: { MYCEL_HYPERFRAMES_DIR: '/nonexistent' } })).toEqual({ why: 'not_installed' })
   })
 
   test('the snapshot builder\'s Higgsfield keeps the fake\'s tools, and the free-roam turn offers them (QA TC-5559)', async () => {

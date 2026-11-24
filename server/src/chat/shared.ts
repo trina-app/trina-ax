@@ -429,7 +429,9 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
   return {
     kind: 'project',
     by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
-    audience: project ? aud.of(project).length : 0,
+    // who sees this chat (Audiences.ofChat): never a guest of the project but the chat's own creator, as its cards and
+    // notices count them (QA TC-b4s s2: "4명이 이 채팅을 볼 수 있어요" counted a guest who cannot open it)
+    audience: project ? aud.ofChat(r).length : 0,
     answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
     ...othersWaiting(rt, r.id, viewer),
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
@@ -517,7 +519,7 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
-export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
+export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; chatAudience: number; sharedChats: number; chatUploads?: boolean } {
   const a = aud ?? new Audiences(db, files)
   // a guest counts only their own shared chats (the others' are never theirs to know of)
   const mine = !!viewer && a.isGuest(viewer)
@@ -525,7 +527,11 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
   // every team project (docs/DECISIONS.md "Team project chats shared by default")
   const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
-  return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
+  // a new shared chat of the viewer's is seen by the project's people but its guests (the viewer too, when a guest:
+  // Audiences.ofChat), not by everyone who reads its folder (QA TC-b4s s2)
+  const all = a.of(p)
+  const chatAudience = all.filter((id) => id === viewer || !a.isGuest(id)).length
+  return { shareChats, audience: all.length, chatAudience, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**
@@ -593,6 +599,31 @@ export function stashWrittenBy(db: Database, chat: Pick<ChatRow, 'engine_session
   if (!chat.engine_session_leaf_id) return false
   const r = db.query('SELECT t.user_id FROM messages m JOIN turns t ON t.id = m.turn_id WHERE m.id = ?').get(chat.engine_session_leaf_id) as { user_id: string } | null
   return r?.user_id === userId
+}
+
+/**
+ * A shared chat keeps one engine session per person (docs/decisions/20261123-shared-chat-own-session.md): the stash
+ * the person's newest stashed turn in the chat wrote (turns.engine_session_blob), while its answer is on this branch
+ * (`path`: the ids of the messages up to the new message's parent, oldest first). `answers`: the person's answers
+ * that session holds (every turn of theirs that stashed this same file: a resumed turn keeps its session's id). null:
+ * none, another branch, or a file that is not the chat's own stash (`stashOf`) or is gone.
+ */
+export function ownSessionOn(db: Database, chatId: string, userId: string, path: readonly string[], stashOf: (sid: string) => string, exists: (file: string) => boolean): { sid: string; leaf: string; answers: string[] } | null {
+  const r = db.query('SELECT engine_session_blob AS file, message_id AS leaf FROM turns WHERE chat_id = ? AND user_id = ? AND engine_session_blob IS NOT NULL ORDER BY rowid DESC LIMIT 1').get(chatId, userId) as { file: string; leaf: string | null } | null
+  if (!r?.leaf || !path.includes(r.leaf)) return null
+  const m = /([0-9A-Za-z-]{8,100})\.jsonl$/.exec(r.file)
+  if (!m || stashOf(m[1]!) !== r.file || !exists(r.file)) return null
+  const answers = (db.query('SELECT message_id AS id FROM turns WHERE chat_id = ? AND user_id = ? AND engine_session_blob = ? AND message_id IS NOT NULL').all(chatId, userId, r.file) as { id: string }[]).map((x) => x.id)
+  return { sid: m[1]!, leaf: r.leaf, answers }
+}
+
+/** The stash files of a chat to keep when one person's turn stashes its own: every other person's newest (ownSessionOn
+ * resumes only that one). */
+export function othersSessionFiles(db: Database, chatId: string, userId: string): Set<string> {
+  const rows = db.query('SELECT user_id, engine_session_blob AS file FROM turns WHERE chat_id = ? AND user_id <> ? AND engine_session_blob IS NOT NULL ORDER BY rowid').all(chatId, userId) as { user_id: string; file: string }[]
+  const newest = new Map<string, string>()
+  for (const r of rows) newest.set(r.user_id, r.file)
+  return new Set(newest.values())
 }
 
 

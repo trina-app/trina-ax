@@ -96,7 +96,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         const text = versioned
           ? `${places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, false, true) : r.text}\nThis was saved as a new version of that chat file, not as a new file: ${kind === 'people' ? 'everyone in this chat opens it' : 'it opens'} from the same file in the chat, and the earlier versions stay (read it with versions: true)${kind === 'people' ? '; anyone here can restore one from the file\'s Versions list' : ''}.`
           : places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
-        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary, ...(r.stepImages?.length ? { stepImages: r.stepImages } : {}) }
+        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary, ...(r.stepImages?.length ? { stepImages: r.stepImages } : {}), ...(r.stepScheduled ? { stepScheduled: r.stepScheduled } : {}) }
       },
     })
   }
@@ -165,28 +165,32 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   reg.register({
     name: 'edit_hwp',
     description: 'Change the text of an existing Hangul document (.hwp or .hwpx) and save it in the same format, keeping everything else in the file exactly as it was: ' +
-      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows. Read the file in this chat first. ' +
+      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows, put in a signature or seal picture. Read the file in this chat first. ' +
       'Each change is found in the document as you read it: { find, replace } replaces text inside one paragraph (the new text takes the ' +
       'formatting of the text it replaces; when it appears more than once, give occurrence or all: true); { cell: { next_to: "<the label ' +
       'cell\'s whole text>" } (or with direction "below"; or { table, row, col }, 1-based), value } fills an empty cell; { add_rows: ' +
       '{ table_with: "<the whole text of one of its cells>" or table, after_row?, copy_row?, rows: [[...], ...] } } adds rows shaped like ' +
       'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. ' +
-      'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. Plain text only: no new formatting, ' +
-      'images or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
+      'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. ' +
+      '{ image: "<a PNG or JPG in the team folder>", at: "<text>" } puts the picture (a signature, a seal; a PNG keeps its see-through parts) over that text, e.g. the seal mark printed after the signer\'s name; when the mark is a longer phrase ("signature or seal"), give only its last characters, so the seal sits on the seal word (place "after" or "before": next to it), ' +
+      'or with cell: { next_to: "<label>" } centred in the cell right of (or below) that label, e.g. the signature cell; Text and row changes of the same call are made first, and at and cell are looked for in the result. It floats behind body text and in front of a table (set layer to change that), nothing else moves; a JPG has no see-through parts, so in front it hides what is under it: prefer a PNG; ' +
+      'width_mm or height_mm sets its size (a seal 12-20 mm, a signature 25-40 mm wide). The picture may also be a file of this chat (chat:files/<file_id>/<name>). For "sign this" / "stamp this" use the person\'s own signature or seal (one they sent or keep in their own folder) or the picture they name; ' +
+      'never pick someone else\'s signature or seal, or the company\'s, on your own: ask which picture to use, or ask them to attach one. Text changes are plain text: no new formatting or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
       'tab, a field or a merged cell), nothing is saved and the error says why. Without `output` the result is a new version of the ' +
       'same file (the previous one stays in its history); with `output` a new file of the same format. ' +
+      'A file of this chat (chat:files/<file_id>/<name>, read it first) is changed the same way: without output it gets a new version, opened from the same file in the chat, and the earlier version stays. ' +
       'To write a new document, use make_file. write and edit cannot change .hwp or .hwpx files.',
     input: EditHwpInput,
     // only while the HWP plugin is installed and on for the company (tools/hwp-writing.ts); otherwise not listed, and a
     // call is refused as unknown, as for hwp_render
     available: () => hwpWritingOn(ctx),
-    describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
+    describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes${a.changes.some((c) => 'image' in c) ? ', pictures' : ''})`,
     async run(a, t) {
       const r = await editHwpFile(ctx, c.files, t, a)
       const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       return {
         text: editHwpFileText(r, link),
-        summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.report.pictures?.length ? ` ${r.report.pictures.length} pictures` : ''}${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
         structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
       }
     },

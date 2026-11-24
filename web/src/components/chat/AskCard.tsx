@@ -14,7 +14,7 @@
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
@@ -30,6 +30,10 @@ import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
+import { destinations, foldsField, isPayload, payloadLines } from '../../lib/cardPayload'
+import { gathers, joinLock, pressPlan, type CardLike } from '../../lib/cardBatch'
+import { openTeamFile } from '../../lib/sidePanel'
+import { formatSize } from '../../lib/format'
 
 /** a card's turn and id: where a folded detail's whole text is read (GET /api/turns/:id/requests/:requestId/details/:index) */
 type FullAt = { turnId: string; requestId: string }
@@ -89,11 +93,12 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            // the team's "Always allow" switch is off (Admin › Team AI settings): no Always on this card
+            choices={withAlways(
               { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
-              { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }) },
+              r.noAlways ? null : { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }), testId: 'site-card-always' },
               { label: t('browser.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -109,15 +114,17 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <div className="space-y-2 px-4 py-3 text-sm">
           {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
           <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
+          {/* the person's own list is full: no Always, and where to make room */}
+          {r.listFull && <p className="text-xs text-muted" data-testid="dev-env-site-full">{t('devEnvSite.listFull')}</p>}
           <ChoiceRow
             className="pt-1"
             busy={busy}
             error={error}
-            choices={[
+            choices={withAlways(
               { label: t('devEnvSite.allowOnce'), onClick: () => void run({ kind: 'dev_env_site', decision: 'once' }), testId: 'dev-env-site-once' },
-              { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
+              r.listFull ? null : { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
               { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'dev_env_site', decision: 'deny' }), testId: 'dev-env-site-deny' },
-            ]}
+            )}
           />
         </div>
       </div>
@@ -177,9 +184,11 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
     )
   }
   // a server card whose three choices are buttons (a room's change card): once, always here, no (the server's order:
-  // the first the main one, the last the quiet "no"). The same compact card, the buttons shown in the yes/no card's
-  // order (ChoiceRow: on a computer the "no" first, the main one last); the line under them says what "always" covers
-  if (fromServer && !allowText && !r.multiple && r.buttons && options.length === 3) {
+  // the first the main one, the last the quiet "no"); a connector card's four: once, always (this tool), always for
+  // the whole connector, no (docs/decisions/20261123-one-always-allow.md). The same compact card, the buttons shown in
+  // the yes/no card's order (ChoiceRow: on a computer the "no" first, the main one last); the line under them says
+  // what "always" covers
+  if (fromServer && !allowText && !r.multiple && r.buttons && (options.length === 3 || (options.length === 4 && r.row))) {
     const pick = (v: string) => {
       setPicked([v])
       void run({ kind: 'ask_user', answer: v })
@@ -201,7 +210,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           className="mt-3"
           busy={busy}
           error={error}
-          choices={options.map((o): Choice => ({ label: o.label, onClick: () => pick(o.value), busy: busy && picked[0] === o.value, testId: 'ask-choice', value: o.value })) as [Choice, Choice, Choice]}
+          choices={options.map((o): Choice => ({ label: o.label, onClick: () => pick(o.value), busy: busy && picked[0] === o.value, testId: 'ask-choice', value: o.value }))}
         />
         {r.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{r.note}</p>}
       </div>
@@ -328,7 +337,181 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   )
 }
 
-interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
+interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string; disabled?: boolean }
+
+/** the first paragraph of a card that reads differently since the press (server open-questions.ts CHANGED_MARK) */
+const CHANGED = '⁣'
+const changedLine = (q: string) => (q.startsWith(CHANGED) ? q.slice(1).split(/\n{2,}/)[0]!.trim() : null)
+
+/** the server's value of an "Always allow" button (server chat/always-allow.ts ALWAYS_VALUE) */
+const ALWAYS_CHOICE = '__always'
+/** how long after its latest card a running answer's group stays closed to a press (the answer may go on with other work) */
+export const CARDS_GATHER_MS = 8_000
+/** True while more cards of the group may still come: the answer runs and its latest card is under CARDS_GATHER_MS old. */
+function useCardsGathering(running: boolean, count: number): boolean {
+  const [quietAt, setQuietAt] = useState(-1)
+  useEffect(() => {
+    if (!running) return
+    const id = setTimeout(() => setQuietAt(count), CARDS_GATHER_MS)
+    return () => clearTimeout(id)
+  }, [running, count])
+  return running && quietAt !== count
+}
+
+/**
+ * Which cards of a group a press may cover, and whether its buttons wait (lib/cardBatch.ts joinLock): a card that joins
+ * must be on screen for a moment first, so a click aimed at the others never approves it. A group that first shows with
+ * several cards (a lone card became a group: this is a new component then) counts all but the first as just arrived.
+ */
+function useJoinLock(ids: readonly string[]) {
+  const arrived = useRef<Map<string, number> | null>(null)
+  const now = Date.now()
+  if (!arrived.current) arrived.current = new Map(ids.map((id, i) => [id, i > 0 ? now : 0]))
+  for (const id of ids) if (!arrived.current.has(id)) arrived.current.set(id, now)
+  const here = new Map(ids.map((id) => [id, arrived.current!.get(id)!]))
+  const lock = joinLock(here, now)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (lock.next === null) return
+    const id = setTimeout(() => tick((n) => n + 1), Math.max(0, lock.next - Date.now()))
+    return () => clearTimeout(id)
+  })
+  return { locked: lock.locked, here }
+}
+
+/**
+ * Several server cards of one kind from one answer as ONE card (web lib/cardBatch.ts; AskUserRequest.batch), or one card
+ * that leads in plain words (`batch.item`: a skill to the team). It says what happens to how many, each item on a line
+ * (its name, a line about it, a warning it must not hide), the summary once, and one set of buttons; with two or more
+ * each item has a tick (an unticked one is sent its card's "no"). Lean items keep their question, paths, names and
+ * files behind one "자세히"; the others show their question and details as their own card would.
+ */
+export function BatchCard({ cards, answerRunning = false }: { cards: (CardLike & { turnId: string })[]; answerRunning?: boolean }) {
+  const t = useT()
+  const locale = useLocale()
+  const answer = useChats((s) => s.answer)
+  const name = useId()
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set(cards.map((c) => c.request.requestId)))
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const asks = cards.map((c) => c.request).filter((r): r is Extract<typeof r, { kind: 'ask_user' }> => r.kind === 'ask_user')
+  const seen = useRef(new Set(cards.map((c) => c.request.requestId)))
+  // a card that arrived after the first render is ticked too
+  useEffect(() => {
+    const fresh = asks.filter((r) => !seen.current.has(r.requestId)).map((r) => r.requestId)
+    if (!fresh.length) return
+    for (const id of fresh) seen.current.add(id)
+    setTicked((p) => new Set([...p, ...fresh]))
+  })
+  // cards that wait after the answer (no time limit) come one call at a time on an engine that runs writes in order: while
+  // the answer still runs, the press waits for the rest, so one press covers them all. A card a call waits on is never held
+  const gathering = useCardsGathering(answerRunning && asks.length > 0 && asks.every(gathers), asks.length)
+  const { locked: joining, here } = useJoinLock(asks.map((r) => r.requestId))
+  const first = asks[0]
+  if (!first) return null
+  const options = first.options ?? []
+  const n = asks.length
+  const lean = asks.every((r) => !!r.batch?.item)
+  const b = first.batch
+  const head = n === 1 ? (b?.one ?? first.question) : (b?.many ? b.many.split('{n}').join(String(n)) : t('ask.batchMany', { n }))
+  const summaries = [...new Set(asks.map((r) => (n > 1 ? r.batch?.summaryMany ?? r.batch?.summary : r.batch?.summary)).filter((x): x is string => !!x))]
+  const changed = asks.map((r) => changedLine(r.question)).find((x) => !!x) ?? null
+  const press = async (v: string) => {
+    setBusy(v)
+    setError(null)
+    try {
+      // only the cards on screen long enough, as of this click: one that just joined stays open with its own question
+      const { seen } = joinLock(here, Date.now())
+      if (v === ALWAYS_CHOICE && seen.size < n) return
+      for (const a of pressPlan(cards.filter((c) => seen.has(c.request.requestId)), v, ticked, n === 1)) {
+        // a card another press of the same answer closed (an "Always allow" answers its kind): nothing to send
+        if (!useChats.getState().requests[a.requestId]) continue
+        // (closed meanwhile: an Always on an earlier item answered it on the server)
+        try { await answer(a.requestId, { kind: 'ask_user', answer: a.answer }) } catch (e) { if (!isApiError(e, 'conflict')) throw e }
+      }
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally { setBusy(null) }
+  }
+  const noValue = options.at(-1)?.value
+  const seenNow = joinLock(here, Date.now()).seen
+  // nothing seen yet: a press would answer nothing
+  const locked = joining || seenNow.size === 0
+  // "Always allow" answers every open card of its kind on the server, so it waits until all of them have been seen
+  const alwaysWaits = seenNow.size < n
+  const noneTicked = n > 1 && ![...ticked].some((id) => seenNow.has(id) && asks.some((r) => r.requestId === id))
+  const choice = (o: { label: string; value: string }): Choice => ({ label: o.label, value: o.value, testId: 'ask-choice', busy: busy === o.value, onClick: () => void press(o.value) })
+  return (
+    <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="batch" data-count={n}>
+      <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+        <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
+      </p>
+      {changed && (lean || n > 1) && <p className="mt-1 text-xs text-warn" data-testid="ask-batch-changed">{changed}</p>}
+      <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]" data-testid="ask-batch-head">{lean ? head : n === 1 ? <QuestionText r={first} /> : head}</p>
+      <ul className="mt-2 space-y-1.5" data-testid="ask-batch-items">
+        {asks.map((r) => {
+          const on = ticked.has(r.requestId)
+          const body = r.batch?.item ? (
+            <span className="min-w-0">
+              <span className="font-medium [overflow-wrap:anywhere]" data-testid="ask-batch-name">{r.batch.item}</span>
+              {r.batch.about && <span className="block text-xs text-muted [overflow-wrap:anywhere]" data-testid="ask-batch-about">{r.batch.about}</span>}
+              {r.batch.warn && <span className="block text-xs text-warn [overflow-wrap:anywhere]" data-testid="ask-batch-warn">{r.batch.warn}</span>}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1">
+              {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-${r.requestId}`} /> : n === 1 ? null : <span className="block whitespace-pre-wrap [overflow-wrap:anywhere]"><QuestionText r={r} /></span>}
+              {r.preview && <span className="mt-1.5 block"><SkillPreview p={r.preview} /></span>}
+              {!r.share && r.details?.length ? <Details items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
+            </span>
+          )
+          return (
+            <li key={r.requestId} className="text-sm" data-testid="ask-batch-item">
+              {n > 1 ? (
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input type="checkbox" className="mt-1 accent-[var(--c-accent)]" checked={on} disabled={!!busy} onChange={() => setTicked((p) => { const x = new Set(p); if (x.has(r.requestId)) x.delete(r.requestId); else x.add(r.requestId); return x })} data-testid="ask-batch-tick" />
+                  {body}
+                </label>
+              ) : body}
+            </li>
+          )
+        })}
+      </ul>
+      {summaries.map((x) => <p key={x} className="mt-2 text-sm text-muted" data-testid="ask-batch-summary">{x}</p>)}
+      {lean && (
+        <div className="mt-2" data-testid="ask-details-hidden">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-1 text-left text-xs font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" data-testid="ask-details-toggle">
+            {open ? t('ask.foldedHide') : t('ask.foldedShow')}
+          </button>
+          {open && (
+            <div className="mt-1 space-y-3" data-testid="ask-batch-details">
+              {asks.map((r) => (
+                <div key={r.requestId} className="border-l-2 border-line pl-3">
+                  {n > 1 && <p className="text-xs font-medium">{r.batch?.item}</p>}
+                  <p className="whitespace-pre-wrap text-xs text-muted [overflow-wrap:anywhere]">{r.question.replace(CHANGED, '')}</p>
+                  {r.preview && <div className="mt-1.5"><SkillPreview p={r.preview} /></div>}
+                  {r.details?.length ? <DetailsShown items={r.details} plain full={{ turnId: cards.find((c) => c.request.requestId === r.requestId)!.turnId, requestId: r.requestId }} /> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {gathering && <p role="status" className="mt-2 text-xs text-muted" data-testid="ask-batch-gathering">{t('ask.batchGathering')}</p>}
+      {options.length === 2 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
+          <Button size="sm" variant="ghost" disabled={!!busy || gathering || locked} busy={busy === options[1]!.value} onClick={() => void press(options[1]!.value)} data-testid="ask-no">{options[1]!.label}</Button>
+          <Button size="sm" variant="primary" disabled={!!busy || noneTicked || gathering || locked} busy={busy === options[0]!.value} onClick={() => void press(options[0]!.value)} data-testid="ask-yes">{options[0]!.label}</Button>
+        </div>
+      ) : (
+        <ChoiceRow className="mt-3" busy={!!busy} error={error}
+          choices={options.map((o) => ({ ...choice(o), ...(gathering || locked || (alwaysWaits && o.value === ALWAYS_CHOICE) || (noneTicked && o.value !== noValue) ? { onClick: () => {}, disabled: true } : {}) })) as [Choice, Choice, Choice]} />
+      )}
+      {first.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{first.note}</p>}
+    </div>
+  )
+}
 
 /** A server card's question, with the part the server marks (AskUserRequest.placeTip: the wider-audience card's file
  * name) showing the whole place on hover (docs/decisions/20261122-widening-card-wording.md). */
@@ -345,18 +528,23 @@ function QuestionText({ r }: { r: { question: string; placeTip?: { text: string;
   )
 }
 
-/** Three choices as buttons (a room's change card, an address, a dev-environment site), given in the server's order:
- * the main one, "always", the quiet "no", and kept in that order in the page, so the keyboard and a screen reader meet
+/** Three or four choices as buttons (a room's change card, an address, a dev-environment site; a connector card's two
+ * "always"), given in the server's order: the main one, "always", the quiet "no", and kept in that order in the page, so the keyboard and a screen reader meet
  * them as a phone shows them: stacked full width, the main one on top (as the skill share card's stacked buttons). On a
  * computer one row in the order of the yes/no card and of every dialog (docs/DESIGN-SYSTEM.md), the row reversed: the
  * "no" first and the main one last, on the right. A failed answer's reason comes after the buttons, under them. */
-const CHOICE_LOOKS = ['primary', 'secondary', 'ghost'] as const
-function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choice, Choice]; busy: boolean; error: string | null; className?: string }) {
+/** the looks by number of choices: two (no "always": the card offers none) keep the quiet "no"; three: once, always,
+ * no; four (a connector card): once, always for this tool, always for the whole connector, no */
+const CHOICE_LOOKS = { 2: ['primary', 'ghost'], 3: ['primary', 'secondary', 'ghost'], 4: ['primary', 'secondary', 'secondary', 'ghost'] } as const
+/** the three choices, or two when "always" is not offered */
+const withAlways = (main: Choice, always: Choice | null, no: Choice): Choice[] => (always ? [main, always, no] : [main, no])
+function ChoiceRow({ choices, busy, error, className }: { choices: Choice[]; busy: boolean; error: string | null; className?: string }) {
+  const looks: readonly ('primary' | 'secondary' | 'ghost')[] = CHOICE_LOOKS[choices.length === 2 ? 2 : choices.length === 4 ? 4 : 3]
   return (
     <div className={className}>
       <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center" data-testid="ask-choices">
         {choices.map((c, i) => (
-          <Button key={i} size="sm" variant={CHOICE_LOOKS[i]} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
+          <Button key={i} size="sm" variant={looks[i] ?? 'secondary'} className="max-sm:w-full" disabled={busy || c.disabled} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
             {c.label}
           </Button>
         ))}
@@ -497,8 +685,16 @@ function Details(props: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt
   )
 }
 
-function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
+/** A detail as the card opens it (lib/cardPayload.ts): a service call's JSON (`callJson`, the server's own) folds when it
+ * reads back into plain lines. Everything else is as the server sent it. */
+const byShape = (d: ConfirmDetail): ConfirmDetail => {
+  if (!d.callJson || !d.text || d.folded || d.exact || d.fullChars || d.alerts?.length) return d
+  return isPayload(d.text) && payloadLines(d.text, (d.fields ?? []).map((f) => f.value)) !== null ? { ...d, folded: true } : d
+}
+
+function DetailsShown({ items: raw, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
+  const items = raw.map(byShape)
   if (plain)
     return (
       <div className="mt-2.5 space-y-2.5" data-testid="ask-details">
@@ -513,7 +709,9 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
-                      {f.code ? (
+                      {d.callJson && foldsField(f) ? (
+                        <dd className="min-w-0" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></dd>
+                      ) : f.code ? (
                         <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
                       ) : (
                         <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
@@ -525,7 +723,7 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
                 </dl>
               </div>
             ) : null}
-            {d.text && (
+            {d.open?.length ? <OpenList d={d} /> : d.text && (
               <Folded d={d} plain>
               <Exact d={d} plain>
                 <div>
@@ -567,7 +765,9 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
-                  {f.code ? (
+                  {d.callJson && foldsField(f) ? (
+                    <span className="min-w-0 flex-1" data-testid="ask-detail-value"><FoldedValue f={f} marks={d.marks} /></span>
+                  ) : f.code ? (
                     <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
                   ) : (
                     <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
@@ -577,9 +777,32 @@ function DetailsShown({ items, plain, full }: { items: ConfirmDetail[]; plain?: 
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <Folded d={d}><Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact></Folded>}
+          {d.open?.length ? <OpenList d={d} /> : d.text && <Folded d={d}><Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact></Folded>}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** A detail's files by name and size, each opened on request in the file viewer (ConfirmDetail.open: a skill's files;
+ * the card never carries their whole text). */
+function OpenList({ d }: { d: ConfirmDetail }) {
+  const t = useT()
+  const locale = useLocale()
+  return (
+    <div>
+      <p className="text-xs text-faint">{d.label}</p>
+      <ul className="scroll-thin mt-1 max-h-64 space-y-0.5 overflow-auto border-l-2 border-line pl-3" data-testid="ask-detail-open">
+        {d.open!.map((f) => (
+          <li key={f.path} className="flex items-baseline gap-2 text-xs">
+            <button type="button" className="min-w-0 truncate text-left text-accent-text hover:underline" title={f.path} onClick={() => openTeamFile(f.path)} data-testid="ask-detail-open-file">
+              {f.path.split('/').at(-1)}
+            </button>
+            <span className="shrink-0 font-mono text-faint">{formatSize(f.size, locale)}</span>
+            <span className="sr-only">{t('ask.batchOpen')}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -594,25 +817,67 @@ function CodeValue({ text, label, marks }: { text: string; label: string; marks?
   )
 }
 
-/** A detail's text that is code or a file's content (`folded`: a dev-environment command, what a file will hold) behind
- * "자세히", with its size on the button while closed; the label, the fields and the question above say what happens in
- * words. A text with highlighted parts (marks, alerts) or one formatted for reading (markdown) stays open. */
+/** What stays in view of a folded payload: its short values, every destination, and its long random-looking parts. */
+function PayloadKeeps({ text, marks, known }: { text: string; marks?: string[]; known?: string[] }) {
+  const t = useT()
+  const lines = payloadLines(text, known) ?? destinations(text)
+  const here = (marks ?? []).filter((m) => text.includes(m))
+  if (!lines.length && !here.length) return null
+  return (
+    <div className="mt-1 space-y-1 text-xs" data-testid="ask-payload-keeps">
+      {lines.length > 0 && (
+        <div data-testid="ask-payload-lines">
+          <p className="text-faint">{t('ask.payloadGoesTo')}</p>
+          <p className="scroll-thin max-h-24 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]" tabIndex={0}>{lines.join('\n')}</p>
+        </div>
+      )}
+      {here.length > 0 && (
+        <div data-testid="ask-payload-marks">
+          <p className="text-faint">{t('ask.payloadMarks')}</p>
+          <p className="scroll-thin max-h-24 overflow-auto font-mono [overflow-wrap:anywhere]" tabIndex={0}><Marked text={here.join('\n')} marks={here} /></p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A field's value that is code or a payload: its size, what must stay in view, the value behind "자세히". */
+function FoldedValue({ f, marks }: { f: { name: string; value: string; code?: true }; marks?: string[] }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="touch-hit rounded py-0.5 text-left text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="ask-field-folded">
+        {open ? t('ask.foldedHide') : <>{t('ask.foldedShow')} <span className="font-normal text-faint">{t('ask.detailSize', { n: f.value.length })}</span></>}
+      </button>
+      {open ? <CodeValue text={f.value} label={f.name} marks={marks} /> : <PayloadKeeps text={f.value} marks={marks} />}
+    </div>
+  )
+}
+
+/** A detail's text that is code, a payload or a file's content (`folded`, or by its shape: byShape) behind "자세히": its
+ * label, size and one plain line while closed. Where it goes and any highlighted part stay in view (PayloadKeeps). Red
+ * alert lines and a text formatted for reading (markdown) stay open. */
 function Folded({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; children: ReactNode }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  if (!d.folded || d.markdown || d.marks?.length || d.alerts?.length) return <>{children}</>
+  // (the server's own fold of code stays open with marks; a call's JSON shows them below)
+  if (!d.folded || d.markdown || d.alerts?.length || (d.marks?.length && !d.callJson)) return <>{children}</>
+  const known = (d.fields ?? []).map((f) => f.value)
   return (
-    <div className={plain ? undefined : 'border-t border-line'}>
+    <div className={plain ? undefined : clsx('border-t border-line', !open && 'px-3 pb-1.5')}>
+      {plain && !open && <p className="text-xs text-faint" data-testid="ask-detail-folded-label">{d.label}</p>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'touch-hit rounded py-1 underline-offset-2 hover:underline' : 'w-full px-3 py-1.5 hover:bg-hover')}
+        className={clsx('flex items-baseline gap-2 text-left text-xs font-medium text-muted hover:text-ink', plain ? 'touch-hit rounded py-1 underline-offset-2 hover:underline' : open ? 'w-full px-3 py-1.5 hover:bg-hover' : 'w-full py-1.5')}
         data-testid="ask-detail-folded"
       >
         <span>{open ? t('ask.foldedHide') : t('ask.foldedShow')}</span>
         {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
       </button>
+      {!open && <PayloadKeeps text={d.text} marks={d.marks} known={known} />}
       {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
   )

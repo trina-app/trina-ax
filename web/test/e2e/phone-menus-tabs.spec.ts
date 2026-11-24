@@ -305,12 +305,25 @@ for (const lang of ['ko', 'en'] as const) {
         // the drawer: by date by default, as before the redesign (docs/DECISIONS.md "Phones: the 트리나 tab as before")
         `${t['sidebar.view.group']}· ${t['sidebar.group.date']}`,
         `${t['sidebar.view.sort']}· ${t['sidebar.sort.updated']}`,
-        // my sections of the history (docs/decisions/20261122-trina-history-sections.md)
-        t['sidebarSections.new'],
       ])
       await shot(page, `${lang}-drawer-filter`)
       await sheet.getByTestId('recents-view-sort').click()
       const choices = page.getByRole('menu', { name: t['sidebar.view.sort'] })
+      await isSheet(choices)
+      // Escape closes the open sheet and never the drawer under it, also when a finger opened it and no focus is in it
+      // (QA TC-8343): the choices first, then the menu
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.keyboard.press('Escape')
+      await expect(choices).toHaveCount(0)
+      await expect(drawer).toBeVisible()
+      await filter.click()
+      await expect(page.getByRole('menu', { name: t['sidebar.filter'] })).toBeVisible()
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu', { name: t['sidebar.filter'] })).toHaveCount(0)
+      await expect(drawer).toBeVisible()
+      await filter.click()
+      await page.getByRole('menu', { name: t['sidebar.filter'] }).getByTestId('recents-view-sort').click()
       await isSheet(choices)
       await expect(choices.getByRole('menuitemradio', { checked: true })).toHaveText(t['sidebar.sort.updated'])
       await shot(page, `${lang}-drawer-filter-sort`)

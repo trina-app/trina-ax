@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
 import type { FolderView } from './access'
+import { BOX_BROWSER_CMD } from './box-browser'
 import { gitEnv } from './git-guard'
 
 /** The pinned srt version. A new version goes into a new folder (scripts/dev-env/srt/install-srt.sh). */
@@ -481,9 +482,22 @@ export interface EnvInput { base: string; userId: string; teamRoot: string; work
   /** the box's Python bin (default BOX_PYTHON_BIN on Linux when it is there; null: none) */
   boxPython?: string | null
   /** the Node libraries folder (default BOX_NODE_LIBS when it is there; null: none) */
-  nodeLibs?: string | null }
+  nodeLibs?: string | null
+  /** the headless browser of a run (default boxBrowser; null: none) */
+  browser?: string | null }
 
 const there = (p: string) => { try { return fs.statSync(p).isDirectory() } catch { return false } }
+
+/** The pinned chrome-headless-shell of the list's browser group (files/html-pdf.ts PINNED_BROWSER; a unit test compares
+ * them). The one browser that starts in a Linux run: srt's seccomp filter refuses socket(AF_UNIX), and Debian's chromium
+ * aborts on that in ProcessSingleton. The headless shell has none, and that filter stays as it is. */
+export const BOX_BROWSER = '/opt/trina/chrome-headless-shell/current/chrome-headless-shell'
+/** The browser a run is told about, or null (a Mac, a Linux server without the browser group, or one that turned it off). */
+export const boxBrowser = (platform: DevPlatform = devPlatform(), file: string = BOX_BROWSER, env: NodeJS.ProcessEnv = process.env): string | null => {
+  // an admin's "no headless browser on this server" (files/html-pdf.ts findPdfBrowser) holds for runs too
+  if (platform !== 'linux' || env.MYCEL_HTML_PDF_BROWSER === 'none') return null
+  try { fs.accessSync(file, fs.constants.X_OK); return fs.statSync(file).isFile() ? file : null } catch { return null }
+}
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */
@@ -493,6 +507,9 @@ export function runEnv(i: EnvInput): Record<string, string> {
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   const boxPython = i.boxPython !== undefined ? i.boxPython : !mac && there(BOX_PYTHON_BIN) ? BOX_PYTHON_BIN : null
   const nodeLibs = i.nodeLibs !== undefined ? i.nodeLibs : there(BOX_NODE_LIBS) ? BOX_NODE_LIBS : null
+  const browser = i.browser !== undefined ? i.browser : boxBrowser(mac ? 'darwin' : 'linux')
+  const wrapper = path.join(devenvPaths(i.base).bin, BOX_BROWSER_CMD)
+  const browserCmd = browser && isFile(wrapper) ? wrapper : browser
   const fonts = i.fonts !== undefined ? i.fonts : !mac && isFile(path.join(boxFontsDir(i.base), 'fonts.conf')) ? boxFontsDir(i.base) : null
   return {
     // macOS: Trina's Python 3 (install-srt-mac.sh), git and make of the Command Line Tools directly (the /usr/bin stubs
@@ -520,6 +537,10 @@ export function runEnv(i: EnvInput): Record<string, string> {
     npm_config_cache: path.join(home, '.npm'),
     PIP_CACHE_DIR: path.join(home, '.cache', 'pip'),
     PLAYWRIGHT_BROWSERS_PATH: '0',
+    // the browser that starts here, for the tools that read a path from the environment: the command that adds the
+    // flags and the proxy login (box-browser.ts). Playwright has no such variable: the tool text names TRINA_BROWSER.
+    // HyperFrames gets the real shell: it needs the binary itself, and fetches a composition's remote files by itself
+    ...(browser ? { TRINA_BROWSER: browserCmd!, PUPPETEER_EXECUTABLE_PATH: browserCmd!, CHROME_PATH: browserCmd!, HYPERFRAMES_BROWSER_PATH: browser } : {}),
     // git runs no repository hook or program by itself, nothing is read from the home (QA TC-4939, git-guard.ts)
     ...gitEnv(),
     TRINA_LOGS: runLogs(i.base, i),

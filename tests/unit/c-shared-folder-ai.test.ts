@@ -432,7 +432,7 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(del.cards).toHaveLength(1)
     expect(del.cards[0]!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
     expect(del.content).not.toContain('team chat rooms')
-    expect(scheduledDelete({ ...(gexec(first.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('sharedFile')
+    expect(scheduledDelete({ ...(gexec(first.chatId) as object), roomsSeen: true }, 'bob', db())).toBeNull() // the person's Always holds after a room or shared-file read (Rule A, decision 20261123-ask-registry-findings)
     expect(fs.existsSync(abs('users/bob/keep-listed.md'))).toBe(true)
     // a change whose card nobody answers: the card's sentence and the refusal name the shared file
     const w = await turn(`go on\n${fake({ tool: 'write', args: { file_path: 'shared/after-listed.md', content: 'x' }, sayResult: true })}`, first.chatId)
@@ -451,7 +451,7 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     const read = await turn(`read it\n${fake({ tool: 'read', args: { file_path: `/f/${id}/report.md` } })}`)
     expect(seenWhy(gexec(read.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
     expect(deleteFilesRefusal({ ...(gexec(read.chatId) as object), roomsSeen: true } as never)).toBeNull()
-    expect(scheduledDelete({ ...(gexec(read.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('sharedFile')
+    expect(scheduledDelete({ ...(gexec(read.chatId) as object), roomsSeen: true }, 'bob', db())).toBeNull() // the person's Always holds after a room or shared-file read (Rule A, decision 20261123-ask-registry-findings)
     // mixed: the listing and a room's messages in the same chat: the room words, as #1175 keeps them
     bucket()
     const mixed = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
@@ -459,7 +459,7 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(seenWhy(gexec(mixed.chatId), 'roomsSeenWhy')).toBe('roomsSeenWhy')
     expect(othersSource(gexec(mixed.chatId), 'ROOM')).toBe('ROOM')
     expect(deleteFilesRefusal({ ...(gexec(mixed.chatId) as object), roomsSeen: true } as never)).toBeNull()
-    expect(scheduledDelete({ ...(gexec(mixed.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('roomsSeen')
+    expect(scheduledDelete({ ...(gexec(mixed.chatId) as object), roomsSeen: true }, 'bob', db())).toBeNull() // the person's Always holds after a room or shared-file read (Rule A, decision 20261123-ask-registry-findings)
     // a room read alone: the room words
     const room = (await h.api('bob').call(API.createChat, { body: {} })).id
     addSources(db(), room, [{ type: 'room', id: roomOf('bob') }])

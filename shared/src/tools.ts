@@ -173,9 +173,22 @@ export const EditHwpChange = z.union([
       rows: z.array(z.array(hwpText(5000)).max(64)).min(1).max(500).describe('One list per new row, one value per cell of the copied row, left to right'),
     }),
   }),
+  z.strictObject({
+    image: z.string().min(1).max(4096).describe('The person\'s own signature or seal, or the picture they name: a PNG (transparent parts stay see-through) or JPG in the team folder, or a file of this chat (chat:files/<file_id>/<name>)'),
+    at: z.string().min(1).max(500).optional().describe('Text inside one paragraph the picture goes over or next to, e.g. the seal mark printed after the signer\'s name, or the name'),
+    place: z.enum(['over', 'after', 'before']).optional().describe('With at: centred over the text (default), right after it or right before it'),
+    cell: z.strictObject({
+      next_to: z.string().min(1).max(500).describe('The whole text of the label cell, e.g. "Signature": the picture is centred in the cell right of it (or below it)'),
+      direction: z.enum(['right', 'below']).optional().describe('Where that cell is from the label (default right)'),
+    }).optional().describe('Or a table cell next to a label'),
+    occurrence: n1.optional().describe('Which match of at (or which label cell), 1-based in reading order, when there are several'),
+    width_mm: z.number().min(2).max(300).optional().describe('The picture\'s width in mm (a seal is usually 10-20, a signature 25-40); its height follows the picture'),
+    height_mm: z.number().min(2).max(300).optional().describe('Or its height in mm (with width_mm too: both as given)'),
+    layer: z.enum(['behind', 'front']).optional().describe('Behind the text or in front of it. Default: behind in body text, in front in a table (filled cells would hide it)'),
+  }),
 ])
 export const EditHwpInput = z.strictObject({
-  file_path: relPath.describe('The .hwp or .hwpx to change; read it in this turn first'),
+  file_path: relPath.describe('The .hwp or .hwpx to change (a team path, or a chat file chat:files/<file_id>/<name>); read it in this turn first'),
   changes: z.array(EditHwpChange).min(1).max(100).describe('Applied together, each to the document as you read it'),
   output: optRelPath.describe('Save the result as this new file (same format as file_path) instead of a new version of file_path'),
 })
@@ -593,7 +606,7 @@ export const StopSharingInput = z.strictObject({
  * own files for teammates or groups, view only, files added later included; an add always behind the server's card.
  * Also takes people off it, or stops sharing it (no card when the user's own message names the folder). */
 export const ShareFolderInput = z.strictObject({
-  folder: relPath.describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder.'),
+  folder: relPath.optional().describe('The folder to share: a folder in the user\'s own files (users/<them>/…), by its path. Never their whole personal folder, never a team folder. Leave it out when the user did not name one ("this folder", "\uC774 \uD3F4\uB354") and you would otherwise ask: the server takes the folder this chat just used (the file sent or read lives in it), and the user can undo or change it on the card.'),
   add: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who gets to view it: a teammate\'s or a group\'s name as the user wrote it, or person:<id> / group:<id> from the candidates a previous call gave.'),
   remove: z.array(z.string().min(1).max(200)).max(10).default([]).describe('Who to take off it, the same way.'),
   stop: z.boolean().optional().describe('true to stop sharing the folder with everyone. Not with add.'),

@@ -26,8 +26,9 @@ export type RefusalReason =
   | { kind: 'permission'; what?: string; grant?: readonly string[]; how?: string }
   /** nobody could be asked: no card was shown (a scheduled run, or `run`) */
   | { kind: 'unattended'; run?: string }
-  /** the person said no on the card (`who`: in a shared chat, the person whose turn it is) */
-  | { kind: 'declined'; who?: string }
+  /** the person said no on the card (`who`: in a shared chat, the person whose turn it is; `pressed`: the words of the
+   * button they pressed, in their language, for a card whose No is not a plain "not allowed") */
+  | { kind: 'declined'; who?: string; pressed?: string }
   /** the card got no answer in time */
   | { kind: 'timeout'; who?: string }
   /** the answer stopped before the card was answered */
@@ -75,6 +76,7 @@ export function reasonText(r: RefusalReason): string {
     case 'unattended':
       return `nobody could be asked: this is ${r.run ?? 'a scheduled run'} with nobody watching, so no confirmation card was shown and nobody can confirm it here. The user did not refuse anything; never say they did`
     case 'declined':
+      if (r.pressed) return `${r.who ?? 'the user'} pressed "${r.pressed}" on the confirmation card. If you mention that choice, call it exactly "${r.pressed}", in no other words`
       return `${r.who ?? 'the user'} did not allow it: they said no on the confirmation card`
     case 'timeout':
       return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused. Do not ask again in this answer whether to do it, in words or with the same card`
@@ -104,9 +106,9 @@ export function refusal(r: Refusal): string {
 
 /** The reason for a card that ended without a yes. `who`: who was asked (a shared chat names its asker); `run`: how an
  * unattended run is named. */
-export function cardReason(end: CardEnd, o: { who?: string; run?: string } = {}): RefusalReason {
+export function cardReason(end: CardEnd, o: { who?: string; run?: string; pressed?: string } = {}): RefusalReason {
   switch (end) {
-    case 'declined': return { kind: 'declined', ...(o.who ? { who: o.who } : {}) }
+    case 'declined': return { kind: 'declined', ...(o.who ? { who: o.who } : {}), ...(o.pressed ? { pressed: o.pressed } : {}) }
     case 'timeout': return { kind: 'timeout', ...(o.who ? { who: o.who } : {}) }
     case 'unattended': return { kind: 'unattended', ...(o.run ? { run: o.run } : {}) }
     case 'ended': return { kind: 'ended' }
@@ -324,8 +326,10 @@ export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers 
 /** Who can give access to `place` again, said as the folder rules decide it (writeGranters: the project's creator by
  * name where the person may see it, else an admin, never by name), with the screen in the user's language; never "whoever
  * manages the folder", which names nobody (S-118 real run: "영업 폴더를 관리하는 분께"). */
-export function regrantLine(db: Database, place: string, L: Locale): string {
+export function regrantLine(db: Database, place: string, L: Locale, o: { shared?: boolean } = {}): string {
   const g = writeGranters(db, place, L, () => false)
+  // a chat other people read: who, never how (for a group folder "adds them to the group" would say whose groups changed)
+  if (o.shared) return `Who can give access again: ${g.who}; say only who, never how or why, and not "whoever manages the folder" or a guessed person.`
   return `Who can give access again: ${g.who} (${g.how}); say exactly that, not "whoever manages the folder" or a guessed person.`
 }
 /** `shared`: other people read this chat's answers (a shared project or people chat, or others wrote in it): then only
@@ -335,12 +339,32 @@ export function lostAccessNote(db: Database, places: readonly string[], L: Local
   const it = places.length > 1 ? 'them' : 'it'
   if (o.shared) {
     return `Earlier in this chat ${named} could be opened; ${it} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. ` +
-      `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+      `${regrantLine(db, places[0] ?? '', L, { shared: true })} ${KEEP_READ_LINE}`
   }
   return `Earlier in this chat this user opened ${named}; access to ${it} has ended for them (their groups or the folder's access changed, or it was moved). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
     'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it is not among their folders or was never there. ' +
     `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
 }
+
+/** S-118 (QA TC-b4s): a team folder that a group this person left recently opened, which they named themselves in this
+ * chat, and which the folder rules no longer let them read. Unlike lostAccessNote no answer here read it (a shared
+ * chat's first answer may not search a place some of its people cannot open), so the fact is that their groups changed,
+ * not that this chat opened it. `shared`: other people read the answer: only that it cannot be opened from this chat. */
+export function leftGroupNote(db: Database, places: readonly string[], L: Locale, o: { shared?: boolean } = {}): string {
+  const named = nameList(places.map((p) => `'${oneLine(p)}'`))
+  const it = places.length > 1 ? 'them' : 'it'
+  if (o.shared) {
+    // only the name the person wrote (the folder's last part), never where it is: the others did not see the path (review)
+    const words = nameList(places.map((p) => `the '${oneLine(p.split('/').filter(Boolean).pop() ?? p)}' folder`))
+    return `${words} cannot be opened from this chat now. Name it only as the user did, never by its path or as a group's folder. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. Do not say ${it} was not found or is not there. ` +
+      `${regrantLine(db, places[0] ?? '', L, { shared: true })} ${LEFT_GROUP_END}`
+  }
+  return `This user was in a group that opens ${named} and is no longer in it: access to ${it} has ended for them (their groups changed). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uBD80\uC11C\uAC00 \uBC14\uB00C\uC5B4 \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it was not found, is not among their folders or was never there. ' +
+    `${regrantLine(db, places[0] ?? '', L)} ${LEFT_GROUP_END}`
+}
+/** the end of leftGroupNote: nothing was read there in this chat, so only the path (review of the batch 5 plan) */
+const LEFT_GROUP_END = 'Do not ask them for a path or where the folder is.'
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */
 export function writeLimitText(kind: 'bytes' | 'files', max: number, path: string): string {

@@ -490,6 +490,15 @@ describe('a turn with an English line before a tool call', () => {
     expect(k.stored).toBe('헤더를 더 진한 빨간색으로 바꿨어요.')
   })
 
+  test.skipIf(!native)('Korean, the message names Korean: a report in English before a call leaves the answer (0.16.0 gate)', async () => {
+    const t = await turn('ko', '자막은 한국어로 넣어서 파일 확인해 주세요\n' + fake(
+      { say: 'Korean text renders correctly. Attaching it now.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '영상을 첨부했어요.' },
+    ))
+    expect(t.stored).toBe('영상을 첨부했어요.'); expect(t.streamed).toBe(t.stored)
+  })
+
   test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {
     const t = await turn('ko', '안녕\n' + fake({ say: '안녕하세요. 무엇을 도와드릴까요?' }))
     expect(t.streamed).toBe(t.stored)
@@ -547,5 +556,24 @@ describe('deliveredArgs (QA TC-f3-05)', () => {
     // a call that delivers words (a post, an event's description) keeps them: a piece copied there stays as content
     const event = { title: 'Launch', description: 'Bring the samples.' }
     expect(deliveredArgs(TEAM_TOOL_PREFIX + 'calendar_create', event, 'Bring the samples.')).toBe(event)
+  })
+})
+
+describe('naming the answer\'s own language (0.16.0 gate)', () => {
+  test('is not asking for another one', () => {
+    for (const m of ['홍보 영상을 mp4로 만들어 주세요. 자막은 한국어로요', '한글로 써 줘', '우리말로 풀어 줘', '반말로 답해 줘', '핵심 단어로 정리해 줘', '정말로 보내 줘', '자막이 깨졌어 한국어로 다시 넣어줘', '레이어로 나눠 줘', '소프트웨어로 처리해 줘', '시니어로 채용해 줘'])
+      expect(narrationScript('ko', m), m).toBe('ko')
+    expect(narrationScript('ja', '字幕は日本語で作って')).toBe('ja')
+    expect(narrationScript('zh', '字幕用中文写')).toBe('zh')
+    for (const m of ['敬語で書いて', '専門用語で説明して', '標準語で']) expect(narrationScript('ja', m), m).toBe('ja')
+  })
+  test('another language named beside it still turns the rule off; English chats are unchanged', () => {
+    for (const m of ['한국어 말고 영어로 써 줘', '이 글을 영어로 번역해 줘', '자막은 일본어로 해 줘', '한국어로 하나, 일본어 하나 써줘', '이 안내문을 스웨덴어로 써 줘', '그리스어로', '우크라이나어로', '광둥어로', '베트남 말로', '한국어로 하나, 스웨덴어로 하나', '말레이어로 써줘', '말레이어 버전 만들어줘', '네덜란드어 메일 써줘', '폴란드어 자막 만들어줘']) expect(narrationScript('ko', m), m).toBeNull()
+    expect(narrationScript('ja', '英語で書いて')).toBeNull()
+    expect(narrationScript('zh', '用汉语和法语写')).toBeNull()
+    for (const m of ['ギリシャ語で', 'ポーランド語で', 'トルコ語で', '多言語で作って', '別の言語で書いて', '他の言語にして', 'スペイン語のメールを書いて', '韓国語の字幕を作って']) expect(narrationScript('ja', m), m).toBeNull()
+    for (const m of ['用希腊语写', '用土耳其语写', '用粤语写', '写成西班牙语', '写一封日文邮件', '写一封泰语邮件', '换成韩文']) expect(narrationScript('zh', m), m).toBeNull()
+    expect(narrationScript('en', '자막은 한국어로')).toBeNull()
+    expect(narrationScript('ko', 'Please write the subtitles in Korean for this video')).toBeNull()
   })
 })

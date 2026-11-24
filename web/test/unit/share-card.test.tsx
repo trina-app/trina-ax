@@ -3,6 +3,7 @@
 // and answers with the server's values; the result card's one button is Manage access after a share (the file's Share
 // dialog) and Undo after a stop (the same people added again through the dialog's endpoint, then the card says so); a
 // refusal has no button unless a next step was registered for its kind; no path is ever on the card.
+import { useState } from 'react'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import type { ShareCardState, StepShared, TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
@@ -101,6 +102,7 @@ beforeEach(() => {
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url, method: init?.method ?? 'GET', body })
     const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { 'content-type': 'application/json' } })
+    if (url.includes('/api/files/shares/take-back')) return json({ removed: 1, skipped: 0 })
     if (url.includes('/api/files/shares/cards')) return json({ items: live.filter((x) => (body as { ids: string[] }).ids.includes(x.id)) })
     if (url.includes('/api/files/shares') && init?.method === 'PUT') {
       const b = body as { path: string; add: { subjectType: 'user' | 'group'; subjectId: string }[] }
@@ -251,4 +253,85 @@ test('a refusal: what and why from the record; a button only for a next step som
     await m.click('next-ask-owner')
     expect(got).toEqual([{ kind: 'ask_owner', linkId: L1, userId: 'mina', name: 'Mina' }])
   } finally { await m.unmount() }
+})
+
+// Do then undo (docs/decisions/20261123-do-then-undo.md): a post or a share that just went offers 취소 for a few seconds
+// (the room's delete; the share taken back from exactly the people it added), then 지우기 / Manage access
+test('a post just sent: Undo deletes the message, then the card says it was taken back; an older post offers Delete', async () => {
+  const { default: PostedCard } = await import('../../src/components/chat/PostedCard')
+  const posted = { roomId: '019a5f00-0000-7000-8000-00000000a011', messageId: '019a5f00-0000-7000-8000-00000000a012' }
+  const m = await mount(<PostedCard posted={posted} endedAt={new Date().toISOString()} />)
+  try {
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
+    await m.click('posted-card-undo')
+    const del = calls.find((c) => c.method === 'DELETE')!
+    expect(del.url).toContain(`/api/rooms/${posted.roomId}/messages/${posted.messageId}`)
+    expect(m.get('action-card-title').textContent).toBe(t('postedCard.undone'))
+    expect(m.find('posted-card-view')).toBeNull()
+  } finally { await m.unmount() }
+  const old = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 60_000).toISOString()} />)
+  try { expect(old.get('posted-card-delete').textContent).toBe('Delete') } finally { await old.unmount() }
+})
+
+test('a share just done: Undo takes back what it added by the server\'s record (never earlier access)', async () => {
+  live = [mine(L1, 'Quote.pdf', [{ subjectType: 'user', subjectId: 'jun', name: 'Jun' }] as never)]
+  const takeBack = { id: 't'.repeat(22), until: new Date(Date.now() + 600_000).toISOString() }
+  const m = await mount(<ShareCard shared={{ ...sharedOne, takeBack }} endedAt={new Date().toISOString()} />)
+  try {
+    await m.until(() => m.find('share-card-takeback'), 'Undo')
+    await m.click('share-card-takeback')
+    const tb = calls.find((c) => c.url.includes('/api/files/shares/take-back'))!
+    expect(tb.body).toEqual({ id: takeBack.id })
+    // the card never removes people itself (it could take a file they had before)
+    expect(calls.find((c) => c.method === 'PUT')).toBeUndefined()
+    expect(m.get('action-card-title').textContent).toBe(t('shareCard.takenBack'))
+  } finally { await m.unmount() }
+  // a record without the server's take-back offers no 취소
+  const old = await mount(<ShareCard shared={sharedOne} endedAt={new Date().toISOString()} />)
+  try { await old.until(() => old.find('share-card-manage'), 'Manage'); expect(old.find('share-card-takeback')).toBeNull() } finally { await old.unmount() }
+})
+
+test('a scheduled task made from my words: next run, Pause, and Delete through the Scheduled route', async () => {
+  const { default: ScheduledCard } = await import('../../src/components/chat/ScheduledCard')
+  const m = await mount(<ScheduledCard scheduled={{ id: 's1', title: 'Morning notes', nextRunAt: new Date(Date.now() + 86_400_000).toISOString(), quiet: true }} />)
+  try {
+    expect(m.get('action-card-title').textContent).toBe('Scheduled "Morning notes"')
+    expect(m.get('scheduled-card-next').textContent).toContain('Next run')
+    // (Delete answers 204; Pause goes through the same Scheduled page route, PATCH enabled false)
+    const real = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    try {
+      await m.click('scheduled-card-delete')
+      await m.until(() => m.get('action-card-title').textContent === '"Morning notes" is deleted', 'deleted')
+      expect(calls.find((c) => c.method === 'DELETE')!.url).toContain('/api/schedules/s1')
+      expect(m.find('scheduled-card-pause')).toBeNull()
+    } finally { globalThis.fetch = real }
+  } finally { await m.unmount() }
+})
+
+test('a post whose step is still running offers Undo at once; it counts down from the end and becomes Delete', async () => {
+  const { default: PostedCard } = await import('../../src/components/chat/PostedCard')
+  const posted = { roomId: '019a5f00-0000-7000-8000-00000000a021', messageId: '019a5f00-0000-7000-8000-00000000a022' }
+  // the step ends while the card is on screen, with a server clock an hour behind this device's
+  let end: (at: string) => void = () => {}
+  const Live = () => { const [at, set] = useState<string | null>(null); end = set; return <PostedCard posted={posted} endedAt={at} /> }
+  const m = await mount(<Live />)
+  try {
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
+    end(new Date(Date.now() - 3_600_000).toISOString())
+    await m.settle(50)
+    expect(m.get('posted-card-undo').textContent).toBe('Undo 10')
+  } finally { await m.unmount() }
+  // a device clock an hour behind never shows more than the window
+  const skew = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() + 3_600_000).toISOString()} />)
+  try { expect(skew.get('posted-card-undo').textContent).toBe('Undo 10') } finally { await skew.unmount() }
+  const late = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 8_500).toISOString()} />)
+  try {
+    expect(late.get('posted-card-undo').textContent).toBe('Undo 2')
+    await late.until(() => late.find('posted-card-delete'), 'Delete', 4_000)
+  } finally { await late.unmount() }
 })

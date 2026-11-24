@@ -144,7 +144,8 @@ export function officeLoginProxy(ctx: AppContext) {
 
 
 function prodProxyBase(ctx: AppContext) {
-  return { port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT, secretsDir: resolveLayout(ctx.config).secretsDir, log: ctx.log.child({ c: 'model-proxy' }) }
+  const inner = ctx.config.engine.proxyInnerPort
+  return { port: ctx.config.engine.proxyPort ?? DEFAULT_PROXY_PORT, ...(inner ? { innerPort: inner } : {}), secretsDir: resolveLayout(ctx.config).secretsDir, log: ctx.log.child({ c: 'model-proxy' }) }
 }
 
 /** The locked Codex catalog's models (the proxy's Codex path forwards only these): prod next to the installed engine,

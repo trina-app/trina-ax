@@ -45,6 +45,8 @@ export const GUARD_TESTS = [
   'tests/unit/brand-light-icons.test.ts', // every app icon (iOS dark/tinted, Android, web push, desktop) is the light tile
   // added 2026-11-19 after the v0.5.19 release run failed at start-up: ci.yml asked for more than release.yml grants it
   'tests/unit/workflow-permissions.test.ts', // a called workflow's jobs stay within the caller's permissions
+  // added 2026-11-22 (docs/decisions/20261122-ask-registry.md)
+  'tests/unit/ask-registry.test.ts', // every card, dialog and system prompt has an entry in docs/ASKS.md
 ]
 
 if (import.meta.main) {

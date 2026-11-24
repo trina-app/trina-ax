@@ -2,6 +2,7 @@
 // A leaf module: the chat turn (chat/turn.ts, chat/tools.ts) and the tool socket (mcp/socket.ts) read it. (It began as
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
+import type { CardAlwaysKind } from '@mycel/shared/api'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { commentDocxOutput, editOfficeOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
@@ -27,6 +28,13 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, nothing from outside
   'change_banner_text',
 ])
+
+/** Tools a shared chat gets only while the person whose turn it is has "Always allow" on for the tool's card (Rule A,
+ * decisions 1 and 2 of docs/decisions/20261123-ask-registry-findings.md): their choice holds in shared chats too. Without
+ * it the tool is not offered there (it would only refuse). Each keeps all its own checks of who may change what. */
+export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
+  change_project_members: 'project_members', change_folder_access: 'folder_access', skill_files: 'skill_files',
+}
 
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
@@ -161,12 +169,21 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
     }
   }
-  // edit_office's replacement pictures (tools/edit-office.ts replace_picture.image): team files whose bytes go into the
+  // edit_office's pictures (tools/edit-office.ts replace_picture.image, insert_picture.image): files whose bytes go into the
   // document, weighed by a shared chat's read card like the document itself (S-028 plan review)
   if (tool === 'edit_office' && Array.isArray(a.changes)) {
     for (const c of a.changes as unknown[]) {
-      const img = c && typeof c === 'object' ? (c as { replace_picture?: { image?: unknown } }).replace_picture?.image : undefined
-      if (typeof img === 'string') out.push({ key: 'replace_picture.image', value: img })
+      for (const k of ['replace_picture', 'insert_picture'] as const) {
+        const img = c && typeof c === 'object' ? (c as Record<string, { image?: unknown } | undefined>)[k]?.image : undefined
+        if (typeof img === 'string') out.push({ key: `${k}.image`, value: img })
+      }
+    }
+  }
+  // edit_hwp's signature or seal pictures (tools/edit-hwp.ts image changes): team files whose bytes go into the document
+  if (tool === 'edit_hwp' && Array.isArray(a.changes)) {
+    for (const c of a.changes as unknown[]) {
+      const img = c && typeof c === 'object' ? (c as { image?: unknown }).image : undefined
+      if (typeof img === 'string') out.push({ key: 'change.image', value: img })
     }
   }
   // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
@@ -254,7 +271,8 @@ export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read
 /**
  * Tools whose own card shows everything the call does: after a room read in the person's own chat the room card is
  * not raised for them; their card is the call's only one, carries the room card's line and asks every time
- * (TurnPerson.roomsSeen; chat/turn.ts ownCard). A connection's tools join them by provider (chat/tools.ts connection).
+ * (TurnPerson.roomsSeen; chat/turn.ts ownCard), unless the person chose "Always allow" for it (Rule A, also in their
+ * scheduled run). A connection's tools join them by provider (chat/tools.ts connection).
  * A tool listed here must never act without asking when TurnPerson.roomsSeen is set.
  */
 export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule_create', 'generate_video', 'move_files', 'copy_files', 'move_skill', 'connect_service'])
@@ -270,6 +288,17 @@ export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule
  * putting them in the read scope, so their members would not be weighed.
  */
 export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'answer_comments', 'set_title', 'remember'])
+
+/** Tools that only make, change, send or list the person's own things and fetch nothing from outside the team (a subset
+ * of OWN_WORDS_TOOLS: never a sub-agent, a skill or a new connection): they never mark a chat as having used something
+ * from outside (chat/turn.ts noteRoomTool). Before 2026-11-23 a make_file or a post_to_room did, so a chat that only made
+ * a file and sent it read as "used something from outside" (chats.room_outside, QA F5: docs/decisions/20261123-do-then-undo.md) */
+export const NO_OUTSIDE_TOOLS: ReadonlySet<string> = new Set([
+  'edit_files', 'comment_docx', 'edit_office', 'ask_user', 'todo_write',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
+  'set_title', 'remember', 'forget', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
+  'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'rename_files', 'save_work_file',
+])
 
 /**
  * Tools that by themselves bring nothing another person wrote into a person's own chat (chat/turn.ts noteOthersTool;

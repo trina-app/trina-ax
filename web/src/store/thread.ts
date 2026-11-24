@@ -208,3 +208,10 @@ export const runningMessage = (messages: ViewMessage[]) => [...messages].reverse
  * screen, but switching versions then would drop it off the branch (the server answers 409 branch_while_answering). */
 export const rowButtonsWait = (messages: ViewMessage[], o: { readOnly: boolean; othersTurn: unknown }) =>
   !!runningMessage(messages) || messages.some((m) => m.local?.state === 'sending') || o.readOnly || !!o.othersTurn
+
+/** An edit or a new answer from `id` replaces a part of the branch where the AI saved files (Chat.tsx shows one line
+ * that they stay as they are; no confirm first: docs/decisions/20261123-ask-registry-findings.md, decision 10). */
+export const savedFilesFrom = (messages: readonly Pick<ViewMessage, 'id' | 'files'>[], id: string) => {
+  const i = messages.findIndex((m) => m.id === id)
+  return i >= 0 && messages.slice(i).some((m) => (m.files?.saved.length ?? 0) > 0)
+}

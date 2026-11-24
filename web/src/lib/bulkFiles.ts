@@ -63,6 +63,13 @@ export interface Outcome {
 }
 
 /** lostViewers when the server refused a move because other people would lose sight of the item, else null */
+/** people who have a file under the item by its link (a narrowing move removes those links: files/shares.ts
+ * sharesNarrowedByMove), when the server refused a move into a personal folder for audience_narrowed, else 0 */
+export function linkPeopleBy(err: unknown): number {
+  if (!(err instanceof ApiError) || err.code !== 'conflict' || err.body.params?.reason !== 'audience_narrowed') return 0
+  return Number(err.body.params.linkPeople ?? 0)
+}
+
 export function narrowedBy(err: unknown): number | null {
   if (!(err instanceof ApiError) || err.code !== 'conflict' || err.body.params?.reason !== 'audience_narrowed') return null
   return Number(err.body.params.lostViewers ?? 0)
@@ -102,13 +109,15 @@ type MoveBody = { from: string; to: string; onExists: 'rename'; confirm?: boolea
 /**
  * POST /api/files/move for each item into `folder` (a name taken there gets "name (2)"). Items the server answers
  * audience_narrowed for are not moved yet; once all others are done the person is asked once for all of them (how many
- * items, and the most people any one of them would be hidden from), then those are moved with confirm. With
+ * items, the most people any one of them would be hidden from, and how many people lose files they have by link: only
+ * those links make it more than a move Undo puts back), then those are moved with confirm and listed in `narrowed`
+ * (each item and where it went, for that Undo: docs/decisions/20261123-do-then-undo.md). With
  * confirmWiden, items moved out of a personal folder to where more people would see them (audience_widened) are asked
  * about the same way, once (QA TC-115).
  */
-export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number) => Promise<boolean>; confirmWiden?: (count: number, viewersAdded: number) => Promise<boolean>; confirmSkills?: (skills: string[]) => Promise<boolean> }): Promise<Outcome> {
-  const out: Outcome = { done: [], failed: [], declined: [] }
-  const narrowed: { entry: FileEntry; body: MoveBody; lost: number }[] = []
+export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number, linkPeople: number) => Promise<boolean>; confirmWiden?: (count: number, viewersAdded: number) => Promise<boolean>; confirmSkills?: (skills: string[]) => Promise<boolean> }): Promise<Outcome & { narrowed: { entry: FileEntry; path: string }[] }> {
+  const out: Outcome & { narrowed: { entry: FileEntry; path: string }[] } = { done: [], failed: [], declined: [], narrowed: [] }
+  const narrowed: { entry: FileEntry; body: MoveBody; lost: number; linked: number }[] = []
   const widened: { entry: FileEntry; body: MoveBody; added: number }[] = []
   for (const entry of items) {
     let body: MoveBody = { from: entry.path, to: joinPath(folder, entry.name), onExists: 'rename', ...(o.confirmWiden ? { askWiden: true } : {}) }
@@ -127,12 +136,12 @@ export async function moveMany(items: readonly FileEntry[], folder: string, o: {
     } catch (error) {
       const lost = narrowedBy(error)
       const added = widenedBy(error)
-      if (lost !== null) narrowed.push({ entry, body, lost })
+      if (lost !== null) narrowed.push({ entry, body, lost, linked: linkPeopleBy(error) })
       else if (added !== null) widened.push({ entry, body, added })
       else out.failed.push({ entry, error })
     }
   }
-  const confirmed = async (list: { entry: FileEntry; body: MoveBody }[], ask: () => Promise<boolean>) => {
+  const confirmed = async (list: { entry: FileEntry; body: MoveBody }[], ask: () => Promise<boolean>, moved?: { entry: FileEntry; path: string }[]) => {
     if (!list.length) return
     if (!(await ask())) {
       out.declined.push(...list.map((x) => x.entry))
@@ -140,14 +149,15 @@ export async function moveMany(items: readonly FileEntry[], folder: string, o: {
     }
     for (const { entry, body } of list) {
       try {
-        await o.move({ ...body, confirm: true })
+        const r = await o.move({ ...body, confirm: true })
         out.done.push(entry)
+        moved?.push({ entry, path: (r as { entry?: { path?: string } } | null)?.entry?.path ?? body.to })
       } catch (error) {
         out.failed.push({ entry, error })
       }
     }
   }
-  await confirmed(narrowed, () => o.confirmNarrow(narrowed.length, Math.max(...narrowed.map((x) => x.lost))))
+  await confirmed(narrowed, () => o.confirmNarrow(narrowed.length, Math.max(...narrowed.map((x) => x.lost)), Math.max(...narrowed.map((x) => x.linked))), out.narrowed)
   await confirmed(widened, () => o.confirmWiden!(widened.length, Math.max(...widened.map((x) => x.added))))
   return out
 }
@@ -189,29 +199,6 @@ export async function shareMany(items: readonly FileEntry[], folder: string, o: 
     }
   }
   return out
-}
-
-/**
- * Does moving these items to the trash ask first? Not when nobody else can open any of them (QA TC-ask1-16: a question
- * and then an Undo toast were two asks): a file in the person's own folder (users/<me>/…) that the listing does not mark
- * shared (FileEntry.shared: people of its own, or a shared folder above it) and that is in no project folder but one
- * only the person sees (Project.audience 1). The client cannot know what a folder holds deeper (a file in it may be
- * shared one by one), nor anything while the projects list is not read, so a folder, or an unknown, still asks. An
- * entry's `shared` is filled only in a listing of the person's own folder (GET /api/files/tree): a row from anywhere
- * else (a search, recent files, a link) has it undefined whether or not it is shared, so only rows the caller says came
- * from such a listing (`fromListing`) may go without the question. The "moved to the trash · Undo" toast comes either
- * way.
- */
-export function trashAsksFirst(items: readonly Pick<FileEntry, 'path' | 'type' | 'shared'>[], myId: string, projects: readonly { folderPath: string; audience?: number }[] | null, o: { fromListing?: boolean } = {}): boolean {
-  if (!o.fromListing || !projects) return true
-  const key = (p: string) => p.normalize('NFC').toLowerCase()
-  const shared = projects.filter((p) => p.audience !== 1).map((p) => key(p.folderPath))
-  return items.some((e) => {
-    const segs = e.path.split('/')
-    if (e.type !== 'file' || e.shared || segs.length < 3 || segs[0] !== 'users' || segs[1] !== myId) return true
-    const at = key(e.path)
-    return shared.some((f) => isInside(at, f))
-  })
 }
 
 /** DELETE /api/files for each item (to the trash, 30 days); the trash ids are for "Undo". */

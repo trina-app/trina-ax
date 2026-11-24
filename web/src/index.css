@@ -453,4 +453,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 /* docx-preview pages on a neutral background */
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
+/* a floating picture (wrapNone: a seal over a name): docx-preview draws it in a box of width 0, where the base style's
+   img max-width of 100% made it 0 wide (QA TC-8342). It also drops "behind the text", so multiply keeps the words readable */
+.docx-host .docx-wrapper div[style*="width: 0px"] > img { max-width: none; mix-blend-mode: multiply; }
 

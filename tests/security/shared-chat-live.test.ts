@@ -119,9 +119,10 @@ describe('security: what only the asker may see never reaches the others while i
     expect(svc.calls.length).toBe(calls)
     expect(ofTurn('bob', r.turnId, from)).toEqual([])
     expect(liveText(ofMessage('bob', r.assistantMessage.id, from))).toBe('Looking. ')
-    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'cancel' } })
+    // (the one notice of the project, docs/decisions/20261123-shared-connector-warning-once.md: one button, Continue)
+    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'once' } })
     const forBob = await doneFor('bob', r.assistantMessage.id)
-    expect(svc.calls.length).toBe(calls)
+    expect(svc.calls.length).toBe(calls + 1)
     const all = JSON.stringify(ofMessage('bob', r.assistantMessage.id, from)) + JSON.stringify(forBob)
     expect(all).not.toContain(MCP_KEY)
     expect(ofTurn('bob', r.turnId, from)).toEqual([])
@@ -130,6 +131,8 @@ describe('security: what only the asker may see never reaches the others while i
   })
 
   test("someone who joins after the answer used alice's own connection gets nothing more of it, live or over REST", async () => {
+    // (the project's one notice shows again: the press of the test above is cleared)
+    h.ctx.db.query('DELETE FROM connector_tool_allow').run()
     const chat = await newShared()
     const from = { bob: ws.bob!.frames.length, gina: ws.gina!.frames.length }
     const r = await send('alice', chat.id, 'q\n' + fake({ tool: MINE_TOOL, args: { q: 'invoices' }, sayResult: true }, { sleep: 3000 }, { say: ' Tail.' }))

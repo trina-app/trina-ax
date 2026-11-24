@@ -30,6 +30,7 @@
 // Only on a Linux machine of the bundle's arch (assertLinuxHost). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
 // fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
+// resources/promo-video/ (the font and sounds the promo video's MP4 reads),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
 // engines/codex-<v>.model_catalog.json, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
@@ -50,6 +51,7 @@ import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 import { flatFile, linuxList } from './system/packages'
+import { PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES } from '../server/src/promo-video/audio'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -224,6 +226,10 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ...LINUX_DEV_ENV_SRT_FILES.map((f) => [`scripts/dev-env/srt/${f}`, `dev-env-srt/${f}`] as const),
   ['scripts/system/packages.json', 'dev-env-srt/system/packages.json'],
   ['scripts/system/packages.sh', 'dev-env-srt/system/packages.sh'],
+  // the promo video's HyperFrames CLI (the list's video group): packages.sh installs it with npm ci from this lock
+  // (pk_video_install; the sync reads <base>/root/hyperframes/), so a changed lock is a root change too
+  ['scripts/promo-video/hyperframes/package.json', 'hyperframes/package.json'],
+  ['scripts/promo-video/hyperframes/package-lock.json', 'hyperframes/package-lock.json'],
 ]
 /** executables among the root files (the rest are read: templates, sourced helpers, the catalog locker run by bun) */
 const LINUX_ROOT_EXEC = new Set<string>([...LINUX_ROOT_NATIVE, 'mycel-account', 'set-claude-token'])
@@ -300,6 +306,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
+    // what the promo video's MP4 reads from the version folder (promo-video/render.ts offers it only with all of them)
+    ...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES,
     // every entry point built (main.js and the workers)
     ...ENTRIES.map(([, out]) => `server/src/${out}`),
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
@@ -391,6 +399,13 @@ export async function buildLinuxBundle(o: {
   for (const f of PRETENDARD_STATIC) {
     fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
+
+  // the promo video's font and sounds, with the sounds' sources and licences: the MP4 render reads them from here
+  for (const f of [...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES]) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true })
+    fs.copyFileSync(path.join(REPO, f), path.join(dir, f))
+    fs.chmodSync(path.join(dir, f), 0o644)
   }
 
   // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)

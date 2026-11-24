@@ -168,6 +168,14 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
  * (ChatStore.userRef keeps names it read; QA TC-1410). No runtime yet: nothing was kept. */
 export function forgetUserName(ctx: AppContext, userId: string) { runtimes.get(ctx)?.store.forgetName(userId) }
 
+/** The chats that keep an engine session holding what a person read (three times the person's id): their own chats,
+ * the chats whose session their turn ended, and the chats with a session of their own (a shared chat's, per person). */
+export const SESSION_CHATS_OF = `SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
+    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
+    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL
+    UNION SELECT DISTINCT t.chat_id FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.user_id = ? AND t.engine_session_blob IS NOT NULL
+      AND (c.user_id <> t.user_id OR c.project_id IS NOT NULL OR c.shared_at IS NOT NULL OR c.people_shared_at IS NOT NULL)`
+
 /**
  * Forget the engine sessions of a person's chats (their read access shrank or the account was disabled: tab 2
  * "권한 회수", review H7). The next turn of each chat starts a fresh session from the chat's DB history.
@@ -176,15 +184,16 @@ export function forgetUserName(ctx: AppContext, userId: string) { runtimes.get(c
 export function resetEngineSessions(ctx: AppContext, userId: string): number {
   // turns of this person running right now keep their session until they end; they must not store it then
   runtimes.get(ctx)?.revokeRunningSessions(userId)
-  // their own chats, and the shared chats of others whose session their turn wrote (chat/shared.ts: a session is
-  // resumed only by the person whose turn wrote it, so it holds what they read)
-  const rows = ctx.db.query(`SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
-    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
-    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL`).all(userId, userId) as { id: string }[]
+  // their own chats, the shared chats of others whose session their turn wrote, and every chat that keeps a session of
+  // their own (chat/shared.ts ownSessionOn: a shared chat keeps one per person, each holding what that person read)
+  const rows = ctx.db.query(`${SESSION_CHATS_OF}`).all(userId, userId, userId) as { id: string }[]
   for (const r of rows) {
     ctx.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(r.id)
     fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
   }
+  // (their sessions' files are gone with the folders above; no turn of theirs points at one any more)
+  ctx.db.query(`UPDATE turns SET engine_session_blob = NULL WHERE user_id = ? AND engine_session_blob IS NOT NULL
+    AND chat_id IN (SELECT id FROM chats WHERE user_id <> ? OR project_id IS NOT NULL OR shared_at IS NOT NULL OR people_shared_at IS NOT NULL)`).run(userId, userId)
   return rows.length
 }
 

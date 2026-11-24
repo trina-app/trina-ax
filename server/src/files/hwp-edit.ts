@@ -7,8 +7,8 @@
 // The patch, record by record: only the BodyText/SectionN streams that hold a change are written again (inflated,
 // patched, deflated again when the FileHeader says the document is compressed). Every other stream (FileHeader,
 // DocInfo, BinData, PrvText, PrvImage, the summary, scripts, options) and every other record of a section keeps its
-// bytes, and the compound file keeps its storage tree, names, CLSIDs, state bits and times (files/cfb.ts). No shape or
-// style is added, so DocInfo never changes. In a changed paragraph:
+// bytes, and the compound file keeps its storage tree, names, CLSIDs, state bits and times (files/cfb.ts). No style is
+// added; DocInfo changes only for a picture (below). In a changed paragraph:
 // - PARA_TEXT: only the replaced characters change. Controls (8-WCHAR inline and extended ones, 1-WCHAR character
 //   controls) are never split or moved against the text around them: an edit across one is refused. A paragraph that
 //   ends up with no text has no PARA_TEXT, as Hangul writes an empty paragraph; an empty one that gets text gets one.
@@ -24,6 +24,15 @@
 // the paragraph holding the table. Rows that would make a table that cannot continue on the next page taller than the
 // page body (the section's PAGE_DEF) are refused (files/hwp-changes.ts).
 //
+// Pictures (an image change, files/hwp-picture.ts): the image as a new stream BinData/BIN%04X.png|jpg (raw-deflated
+// when the document is), a BIN_DATA record for it after the last one in DocInfo and the picture count of ID_MAPPINGS
+// one up (every other DocInfo record keeps its bytes), and in the anchor paragraph the 8-WCHAR 'gso ' control with its
+// CTRL_HEADER (common object properties: floating on the paper, behind or in front of the text, absolute size),
+// SHAPE_COMPONENT ('$pic' twice, original = current size, identity matrices) and SHAPE_COMPONENT_PICTURE (the picture
+// rectangle, the crop and the original size in pixels x 75, the BIN_DATA id) records, as Hangul and the pinned
+// renderer write them. The paragraph's header (character count, control mask bit 11), character shape positions and
+// layout cache follow as for a text edit.
+//
 // Refused, writing nothing: distribution-only (배포용), password, DRM, certificate-encrypted, signed, privacy-protected
 // and change-tracking documents (FileHeader flags, their streams and records), scripts other than Hangul's empty
 // default, an XML form template, OLE objects (BinData storages, .OLE streams, compound-file bytes, SHAPE_COMPONENT_OLE),
@@ -37,18 +46,20 @@
 import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
-import { CfbError, cfbMismatch, isCfb, readCfb, writeCfb, type Cfb } from './cfb'
+import { CfbError, cfbMismatch, isCfb, readCfb, withStreams, writeCfb, type Cfb } from './cfb'
 import { hwpOutline, hwpText, INFLATE_TOTAL_MAX, ONE_WCHAR, SECTIONS_MAX, STREAM_MAX } from './hwp'
 import {
-  asChanges, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type CCell, type CPara, type CTable,
+  asChanges, pictureInput, type PictureInput, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type CCell, type CPara, type CTable,
   type RowPlan,
 } from './hwp-changes'
 import {
-  applyLineEdits, decodeHwpEditRequest, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX, hwpxReadLines,
-  type HwpChange, type HwpEditReport,
+  applyLineEdits, decodeHwpEditRequest, decodeVerifyInput, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX, hwpxReadLines,
+  type HwpChange, type HwpEditReport, type HwpImageChange,
 } from './hwpx-check'
 import { badLinkTarget, isProgram, outside, PROGRAM_NAME } from './hwpx-edit'
+import { emptyScript, scriptText } from './hwpx-write'
 import { isZip } from './zip-guard'
+import { crc32, PICTURE_LIMITS, sanitizeImage, type CleanImage, type PictureSpot } from './hwp-picture'
 
 export const HWP_EDIT_LIMITS = {
   bytes: HWP_EDIT_MAX,
@@ -68,14 +79,14 @@ function refuseDoc(why: string): never { throw new ToolError(`${DOC_BAD}: ${why}
 
 /** record tags (HWPTAG_BEGIN 0x10 + n) */
 const TAG = {
-  BIN_DATA: 18, DIST_DOC_DATA: 28, PARA_HEADER: 66, PARA_TEXT: 67, PARA_CHAR_SHAPE: 68, PARA_LINE_SEG: 69, PARA_RANGE_TAG: 70,
+  ID_MAPPINGS: 17, SHAPE_COMPONENT: 76, SHAPE_PICTURE: 85, BIN_DATA: 18, DIST_DOC_DATA: 28, PARA_HEADER: 66, PARA_TEXT: 67, PARA_CHAR_SHAPE: 68, PARA_LINE_SEG: 69, PARA_RANGE_TAG: 70,
   CTRL_HEADER: 71, LIST_HEADER: 72, PAGE_DEF: 73, TABLE: 77, SHAPE_OLE: 84, TRACK_CHANGE: 96, TRACK_CHANGE_AUTHOR: 97, VIDEO_DATA: 98,
 }
 /** a paragraph's own records; anything else directly under PARA_HEADER is unknown to this editor */
 const PARA_KIDS = new Set([TAG.PARA_TEXT, TAG.PARA_CHAR_SHAPE, TAG.PARA_LINE_SEG, TAG.PARA_RANGE_TAG, TAG.CTRL_HEADER])
 /** 8-WCHAR controls that have a CTRL_HEADER (extended); the other 8-WCHAR ones are inline (tab, field end, ...) */
 const EXTENDED = new Set([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23])
-const LINE_BREAK = 10, PARA_END = 13
+const LINE_BREAK = 10, PARA_END = 13, GSO = 11
 /** the list of a record kind a paragraph does not have (shared: replaced, never pushed to) */
 const NONE = Object.freeze([]) as unknown as number[]
 
@@ -314,6 +325,10 @@ class Doc {
   readonly tables: Table[] = []
   readonly byRec: Map<number, Para>[] = []
   readonly compressed: boolean
+  /** DocInfo as it expands, its records, and the BIN_DATA records in order (their ids 1..n) */
+  docInfo: { raw: Uint8Array; recs: Recs; idMappings: number; bins: number[] } | null = null
+  /** the FileHeader's version (major, minor, build, revision as one number) */
+  readonly version: number
   /** the lines hwp.ts reads (set by openDoc, which checks they are this model's) */
   read: string[] = []
   constructor(readonly bytes: Uint8Array, readonly cfb: Cfb) {
@@ -325,6 +340,7 @@ class Doc {
     for (const [bit, why] of FLAGS_REFUSED) if (flags & bit) refuseDoc(why)
     checkNames(cfb)
     this.compressed = (flags & 1) !== 0
+    this.version = u32(header, 32)
     const stream = (p: string) => cfb.streams.get(p)?.data
     for (const p of cfb.streams.keys()) {
       for (const [re, why] of STREAMS_REFUSED) if (re.test(p)) refuseDoc(why)
@@ -355,6 +371,11 @@ class Doc {
     if (docInfo) {
       const d = this.compressed ? budget.inflate(docInfo, 'DocInfo') : docInfo
       const recs = new Recs(d, 'DocInfo', recBudget)
+      this.docInfo = { raw: d, recs, idMappings: -1, bins: [] }
+      for (let r = 0; r < recs.n; r++) {
+        if (recs.tag[r] === TAG.ID_MAPPINGS && this.docInfo.idMappings < 0) this.docInfo.idMappings = r
+        if (recs.tag[r] === TAG.BIN_DATA) this.docInfo.bins.push(r)
+      }
       for (let r = 0; r < recs.n; r++) {
         const t = recs.tag[r]!
         if (t === TAG.DIST_DOC_DATA) refuseDoc('it is a distribution-only document (배포용)')
@@ -487,8 +508,8 @@ class Doc {
 /**
  * Hangul's default script, which every document it saves carries (Scripts/DefaultJScript): four WCHAR strings, each
  * after its DWORD length (header, source, pre and post script), then 0xFFFFFFFF. Only the empty one and the template
- * Hangul writes (var Documents = XHwpDocuments; ... function OnDocument_New() { //todo }) pass; any other code is a
- * script.
+ * Hangul and Hancom Docs write (var Documents = XHwpDocuments; ... empty handlers such as OnDocument_New() { //todo },
+ * hwpx-write.ts emptyScript) pass; any other code is a script.
  */
 function defaultScript(b: Uint8Array): boolean {
   const parts: string[] = []
@@ -503,10 +524,7 @@ function defaultScript(b: Uint8Array): boolean {
   }
   const rest = b.subarray(at)
   if (rest.length && !(rest.length === 4 && u32(rest, 0) === 0xffffffff)) return false
-  const flat = (s: string) => s.replace(/\/\/[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '').replace(/\0+$/, '')
-  const [head, source, pre, post] = parts.map(flat)
-  return ['', 'varDocuments=XHwpDocuments;varDocument=Documents.Active_XHwpDocument;'].includes(head!)
-    && ['', 'functionOnDocument_New(){}'].includes(source!) && pre === '' && post === ''
+  return emptyScript(parts[0]!, parts[1]!) && scriptText(parts[2]!).trim() === '' && scriptText(parts[3]!).trim() === ''
 }
 
 /** Why a paragraph's records do not agree with each other (counts in its header, its text and character shapes), or
@@ -542,7 +560,7 @@ function paraIssue(p: Para, recs: Recs): string | null {
 
 // ---------------------------------------------------------------- the changes
 /** a paragraph's WCHARs [wfrom, wto) replaced by `text` */
-interface WEdit { wfrom: number; wto: number; text: string; change: number }
+interface WEdit { wfrom: number; wto: number; text: string; change: number; raw?: Uint16Array }
 /** bytes [start, end) of a section's records replaced */
 interface Splice { sec: number; start: number; end: number; bytes: Uint8Array; change: number; seq: number; depth: number }
 
@@ -553,9 +571,120 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
 
   constructor(private doc: Doc) { super(doc.paras, doc.tables) }
 
-  private touch(p: Para) {
+  // ---- a picture
+  /** the new pictures in order: their BIN_DATA id, stream and image */
+  readonly newBins: { id: number; path: string; image: CleanImage }[] = []
+  private zOrders = new Map<number, number>()
+  private tops: Para[][] | null = null
+
+  protected topParagraph(section: number, index: number): Para | null {
+    this.tops ??= this.doc.sections.map((_, si) => this.doc.paras.filter((q) => q.sec === si && q.level === 0))
+    return this.tops[section]?.[index] ?? null
+  }
+  protected inHeaderOrFooter(t: Table): boolean {
+    const recs = this.doc.sections[t.sec]!.recs
+    let level = recs.level[t.ctrl]!
+    for (let j = t.ctrl - 1; j >= 0 && level > 0; j--) {
+      if (recs.level[j]! >= level) continue
+      level = recs.level[j]!
+      if (recs.tag[j] === TAG.CTRL_HEADER && recs.size[j]! >= 4 && ['head', 'foot'].includes(ctrlId(recs.bytes, recs.data[j]!))) return true
+    }
+    return false
+  }
+  protected hasLayoutCache(p: Para): boolean { return p.lines.length > 0 }
+  protected topIndex(p: Para): number {
+    this.topParagraph(0, 0)
+    return this.tops![p.sec]?.indexOf(p) ?? -1
+  }
+
+  protected pictureAt(p: Para, spot: PictureSpot, image: CleanImage, layer: 'behind' | 'front', i: number): string {
+    const di = this.doc.docInfo
+    if (!di || di.idMappings < 0) refuseChange(i, 'the document has no picture list (DocInfo) a picture could be added to')
+    // the pictures' records were written from documents of Hangul 2007 and later (HWP 5.0.3)
+    if (this.doc.version < 0x05000300) refuseChange(i, 'the document was saved by a Hangul older than 2007 (HWP 5.0.3); open it in Hangul and save it again first')
+    const im = di.recs.body(di.idMappings)
+    if (im.length < 4 || u32(im, 0) !== di.bins.length) refuseChange(i, 'its picture list does not match its count (ID_MAPPINGS)')
+    if (di.bins.some((r) => r < di.idMappings || di.recs.level[r] !== di.recs.level[di.bins[0]!])) refuseChange(i, 'its picture list (BIN_DATA) is not where Hangul keeps it')
+    di.bins.forEach((r, k) => { const b = di.recs.body(r); if (b.length < 4 || u16(b, 2) !== k + 1) refuseChange(i, 'its pictures are not numbered 1, 2, 3, ... (BIN_DATA)') })
+    this.checkPara(p, i)
+    const recs = this.recs(p)
+    // one stream per picture, however many places show it
+    let bin = this.newBins.find((b) => b.image === image)
+    if (!bin) {
+      const id = di.bins.length + this.newBins.length + 1
+      if (id > 0xffff) refuseChange(i, 'the document has too many pictures')
+      const path = `BinData/BIN${id.toString(16).toUpperCase().padStart(4, '0')}.${image.kind}`
+      if ([...this.doc.cfb.streams.keys()].some((k) => k.toUpperCase() === path.toUpperCase())) refuseChange(i, `the document already has a stream ${path}`)
+      bin = { id, path, image }
+      this.newBins.push(bin)
+    }
+    const { id, path } = bin
+    // the control at the end of the text (before the paragraph's end): every line of the layout cache still starts where
+    // it did, so the cache stays
+    const wpos = wOf(p, recs).length - 1
+    this.touch(p, false).edits.push({ wfrom: wpos, wto: wpos, text: '', raw: Uint16Array.of(GSO, 0x6f20, 0x6773, 0, 0, 0, 0, GSO), change: i })
+    // its records after the paragraph's own (it is the last control in the text)
+    const offset = recs.offset(p.end)
+    const L = recs.level[p.rec]!
+    this.splice(p.sec, offset, offset, Buffer.concat(this.pictureRecords(p.sec, L, spot, image, layer, id)), i, L + 1)
+    return path
+  }
+
+  /** the next z-order of the section: above every table and object it has */
+  private zOrder(sec: number): number {
+    let z = this.zOrders.get(sec)
+    if (z === undefined) {
+      const recs = this.doc.sections[sec]!.recs
+      z = 0
+      for (let r = 0; r < recs.n; r++) {
+        if (recs.tag[r] !== TAG.CTRL_HEADER || recs.size[r]! < 28) continue
+        const id = ctrlId(recs.bytes, recs.data[r]!)
+        if (id === 'gso ' || id === 'tbl ' || id === 'eqed') z = Math.max(z, u32(recs.bytes, recs.data[r]! + 24) | 0)
+      }
+      z++
+    }
+    this.zOrders.set(sec, z + 1)
+    return z
+  }
+
+  /** CTRL_HEADER (common object properties), SHAPE_COMPONENT and SHAPE_COMPONENT_PICTURE of a picture */
+  private pictureRecords(sec: number, L: number, spot: PictureSpot, image: CleanImage, layer: 'behind' | 'front', bin: number): Uint8Array[] {
+    const { x, y, w, h } = spot.box
+    const inst = ((crc32(image.bytes) ^ (bin << 16) ^ sec) >>> 1) || 1
+    // attribute: floating (not a character), vertical and horizontal from the paper, other objects may overlap (bit
+    // 14), width and height absolute (4 << 15, 2 << 18), behind (2) or in front of (3) the text (bits 21-23)
+    // (vertically from the anchor paragraph instead, bits 3-4 = 2, when the document has no layout cache)
+    const para = spot.fromPara !== undefined
+    const attr = ((para ? 2 << 3 : 0) | (1 << 14) | (4 << 15) | (2 << 18) | ((layer === 'front' ? 3 : 2) << 21)) >>> 0
+    const ch = new Uint8Array(46)
+    put32(ch, 0, 0x67736f20); put32(ch, 4, attr); put32(ch, 8, para ? spot.fromPara! : y); put32(ch, 12, x); put32(ch, 16, w); put32(ch, 20, h)
+    put32(ch, 24, this.zOrder(sec)); put32(ch, 36, inst) // margins 0; then "prevent page break" 0, description: none
+    const ctrl = ch.subarray(0, 46)
+    // SHAPE_COMPONENT: '$pic' twice, offset in a group, group level, local version 1, original and current size, flip,
+    // rotation (angle, centre), one set of rendering matrices: translation, scale, rotation (each 6 doubles, identity)
+    const sc = new Uint8Array(52 + 3 * 48)
+    const sv = new DataView(sc.buffer)
+    put32(sc, 0, 0x24706963); put32(sc, 4, 0x24706963); put16(sc, 18, 1)
+    put32(sc, 20, w); put32(sc, 24, h); put32(sc, 28, w); put32(sc, 32, h)
+    put32(sc, 42, w >> 1); put32(sc, 46, h >> 1); put16(sc, 50, 1)
+    for (let m = 0; m < 3; m++) { sv.setFloat64(52 + m * 48, 1, true); sv.setFloat64(52 + m * 48 + 32, 1, true) }
+    // SHAPE_COMPONENT_PICTURE: border (colour, width, attribute), the picture's rectangle (4 corners), the crop and the
+    // original size (pixels x 75), inner margins, brightness, contrast, effect, the BIN_DATA id, border alpha, instance
+    // id, picture effects (none), then the original size again and one byte, as Hangul 2007 and later write it
+    const dw = image.width * 75, dh = image.height * 75
+    const pic = new Uint8Array(91)
+    put32(pic, 20, w); put32(pic, 28, w); put32(pic, 32, h); put32(pic, 40, h)
+    put32(pic, 52, dw); put32(pic, 56, dh)
+    put16(pic, 71, bin); put32(pic, 74, inst)
+    put32(pic, 82, dw); put32(pic, 86, dh)
+    return [hwpRecord(TAG.CTRL_HEADER, L + 1, ctrl), hwpRecord(TAG.SHAPE_COMPONENT, L + 2, sc), hwpRecord(TAG.SHAPE_PICTURE, L + 3, pic)]
+  }
+
+  /** `dropLines`: the paragraph's layout cache goes (a text change); a picture at its end keeps it */
+  private touch(p: Para, dropLines = true) {
     let x = this.pending.get(p)
-    if (!x) { x = { edits: [], lines: true }; this.pending.set(p, x) }
+    if (!x) { x = { edits: [], lines: dropLines }; this.pending.set(p, x) }
+    x.lines ||= dropLines
     return x
   }
   /** `depth`: the level of inserted records, so that insertions at one place go deepest first (rows of a table inside
@@ -777,6 +906,8 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
       const edits = x.edits.sort((a, b) => a.wfrom - b.wfrom || a.wto - b.wto)
       for (let k = 1; k < edits.length; k++) {
         const a = edits[k - 1]!, b = edits[k]!
+        // pictures' controls may go several at one place (two seals at the end of one paragraph)
+        if (a.raw && b.raw && a.wfrom === a.wto && b.wfrom === b.wto) continue
         if (b.wfrom < a.wto || (b.wfrom === a.wfrom && b.wto === a.wto)) refuseChange(Math.max(a.change, b.change), a.change !== b.change ? `it changes the same text as change ${Math.min(a.change, b.change) + 1}` : 'it changes the same text twice')
       }
       if (edits.length) {
@@ -784,7 +915,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
         const parts: Uint16Array[] = []
         let pos = 0
         const old = wOf(p, recs)
-        for (const e of edits) { parts.push(old.subarray(pos, e.wfrom), wchars(e.text)); pos = e.wto }
+        for (const e of edits) { parts.push(old.subarray(pos, e.wfrom), e.raw ?? wchars(e.text)); pos = e.wto }
         parts.push(old.subarray(pos))
         const w = new Uint16Array(parts.reduce((n, a) => n + a.length, 0))
         let o = 0
@@ -793,7 +924,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
           let d = 0
           for (const e of edits) {
             if (at <= e.wfrom) break
-            if (at >= e.wto) d += e.text.length - (e.wto - e.wfrom)
+            if (at >= e.wto) d += (e.raw?.length ?? e.text.length) - (e.wto - e.wfrom)
             else return null
           }
           return at + d
@@ -811,6 +942,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
         pairs.forEach(([a, s], k) => { put32(nb, k * 8, a); put32(nb, k * 8 + 4, s) })
         put32(h, 0, ((u32(h, 0) & 0x80000000) | w.length) >>> 0)
         if (w.includes(LINE_BREAK)) put32(h, 4, (u32(h, 4) | (1 << LINE_BREAK)) >>> 0)
+        if (edits.some((e) => e.raw)) put32(h, 4, (u32(h, 4) | (1 << GSO)) >>> 0)
         put16(h, 12, pairs.length)
         const L = recs.level[p.rec]!
         const change = edits[0]!.change
@@ -819,10 +951,10 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
         else if (w.length > 1) this.splice(p.sec, recs.end(p.rec), recs.end(p.rec), hwpRecord(TAG.PARA_TEXT, L + 1, wbytes(w)), change)
         this.splice(p.sec, recs.start[p.shapes[0]!]!, recs.end(p.shapes[0]!), hwpRecord(TAG.PARA_CHAR_SHAPE, L + 1, nb), change)
       }
-      put16(h, 16, 0)
       const change = edits[0]?.change ?? -1
+      if (x.lines) put16(h, 16, 0)
       this.splice(p.sec, recs.start[p.rec]!, recs.end(p.rec), hwpRecord(TAG.PARA_HEADER, recs.level[p.rec]!, h), change)
-      for (const r of p.lines) this.splice(p.sec, recs.start[r]!, recs.end(r), new Uint8Array(0), change)
+      if (x.lines) for (const r of p.lines) this.splice(p.sec, recs.start[r]!, recs.end(r), new Uint8Array(0), change)
     }
   }
 }
@@ -864,11 +996,11 @@ function openDoc(bytes: Uint8Array): Doc {
 
 /** Changes the text of a .hwp; the new file and what the read-back needs. ToolError for a change or a document it
  * refuses, and then nothing is written. */
-export function editHwp(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8Array; report: HwpEditReport } {
+export function editHwp(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput, targets?: HwpImageChange[]): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWP_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWP_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
   // the old document's model lives only inside writeChanges, so it can go before the new file is read back whole
-  const made = writeChanges(bytes, changes)
+  const made = writeChanges(bytes, changes, extra, targets)
   // the new file passes every check again and its text is the old text with the changes, nothing else; and no
   // paragraph's records disagree that agreed before
   const now = openDoc(made.file)
@@ -877,7 +1009,7 @@ export function editHwp(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8A
   const after = now.read
   const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
   if (diff) readBack(diff)
-  return { file: made.file, report: { lineEdits: made.lineEdits, notes: made.notes, placeholders: placeholdersIn(after) } }
+  return { file: made.file, report: { lineEdits: made.lineEdits, notes: made.notes, placeholders: placeholdersIn(after), ...(made.targets ? { targets: made.targets } : {}), ...(made.pictures.length ? { pictures: made.pictures } : {}) } }
 }
 
 const readBack = (why: string): never => { throw new ToolError(`the changed document did not read back as expected (${why}); nothing was saved`) }
@@ -886,11 +1018,15 @@ const readBack = (why: string): never => { throw new ToolError(`the changed docu
 const issuesOf = (d: Doc) => [...d.paras.map((p) => paraIssue(p, d.sections[p.sec]!.recs)).filter((x) => x !== null).sort(), '--', ...d.tables.map((t) => t.bad ?? 'whole')].join('\n')
 
 /** The changes applied and the new file written; its container checked against the old one. */
-function writeChanges(bytes: Uint8Array, changes: HwpChange[]) {
+function writeChanges(bytes: Uint8Array, changes: HwpChange[], extra?: PictureInput, targets?: HwpImageChange[]) {
   const doc = openDoc(bytes)
   const before = doc.lines().lines
   const ed = new Editor(doc)
+  if (extra) { ed.layout = extra.layout; ed.images = extra.images }
+  // pictures of this call are resolved here, on the document as read, before its other changes
+  const pending = targets?.length ? ed.resolveTargets(targets, changes.length) : null
   changes.forEach((c, i) => ed.apply(c, i))
+  const carried = pending ? ed.carryTargets(pending) : undefined
   const lineEdits = ed.lineEdits()
   ed.finish()
 
@@ -913,22 +1049,46 @@ function writeChanges(bytes: Uint8Array, changes: HwpChange[]) {
     raws.set(sec.name, raw)
     replace.set(sec.name, doc.compressed ? new Uint8Array(zlib.deflateRawSync(raw)) : raw)
   }
+  // pictures: DocInfo with their BIN_DATA records after the last one and the count of ID_MAPPINGS, their streams
+  const added = new Map<string, Uint8Array>()
+  if (ed.newBins.length) {
+    const di = doc.docInfo!
+    const recs = di.recs
+    // right after the last BIN_DATA, or right after ID_MAPPINGS (its count list says the BIN_DATA records come first)
+    const at = di.bins.length ? recs.offset(recs.subtreeEnd(di.bins[di.bins.length - 1]!)) : recs.end(di.idMappings)
+    const level = di.bins.length ? recs.level[di.bins[0]!]! : recs.level[di.idMappings]! + 1
+    const bins = ed.newBins.map((b) => {
+      // embedded (1), compressed as the document says (bits 4-5: 0), state "read" (bits 8-9: 1), as Hangul writes it
+      const ext = wbytes(wchars(b.image.kind))
+      const d = new Uint8Array(6 + ext.length)
+      put16(d, 0, 0x0101); put16(d, 2, b.id); put16(d, 4, b.image.kind.length); d.set(ext, 6)
+      return hwpRecord(TAG.BIN_DATA, level, d)
+    })
+    const im = recs.body(di.idMappings).slice()
+    put32(im, 0, di.bins.length + ed.newBins.length)
+    const imAt = recs.start[di.idMappings]!
+    const raw = new Uint8Array(Buffer.concat([di.raw.subarray(0, imAt), hwpRecord(TAG.ID_MAPPINGS, recs.level[di.idMappings]!, im), di.raw.subarray(recs.end(di.idMappings), at), ...bins, di.raw.subarray(at)]))
+    raws.set('DocInfo', raw)
+    replace.set('DocInfo', doc.compressed ? new Uint8Array(zlib.deflateRawSync(raw)) : raw)
+    for (const b of ed.newBins) added.set(b.path, doc.compressed ? new Uint8Array(zlib.deflateRawSync(b.image.bytes)) : b.image.bytes)
+  }
   let file: Uint8Array
-  try { file = writeCfb(doc.cfb, replace) } catch (e) { throw new ToolError(`the changed document could not be written (${String((e as Error).message).slice(0, 120)}); nothing was saved`) }
+  try { file = writeCfb(added.size ? withStreams(doc.cfb, added) : doc.cfb, replace) } catch (e) { throw new ToolError(`the changed document could not be written (${String((e as Error).message).slice(0, 120)}); nothing was saved`) }
   if (file.length > HWP_EDIT_LIMITS.bytes) throw new ToolError(`the changed document would be larger than ${HWP_EDIT_LIMITS.bytes / 1024 / 1024} MB; nothing was saved`)
 
   // read back: the container has the old directory and every stream but the changed sections byte for byte (both
   // readers agree on it when the new file is opened); each changed section expands to what was written
   let again: Cfb
   try { again = readCfb(file) } catch (e) { return readBack(String((e as Error).message)) }
-  const mismatch = cfbMismatch(doc.cfb, again, (p) => replace.has(p))
+  const mismatch = cfbMismatch(doc.cfb, again, (p) => replace.has(p), (p) => added.has(p) || (p === 'BinData' && !doc.cfb.entries.some((e) => e.path === 'BinData')))
   if (mismatch) readBack(mismatch)
+  for (const [name, data] of added) if (!again.streams.get(name) || !Buffer.from(again.streams.get(name)!.data).equals(Buffer.from(data))) readBack(name)
   for (const [name, raw] of raws) {
     const got = again.streams.get(name)!.data
     const expanded = doc.compressed ? zlib.inflateRawSync(got, { maxOutputLength: HWP_EDIT_LIMITS.stream }) : got
     if (!Buffer.from(expanded).equals(Buffer.from(raw))) readBack(name)
   }
-  return { file, lineEdits, notes: ed.notes, before, issues: issuesOf(doc) }
+  return { file, lineEdits, notes: ed.notes, before, issues: issuesOf(doc), pictures: ed.pictures, targets: carried }
 }
 
 /** What the editor sees in a .hwp (tests and checks): each paragraph's text, heading, character shapes (position, id),
@@ -952,16 +1112,58 @@ export function hwpEditModel(bytes: Uint8Array) {
 
 /** The office worker's `hwp-verify` mode: a file the editor made goes through every check of a document to change
  * again, in a fresh worker (the server does not trust the one that made it): the container read the same by both
- * readers, the document rules, and the text model agreeing with hwp.ts. "ok" out, or the refusal. */
+ * readers, the document rules, and the text model agreeing with hwp.ts. With the old file too (new pictures): the new
+ * one differs from it in DocInfo only by the pictures' entries, has only their streams added, each a clean PNG or JPEG,
+ * and one more picture in its body per stream. "ok" out, or the refusal. */
 export function hwpVerifyRequest(input: Uint8Array): Uint8Array {
-  openDoc(input)
+  let v: ReturnType<typeof decodeVerifyInput>
+  try { v = decodeVerifyInput(input) } catch { throw new ToolError('the .hwp checker got a damaged request') }
+  const doc = openDoc(v.file)
+  if (v.old) picturesOnly(openDoc(v.old), doc)
   return new TextEncoder().encode('ok')
+}
+
+/** refuses `now` unless it is `was` with pictures added the way pictureAt and writeChanges add them (DocInfo, streams) */
+function picturesOnly(was: Doc, now: Doc) {
+  const bad = (why: string): never => { throw new ToolError(`the changed document did not pass the checks again (${why}); nothing was saved`) }
+  const a = was.docInfo, b = now.docInfo
+  if (!a || !b || a.idMappings < 0 || b.idMappings < 0) return bad('DocInfo')
+  const k = b.bins.length - a.bins.length
+  if (k < 1) bad('no picture was added')
+  // DocInfo: the old records, ID_MAPPINGS with the new count, the new BIN_DATA records after the old ones
+  const nb = b.bins.slice(a.bins.length).map((r) => b.recs.bytes.subarray(b.recs.start[r]!, b.recs.end(r)))
+  const at = a.bins.length ? a.recs.offset(a.recs.subtreeEnd(a.bins[a.bins.length - 1]!)) : a.recs.end(a.idMappings)
+  const im = a.recs.body(a.idMappings).slice()
+  put32(im, 0, a.bins.length + k)
+  const want = Buffer.concat([a.raw.subarray(0, a.recs.start[a.idMappings]!), hwpRecord(TAG.ID_MAPPINGS, a.recs.level[a.idMappings]!, im), a.raw.subarray(a.recs.end(a.idMappings), at), ...nb, a.raw.subarray(at)])
+  if (!want.equals(Buffer.from(b.raw))) bad('DocInfo changed more than its picture list')
+  // each new BIN_DATA: embedded, the next id, a png or jpg stream of that name holding a clean picture
+  const streams = new Set([...now.cfb.streams.keys()].filter((p) => !was.cfb.streams.has(p)))
+  b.bins.slice(a.bins.length).forEach((r, n) => {
+    const d = b.recs.body(r)
+    const id = a.bins.length + n + 1
+    const ext = d.length >= 6 ? Buffer.from(d.subarray(6, 6 + u16(d, 4) * 2)).toString('utf16le') : ''
+    if (d.length !== 6 + ext.length * 2 || u16(d, 0) !== 0x0101 || u16(d, 2) !== id || (ext !== 'png' && ext !== 'jpg')) bad('a new picture entry is not one this editor writes')
+    const path = `BinData/BIN${id.toString(16).toUpperCase().padStart(4, '0')}.${ext}`
+    if (!streams.delete(path)) bad(`${path} is missing`)
+    const raw = now.cfb.streams.get(path)!.data
+    const bytes = now.compressed ? zlib.inflateRawSync(raw, { maxOutputLength: PICTURE_LIMITS.totalBytes }) : raw
+    const clean = sanitizeImage(bytes, path)
+    if (clean.kind !== ext || !Buffer.from(clean.bytes).equals(Buffer.from(bytes))) bad(`${path} is not a clean ${ext} picture`)
+  })
+  if (streams.size) bad(`${[...streams][0]} was added`)
+  // the body: every old picture record still there, and each added one shows a NEW entry; every new entry is shown
+  const pics = (d: Doc) => d.sections.flatMap((sec) => { const out: number[] = []; for (let r = 0; r < sec.recs.n; r++) if (sec.recs.tag[r] === TAG.SHAPE_PICTURE) out.push(sec.recs.size[r]! >= 73 ? u16(sec.recs.body(r), 71) : -1); return out })
+  const left = pics(now)
+  for (const id of pics(was)) { const at = left.indexOf(id); if (at < 0) bad('an old picture is gone from the body'); left.splice(at, 1) }
+  if (left.some((id) => id <= a.bins.length || id > b.bins.length)) bad('a new picture does not show a new picture entry')
+  for (let id = a.bins.length + 1; id <= b.bins.length; id++) if (!left.includes(id)) bad('a new picture entry is not shown in the body')
 }
 
 /** The office worker's `hwp-edit` mode: the framed request of hwpx-check.ts in, the framed report and file out. */
 export function hwpEditRequest(input: Uint8Array): Uint8Array {
   let req: ReturnType<typeof decodeHwpEditRequest>
   try { req = decodeHwpEditRequest(input) } catch { throw new ToolError('the .hwp editor got a damaged request') }
-  const { file, report } = editHwp(req.doc, asChanges(req.changes, '.hwp'))
+  const { file, report } = editHwp(req.doc, asChanges(req.changes, '.hwp'), pictureInput(req, '.hwp'), req.targets === undefined ? undefined : asChanges(req.targets, '.hwp') as HwpImageChange[])
   return encodeHwpEditResult(report, file)
 }

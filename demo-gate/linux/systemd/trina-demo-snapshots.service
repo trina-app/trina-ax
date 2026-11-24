@@ -1,0 +1,17 @@
+# The nightly snapshot rebuild. The unit has no network but its own loopback (PrivateNetwork): the builder's servers
+# talk to each other on 127.0.0.1 and reach nothing else.
+[Unit]
+Description=Trina free-roam demo snapshots (nightly rebuild)
+RequiresMountsFor=/srv/tdg
+
+[Service]
+Type=oneshot
+# 75: another build holds the lock (tdsnap-rebuild), so this one did nothing
+SuccessExitStatus=75
+ExecStart=/opt/trina-demo/bin/tdsnap-rebuild
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h

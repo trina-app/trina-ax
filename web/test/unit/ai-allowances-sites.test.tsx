@@ -54,3 +54,25 @@ describe('sites in Settings › Allowed for Trina', () => {
     }
   })
 })
+
+// "<connector> 전체 항상 허용" (docs/decisions/20261123-one-always-allow.md): one entry per connection, removable
+describe('a whole connection in Settings › Allowed for Trina', () => {
+  test('"Aside · All tools", one row; Remove deletes it; every app language names it', async () => {
+    const all: AiAllowance[] = [{ kind: 'connector_tool', id: 'tool:YWxs', connection: 'Aside', tool: 'All tools', all: true, createdAt: '2026-11-23T10:00:00.000Z' }]
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://team.localhost')
+      calls.push({ method: init?.method ?? 'GET', path: url.pathname })
+      if ((init?.method ?? 'GET') === 'DELETE') return new Response(null, { status: 204 })
+      return json({ items: all })
+    }) as typeof fetch
+    const m = await mount(<AiAllowances />)
+    try {
+      await m.until(() => m.container.querySelectorAll('[data-testid="allowance-row"]').length === 1, 'one row')
+      expect(m.html()).toContain(translate('en', 'allowances.connectorAll'))
+      await m.click(m.container.querySelector('[data-testid="allowance-delete"]') as never)
+      await m.until(() => calls.some((c) => c.method === 'DELETE'), 'the delete')
+      expect(calls.filter((c) => c.method === 'DELETE').map((c) => decodeURIComponent(c.path))).toEqual(['/api/ai-allowances/tool:YWxs'])
+    } finally { await m.unmount() }
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(translate(L, 'allowances.connectorAll')).not.toBe('allowances.connectorAll')
+  })
+})

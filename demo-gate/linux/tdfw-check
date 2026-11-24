@@ -1,0 +1,54 @@
+#!/bin/sh
+# Check the demo's egress table from each role user (root; install.sh runs it before any unit starts and again after
+# the gate and the tunnel started, and by hand after any firewall change). The snapshot builder (tdbuild) is not in the
+# table: its unit has a network namespace of its own (PrivateNetwork).
+# "open" = a TCP/TLS connection got an answer (any HTTP status); "closed" = refused, rejected or timed out. Needs curl.
+# The loopback checks of the gate's ports answer only while the gate runs (otherwise they are skipped).
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+fail=0
+probe() { # USER URL -> 0 when something answered
+  runuser -u "$1" -- curl -k -s -o /dev/null -m 6 --connect-timeout 4 "$2" >/dev/null 2>&1
+  rc=$?; [ $rc = 0 ] || [ $rc = 22 ] || [ $rc = 35 ] || [ $rc = 52 ] || [ $rc = 56 ]
+}
+want() { # USER open|closed URL WHAT
+  if probe "$1" "$3"; then got=open; else got=closed; fi
+  if [ "$got" = "$2" ]; then echo "ok    $1: $4 $got"; else echo "FAIL  $1: $4 is $got, should be $2"; fail=1; fi
+}
+dns() { # USER open|closed
+  if runuser -u "$1" -- getent ahostsv4 example.com >/dev/null 2>&1; then got=open; else got=closed; fi
+  if [ "$got" = "$2" ]; then echo "ok    $1: DNS $got"; else echo "FAIL  $1: DNS is $got, should be $2"; fail=1; fi
+}
+gw=$(ip -4 route show default | awk '{print $3; exit}')
+ts=$(ip -4 -o addr show 2>/dev/null | awk '$4 ~ /^100\./ {sub(/\/.*/, "", $4); print $4; exit}')
+gate_up=0; curl -s -o /dev/null -m 3 http://127.0.0.1:19190/__demo/health && gate_up=1
+
+for u in tdrun tdgate tdtunnel; do
+  # not a Cloudflare-hosted site (example.com is one now): the tunnel may reach the whole Cloudflare edge by design
+  want $u closed https://www.google.com/ "the internet (www.google.com, not on Cloudflare)"
+  want $u closed https://8.8.8.8/ "the internet by address (8.8.8.8)"
+  want $u closed "https://[2001:4860:4860::8888]/" "the internet over IPv6 (2001:4860:4860::8888)"
+  want $u closed http://127.0.0.1:5432/ "Postgres on loopback (5432)"
+  [ -n "$gw" ] && want $u closed "http://$gw/" "the LAN gateway ($gw)"
+  [ -n "$ts" ] && want $u closed "http://$ts:22/" "this host's Tailscale address"
+  want $u closed http://100.100.100.100/ "Tailscale's service address"
+done
+dns tdrun closed
+dns tdgate open
+dns tdtunnel open
+want tdrun closed https://api.anthropic.com/ "Anthropic's API"
+want tdgate open https://api.anthropic.com/ "Anthropic's API"
+want tdgate open https://challenges.cloudflare.com/ "Turnstile"
+want tdgate closed https://www.cloudflare.com/ "another Cloudflare site"
+want tdtunnel open https://www.cloudflare.com/cdn-cgi/trace "the Cloudflare edge"
+want tdtunnel closed https://api.anthropic.com/ "Anthropic's API"
+if [ $gate_up = 1 ]; then
+  want tdrun open http://127.0.0.1:19191/ "the gate's model upstream (19191)"
+  want tdrun closed http://127.0.0.1:19190/ "the gate's public port (19190)"
+  want tdtunnel open http://127.0.0.1:19190/__demo/status "the gate's public port (19190)"
+  want tdgate closed http://127.0.0.1:19191/ "its own upstream port through the firewall (19191)"
+else
+  echo "skip  loopback checks of the gate's ports (the gate is not running)"
+fi
+[ $fail = 0 ] && echo "firewall: all checks passed" || echo "firewall: CHECKS FAILED"
+exit $fail

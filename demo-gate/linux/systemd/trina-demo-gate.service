@@ -1,0 +1,56 @@
+# The free-roam demo gate (demo-gate/) as tdgate. Its instances are started through sudo as tdrun, each in its own
+# bwrap (pool.command: own pid and IPC namespace, the file system read-only but for its own folder, no other
+# instance, no /run, /tmp or /dev of the host), and stay in this unit's cgroup: MemoryHigh/MemoryMax and the IP
+# allow list below hold the gate and every instance together. Each instance runs under `choom -n 800`, so the kernel
+# ends an instance before the gate or anything else on the machine.
+[Unit]
+Description=Trina free-roam demo gate
+After=network-online.target trina-demo-nft.service
+Wants=network-online.target
+RequiresMountsFor=/srv/tdg /var/demo-gate
+
+[Service]
+User=tdgate
+Group=tdgate
+WorkingDirectory=/var/demo-gate
+Environment=HOME=/var/demo-gate/state PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# the egress table first (as root): never a gate without it
+ExecStartPre=+/opt/trina-demo/bin/tdnft-load
+# sudo's own run folder, which ProtectSystem=strict would otherwise leave read-only and maybe missing
+ExecStartPre=+/usr/bin/install -d -m 0711 /run/sudo
+ExecStartPre=+/usr/bin/install -d -m 0700 /run/sudo/ts
+ExecStart=/opt/trina-demo/node/bin/node --disable-warning=ExperimentalWarning /opt/trina-demo/app/demo-gate/src/main.ts --config /var/demo-gate/gate.json
+UMask=0077
+Restart=always
+RestartSec=30
+MemoryHigh=12G
+MemoryMax=14G
+TasksMax=12000
+OOMScoreAdjust=-100
+CPUWeight=50
+IOWeight=50
+
+# A backstop for the nft table (if it were flushed): this cgroup reaches only loopback, Anthropic's API ranges and
+# the Cloudflare ranges Turnstile answers from. nft stays the precise rule (per user, per port).
+IPAddressDeny=any
+IPAddressAllow=localhost 160.79.104.0/23 2607:6bc0::/48 104.16.0.0/12 172.64.0.0/13 2606:4700::/32
+
+# File system: read-only but for the gate's state and the instances; /home, /root and the box's other services'
+# sockets and data hidden (install.sh adds a drop-in with this host's CI runner folders).
+ProtectSystem=strict
+ReadWritePaths=/var/demo-gate /srv/tdg /run/sudo
+ProtectHome=yes
+PrivateTmp=yes
+InaccessiblePaths=-/run/postgresql -/run/tailscale -/run/docker.sock -/var/run/docker.sock -/run/containerd -/var/lib/postgresql -/var/lib/docker -/var/lib/containerd -/var/lib/tailscale
+ProtectControlGroups=yes
+# NoNewPrivileges must stay off: the gate starts every instance through sudo. For a unit that is not root, systemd
+# turns it on with any of PrivateDevices, ProtectKernelModules, ProtectKernelTunables, ProtectKernelLogs, ProtectClock,
+# LockPersonality, RestrictRealtime, RestrictSUIDSGID, RestrictNamespaces, RestrictAddressFamilies,
+# MemoryDenyWriteExecute, SystemCallFilter or SystemCallArchitectures, so none of them is here (install.sh checks sudo
+# in a transient unit with these properties). ProtectProc and ProtectHostname are out too: they mount over parts of
+# /proc (ProtectHostname: /proc/sys/kernel/hostname, read-only), and the kernel then refuses the new /proc each
+# instance's bwrap mounts ("Can't mount proc on /newroot/proc", found on the first install). tdgate cannot change the
+# hostname anyway (no CAP_SYS_ADMIN).
+
+[Install]
+WantedBy=multi-user.target

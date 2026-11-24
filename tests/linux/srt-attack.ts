@@ -12,10 +12,11 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { writeBoxBrowser } from '../../server/src/devenv/srt/box-browser'
 import { othersLive, sweepRoots, visibleOf, type Visible } from '../../server/src/devenv/srt/hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, isRunPlaceholder, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, boxBrowser, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -162,6 +163,8 @@ const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
 fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
 // the git wrapper first on every run's PATH, as the runner writes it (runner.ts writeGitWrapper)
 fs.mkdirSync(devenvPaths(BASE).bin, { recursive: true }); fs.writeFileSync(path.join(devenvPaths(BASE).bin, 'git'), gitWrapperSource({ node: SRT_PATHS.node, realGit: '/usr/bin/git' }), { mode: 0o755 })
+// and the browser commands, as the runner writes them (runner.ts prepare, box-browser.ts)
+writeBoxBrowser(devenvPaths(BASE).bin, boxBrowser('linux'), SRT_PATHS.node)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -264,6 +267,39 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
 /** a git repo in a team folder changed: a hook was added, or .git/config names another hooks folder */
 const gitChanged = (rel: string) => (fs.readdirSync(`${TEAM}/${rel}/.git/hooks`).length || fs.readFileSync(`${TEAM}/${rel}/.git/config`, 'utf8').includes('hooksPath') ? `${rel}/.git changed` : null)
 type Check = (r: { code: number | null; out: string; refused?: string }) => string | null
+// The pinned browser in a run, driven over its debugging pipe with no library (tests/linux/box-libs-install.sh installs it
+// from the one list). argv: url, then "auth" to log in to the run's proxy, "force" to send even local addresses to it.
+const BROWSER_DRIVER = String.raw`
+const { spawn } = require("child_process"), fs = require("fs"), path = require("path");
+const [url, ...o] = process.argv.slice(1), px = new URL(process.env.HTTPS_PROXY);
+const dir = fs.mkdtempSync(path.join(process.env.TMPDIR, "br-"));
+const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--remote-debugging-pipe", "--user-data-dir=" + dir, "--allow-file-access-from-files"];
+if (o.includes("force")) args.push("--proxy-server=" + px.origin, "--proxy-bypass-list=<-loopback>");
+const b = spawn(process.env.HYPERFRAMES_BROWSER_PATH, [...args, "about:blank"], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+let id = 0, buf = "", status = "", sid; const wait = new Map();
+const send = (method, params = {}, s = sid) => new Promise((r) => { const m = ++id; wait.set(m, r); b.stdio[3].write(JSON.stringify({ id: m, method, params, ...(s ? { sessionId: s } : {}) }) + "\0"); });
+const end = (t) => { console.log(t); try { b.kill("SIGKILL"); } catch {} setTimeout(() => { fs.rmSync(dir, { recursive: true, force: true }); process.exit(0); }, 200); };
+let loaded; const load = new Promise((r) => { loaded = r; });
+b.stdio[4].on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\0")) >= 0) { const m = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+  if (m.id && wait.has(m.id)) { wait.get(m.id)(m.result || { error: m.error }); wait.delete(m.id); continue; }
+  if (m.method === "Fetch.requestPaused") send("Fetch.continueRequest", { requestId: m.params.requestId });
+  if (m.method === "Fetch.authRequired") send("Fetch.continueWithAuth", { requestId: m.params.requestId, authChallengeResponse: o.includes("auth") ? { response: "ProvideCredentials", username: decodeURIComponent(px.username), password: decodeURIComponent(px.password) } : { response: "CancelAuth" } });
+  if (m.method === "Network.responseReceived" && m.params.type === "Document" && !status) status = String(m.params.response.status);
+  if (m.method === "Page.loadEventFired") loaded();
+} });
+setTimeout(() => end("timeout status=" + status), 25000);
+(async () => {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" }, null);
+  sid = (await send("Target.attachToTarget", { targetId, flatten: true }, null)).sessionId;
+  await send("Page.enable"); await send("Network.enable"); await send("Fetch.enable", { handleAuthRequests: true });
+  const n = await send("Page.navigate", { url });
+  if (n.errorText) return end("error=" + n.errorText + " status=" + status);
+  await Promise.race([load, new Promise((r) => setTimeout(r, 6000))]);
+  const t = await send("Runtime.evaluate", { expression: "document.documentElement.outerHTML" });
+  end("status=" + status + " body=" + String(t.result && t.result.value).slice(0, 400));
+})();
+`
+const browse = (url: string, ...o: ('auth' | 'force')[]) => `test -x "$HYPERFRAMES_BROWSER_PATH" || { echo NO-BROWSER; exit 9; }; node -e "$(echo ${Buffer.from(BROWSER_DRIVER).toString('base64')} | base64 -d)" ${JSON.stringify(url)} ${o.join(' ')} 2>&1 | grep -v -E 'UNDICI|trace-warnings'`
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
@@ -357,6 +393,38 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A14', what: 'the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 --noproxy "*" http://127.0.0.1:8099/ || curl -fsS -m 5 https://team.trina.test/', check: failsQuietly },
   { id: 'A15', what: 'git over ssh', cmd: 'GIT_TERMINAL_PROMPT=0 timeout 20 git clone ssh://git@example.com/x.git /tmp/x', check: failsQuietly },
   { id: 'A16', what: 'a unix socket of the server', cmd: `python3 -c "import socket;s=socket.socket(socket.AF_UNIX);s.connect('${unixSock}');print(s.recv(100))"`, check: failsQuietly },
+  // the browser of a run (config.ts BOX_BROWSER) needs no unix socket by path: this block stays (decisions/20261123-chat-browser-render.md)
+  { id: 'A16b', what: 'no new unix socket, by path or abstract; a socketpair (the browser\'s own pipes) works', cmd: `python3 -c "
+import socket
+a,b=socket.socketpair(); a.send(b'x'); assert b.recv(1)==b'x'
+for addr in ('${unixSock}', '\\0trina-attack'):
+    try:
+        s=socket.socket(socket.AF_UNIX); s.connect(addr); print('REACHED', addr)
+    except PermissionError: print('refused')
+"`, check: (r) => (r.code === 0 && r.out.split('refused').length === 3 && !r.out.includes('REACHED') ? null : `code ${r.code}: ${r.out.slice(0, 200)}`) },
+  // the pinned browser in a run (docs/decisions/20261123-chat-browser-render.md). A missing browser fails these: never a skip
+  { id: 'BR1', what: 'browser: an allowed site, logged in to the proxy, answers 200', cmd: browse('https://registry.npmjs.org/-/ping', 'auth'), check: has('status=200') },
+  { id: 'BR2', what: 'browser: without the login the proxy answers 407, also for an allowed site', cmd: browse('https://registry.npmjs.org/-/ping'), check: has('status=407') },
+  { id: 'BR3', what: 'browser: a site not on the list is refused (http 403, https no tunnel)', cmd: `${browse('http://example.com/', 'auth')}; ${browse('https://example.com/', 'auth')}`, check: both(has('status=403'), has('ERR_TUNNEL_CONNECTION_FAILED')) },
+  { id: 'BR4', what: 'browser: the host loopback through the proxy, logged in, is 403', cmd: browse('http://127.0.0.1:8099/', 'auth', 'force'), check: (r) => (r.out.includes('status=403') && !r.out.includes(CANARY) ? null : r.out.slice(0, 300)) },
+  { id: 'BR5', what: 'browser: a private address through the proxy, logged in, is 403', cmd: browse('http://10.11.12.13/', 'auth', 'force'), check: has('status=403') },
+  { id: 'BR6', what: 'browser: the metadata address through the proxy, logged in, is 403', cmd: browse('http://169.254.169.254/latest/meta-data/', 'auth', 'force'), check: has('status=403') },
+  { id: 'BR7', what: 'browser: a denied file by file:// is not there', cmd: browse(`file://${BASE}/secrets/master.key`), check: (r) => (r.out.includes(CANARY) || r.out.includes('NO-BROWSER') || !/status=|error=/.test(r.out) ? r.out.slice(0, 300) : null) },
+  // the plain commands of a run (config.ts, box-browser.ts): the script adds the flags and logs in through a relay
+  { id: 'BR8', what: 'plain chromium --dump-dom of an allowed site works through the run proxy', cmd: 'chromium --headless --dump-dom https://registry.npmjs.org/chalk/latest 2>/dev/null', check: has('"name":"chalk"') },
+  { id: 'BR9', what: 'plain chromium: a site not on the list stays refused', cmd: 'chromium --headless --dump-dom https://example.com/ 2>/dev/null; chromium --headless --dump-dom http://example.com/ 2>/dev/null; true', check: (r) => (r.out.includes('Example Domain') ? r.out.slice(0, 200) : null) },
+  { id: 'BR10', what: 'plain chromium: the server port, a private address and metadata stay out of reach', cmd: 'for u in http://127.0.0.1:8099/ http://10.11.12.13/ http://169.254.169.254/latest/meta-data/; do chromium --headless --timeout=4000 --dump-dom "$u" 2>/dev/null; done; true', check: (r) => (r.out.includes(CANARY) ? r.out.slice(0, 200) : null) },
+  { id: 'BR11', what: 'the browser commands and the relay are read-only in a run', cmd: 'R=$(dirname "$(command -v chromium)"); for f in chromium chrome browser-proxy-relay.cjs; do echo x >> "$R/$f" && echo WROTE; done; rm -f "$R/chromium" && echo WROTE; true', check: (r) => (r.out.includes('WROTE') ? r.out.slice(0, 200) : null) },
+  { id: 'BR12', what: 'the proxy login is in no process argument while the browser and relay run', cmd: `chromium --headless --remote-debugging-port=0 about:blank >/dev/null 2>&1 & sleep 2; python3 -c "
+import glob,os,urllib.parse
+p=urllib.parse.unquote(urllib.parse.urlparse(os.environ['HTTPS_PROXY']).password)
+n=0;hit=0
+for f in glob.glob('/proc/[0-9]*/cmdline'):
+    try: c=open(f,'rb').read()
+    except OSError: continue
+    if b'chrome-headless-shell' in c or b'browser-proxy-relay' in c: n+=1
+    if c and p.encode() in c: hit+=1
+print('procs',n>=2,'hits',hit)"; kill %1 2>/dev/null; true`, check: has('procs True hits 0') },
   // the sandbox has its own pid space: the same number names one of its own processes, never the server
   { id: 'A18', what: 'see the server process', cmd: `ps axww; cat /proc/${process.pid}/cmdline; ls /proc/${process.pid}/root/opt/mycel`, check: (r) => (r.out.includes('srt-attack.ts') ? 'the server process is visible' : null) },
   { id: 'A19', what: 'new namespaces, mount, chroot', cmd: 'unshare -U true || unshare -Urm true || mount -t tmpfs x /mnt || chroot / true', check: failsQuietly },

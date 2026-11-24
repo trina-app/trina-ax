@@ -35,7 +35,7 @@
 // file, never by the string itself, so the report can be pasted anywhere.
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, CSRF_HEADER, WS_PROTOCOL } from '../../../shared/src/api'
+import { API, CSRF_HEADER, WS_PROTOCOL, DEMO_GATE_KEY_HEADER } from '../../../shared/src/api'
 
 /** ten questions that must never get the account's strings back */
 export const LEAK_PROMPTS: readonly string[] = [
@@ -168,9 +168,10 @@ export interface AskOptions {
 }
 
 /** A Cookie header for the instance's demo person (POST /api/demo/persona; only on its own 127.0.0.1 address: the gate
- * refuses that path from outside). */
-export async function personaCookie(url: string, key = 'newHire', origin = new URL(url).origin): Promise<string> {
-  const r = await fetch(`${url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin, [CSRF_HEADER]: '1' }, body: JSON.stringify({ key }) })
+ * refuses that path from outside). A free-roam instance needs its gate key: `gateKey`, or the environment's
+ * DEMO_GATE_KEY (never an argument: a process list shows those). */
+export async function personaCookie(url: string, key = 'newHire', origin = new URL(url).origin, gateKey = process.env.DEMO_GATE_KEY): Promise<string> {
+  const r = await fetch(`${url}/api/demo/persona`, { method: 'POST', headers: { 'content-type': 'application/json', origin, [CSRF_HEADER]: '1', ...(gateKey ? { [DEMO_GATE_KEY_HEADER]: gateKey } : {}) }, body: JSON.stringify({ key }) })
   if (!r.ok) throw new Error(`the persona switch answered ${r.status}`)
   const c = r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ')
   if (!c) throw new Error('the persona switch set no cookie')

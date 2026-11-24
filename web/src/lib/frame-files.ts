@@ -23,7 +23,7 @@
 //
 // Not covered in this version: images a script makes while the page runs (a React artifact's <img>), which never pass
 // through here; they stay blocked by the frame's CSP.
-import { fetchFileBlob } from './api'
+import { fetchChatFileBlob, fetchFileBlob } from './api'
 import { resolveFrameScripts } from './frame-scripts'
 
 export const FRAME_FILES_MAX = 50
@@ -52,12 +52,18 @@ export const PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
 /** What a reference in the page points at. */
 export type Ref = { kind: 'team'; path: string } | { kind: 'external' } | { kind: 'blocked' } | { kind: 'keep' }
 
+/** A picture among a chat's own files (`chat:files/<id>/<name>`: a promo video's photo the person attached in a chat
+ * shared with people; server/src/promo-video/spec.ts): its file id, or null */
+export const CHAT_FILE_REF = /^chat:files\/([0-9a-f-]{8,64})\/[^/?#]+$/i
+
 /** Classify one reference of a page in team folder `folder` ('' = the team root; null = not in the team folder, e.g. a
- * file from this computer: a relative path then points at nothing). */
-export function classifyRef(raw: string, folder: string | null): Ref {
+ * file from this computer: a relative path then points at nothing). `chatId`: the chat an artifact belongs to, whose
+ * own files (chat:files/<id>/<name>) it may show, fetched as the person looking at it (whoever sees the chat). */
+export function classifyRef(raw: string, folder: string | null, chatId?: string | null): Ref {
   const s = raw.trim()
   if (!s || s.startsWith('#') || /^(data|blob):/i.test(s)) return { kind: 'keep' }
   if (/^https?:/i.test(s) || s.startsWith('//') || s.startsWith('\\\\')) return { kind: 'external' }
+  if (chatId && CHAT_FILE_REF.test(s)) return { kind: 'team', path: s }
   if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return { kind: 'blocked' }
   if (folder === null) return { kind: 'blocked' }
   let p = s.replace(/[?#].*$/s, '').replace(/\\/g, '/')
@@ -175,6 +181,8 @@ export interface FrameFilesOptions {
   /** tests: this server's address (default location.origin) */
   origin?: string
   signal?: AbortSignal
+  /** an artifact's chat: its own files (chat:files/<id>/<name>) are fetched from it as the person looking (chatFile) */
+  chatId?: string | null
   /** tests: how a file is fetched (default fetchFileBlob with the person's session) */
   fetchFile?: (path: string, max: number, signal?: AbortSignal) => Promise<Blob>
   /** tests: how the page is parsed and written back (default DOMParser and the document's outerHTML) */
@@ -209,7 +217,7 @@ export async function resolveFrameFiles(html: string, o: FrameFilesOptions): Pro
   for (const s of sites) {
     for (const raw of refsOf(s)) {
       if (refs.has(raw)) continue
-      const r = classifyRef(raw, o.folder)
+      const r = classifyRef(raw, o.folder, o.chatId)
       refs.set(raw, r)
       if (r.kind === 'external') external.add(raw.trim())
       else if (r.kind === 'blocked') missing.add(raw.trim())
@@ -220,7 +228,11 @@ export async function resolveFrameFiles(html: string, o: FrameFilesOptions): Pro
       }
     }
   }
-  const fetchFile = o.fetchFile ?? ((p: string, max: number, signal?: AbortSignal) => fetchFileBlob(p, max, signal, { embedIn: o.embedIn }))
+  const chatFile = (p: string) => (o.chatId ? CHAT_FILE_REF.exec(p)?.[1] ?? null : null)
+  const fetchFile = o.fetchFile ?? ((p: string, max: number, signal?: AbortSignal) => {
+    const id = chatFile(p)
+    return id ? fetchChatFileBlob(o.chatId!, id, max, signal) : fetchFileBlob(p, max, signal, { embedIn: o.embedIn })
+  })
   const js = o.scripts ? await resolveFrameScripts(doc, { folder: o.folder, withhold: o.withholdScripts, origin: o.origin, signal: o.signal, fetchFile }) : { changed: false, external: 0, missing: [], withheld: 0 }
   const counts = { externalScripts: js.external, missingScripts: js.missing, withheldScripts: js.withheld }
   if (!refs.size && !js.changed) return { html, external: 0, missing: 0, ...counts }
@@ -244,7 +256,7 @@ export async function resolveFrameFiles(html: string, o: FrameFilesOptions): Pro
   await Promise.all(Array.from({ length: Math.min(PARALLEL, order.length) }, worker))
   o.signal?.throwIfAborted()
   const swap = (raw: string): string | null => {
-    const r = refs.get(raw) ?? classifyRef(raw, o.folder)
+    const r = refs.get(raw) ?? classifyRef(raw, o.folder, o.chatId)
     if (r.kind === 'keep') return null
     if (r.kind === 'team') return wanted.get(r.path) ?? PLACEHOLDER
     return PLACEHOLDER

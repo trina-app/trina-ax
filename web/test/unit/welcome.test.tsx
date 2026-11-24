@@ -1155,8 +1155,8 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'invite', 'the invite')
       await m.until(() => m.find('team-link-message'), 'the message')
       // the invite put off too: the setup ends (W6: put off counts as answered), and the end screen says what is left
+      // "나중에" skips at once (no question first)
       await m.click('invite-step-skip')
-      await m.click(await m.until(() => m.find('invite-step-later'), 'the ask'))
       await m.until(() => m.find('welcome-done-summary'), 'the end screen with what was put off')
       expect(progress!.finishedAt).not.toBeNull()
       expect(later()).toEqual(['skills', 'files', 'tools', 'invite'])
