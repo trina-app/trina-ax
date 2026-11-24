@@ -68,6 +68,15 @@
         "fonts-liberation": ""
       }
     },
+    "office-view": {
+      "install": "default",
+      "for": "Word, Excel and PowerPoint pages the AI looks at, and Excel values (LibreOffice in the converters' isolation, server/src/files/office-view.ts). Debian 13 only, from Debian's security archive with the fix of DSA-6635-1 (CVE-2026-63277): Ubuntu 24.04's build still needs that fix, so those servers say the pages were not seen",
+      "packages": {
+        "libreoffice-writer": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] },
+        "libreoffice-impress": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] },
+        "libreoffice-calc": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] }
+      }
+    },
     "devenv": {
       "install": "default",
       "for": "the dev environment's commands and srt (socat, ripgrep); python3-openpyxl and python3-docx fill a team's Excel and Word forms (a form skill, server/src/onboarding/form-skill.ts); the python3-* libraries and the Python program python-pptx are what a run's python3 has without pip install (docs/decisions/20261121-box-python-libs.md): Debian's builds for what Debian has, pinned wheels for python-pptx and matplotlib (Debian's matplotlib pulls scipy, sympy and tk, +180 to +640 MiB). Installing them turns nothing on: install-srt.sh does",

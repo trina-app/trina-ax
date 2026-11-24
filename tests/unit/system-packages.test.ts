@@ -95,7 +95,7 @@ describe('the list (scripts/system/packages.json)', () => {
 
   test('the always groups are what every install needs; the image and the dev environment groups are on request', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
-    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser', 'video', 'google-apps'])
+    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'office-view', 'devenv', 'browser', 'video', 'google-apps'])
     // the promo video's MP4 (docs/decisions/20261123-linux-video-mp4.md): node and the HyperFrames CLI on every default
     // install; it draws with the browser group's chrome-headless-shell and encodes with the media group's ffmpeg
     expect(LIST.groups.video!.artifacts).toEqual(['node', 'hyperframes'])
