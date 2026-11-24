@@ -3,8 +3,11 @@
 // the same session instead, once, within 5 minutes, only for an account without a password; wrong ones count and lock
 // like wrong passwords; Set a password needs one; Google cannot be disconnected from an account without a password; the
 // team switch and the server's own Google client never lock such accounts out; W6 hands the team to such a person.
+import { createHash } from 'node:crypto'
+import { hashToken } from '../../server/src/auth/passwords'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { DEFAULT_LIMITS, reauthKey } from '../../server/src/auth/rate-limit'
+import { flowIpHash, GOOGLE_OPEN_FLOWS_MAX, GOOGLE_OPEN_FLOWS_RESERVE } from '../../server/src/auth/google-login'
 import { setSetting } from '../../server/src/admin/settings'
 import { GoogleClientInUse, guardOwnGoogleClient, refuseClientInUse } from '../../server/src/auth/google-login-admin'
 import { HttpError } from '../../server/src/http/errors'
@@ -231,6 +234,36 @@ describe('Re-check with Google for accounts without a password', () => {
     expect((await one.try('POST', '/api/auth/google/start', {})).status).toBe(429)
     expect((await h.client({ ip: '10.8.8.9' }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
     h.ctx.db.query("DELETE FROM google_signin_flows WHERE intent = 'signin' AND status = 'pending'").run()
+  })
+
+  test('the per-address count: an IPv6 /64 is one address, the stored key is keyed, no address means no per-address cap but a reserve', async () => {
+    // many addresses of one /64 share the 10
+    for (let i = 1; i <= 10; i++) expect((await h.client({ ip: `2001:db8:1:2::${i.toString(16)}` }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    expect((await h.client({ ip: '2001:db8:1:2:ffff::1' }).try('POST', '/api/auth/google/start', {})).status).toBe(429)
+    expect((await h.client({ ip: '2001:db8:1:3::1' }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    // keyed: neither the address nor its plain SHA-256 is stored, and it is the limiter's id under this server's key
+    const keys = (h.ctx.db.query("SELECT DISTINCT ip_hash FROM google_signin_flows WHERE intent = 'signin' AND status = 'pending'").all() as { ip_hash: string }[]).map((r) => r.ip_hash)
+    expect(keys.sort()).toEqual([flowIpHash(h.ctx, '2001:db8:1:2::1'), flowIpHash(h.ctx, '2001:db8:1:3::1')].sort())
+    for (const k of keys) for (const v of ['2001:db8:1:2::1', '2001:db8:1:2::/64', 'google-flow-ip:2001:db8:1:2::/64', 'google-flow-ip:2001:db8:1:2::1']) {
+      for (const enc of ['hex', 'base64url'] as const) expect(k).not.toBe(createHash('sha256').update(v).digest(enc))
+      expect(k).not.toBe(hashToken(v))
+      expect(k).not.toContain('2001')
+    }
+    h.ctx.db.query("DELETE FROM google_signin_flows WHERE intent = 'signin' AND status = 'pending'").run()
+    // no address known: no per-address cap, and no row key
+    const none = h.client({ ip: null as unknown as string })
+    for (let i = 0; i < 12; i++) expect((await none.try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE ip_hash IS NULL AND intent = 'signin' AND status = 'pending'").get() as { n: number }).n).toBe(12)
+    // ... but it stops GOOGLE_OPEN_FLOWS_RESERVE below the cap; a sign-in counted per address still gets a slot
+    const now = Date.now()
+    const ins = h.ctx.db.query("INSERT INTO google_signin_flows (id, state_hash, binding_hash, intent, config_key, created_at, expires_at) VALUES (?, ?, 'x', 'signin', 'k', ?, ?)")
+    h.ctx.db.transaction(() => {
+      for (let i = 0; i < GOOGLE_OPEN_FLOWS_MAX - GOOGLE_OPEN_FLOWS_RESERVE - 12; i++) ins.run(crypto.randomUUID(), `fill-${i}`, new Date(now).toISOString(), new Date(now + 600_000).toISOString())
+    })()
+    try {
+      expect((await none.try('POST', '/api/auth/google/start', {})).status).toBe(429)
+      expect((await h.client({ ip: '10.6.6.6' }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    } finally { h.ctx.db.query("DELETE FROM google_signin_flows WHERE intent = 'signin' AND status = 'pending'").run() }
   })
 
   test('a check works once, in its session, for its person, within 5 minutes', async () => {

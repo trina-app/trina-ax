@@ -5,7 +5,7 @@
 - Status: done
 - Where: server/src/auth (google-login.ts, reauth.ts, accounts.ts, deletion-requests.ts), admin/users.ts,
   notifications, web Activity text. Why: security review of #400 (Sign in with Google) before it ships.
-- Version impact: patch — security fixes to a feature not yet released; no API shape change, one additive migration.
+- Version impact: patch — security fixes to Sign in with Google (released in 0.18.0); no API shape change, one additive migration.
 
 ## Goal
 

@@ -28,7 +28,7 @@
 // connect is also bound to the session that started it. A state works once. The desktop and phone apps start flows
 // bound to a secret their sign-in page keeps instead (no cookie), and Google's return gives them a one-time code, never
 // a session in the system browser (auth/google-login-apps.ts, docs/decisions/20261122-google-login-apps.md).
-import crypto from 'node:crypto'
+import crypto, { createHmac } from 'node:crypto'
 import type { Context } from 'hono'
 import type { MyGoogle } from '@mycel/shared/api'
 import { isFreeRoam } from '../app-config'
@@ -51,7 +51,8 @@ import { notifyGoogleConnected, notifySignInChange } from '../notifications/serv
 import { CLOSE_SCRIPT, returnHeaders, returnPage } from '../integrations/connections/return-page'
 import { msg } from './messages'
 import { hashToken, safeEqual } from './passwords'
-import { googleStartKeys, reauthKey, tokenIpKeys } from './rate-limit'
+import { googleStartKeys, limitIp, reauthKey, tokenIpKeys } from './rate-limit'
+import { confirmSecret } from '../chat/confirm-key'
 import { hasNoPassword, reauthState, requireReauth, REAUTH_CONFIRMED_MS } from './reauth'
 import { authOf } from './service'
 import { getUser } from './users'
@@ -64,6 +65,9 @@ export const GOOGLE_OPEN_FLOWS_MAX = 500
 /** open sign-in flows at once from one address: a few addresses cannot fill GOOGLE_OPEN_FLOWS_MAX and lock out the
  * people who sign in only with Google (docs/decisions/20261124-google-signin-security.md) */
 export const GOOGLE_OPEN_FLOWS_PER_IP = 10
+/** the last open slots under GOOGLE_OPEN_FLOWS_MAX, kept for sign-ins counted per address: starts that are not (no
+ * address known, a sign-up's start) cannot take them */
+export const GOOGLE_OPEN_FLOWS_RESERVE = 50
 /** a re-check's id_token must be this new (its `iat`), and Google's own sign-in (`auth_time`, when Google sends it) at
  * most REAUTH_SIGN_IN_MAX_MS old: the re-check proves a sign-in at Google now, not only one left open in the browser */
 export const REAUTH_TOKEN_MAX_AGE_MS = 60_000
@@ -197,9 +201,13 @@ export async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow
   // only flows still waiting for Google: a used one cannot be finished again, and goes when it expires. A signed-in
   // person's flow (a connect or a re-check: one open per person, below) is not counted, so a flood of sign-in starts
   // never stops a re-check; a sign-in counts per address too
-  const ipHash = who ? null : hashToken(`google-flow-ip:${c.get('info').ip}`)
-  if (!who && (ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE status = 'pending' AND user_id IS NULL").get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
-  if (intent === 'signin' && (ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE ip_hash = ? AND status = 'pending'").get(ipHash) as { n: number }).n >= GOOGLE_OPEN_FLOWS_PER_IP) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
+  // the address as the rate limiter counts it (an IPv6 /64), keyed with this process's secret: the row never holds
+  // anything that names the address; a restart starts the count again, like the limiter
+  const ip = c.get('info').ip
+  const perIp = !who && intent === 'signin' && !!ip
+  const ipHash = perIp ? flowIpHash(ctx, ip!) : null
+  if (!who && (ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE status = 'pending' AND user_id IS NULL").get() as { n: number }).n >= GOOGLE_OPEN_FLOWS_MAX - (perIp ? 0 : GOOGLE_OPEN_FLOWS_RESERVE)) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
+  if (perIp && (ctx.db.query("SELECT COUNT(*) AS n FROM google_signin_flows WHERE ip_hash = ? AND status = 'pending'").get(ipHash) as { n: number }).n >= GOOGLE_OPEN_FLOWS_PER_IP) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: 60 })
   const id = newId(), state = random(), binding = random(), nonce = random(), verifier = crypto.randomBytes(48).toString('base64url')
   const bindingHash = bind.client === 'web' ? hashToken(binding) : bind.secretHash
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
@@ -234,6 +242,12 @@ export async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow
   // an app's flow sets no cookie: the system browser that comes back is not the app's window
   if (bind.client === 'web') c.header('Set-Cookie', bindingCookie(c.req.url, binding, GOOGLE_FLOW_TTL_MS / 1000), { append: true })
   return { url: googleUrl }
+}
+
+/** The key a sign-in flow's address counts under (google_signin_flows.ip_hash): HMAC-SHA-256 of the limiter's id for
+ * the address (limitIp: an IPv6 /64 as one) with this server process's secret. Exported for the tests. */
+export function flowIpHash(ctx: AppContext, ip: string): string {
+  return createHmac('sha256', confirmSecret(ctx)).update(`google-flow-ip:${limitIp(ip)}`).digest('base64url')
 }
 
 /** A re-check asks Google to sign the person in again rather than take the browser's open Google session: `max_age=0`

@@ -23,12 +23,18 @@
     `signin_*`: who did it and whose account, never the Google account). A first password tells the person too.
   - Disconnecting Google (the person or an admin) ends the person's other sessions (the person's own stays).
   - The 500 cap counts only flows without a signed-in person (a connect or re-check is one per person and never
-    blocked); open sign-in flows are also capped at 10 per address (migration 134, `ip_hash`).
+    blocked); open sign-in flows are also capped at 10 per address, counted as the rate limiter counts it (an IPv6 /64
+    as one) and stored only as an HMAC with a secret of the server process (migration 134, `ip_hash`). Starts without a
+    known address or not counted per address (sign-ups) stop 50 below the 500, so the last slots stay for sign-ins.
   - Asking for one's own deletion without a password always needs the Google re-check; the "signed in within 10
     minutes" shortcut of the apps is gone (a new Google sign-in at an unlocked browser takes no password). The apps
     say to ask in a web browser.
 - **Why:** each step alone leaves a gap where Google ignores `max_age` and the client has no `auth_time`: the
   connect rule and the staff notices then still stop or show a takeover.
+- **Best effort:** the freshness check depends on Google. Its guide does not list `max_age`, and it sends `auth_time`
+  only where the client has that setting on. If Google neither honours `max_age=0` nor sends `auth_time`, the re-check
+  proves only that the id_token is new (`iat`), not that the Google password was typed now. A live test against
+  Google after the merge settles which it is (Google asks for the password again; the token carries `auth_time`).
 - **Left out:** `prompt=login` (Google refuses it).
 - **Tests:** tests/unit/a-google-reauth.test.ts (the attack paths, freshness, notices, sessions, the flood).
-- **Version impact:** patch.
+- **Version impact:** patch (0.18.0 shipped Sign in with Google; these fixes go in the next patch release).
