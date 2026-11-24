@@ -33,7 +33,10 @@ export interface EditReport {
   cells?: CellWrite[]
   /** .xlsx: formulas are calculated again when the file opens; stored results of other formulas are the old ones */
   recalc?: boolean
+  /** .pptx, .xlsx: the pictures this call added: the slide or drawing part, the new shape id, its image relationship */
+  placed?: PlacedPicture[]
 }
+export interface PlacedPicture { part: string; id: number; rid: string }
 
 
 // ---------------------------------------------------------------- framing (JSON header + binary blobs)
@@ -62,4 +65,4 @@ export function unframe<T>(b: Uint8Array): { json: T; blobs: Uint8Array[] } {
   return { json, blobs }
 }
 
-export interface VerifyRequest { kind: OfficeKind; changed: string[]; added: string[]; notes: EditNote[]; cells?: CellWrite[] }
+export interface VerifyRequest { kind: OfficeKind; changed: string[]; added: string[]; notes: EditNote[]; cells?: CellWrite[]; placed?: PlacedPicture[] }
