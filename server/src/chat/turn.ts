@@ -4560,9 +4560,15 @@ export class TurnExec {
     // (never a skill of theirs: its words become the AI's instructions here, a card of its own; never a copy of their
     // files into the chat's own places, which puts them in front of everyone there as files: NO_OWN_SKIP)
     // (a project chat only: a chat shared with people keeps the card, its people are not the person's project's)
-    if (this.shared?.kind === 'project' && !kind.save && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
+    // A save into the person's own folder in their own project chat (QA b5 F10: the AI's working copy of a quote in
+    // their folder asked "AI가 내 개인 폴더에 파일을 저장하려고 해요" twice): the card guards only that the others see the
+    // name it saves under (and so whether one was there), which is less than the read above lets them see; the
+    // person's earlier file stays as a version. Only in a chat that took in nobody else's words (a message, a room, a
+    // teammate's file: they could pick what is overwritten), and never in a folder of theirs that is shared (security review)
+    if (this.shared?.kind === 'project' && (!kind.save || (!this.othersWrote && !this.othersWords && !readRooms(this))) && !skillUse && tool !== 'skill' && !NO_OWN_SKIP.has(tool) && !this.sharedAudience().some((id) => isGuestUser(this.rt.db, id))) {
       const before = missing.length
-      missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via))
+      // (a save into a folder of theirs that is shared keeps its card: others read what it changes)
+      missing = missing.filter((m) => !(m.source.type === 'user' && m.source.id === this.spec.userId && !m.source.via && !(kind.save && m.source.share)))
       // (recorded as the person's yes would be: the people who see the chat now are covered for it, so the engine's session
       // goes on as after the card's yes)
       if (!missing.length && before) return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
@@ -5973,7 +5979,7 @@ export class TurnExec {
 
   /**
    * After a tool call (chat/tools.ts): the team files it changed that a room carries as a copy sent earlier (chat/
-   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI offers to post the new one; or ''.
+   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI says so; or ''.
    * `say` false (a sub-agent's call, a guest): dropped without a line.
    */
   roomCopies(say = true): string {

@@ -44,6 +44,13 @@ export function mentionableUser(db: Database, userId: string): Mentionable[] {
 export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 /** Does a text hold "@everyone" in any language, "@channel" or "@here" where a mention may start? */
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
+/** `text` without its "@everyone" words (each language's, "@channel", "@here" ...) where a mention may start: whether
+ * own words are the person's text is read apart from where they put the everyone mention, which the post checks on its
+ * own (QA b5 F6: "<text> 이라고 @everyone 으로 올려줘" went as "@전체 <text>" and was taken as other words) */
+export function withoutBroadcast(text: string): string {
+  const words = [...ROOM_MENTION_ALL_WORDS, 'channel', 'here', 'all', 'everybody', 'everyone'].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return text.replace(new RegExp(`(^|[\\s([{"'“‘])@(?:${words.join('|')})(?![A-Za-z0-9_])`, 'giu'), '$1').replace(/\s+/g, ' ').trim()
+}
 
 export type PickedMentions =
   | { ok: true; ids: string[]; all: boolean; byName: { ref: string; id: string }[] }

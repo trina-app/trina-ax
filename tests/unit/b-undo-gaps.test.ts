@@ -13,6 +13,7 @@ import { fileSharesOf } from '../../server/src/files/shares'
 import { takeBackShares } from '../../server/src/files/share-take-back'
 import { undoShares } from '../../server/src/files/share-undo'
 import { createTierOk } from '../../server/src/integrations/connections/tools'
+import { addSources } from '../../server/src/chat/read-scope'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -103,6 +104,8 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!, 'quote.txt'), 'utf8')).toBe('the quote')
     expect(canOpen('bob', 'alice', rel)).toBe(true)
     expect(shared.files[0]!.name).toBe(made[0]!)
+    // named for its one file, never for the sentence the chat's title may be
+    expect(made[0]).toBe('quote')
     const res = takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en')
     expect(res.removed).toBe(1)
     expect(folders()).toEqual(before)
@@ -128,6 +131,34 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(canOpen('carol', 'alice', rel)).toBe(true)
   })
 
+  test('an older private attachment never goes along: this message\'s file only; several earlier ones: asked', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const old = await upload(c.id, 'salary-private.txt', 'private')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c.id, [old.id])
+    const now = await upload(c.id, 'agenda.txt', 'agenda')
+    const before = folders()
+    const r = await turn(`share this folder with Bob Lee\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id, [now.id])
+    expect(r.steps.find((s) => s.tool === 'share_folder')!.shared!.outcome).toBe('done')
+    const made = folders().filter((x) => !before.includes(x))
+    expect(fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!))).toEqual(['agenda.txt'])
+    const d = await h.api('alice').call(API.createChat, { body: {} })
+    for (const n of ['one.txt', 'two.txt']) { const a = await upload(d.id, n, n); await turn(`받아줘\n${fake({ say: 'ok' })}`, d.id, [a.id]) }
+    const b2 = folders()
+    const r2 = await turn(`share this folder with Bob Lee\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, d.id)
+    expect(r2.content).toContain('did not say which folder')
+    expect(folders()).toEqual(b2)
+  })
+
+  test('in a private chat a source attached earlier never goes as "this": nothing is made', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const src = await upload(c.id, 'salary-real.txt', 'private')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c.id, [src.id])
+    const before = folders()
+    const r = await turn(`이 견적서 Bob Lee한테 공유해줘\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+
   test('a recipient the message does not name: nothing is made, the old answer', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const a = await upload(c.id, 'memo.txt', 'memo')
@@ -136,6 +167,79 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(r.content).toContain('did not say which folder')
     expect(folders()).toEqual(before)
     expect(r.steps.find((s) => s.tool === 'share_folder')?.shared?.outcome).not.toBe('done')
+  })
+})
+
+// QA b5 F5: in a chat shared with Bob the AI made the quote as chat:files/견적서.docx; "이 폴더 팀원들한테 공유해줘" then
+// asked which folder twice. The files the person's latest answer that made any carries, in a chat that holds only their
+// work, are in the chat alone, as an attachment is: the same folder of copies, the same Undo
+describe('"share this folder" with a file the AI made in the chat (chat:files)', () => {
+  const folders = () => fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice'), { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => d.name).sort()
+  async function sharedWithBob() {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    await turn(`hello\n${fake({ say: 'hi' })}`, c.id)
+    const subjects = [user('bob')]
+    let r = await h.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects } }) as { status?: string; confirmKey?: string }
+    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects, confirmKey: r.confirmKey! } }) as never
+    return c.id
+  }
+  const makeQuote = (c: string, name: string) => turn(`견적서 만들어줘\n${fake({ tool: 'make_file', args: { format: 'docx', content: '# 견적서\n\nA형 1,200,000원 x 3\n', output: `chat:files/${name}` }, sayResult: true })}`, c)
+  const share = (c: string) => turn(`이 폴더 Bob Lee한테 공유해줘\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c)
+
+  test('makes a folder with a copy of what the answer made and shares it with no card; 취소 deletes it; an unsent upload stays out', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'quote-f5.docx')
+    // an upload alice did not send: never in the folder
+    await upload(c, 'draft-not-sent.txt', 'draft')
+    const before = folders()
+    const f0 = sock.frames.length
+    const r = await share(c)
+    expect(cards(f0)).toBe(0)
+    const shared = r.steps.find((s) => s.tool === 'share_folder')!.shared!
+    expect(shared.outcome).toBe('done')
+    expect(shared.madeFolder).toBe(true)
+    const made = folders().filter((x) => !before.includes(x))
+    expect(made.length).toBe(1)
+    expect(fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!))).toEqual(['quote-f5.docx'])
+    expect(canOpen('bob', 'alice', `users/alice/${made[0]}`)).toBe(true)
+    expect(takeBackShares(h.ctx, 'alice', shared.takeBack!.id, 'en').removed).toBe(1)
+    expect(folders()).toEqual(before)
+  })
+  test('a source attached before the AI made the document never goes in its place', async () => {
+    const c = await sharedWithBob()
+    const src = await upload(c, 'salary-source.txt', 'private source')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c, [src.id])
+    await makeQuote(c, 'quote-src.docx')
+    const before = folders()
+    const r = await share(c)
+    // (the document may hold what the source said, so nothing is made on a guess: the AI asks which folder)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+  test('nothing is made when the chat took in a team file by a tool the marks do not see (a department\'s PDF merged into the chat)', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'scope-f5.docx')
+    addSources(h.ctx.db, c, [{ type: 'folder', id: 'f-finance' }])
+    const before = folders()
+    const r = await share(c)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+  test('nothing is made where someone else wrote in the chat, or the chat took in someone else\'s words before', async () => {
+    const c = await sharedWithBob()
+    await makeQuote(c, 'memo-f5.docx')
+    await h.api('bob').call(API.sendMessage, { params: { id: c }, body: { content: `a note from bob\n${fake({ say: 'ok' })}`, clientMessageId: cm(), attachmentIds: [] } })
+    await Bun.sleep(2500)
+    const before = folders()
+    const r = await share(c)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+    const d = await sharedWithBob()
+    await makeQuote(d, 'memo2-f5.docx')
+    h.ctx.db.query('UPDATE chats SET others_words = 1 WHERE id = ?').run(d)
+    const r2 = await share(d)
+    expect(r2.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
   })
 })
 

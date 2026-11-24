@@ -1,0 +1,5 @@
+- "영업-보고 방에 "…" 이라고 @everyone 으로 올려줘" now posts with no card, as your own words with everyone mentioned, and shows Undo. Before, writing @everyone after the text made the card show.
+- In your own project chat, Trina saves its working files in your own folder without the save card, as it already reads them there. After someone else writes in the chat, the card comes back.
+- "이 폴더 팀원들한테 공유해줘" right after Trina made a document in a shared chat now makes a folder with a copy of it and shares that, with Undo, instead of asking which folder.
+- When you ask for a service that is not connected (GitHub, Notion…), Trina says so in one line with a 연결하기 link, with no follow-up questions.
+- When Trina needs a value from you (a new price), it asks once, in one question.

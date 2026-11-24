@@ -26,9 +26,9 @@
   already sent on a card in this chat to everyone the new place holds: one card per source, `post_sources`, never wider), a guest 1:1 or a guest in the room when
   files go, a screen target, a waiting rerun, Slack and runs. `share_with_person`: the same in shared and project chats
   nobody else wrote in. `share_folder` add: the person's own folder (named, or the one they used last in this chat) with
-  people they named, a resolved title, or "팀원들" (the project's or their group's people, never guests). When the
+  people they named, a resolved title, or a word for the whole team such as "팀원들" (the people of this shared chat; in a project chat the project's: no card when it is all the message names; otherwise their one group, on a card; several groups: asked once; never guests). When the
   files are only in the chat (the person's own attachments here) there is no folder to pick: on the same clear ask it
-  makes a folder in their own files named for the chat, puts copies in it and shares that ("<폴더>를 만들고 공유했어요 ·
+  makes a folder in their own files, named for the file when there is one (else the plain word for chat files), puts copies in it and shares that ("<폴더>를 만들고 공유했어요 ·
   취소"; 취소 stops the share and deletes the folder and the unchanged copies). A guest here or an unclear recipient:
   nothing is made, the AI asks for the folder as before. The app's
   "Send to a conversation" sends at once when the server marks the confirm `direct`. Undo: the posted card offers 취소
@@ -60,6 +60,12 @@
 - **Rule: project saves.** In a project chat, a save into that project's folder from the person's own files (their
   folder only: never the browser, a connection or a share) where everyone who can see it sees the chat and no guest
   does, in a chat nobody else wrote in and that read no room: no card. Versions and the trash keep it undoable.
+- **Rule: project saves, own folder (2026-11-23, F10).** In the person's own project chat the own-folder skip of reads
+  covers the save card too (the AI's working file in their private folder), only in a chat that took in nobody else's words and never in a folder they share. A chat
+  shared with people keeps it (the floor).
+- **Rule: "this folder" for a file the AI made (2026-11-23, F5).** The files the person's latest answer that made any
+  carries in the chat's own place (chat:files), each wholly theirs, in a chat that holds only their own work and whose read scope holds nothing else, on this branch, count as
+  the chat's files: the same folder of copies as for attachments, on the same clear ask, with the same Undo.
 - **Rule: dialogs.** 15 screen confirm dialogs became an Undo toast or a notice (ASKS.md lists the 11 removed and the
   partial ones). The Google account check after a Drive sign-in stays: it keeps a sign-in someone else started out of
   this person's Drive connection.
