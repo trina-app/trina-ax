@@ -32,6 +32,9 @@ export interface IsolatedRun {
   workDir?: string
   /** extra files/folders the converter may read (e.g. a whisper model) */
   readPaths?: string[]
+  /** Linux: files the converter reads at another path (read-only; `from` is the server's file, `to` the path inside the
+   * isolation). The promo video's render reads its cgroup limits this way (promo-video/render.ts). */
+  bindFiles?: { from: string; to: string }[]
   /** server-private folders whose contents must stay unreadable even if they are not under the default list */
   denyRead?: string[]
   /** Metal GPU (whisper.cpp): the per-user Metal shader cache must be readable / writable, otherwise every run
@@ -195,7 +198,7 @@ function bwrapIsModern(bin: string): boolean {
   return bwrapModern
 }
 
-function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; modern?: boolean; curatedFonts?: boolean }): string[] {
+function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; bindFiles?: { from: string; to: string }[]; modern?: boolean; curatedFonts?: boolean }): string[] {
   const a = ['--die-with-parent', '--unshare-all', '--new-session', '--clearenv']
   // linux-runtime spec 3.8.2: no NESTED user namespaces, no capabilities. bwrap 0.12 wants --unshare-user spelled
   // out next to --disable-userns (--unshare-all alone is not enough for that check).
@@ -204,6 +207,7 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
     if (fs.existsSync(d)) a.push('--ro-bind', d, d)
   a.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--bind', o.workDir, o.workDir)
   for (const p of o.readPaths) a.push('--ro-bind', p, p)
+  for (const b of o.bindFiles ?? []) a.push('--ro-bind', b.from, b.to)
   const dir = path.dirname(o.cmd)
   if (!['/usr', '/bin'].some((d) => dir === d || dir.startsWith(d + '/'))) a.push('--ro-bind', dir, dir)
   if (o.curatedFonts) for (const d of ['/usr/share/fonts', '/usr/local/share/fonts', '/etc/fonts']) if (fs.existsSync(d)) a.push('--tmpfs', d)
@@ -277,7 +281,7 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], bindFiles: o.bindFiles, modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
       ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
     argv = [...low, cmd, ...o.args]
