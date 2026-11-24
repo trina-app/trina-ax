@@ -89,3 +89,4 @@ Built as planned (decision: [20261124-trina-docs-tool](../../decisions/20261124-
 - Evaluation: 40 of 40 questions find their page in the first 3 (34 first).
 - Differs from the plan: a page's title and description words weigh extra (the first version found 37 of 40); the
   Korean words use the app's existing search stemming instead of a list of their own.
+- PR: https://github.com/trina-app/trina-ax/pull/535
