@@ -264,7 +264,8 @@ export function startGoogleSignIn(c: Context<AppEnv>, ctx: AppContext, b: { next
   return begin(c, ctx, 'signin', null, safeNextPath(b.next), { client, secretHash: b.appSecretHash })
 }
 
-/** POST /api/me/google/connect: connect my Google account, after my current password. Not for guests, not from a
+/** POST /api/me/google/connect: connect my Google account, after my current password. Not for an account without a
+ * password (409 no_password), not for guests, not from a
  * temporary-password session (the route is not allowWhilePasswordChange), and only from a browser's cookie session:
  * the flow is bound to this browser and this session. */
 export async function startGoogleConnect(c: Context<AppEnv>, ctx: AppContext, body: { password?: string; reauthFlow?: string }): Promise<{ url: string }> {
@@ -278,8 +279,8 @@ export async function startGoogleConnect(c: Context<AppEnv>, ctx: AppContext, bo
   // (docs/decisions/20261124-google-signin-security.md); connect() checks it again at Google's return
   if (hasNoPassword(ctx.db, auth.user.id)) fail('conflict', msg('googleReplaceAdmin', locale), { params: { reason: 'no_password' } })
   // the current password, like a password change (accounts.ts changePassword): someone who only holds an open session
-  // (a borrowed laptop, a stolen cookie) must not add a way in that outlives it. Without a password, a Google check of
-  // the connected account (replacing it with another). Wrong tries count per person (auth/reauth.ts)
+  // (a borrowed laptop, a stolen cookie) must not add a way in that outlives it. Wrong tries count per person
+  // (auth/reauth.ts)
   await requireReauth(c, ctx, body)
   return begin(c, ctx, 'connect', { userId: auth.user.id, sessionId: auth.session.id }, null)
 }
