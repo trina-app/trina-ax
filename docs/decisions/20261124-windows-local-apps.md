@@ -45,6 +45,11 @@
 - **ego lite on Windows:** opened from its Start Menu shortcut (`ego lite.lnk`, the person's Start Menu first, then
   everyone's) with `explorer.exe <shortcut>`, no shell; then a fixed 6 s and the call once more. No shortcut: the words
   "ego lite isn't open. Open ego lite, then ask again." Linux: the words only.
+- **Security review of #515 (2026-11-24), three fixes:** a program or PATH folder on a network share or a device path
+  (`\\server\share`, `\\?\…`, `\\.\…`, `//server`) is refused with words before any file check, because even a check
+  sends this computer's sign-in (NTLM hash) to that server; cmd.exe launches get `NoDefaultCurrentDirectoryInExePath=1`
+  (a batch file's commands are never looked for in its current folder first); the AI's "not installed" words name only
+  the program's file, never the folder it was saved with. Attack tests: `tests/unit/e-local-apps-windows-review.test.ts`.
 - **Unchanged:** the person adds the command (never the AI or an admin), personal only, the one-time confirm of the
   exact command, no shell for arbitrary text ([20261118-local-app-connectors](20261118-local-app-connectors.md)).
 - **Tests:** `tests/unit/e-local-apps-windows.test.ts` (Windows cases on any computer: a fake host and fake processes),

@@ -22,7 +22,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { commandStyleFor, LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { insideAppDir, withoutAppImage } from './linux'
-import { launchFor, realProgramHost, resolveProgram, type Launch, type ProgramHost } from './programs'
+import { launchFor, realProgramHost, resolveProgram, SHARE_REFUSED, windowsShare, type Launch, type ProgramHost } from './programs'
 import { t, DEFAULT_UI_LOCALE, type UiKey, type UiLocale } from './i18n'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
@@ -471,6 +471,8 @@ export class LocalApps {
   /** The program a command names on this computer, and that this system can start it; else why not (not_found:
    * nothing by that name; unsupported: a kind of file it does not start, such as a .ps1 on Windows). */
   private locate(command: string): { program: string } | { failure: LocalFailure; error: string; cause: NonNullable<LocalResult['cause']> } {
+    // a network share or device path on Windows: refused with words, never looked at (programs.ts windowsShare)
+    if (this.platform() === 'win32' && windowsShare(command)) return { failure: 'start_failed', error: SHARE_REFUSED(command), cause: 'unsupported' }
     const program = resolveProgram(command, this.dirs(), this.host())
     if (!program) return { failure: 'start_failed', error: `${command} was not found on this computer`, cause: 'not_found' }
     const l = launchFor(program, [], this.host())
@@ -488,7 +490,8 @@ export class LocalApps {
   /** Start a launch (never a shell of our own: cmd.exe only as common/programs.ts cmdLaunch allows). */
   private spawnLaunch(l: Extract<Launch, { file: string }>, o: { env?: NodeJS.ProcessEnv; group: boolean }): ChildProcessWithoutNullStreams {
     const win = this.platform() === 'win32'
-    return this.spawn(l.file, l.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], ...(o.env ? { env: o.env, cwd: os.homedir() } : {}), detached: o.group && !win, windowsHide: true, ...(l.verbatim ? { windowsVerbatimArguments: true } : {}) }) as ChildProcessWithoutNullStreams
+    const env = o.env && l.env ? { ...o.env, ...l.env } : o.env
+    return this.spawn(l.file, l.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env, cwd: os.homedir() } : {}), detached: o.group && !win, windowsHide: true, ...(l.verbatim ? { windowsVerbatimArguments: true } : {}) }) as ChildProcessWithoutNullStreams
   }
 
   /** One confirm at a time per connection (a turn's calls wait for the same answer). The window stays open after the
@@ -498,6 +501,7 @@ export class LocalApps {
     const k = `${this.k(team, call.connectionId)}\u0000${key}`
     let entry = this.asking.get(k)
     if (!entry) {
+      // found already (call() looks it up before asking)
       const program = resolveProgram(call.spec.command, this.dirs(), this.host()) ?? call.spec.command
       const e: { p: Promise<boolean>; late: boolean } = { p: Promise.resolve(false), late: false }
       e.p = this.d.confirm({ team, id: call.connectionId, name: call.name, lines: localCommandLines(call.spec, commandStyleFor(this.platform())), program }).then((yes) => {

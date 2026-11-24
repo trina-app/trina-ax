@@ -50,7 +50,13 @@ export function pathExts(env: NodeJS.ProcessEnv): string[] {
 }
 
 /** A full path as Windows writes one: a drive (C:\ or C:/) or a share (\\server\share). */
-const winAbsolute = (p: string) => /^[A-Za-z]:[\\/]|^\\\\[^\\]/.test(p)
+const winAbsolute = (p: string) => /^[A-Za-z]:[\\/]/.test(p)
+
+/** A Windows path on a network share or a device (\\server\share, \\?\…, \\.\…, //server): never looked at, not even
+ * whether a file is there, because opening one sends this computer's sign-in (its NTLM hash) to that server (security
+ * review of #515). Such a program is refused with words; PATH folders like that are skipped. */
+export const windowsShare = (p: string) => /^[\\/]{2}/.test(p.trim())
+export const SHARE_REFUSED = (command: string) => `${command.slice(0, 200)} is on a network share or a device path (it starts with \\\\). Only programs on this computer can be connected: copy it to a folder on this computer and use that path.`
 
 /** The program to start: a full path as it is (`~/`, on Windows also `~\`, is the home folder), a bare name found in
  * `dirs`. null: not found. */
@@ -68,6 +74,8 @@ export function resolveProgram(command: string, dirs: string[], h?: Partial<Prog
 }
 
 function resolveWindows(command: string, dirs: string[], host: ProgramHost): string | null {
+  // a share or device path: refused before any file check (windowsShare)
+  if (windowsShare(command)) return null
   const w = path.win32
   const c = /^~[\\/]/.test(command) ? w.join(host.home, command.slice(2)) : command
   const exts = pathExts(host.env)
@@ -81,7 +89,7 @@ function resolveWindows(command: string, dirs: string[], host: ProgramHost): str
     return names(w.normalize(c)).find((p) => host.isFile(p)) ?? null
   }
   for (const d of dirs) {
-    if (!winAbsolute(d)) continue
+    if (!winAbsolute(d) || windowsShare(d)) continue
     for (const p of names(w.join(d, c))) if (host.isFile(p)) return p
   }
   return null
@@ -89,7 +97,7 @@ function resolveWindows(command: string, dirs: string[], host: ProgramHost): str
 
 /** How to start a program found by resolveProgram with these arguments, or why it cannot be. `verbatim`: the arguments
  * are one command line for cmd.exe as they are (Node's windowsVerbatimArguments). */
-export type Launch = { file: string; args: string[]; verbatim?: true; via?: 'npm' | 'cmd' } | { refused: 'unsupported' | 'unsafe_arg'; error: string }
+export type Launch = { file: string; args: string[]; verbatim?: true; via?: 'npm' | 'cmd'; env?: Record<string, string> } | { refused: 'unsupported' | 'unsafe_arg'; error: string }
 
 /** what cmd.exe reads even inside "…": never passed through it */
 const CMD_UNSAFE = /["%!^\r\n\0]|[\u0001-\u001f]/
@@ -120,7 +128,8 @@ export function cmdLaunch(program: string, args: string[], host: ProgramHost): L
   const q = (a: string) => (CMD_PLAIN.test(a) ? a : `"${a}"`)
   const line = [`"${program}"`, ...args.map(q)].join(' ')
   const root = host.env.SystemRoot ?? host.env.SYSTEMROOT ?? host.env.windir ?? 'C:\\Windows'
-  return { file: path.win32.join(root, 'System32', 'cmd.exe'), args: ['/d', '/s', '/v:off', '/c', `"${line}"`], verbatim: true, via: 'cmd' }
+  // NoDefaultCurrentDirectoryInExePath: a command the batch file runs is never looked for in its current folder first
+  return { file: path.win32.join(root, 'System32', 'cmd.exe'), args: ['/d', '/s', '/v:off', '/c', `"${line}"`], verbatim: true, via: 'cmd', env: { NoDefaultCurrentDirectoryInExePath: '1' } }
 }
 
 /** the largest shim read (npm's are under 1 KB) */
@@ -175,6 +184,7 @@ export function readNpmShim(file: string, h?: Partial<ProgramHost>): { file: str
     return null
   }
   const prog = value(tokens[0]!)
+  if (prog && windowsShare(prog)) return null
   if (!prog || w.extname(prog).toLowerCase() !== '.exe') return null
   // the program is node.exe, or an .exe the shim names beside itself
   if (w.basename(prog).toLowerCase() !== 'node.exe' && !besideShim(tokens[0]!)) return null
