@@ -471,7 +471,7 @@ export function chatThreadLabel(ctx: AppContext, notificationId: string, locale:
   const r = ctx.db.query('SELECT author_id, content FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.reply_id, n.source_id) as { author_id: string | null; content: string } | null
   if (!r) return null
   const who = r.author_id ? activeName(ctx.db, r.author_id) : null
-  const where = [chatPlace(ctx, n.chat_id, n.user_id), ROOM_WORDS[locale].thread].filter(Boolean).join(' › ')
+  const where = [chatPlace(ctx, n.chat_id, n.user_id, { preview, locale }), ROOM_WORDS[locale].thread].filter(Boolean).join(' › ')
   const title = plainLabel(who ? `${who} · ${where}` : where, 120)
   const body = pushPreview(ctx, { preview, text: r.content, writer: r.author_id, reader: n.user_id, locale, chatId: n.chat_id })
   return { title, body, roomId: n.chat_id, threadId: n.source_id }
