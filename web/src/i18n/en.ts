@@ -925,7 +925,7 @@ export const en: Record<MessageKey, string> = {
   'connect.headerKey': "Key goes in the {header} header",
   'connect.hostCaution': "This address is not on {name}'s own site. Check it before you connect.",
   'connect.official': "Official {name} address",
-  'connect.unlisted': "This app does not know this address, so it cannot check it. Connect only if you know and trust it.",
+  'connect.unlisted': "This address is not in Trina's list of apps. Check that it matches the address in the service's official docs.",
   'connect.notOfficial': "This is not {name}'s official address. {name}'s official address is {official}. Connect only if you know and trust this one.",
   'connect.reconnectTitle': "Sign in to {name} again",
   'connect.reconnectKeyTitle': "New key for {name}",

@@ -905,7 +905,7 @@ export const zh: Record<MessageKey, string> = {
   "connect.headerKey": "密钥放在{header}请求头中",
   "connect.hostCaution": "此地址不在{name}自己的网站上。连接前请先核实。",
   "connect.official": "{name}官方地址",
-  "connect.unlisted": "此应用不认识这个地址，所以无法核实。只有在你了解并信任它时才连接。",
+  "connect.unlisted": "这个地址不在 Trina 的应用列表中。请确认它与这项服务官方文档中的地址一致。",
   "connect.notOfficial": "这不是{name}的官方地址。{name}的官方地址是{official}。只有在你了解并信任这个地址时才连接。",
   "connect.reconnectTitle": "重新登录{name}",
   "connect.reconnectKeyTitle": "{name}的新密钥",
