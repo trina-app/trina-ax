@@ -490,6 +490,18 @@ export async function downsize(img: { bytes: Buffer; ext: string; width: number;
   return size ? { bytes: jpeg, ext: 'jpg', ...size } : null
 }
 
+/** A picture made `factor` (0 < factor < 1) of its size by the isolated ffmpeg: a JPEG stays a JPEG, a PNG or WebP
+ * becomes a PNG with its transparency kept (a logo on the promo video's end card). Null without ffmpeg or on failure. */
+export async function shrinkPicture(bytes: Buffer, ext: 'png' | 'jpg' | 'webp', width: number, height: number, factor: number): Promise<{ bytes: Buffer; ext: 'png' | 'jpg'; width: number; height: number } | null> {
+  const w = Math.max(2, Math.round(width * factor)), h = Math.max(2, Math.round(height * factor))
+  const jpg = ext === 'jpg'
+  const out = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${w}:${h}:flags=lanczos`,
+    ...(jpg ? ['-q:v', '2', '-f', 'image2pipe', '-c:v', 'mjpeg'] : ['-pix_fmt', 'rgba', '-f', 'image2pipe', '-c:v', 'png']), 'pipe:1'], 48 * 1024 * 1024)
+  if (!out || imageKind(out) !== (jpg ? 'jpg' : 'png')) return null
+  const size = imageSize(out)
+  return size ? { bytes: out, ext: jpg ? 'jpg' : 'png', ...size } : null
+}
+
 /** A picture as size×size RGBA pixels (stretched, point-sampled like logoColors so thin strokes keep their colour and
  * opacity), by the isolated ffmpeg; null without ffmpeg or on failure. The promo video reads a logo's look from it. */
 export async function rawRgba(bytes: Buffer, ext: string, size = 32): Promise<Uint8Array | null> {

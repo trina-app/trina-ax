@@ -20,7 +20,10 @@ import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../serve
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
 import { AUDIO_DIR, PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
-import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, RENDER_PICTURE_PIXELS, RENDER_PICTURE_SHORT, renderCpus, renderFactor, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { rawRgba, shrinkPicture } from '../../server/src/onboarding/brand-assets'
+import { imageSize } from '../../server/src/uploads/image'
+import { which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { REPO_ROOT } from '../../server/src/app-config'
 import { linuxBundleFiles } from '../../scripts/build-bundle'
@@ -704,5 +707,45 @@ describe('where the MP4 is made (renderTools): a Linux team server with the list
     expect(renderTools(ctx({ mode: 'dev', deployment: 'self', office: true }), { platform: 'darwin', env })).toEqual({ why: 'unsupported' })
     expect(noFileReason('not_installed')).toContain('not installed')
     expect(noFileReason('too_small')).toContain('memory')
+  })
+})
+
+describe('the render within its memory (S/video, 1280 MiB): pictures at the size a frame needs, the render\'s own limits and CPUs', () => {
+  test('a picture is drawn for the render at most RENDER_PICTURE_SHORT on its short side and RENDER_PICTURE_PIXELS in all; a small one as it is', () => {
+    expect(renderFactor(1600, 1200)).toBe(1)
+    expect(renderFactor(1080, 1350)).toBe(1)
+    // a 12 MP and a 48 MP phone photo: 2133 × 1600
+    expect(Math.round(4032 * renderFactor(4032, 3024))).toBe(2133)
+    expect(Math.round(6048 * renderFactor(8064, 6048))).toBe(RENDER_PICTURE_SHORT)
+    // a long panorama keeps more of its short side, within the pixel cap
+    const f = renderFactor(12000, 3000)
+    expect(12000 * f * 3000 * f).toBeLessThanOrEqual(RENDER_PICTURE_PIXELS + 1)
+    expect(3000 * f).toBeGreaterThan(1200)
+  })
+
+  test('the render\'s CPUs: the first two this server may use, from any list the kernel writes; none with fewer', () => {
+    expect(renderCpus('Name:\tbun\nCpus_allowed_list:\t0-3\n')).toBe('0,1')
+    expect(renderCpus('Cpus_allowed_list:\t2,5-7\n')).toBe('2,5')
+    expect(renderCpus('Cpus_allowed_list:\t3\n')).toBeNull()
+    expect(renderCpus('nothing here')).toBeNull()
+  })
+
+  test.skipIf(!which('ffmpeg') || isolation() === 'none')('shrinkPicture: a JPEG stays a JPEG, a PNG keeps its transparency, at the asked size', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-shrink-'))
+    try {
+      const make = (name: string, filter: string) => {
+        const r = Bun.spawnSync([which('ffmpeg')!, '-loglevel', 'error', '-f', 'lavfi', '-i', filter, '-frames:v', '1', path.join(dir, name)])
+        expect(r.exitCode).toBe(0)
+        return fs.readFileSync(path.join(dir, name))
+      }
+      const jpg = make('a.jpg', 'testsrc2=s=3200x2400')
+      const j = await shrinkPicture(jpg, 'jpg', 3200, 2400, renderFactor(3200, 2400))
+      expect(j && { ext: j.ext, ...imageSize(j.bytes) }).toEqual({ ext: 'jpg', width: 2133, height: 1600 })
+      const png = make('l.png', 'color=c=0x0E5E4E@0.5:s=3000x3000,format=rgba')
+      const p = await shrinkPicture(png, 'png', 3000, 3000, renderFactor(3000, 3000))
+      expect(p && { ext: p.ext, ...imageSize(p.bytes) }).toEqual({ ext: 'png', width: 1600, height: 1600 })
+      const px = await rawRgba(p!.bytes, 'png', 4)
+      expect(Math.abs(px![3]! - 128)).toBeLessThan(8)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
 })

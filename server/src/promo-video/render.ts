@@ -18,7 +18,7 @@
 import { componentC } from '../team-files/component'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { killTree } from '../system/kill-tree'
-import { killPrintLeaf, makeVideoLeaf, videoCgroupState } from '../system/cgroups'
+import { killPrintLeaf, makeVideoLeaf, printLeafPeak, VIDEO_ONE_MIB, videoCgroupState } from '../system/cgroups'
 import { browserHome, findPdfBrowser } from '../files/html-pdf'
 import { isolatedCommand, isolation, type IsolationKind } from '../tools/isolate'
 import fs from 'node:fs'
@@ -34,7 +34,9 @@ import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { AUDIO_DIR, audioCues, PROMO_RENDER_FILES, soundDuration } from './audio'
 import { DURATION, type VideoDoc } from './layout'
-import { chatFileOf, pictureExt, teamPathOf } from './spec'
+import { chatFileOf, kindOf, pictureExt, teamPathOf } from './spec'
+import { imageSize } from '../uploads/image'
+import { shrinkPicture } from '../onboarding/brand-assets'
 import { chatFilesOf } from '../chat/chat-files'
 import { PROMO_FONT_FILE, renderDocument } from './template'
 
@@ -106,6 +108,28 @@ export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: Nod
   // ffmpeg from the media group (the CLI finds it on the isolation's PATH, /usr/bin:/bin)
   if (!browser || !(o.ffmpeg ?? ['/usr/bin/ffmpeg', '/bin/ffmpeg']).some((f) => fs.existsSync(f))) return { why: 'not_installed' }
   return { tools: { node, cli, dir, browser, isolated: true } }
+}
+
+/** The most a picture needs in a 1080×1350 frame (a full-bleed cover with the camera's push, about 1,460 px on its short
+ * side), with room: the render's copy is made this small on its short side, and at most RENDER_PICTURE_PIXELS. The
+ * browser holds every picture of the video decoded at once; a phone's 48 MP photo is 190 MB of pixels each, and three
+ * of them and a logo went past the render's memory limit (S/video, VIDEO_ONE_MIB). The chat's own player and the
+ * team file are unchanged. */
+export const RENDER_PICTURE_SHORT = 1600
+export const RENDER_PICTURE_PIXELS = 6_000_000
+/** How much smaller a picture of this size is drawn for the render (1: as it is). */
+export function renderFactor(width: number, height: number): number {
+  return Math.min(1, RENDER_PICTURE_SHORT / Math.min(width, height), Math.sqrt(RENDER_PICTURE_PIXELS / (width * height)))
+}
+/** The render's copy of a picture: made smaller by the isolated ffmpeg when it is bigger than a frame needs; null keeps
+ * the bytes as they are (small enough, or ffmpeg could not make it: the render then tries the original). */
+async function renderSize(bytes: Buffer): Promise<{ bytes: Buffer; ext: 'png' | 'jpg' } | null> {
+  const kind = kindOf(bytes)
+  const size = kind ? imageSize(bytes) : null
+  if (!kind || !size) return null
+  const f = renderFactor(size.width, size.height)
+  if (f >= 0.95) return null
+  return shrinkPicture(bytes, kind, size.width, size.height, f)
 }
 
 interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
@@ -227,31 +251,34 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     fs.mkdirSync(path.join(work, 'fonts'))
     fs.copyFileSync(PROMO_FONT_PATH, path.join(work, 'fonts', PROMO_FONT_FILE))
     let n = 0
-    const local = (src: string): string | null => {
+    // the picture's bytes, written for the render at the size a frame needs (renderSize)
+    const put = async (bytes: Buffer, ext: string): Promise<string> => {
+      const fit = await renderSize(bytes)
+      const name = `img/${++n}.${fit ? fit.ext : ext}`
+      fs.writeFileSync(path.join(work, name), fit ? fit.bytes : bytes)
+      return name
+    }
+    const local = async (src: string): Promise<string | null> => {
       try {
         // one of the chat's own files (spec.ts chatSrc), opened as the chat's owner; one held by the safety check is left out
         const fileId = chatFileOf(src)
         if (fileId) {
           const f = chatFilesOf(ctx).open(r.owner_id, r.chat_id, fileId, false)
           if (f.quarantined) return null
-          const name = `img/${++n}.${pictureExt(f.name)}`
-          fs.writeFileSync(path.join(work, name), readRegular(f.abs, 20 * 1024 * 1024).bytes)
-          return name
+          return await put(Buffer.from(readRegular(f.abs, 20 * 1024 * 1024).bytes), pictureExt(f.name))
         }
         const a = authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(src), 'read', { mustExist: true })
-        const name = `img/${++n}.${pictureExt(a.rel)}`
-        fs.writeFileSync(path.join(work, name), readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes)
-        return name
+        return await put(Buffer.from(readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes), pictureExt(a.rel))
       } catch { return null }
     }
-    const pic = <T extends { src: string }>(p: T | null): T | null => { if (!p) return null; const src = local(p.src); return src ? { ...p, src } : null }
+    const pic = async <T extends { src: string }>(p: T | null): Promise<T | null> => { if (!p) return null; const src = await local(p.src); return src ? { ...p, src } : null }
     const d = spec.doc
     const doc: VideoDoc = {
       ...d,
-      logo: pic(d.logo),
-      promise: { ...d.promise, picture: pic(d.promise.picture) },
-      work: { ...d.work, picture: pic(d.work.picture) },
-      proof: { ...d.proof, picture: pic(d.proof.picture) },
+      logo: await pic(d.logo),
+      promise: { ...d.promise, picture: await pic(d.promise.picture) },
+      work: { ...d.work, picture: await pic(d.work.picture) },
+      proof: { ...d.proof, picture: await pic(d.proof.picture) },
     }
     // the sounds this video uses, from the version folder
     const cues = audioCues(doc)
@@ -262,10 +289,10 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     fs.rmSync(part, { force: true })
     // written inside the work folder (on Linux the only place the isolated CLI may write), then moved next to the data
     const made = path.join(work, 'out.mp4')
-    const code = await runCli(found.tools, work, ['render', work, '--output', made, '--fps', '30', '--quiet', ...(found.tools.isolated ? ['--workers', '1'] : [])], ctx)
+    const { code, oom } = await runCli(found.tools, work, ['render', work, '--output', made, '--fps', '30', '--quiet', ...(found.tools.isolated ? ['--workers', '1'] : [])], ctx)
     let ok = false
     try { const st = fs.lstatSync(made); ok = st.isFile() && st.size > 0 } catch { /* none */ }
-    if (code !== 0 || !ok) return void fail(`hyperframes exit ${code}`)
+    if (code !== 0 || !ok) return void fail(oom ? 'out of memory (the render\'s cgroup limit)' : `hyperframes exit ${code}`)
     // (the CLI and everything it started have ended: moved, never followed; the same folder tree, one file system)
     fs.renameSync(made, part)
     if (!fs.lstatSync(part).isFile()) return void fail('the output is not a file')
@@ -288,16 +315,30 @@ const QUIET_ENV = { HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAME
 /** The CLI with Node, its output to the log only (the last lines on a failure). On Linux inside bwrap (isolatedCommand:
  * HOME and TMPDIR in the work folder, no network; the tree, node and the browser's folder read-only) and in a leaf of
  * S/video when the server has cgroups; on a development Mac as the developer, as before. */
-async function runCli(t: RenderTools, work: string, args: string[], ctx: AppContext): Promise<number | null> {
+async function runCli(t: RenderTools, work: string, args: string[], ctx: AppContext): Promise<{ code: number | null; oom: boolean }> {
   const timeoutMs = renderTimeoutMs ?? defaultTimeout()
   let argv: string[], env: Record<string, string>, cwd: string
   let leaf: string | null = null
+  let limits: string | null = null
   if (t.isolated) {
-    try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return null }
+    try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return { code: null, oom: false } }
+    // the render's own limits where the CLI looks for them (it cannot see /sys in the isolation, and sized the browser
+    // and its JavaScript heap by the machine's memory instead: a 16 GB server gave Chrome 8 GB of tile memory inside a
+    // 1280 MiB leaf); read-only files beside the work folder, never the cgroup itself
+    if (leaf) {
+      limits = `${work}.limits`
+      fs.mkdirSync(limits, { mode: 0o755 })
+      fs.writeFileSync(path.join(limits, 'memory.max'), String(VIDEO_ONE_MIB * 1048576), { mode: 0o644 })
+      fs.writeFileSync(path.join(limits, 'cpu.max'), `${RENDER_CPUS * 100000} 100000`, { mode: 0o644 })
+    }
+    // as many CPUs as the render may use (S/video's cpu.max): the CLI sizes the encoder's threads, and with them its
+    // frame buffers, by the CPUs it sees (os.availableParallelism)
+    const cpus = renderCpus()
     const c = isolatedCommand({
-      cmd: t.node, args: [t.cli, ...args], workDir: work,
+      cmd: cpus ? TASKSET : t.node, args: [...(cpus ? ['-c', cpus, t.node] : []), t.cli, ...args], workDir: work,
       // the tree, node's own folder (bin/ and lib/) and the browser's folder (its libraries and resources)
       readPaths: [...new Set([t.dir, path.dirname(path.dirname(t.node)), ...(t.browser ? [browserHome(t.browser)] : [])])],
+      ...(limits ? { bindFiles: ['memory.max', 'cpu.max'].map((f) => ({ from: path.join(limits!, f), to: `/sys/fs/cgroup/${f}` })) } : {}),
       env: { ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
       timeoutMs, background: false, cpuThreads: Math.max(1, os.availableParallelism()),
       ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: 900 } } : {}),
@@ -308,7 +349,43 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
     env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? os.homedir(), ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) }
     cwd = t.dir
   }
-  try { return await spawnCli(argv, env, cwd, timeoutMs, ctx) } finally { if (leaf) await killPrintLeaf(leaf) }
+  try {
+    const code = await spawnCli(argv, env, cwd, timeoutMs, ctx)
+    return { code, oom: !!leaf && leafOom(leaf, ctx) }
+  } finally {
+    if (leaf) await killPrintLeaf(leaf)
+    if (limits) fs.rmSync(limits, { recursive: true, force: true })
+  }
+}
+
+/** Whether the kernel killed the render for its memory (memory.events oom_kill); logged with the leaf's peak, so a
+ * render that does not fit shows in the log as that, not as an exit code. */
+function leafOom(leaf: string, ctx: AppContext): boolean {
+  try {
+    const kills = Number(/^oom_kill (\d+)$/m.exec(fs.readFileSync(path.join(leaf, 'memory.events'), 'utf8'))?.[1] ?? 0)
+    if (kills > 0) ctx.log.warn('promo video render ran out of memory', { limitMiB: VIDEO_ONE_MIB, ...printLeafPeak(leaf) })
+    return kills > 0
+  } catch { return false }
+}
+
+/** CPUs a render may use (S/video's cpu.max: system/cgroups.ts) */
+export const RENDER_CPUS = 2
+const TASKSET = '/usr/bin/taskset'
+/** The first RENDER_CPUS of the CPUs this server may run on ("0,1"), for taskset; null without taskset or fewer CPUs. */
+export function renderCpus(status?: string): string | null {
+  try {
+    if (status === undefined && !fs.existsSync(TASKSET)) return null
+    const list = /^Cpus_allowed_list:\s*(\S+)/m.exec(status ?? fs.readFileSync('/proc/self/status', 'utf8'))?.[1]
+    if (!list) return null
+    const cpus: number[] = []
+    for (const part of list.split(',')) {
+      const m = /^(\d+)(?:-(\d+))?$/.exec(part)
+      if (!m) return null
+      for (let c = Number(m[1]); c <= Number(m[2] ?? m[1]) && cpus.length < RENDER_CPUS; c++) cpus.push(c)
+      if (cpus.length >= RENDER_CPUS) break
+    }
+    return cpus.length >= RENDER_CPUS ? cpus.join(',') : null
+  } catch { return null }
 }
 
 function spawnCli(argv: string[], env: Record<string, string>, cwd: string, timeoutMs: number, ctx: AppContext): Promise<number | null> {
