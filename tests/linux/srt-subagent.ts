@@ -247,7 +247,7 @@ const own = tool({ chatId: crypto.randomUUID() })
   report('DM1', 'a command over the plan\'s memory (3 GiB in a grandchild, cap 1024 MiB) is stopped as out of memory, the whole tree', hasNot('MEM-SURVIVED', 'the allocation lived')(o) ?? hasNot('RAN-AFTER', 'the shell went on after the kill')(o) ?? has('ran out of memory')(o) ?? (ms > 25_000 ? `stopped only after ${ms} ms` : null))
   const fork = textOf(await mem.call({ command: 'for i in $(seq 1 400); do sleep 30 & done; wait; echo FORK-SURVIVED' }, MAIN))
   report('DM2', 'a command with more processes than the plan allows (400 > 256) is stopped, no process left', hasNot('FORK-SURVIVED', 'the processes lived')(fork) ?? has('ran out of memory')(fork)
-    ?? (Bun.spawnSync(['pgrep', '-u', 'axserver', '-f', 'sleep 30']).stdout.toString().trim() ? 'sleep processes are left after the kill' : null))
+    ?? (fs.readdirSync('/proc').some((n) => { try { return /^[0-9]+$/.test(n) && fs.readFileSync(`/proc/${n}/cmdline`, 'utf8') === 'sleep\u000030\u0000' } catch { return false } }) ? 'sleep processes are left after the kill' : null))
   const ok = textOf(await mem.call({ command: 'python3 -c "b=bytearray(200<<20); print(\'SMALL-OK\', len(b)>>20)"' }, MAIN))
   report('DM3', 'a command under the caps (200 MiB) runs as before after a killed one', has('SMALL-OK 200')(ok))
 }
