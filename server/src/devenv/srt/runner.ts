@@ -123,16 +123,24 @@ export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { pla
 /** the platform of the runs: this machine's, or the tests' */
 export const runPlatform = (): DevPlatform => configOverride?.platform ?? (systemOverride ? 'linux' : devPlatform())
 
+/** One direct system per base for this process: it holds the live runs, what each has started and why it ended (a new
+ * one per srtConfig() call would lose them). It watches the container's memory too (system.ts directSystem). */
+let direct: { base: string; system: SrtSystem } | null = null
+function directOf(base: string): SrtSystem {
+  if (direct?.base !== base) direct = { base, system: directSystem({ base, memory: {} }) }
+  return direct.system
+}
+
 export function srtConfig(env: Record<string, string | undefined> = process.env): SrtConfig {
   const id = configOverride?.id ?? env.MYCEL_LABEL ?? 'mycel'
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
   const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
-  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directOf(base), planFile }
   // an office Mac (no sudo, no slot accounts): the documents profile, with the kit's srt as the signed-in user
   // (system-office.ts). Without its kit there is no run (srtProblem says why)
   if (devPlatform() === 'darwin' && documentsOnlyServer(env)) {
     const kit = docKit(env)
-    return kit ? { id, base, system: officeSystem(kit, base), planFile } : { id, base, system: directSystem(), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
+    return kit ? { id, base, system: officeSystem(kit, base), planFile } : { id, base, system: directOf(base), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
   }
   // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
   if (devPlatform() === 'darwin') {
