@@ -12,6 +12,7 @@ import { checkZip, isZip, readCentral, tooComplex, ZipProblem } from './zip-guar
 import { bigSheetPart, bigSheetText, parseRange, pickSheet, PART_ROWS_MAX, repeatsSheetParts, type SheetAsk } from './sheet-stream'
 import { docxExtraText, pptxExtraText, quoteLines, SECTION_MARK, xlsxChartsText, XLSX_CHARTS_TIME_MS } from './ooxml'
 import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
+import { DOCX_REVIEW_MODE, docxReviewRequest } from './docx-review'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
 import { hwpEditRequest, hwpVerifyRequest } from './hwp-edit'
@@ -317,6 +318,8 @@ WRITE_MODES.add(PPTX_LINK_CHECK_MODE)
 WRITE_MODES.add(XLSX_LINK_CHECK_MODE)
 WRITE_MODES.add(OFFICE_EXIT_MODE)
 WRITE_MODES.add(XLSX_VALUES_MODE)
+// a Word file leaving the work folder read back: its tracked changes and comments (docx-review.ts), JSON out
+WRITE_MODES.add(DOCX_REVIEW_MODE)
 
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read.
  * `ask`: one sheet and range of a spreadsheet (read's `sheet` / `range`). */
@@ -347,6 +350,7 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === XLSX_LINK_CHECK_MODE) return linkCheckRequest('xlsx')(input)
   if (mode === OFFICE_EXIT_MODE) return officeExitRequest(input)
   if (mode === XLSX_VALUES_MODE) return xlsxValuesRequest(input)
+  if (mode === DOCX_REVIEW_MODE) return docxReviewRequest(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)
