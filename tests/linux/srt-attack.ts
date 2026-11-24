@@ -188,12 +188,12 @@ function sweepAs(a: { roots?: string[]; entry?: string; visible?: Visible }): st
   const r = Bun.spawnSync(['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', process.execPath, path.join(import.meta.dir, 'sweep-as.ts'), JSON.stringify(a)], { cwd: '/', env: { PATH: process.env.PATH! } })
   return r.exitCode === 0 ? null : (r.stderr.toString().trim() || `exit ${r.exitCode}`)
 }
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] }; rawCwd?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] }; rawCwd?: boolean; documents?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
   // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
   // (its own work folder for the people who see it now, never the private one: config.ts sharedWork)
-  const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
+  const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work || o.documents ? WORK : null
   // a shared chat's command: a home and logs of its own (runner.ts prepare)
   // a person's run in a project folder: a home of its own for that folder (runner.ts runOwner, config.ts projectHome)
   const projectFolder = sh_ || work ? null : o.start ?? 'projects/one'
@@ -207,12 +207,13 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const who = o.who ?? ALICE
   // with people (the runner passes the team's active people): a project run reads only what all who see it may read.
   // A shared chat: what the person AND everyone who sees the chat may read (access.ts sharedFolderView)
-  const view = sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
+  // documents mode (runner.ts personView, docs/decisions/20261124-documents-mode.md): no team folder at all
+  const view = o.documents ? { read: [], write: [], denyRead: [], denyWrite: [] } : sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
   const sharedChat = sh_ ? sh_.chat : null
   // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
   const given = sh_ ? hideDeniedNames(view, TEAM) : view
   const pinsNow = sh_ ? entryPins(view, given, TEAM) : {}
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, logKey, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, logKey, network: o.documents ? 'offline' : o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -328,7 +329,16 @@ const GID = '-c user.name=a -c user.email=a@example.com'
 const hookNotRun: Check = (r) => (r.out.split('\n').some((l) => l.trim() === 'HOOK-RAN') ? `a hook ran: ${r.out.slice(0, 300)}` : fs.existsSync(GMARK) ? 'a planted hook left its mark' : null)
 /** a file on the disk has no exec bit */
 const noExec = (f: string) => { try { return fs.statSync(f).mode & 0o111 ? `${path.relative(TEAM, f)} is executable on the disk` : null } catch { return `${path.relative(TEAM, f)} is not there` } }
+/** documents mode: nothing of the team folder or the server came back, and the command itself ran */
+const docsSealed = (mark: string): Check => (r) => (r.out.includes(CANARY) || r.out.includes(ASKER) || r.out.includes('alice todo') || r.out.includes('shared text') ? `a team or server file came back: ${r.out.slice(0, 300)}` : r.out.includes(mark) ? null : `the command did not run: ${r.out.slice(0, 300)}`)
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null; before?: () => void }[] = [
+  // documents mode (docs/decisions/20261124-documents-mode.md): the dev environment off, a command builds documents in the
+  // chat's work folder, offline, with no team folder (D1-D4)
+  { id: 'D1', what: 'documents mode: a Word file is built in the work folder with the box\'s libraries', cmd: 'python3 -c "import docx; d = docx.Document(); d.add_paragraph(\'hi\'); d.save(\'d1.docx\')" && ls d1.docx && echo DOC-OK', check: docsSealed('DOC-OK'), o: { documents: true } },
+  { id: 'D2', what: 'documents mode: no team folder, her own folder, the server\'s data or secrets', cmd: `cat ${TEAM}/shared/s.md ${DIR1}/readme.md ${TEAM}/users/alice/todo.md ${BASE}/data/app.db ${BASE}/secrets/master.key 2>&1; ls ${TEAM} 2>&1; echo DOC-OK`, check: docsSealed('DOC-OK'), o: { documents: true } },
+  { id: 'D3', what: 'documents mode: nothing is written outside the work folder', cmd: `echo x > ${TEAM}/shared/d3.txt; echo x > ${DIR1}/d3.txt; echo x > ${TEAM}/users/alice/d3.txt; echo DOC-OK`, check: docsSealed('DOC-OK'), o: { documents: true },
+    after: () => (['shared/d3.txt', 'projects/one/d3.txt', 'users/alice/d3.txt'].some((f) => fs.existsSync(path.join(TEAM, f))) ? 'a file was written outside the work folder' : null) },
+  { id: 'D4', what: 'documents mode: no network, also the sites a dev environment allows', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { documents: true } },
   { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
   // the box's libraries (docs/decisions/20261121-box-python-libs.md): every one loads inside srt (native modules too),

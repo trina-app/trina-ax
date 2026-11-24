@@ -178,6 +178,8 @@ export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', 
 
 /** Whole-label templates ({x} = what the AI touched, never translated). */
 export const STEP_TEXT = {
+  /** a dev-environment command that builds a Word, PowerPoint, Excel or PDF file (the document skills): one plain line */
+  makingDocument: t('문서 만드는 중', 'Making the document', 'Membuat dokumen', "ドキュメントを作成中", "Creando el documento", "正在制作文档"),
   asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}', "質問：{q}", "Pregunta: {q}", "提问：{q}"),
   remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}', "記憶しました：{text}", "Recordado: {text}", "已记住：{text}"),
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
@@ -483,7 +485,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
     // "<the AI's plain description, else the verb> · <command>": the web app shows the words alone and the command when
     // the step is opened (localizeStep); an app that does not shows the whole line
-    case 'box_shell': return `${shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
+    // a command that builds a document with the document skills: the same plain words whatever the AI described
+    case 'box_shell': return `${(makesDocument(String(a.command ?? '')) ? STEP_TEXT.makingDocument[locale] : '') || shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -504,6 +507,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   }
 }
 
+
+/** Does a dev-environment command build a document (it uses the document skills, or names an Office file)? */
+export const makesDocument = (command: string): boolean => /\bTRINA_DOC_SKILLS\b|\.(?:docx|pptx|xlsx)\b/i.test(command)
 
 /** Plain words for a dev-environment command without a description of its own, by what the command does (the steps
  * of answers from before box_shell had `description` too). People are not developers: never the command itself. */

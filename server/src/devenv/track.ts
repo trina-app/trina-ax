@@ -23,6 +23,8 @@ import { sharesTrashed } from '../files/shares'
 import { ownSharedFolders } from '../files/share-readers'
 import { diffSnapshots, keepable, PROJECT_CAPS, readInside, SnapshotStore, takeSnapshot, type Change, type Manifest, type StoreCaps } from './snapshot'
 import crypto from 'node:crypto'
+import { OFFICE_WRITE_MAX } from '../files/extract'
+import { assertSafeTeamFile, bytesReader, contentKind, officeKind } from '../files/office-exit'
 
 export interface Actor { userId: string; turnId: string | null }
 
@@ -136,7 +138,7 @@ function conflictCopies(ctx: AppContext, s: ProjectState, changes: Change[], out
 }
 
 /** `lost`: the changes (the command's and the background's) whose previous content was not kept: no version, no trash */
-export interface WindowResult<T> { value: T; changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[] }
+export interface WindowResult<T> { value: T; changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; blocked?: BlockedOffice[] }
 
 /**
  * Run `fn` (one box command) inside a change window of the project folder. Commands of one project wait for each
@@ -151,8 +153,15 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
   const run = async (): Promise<WindowResult<T>> => {
     const root = ctx.files.fx.root
     const prev = s.store.load()
-    const start = takeSnapshot(root, project.folderPath, prev, s.store)
-    const background = prev ? diffSnapshots(prev, start) : []
+    let start = takeSnapshot(root, project.folderPath, prev, s.store)
+    let background = prev ? diffSnapshots(prev, start) : []
+    // what a job or dev server wrote since the last command is checked too (no run's file skips the Office check)
+    const blocked: BlockedOffice[] = []
+    if (prev && background.length) {
+      const g = await guardOffice(ctx, s, background, s.lastActor ?? by)
+      blocked.push(...g.blocked)
+      if (g.touched) { start = takeSnapshot(root, project.folderPath, start, s.store); background = diffSnapshots(prev, start) }
+    }
     // after a server restart the person of the last command is not known: the change is shown as the box's
     const lost: Change[] = []
     if (background.length) lost.push(...record(ctx, s, background, s.lastActor ?? by, { background: true, ...(s.lastActor ? {} : { actorUnknown: true }) }))
@@ -182,13 +191,102 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
         end = fresh
       }
     }
+    {
+      const g = await guardOffice(ctx, s, changes, by)
+      blocked.push(...g.blocked)
+      if (g.touched) { end = takeSnapshot(root, project.folderPath, end, s.store); changes = diffSnapshots(start, end).filter(notOutside) }
+    }
     s.outside = null
     s.store.save(end)
     s.lastActor = by
     const conflicts = conflictCopies(ctx, s, changes, outside)
     lost.push(...record(ctx, s, changes, by, extra))
     if (meanwhile.length) lost.push(...record(ctx, s, meanwhile, by, { background: true }))
-    return { value, changes, background: [...background, ...meanwhile], conflicts, lost }
+    return { value, changes, background: [...background, ...meanwhile], conflicts, lost, ...(blocked.length ? { blocked } : {}) }
+  }
+  const p = s.queue.then(run, run)
+  s.queue = p.catch(() => {})
+  return p
+}
+
+// ---------------- Office files a run wrote straight into a team folder (files/office-exit.ts) ----------------
+/** A file a run wrote that the safety check refused: undone (`restored`: the earlier content back; else moved to the
+ * trash), or `kept` when someone saved over it since (their newer save is never undone). */
+export interface BlockedOffice { path: string; why: string; restored: boolean; kept?: boolean }
+
+const sha256Of = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
+
+/** Every file the run created or changed in this window, checked by its content as it was when the snapshot took it
+ * (`c.after`), with only its own earlier version (`c.before`) vouching. A refused file is undone, and a cleaned one
+ * (its attached template taken out) written back, only while the disk still holds exactly the run's bytes. */
+async function guardOffice(ctx: AppContext, s: ProjectState, changes: Change[], by: Actor): Promise<{ blocked: BlockedOffice[]; touched: boolean }> {
+  const root = ctx.files.fx.root
+  const within = path.join(root, ...s.folder.split('/'))
+  const blocked: BlockedOffice[] = []
+  let touched = false
+  /** the file's bytes now, when they are still the run's (compare-and-swap before any change) */
+  const stillRuns = (segs: string[], want: string | null) => {
+    if (!want) return false
+    const now = readInside(path.join(root, ...segs), within, OFFICE_WRITE_MAX)
+    return !!now && sha256Of(now.bytes) === want
+  }
+  // a save through the file layer (a person on the Files screen, a tool) is not the run's: its bytes are on record there
+  const saved = ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND sha256 = ? AND (detail IS NULL OR json_extract(detail, '$.via') IS NOT 'dev_env') LIMIT 1")
+  for (const c of changes) {
+    if (c.action === 'delete' || !c.after) continue
+    if (saved.get(c.path, c.after)) continue
+    const segs = c.path.split('/')
+    const name = segs[segs.length - 1] ?? ''
+    // the bytes the snapshot took; a file too large for the store is read from the disk only if it is still those bytes
+    let bytes: Uint8Array | null = s.store.blob(c.after)
+    if (!bytes) { const now = readInside(path.join(root, ...segs), within, OFFICE_WRITE_MAX); bytes = now && sha256Of(now.bytes) === c.after ? new Uint8Array(now.bytes) : null }
+    if (!bytes) {
+      // not readable as the run left it: an Office name is undone if the disk still holds its bytes, else left to the next check
+      if (!officeKind(name) && !contentKind(name, 0, bytesReader(new Uint8Array(0)))) continue
+      if (!stillRuns(segs, c.after)) continue
+    } else if (!contentKind(name, bytes.length, bytesReader(bytes))) continue
+    const earlier = c.before ? s.store.blob(c.before) : null
+    let why: string | null = null
+    try {
+      if (!bytes) throw new Error('it could not be read for the safety check (too large to keep a copy of)')
+      const out = await assertSafeTeamFile(name, bytes, earlier ? new Uint8Array(earlier) : null)
+      if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) !== 0 && stillRuns(segs, c.after)) { atomicWrite(root, segs, out, {}); touched = true }
+    } catch (e) { why = e instanceof Error ? e.message : 'the safety check failed' }
+    if (why === null) continue
+    if (!stillRuns(segs, c.after)) { blocked.push({ path: c.path, why: why.slice(0, 400), restored: false, kept: true }); continue }
+    let restored = false
+    try { restored = revert(ctx, s, { path: c.path, action: c.action, before: c.before }, by) } catch (e) { ctx.log.warn('dev env: an unsafe file was not put back', { err: e, path: c.path }) }
+    // the earlier content is not kept (too large for the store): the run's file goes to the trash all the same
+    if (!restored && stillRuns(segs, c.after)) { try { revert(ctx, s, { path: c.path, action: 'create', before: null }, by) } catch (e) { ctx.log.warn('dev env: an unsafe file stayed', { err: e, path: c.path }) } }
+    touched = true
+    blocked.push({ path: c.path, why: why.slice(0, 400), restored })
+  }
+  return { blocked, touched }
+}
+
+/** What a job or a dev server wrote, checked when it ends and while it runs (jobs.ts): the window of a command that does
+ * nothing, so the writes since the last command are recorded and checked as that run's person's. */
+export async function settleRunWrites(ctx: AppContext, row: { userId: string; projectId: string | null }): Promise<BlockedOffice[]> {
+  const by = { userId: row.userId, turnId: null }
+  if (row.projectId) {
+    const p = ctx.db.query('SELECT id, folder_path AS folderPath FROM projects WHERE id = ? AND trashed_with IS NULL').get(row.projectId) as { id: string; folderPath: string } | null
+    if (!p) return []
+    const w = await withChangeWindow(ctx, p, by, { settle: true }, async () => undefined)
+    return w.blocked ?? []
+  }
+  // the own folder's window looks only at what changes during its command: here the writes since its last snapshot
+  if (!ownThere(ctx, row.userId)) return []
+  const s = state(ctx, `own:${row.userId}`, ownFolder(row.userId), OWN_CAPS)
+  const run = async (): Promise<BlockedOffice[]> => {
+    const root = ctx.files.fx.root
+    const prev = s.store.load()
+    let now = takeSnapshot(root, s.folder, prev, s.store)
+    if (!prev) { s.store.save(bare(now)); return [] }
+    const g = await guardOffice(ctx, s, diffSnapshots(prev, now), by)
+    if (g.touched) now = takeSnapshot(root, s.folder, now, s.store)
+    s.store.save(bare(now))
+    try { s.store.prune(hashesOf(now)) } catch {}
+    return g.blocked
   }
   const p = s.queue.then(run, run)
   s.queue = p.catch(() => {})
@@ -296,7 +394,7 @@ export class OwnNotUndoable extends Error {
 
 /** `reverted`: changes undone right after the command (OwnWindowOptions.mustUndo: an instruction file or a hidden file);
  * `unreverted`: such changes that could not be undone (kept as versions or in the trash where they could) */
-export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[]; unreverted: Change[] }
+export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[]; unreverted: Change[]; blocked?: BlockedOffice[] }
 /** `mustUndo`: the command went without the room card on the promise that its changes can be undone (chat/turn.ts
  * ownBoxRun). `exclude`: team paths inside the own folder another window records (a personal project's folder). */
 export interface OwnWindowOptions { mustUndo?: boolean; exclude?: readonly string[] }
@@ -396,6 +494,9 @@ export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Acto
       // after any attempt: what is on the disk now decides what is recorded (a half-done undo is a change like any other)
       if (tries.length) { end = takeSnapshot(root, s.folder, end, s.store); changes = diff(end) }
     }
+    // Office files the command wrote into the person's own folder: the same check as at the work folder's exit
+    const g = await guardOffice(ctx, s, changes, by)
+    if (g.touched) { end = takeSnapshot(root, s.folder, end, s.store); changes = diff(end) }
     let conflicts: string[] = [], lost: Change[] = []
     try {
       // the versions first: a failed conflict copy must not cost them
@@ -408,7 +509,7 @@ export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Acto
       try { s.store.prune(hashesOf(end)) } catch {}
     }
     if (threw) throw failed
-    return { value: value as T, changes, lost, conflicts, reverted, unreverted }
+    return { value: value as T, changes, lost, conflicts, reverted, unreverted, ...(g.blocked.length ? { blocked: g.blocked } : {}) }
   }
   const p = s.queue.then(run, run)
   s.queue = p.catch(() => {})

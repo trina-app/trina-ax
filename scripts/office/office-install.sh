@@ -38,6 +38,9 @@
 # The pinned headless browser for HTML to PDF (chrome-headless-shell of the one list, app/scripts/system/packages.json)
 # is downloaded once into <prefix>/browser (sha256 checked; outside app/, so an update downloads it again only when the
 # list pins another version). A failed download only warns: the server runs without HTML to PDF until the next update.
+# The document kit (the list's group doc-kit-mac: LibreOffice, the Python and Node libraries, srt, fonts; about 1.4 GB,
+# app/scripts/office/doc-kit.sh) goes the same way into <prefix>/kit: the AI builds Word, PowerPoint, Excel and PDF files
+# with it in a sandbox and looks at their pages. Without it the AI makes simpler documents (make_file).
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
 # (`claude auth status`; not needed with --claude-token-file), no MCP settings in ~/.claude.json the server would remove
@@ -206,6 +209,7 @@ if [ "$CHECK_ONLY" = 1 ]; then
   fi
   if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
   [ ! -f "$SRC/app/scripts/system/packages.json" ] || say "browser: the pinned chrome-headless-shell for HTML to PDF in $PREFIX/browser (downloaded when it is not there yet)"
+  [ ! -f "$SRC/app/scripts/office/doc-kit.sh" ] || say "documents: the document kit (LibreOffice, Python and Node libraries, fonts; about 450 MB download, 1.4 GB on disk) in $PREFIX/kit (downloaded when it is not there yet)"
   # read-only: compared with what $PREFIX already offers
   [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
@@ -248,6 +252,17 @@ if browser_lib; then
   pk_browser_prepare "$BROWSER_DIR" "$BROWSER_PLAT" \
     || say "warning: the pinned headless browser for HTML to PDF was not downloaded (see above); an older one that runs stays"
 fi
+# ---- the document kit, part 1 (the same way: made and tested in <prefix>/kit/<key> while the server runs; a failure
+# only warns, and the next run of this installer, every automatic update, tries again) ----
+KIT_READY=0
+if [ "$BROWSER_LIB" = 1 ] && [ -f "$SRC/app/scripts/office/doc-kit.sh" ]; then
+  # shellcheck source=doc-kit.sh
+  . "$SRC/app/scripts/office/doc-kit.sh"
+  # shellcheck disable=SC2034 # packages.sh reads it
+  if [ "$UPDATE" = 1 ]; then PK_FETCH_BUDGET=300; else PK_FETCH_BUDGET=900; fi
+  if DK_SRC="$SRC/app" dk_prepare "$PREFIX" "$BROWSER_PLAT"; then KIT_READY=1
+  else say "warning: the document kit is not ready (see above): the AI makes simpler Word, PowerPoint and Excel files until the next update tries again"; fi
+fi
 
 # ---- stop a running installation before its program is replaced (the server and its cloudflared) ----
 launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
@@ -281,6 +296,11 @@ if [ "$BROWSER_LIB" = 1 ]; then
   else
     say "warning: no headless browser runs on this Mac, so the team server runs without HTML to PDF; the next update tries again"
   fi
+fi
+
+# ---- the document kit, part 2 (the server is stopped): current -> the kit part 1 made; the one before stays ----
+if [ "$KIT_READY" = 1 ]; then
+  KIT=$(dk_switch "$PREFIX") && say "documents: kit ready ($KIT)" || say "warning: the document kit could not be switched; the one before stays"
 fi
 
 # ---- agent ----

@@ -52,6 +52,9 @@ export function canonicalResource(url: string): string {
   return `${u.protocol}//${u.host}${u.pathname === '/' ? '' : u.pathname}`
 }
 
+/** the longest scope list a sign-in asks for (characters, space separated); past it none is sent (discover) */
+export const MAX_SCOPE_CHARS = 2000
+
 /** `Bearer resource_metadata="…", scope="…"` -> its parameters */
 export function wwwAuthenticate(h: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -79,7 +82,10 @@ export class NoSignInFound extends NetError {
 
 /** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
  * `authMethods`: how the token endpoint takes a client secret (token_endpoint_auth_methods_supported), when it says. */
-export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null; metadataClients: boolean }> {
+export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null; metadataClients: boolean
+  /** the scopes the server advertises were too many to ask for (MAX_SCOPE_CHARS): `scope` is null, and the sign-in
+   * gets the server's default grant (the caller logs it) */
+  scopeOmitted?: { count: number; chars: number } }> {
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
@@ -114,10 +120,16 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   if (Array.isArray(meta.response_types_supported) && !meta.response_types_supported.includes('code')) throw new NetError('oauth_unsupported')
   const authorizationEndpoint = httpsUrl(meta.authorization_endpoint), tokenEndpoint = httpsUrl(meta.token_endpoint)
   if (!authorizationEndpoint || !tokenEndpoint) throw new NetError('oauth_unsupported')
-  const scopes = h.scope || (Array.isArray(prm?.scopes_supported) ? prm!.scopes_supported.filter((s: unknown) => typeof s === 'string').join(' ') : '')
+  // the 401's scope hint, else every scope the server advertises; too many to ask for in one sign-in address: none, so
+  // the server's default grant (what a server that advertises none gets). A cut list could leave out the one scope a
+  // tool needs; a longer address can be refused as too long
+  const advertised = Array.isArray(prm?.scopes_supported) ? (prm!.scopes_supported as unknown[]).filter((s): s is string => typeof s === 'string' && !!s) : []
+  const scopes = h.scope || advertised.join(' ')
+  const tooMany = scopes.length > MAX_SCOPE_CHARS
   return {
     server: { issuer: trimSlash(issuer), authorizationEndpoint, tokenEndpoint, registrationEndpoint: httpsUrl(meta.registration_endpoint), revocationEndpoint: httpsUrl(meta.revocation_endpoint) },
-    resource, scope: scopes && scopes.length <= 2000 ? scopes : null, authMethods,
+    resource, scope: scopes && !tooMany ? scopes : null, authMethods,
+    ...(tooMany ? { scopeOmitted: { count: h.scope ? h.scope.split(/\s+/).filter(Boolean).length : advertised.length, chars: scopes.length } } : {}),
     // the server takes a client ID that is the address of a client metadata document (metadataClient)
     metadataClients: meta.client_id_metadata_document_supported === true,
   }

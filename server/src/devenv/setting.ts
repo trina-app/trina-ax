@@ -5,9 +5,18 @@ import { DEV_ENV_SRT_WARNING_VERSION, DevEnvTeamSetting, type DevEnvConsent, typ
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import { getSetting, setSetting } from '../admin/settings'
+import { isGuestUser } from '../credentials/guest-ai'
 
 /** the feature flag (environment of the server process); off by default */
 export const devEnvFlag = (env: Record<string, string | undefined> = process.env) => env.MYCEL_DEV_ENV === '1'
+
+/** A server that runs only documents mode (docs/decisions/20261124-office-mac-doc-kit.md): an office Mac, whose
+ * supervisor sets MYCEL_DEV_ENV_DOCUMENTS_ONLY=1 when its document kit is there. It has no dev slot accounts, so no full
+ * dev environment, and no admin setting for one: documents mode counts as never chosen there (on), and
+ * MYCEL_DOCUMENTS_MODE=0 turns it off (commandMode). */
+export const documentsOnlyServer = (env: Record<string, string | undefined> = process.env) => devEnvFlag(env) && env.MYCEL_DEV_ENV_DOCUMENTS_ONLY === '1'
+/** the full dev environment's settings and API (not on a documents-only server) */
+export const devEnvUi = (env: Record<string, string | undefined> = process.env) => devEnvFlag(env) && !documentsOnlyServer(env)
 
 function inScope(db: Database, scope: DevEnvScope, userId: string): boolean {
   if (scope.mode === 'writers') return true
@@ -63,6 +72,8 @@ export function teamInForce(s: DevEnvTeamSetting, flag = devEnvFlag()): boolean 
 /** may this person run commands now, in any chat? Active account, the team setting in force, in scope. What the
  * person may read and write is decided per run from the folder rules (srt/access.ts), not here. */
 export function mayUseDevEnv(db: Database, files: FileService, userId: string, flag = devEnvFlag()): boolean {
+  // a documents-only server (an office Mac) has no full dev environment
+  if (documentsOnlyServer()) return false
   const s = teamSetting(db)
   if (!teamInForce(s, flag)) return false
   try { if (!files.principal(userId)) return false } catch { return false }
@@ -73,4 +84,36 @@ export function mayUseDevEnv(db: Database, files: FileService, userId: string, f
 /** a consent of this person to the current warning */
 export function newConsent(by: { id: string; name: string }): DevEnvConsent {
   return { by, at: new Date().toISOString(), warningVersion: DEV_ENV_SRT_WARNING_VERSION }
+}
+
+// ---------------- documents mode ----------------
+// docs/decisions/20261124-documents-mode.md (owner, 2026-11-24): Word, PowerPoint and Excel files are built with the
+// document skills on every install, so where the dev environment is installed (the flag) and the team never chose it
+// (no saved setting, or the row an older team got from migration 236: oldTeamOffer) box_shell still runs in documents mode:
+// no network, no team folders, only the chat's work folder (the AI copies a file in with copy_files, which checks the
+// person's access). This one capability turns on without an admin step for teams that never chose; it reverses
+// "nothing turns on by itself" for it alone. An admin's explicit choice is respected (security review of #508): a team
+// whose admin saved the dev environment off, or a person left out of its scope, gets no documents mode either. Not for
+// guests (deferred). MYCEL_DOCUMENTS_MODE=0 turns it off on a server.
+
+/** documents mode on this server (on unless MYCEL_DOCUMENTS_MODE=0) */
+export const documentsModeFlag = (env: Record<string, string | undefined> = process.env) => env.MYCEL_DOCUMENTS_MODE !== '0'
+
+/** How this person's commands run now: 'full' (the dev environment), 'documents' (offline, work folder only) or null. */
+export type CommandMode = 'full' | 'documents'
+export function commandMode(db: Database, files: FileService, userId: string, flag = devEnvFlag()): CommandMode | null {
+  if (mayUseDevEnv(db, files, userId, flag)) return 'full'
+  // a documents-only server has no dev environment setting: never chosen, so on
+  if (!flag || !documentsModeFlag() || !(documentsOnlyServer() || teamNeverChose(db))) return null
+  try { const p = files.principal(userId); if (!p || p.role === 'guest' || isGuestUser(db, userId)) return null } catch { return null }
+  return 'documents'
+}
+
+/** may this person run commands now, in either mode? */
+export const mayRunCommands = (db: Database, files: FileService, userId: string, flag = devEnvFlag()) => commandMode(db, files, userId, flag) !== null
+
+/** The team never chose the dev environment: no saved setting, or still the row migration 236 wrote for an older team.
+ * An admin's save (on or off, any scope) is a choice. */
+export function teamNeverChose(db: Database): boolean {
+  return !db.query('SELECT 1 FROM settings WHERE key = ?').get(TEAM_SETTING_KEY) || oldTeamOffer(db)
 }

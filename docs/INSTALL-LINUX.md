@@ -185,7 +185,8 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
   설치한다(`--skip-apt`로 끔). 호스팅 서버의 이미지도 같은 목록에서 설치하므로, 기본 설치는 호스팅 서버와 같은 패키지를 갖는다.
   - 늘 설치(`--minimal`에서도): bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples 등 서버가 쓰는 것. 설치할 수
     없거나 목록의 최소 버전보다 낮으면 설치를 멈춘다.
-  - 기본 설치(`--minimal`이면 빠짐): 한중일 글꼴(fonts-noto-cjk), 개발 환경의 도구(python3, git, build-essential, ripgrep,
+  - 기본 설치(`--minimal`이면 빠짐): 한중일 글꼴(fonts-noto-cjk), AI가 Word·PowerPoint·Excel 파일의 쪽을 볼 때 쓰는 LibreOffice와
+    Carlito·Caladea 글꼴(Debian 13은 DSA-6635-1 보안 수정 이상), 개발 환경의 도구(python3, git, build-essential, ripgrep,
     Debian의 chromium …; 패키지만 넣고 개발 환경은 켜지 않는다. 켜는 것은 `scripts/dev-env/srt/install-srt.sh`), 그리고 HTML을
     PDF로 바꾸는 헤드리스 브라우저. 이것들이 설치되지 않으면 경고만 하고 계속한다(`repair`가 다시 시도).
   - 브라우저: 목록이 고정한 Chrome for Testing `chrome-headless-shell`(버전과 SHA-256 고정)을

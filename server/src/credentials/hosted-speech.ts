@@ -25,9 +25,10 @@ export function hostedSpeechFreeHours(): number {
 }
 export const hostedSpeechFreeSec = (): number => hostedSpeechFreeHours() * 3600
 export { HOSTED_SPEECH_USAGE_SETTING }
-/** the one model the hosting key uses (the control plane's guardrail at OpenRouter allows no other: whisper turbo; it
- * stays whisper until the guardrail also allows `elevenlabs/scribe-v2`, docs/decisions/20261123-speech-scribe-v2.md);
- * a team's own key uses the model chosen in Team settings */
+/** the one model the hosting key uses: Scribe v2 since 2026-11-24 (docs/decisions/20261124-speech-default-scribe-v2.md).
+ * The control plane's guardrail at OpenRouter must allow `elevenlabs/scribe-v2` (ElevenLabs) before a release with it
+ * reaches hosted teams, or every hosted speech request is refused; a team's own key uses the model chosen in Team
+ * settings */
 export const HOSTED_SPEECH_MODEL = DEFAULT_SPEECH_MODEL
 /** the month is Korea's (UTC+9, no daylight saving time): the hours come back at 00:00 KST on the 1st */
 const KST_MS = 9 * 3600_000

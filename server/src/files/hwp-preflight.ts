@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import { HWP_LIMITS as L, type HwpReason } from '@mycel/shared/hwp'
 import { imageSize } from '../uploads/image'
 import { checkZip, isZip } from './zip-guard'
+import { floatPin, floatProbe, type ParaTop } from './hwpx-float'
 
 const reject = (reason: HwpReason): never => { throw new Error(reason) }
 export function preflight(bytes: Uint8Array, ext: string) {
@@ -107,7 +108,38 @@ export function preflight(bytes: Uint8Array, ext: string) {
     if (!sections) reject('damaged')
   }
 }
-if (import.meta.main) {
+/** The floating-picture fix (hwpx-float.ts), run here because the document is untrusted:
+ * `float-probe <input> <probe>` writes the probe and prints "probe", or prints "none";
+ * `float-pin <input> <tops.json> <output>` writes the document with its pictures pinned and prints "pinned". */
+/** whether a section of the .hwpx (read as preflight reads it) holds a picture behind or in front of the text */
+export function mayFloat(bytes: Uint8Array): boolean {
+  const c: { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] } = XLSX.CFB.read(Buffer.from(bytes), { type: 'buffer' })
+  return c.FullPaths.some((p, i) => /^(?:Root Entry\/)?Contents\/section\d+\.xml$/i.test(p) &&
+    /textWrap\s*=\s*["'](?:BEHIND_TEXT|IN_FRONT_OF_TEXT)["']/.test(Buffer.from(c.FileIndex[i]?.content ?? []).toString('utf8')))
+}
+function floats(args: string[]) {
+  const [mode, input, a, b] = args
+  const bytes = new Uint8Array(fs.readFileSync(input!))
+  if (mode === 'float-probe') {
+    // never fails the preview: a document without a floating picture is not read again, and one this zip reader
+    // refuses (that preflight accepted) is drawn as it is
+    let probe: Uint8Array | null = null
+    try { if (mayFloat(bytes)) probe = floatProbe(bytes) } catch { probe = null }
+    if (probe) fs.writeFileSync(a!, probe, { mode: 0o600 })
+    process.stdout.write(probe ? 'probe' : 'none')
+    return
+  }
+  if (mode !== 'float-pin') throw new Error('damaged')
+  const raw: unknown = JSON.parse(fs.readFileSync(a!, 'utf8'))
+  const ok = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
+  const tops = (Array.isArray(raw) ? raw : []).filter((x): x is ParaTop => !!x && typeof x === 'object' &&
+    ['section', 'para', 'y'].every((k) => ok((x as Record<string, unknown>)[k])))
+  fs.writeFileSync(b!, floatPin(bytes, tops), { mode: 0o600 })
+  process.stdout.write('pinned')
+}
+if (import.meta.main && process.argv[2]?.startsWith('float-')) {
+  try { floats(process.argv.slice(2)) } catch { process.stdout.write('damaged'); process.exitCode = 3 }
+} else if (import.meta.main) {
   try { preflight(fs.readFileSync(process.argv[2]!), process.argv[3]!); process.stdout.write('ok') }
   catch (e) { process.stdout.write(['locked','distribution','damaged','unsupported','limit'].includes((e as Error).message) ? (e as Error).message : 'damaged'); process.exitCode = 3 }
 }

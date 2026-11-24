@@ -50,7 +50,9 @@ beforeEach(() => {
   reply = HELLO
   resetPieceLimitsForTests()
   A.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_SPEECH_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING)
-  updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
+  // these tests check whisper's own behaviour (its language field, its scores), so they pick whisper; Scribe v2 is the
+  // default since 2026-11-24 (c-speech-openrouter covers it)
+  updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', speechModel: 'openai/whisper-large-v3-turbo' })
   writeSpeechKey(credentialsOf(A.ctx), KEY)
 })
 afterEach(() => { delete process.env.MYCEL_SAFE_OPS_1A })
