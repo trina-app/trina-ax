@@ -5,6 +5,15 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.17.0 — 2026-11-24
+
+- Admin notes: 0.17.0 changes no root files and adds no migration, so Linux servers on 0.16.0 take it as an app update in their update window. No backup is needed, and the database reader level stays 9. Going back to 0.16.0 needs no backup.
+- A name search on a very big folder now always shows the newest files first. With more than 1,000 matching files it could miss the newest ones.
+- The AI can now add a picture to an existing PowerPoint deck (on a slide, at a position or centred) or Excel workbook (at a cell), and move or resize a picture already in the file. In a deck it can look at the slide and adjust; a workbook has no drawn view here, and the AI says so.
+- The Word preview in the file panel now draws a seal on its line. It was about 4 mm too low, though the file itself was right.
+- In a shared or project chat, everyone else now sees **Waiting for {name} to confirm** while the AI is stopped on that person's card, for every kind of card, also after the answer has ended. The chat's row shows a still ring that does not count as needing you, and the line goes away as soon as the card is answered, times out or is cancelled.
+- The others in a shared chat no longer read what a card asks in the answer's step lines (a question, a web address, a connected service): they see the step's plain name.
+
 ## 0.16.0 — 2026-11-24
 
 - Admin notes: 0.16.0 changes root files (the system package list gains a `video` group: `xz-utils`, Node and the HyperFrames CLI, for promo videos as MP4), so every Linux server takes it through the root update: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: older versions can read the database after the two new migrations (450 one Always allow, 451 person aliases) and the reader level stays 9. Migration 450 removes the old per-chat choices ("Always in this chat" and sites allowed for one conversation), so people may be asked once more; permanent Always allow choices stay. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).

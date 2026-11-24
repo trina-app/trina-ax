@@ -1,1 +1,0 @@
-- A name search on a very big folder now always shows the newest files first. With more than 1,000 matching files it could miss the newest ones.
