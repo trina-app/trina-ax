@@ -12,7 +12,7 @@
 // No database writes, no network: tests/unit/post-mentions.test.ts.
 import type { Database } from 'bun:sqlite'
 import { ROOM_MENTION_ALL_WORDS, roomMentionAllIn } from '@mycel/shared/api'
-import { fold } from './shared-actions'
+import { fold, POST_ASK } from './shared-actions'
 
 /** A person the post may mention: in the room (or the 1:1 chat it opens), not the asker, an active account. */
 export interface Mentionable { id: string; name: string; username: string }
@@ -82,8 +82,8 @@ export function isTheirQuote(said: string, posted: string): boolean {
  * Bob's" is no quote. */
 const QUOTE_SPANS = /"([^"]+)"|\u201C([^\u201D]+)\u201D|\u2018([^\u2019]+)\u2019|(?:^|(?<=\s))'([^'\n]+)'(?=$|[\s.,!?\uAC00-\uD7A3])|\u300C([^\u300D]+)\u300D|\u300E([^\u300F]+)\u300F|`([^`]+)`/gu
 /** A colon that starts dictated words: one followed by a space or the end of the line (not "3:00" or "https://"), or a
- * full-width one */
-const DICTATE_COLON = /:(?=\s|$)|\uFF1A/u
+ * full-width one not after a digit */
+const DICTATE_COLON = /:(?=\s|$)|(?<!\d)\uFF1A/u
 /** A text as it is sent, compared strictly: the everyone mention (each language's word, "@channel", "@here") taken out,
  * whitespace collapsed and trimmed, quote marks around the whole taken off. Letters, spelling, numbers, punctuation and
  * emoji are compared as they are. */
@@ -96,7 +96,8 @@ export function sentForm(text: string): string {
 }
 /** What in the person's own message can be the words they dictated, each whole, never a part of them: everything after the
  * first dictating colon (to the end of the message), all the lines after the first together, and a quote only when it is
- * the one quote of its line, no other line has one alone, and with a colon it is that whole stretch. No reading of what the sentence means. */
+ * the one quote of its line, on the line that asks to post it (or alone on its line), no other such line, and with a
+ * colon it is that whole stretch. No reading of what the sentence means. */
 export function dictatedPieces(said: string): string[] {
   const out = new Set<string>()
   const lines = said.split('\n')
@@ -108,7 +109,10 @@ export function dictatedPieces(said: string): string[] {
   if (afterColon) out.add(afterColon)
   if (lines.length > 1) out.add(sentForm(lines.slice(1).join('\n')))
   const quoteOf = (m: RegExpMatchArray) => sentForm(m.slice(1).find((x) => x !== undefined) ?? '')
-  const lone = lines.map((l) => [...l.matchAll(QUOTE_SPANS)]).filter((q) => q.length === 1).map((q) => quoteOf(q[0]!))
+  // (a lone quote on its line, that line the one asking to post it or nothing but the quote: on a later line after other
+  // words it may be a part of what the person says there, "\"회의 취소\" 는 아니고 연기")
+  const lone = lines.map((l) => ({ l, q: [...l.matchAll(QUOTE_SPANS)] })).filter(({ q }) => q.length === 1)
+    .filter(({ l, q }) => POST_ASK.test(l.replace(q[0]![0], ' ')) || l.replace(q[0]![0], '').trim() === '').map(({ q }) => quoteOf(q[0]!))
   if (lone.length === 1 && (afterColon === null || afterColon === lone[0])) out.add(lone[0]!)
   out.delete('')
   return [...out]
@@ -128,7 +132,7 @@ function fileLinkOnly(label: string, url: string): boolean {
 export function isPersonsText(said: string, text: string): boolean {
   const rest = sentForm(text
     .replace(/\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, label: string, url: string) => fileLinkOnly(label, url) ? ' ' : all)
-    .replace(/(^|\s)(?:\/files\/view\?path=|chat:files\/)[^\s)\]]+(?=\s|$)/g, '$1'))
+    .replace(/(^|\s)(?:\/files\/view\?path=|chat:files\/)[^\s)\]&#]+(?=\s|$)/g, '$1'))
   if (!rest) return true
   return dictatedPieces(said).includes(rest)
 }
