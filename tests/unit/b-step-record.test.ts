@@ -220,6 +220,17 @@ describe('a fresh session gets its own earlier steps', () => {
   // review of #409: an answer bob regenerated on alice's message while the chat was shared is bob's turn (his
   // connections, his cards, what his tools returned); once the chat is private again (one writer: `several` false) its
   // steps still never reach alice's AI
+  test("another person's connector step, as stored: their AI gets the generic verb, never its name or line", async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const a = await ask('alice', chat.id, 'send it\n' + fake({ say: 'Sent.' }))
+    const stored = [step('c1', 'my_gmail__send_secret_invoice', 'Send SECRETLINE'), step('c2', 'team_linear__create_issue', 'Create SECRETLINE'), step('c3', 'call_tool', 'Call SECRETLINE'), step('c4', 'api_request', 'POST SECRETLINE'), step('c5', 'read', 'Read file')]
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(stored), a.done.id)
+    const rb = await ask('bob', chat.id, 'what happened?\n' + fake({ echo: 'system' }))
+    const got = records(rb.done.content)
+    expect(got).toContain('read')
+    for (const hidden of ['my_gmail__', 'send_secret_invoice', 'team_linear__', 'call_tool', 'api_request', 'SECRETLINE']) expect(got).not.toContain(hidden)
+  })
+
   test('a chat no longer shared: an answer another person regenerated on my message gets no record', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'REGENPATTERN*', path: 'users/alice' } }, { say: 'Looked.' }))

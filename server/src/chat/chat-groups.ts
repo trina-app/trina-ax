@@ -57,7 +57,7 @@ function place(r: ChatRow, pins: Map<string, string>, folderOf: Map<string, stri
 
 /** the chat's marker parts when it shows one now (no window's view: a card open in one window is the page's to add) */
 const markOf = (c: Chat): ChatMark[] =>
-  markerOf(c) ? [{ id: c.id, runState: c.runState, ...(c.waiting ? { waiting: c.waiting } : {}), ...(c.unseen ? { unseen: c.unseen } : {}), ...(c.lastOutcome ? { lastOutcome: c.lastOutcome } : {}), ...(c.unreadCount ? { unreadCount: c.unreadCount } : {}) }] : []
+  markerOf(c) ? [{ id: c.id, runState: c.runState, ...(c.waiting ? { waiting: c.waiting } : {}), ...(c.waitsFor ? { waitsFor: c.waitsFor } : {}), ...(c.unseen ? { unseen: c.unseen } : {}), ...(c.lastOutcome ? { lastOutcome: c.lastOutcome } : {}), ...(c.unreadCount ? { unreadCount: c.unreadCount } : {}) }] : []
 
 function principalOf(rt: ChatRuntime, me: string): Principal | null {
   try { return rt.files.principal(me) } catch { return null }
@@ -82,7 +82,7 @@ export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatG
     const top = rows.slice(0, CHAT_GROUPS_TOP).map(view)
     // a row can mark only while it runs, waits, or has an answer newer than when it was last seen: the cheap checks
     // first, the full view (whose answers count for me) only for those
-    const maybe = (r: ChatRow) => rt.runState(r.id) !== 'idle' || rt.waitsForPerson(r.id) || !!rt.store.answerState(r).unseen
+    const maybe = (r: ChatRow) => rt.runState(r.id) !== 'idle' || rt.waitsForPerson(r.id) || !!rt.waitingOn(r, aud) || !!rt.store.answerState(r).unseen
     const marked = [...top, ...rows.slice(CHAT_GROUPS_TOP).filter(maybe).map(view)].flatMap((c) => markOf(c))
     return { count: rows.length, top, marked }
   }

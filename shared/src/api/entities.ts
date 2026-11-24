@@ -312,6 +312,10 @@ export const Chat = z.object({
   /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
    * a card for one desktop window only is not counted). Absent = no. */
   waiting: z.literal(true).optional(),
+  /** a shared chat: the AI is stopped on a card of this other person (their name, never what the card asks). Every card
+   * kind counts, also one kept after the answer ended or shown in one desktop window of theirs. Not for that person
+   * (they have `waiting` and the card), and it never counts as needing me. Absent = no, or an older server. */
+  waitsFor: z.string().optional(),
   /** the earlier answer here ended, but the end of the AI's work is not confirmed yet (the server's quarantined slot,
    * at most a few minutes past the answer's time limit): the chat takes no new message until then and says so; other
    * chats work as usual. Absent = no. */

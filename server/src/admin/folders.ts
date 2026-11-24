@@ -2,6 +2,7 @@
 // folders.path is the actual on-disk name path (no trailing slash, '' = team root). Resolution itself is the
 // stage-1 permission function (server/src/policy/access.ts); this file stores rules, previews changes ("who sees
 // what") and, when someone loses read access, starts their chats on a fresh engine session (H7, tab 2 "권한 회수").
+import { everyOpenCard } from '../chat/open-questions'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -24,7 +25,7 @@ import { claimGuestProject, guestsAmong } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
-import { forgetLiveViewers, resetEngineSessions as resetChatSessions, SESSION_CHATS_OF, stopTurnsIn } from '../chat/runtime'
+import { forgetLiveViewers, resetEngineSessions as resetChatSessions, SESSION_CHATS_OF, stopTurnsIn, cardsAfterAccessChange } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
 import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
@@ -343,6 +344,8 @@ export function listFolders(ctx: AppContext): Folder[] {
 export interface AccessState {
   principals: Principal[]
   rules: RuleSet
+  /** whose card is open in which chat (read before a change: deleting an account deletes its cards) */
+  openCards?: { userId: string; chatId: string }[]
 }
 
 /** Active people (with groups) and the current rules. */
@@ -351,7 +354,7 @@ export function captureState(db: Database): AccessState {
   const mem = db.query('SELECT group_id, user_id FROM group_members').all() as { group_id: string; user_id: string }[]
   const groups = new Map<string, string[]>()
   for (const m of mem) groups.set(m.user_id, [...(groups.get(m.user_id) ?? []), m.group_id])
-  return { principals: users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] })), rules: RuleSet.load(db) }
+  return { principals: users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] })), rules: RuleSet.load(db), openCards: everyOpenCard(db) }
 }
 
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
@@ -561,6 +564,8 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
       }
     }
   } catch (e) { ctx.log.warn('people-shared chat removals failed', { err: e }) }
+  // a person with an open card lost the chat: the others stop reading that it waits for them
+  try { cardsAfterAccessChange(ctx, before.openCards ?? []) } catch (e) { ctx.log.warn('chat update after an access change failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)

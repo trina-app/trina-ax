@@ -5,10 +5,11 @@
 // it had done something two answers ago and guessed. Each tool step now keeps a short note on the server (its key
 // arguments and the start of its result, secrets hidden: messages.step_notes, never sent to an app), and a fresh
 // session's history shows, under the asker's own earlier answers, one line per step.
+import { stepRepeatsCard } from './open-questions'
 import type { Database } from 'bun:sqlite'
 import type { StoredStep } from './store'
 import { neutralizeTags } from './prompt'
-import { knownStepTool, stepWords } from '@mycel/shared'
+import { internalStepTool, knownStepTool, stepWords } from '@mycel/shared'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 
 /** a step's note: `i` its key arguments, `o` the start of its result (both plain text, already capped and redacted) */
@@ -256,8 +257,6 @@ export function notePaths(n: StepNote): string[] {
 }
 const notePathsListable = (n: StepNote, canList: ((p: string) => boolean) | null): boolean =>
   notePaths(n).every((p) => { try { return !!canList && canList(p) } catch { return false } })
-/** the tools whose line names a room, a person or what was shared (ChatStore.viewSteps): their verb alone for others */
-const OTHERS_WORDS_ONLY: ReadonlySet<string> = new Set(['post_to_room', 'share_with_person', 'stop_sharing', 'share_folder'])
 
 /**
  * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own
@@ -310,7 +309,7 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
       // (a note's own words name paths too: a write's result, "saved to users/alice/…". Kept only when the asker and
       // everyone who sees the chat now may list every path in it; fails closed: security review of batch 5)
       notes = Object.fromEntries(Object.entries(notes).filter(([id, n]) => ok.has(id) && notePathsListable(n, o.canList)))
-      steps = steps.map((x) => (x.tool && OTHERS_WORDS_ONLY.has(x.tool) ? (({ sv: _sv, ...rest }) => ({ ...rest, label: stepWords(x, 'en') }))(x) : x))
+      steps = steps.map((x) => (stepRepeatsCard(x, !!x.sv) ? (({ sv: _sv, tool, ...rest }) => ({ ...rest, ...(tool && (knownStepTool(tool) || internalStepTool(tool)) ? { tool } : {}), label: stepWords(x, 'en') }))(x) : x))
     }
     let text = stepsRecord(steps, notes, o.canList)
     if (!text) continue

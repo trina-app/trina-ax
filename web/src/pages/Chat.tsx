@@ -22,6 +22,7 @@
 // no longer there opens the chat at its end with "That answer is no longer here." On a phone, opened from a sharing
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import clsx from 'clsx'
+import { sharedNote } from '../lib/sharedNote'
 import { composerInset } from '../components/chat/composerBox'
 import { GuestNoAi, useGuestAiOff, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
@@ -227,6 +228,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   const shared = chat?.shared
   const rights = sharedRights(chat, me.user.id)
   const othersTurn = shared?.answering ?? null
+  const sharedLine = sharedNote(chat)
   const readOnly = !!shared && !!me.server.allChatsConfidential
   // no title yet while the chat is read: nothing, not "Untitled" (that is a chat without one)
   const title = chat ? chat.title || t('chat.untitled') : loading ? '' : t('chat.untitled')
@@ -903,7 +905,7 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
             // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
             hold={chat?.ending ? t('chat.endingEarlier') : undefined}
             // someone else's question is being answered: a line saying whose, and what I send now waits for it
-            note={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            note={sharedLine ? t(sharedLine.key, { name: sharedLine.name }) : undefined}
             later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
