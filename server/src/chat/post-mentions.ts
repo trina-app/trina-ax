@@ -50,11 +50,16 @@ const QUOTED = /"[^"]*"|\u201C[^\u201D]*\u201D|\u2018[^\u2019]*\u2019|'[^'\n]*'|
 /** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
  * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
 const NOT_A_PLAIN_ASK = /\uB9D0\uACE0|\uBE7C\uACE0|\uC81C\uC678|\uC5C6\uC774|(?:^|\s)\uC548(?:\s|$)|\uC548\s?\uB3FC|\uD558\uC9C0|\uC9C0\s?\uB9C8|\uB9C8\uC138\uC694|[?\uFF1F]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|\u4E0D\u8981|\u522B|\u4EE5\u5916|\u3067\u306F\u306A\u304F/iu
+/** The person's message without the words they dictated (quoted, or after a colon on a line): the part that says what to
+ * do. A "don't" inside the dictated text ("늦지마셈") takes nothing back. */
+export function instructionPart(said: string): string {
+  return said.replace(QUOTED, ' ').split('\n').map((l) => l.replace(/[:\uFF1A][\s\S]*$/u, ' ')).join('\n')
+}
 /** The asker's own words, outside anything they quote, write "@everyone" (each language's word) as a whole word in a plain
  * request (the room named, docs/decisions/20261123-do-then-undo.md). "@전체회의", "@everyone-sync", "@전체 말고", or "@전체" only inside
  * quoted words (someone else's, or the text) are no ask to notify everyone: the card shows. */
 export function everyoneAsked(said: string): boolean {
-  const outside = said.replace(QUOTED, ' ')
+  const outside = instructionPart(said)
   if (NOT_A_PLAIN_ASK.test(outside)) return false
   const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
   // (the Korean word on its own, as who it goes to: "전체에게"; never a room's name such as 전체공지, nor "팀 전체에게")
@@ -70,6 +75,38 @@ export function isTheirQuote(said: string, posted: string): boolean {
   if (!body) return false
   for (const m of said.matchAll(/"([^"\n]+)"|“([^”\n]+)”|「([^」\n]+)」/gu)) if (fold(m[1] ?? m[2] ?? m[3] ?? '') === body) return true
   return false
+}
+
+/** The quote marks a person may put their words in (any form, over several lines) */
+const QUOTE_SPANS = /"([^"]+)"|“([^”]+)”|‘([^’]+)’|'([^'\n]+)'|「([^」]+)」|『([^』]+)』|`([^`]+)`/gu
+/** A text as it is sent, compared strictly: the everyone mention (each language's word, "@channel", "@here") taken out,
+ * whitespace collapsed and trimmed, quote marks around the whole taken off. Letters, spelling, numbers, punctuation and
+ * emoji are compared as they are. */
+export function sentForm(text: string): string {
+  const words = [...ROOM_MENTION_ALL_WORDS, 'everyone', 'channel', 'here'].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  let t = text.normalize('NFC').replace(new RegExp(`(^|[\\s(\\[])@(?:${words})(?=$|[\\s.,!?:)\\]])`, 'giu'), '$1').replace(/\s+/g, ' ').trim()
+  const m = /^(["“‘'「『`])([\s\S]*)(["”’'」』`])$/u.exec(t)
+  if (m) t = m[2]!.trim()
+  return t.replace(/^[:：\-–—]\s*/u, '').trim()
+}
+/** What in the person's own message can be the words they dictated: each quoted stretch, what follows a colon on a line,
+ * and the lines after the first. No reading of what the sentence means. */
+export function dictatedPieces(said: string): string[] {
+  const out = new Set<string>()
+  for (const m of said.matchAll(QUOTE_SPANS)) out.add(sentForm(m.slice(1).find((x) => x !== undefined) ?? ''))
+  for (const line of said.split('\n')) { const i = line.search(/[:：]/u); if (i >= 0) out.add(sentForm(line.slice(i + 1))) }
+  const lines = said.split('\n')
+  if (lines.length > 1) { out.add(sentForm(lines.slice(1).join('\n'))); for (const l of lines.slice(1)) out.add(sentForm(l)) }
+  out.delete('')
+  return [...out]
+}
+/** The text a send without a card may carry (docs/decisions/20261124-sends-verbatim.md): exactly words the person dictated
+ * (sentForm of one of dictatedPieces), or nothing but links to the files that go with it. Anything added or changed (a
+ * date, a word, an emoji, a fixed spelling) is the AI's and goes on a card. */
+export function isPersonsText(said: string, text: string): boolean {
+  const rest = sentForm(text.replace(/\[[^\]\n]*\]\([^)\s]+\)/g, ' ').replace(/(?:^|\s)(?:\/files\/view\?\S+|chat:files\/\S+)/g, ' '))
+  if (!rest) return true
+  return dictatedPieces(said).includes(rest)
 }
 
 export type PickedMentions =

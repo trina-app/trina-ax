@@ -160,7 +160,7 @@ describe('the AI\'s post mentions people of the room for real', () => {
   })
 
   test('the asker\'s own words name the person (in full, or by the name the AI found exactly one member by): no card after the explicit ask; a name inside another member\'s name they wrote: the card', async () => {
-    const named = await turn('alice', `post this to the Marketing room and tag Erin\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`)
+    const named = await turn('alice', `post to the Marketing room and tag Erin: budget is approved\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`)
     expect(named.card).toBeNull()
     expect(JSON.parse(named.content)).toMatchObject({ status: 'sent', mentioned: ['Erin Yoo'] })
     const other = await turn('alice', `post this to the Marketing room\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`, 'no')
