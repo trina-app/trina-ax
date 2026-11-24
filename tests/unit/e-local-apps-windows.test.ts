@@ -151,7 +151,7 @@ describe('any other .cmd/.bat: cmd.exe, only with arguments it cannot read as so
   const h = winHost({ 'C:\\t\\run.bat': '@echo off\r\npython C:\\t\\run.py %*\r\n' }) as ProgramHost
   test('cmd.exe /d /s /v:off /c "…" from System32, the line as it is (verbatim), plain arguments bare, others in "…"', () => {
     expect(launchFor('C:\\t\\run.bat', ['serve', '--port=3', 'a b', 'x&y', '(z)', ''], h)).toEqual({
-      file: 'C:\\Windows\\System32\\cmd.exe', args: ['/d', '/s', '/v:off', '/c', '""C:\\t\\run.bat" serve "--port=3" "a b" "x&y" "(z)" """'], verbatim: true, via: 'cmd',
+      file: 'C:\\Windows\\System32\\cmd.exe', args: ['/d', '/s', '/v:off', '/c', '""C:\\t\\run.bat" serve "--port=3" "a b" "x&y" "(z)" """'], verbatim: true, via: 'cmd', env: { NoDefaultCurrentDirectoryInExePath: '1' },
     })
   })
   test('refused, never escaped: " % ! ^ and line breaks, in an argument or the path', () => {
@@ -255,6 +255,15 @@ describe('the desktop app on Windows', () => {
     expect(r.ok).toBe(true)
     expect(w.spawned[0]).toMatchObject({ file: 'C:\\Windows\\System32\\cmd.exe', args: ['/d', '/s', '/v:off', '/c', `""${bat}" --stdio"`] })
     expect(w.spawned[0]!.opts).toMatchObject({ shell: false, windowsVerbatimArguments: true })
+    expect((w.spawned[0]!.opts.env as NodeJS.ProcessEnv).NoDefaultCurrentDirectoryInExePath).toBe('1')
+  })
+  test('a program on a network share: refused with words before any file check or confirm', async () => {
+    const w = winManager({ '\\\\evil.example\\s\\t.exe': '' })
+    const r = await w.call({ adapter: 'mcp', command: '\\\\evil.example\\s\\t.exe', args: [], env: [] }, INIT)
+    expect(r).toMatchObject({ ok: false, failure: 'start_failed', cause: 'unsupported' })
+    expect(r.error).toContain('network share')
+    expect(w.asked).toHaveLength(0)
+    expect(w.spawned).toHaveLength(0)
   })
   test('a CLI tool through a batch file: an AI value cmd would read is refused as that call\'s error, nothing runs, the connection stays', async () => {
     const spec: LocalAppSpec = { adapter: 'cli', command: 'runner', env: [], tools: [{ name: 'run', description: 'r', args: ['go', { slot: 'q' }], slots: [{ name: 'q', description: 'q', type: 'string', required: true }], readOnly: false }] }
@@ -307,6 +316,9 @@ describe('the server: a program that is not there needs attention, with where to
     const typed = await send({ adapter: 'mcp', command: 'C:\\x\\tool.exe', args: [], env: [] }, { failure: 'start_failed', cause: 'not_found' }).catch((x) => x)
     expect(typed.reason).toBe('local_missing')
     expect(typed.message).not.toContain('download')
+    // only the program's name, never the folder it was saved with
+    expect(typed.message).toContain('"tool.exe"')
+    expect(typed.message).not.toContain('C:\\x')
     // without a cause (an older desktop app): as before
     expect((await send(ASIDE, { failure: 'start_failed', error: 'spawn EINVAL' }).catch((x) => x)).reason).toBe('local_failed')
   })

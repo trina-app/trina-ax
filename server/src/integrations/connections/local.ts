@@ -89,12 +89,15 @@ export const offlineWords = (name: string, away: LocalAway = 'other') =>
 export const awayWords = (away: LocalAway) =>
   `it runs only when the user writes from ${desktop} on the computer where they added it, and ${AWAY[away]}. When they ask for it, ${SAY_ONLY.charAt(0).toLowerCase()}${SAY_ONLY.slice(1)}`
 
+/** A program's file name without its folder (C:\\Users\\…\\tool.exe → tool.exe): the AI's words never carry the saved path. */
+export const programName = (command: string) => (command.split(/[\\/]/).filter(Boolean).pop() ?? command).slice(0, 100)
+
 function errorOf(name: string, r: LocalResult, spec: LocalAppSpec): LocalError {
   const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
   if (r.failure === 'start_failed' && r.cause === 'not_found') {
     // a listed app (Aside, ego lite): its own download page; a program the person typed: install it or fix the command
     const download = presetOf(spec)?.download
-    return new LocalError('start_failed', `Nothing ran: ${name} is not installed on the user's computer (the program "${spec.command.slice(0, 200)}" was not found there). Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can get it at ${download}` : 'need to install it or fix the command'}, then press Check again in Settings › Connectors › ${name}.`, 'not_found')
+    return new LocalError('start_failed', `Nothing ran: ${name} is not installed on the user's computer (the program "${programName(spec.command)}" was not found there). Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can get it at ${download}` : 'need to install it or fix the command'}, then press Check again in Settings › Connectors › ${name}.`, 'not_found')
   }
   switch (r.failure) {
     case 'not_desktop': return new LocalError('not_desktop', offlineWords(name, 'no_local_apps'))
