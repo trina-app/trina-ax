@@ -991,8 +991,10 @@ export class FileService {
     const kind = mediaKind(a.file_path)
     if (a.raw) return this.readRaw(ctx, a, !!kind || isVisionImage(a.file_path) || e === 'pdf' || isOffice(a.file_path) || SHEET_EXT.has(e) || e === 'hwp' || e === 'hwpx')
     // a PowerPoint deck's slides as pictures (files/deck-pdf.ts); a plain read of a deck stays its text
-    if ((a.pages !== undefined || a.as_images) && SLIDE_IMAGE_EXT.has(e)) return this.readDeck(ctx, a)
+    // Word, Excel and PowerPoint pages through LibreOffice where the server has it (files/office-view.ts); a deck
+    // without it is drawn by the server's own slide renderer
     if ((a.pages !== undefined || a.as_images) && OFFICE_VIEW_EXT.has(e) && officeViewer()) return this.readOfficePages(ctx, a, e)
+    if ((a.pages !== undefined || a.as_images) && SLIDE_IMAGE_EXT.has(e)) return this.readDeck(ctx, a)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError(pagesOnlyText(e), 'bad_pages')
     if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
     if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')

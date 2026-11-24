@@ -30,6 +30,7 @@ import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
 import { openToRead, readRegular } from '../files/store'
 import { OFFICE_EXIT_EARLIER_MAX, officeExitCheck, officeKind } from '../files/office-exit'
+import { officeRecalc, officeViewer } from '../files/office-view'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
@@ -165,7 +166,7 @@ function noteWorkRead(exec: TurnExec): boolean {
 /** A Word, PowerPoint or Excel file leaving the work folder (files/office-exit.ts): checked in place at `tmp` (an
  * attached template taken out, so its hash may change) against what this answer read, the file it replaces (`also`,
  * team paths) and `given` earlier bytes. Throws a ToolError when it holds a risky item the earlier versions did not. */
-async function officeOut(exec: TurnExec, files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, also: string[] = [], given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string }> {
+async function officeOut(exec: TurnExec, files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, also: string[] = [], given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
   if (!officeKind(got.name)) return got
   const root = exec.rt.ctx.files.fx.root
   const earlier: Uint8Array[] = [...given]
@@ -174,10 +175,21 @@ async function officeOut(exec: TurnExec, files: TurnFiles, tmp: string, got: { n
     try { earlier.push(new Uint8Array(readRegular(path.join(root, ...p.split('/')), OFFICE_EXIT_EARLIER_MAX).bytes)) } catch { /* gone or unreadable: vouches for nothing */ }
   }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
-  const out = await officeExitCheck(got.name, bytes, earlier, exec.abort.signal)
-  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return got
+  let out = await officeExitCheck(got.name, bytes, earlier, exec.abort.signal)
+  // a workbook: every formula's result stored in the file (files/xlsx-values.ts), so a preview shows numbers
+  let note = ''
+  if (officeKind(got.name) === 'xlsx') {
+    if (!officeViewer()) note = ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.'
+    else {
+      try { out = await officeRecalc(out, { user: exec.spec.userId, workBase: exec.rt.ctx.engineConfig.dataDir, signal: exec.abort.signal }) } catch (e) {
+        exec.abort.signal.throwIfAborted()
+        note = ` Its formula results could not be calculated (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}), so a preview may show empty formula cells: say so.`
+      }
+    }
+  }
+  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return { ...got, note }
   fs.writeFileSync(tmp, out)
-  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex') }
+  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex'), note }
 }
 
 /** A work-folder file into the team folder at `to` (save_work_file's route): the wider-audience card with the work
@@ -209,7 +221,7 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, movedCheck: true, detail: { from: 'work folder' } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this answer, so this was saved next to it; the original is unchanged.` : ''
-    return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
+    return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note}${'note' in got ? got.note ?? '' : ''} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not saved: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
@@ -246,7 +258,8 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
     // right before the hand-off: still the work folder of the chat's people now, and still no hidden part in the answer
     const now = o.where()
     if (!now || now.real !== first.real) return { ok: false, text: 'Not attached: the people of this chat changed while the file was copied. Make it again for the people here now.', summary: `${tool} -> refused: people changed` }
-    return await attach(exec, files, { tmp, name: got.name, sha256: got.sha256, tool, shown })
+    const r = await attach(exec, files, { tmp, name: got.name, sha256: got.sha256, tool, shown })
+    return 'note' in got && got.note && r.ok ? { ...r, text: r.text + got.note } : r
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not attached: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
@@ -296,7 +309,7 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const made = await attachProduced(rt.ctx, c, o.to.split('/'), tmp)
     const v = 'chatVersion' in made ? (made as { chatVersion: import('../files/place-output').ChatVersionMade }).chatVersion : null
     if (!v) return { ok: false, text: 'Not saved: name an existing file of this chat (chat:files/<file_id>/<name>).', summary: `${tool} -> refused: not a chat file` }
-    return { ok: true, to: v.path, text: `${versionText(v, 'Saved')} (from ${shown}, ${mb(v.size)} MB)`, summary: `${tool} -> version ${v.version} of ${v.path} (${v.size} B)` }
+    return { ok: true, to: v.path, text: `${versionText(v, 'Saved')} (from ${shown}, ${mb(v.size)} MB)${'note' in got ? got.note ?? '' : ''}`, summary: `${tool} -> version ${v.version} of ${v.path} (${v.size} B)` }
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not saved: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }

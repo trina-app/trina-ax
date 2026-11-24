@@ -119,7 +119,7 @@ describe('a run writes an Office file straight into a team folder', () => {
   test('a project run edits a template that already had the link: kept; adding a new risky link puts the template back', async () => {
     const rel = `${P.folderPath}/template.docx`
     // the company's template, uploaded on the Files screen between two commands: its own link is the company's
-    await h.api('alice').call(API.upload, { body: { fields: { folder: P.folderPath, name: 'template.docx', onExists: 'replace' }, file: new Blob([docx({ link: UNC, body: 'Template' })]) } } as never)
+    await h.api('alice').call(API.upload, { body: { fields: { folder: P.folderPath, name: 'template.docx', onExists: 'replace' }, file: new Blob([Buffer.from(docx({ link: UNC, body: 'Template' }))]) } } as never)
     expect(fs.existsSync(abs(rel))).toBe(true)
     await shell({ project: true })('true')
     const ok = put('ok.docx', docx({ link: UNC, body: 'Filled' }))
