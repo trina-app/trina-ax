@@ -49,7 +49,7 @@ export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST
 const QUOTED = /"[^"]*"|\u201C[^\u201D]*\u201D|\u2018[^\u2019]*\u2019|'[^'\n]*'|\u300C[^\u300D]*\u300D|\u300E[^\u300F]*\u300F|`[^`]*`/gu
 /** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
  * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
-const NOT_A_PLAIN_ASK = /말고|빼고|제외|없이|(?:^|\s)안(?:\s|$)|안\s?돼|하지|지\s?마|마세요|[?？]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|不要|别|以外|ではなく/iu
+const NOT_A_PLAIN_ASK = /\uB9D0\uACE0|\uBE7C\uACE0|\uC81C\uC678|\uC5C6\uC774|(?:^|\s)\uC548(?:\s|$)|\uC548\s?\uB3FC|\uD558\uC9C0|\uC9C0\s?\uB9C8|\uB9C8\uC138\uC694|[?\uFF1F]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|\u4E0D\u8981|\u522B|\u4EE5\u5916|\u3067\u306F\u306A\u304F/iu
 /** The asker's own words, outside anything they quote, write "@everyone" (each language's word) as a whole word in a plain
  * request (the room named, docs/decisions/20261123-do-then-undo.md). "@전체회의", "@everyone-sync", "@전체 말고", or "@전체" only inside
  * quoted words (someone else's, or the text) are no ask to notify everyone: the card shows. */
