@@ -3,6 +3,7 @@
 // office-view group) the whole route runs too (files/office-view.ts officeRecalc).
 import { describe, expect, test } from 'bun:test'
 import os from 'node:os'
+import ExcelJS from '../../server/node_modules/exceljs'
 import { mergeXlsxValues } from '../../server/src/files/xlsx-values'
 import { officeRecalc, officeViewer } from '../../server/src/files/office-view'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
@@ -44,8 +45,12 @@ describe('the merge', () => {
 
 describe('the whole route, where the server has LibreOffice', () => {
   test.skipIf(!officeViewer())('an openpyxl-like workbook comes back with its results', async () => {
-    const original = book('<row r="1"><c r="A1"><v>2</v></c><c r="B1"><f>A1*21</f></c></row>')
+    // a real workbook with a formula and no stored result, as openpyxl writes one
+    const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('예산')
+    ws.getCell('A1').value = 2; ws.getCell('B1').value = { formula: 'A1*21' } as ExcelJS.CellFormulaValue
+    const original = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
     const out = await officeRecalc(original, { user: 'test', workBase: os.tmpdir() })
-    expect(sheetOf(out)).toContain('<f>A1*21</f><v>42</v>')
+    const back = new ExcelJS.Workbook(); await back.xlsx.load(Buffer.from(out) as never)
+    expect((back.getWorksheet('예산')!.getCell('B1').value as { result?: unknown }).result).toBe(42)
   })
 })
