@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { runTree, DIRECT_WATCH_MS, procTable, descendants, containerMemory, directArgv, sweepLeftoverRuns, DIRECT_HEADROOM_MIB, SRT_OOM_SCORE, PAYLOAD_OOM_SCORE } from '../../server/src/devenv/srt/system'
+import { runTree, DIRECT_WATCH_MS, procTable, descendants, containerMemory, directArgv, directCommand, sweepLeftoverRuns, DIRECT_HEADROOM_MIB, SRT_OOM_SCORE, PAYLOAD_OOM_SCORE } from '../../server/src/devenv/srt/system'
 import { parsePlan, effectiveLimits } from '../../server/src/devenv/srt/plan'
 import { renderParallel, RENDER_PARALLEL } from '../../server/src/files/html-pdf'
 import { groupsFor, packagesFor, pythonsFor, type PackageList } from '../../scripts/system/packages'
@@ -109,6 +109,8 @@ describe('the direct runner counts a run\'s whole process tree', () => {
     const a = directArgv(s, 140, () => true)
     expect(a.slice(0, 9)).toEqual(['/usr/bin/setsid', '/usr/bin/nice', '-n', '19', '/usr/bin/chrt', '--idle', '0', '/usr/bin/prlimit', '--nproc=652'])
     expect(a.slice(9, 12)).toEqual(['/opt/trina/devenv/run-wrap', '/b/x.exit', '--'])
+    // the sandboxed shell raises its own OOM score before the command, on a line of its own (a heredoc stays whole)
+    expect(directCommand("cat <<'EOF'\nx\nEOF")).toBe(`echo ${PAYLOAD_OOM_SCORE} > /proc/self/oom_score_adj 2>/dev/null\ncat <<'EOF'\nx\nEOF`)
     // a missing program is left out, never the run
     expect(directArgv(s, 0, (f) => f !== '/usr/bin/chrt')).not.toContain('/usr/bin/chrt')
   })
