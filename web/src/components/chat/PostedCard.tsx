@@ -47,9 +47,15 @@ export default function PostedCard({ posted, endedAt }: { posted: NonNullable<St
   // a team room and the everyone room with "#", as the offer under the answer and the AI's answer name them
   const where = room ? (room.kind === 'team' || room.kind === 'all' ? `#${titleOf(room)}` : titleOf(room)) : ''
   const place = where || posted.to || ''
+  // a 1:1 chat names its person ("박준호님에게 보낸 글"), a room or a group chat the place ("#영업팀에 보낸 글")
+  const person = room ? room.kind === 'dm' && room.peers.length > 0 : !!posted.toPerson
   const title = gone
-    ? (place ? t(posted.mentionsAll ? 'postedCard.undoneToNotified' : 'postedCard.undoneTo', { to: place }) : t(posted.mentionsAll ? 'postedCard.undoneNotified' : 'postedCard.undone'))
-    : place ? t('shareCard.posted', { room: place }) : t('shareCard.postedPlain')
+    ? (place
+      ? (person
+        ? t(posted.mentionsAll ? 'postedCard.undoneToPersonNotified' : 'postedCard.undoneToPerson', { to: place })
+        : t(posted.mentionsAll ? 'postedCard.undoneToNotified' : 'postedCard.undoneTo', { to: place }))
+      : t(posted.mentionsAll ? 'postedCard.undoneNotified' : 'postedCard.undone'))
+    : place ? (person ? t('shareCard.postedToPerson', { to: place }) : t('shareCard.posted', { room: place })) : t('shareCard.postedPlain')
   const footer = gone ? undefined : (
     <>
       {error && <span role="alert" className="mr-auto text-xs break-keep text-danger" data-testid="posted-card-error">{error}</span>}
