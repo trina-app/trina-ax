@@ -52,7 +52,7 @@ test('a person\'s message in a shared chat: one phone push each, the badge count
     want.push(unread())
     await p.tick()
   }
-  const mine = sent.filter((s) => s.payload.code === 'chat.message')
+  const mine = sent.filter((s) => s.payload.code === 'room.chat_message')
   expect(mine).toHaveLength(2)
   expect(new Set(mine.map((s) => s.payload.notificationId)).size).toBe(2)
   expect(mine.map((s) => s.payload.badge)).toEqual(want)
@@ -61,7 +61,7 @@ test('a person\'s message in a shared chat: one phone push each, the badge count
   await ended()
   await nora.client.call('POST', `/api/chats/${chat.id}/seen`)
   await p.tick()
-  expect(sent.filter((s) => s.payload.code === 'chat.message')).toHaveLength(2)
+  expect(sent.filter((s) => s.payload.code === 'room.chat_message')).toHaveLength(2)
 })
 
 // With an answer (the fake engine): each exchange is two unread messages for the other person, the message and Trina's

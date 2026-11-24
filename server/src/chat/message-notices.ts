@@ -16,7 +16,7 @@
 // who is active, who muted the chat and everyone's preferences in one query each, writes in one transaction, and asks
 // nothing per person but the insert.
 import type { Database } from 'bun:sqlite'
-import { inQuietHours } from '@mycel/shared/api'
+import { inQuietHours, plainLabel, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
@@ -26,6 +26,9 @@ import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
 import { answerHiddenFrom } from './shared-answers'
 import type { ChatRow } from './store'
+import { ROOM_WORDS } from '../notifications/text'
+import { activeName, chatPlace, previewFiles, pushPreview } from '../notifications/push-preview'
+import { plainMarkdown } from '../rooms/inbox'
 
 type Kind = 'message' | 'answer'
 /** A chat whose people's messages tell the others: one shared with people (#339) or a team project's shared chat (both
@@ -181,4 +184,25 @@ export function chatMessagePath(ctx: AppContext, notificationId: string): string
 export function chatMessageLink(ctx: AppContext, notificationId: string): { chatId: string; messageId: string } | null {
   const n = noticeOf(ctx.db, notificationId)
   return n && chatOpenFor(ctx, n.user_id, n.chat_id) ? { chatId: n.chat_id, messageId: n.source_id } : null
+}
+
+/** The words a phone shows for this push (push-service.ts label; docs/decisions/20261124-push-preview-slack-rule.md):
+ * who wrote (Trina for a scheduled run's answer) and where (the chat's title, a stored connection secret of its creator
+ * hidden; else its project's name) as the title, and the message (notifications/push-preview.ts) as the line while the
+ * reader's preview is on. Only while the push would still go (chatMessageWanted). null: the generic words stay. */
+export function chatMessageLabel(ctx: AppContext, notificationId: string, locale: Locale, preview: boolean): { title: string; body: string | null; roomId: string } | null {
+  const n = noticeOf(ctx.db, notificationId)
+  if (!n || !chatMessageWanted(ctx, notificationId)) return null
+  const m = ctx.db.query('SELECT role, content, attachments FROM messages WHERE id = ? AND chat_id = ?').get(n.source_id, n.chat_id) as { role: 'user' | 'assistant'; content: string; attachments: string } | null
+  if (!m) return null
+  // an answer of Trina's (a scheduled run's) may have become hidden from the reader since its notice was made (a place
+  // it read that they no longer may): asked again now, as the chat does when it shows it
+  if (m.role === 'assistant' && answerHiddenFrom(ctx.db, ctx.files, n.chat_id, n.source_id, [n.user_id]).has(n.user_id)) return null
+  const who = n.by_user ? activeName(ctx.db, n.by_user) : m.role === 'assistant' ? ROOM_WORDS[locale].ai : null
+  const place = chatPlace(ctx, n.chat_id, n.user_id)
+  const title = plainLabel(who && place ? `${who} · ${place}` : who || place, 120)
+  if (!title) return null
+  const text = m.role === 'assistant' ? plainMarkdown(m.content) : m.content
+  const body = pushPreview(ctx, { preview, text, files: previewFiles(m.attachments), writer: n.by_user, reader: n.user_id, locale, chatId: n.chat_id })
+  return { title, body, roomId: n.chat_id }
 }
