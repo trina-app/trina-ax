@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 14:08
 - Branch: `fix/docx-comments-written`
-- Status: in progress
+- Status: done
 - Where: server/src/files, server/src/chat/places-copy.ts. Why: the save path of the work folder is core (docs/REPOSITORY-RULES.md)
 - Version impact: patch: a save result says more; no new tool, setting or API
 
@@ -48,3 +48,8 @@ tests/unit/c-comment-docx.test.ts.
 
 ## Result
 
+Built as planned: files/docx-review.ts (mode `docx-review`), officeOut in chat/places-copy.ts adds the line for
+every Word file leaving the work folder, decision docs/decisions/20261124-docx-save-read-back.md. On the QA files the
+line reads "8 tracked insertions, 9 tracked deletions; no comments" for Trina's and "10 tracked insertions, 11 tracked
+deletions; 4 comments (all shown in the margin)" for Claude Code's; a comment.py comment without its marks is named as
+not shown. A file with a fault is saved and the fault named, not refused.
