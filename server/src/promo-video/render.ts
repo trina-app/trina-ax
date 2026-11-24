@@ -37,6 +37,7 @@ import { DURATION, type VideoDoc } from './layout'
 import { chatFileOf, kindOf, pictureExt, teamPathOf } from './spec'
 import { imageSize } from '../uploads/image'
 import { shrinkPicture } from '../onboarding/brand-assets'
+import { exifOrientation } from '../uploads/metadata'
 import { chatFilesOf } from '../chat/chat-files'
 import { PROMO_FONT_FILE, renderDocument } from './template'
 
@@ -129,7 +130,7 @@ async function renderSize(bytes: Buffer): Promise<{ bytes: Buffer; ext: 'png' | 
   if (!kind || !size) return null
   const f = renderFactor(size.width, size.height)
   if (f >= 0.95) return null
-  return shrinkPicture(bytes, kind, size.width, size.height, f)
+  return shrinkPicture(bytes, kind, size.width, size.height, f, exifOrientation(bytes))
 }
 
 interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
@@ -320,36 +321,38 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
   let argv: string[], env: Record<string, string>, cwd: string
   let leaf: string | null = null
   let limits: string | null = null
-  if (t.isolated) {
-    try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return { code: null, oom: false } }
-    // the render's own limits where the CLI looks for them (it cannot see /sys in the isolation, and sized the browser
-    // and its JavaScript heap by the machine's memory instead: a 16 GB server gave Chrome 8 GB of tile memory inside a
-    // 1280 MiB leaf); read-only files beside the work folder, never the cgroup itself
-    if (leaf) {
-      limits = `${work}.limits`
-      fs.mkdirSync(limits, { mode: 0o755 })
-      fs.writeFileSync(path.join(limits, 'memory.max'), String(VIDEO_ONE_MIB * 1048576), { mode: 0o644 })
-      fs.writeFileSync(path.join(limits, 'cpu.max'), `${RENDER_CPUS * 100000} 100000`, { mode: 0o644 })
-    }
-    // as many CPUs as the render may use (S/video's cpu.max): the CLI sizes the encoder's threads, and with them its
-    // frame buffers, by the CPUs it sees (os.availableParallelism)
-    const cpus = renderCpus()
-    const c = isolatedCommand({
-      cmd: cpus ? TASKSET : t.node, args: [...(cpus ? ['-c', cpus, t.node] : []), t.cli, ...args], workDir: work,
-      // the tree, node's own folder (bin/ and lib/) and the browser's folder (its libraries and resources)
-      readPaths: [...new Set([t.dir, path.dirname(path.dirname(t.node)), ...(t.browser ? [browserHome(t.browser)] : [])])],
-      ...(limits ? { bindFiles: ['memory.max', 'cpu.max'].map((f) => ({ from: path.join(limits!, f), to: `/sys/fs/cgroup/${f}` })) } : {}),
-      env: { ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
-      timeoutMs, background: false, cpuThreads: Math.max(1, os.availableParallelism()),
-      ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: 900 } } : {}),
-    })
-    argv = c.argv; env = c.env; cwd = work
-  } else {
-    argv = [t.node, t.cli, ...args]
-    env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? os.homedir(), ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) }
-    cwd = t.dir
-  }
   try {
+    if (t.isolated) {
+      try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return { code: null, oom: false } }
+      // the render's own limits where the CLI looks for them (it cannot see /sys in the isolation, and sized the browser
+      // and its JavaScript heap by the machine's memory instead: a 16 GB server gave Chrome 8 GB of tile memory inside a
+      // 1280 MiB leaf); read-only files beside the work folder, never the cgroup itself
+      if (leaf) {
+        limits = `${work}.limits`
+        fs.mkdirSync(limits, { mode: 0o755 })
+        fs.writeFileSync(path.join(limits, 'memory.max'), String(VIDEO_ONE_MIB * 1048576), { mode: 0o644 })
+        fs.writeFileSync(path.join(limits, 'cpu.max'), `${Math.min(RENDER_CPUS, os.availableParallelism()) * 100000} 100000`, { mode: 0o644 })
+      }
+      // as many CPUs as the render may use (S/video's cpu.max): the CLI sizes the encoder's threads, and with them its
+      // frame buffers, by the CPUs it sees (os.availableParallelism); also where there is no cgroup (a render never
+      // takes more than two cores from the server)
+      const cpus = renderCpus()
+      const lim = limits
+      const c = isolatedCommand({
+        cmd: cpus ? TASKSET : t.node, args: [...(cpus ? ['-c', cpus, t.node] : []), t.cli, ...args], workDir: work,
+        // the tree, node's own folder (bin/ and lib/) and the browser's folder (its libraries and resources)
+        readPaths: [...new Set([t.dir, path.dirname(path.dirname(t.node)), ...(t.browser ? [browserHome(t.browser)] : [])])],
+        ...(lim ? { bindFiles: ['memory.max', 'cpu.max'].map((f) => ({ from: path.join(lim, f), to: `/sys/fs/cgroup/${f}` })) } : {}),
+        env: { ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
+        timeoutMs, background: false, cpuThreads: Math.max(1, os.availableParallelism()),
+        ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: 900 } } : {}),
+      })
+      argv = c.argv; env = c.env; cwd = work
+    } else {
+      argv = [t.node, t.cli, ...args]
+      env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? os.homedir(), ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) }
+      cwd = t.dir
+    }
     const code = await spawnCli(argv, env, cwd, timeoutMs, ctx)
     return { code, oom: !!leaf && leafOom(leaf, ctx) }
   } finally {
@@ -360,7 +363,7 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
 
 /** Whether the kernel killed the render for its memory (memory.events oom_kill); logged with the leaf's peak, so a
  * render that does not fit shows in the log as that, not as an exit code. */
-function leafOom(leaf: string, ctx: AppContext): boolean {
+export function leafOom(leaf: string, ctx: AppContext): boolean {
   try {
     const kills = Number(/^oom_kill (\d+)$/m.exec(fs.readFileSync(path.join(leaf, 'memory.events'), 'utf8'))?.[1] ?? 0)
     if (kills > 0) ctx.log.warn('promo video render ran out of memory', { limitMiB: VIDEO_ONE_MIB, ...printLeafPeak(leaf) })

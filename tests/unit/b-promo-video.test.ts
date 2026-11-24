@@ -20,7 +20,7 @@ import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../serve
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
 import { AUDIO_DIR, PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
-import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, RENDER_PICTURE_PIXELS, RENDER_PICTURE_SHORT, renderCpus, renderFactor, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, RENDER_PICTURE_PIXELS, RENDER_PICTURE_SHORT, leafOom, renderCpus, renderFactor, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 import { rawRgba, shrinkPicture } from '../../server/src/onboarding/brand-assets'
 import { imageSize } from '../../server/src/uploads/image'
 import { which } from '../../server/src/config'
@@ -730,6 +730,21 @@ describe('the render within its memory (S/video, 1280 MiB): pictures at the size
     expect(renderCpus('nothing here')).toBeNull()
   })
 
+  test('a render the kernel killed for memory is told apart from another failure (memory.events oom_kill)', () => {
+    const leaf = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-leaf-'))
+    const warned: string[] = []
+    const ctx = { log: { warn: (m: string) => warned.push(m) } } as unknown as Parameters<typeof leafOom>[1]
+    try {
+      fs.writeFileSync(path.join(leaf, 'memory.events'), 'low 0\nhigh 0\nmax 12\noom 1\noom_kill 0\n')
+      expect(leafOom(leaf, ctx)).toBe(false)
+      fs.writeFileSync(path.join(leaf, 'memory.events'), 'low 0\nhigh 0\nmax 155\noom 1\noom_kill 6\noom_group_kill 1\n')
+      fs.writeFileSync(path.join(leaf, 'memory.peak'), String(1280 * 1048576))
+      expect(leafOom(leaf, ctx)).toBe(true)
+      expect(warned).toEqual(['promo video render ran out of memory'])
+      expect(leafOom(path.join(leaf, 'gone'), ctx)).toBe(false)
+    } finally { fs.rmSync(leaf, { recursive: true, force: true }) }
+  })
+
   test.skipIf(!which('ffmpeg') || isolation() === 'none')('shrinkPicture: a JPEG stays a JPEG, a PNG keeps its transparency, at the asked size', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-shrink-'))
     try {
@@ -746,6 +761,13 @@ describe('the render within its memory (S/video, 1280 MiB): pictures at the size
       expect(p && { ext: p.ext, ...imageSize(p.bytes) }).toEqual({ ext: 'png', width: 1600, height: 1600 })
       const px = await rawRgba(p!.bytes, 'png', 4)
       expect(Math.abs(px![3]! - 128)).toBeLessThan(8)
+      // a phone's portrait photo (stored landscape, EXIF orientation 6): the copy stands upright, as the browser showed
+      // the original, whatever ffmpeg's own handling of the tag (-noautorotate)
+      const tiff = Buffer.from([0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0])
+      const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, 0, 2 + 6 + tiff.length]), Buffer.from('Exif\0\0', 'latin1'), tiff])
+      const turned = Buffer.concat([jpg.subarray(0, 2), app1, jpg.subarray(2)])
+      const t = await shrinkPicture(turned, 'jpg', 3200, 2400, renderFactor(3200, 2400), 6)
+      expect(t && imageSize(t.bytes)).toEqual({ width: 1600, height: 2133 })
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
 })
