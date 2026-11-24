@@ -46,6 +46,7 @@ import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { writeBoxBrowser } from './box-browser'
+import { writeDocSkills } from '../doc-skills'
 import { sweepAfterRun } from './browser-profiles'
 import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
@@ -622,6 +623,8 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   writeGitWrapper(c, runPlatform())
   // `chromium` and the names people expect start the pinned browser (box-browser.ts); a failure leaves the system's
   try { writeBoxBrowser(p.bin, boxBrowser(runPlatform()), SRT_PATHS.node) } catch (e) { void e }
+  // the document skills, read-only in a run; a failure leaves the AI on make_file's path
+  try { if (runPlatform() === 'linux') writeDocSkills(p.bin) } catch (e) { void e }
   // a font preference never stops a command (runEnv leaves the fonts out when fonts.conf is missing)
   try { writeBoxFonts(c, runPlatform()) } catch { /* the system's fonts */ }
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
