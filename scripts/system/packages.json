@@ -92,6 +92,10 @@
         "python3-packaging": "",
         "python3-reportlab": "",
         "python3-pypdf": "",
+        "python3-defusedxml": "",
+        "python3-cryptography": "",
+        "python3-charset-normalizer": "",
+        "qpdf": "",
         "build-essential": "",
         "chromium": { "on": ["debian-12", "debian-13"] }
       },
@@ -295,7 +299,7 @@
   "python": {
     "python-pptx": {
       "version": "1.0.2",
-      "for": "the dev environment's Python (server/src/devenv/srt/config.ts BOX_PYTHON_BIN): a venv with the system's site-packages, first on a run's PATH, so python3 there has apt's libraries (the devenv group) plus python-pptx and matplotlib. Resolved with uv against Debian 12's numpy 1.24.2, Pillow 9.4.0, lxml 4.9.2, XlsxWriter 3.0.2, python-dateutil 2.8.2 and packaging 23.0 (the oldest of the list's systems), which come from apt and are not pinned here",
+      "for": "the dev environment's Python (server/src/devenv/srt/config.ts BOX_PYTHON_BIN): a venv with the system's site-packages, first on a run's PATH, so python3 there has apt's libraries (the devenv group) plus python-pptx and matplotlib. Resolved with uv against Debian 12's numpy 1.24.2, Pillow 9.4.0, lxml 4.9.2, XlsxWriter 3.0.2, python-dateutil 2.8.2 and packaging 23.0 (the oldest of the list's systems), which come from apt and are not pinned here. pdfplumber 0.11.4, pdfminer.six 20231228, pypdfium2 4.30.0 and pdf2image 1.17.0 are for the document skills (resources/doc-skills): the newest pdfplumber needs Pillow 13, above Debian 12's",
       "python": ">=3.11",
       "program": "python",
       "systemSite": true,
@@ -307,7 +311,11 @@
         "kiwisolver==1.5.1": "21e46b23a2da695c364124817bc01d970effd5483147f8d66a6a7167e3f6b851 34633ecf50d16187ab8e5528b7a2530f2feb4e23f300db4672538b51cfc5cd38 719a35fa1156db3640555f95ebb94f60a444e64d1c69626b0edef5df78eba225 74ad5c3dad54a4641b4c28cd15ded70899d04459c6c7aeacafea716be97cce6d 95a02752aa032eef4aed01cda6d9b687c669bd0396bf4519eef8bba22a286720 d27c2123977cb9269c30a49ba45f03a4323017ef693e19db4ec9dbe1299a3002",
         "matplotlib==3.10.9": "56fc0bd271b00025c6edfdc7c2dcd247372c8e1544971d62e1dc7c17367e8bf9 6c63ebcd8b4b169eb2f5c200552ae6b8be8999a005b6b507ed76fb8d7d674fe2 7a8d66a55def891c33147ba3ba9bfcabf0b526a43764c818acbb4525e5ed0838 8e436d155fa8a3399dc62683f8f5d0e2e50d25d0144a73edd73f82eec8f4abfb 8f3bcac1ca5ed000a6f4337d47ba67dfddf37ed6a46c15fd7f014997f7bf865f ae20801130378b82d647ff5047c07316295b68dc054ca6b3c13519d0ea624285",
         "pyparsing==3.3.3": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
-        "typing-extensions==4.16.0": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+        "typing-extensions==4.16.0": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+        "pdfplumber==0.11.4": "6150f0678c7aaba974ac09839c17475d6c0c4d126b5f92cb85154885f31c6d73",
+        "pdfminer-six==20231228": "e8d3c3310e6fbc1fe414090123ab01351634b4ecb021232206c4c9a8ca3e3b8f",
+        "pypdfium2==4.30.0": "4e6e50f5ce7f65a40a33d7c9edc39f23140c57e37144c2d6d9e9262a2a854854 f1f78d2189e0ddf9ac2b7a9b9bd4f0c66f54d1389ff6c17e9fd9dc034d06eb3f",
+        "pdf2image==1.17.0": "ecdd58d7afb810dffe21ef2b1bbc057ef434dabbac6c33778a38a3f7744a27e2"
       }
     },
     "workspace-mcp": {
