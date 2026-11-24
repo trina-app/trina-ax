@@ -4,7 +4,7 @@
 // markers are placed), one nothing links to or with no content type, and marks that name no comment.
 import { describe, expect, test } from 'bun:test'
 import { addDocxComments } from '../../server/src/files/docx-comment'
-import { docxReview, docxReviewLine, docxReviewRequest } from '../../server/src/files/docx-review'
+import { docxReview, docxReviewLine, docxReviewRequest, REVIEW_PART } from '../../server/src/files/docx-review'
 import { docxExtraText } from '../../server/src/files/ooxml'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { docx } from '../lib/office-fixture'
@@ -38,7 +38,7 @@ describe('Word review read-back (docx-review.ts)', () => {
     const saved = new Uint8Array(writeZip(readZip(r.file)))
     const back = docxReview(saved)
     expect(back).toEqual({ inserted: 2, deleted: 2, moved: 1, comments: 2, placed: 2, unknownMarks: 0, unlinked: '' })
-    expect(docxReviewLine(back)).toBe(' Read back from the saved file: 2 tracked insertions, 2 tracked deletions, 1 tracked move; 2 comments (all shown in the margin). Describe the file\'s tracked changes and comments only as this read-back says.')
+    expect(docxReviewLine(back)).toBe(' Read back from the saved file: 2 tracked insertion marks, 2 tracked deletion marks, 1 tracked move mark (marks in the file\'s XML, not Word\'s Review count: one edit can be several marks); 2 comments (all shown in the margin). Describe the file\'s tracked changes and comments only as this read-back says.')
     // the normal reader agrees: both comments and the tracked changes
     const extra = docxExtraText(saved)
     expect(extra).toContain('Confirm the client name')
@@ -84,6 +84,19 @@ describe('Word review read-back (docx-review.ts)', () => {
     const r = docxReview(lost)
     expect(r).toMatchObject({ comments: 0, placed: 0, unknownMarks: 1 })
     expect(docxReviewLine(r)).toContain('no comments. Problems: 1 comment mark in the text names no comment, so Word may say the file is damaged.')
+  })
+
+  test('a comment anchored in a footnote counts as shown; pictures are not kept for the read', () => {
+    const marked = addDocxComments(TRACKED, [{ on: 'Payment terms', text: 'Check the split' }], 'QA Member', '2026-11-24T09:00:00Z').file
+    // the mark moved from the body into word/footnotes.xml
+    const moved = withPart(marked, 'word/document.xml', (x) => x.replace(/<w:commentRangeStart[^>]*\/>|<w:commentRangeEnd[^>]*\/>|<w:r><w:commentReference[^>]*\/><\/w:r>/g, ''))
+    const notes = writeZip([...readZip(moved), { name: 'word/footnotes.xml', data: enc.encode('<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:id="1"><w:p><w:commentRangeStart w:id="0"/><w:r><w:t>See note</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p></w:footnote></w:footnotes>') }])
+    expect(docxReview(notes)).toMatchObject({ comments: 1, placed: 1, unknownMarks: 0, unlinked: '' })
+    // only the parts the read needs are kept in memory (checkZip still bounds every entry): no picture
+    const bytes = writeZip([...readZip(notes), { name: 'word/media/image1.png', data: new Uint8Array(4096).fill(7) }])
+    expect(readZip(bytes, (n) => REVIEW_PART.test(n)).map((e) => e.name)).not.toContain('word/media/image1.png')
+    expect(readZip(bytes, (n) => REVIEW_PART.test(n)).map((e) => e.name)).toContain('word/footnotes.xml')
+    expect(docxReview(bytes)).toMatchObject({ comments: 1, placed: 1 })
   })
 
   test('not a Word file: refused with words', () => {

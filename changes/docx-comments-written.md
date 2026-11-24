@@ -1,1 +1,1 @@
-- When Trina saves a Word file it built, it now reads the saved file back and reports how many tracked changes and margin comments it really holds, and names comments Word would not show. Trina no longer says comments were saved when the file has none.
+- When Trina saves a Word file it built, it now reads the saved file back and says how many tracked changes and margin comments it holds, and names comments Word would not show, so its answer describes the file as saved.

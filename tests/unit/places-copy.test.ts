@@ -285,7 +285,7 @@ describe('out of chat:work/', () => {
     fs.writeFileSync(p, docx({ extra: `<w:p><w:del w:id="1" ${W}><w:r><w:delText>there</w:delText></w:r></w:del><w:ins w:id="2" ${W}><w:r><w:t>their</w:t></w:r></w:ins></w:p>` }))
     const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/proposal_corrected.docx', save_as: 'users/alice/' }, sayResult: true }))
     expect(saved.content).toContain('Saved')
-    expect(saved.content).toContain('Read back from the saved file: 1 tracked insertion, 1 tracked deletion; no comments.')
+    expect(saved.content).toContain('Read back from the saved file: 1 tracked insertion mark, 1 tracked deletion mark (marks in the file\'s XML, not Word\'s Review count: one edit can be several marks); no comments.')
     // a comment mark whose comment is missing, through copy_files: named as a problem
     fs.writeFileSync(p, docx({ extra: '<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>x</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p>' }))
     const copied = await run('alice', chat, copy(['chat:work/out/proposal_corrected.docx'], 'users/alice/'))

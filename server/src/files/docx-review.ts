@@ -6,7 +6,9 @@
 // The bytes are untrusted, so this runs only in the office worker (mode `docx-review`); the zip is checked first
 // (ooxml.ts parts) and the XML is scanned linearly (ooxml.ts tags).
 import { ToolError } from '../policy/errors'
-import { attr, parts, rels, tags, xmlOf } from './ooxml'
+import { attr, rels, tags, xmlOf, type Parts } from './ooxml'
+import { checkZip, isZip } from './zip-guard'
+import { readZip } from './zip-write'
 
 export const DOCX_REVIEW_MODE = 'docx-review'
 
@@ -30,9 +32,18 @@ const COMMENTS_REL = /\/relationships\/comments$/
 const COMMENTS_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml'
 const OFFICE_DOC_REL = /\/relationships\/officeDocument$/
 
+/** The parts the review reads: the XML of the package and its relationships, never pictures or other media. Only these
+ * are kept in memory (checkZip still bounds every entry's expansion). */
+export const REVIEW_PART = /^(\[Content_Types\]\.xml|_rels\/\.rels|word\/[^/]+\.xml|word\/_rels\/[^/]+\.xml\.rels)$/
+/** the parts beside the body that can hold comment marks */
+const MARK_PARTS = ['word/footnotes.xml', 'word/endnotes.xml']
+
 /** The review read of a .docx; ToolError when it is not a Word file that can be read. */
 export function docxReview(bytes: Uint8Array): DocxReview {
-  const p = parts(bytes, 'Word document')
+  if (!isZip(bytes)) throw new ToolError('could not read this Word document (not a zip container)')
+  checkZip(bytes)
+  const p: Parts = new Map()
+  try { for (const e of readZip(bytes, (n) => REVIEW_PART.test(n))) p.set(e.name, e.data) } catch (e) { throw new ToolError(`could not read this Word document (${String((e as Error).message).slice(0, 120)})`) }
   // the main part as the package names it (Word's own files: word/document.xml)
   const main = [...rels(p, '').values()].find((r) => OFFICE_DOC_REL.test(r.type))?.target ?? 'word/document.xml'
   const doc = xmlOf(p, main)
@@ -50,6 +61,12 @@ export function docxReview(bytes: Uint8Array): DocxReview {
     else if (t.name === 'w:del') out.deleted++
     else if (t.name === 'w:moveTo') out.moved++
     else if (t.name === 'w:commentReference') { const id = attr(t.head, 'w:id'); if (id !== undefined) marked.add(id) }
+  }
+  // comments can also be anchored in footnotes and endnotes
+  for (const name of MARK_PARTS) {
+    for (const t of tags(xmlOf(p, name) ?? '')) {
+      if (t.name === 'w:commentReference' && !t.close) { const id = attr(t.head, 'w:id'); if (id !== undefined) marked.add(id) }
+    }
   }
   // the comments part: the one the main part's relationship names, else word/comments.xml if the file has it anyway
   const rel = [...rels(p, main).values()].find((r) => COMMENTS_REL.test(r.type))
@@ -75,7 +92,7 @@ const n = (k: number, one: string, many: string = one + 's') => `${k} ${k === 1 
 /** One line for a save result: what the saved Word file holds, and each fault that hides comments or damages it. */
 export function docxReviewLine(r: DocxReview): string {
   const changes = r.inserted + r.deleted + r.moved
-    ? [r.inserted && n(r.inserted, 'tracked insertion'), r.deleted && n(r.deleted, 'tracked deletion'), r.moved && n(r.moved, 'tracked move')].filter(Boolean).join(', ')
+    ? [r.inserted && n(r.inserted, 'tracked insertion mark'), r.deleted && n(r.deleted, 'tracked deletion mark'), r.moved && n(r.moved, 'tracked move mark')].filter(Boolean).join(', ')
     : 'no tracked changes'
   const shown = r.unlinked ? 0 : r.placed
   const comments = r.comments ? `${n(r.comments, 'comment')} (${shown === r.comments ? 'all shown in the margin' : `${shown} shown in the margin`})` : 'no comments'
@@ -84,7 +101,7 @@ export function docxReviewLine(r: DocxReview): string {
   else if (r.unlinked === 'no-content-type') faults.push(`its comments part has no content type in [Content_Types].xml, so Word shows none of its ${n(r.comments, 'comment')}`)
   else if (r.comments > r.placed) faults.push(`${n(r.comments - r.placed, 'comment')} ${r.comments - r.placed === 1 ? 'has' : 'have'} no w:commentReference in the text, so Word does not show ${r.comments - r.placed === 1 ? 'it' : 'them'}`)
   if (r.unknownMarks) faults.push(`${n(r.unknownMarks, 'comment mark')} in the text ${r.unknownMarks === 1 ? 'names' : 'name'} no comment, so Word may say the file is damaged`)
-  return ` Read back from the saved file: ${changes}; ${comments}.` +
+  return ` Read back from the saved file: ${changes}${r.inserted + r.deleted + r.moved ? ' (marks in the file\'s XML, not Word\'s Review count: one edit can be several marks)' : ''}; ${comments}.` +
     (faults.length ? ` Problems: ${faults.join('; ')}. Fix the file and save it again, or say this plainly in your answer.` : '') +
     ' Describe the file\'s tracked changes and comments only as this read-back says.'
 }

@@ -188,13 +188,13 @@ async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { 
 
 /** The read-back line of a Word file about to be saved (files/docx-review.ts, in the office worker). */
 async function docxReadBack(exec: TurnExec, tmp: string, size: number): Promise<string> {
-  if (size > OFFICE_WRITE_MAX) return ' It is too large to be read back here: describe its tracked changes and comments only as read shows them.'
+  if (size > OFFICE_WRITE_MAX) return ' It is too large for its tracked changes and comments to be read back here (the file itself is saved): describe them only as read shows them.'
   try {
     const r = JSON.parse((await officeWorkerWrite(DOCX_REVIEW_MODE, new Uint8Array(fs.readFileSync(tmp)), exec.abort.signal, 64 * 1024)).toString('utf8')) as DocxReview
     return docxReviewLine(r)
-  } catch (e) {
+  } catch {
     exec.abort.signal.throwIfAborted()
-    return ` It could not be read back (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}): describe its tracked changes and comments only as read shows them.`
+    return ' Its tracked changes and comments could not be read back this time (the file itself is saved): describe them only as read shows them.'
   }
 }
 
