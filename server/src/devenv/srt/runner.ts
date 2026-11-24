@@ -125,7 +125,7 @@ export function srtConfig(env: Record<string, string | undefined> = process.env)
   const id = configOverride?.id ?? env.MYCEL_LABEL ?? 'mycel'
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
   const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
-  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem({ base }), planFile }
   // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
   if (devPlatform() === 'darwin') {
     const m = macConfig(base, env)

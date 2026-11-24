@@ -236,6 +236,22 @@ const own = tool({ chatId: crypto.randomUUID() })
   console.log(`     note: both took ${ms} ms (each sleeps 3 s): ${ms >= 6000 ? 'one after the other (one command at a time per folder)' : 'at the same time'}; temp folders ${self(oa)} and ${self(ob)}`)
 }
 
+// ---- 5. no unit cgroup (the Docker image's direct runs, docs/decisions/20261124-docker-documents.md): the runner
+// watches a run's memory and processes and kills the whole tree over the plan's 1024 MiB or 256 processes ----
+{
+  const mem = tool({ project: null, chatId: crypto.randomUUID() })
+  const t0 = Date.now()
+  // 3 GiB in a child of a child (the watch counts the whole tree), touched page by page so it is resident
+  const o = textOf(await mem.call({ command: 'python3 -c "import subprocess,sys; subprocess.run([sys.executable,\'-c\',\'import time; b=bytearray(3<<30); [b.__setitem__(i,1) for i in range(0,len(b),4096)]; time.sleep(30); print(\\"MEM-SURVIVED\\")\'])"; echo RAN-AFTER' }, MAIN))
+  const ms = Date.now() - t0
+  report('DM1', 'a command over the plan\'s memory (3 GiB in a grandchild, cap 1024 MiB) is stopped as out of memory, the whole tree', hasNot('MEM-SURVIVED', 'the allocation lived')(o) ?? hasNot('RAN-AFTER', 'the shell went on after the kill')(o) ?? has('ran out of memory')(o) ?? (ms > 25_000 ? `stopped only after ${ms} ms` : null))
+  const fork = textOf(await mem.call({ command: 'for i in $(seq 1 400); do sleep 30 & done; wait; echo FORK-SURVIVED' }, MAIN))
+  report('DM2', 'a command with more processes than the plan allows (400 > 256) is stopped, no process left', hasNot('FORK-SURVIVED', 'the processes lived')(fork) ?? has('ran out of memory')(fork)
+    ?? (Bun.spawnSync(['pgrep', '-u', 'axserver', '-f', 'sleep 30']).stdout.toString().trim() ? 'sleep processes are left after the kill' : null))
+  const ok = textOf(await mem.call({ command: 'python3 -c "b=bytearray(200<<20); print(\'SMALL-OK\', len(b)>>20)"' }, MAIN))
+  report('DM3', 'a command under the caps (200 MiB) runs as before after a killed one', has('SMALL-OK 200')(ok))
+}
+
 console.log(failed ? `\n${failed} of ${count} sub-agent and skill cases failed` : `\nall ${count} sub-agent and skill cases held`)
 await ctx.close()
 process.exit(failed ? 1 : 0)

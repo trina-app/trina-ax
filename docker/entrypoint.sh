@@ -5,7 +5,11 @@
 #  2. Run scripts/install-linux.sh from the image's kit, into the volume on /var/lib/mycel, when the volume is new or
 #     when the kit version or the install settings changed: `install` the first time, `update` after that. The
 #     installer is the same one a Linux server uses, with --no-systemd --skip-apt --no-auto-update.
-#  3. exec `mycel-ctl supervise`: the engine firewall, the launcher as axagent and the server as axserver.
+#  3. Documents (docs/decisions/20261124-docker-documents.md), when the image has the run kit (docker/Dockerfile): the
+#     server runs the AI's document builds in srt with no systemd (MYCEL_DEV_ENV_SRT_DIRECT=1), and root writes the
+#     plan file <base>/root/dev-env.json at every start: offline, one run at a time, 1024 MiB per run. The server cannot
+#     change it. Page views and prints go one at a time (MYCEL_RENDER_PARALLEL=1): a container has no cgroup per render.
+#  4. exec `mycel-ctl supervise`: the engine firewall, the launcher as axagent and the server as axserver.
 #
 # Settings (environment):
 #   TRINA_AX_ENGINES         engines to install: "claude", "codex" or "claude codex" (default claude). The installer
@@ -51,10 +55,23 @@ if [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; 
   say "warning: kernel.yama.ptrace_scope is 0 on this host; set it to 1 on the host (sysctl -w kernel.yama.ptrace_scope=1)"
 fi
 
+# the run kit of the image (docker/Dockerfile, install-srt.sh --image-mode --documents)
+DOCS=0
+if [ -x /opt/trina/devenv/run-wrap ] && [ -x /opt/trina/node/bin/node ] && compgen -G "/opt/trina/srt/*/cli.js" >/dev/null \
+  && [ -e /opt/trina/python/python-pptx/current ]; then DOCS=1; fi
+
 # ---- 1) /etc/default/mycel (read by mycel-ctl supervise for the server's environment) ----
 {
   echo "# written by trina-ax-entrypoint at each container start"
   echo "MYCEL_HOST=0.0.0.0"
+  # no cgroup per render in a container: one print or page view at a time across the server
+  echo "MYCEL_RENDER_PARALLEL=1"
+  if [ "$DOCS" = 1 ]; then
+    # the dev environment's runner with no systemd: each run is srt in a process group of its own, watched by the
+    # server for its memory and processes (server/src/devenv/srt/system.ts directSystem)
+    echo "MYCEL_DEV_ENV=1"
+    echo "MYCEL_DEV_ENV_SRT_DIRECT=1"
+  fi
   if [ -n "${TRINA_AX_TIMEZONE:-}" ]; then
     [[ "$TRINA_AX_TIMEZONE" =~ ^[A-Za-z0-9_+/-]{1,64}$ ]] || die "TRINA_AX_TIMEZONE is not an IANA zone name"
     echo "MYCEL_TEAM_TZ=$TRINA_AX_TIMEZONE"
@@ -99,6 +116,18 @@ fi
 for d in "$BASE/run/tools" "$BASE/run-launcher"; do
   case "$(stat -c %A "$d")" in ??????s*) ;; *) die "$d has no setgid bit: add the capability FSETID (cap_add) and set TRINA_AX_REINSTALL=1 once" ;; esac
 done
+# ---- 3) documents: the plan file of the runs (root's; the server reads it and cannot change it, devenv/srt/plan.ts) ----
+# network offline whatever the team setting says, one run at a time (commands and jobs share it), 1024 MiB and 512
+# processes per run (the server kills a run over them). The container's mem_limit, pids_limit and cpus hold the rest.
+PLAN="$BASE/root/dev-env.json"
+if [ "$DOCS" = 1 ]; then
+  printf '%s\n' '{"format":1,"plan":"docker","maxRunning":1,"cpus":1,"memoryMiB":1024,"pids":512,"diskGiB":4,"network":"offline"}' > "$PLAN.tmp"
+  chown root:root "$PLAN.tmp" && chmod 644 "$PLAN.tmp" && mv -f "$PLAN.tmp" "$PLAN"
+  install -d -o axserver -g axserver -m 700 "$BASE/devenv"
+  say "documents: AI document builds run offline in srt (one at a time)"
+elif [ -f "$PLAN" ] && [ ! -L "$PLAN" ] && grep -q '"plan":"docker"' "$PLAN"; then
+  rm -f "$PLAN"
+fi
 # the admin command (the installer makes this link; a new container from the same image has not run the installer)
 ln -sfn "$BASE/root/mycel-ctl" /usr/local/sbin/mycel-ctl
 
@@ -106,5 +135,5 @@ if [ -e "$BASE/data/setup-token" ]; then
   say "first-run setup is open: run \`docker compose exec trina-ax trina-ax-setup-link\` for the setup link"
 fi
 
-# ---- 3) the firewall, the launcher and the server ----
+# ---- 4) the firewall, the launcher and the server ----
 exec "$BASE/root/mycel-ctl" supervise --base "$BASE"

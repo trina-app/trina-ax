@@ -3,13 +3,13 @@
 # 24.04). Run as root.
 # It adds:
 #   - the packages that the AI's commands use (python3, ffmpeg, chromium, build tools ...) and that srt needs
-#     (bubblewrap, socat, ripgrep), and polkitd: the groups core, media, fonts and devenv of the one list
+#     (bubblewrap, socat, ripgrep), and polkitd: the groups core, media, fonts, docrun and devenv of the one list
 #     (scripts/system/packages.json; install-linux.sh installs them too, unless --minimal);
 #   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later, and NODE_USE_ENV_PROXY needs 22.21), the
 #     tarball the list pins (version, sha256);
 #   - srt in /opt/trina/srt/<version> (the list's version) from the pinned package-lock.json (npm ci --ignore-scripts),
 #     root-owned;
-#   - the libraries a run has without pip or npm install: the devenv group's Python programs in /opt/trina/python
+#   - the libraries a run has without pip or npm install: the docrun group's Python programs in /opt/trina/python
 #     (python-pptx, matplotlib) and node-libs.package-lock.json in /opt/trina/node-libs (pptxgenjs, docx);
 #   - /opt/trina/devenv/run-wrap, the run template /etc/systemd/system/trina-dev@.service (each run is one instance;
 #     docs/DECISIONS.md "Dev environment on srt: runs as template units"), the polkit rule for the run units, the
@@ -20,11 +20,14 @@
 # Everything that srt or a run executes is outside <base>: the srt settings hide all of <base>.
 # The first run restarts the team server, so it ends the running answers. A re-run changes only what changed.
 # uninstall-srt.sh removes it again.
-#   scripts/dev-env/srt/install-srt.sh [--id mycel] [--image-mode | --boot]
+#   scripts/dev-env/srt/install-srt.sh [--id mycel] [--image-mode [--documents] | --boot]
 # --image-mode: for a template build (scripts/image/customize.sh, in a chroot or container, no running systemd). It
 # installs only what does not depend on the team: the packages, node, srt and run-wrap. No polkit rule, slice or
 # drop-in, no check of the server unit, nothing started. The dev environment stays off. A later run without
 # --image-mode on the team server turns it on, and then has nothing to download.
+# --documents (with --image-mode): the Docker image's run kit (docker/Dockerfile; docs/decisions/20261124-docker-documents.md):
+# the groups core, media, fonts and docrun only, so the image has what a run builds documents with and not the build
+# tools, git or the browser of the devenv group. Node, srt, the Python program, the node libraries and run-wrap as usual.
 # --boot: for mycel-devenv-boot (scripts/image/files, a hosted team server made from the image). It downloads nothing
 # (a missing package, node or srt is a stop), and it restarts the server only when it runs, with --no-block: at boot
 # the server waits for this script.
@@ -33,11 +36,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ID=mycel
 IMAGE_MODE=0
 BOOT=0
+DOCUMENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --id) ID=${2:?}; shift 2 ;;
     --image-mode) IMAGE_MODE=1; shift ;;
     --boot) BOOT=1; shift ;;
+    --documents) DOCUMENTS=1; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -45,6 +50,7 @@ cd /
 die() { echo "install-srt: STOP: $*" >&2; exit 1; }
 say() { echo "install-srt: $*"; }
 [ "$IMAGE_MODE$BOOT" != 11 ] || die "--image-mode and --boot do not go together"
+[ "$DOCUMENTS" = 0 ] || [ "$IMAGE_MODE" = 1 ] || die "--documents is for --image-mode (the Docker image)"
 
 # The one list of packages and programs (scripts/system/packages.json): the packages of the groups core, media, fonts
 # and devenv, and the pinned node and srt (group srt). A staged copy of this folder has it in system/ (build-ami.sh, the
@@ -60,7 +66,8 @@ else command -v jq >/dev/null || die "jq is missing: apt-get install jq, then ru
 pk_load "$SYSTEM/packages.json" || die "cannot read $SYSTEM/packages.json"
 SRT_VERSION=$(pk_art srt any version) || die "the list has no srt"
 [[ "$SRT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the list's srt version $SRT_VERSION is not a version"
-PKG_GROUPS="core media fonts devenv"
+PKG_GROUPS="core media fonts docrun devenv"
+[ "$DOCUMENTS" = 0 ] || PKG_GROUPS="core media fonts docrun"
 BASE=/var/lib/$ID
 SERVER_UNIT=$ID-server.service
 OPT=/opt/trina
@@ -191,13 +198,14 @@ for old in "$OPT"/srt/*/; do
 done
 
 # ---- the libraries a run has without pip or npm install (docs/decisions/20261121-box-python-libs.md) ----
-# Python: the devenv group's Python programs (python-pptx: a venv with the system's site-packages, first on a run's PATH;
+# Python: the Python programs of the groups (docrun: python-pptx (python-pptx: a venv with the system's site-packages, first on a run's PATH;
 # pinned wheels by sha256). Node: pptxgenjs and docx from node-libs.package-lock.json (next to this file) in /opt/trina/node-libs/<sha12>
 # (NODE_PATH of a run). Without them a run still works (python3 and node without these libraries): a failure is a note.
-for PY in $(pk_pythons devenv); do
+# shellcheck disable=SC2086 # group names have no spaces
+for PY in $(pk_pythons $PKG_GROUPS); do
   if [ "$BOOT" = 1 ] && [ ! -e "$OPT/python/$PY/current" ]; then say "note: no python $PY (--boot downloads nothing)"; continue; fi
   if PYPATH=$(pk_python_install "$OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
-  else say "note: python $PY not installed; a run's python3 has the system's libraries only"; fi
+  else [ "$DOCUMENTS" = 0 ] || die "python $PY not installed (--documents: the image's runs need it)"; say "note: python $PY not installed; a run's python3 has the system's libraries only"; fi
 done
 if [ -f "$HERE/node-libs.package-lock.json" ] && [ -f "$HERE/node-libs.package.json" ]; then
   NL_KEY=$(pk_sha256 "$HERE/node-libs.package-lock.json" | cut -c1-12); NL_DIR=$OPT/node-libs/$NL_KEY
@@ -209,7 +217,7 @@ if [ -f "$HERE/node-libs.package-lock.json" ] && [ -f "$HERE/node-libs.package.j
     if ( cd "$NEW" && HOME=/root PATH="$OPT/node/bin:/usr/bin:/bin" npm ci --ignore-scripts --omit=dev --no-audit --no-fund --cache "$NEW/.npm" >/dev/null ); then
       rm -rf "$NEW/.npm"; touch "$NEW/.done"; chown -R root:root "$NEW"; chmod -R a+rX,go-w "$NEW"
       rm -rf "$NL_DIR"; mv "$NEW" "$NL_DIR"
-    else rm -rf "$NEW"; say "note: npm ci of the node libraries failed; a run's node has no extra libraries"; fi
+    else rm -rf "$NEW"; [ "$DOCUMENTS" = 0 ] || die "npm ci of the node libraries failed (--documents: the image's runs need them)"; say "note: npm ci of the node libraries failed; a run's node has no extra libraries"; fi
   fi
   if [ -f "$NL_DIR/.done" ]; then
     ln -sfn "$NL_KEY" "$OPT/node-libs/current"

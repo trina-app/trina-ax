@@ -97,7 +97,7 @@ describe('the list (scripts/system/packages.json)', () => {
 
   test('the always groups are what every install needs; the image and the dev environment groups are on request', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
-    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'office-view', 'devenv', 'browser', 'video', 'google-apps'])
+    expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'office-view', 'docrun', 'devenv', 'browser', 'video', 'google-apps'])
     // LibreOffice for the page render: every default install, never --minimal; Debian 13's floor is its security fix
     // (DSA-6635-1), the other distributions install it with none (docs/decisions/20261124-documents-mode.md)
     expect(LIST.groups['office-view']!.install).toBe('default')
@@ -112,7 +112,12 @@ describe('the list (scripts/system/packages.json)', () => {
     // and the dev environment's Python (a venv with the system's site-packages: docs/decisions/20261121-box-python-libs.md)
     expect(pythonsFor(LIST, ['default'])).toEqual(['python-pptx', 'workspace-mcp'])
     expect(pythonsFor(LIST, ['minimal'])).toEqual([])
-    expect(pythonsFor(LIST, ['devenv'])).toEqual(['python-pptx'])
+    expect(pythonsFor(LIST, ['docrun'])).toEqual(['python-pptx'])
+    expect(pythonsFor(LIST, ['devenv'])).toEqual([])
+    // the Docker image's run kit (install-srt.sh --documents): the run's libraries without build tools or a browser
+    expect(packagesFor(LIST, 'debian-13', 'arm64', ['docrun'])).not.toEqual(expect.arrayContaining(['build-essential']))
+    expect(packagesFor(LIST, 'debian-13', 'arm64', ['docrun'])).not.toContain('chromium')
+    expect(packagesFor(LIST, 'debian-13', 'arm64', ['docrun'])).toEqual(expect.arrayContaining(['socat', 'ripgrep', 'xz-utils', 'python3-venv', 'python3-docx', 'python3-openpyxl']))
     for (const g of ['image', 'srt']) expect(LIST.groups[g]!.install).toBe('on-request')
     expect(LIST.groups.browser!.artifacts).toEqual(['chrome-headless-shell'])
     expect(LIST.groups.srt!.artifacts).toEqual(['node', 'srt'])
@@ -143,7 +148,7 @@ describe('packages.sh reads the list', () => {
 
   test('the same groups and packages for every system, profile and group', () => {
     const bun = ['--bun', process.execPath]
-    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['core', 'media', 'fonts', 'devenv'], ['google-apps'], ['minimal', 'docker', 'google-apps']]
+    const sets = [['minimal'], ['default'], ['image'], ['srt'], ['core', 'media', 'fonts', 'docrun', 'devenv'], ['core', 'media', 'fonts', 'docrun'], ['google-apps'], ['minimal', 'docker', 'google-apps']]
     // one shell reads the list once and prints every case (a bun start per case is slow)
     const lines: string[] = [], want: string[] = []
     for (const names of sets) {

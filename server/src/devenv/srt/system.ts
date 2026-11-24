@@ -3,6 +3,7 @@
 // (an older install with no template: systemd-run --scope), or, with MYCEL_DEV_ENV_SRT_DIRECT=1, runs srt with no unit
 // (a process group; the Docker attack test, where there is no systemd).
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { SRT_PATHS, UNIT_RE, devenvPaths, scopeArgv, srtArgv, templateInstalled, unitArgs, unitLimits, unitName, wrappedArgv, type ScopeLimits } from './config'
 
@@ -264,15 +265,74 @@ export function systemdSystem(id: string, base: string, template: () => boolean 
 
 /** No systemd: srt runs in its own process group. For the Docker attack test and for development only; there are no
  * memory or CPU limits. */
-export function directSystem(): SrtSystem {
+/** A run's process tree as /proc shows it now: every descendant of `root` (srt's bwrap starts its own sessions, so the
+ * process group alone misses them), their resident memory added up, and how many there are. One read of /proc per call,
+ * no cap on the count: a run cannot hide memory in more processes. Linux only; elsewhere an empty tree. */
+export function runTree(root: string | number, procDir = '/proc'): { pids: number[]; rssKiB: number } {
+  const rootPid = Number(root)
+  const kids = new Map<number, number[]>()
+  let names: string[] = []
+  try { names = fs.readdirSync(procDir) } catch { return { pids: [], rssKiB: 0 } }
+  for (const n of names) {
+    if (!/^[0-9]+$/.test(n)) continue
+    try {
+      // "pid (comm) state ppid ...": comm may hold spaces and parentheses, so read after the last ")"
+      const st = fs.readFileSync(`${procDir}/${n}/stat`, 'utf8')
+      const ppid = Number(st.slice(st.lastIndexOf(')') + 2).split(' ')[1])
+      const l = kids.get(ppid); if (l) l.push(Number(n)); else kids.set(ppid, [Number(n)])
+    } catch { /* gone */ }
+  }
+  const pids: number[] = []
+  let rssKiB = 0
+  const seen = new Set<number>()
+  const todo = [rootPid]
+  while (todo.length) {
+    const q = todo.pop()!
+    if (seen.has(q)) continue
+    seen.add(q)
+    let here = false
+    try {
+      const m = /^VmRSS:\s+(\d+)/m.exec(fs.readFileSync(`${procDir}/${q}/status`, 'utf8'))
+      here = true
+      if (m) rssKiB += Number(m[1])
+    } catch { /* gone */ }
+    if (here) pids.push(q)
+    for (const c of kids.get(q) ?? []) todo.push(c)
+  }
+  return { pids, rssKiB }
+}
+
+/** how often a direct run's memory and processes are counted */
+export const DIRECT_WATCH_MS = 500
+
+/** No systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker image, docs/decisions/20261124-docker-documents.md, and the attack
+ * tests): srt in a process group of its own. There is no unit cgroup, so the run's limits are watched here: every
+ * DIRECT_WATCH_MS its process tree is counted (runTree), and a run over its memoryMiB or pids is killed, the whole
+ * tree, and ends as out of memory (oomKills, unit result oom-kill), as a unit's OOM kill does. CPU has no limit here:
+ * the container's own limits hold the whole team. A poll can be up to DIRECT_WATCH_MS late; the container's memory
+ * limit is the backstop. */
+export function directSystem(o: { watchMs?: number; tree?: (pid: number) => { pids: number[]; rssKiB: number }; base?: string } = {}): SrtSystem {
   const live = new Map<string, number>()
+  /** runs killed for their memory or processes: kept until forget, so the end reads it after the run is gone */
+  const oomed = new Set<string>()
+  const tree = o.tree ?? ((pid: number) => runTree(pid))
+  const killTree = (pid: number, pids: readonly number[]) => {
+    try { process.kill(-pid, 'SIGKILL') } catch {}
+    for (const q of pids) { try { process.kill(q, 'SIGKILL') } catch {} }
+  }
   return {
     spawn(s) {
       const out = openOut(s.stdoutFile), err = s.stderrFile === s.stdoutFile ? out : openOut(s.stderrFile)
       try {
         const p = Bun.spawn(['/usr/bin/setsid', ...wrappedArgv(s)], { cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err })
         live.set(s.runId, p.pid)
-        return { pid: p.pid, exited: p.exited.then((code) => { live.delete(s.runId); return { code, signal: p.signalCode ?? null } }) }
+        oomed.delete(s.runId)
+        const maxKiB = s.limits.memoryMiB * 1024, maxPids = s.limits.pids
+        const watch = setInterval(() => {
+          const t = tree(p.pid)
+          if (t.rssKiB > maxKiB || t.pids.length > maxPids) { oomed.add(s.runId); killTree(p.pid, t.pids) }
+        }, o.watchMs ?? DIRECT_WATCH_MS)
+        return { pid: p.pid, exited: p.exited.then((code) => { clearInterval(watch); live.delete(s.runId); return { code, signal: p.signalCode ?? null } }) }
       } finally {
         fs.closeSync(out); if (err !== out) fs.closeSync(err)
       }
@@ -282,17 +342,44 @@ export function directSystem(): SrtSystem {
       if (!p) return
       try { process.kill(-p, 'SIGTERM') } catch {}
       await Bun.sleep(2000)
-      try { process.kill(-p, 'SIGKILL') } catch {}
+      killTree(p, tree(p).pids)
     },
-    async unit(runId) { return live.has(runId) ? { state: 'active', result: '', memoryBytes: null } : { state: '', result: '', memoryBytes: null } },
+    async unit(runId) {
+      if (live.has(runId)) return { state: 'active', result: '', memoryBytes: null }
+      return oomed.has(runId) ? { state: 'failed', result: 'oom-kill', memoryBytes: null } : { state: '', result: '', memoryBytes: null }
+    },
     async units() { return [...live.keys()].map((r) => unitName(r, false)) },
-    async forget() {},
-    oomKills() { return null },
+    async forget(runId) { oomed.delete(runId) },
+    oomKills(runId) { return oomed.has(runId) ? 1 : 0 },
     cpuUsec() { return null },
     procs() { return [] },
-    async selfTest() { return '' },
+    // a real command through srt, as a run starts it (no network, the base folder hidden; the settings file may sit in
+    // the base folder, srt reads it before the sandbox starts): a host where srt cannot make
+    // its namespaces (a container without the guide's security settings, an Ubuntu host's AppArmor) has no box_shell,
+    // and the AI makes documents with make_file. Without a base (the attack tests) nothing to check here
+    async selfTest() { return o.base ? directSelfTest(o.base) : '' },
     // no unit cgroup: port-forward cannot tell this run's processes from others, so there is no preview here
     forward: null,
     bridge: null,
+  }
+}
+
+/** One `echo` through srt as this account, offline, with `base` hidden: '' when it printed, else why not. */
+export async function directSelfTest(base: string, timeoutMs = 30_000): Promise<string> {
+  let dir = ''
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trina-srt-check-'))
+    const settings = path.join(dir, 'settings.json')
+    fs.writeFileSync(settings, JSON.stringify({ network: { allowedDomains: [], deniedDomains: [] }, filesystem: { denyRead: [base], allowWrite: [], denyWrite: [] } }), { mode: 0o600 })
+    const p = Bun.spawn(srtArgv({ settingsFile: settings, command: 'echo srt-ok' }), { cwd: '/', env: { PATH: '/usr/bin:/bin', HOME: '/', LANG: 'C.UTF-8' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+    const t = setTimeout(() => { try { p.kill('SIGKILL') } catch {} }, timeoutMs)
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+    clearTimeout(t)
+    if (code === 0 && out.trim() === 'srt-ok') return ''
+    return `a command in srt did not run here (exit ${code}): ${(err || out).trim().replace(/\s+/g, ' ').slice(0, 300)}`
+  } catch (e) {
+    return `a command in srt did not run here: ${(e as Error).message.slice(0, 300)}`
+  } finally {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
   }
 }

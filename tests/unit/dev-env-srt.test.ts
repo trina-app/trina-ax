@@ -669,10 +669,10 @@ describe('the srt settings file', () => {
     const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
     expect(BOX_PYTHON_BIN).toBe('/opt/trina/python/python-pptx/current/bin')
     expect(list.python['python-pptx'].systemSite).toBe(true)
-    expect(list.groups.devenv.python).toEqual(['python-pptx'])
+    expect(list.groups.docrun.python).toEqual(['python-pptx'])
     expect(SYSTEM_READ_PATHS).toContain('/opt/trina')
     const srt = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
-    expect(srt).toContain('for PY in $(pk_pythons devenv); do')
+    expect(srt).toContain('for PY in $(pk_pythons $PKG_GROUPS); do')
     expect(srt).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
     expect(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt-mac.sh'), 'utf8')).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
     // the node libraries' lock pins what the tool text names, from npm's registry only
