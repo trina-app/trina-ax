@@ -52,6 +52,9 @@ export interface IsolatedRun {
   /** macOS: the headless browser's tighter profile (no Mach services but the ones it needs, no LaunchServices, no
    * opening apps or URLs, no Apple events; browserProfileRules) */
   browserProfile?: boolean
+  /** macOS: LibreOffice (files/office-view.ts) may make its single-instance pipe (officePipeRules); it may not connect
+   * to any pipe, so never to another LibreOffice of this Mac */
+  officePipe?: boolean
   /** Linux production: run in this cgroup leaf with this OOM score instead of the converters' shared one (the print's
    * own leaf, system/cgroups.ts makePrintLeaf) */
   cgroupLeaf?: { dir: string; oomScoreAdj: number }
@@ -151,7 +154,22 @@ export function setDemoDenyRead(dirs: readonly string[]): void {
 }
 export const demoDenyReadDirs = (): readonly string[] => demoDenyRead
 
-export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean }): string {
+/** LibreOffice's rules on top of a converter profile (officePipe): it checks that /private/var/tmp is writable and makes
+ * its single-instance pipe there (OSL_PIPE_<uid>_SingleOfficeIPC_<hash>, a Unix socket; /tmp is not writable in the
+ * profile, so it takes /var/tmp). Only that name, only to listen on (network-bind): no connect to a socket, so a file
+ * cannot drive another LibreOffice of this Mac through its pipe. Without them it ends with no PDF (Mac, 2026-11-24). */
+export const OFFICE_PIPE_RE = '^/private/var/tmp/OSL_PIPE_[0-9]+_SingleOfficeIPC_[0-9a-f]+$'
+export function officePipeRules(): string[] {
+  return [
+    `(allow file-write* (literal "/private/var/tmp") (regex #"${OFFICE_PIPE_RE}"))`,
+    `(allow network-bind (local unix-socket (regex #"${OFFICE_PIPE_RE}")))`,
+    // no app, document or URL opened, no Apple event (a macro or a link in a file)
+    '(deny lsopen)',
+    '(deny appleevent-send)',
+  ]
+}
+
+export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean; officePipe?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
@@ -186,6 +204,7 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     // (mycel-ocr's Vision request fails without it when the helper sits under a denied folder such as the home)
     `(allow file-read-data (literal ${sq(path.dirname(real(o.cmd)))}))`,
     ...(o.browserProfile ? browserProfileRules() : []),
+    ...(o.officePipe ? officePipeRules() : []),
   ].join('\n')
 }
 
@@ -285,7 +304,7 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   const low = o.background ? backgroundPrefix() : []
   let argv: string[]
   if (kind === 'sandbox-exec') {
-    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso, browserProfile: o.browserProfile }), cmd, ...o.args]
+    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso, browserProfile: o.browserProfile, officePipe: o.officePipe }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
