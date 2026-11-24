@@ -135,12 +135,24 @@ describe('read opens the work folder', () => {
     expect(fs.existsSync(chatWork(base, c.id))).toBe(false)
   })
 
-  test('the dev environment off: no work folder, no save_work_file', async () => {
+  test('the dev environment off and documents mode off on the server: no work folder, no save_work_file', async () => {
+    const { chat } = await chatWith({ 'a.txt': 'A-TEXT' })
+    saveTeamSetting(h.ctx.db, { ...teamSetting(h.ctx.db), enabled: false })
+    process.env.MYCEL_DOCUMENTS_MODE = '0'
+    try {
+      const r = await run('alice', chat, `${fake({ tool: 'read', args: { file_path: '$TRINA_WORK/a.txt' }, sayResult: true })}\n${fake({ echo: 'tools' })}`)
+      expect(r.content).not.toContain('A-TEXT')
+      expect(r.content).not.toContain('save_work_file')
+    } finally { delete process.env.MYCEL_DOCUMENTS_MODE }
+  })
+
+  // docs/decisions/20261124-documents-mode.md: the dev environment off, documents mode keeps the chat's work folder
+  test('the dev environment off: documents mode still reads the work folder and offers save_work_file', async () => {
     const { chat } = await chatWith({ 'a.txt': 'A-TEXT' })
     saveTeamSetting(h.ctx.db, { ...teamSetting(h.ctx.db), enabled: false })
     const r = await run('alice', chat, `${fake({ tool: 'read', args: { file_path: '$TRINA_WORK/a.txt' }, sayResult: true })}\n${fake({ echo: 'tools' })}`)
-    expect(r.content).not.toContain('A-TEXT')
-    expect(r.content).not.toContain('save_work_file')
+    expect(r.content).toContain('A-TEXT')
+    expect(r.content).toContain('save_work_file')
   })
 
   test('a video goes to the media read (frames), from the copy', async () => {
