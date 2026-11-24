@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   _resetCgroupsForTest, cgexecPrefix, convBudgetMiB, converterCgroup, killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, PRINT_ONE_PIDS, printBudgetMiB,
-  printCgroup, printCgroupState, setupServerCgroups, makeVideoLeaf, videoCgroup, videoCgroupState, videoFits, VIDEO_ONE_MIB, VIDEO_ONE_PIDS,
+  printCgroup, printCgroupState, setupServerCgroups, makeVideoLeaf, videoCgroup, videoCgroupState, videoFits, VIDEO_ONE_MIB, VIDEO_ONE_PIDS, VIDEO_STREAM_MIB, videoLeafMiB,
 } from '../../server/src/system/cgroups'
 
 function fakeCgroupFs(o: { controllers?: string; procs?: string[] } = {}) {
@@ -135,6 +135,14 @@ describe('HTML printing cgroup S/print (files/html-pdf.ts)', () => {
     // the fake folder holds files, so it is not removed here; the kill is written (the kernel's cgroup.kill)
     await killPrintLeaf(leaf)
     expect(fs.readFileSync(path.join(leaf, 'cgroup.kill'), 'utf8')).toBe('1')
+    // a server of 6 GiB or more: a bigger leaf, in which the render encodes while it draws
+    _resetCgroupsForTest()
+    setup(8192)
+    expect(videoCgroup()!.memoryMiB).toBe(VIDEO_STREAM_MIB)
+    const big = makeVideoLeaf()!
+    expect(fs.readFileSync(path.join(big, 'memory.max'), 'utf8')).toBe(String(VIDEO_STREAM_MIB * 1048576))
+    expect(videoLeafMiB(undefined, 4096)).toBe(VIDEO_ONE_MIB)
+    expect(videoLeafMiB(undefined, 6144)).toBe(VIDEO_STREAM_MIB)
   })
 })
 

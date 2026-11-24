@@ -38,9 +38,11 @@ export function officeViewLine(format: string, canView: boolean = officeViewer()
 
 /** One LibreOffice conversion of `bytes` (a .`ext` file) to `to` in an empty work folder; the output's bytes. */
 async function convert(soffice: string, bytes: Uint8Array, ext: string, to: string, outName: string, o: { user: string; workBase: string; signal?: AbortSignal; teamLocale?: string }): Promise<Uint8Array> {
-  const release = await renderSlot(o.user, o.signal)
-  const workDir = makeWorkDir(o.workBase)
+  const release = await renderSlot(o.user, o.signal, 'office')
+  let workDir: string | null = null
   try {
+    // inside the try: a work folder that cannot be made gives the slot and the heavy-job budget back
+    workDir = makeWorkDir(o.workBase)
     const name = `in.${ext}`
     fs.writeFileSync(path.join(workDir, name), bytes, { mode: 0o600 })
     // the run's own profile: the kit's fonts and font table, macros off, formulas calculated (files/office-profile.ts);
@@ -65,7 +67,7 @@ async function convert(soffice: string, bytes: Uint8Array, ext: string, to: stri
     if (!out.ok) throw new Error('LibreOffice made no output')
     return out.bytes
   } finally {
-    fs.rmSync(workDir, { recursive: true, force: true })
+    if (workDir) fs.rmSync(workDir, { recursive: true, force: true })
     release()
   }
 }

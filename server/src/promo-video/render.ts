@@ -18,7 +18,8 @@
 import { componentC } from '../team-files/component'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { killTree } from '../system/kill-tree'
-import { killPrintLeaf, makeVideoLeaf, printLeafPeak, VIDEO_ONE_MIB, videoCgroupState } from '../system/cgroups'
+import { killPrintLeaf, makeVideoLeaf, printLeafPeak, videoCgroup, videoLeafMiB, VIDEO_OOM_SCORE_ADJ, VIDEO_STREAM_MIB, videoCgroupState } from '../system/cgroups'
+import { heavyJobs } from '../system/heavy-jobs'
 import { browserHome, findPdfBrowser } from '../files/html-pdf'
 import { isolatedCommand, isolation, type IsolationKind } from '../tools/isolate'
 import fs from 'node:fs'
@@ -44,8 +45,21 @@ import { PROMO_FONT_FILE, renderDocument } from './template'
 /** The pinned HyperFrames release (versions.json "hyperframes"; scripts/promo-video/hyperframes/package-lock.json). */
 export const HYPERFRAMES_VERSION = '0.9.15'
 export const PROMO_FONT_PATH = path.join(REPO_ROOT, 'resources', 'promo-video', 'fonts', PROMO_FONT_FILE)
-/** the time limit: 4 minutes on a Mac; 8 on Linux, where a small team VM renders with one worker on two cores */
-const defaultTimeout = () => (process.platform === 'linux' ? 8 : 4) * 60_000
+/** The time limit of one render, from the CPUs it may use and the frames it draws (the waiting before it starts does
+ * not count). Measured with one worker (docs/decisions/20261124-heavy-job-budget.md): 0.26 s a frame on two cores on an
+ * arm64 VM, 0.5–0.8 s on qa.trina.app (amd64, 2 vCPU, 18.5 s with photos: 276–457 s). The limit allows 2 core-seconds a
+ * frame and a minute and a half to start and to finish the file: about 11 minutes on two cores (the slowest measured
+ * render takes 71 % of it), 20 on one, never less than 4 (a Mac) or 8 minutes (Linux) and never more than 30. */
+export const RENDER_START_MS = 90_000
+export const RENDER_CORE_MS_PER_FRAME = 2000
+export const RENDER_FPS = 30
+export function renderTimeLimitMs(cpus: number, seconds: number = DURATION, platform: NodeJS.Platform = process.platform): number {
+  const frames = Math.ceil(seconds * RENDER_FPS)
+  const ms = RENDER_START_MS + Math.ceil(frames * RENDER_CORE_MS_PER_FRAME / Math.max(1, Math.min(RENDER_CPUS, cpus)))
+  return Math.min(30 * 60_000, Math.max((platform === 'linux' ? 8 : 4) * 60_000, ms))
+}
+/** The CPUs a render here may use: taskset's (renderCpus) where it runs, else this process's, at most RENDER_CPUS. */
+export const renderCpuCount = (): number => renderCpus()?.split(',').length ?? Math.min(RENDER_CPUS, os.availableParallelism())
 let renderTimeoutMs: number | null = null
 /** Tests shorten the time limit (null: back to the default). */
 export function setRenderTimeoutForTests(ms: number | null) { renderTimeoutMs = ms }
@@ -114,7 +128,7 @@ export function renderTools(ctx: Pick<AppContext, 'config'>, o: { platform?: Nod
 /** The most a picture needs in a 1080×1350 frame (a full-bleed cover with the camera's push, about 1,460 px on its short
  * side), with room: the render's copy is made this small on its short side, and at most RENDER_PICTURE_PIXELS. The
  * browser holds every picture of the video decoded at once; a phone's 48 MP photo is 190 MB of pixels each, and three
- * of them and a logo went past the render's memory limit (S/video, VIDEO_ONE_MIB). The chat's own player and the
+ * of them and a logo went past the render's memory limit (S/video, VIDEO_ONE_MIB on a 4 GiB VM). The chat's own player and the
  * team file are unchanged. */
 export const RENDER_PICTURE_SHORT = 1600
 export const RENDER_PICTURE_PIXELS = 6_000_000
@@ -133,7 +147,7 @@ async function renderSize(bytes: Buffer): Promise<{ bytes: Buffer; ext: 'png' | 
   return shrinkPicture(bytes, kind, size.width, size.height, f, exifOrientation(bytes))
 }
 
-interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
+interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; mp4_error: string | null; created_at: string }
 export interface StoredSpec { title: string; sources: string[]; doc: VideoDoc }
 
 /** Can this server make the MP4? (Read for every info answer: an install or a removal shows without a restart.) */
@@ -160,7 +174,7 @@ const videoFile = (ctx: AppContext, id: string) => path.join(videoDir(ctx), `${i
  * the chat's owner also needs to open every picture it shows themselves: the MP4 is made with the owner's permissions
  * (renderNow), and their own player shows only the pictures they may open. */
 function rowFor(ctx: AppContext, userId: string, id: string): Row {
-  const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, c.user_id AS owner_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.created_at
+  const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, c.user_id AS owner_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.mp4_error, p.created_at
     FROM promo_videos p JOIN chats c ON c.id = p.chat_id WHERE p.artifact_id = ? AND c.deleted_at IS NULL`).get(id) as Row | null
   if (!r) throw new HttpError('not_found')
   // a version an answer hidden from this person made (Artifacts.hiddenVersions; review of batch 2): not theirs to play
@@ -194,13 +208,30 @@ function info(ctx: AppContext, r: Row): PromoVideoInfo {
   const state: PromoMp4State = r.mp4_state === 'rendering' && !running.has(r.artifact_id) ? 'failed' : r.mp4_state === 'done' && !fs.existsSync(videoFile(ctx, r.artifact_id)) ? 'none' : r.mp4_state
   return {
     artifactId: r.artifact_id, chatId: r.chat_id, title: spec.title, style: spec.doc.family, duration: DURATION,
-    mp4: { available: why === null, why, state, seconds: r.mp4_ms === null ? null : Math.round(r.mp4_ms / 100) / 10, bytes: r.mp4_bytes },
+    mp4: {
+      available: why === null, why, state, seconds: r.mp4_ms === null ? null : Math.round(r.mp4_ms / 100) / 10, bytes: r.mp4_bytes,
+      // honest progress: it waits for another render or heavy job, or it is being made now
+      waiting: state === 'rendering' && waiting.has(r.artifact_id),
+      failure: state === 'failed' ? failureKind(r.mp4_error) : null,
+    },
   }
 }
 
 export const promoVideoInfo = (ctx: AppContext, userId: string, id: string) => info(ctx, rowFor(ctx, userId, id))
 
+/** Why a render failed, for the person (mp4_error is the log's words). */
+export function failureKind(error: string | null): 'too_long' | 'memory' | 'other' {
+  return error?.startsWith(TOO_LONG) ? 'too_long' : error?.startsWith(OUT_OF_MEMORY) ? 'memory' : 'other'
+}
+const TOO_LONG = 'took too long'
+const OUT_OF_MEMORY = 'out of memory'
+
 const running = new Set<string>()
+/** renders asked for that have not started: behind another render here, or waiting for the heavy-job budget
+ * (system/heavy-jobs.ts: a LibreOffice conversion or a print runs) */
+const waiting = new Set<string>()
+/** a server shutting down stops the renders that still wait for the budget */
+const stops = new WeakMap<object, AbortController>()
 let queue: Promise<void> = Promise.resolve()
 /** the CLI processes running now, each with the end of its exit */
 const live = new Map<ChildProcess, Promise<void>>()
@@ -217,21 +248,37 @@ export function renderPromoVideo(ctx: AppContext, userId: string, id: string): P
   // a shutdown ends a render and its browser with the server (they run in process groups of their own)
   if (!hooked.has(ctx)) {
     hooked.add(ctx)
+    stops.set(ctx, new AbortController())
     ctx.onClose(async () => {
       stopping.add(ctx)
+      stops.get(ctx)?.abort()
       const exits = [...live.entries()].map(([p, done]) => { if (p.pid) killTree(p.pid); return done })
       await Promise.race([Promise.all(exits), Bun.sleep(3000)])
     })
   }
   ctx.db.query("UPDATE promo_videos SET mp4_state = 'rendering', mp4_error = NULL WHERE artifact_id = ?").run(id)
   running.add(id)
-  queue = queue.then(() => renderNow(ctx, r)).catch(() => {}).finally(() => running.delete(id))
+  waiting.add(id)
+  queue = queue.then(() => renderWhenRoom(ctx, r)).catch(() => {}).finally(() => { running.delete(id); waiting.delete(id) })
   return promoVideoInfo(ctx, userId, id)
 }
 
-async function renderNow(ctx: AppContext, r: Row): Promise<void> {
+/** The render once the server's heavy jobs leave room for it (system/heavy-jobs.ts: on a box under 6 GiB it runs alone,
+ * never beside a LibreOffice conversion or a print); the panel says it waits meanwhile. The picture copies are made
+ * inside the budget too (ffmpeg decodes a 48 MP photo whole). */
+async function renderWhenRoom(ctx: AppContext, r: Row): Promise<void> {
   // the server is shutting down: left as it is (after a restart the row reads as failed, nothing runs it)
   if (stopping.has(ctx)) return
+  let release: () => void
+  try { release = await heavyJobs.acquire('video', { signal: stops.get(ctx)?.signal }) } catch { return }
+  try {
+    if (stopping.has(ctx)) return
+    waiting.delete(r.artifact_id)
+    await renderNow(ctx, r)
+  } finally { release() }
+}
+
+async function renderNow(ctx: AppContext, r: Row): Promise<void> {
   const started = Date.now()
   const found = renderTools(ctx)
   if (!('tools' in found)) {
@@ -290,10 +337,10 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     fs.rmSync(part, { force: true })
     // written inside the work folder (on Linux the only place the isolated CLI may write), then moved next to the data
     const made = path.join(work, 'out.mp4')
-    const { code, oom } = await runCli(found.tools, work, ['render', work, '--output', made, '--fps', '30', '--quiet', ...(found.tools.isolated ? ['--workers', '1'] : [])], ctx)
+    const { code, oom, timedOut, limitMs } = await runCli(found.tools, work, ['render', work, '--output', made, '--fps', String(RENDER_FPS), '--quiet', ...(found.tools.isolated ? ['--workers', '1'] : [])], ctx)
     let ok = false
     try { const st = fs.lstatSync(made); ok = st.isFile() && st.size > 0 } catch { /* none */ }
-    if (code !== 0 || !ok) return void fail(oom ? 'out of memory (the render\'s cgroup limit)' : `hyperframes exit ${code}`)
+    if (code !== 0 || !ok) return void fail(oom ? `${OUT_OF_MEMORY} (the render's cgroup limit)` : timedOut ? `${TOO_LONG} (the time limit, ${Math.round(limitMs / 1000)} s)` : `hyperframes exit ${code}`)
     // (the CLI and everything it started have ended: moved, never followed; the same folder tree, one file system)
     fs.renameSync(made, part)
     if (!fs.lstatSync(part).isFile()) return void fail('the output is not a file')
@@ -312,30 +359,34 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
 }
 
 const QUIET_ENV = { HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAMES_NO_UPDATE_CHECK: '1', HYPERFRAMES_SKIP_SKILLS: '1' }
-/** Linux: the frames are written to the work folder and encoded after the browser is done, not piped into ffmpeg while
- * the browser draws. Measured in the render's leaf (arm64, a video with three photos): the encoder's ~270 MiB no longer
- * sits on top of the browser's, anon 640–720 → 430 MiB at the same time and size of the MP4; the frames take about
- * 400 MB of disk in the work folder until the render ends. */
+/** Linux in a leaf smaller than VIDEO_STREAM_MIB (the 4 GiB team VM's 1280 MiB): the frames are written to the work
+ * folder and encoded after the browser is done, not piped into ffmpeg while the browser draws. Measured in a 1280 MiB
+ * leaf (arm64 VM, 2 CPU, three 48 MP photos made smaller): anon+shmem+kernel 963 MiB and 146 s, against 1169 MiB (91 %)
+ * and 123 s streaming; the frames take about 400 MB of disk in the work folder until the render ends. A bigger leaf
+ * (a server of 6 GiB or more) streams. */
 const LOW_MEMORY_ENV = { PRODUCER_ENABLE_STREAMING_ENCODE: 'false' }
+/** Whether a render in a leaf of this size encodes while it draws. */
+export const streamsIn = (leafMiB: number) => leafMiB >= VIDEO_STREAM_MIB
 
 /** The CLI with Node, its output to the log only (the last lines on a failure). On Linux inside bwrap (isolatedCommand:
  * HOME and TMPDIR in the work folder, no network; the tree, node and the browser's folder read-only) and in a leaf of
  * S/video when the server has cgroups; on a development Mac as the developer, as before. */
-async function runCli(t: RenderTools, work: string, args: string[], ctx: AppContext): Promise<{ code: number | null; oom: boolean }> {
-  const timeoutMs = renderTimeoutMs ?? defaultTimeout()
+async function runCli(t: RenderTools, work: string, args: string[], ctx: AppContext): Promise<{ code: number | null; oom: boolean; timedOut: boolean; limitMs: number }> {
+  const timeoutMs = renderTimeoutMs ?? renderTimeLimitMs(t.isolated ? renderCpuCount() : os.availableParallelism())
   let argv: string[], env: Record<string, string>, cwd: string
   let leaf: string | null = null
   let limits: string | null = null
   try {
     if (t.isolated) {
-      try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return { code: null, oom: false } }
+      try { leaf = makeVideoLeaf() } catch (e) { ctx.log.warn('promo video cgroup leaf not made', { err: e }); return { code: null, oom: false, timedOut: false, limitMs: timeoutMs } }
       // the render's own limits where the CLI looks for them (it cannot see /sys in the isolation, and sized the browser
       // and its JavaScript heap by the machine's memory instead: a 16 GB server gave Chrome 8 GB of tile memory inside a
       // 1280 MiB leaf); read-only files beside the work folder, never the cgroup itself
+      const leafMiB = videoCgroup()?.memoryMiB ?? videoLeafMiB()
       if (leaf) {
         limits = `${work}.limits`
         fs.mkdirSync(limits, { mode: 0o755 })
-        fs.writeFileSync(path.join(limits, 'memory.max'), String(VIDEO_ONE_MIB * 1048576), { mode: 0o644 })
+        fs.writeFileSync(path.join(limits, 'memory.max'), String(leafMiB * 1048576), { mode: 0o644 })
         fs.writeFileSync(path.join(limits, 'cpu.max'), `${Math.min(RENDER_CPUS, os.availableParallelism()) * 100000} 100000`, { mode: 0o644 })
       }
       // as many CPUs as the render may use (S/video's cpu.max): the CLI sizes the encoder's threads, and with them its
@@ -348,9 +399,9 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
         // the tree, node's own folder (bin/ and lib/) and the browser's folder (its libraries and resources)
         readPaths: [...new Set([t.dir, path.dirname(path.dirname(t.node)), ...(t.browser ? [browserHome(t.browser)] : [])])],
         ...(lim ? { bindFiles: ['memory.max', 'cpu.max'].map((f) => ({ from: path.join(lim, f), to: `/sys/fs/cgroup/${f}` })) } : {}),
-        env: { ...QUIET_ENV, ...LOW_MEMORY_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
+        env: { ...QUIET_ENV, ...(streamsIn(leafMiB) ? {} : LOW_MEMORY_ENV), ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
         timeoutMs, background: false, cpuThreads: Math.max(1, os.availableParallelism()),
-        ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: 900 } } : {}),
+        ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: VIDEO_OOM_SCORE_ADJ } } : {}),
       })
       argv = c.argv; env = c.env; cwd = work
     } else {
@@ -358,8 +409,8 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
       env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? os.homedir(), ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) }
       cwd = t.dir
     }
-    const code = await spawnCli(argv, env, cwd, timeoutMs, ctx)
-    return { code, oom: !!leaf && leafOom(leaf, ctx) }
+    const { code, timedOut } = await spawnCli(argv, env, cwd, timeoutMs, ctx)
+    return { code, oom: !!leaf && leafOom(leaf, ctx), timedOut, limitMs: timeoutMs }
   } finally {
     if (leaf) await killPrintLeaf(leaf)
     if (limits) fs.rmSync(limits, { recursive: true, force: true })
@@ -371,7 +422,7 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
 export function leafOom(leaf: string, ctx: AppContext): boolean {
   try {
     const kills = Number(/^oom_kill (\d+)$/m.exec(fs.readFileSync(path.join(leaf, 'memory.events'), 'utf8'))?.[1] ?? 0)
-    if (kills > 0) ctx.log.warn('promo video render ran out of memory', { limitMiB: VIDEO_ONE_MIB, ...printLeafPeak(leaf) })
+    if (kills > 0) ctx.log.warn('promo video render ran out of memory', { limitMiB: videoCgroup()?.memoryMiB ?? videoLeafMiB(), ...printLeafPeak(leaf) })
     return kills > 0
   } catch { return false }
 }
@@ -396,7 +447,7 @@ export function renderCpus(status?: string): string | null {
   } catch { return null }
 }
 
-function spawnCli(argv: string[], env: Record<string, string>, cwd: string, timeoutMs: number, ctx: AppContext): Promise<number | null> {
+function spawnCli(argv: string[], env: Record<string, string>, cwd: string, timeoutMs: number, ctx: AppContext): Promise<{ code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     const p = spawn(argv[0]!, argv.slice(1), {
       cwd, env,
@@ -409,15 +460,17 @@ function spawnCli(argv: string[], env: Record<string, string>, cwd: string, time
     p.stdout?.on('data', keep)
     p.stderr?.on('data', keep)
     let exited!: () => void
+    let timedOut = false
     live.set(p, new Promise<void>((r) => { exited = r }))
     const end = (code: number | null) => {
       clearTimeout(timer)
       live.delete(p)
       exited()
-      resolve(code)
+      resolve({ code, timedOut })
     }
     const timer = setTimeout(() => {
       ctx.log.warn('hyperframes render timed out', { ms: timeoutMs })
+      timedOut = true
       if (p.pid) killTree(p.pid)
     }, timeoutMs)
     p.on('close', (code) => {
