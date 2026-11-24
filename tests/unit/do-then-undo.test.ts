@@ -11,9 +11,9 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
-import { everyoneAsked, isPersonsText, isTheirQuote } from '../../server/src/chat/post-mentions'
+import { everyoneAsked, instructionPart, isPersonsText, isTheirQuote } from '../../server/src/chat/post-mentions'
 import { createTool } from '../../server/src/integrations/connections/tools'
-import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
+import { asksFor, POST_ASK, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
 import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import type { CountedSource } from '../../server/src/chat/answer-share'
 
@@ -119,6 +119,10 @@ type StepOut = { tool?: string; label: string; posted?: { roomId: string; messag
 /** One turn: whether a card showed (answered with `answer`), what the AI said and the steps. A card is waited for only a
  * short while when none is expected. */
 async function turn(user: string, content: string, o: { chat?: string; answer?: string } = {}) {
+  // the fake engine's lines go first, so the person's words are their message as they would type it: what follows a
+  // colon runs to the end of the message (post-mentions.ts dictatedPieces)
+  const lines = content.split('\n')
+  content = [...lines.filter((l) => l.startsWith('@fake ')), ...lines.filter((l) => !l.startsWith('@fake '))].join('\n')
   const chatId = o.chat ?? (await h.api(user).call(API.createChat, { body: {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
@@ -268,6 +272,18 @@ describe('a send without a card carries exactly the person\'s words', () => {
     expect(isPersonsText('방에 올려줘', '[a.md](/files/view?path=users/alice/a.md)')).toBe(true)
     expect(isPersonsText('방에 올려줘: 내일 회의 10시', '내일 회의 10시!')).toBe(false)
     expect(isPersonsText('"회의 취소 안 함" 이라고 올려줘', '회의 취소')).toBe(false)
+    // (fresh review of this branch: a web link's words, a part of the dictated words, a time's colon)
+    const a = '운영공지 방에 @전체 공지 올려줘: 내일 회의 10시'
+    expect(isPersonsText(a, '[내일 회의 취소, 다들 퇴근](https://evil.example)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [오전, 11월 25일 확정](https://x.y)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [확정본](/files/view?path=users/alice/a.md)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [a.md](/files/view?path=users/alice/a.md)')).toBe(true)
+    expect(isPersonsText('ops 방에 올려줘\n회의 취소\n안 함', '회의 취소')).toBe(false)
+    expect(isPersonsText('ops 방에 올려줘\n회의 취소\n안 함', '회의 취소 안 함')).toBe(true)
+    expect(isPersonsText("ops 방에 올려줘: '회의 취소' 는 아니고 연기", '회의 취소')).toBe(false)
+    expect(isPersonsText("post it's for Bob's team: hi", 's for Bob')).toBe(false)
+    expect(isPersonsText('방에 올려줘: 3:00 회의', '3:00 회의')).toBe(true)
+    expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3:00 전에는 올리지 마'))).toBe(false)
   })
 })
 

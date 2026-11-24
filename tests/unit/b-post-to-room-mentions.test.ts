@@ -43,6 +43,10 @@ afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?
 
 type Card = { question: string; details?: { label: string; text: string }[] }
 async function turn(user: string, content: string, answer?: string) {
+  // the fake engine's lines go first, so the person's words are their message as they would type it: what follows a
+  // colon runs to the end of the message (post-mentions.ts dictatedPieces)
+  const lines = content.split('\n')
+  content = [...lines.filter((l) => l.startsWith('@fake ')), ...lines.filter((l) => !l.startsWith('@fake '))].join('\n')
   const chatId = (await h.api(user).call(API.createChat, { body: {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
