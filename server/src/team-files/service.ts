@@ -1,6 +1,7 @@
 // The file screen (design tab 4 "파일", tab 2 "동시 수정"): tree, text content, save, folders, move / rename,
 // trash, version history. Every path goes through authorize() (policy/authorize.ts) with the caller's own rules;
 // what the caller may not read looks exactly like what does not exist.
+import { assertSafeTeamPath, replacedAsRead } from '../files/office-exit'
 import { markTeamShares } from '../chat/team-shares'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -1071,6 +1072,9 @@ export class TeamFiles {
     }
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
+    // the AI's copy is a new file the AI puts into a team folder: the one check (files/office-exit.ts), by its content,
+    // with only a replaced file (as this caller last saw it, baseSha256) vouching for what it already held
+    if (o.turnId != null) await assertSafeTeamPath(name, fr.abs, (o.onExists === 'replace' && r.exists) ? replacedAsRead(r.abs, o.baseSha256 ?? undefined) : null, undefined, { writeBack: false })
     // into a folder its owner shares, where more people will see it: the person's yes first (the dry run's count on the
     // Files screen, the AI's card), whatever the client did before (409 audience_widened without confirm)
     this.assertSharedConfirmed(r.segs, added, o.confirm)

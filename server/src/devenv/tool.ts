@@ -30,7 +30,7 @@ import { grantUserSite, siteAllowed, userSitesFull } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
-import { changesByOthers, markSeen, OwnNotUndoable, withChangeWindow, withOwnFolderWindow, type ForeignChange } from './track'
+import { changesByOthers, markSeen, OwnNotUndoable, withChangeWindow, withOwnFolderWindow, type BlockedOffice, type ForeignChange } from './track'
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
@@ -254,7 +254,7 @@ export const lockedTopsNote = (folders: readonly string[]) => `Note: in this sha
 
 /** `lost`: changes whose earlier content was not kept (cannot be undone); `reverted`: changes undone at once (track.ts
  * ownGuarded, a command let through without the room card) */
-type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; reverted?: Change[]; unreverted?: Change[] }
+type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; reverted?: Change[]; unreverted?: Change[]; blocked?: BlockedOffice[] }
 
 /** a command let through without the room card (its changes could be undone) whose own folder could not be kept when
  * it was about to start (a file grew past the limit meanwhile): nothing ran */
@@ -289,6 +289,7 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   const left = movedAwayNotes(h, w.changes)
   if (left.length) parts.push(...left)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
+  if (w.blocked?.length) parts.push(`Not kept, because the team's Office safety check refused them (links may only go to web pages or mail addresses; no embedded or linked objects, no fields that run something, no macros):\n${w.blocked.map((b) => `- ${b.path}: ${b.why} ${b.restored ? '(the version before is back)' : '(moved to the trash)'}`).join('\n')}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   // what cannot be undone, and what was undone at once, said plainly (the person's earlier content is gone / kept)
   // what can be put back (QA: the AI told the person a deleted file was gone for good)
@@ -380,7 +381,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     if (own) {
       const ex = o.tracked && o.tracked.folderPath.startsWith(`users/${h.userId}/`) ? [o.tracked.folderPath] : []
       const ow = await withOwnFolderWindow(ctx, h.userId, by, extra, inner, { mustUndo, exclude: ex })
-      w = { ...ow.value, changes: [...ow.changes, ...ow.value.changes], lost: [...ow.lost, ...(ow.value.lost ?? [])], reverted: ow.reverted, unreverted: ow.unreverted }
+      w = { ...ow.value, changes: [...ow.changes, ...ow.value.changes], lost: [...ow.lost, ...(ow.value.lost ?? [])], reverted: ow.reverted, unreverted: ow.unreverted, blocked: [...(ow.blocked ?? []), ...(ow.value.blocked ?? [])] }
       if (ow.reverted.length || ow.unreverted.length) h.reverted?.()
     } else w = await inner()
   } catch (e) {

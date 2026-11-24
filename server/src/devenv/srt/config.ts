@@ -450,8 +450,10 @@ export function resolveRunCwd(root: string, rel: string): string | null {
 export const BOX_PYTHON_BIN = '/opt/trina/python/python-pptx/current/bin'
 /** Node libraries of a run (pptxgenjs, docx: scripts/dev-env/srt/node-libs.package-lock.json), on NODE_PATH */
 export const BOX_NODE_LIBS = '/opt/trina/node-libs/current/node_modules'
+/** The document skills' folder in the server's read-only bin folder (devenv/doc-skills.ts) */
+export const DOC_SKILLS_DIR = 'doc-skills'
 /** what a run's python3 and node have without pip or npm install (the box_shell tool text names them) */
-export const BOX_PYTHON_LIBS = ['python-pptx', 'python-docx', 'openpyxl', 'lxml', 'Pillow', 'XlsxWriter', 'numpy', 'pandas', 'matplotlib', 'reportlab', 'pypdf'] as const
+export const BOX_PYTHON_LIBS = ['python-pptx', 'python-docx', 'openpyxl', 'lxml', 'Pillow', 'XlsxWriter', 'numpy', 'pandas', 'matplotlib', 'reportlab', 'pypdf', 'pdfplumber', 'pypdfium2', 'pdf2image', 'defusedxml'] as const
 export const BOX_NODE_LIB_NAMES = ['pptxgenjs', 'docx'] as const
 
 /** The fonts a run's tools pick by default (QA TC-7043: ffmpeg drawtext took DejaVu, which has no Hangul, and drew
@@ -547,6 +549,8 @@ export function runEnv(i: EnvInput): Record<string, string> {
     /** the team folder: team paths of the file tools are under it */
     TRINA_TEAM: i.teamRoot,
     ...(i.work ? { TRINA_WORK: i.work } : {}),
+    // the document skills, read-only (devenv/doc-skills.ts): only where a run has their Python libraries
+    ...(!mac && boxPython && fs.existsSync(path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR, 'SOURCE.json')) ? { TRINA_DOC_SKILLS: path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR) } : {}),
   }
 }
 

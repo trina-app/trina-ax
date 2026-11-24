@@ -18,6 +18,7 @@
 //                     placeProduced (write access again, storage, versions, events).
 // A chat file carried only by answers hidden from people who may join (k) is never copied. A project chat's place is
 // its project folder: chat:files/ is read-only there and it has no work folder.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { CopyFilesInput } from '@mycel/shared'
@@ -28,6 +29,8 @@ import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
 import { openToRead } from '../files/store'
+import { contentKind, fdReader, type ContentKind } from '../files/office-exit'
+import { officeRecalc, officeViewer } from '../files/office-view'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
@@ -160,6 +163,24 @@ function noteWorkRead(exec: TurnExec): boolean {
   return true
 }
 
+/** A workbook leaving the work folder gets every formula's result stored (files/xlsx-values.ts), so a preview shows
+ * numbers. The safety check itself is where the file lands (placeProduced, chat files: files/office-exit.ts). */
+async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
+  const fd = fs.openSync(tmp, 'r'); let k: ContentKind
+  try { k = contentKind(got.name, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) }
+  if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
+  if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
+  const bytes = new Uint8Array(fs.readFileSync(tmp))
+  let out: Uint8Array
+  try { out = await officeRecalc(bytes, { user: exec.spec.userId, workBase: exec.rt.ctx.engineConfig.dataDir, signal: exec.abort.signal }) } catch (e) {
+    exec.abort.signal.throwIfAborted()
+    return { ...got, note: ` Its formula results could not be calculated (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}), so a preview may show empty formula cells: say so.` }
+  }
+  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return got
+  fs.writeFileSync(tmp, out)
+  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex') }
+}
+
 /** A work-folder file into the team folder at `to` (save_work_file's route): the wider-audience card with the work
  * folder's sources, then a copy from one checked descriptor and placeProduced. `shown`: how the result names the file. */
 export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: string; target: string; where: () => WorkFolder | null; tool: string; args: unknown; shown: string }): Promise<Routed> {
@@ -180,15 +201,16 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
     const left = Math.max(0, max.bytes - files.bytesWritten)
     const tmp = path.join(work, 'file')
     // the team disk near full: refused before the copy is made (placeProduced checks again)
-    const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
+    let got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
       if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what one answer may still save (${(left / 1024 ** 2).toFixed(0)} MB left of ${(max.bytes / 1024 ** 2).toFixed(0)} MB). Make it smaller (a lower bitrate or a shorter cut), or save it in the next answer.`, 'too_large')
       throw e
     })
+    got = await officeOut(exec, files, tmp, got, [to])
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, movedCheck: true, detail: { from: 'work folder' } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this answer, so this was saved next to it; the original is unchanged.` : ''
-    return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
+    return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note}${'note' in got ? got.note ?? '' : ''} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not saved: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
@@ -216,15 +238,17 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
     if (files.filesWritten.size >= max.files) throw new ToolError(`this answer saved its most files already (${max.files}); attach it in the next answer`, 'too_many')
     const tmp = path.join(work, 'file')
     // the team disk near full: refused before the copy is made (createFromAi checks again)
-    const got = await copyWorkFile(first, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
+    let got = await copyWorkFile(first, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
       if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what can be attached now (at most ${(left / 1024 ** 2).toFixed(0)} MB in this answer; a file attached to an answer is at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB). Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
       throw e
     })
+    got = await officeOut(exec, files, tmp, got)
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not attached: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     // right before the hand-off: still the work folder of the chat's people now, and still no hidden part in the answer
     const now = o.where()
     if (!now || now.real !== first.real) return { ok: false, text: 'Not attached: the people of this chat changed while the file was copied. Make it again for the people here now.', summary: `${tool} -> refused: people changed` }
-    return await attach(exec, files, { tmp, name: got.name, sha256: got.sha256, tool, shown })
+    const r = await attach(exec, files, { tmp, name: got.name, sha256: got.sha256, tool, shown })
+    return 'note' in got && got.note && r.ok ? { ...r, text: r.text + got.note } : r
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not attached: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
@@ -255,11 +279,13 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, spec.userId)
     const left = Math.min(CHAT_FILE_AI_MAX, Math.max(0, max.bytes - files.bytesWritten))
     const tmp = path.join(work, 'file')
-    const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
+    let got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const places = chatPlaces(exec, files)
     const dest = parsePlace(o.to)
     const head = places.head(dest?.kind === 'chatFiles' ? dest.id ?? null : null, '')
+    // a workbook gets its formula results (the safety check is where it lands: chat-files.ts putVersion)
+    got = await officeOut(exec, files, tmp, got)
     // the same format: a .mov is never saved as a version of a .mp4
     const ext = (n: string) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : '' }
     if (ext(got.name) !== ext(head.name)) return { ok: false, text: `Not saved: ${shown} is a .${ext(got.name) || '(no extension)'} file and '${head.name}' is a .${ext(head.name) || '(no extension)'} file; a new version keeps the file's format. Make it in the same format, or attach it as a separate file (to_folder "chat:files/").`, summary: `${tool} -> refused: other format` }
@@ -270,7 +296,7 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const made = await attachProduced(rt.ctx, c, o.to.split('/'), tmp)
     const v = 'chatVersion' in made ? (made as { chatVersion: import('../files/place-output').ChatVersionMade }).chatVersion : null
     if (!v) return { ok: false, text: 'Not saved: name an existing file of this chat (chat:files/<file_id>/<name>).', summary: `${tool} -> refused: not a chat file` }
-    return { ok: true, to: v.path, text: `${versionText(v, 'Saved')} (from ${shown}, ${mb(v.size)} MB)`, summary: `${tool} -> version ${v.version} of ${v.path} (${v.size} B)` }
+    return { ok: true, to: v.path, text: `${versionText(v, 'Saved')} (from ${shown}, ${mb(v.size)} MB)${'note' in got ? got.note ?? '' : ''}`, summary: `${tool} -> version ${v.version} of ${v.path} (${v.size} B)` }
   } catch (e) {
     exec.abort.signal.throwIfAborted()
     if (e instanceof ToolError || e instanceof Denied) return { ok: false, text: `Not saved: ${e.message}`, summary: `${tool} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
@@ -282,7 +308,7 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
 async function attach(exec: TurnExec, files: TurnFiles, o: { tmp: string; name: string; sha256: string; tool: string; shown: string }): Promise<Routed> {
   const { rt, spec } = exec
   if (exec.hiddenFromLater) return { ok: false, text: 'Not attached: this answer now holds a connected service\'s answer that people added later may not see.', summary: `${o.tool} -> refused: answer hidden from later people` }
-  const att = await chatFilesOf(rt.ctx).createFromAi(spec.userId, spec.chatId, o.name, o.tmp, o.sha256)
+  const att = await chatFilesOf(rt.ctx).createFromAi(spec.userId, spec.chatId, o.name, o.tmp, o.sha256, files.readHashes)
   files.bytesWritten += att.size
   files.filesWritten.add(`chat-file:${att.id}`)
   exec.attachToAnswer(att)

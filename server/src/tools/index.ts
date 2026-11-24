@@ -3,6 +3,7 @@
 // (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos), unzip_file (tools/unzip.ts: the files of a zip), query_data (tools/query-data.ts: SQL over data files). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
+import { officeViewLine } from '../files/office-view'
 import { registerHwpRender } from './hwp-render'
 import { ArtifactInput, EditHwpInput, MakeFileInput, MakeZipInput, QueryDataInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, SaveConnectorFileInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
@@ -155,7 +156,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
         : r.doc && (a.format === 'pdf' || a.format === 'docx') ? `${saved}\n${docResultText(r.doc, a.format)}`
-        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + sheetLine + extraLines
+        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + sheetLine + extraLines + officeViewLine(a.format)
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
       return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}), ...(r.doc ? { pictures: r.doc.pictures, ...(r.doc.pages ? { pages: r.doc.pages } : {}) } : {}) } }
