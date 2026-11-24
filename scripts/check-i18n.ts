@@ -58,7 +58,7 @@ export function auditI18n() {
   const propertyName = (n: ts.PropertyName) => ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : undefined
   for (const dir of ['shared/src', 'server/src', 'relay/src', 'web/src', 'desktop/src']) {
     for (const file of fs.readdirSync(path.join(root, dir), { recursive: true }).map(String).filter(f => /\.tsx?$/.test(f))) {
-      const relative = `${dir}/${file}`
+      const relative = `${dir}/${file.split(path.sep).join('/')}`
       // signed protocol fixtures shared byte for byte with Trina Cloud (zh is optional there, as ja/es once were)
       if (relative === 'shared/src/cloud-protocol/vectors.ts') continue
       const text = fs.readFileSync(path.join(root, relative), 'utf8')
