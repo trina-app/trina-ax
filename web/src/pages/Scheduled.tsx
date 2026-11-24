@@ -10,6 +10,7 @@ import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, 
 import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { CONNECTORS_HOME } from '../lib/connectors'
+import { useTeamPlace } from '../lib/teamPlace'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleRun } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatElapsed } from '../lib/format'
@@ -436,6 +437,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
   review?: ReactNode
 }) {
   const t = useT(), locale = useLocale()
+  const place = useTeamPlace()
   const base = useId()
   const [more, setMore] = useState(false)
   const state = scheduleState(s)
@@ -548,8 +550,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
           <Side label={t('scheduled.runsWith')} testId="schedule-runs-with">
             {s.templateId ? (
               <>
-                <p>{t('scheduleTemplates.source')}: <span className="text-ink">{s.sourcePath}</span></p>
-                <p>{t('scheduleTemplates.output')}: <span className="text-ink">{s.outputPath}</span></p>
+                <p>{t('scheduleTemplates.source')}: <span className="text-ink">{s.sourcePath && place(s.sourcePath)}</span></p>
+                <p>{t('scheduleTemplates.output')}: <span className="text-ink">{s.outputPath && place(s.outputPath)}</span></p>
               </>
             ) : s.projectId && project ? (
               <Link to={`/projects/${project.id}`} className="text-ink hover:underline">{project.name}</Link>

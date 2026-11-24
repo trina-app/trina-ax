@@ -16,6 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
+import { useTeamPlace } from '../../lib/teamPlace'
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -170,6 +171,7 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
 export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; align?: 'start' | 'end'; chatId?: string }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const [thumbFailed, setThumbFailed] = useState(false)
   // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
   const [thumbLoaded, setThumbLoaded] = useState(false)
@@ -209,7 +211,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   const body = (
     <>
       <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
-      {team && <span className="sr-only">{t('composer.teamFile', { path: a.path })}</span>}
+      {team && <span className="sr-only">{t('composer.teamFile', { path: place(a.path) })}</span>}
       <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-micro text-faint">
         {ext && <span className="rounded border border-line px-1 leading-4 font-medium text-muted">{ext}</span>}
         {formatSize(a.size, locale)}

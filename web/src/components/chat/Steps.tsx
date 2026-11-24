@@ -39,6 +39,7 @@ import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
 import { TeamImage } from '../LazyMarkdown'
 import { stepImages } from '../../lib/stepImages'
+import { usePlaceViewer } from '../../lib/teamPlace'
 import { Tooltip } from '../Tooltip'
 
 type TFunction = ReturnType<typeof useT>
@@ -264,8 +265,10 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const viewPost = useContext(StepPostView)
   // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
   // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
+  const viewer = usePlaceViewer()
   const words = localizeStep(step, locale)
-  const placed = stepPlace(step, words.label, locale)
+  // (another person's folder by their name, not "My files": a shared chat's reader is not always its asker, QA TC-8922)
+  const placed = stepPlace(step, words.label, locale, viewer)
   const place = runHead ? { ...placed, label: runRest(placed.label, runHead) } : placed
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
@@ -489,8 +492,9 @@ export function runHead(labels: string[]): string {
 function RunRow({ run, live, marks }: { run: Step[]; live: boolean; marks: Omit<MarkContext, 'live'> }) {
   const t = useT()
   const locale = useLocale()
+  const viewer = usePlaceViewer()
   const [open, setOpen] = useState(false)
-  const labels = run.map((s) => stepPlace(s, localizeStep(s, locale).label, locale).label)
+  const labels = run.map((s) => stepPlace(s, localizeStep(s, locale).label, locale, viewer).label)
   const head = runHead(labels) || labels[0]!
   const ms = run.map((s) => stepMark(s, { live, ...marks }))
   const running = ms.includes('running')

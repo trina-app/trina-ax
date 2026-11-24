@@ -92,6 +92,7 @@ import { ChatFaces, otherWriters } from './chat/SharedChat'
 import { AppTile, SenderTag, useAppName } from './rooms/apps/AppParts'
 import { serviceOf } from '../lib/roomApps'
 import { awayFromComputer } from '../lib/integrations'
+import { useTeamPlace } from '../lib/teamPlace'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -395,6 +396,9 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   const freeRoam = useFreeRoam()
   const guest = isGuestMe(useMe())
   const guestFolder = useGuestFolderHref()
+  // a file's, a skill's and a project's folder in words ("My files › 공문"), never the disk path (QA TC-8922)
+  const teamPlace = useTeamPlace()
+  const place = (p: string) => (p ? teamPlace(p) : '')
   const guestHasProject = !!meGuest(useMe())?.project
   const guestAiOff = useGuestAiOff()
   const meId = useMe()?.user.id
@@ -592,8 +596,8 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     ...chatRow(c), attention: true, marker,
     sub: reasonText(marker.reason, t, marker.reason === 'card' && !c.confidential ? cardQuestion(requests, c.id) : undefined),
   })
-  const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: p.folderPath, href: `/projects/${p.id}`, match: true })
-  const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: skillTitle(s), sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
+  const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: place(p.folderPath), href: `/projects/${p.id}`, match: true })
+  const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: skillTitle(s), sub: place(parentOf(s.path)), href: skillFileLink(s.path), match: true })
   /** A task's name as the Scheduled page shows it. When the typed text is only in its instruction (hidden in the list),
    *  the second part shows that part of the instruction, highlighted, so the row does not look like a wrong result. */
   const scheduleRow = (s: Schedule, attention?: string): Row => {
@@ -614,7 +618,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   const fileNameRow = (f: FileEntry): Row | null => {
     const href = !guestFolder ? (f.type === 'folder' ? `/files?path=${encodeURIComponent(f.path)}` : skillFileLink(f.path))
       : f.type === 'folder' ? guestFolder(f.path) : guestFolder(parentOf(f.path), f.path)
-    const row = { key: `file:${f.path}`, kind: 'file' as const, icon: f.type === 'folder' ? Folder : FileIcon, title: f.name, sub: parentOf(f.path), match: true }
+    const row = { key: `file:${f.path}`, kind: 'file' as const, icon: f.type === 'folder' ? Folder : FileIcon, title: f.name, sub: place(parentOf(f.path)), match: true }
     // a guest's file no screen of theirs lists (their own folder): it opens in the preview, as their AI's links do
     if (!href && guestFolder && f.type !== 'folder') return { ...row, href: '', after: () => openTeamFile(f.path) }
     return href ? { ...row, href } : null

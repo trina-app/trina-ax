@@ -60,12 +60,12 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
           {files.conflicts.map((x) => (
             <li key={x.copyPath} className="text-xs">
               <span className="text-warn">{t('files.summary.conflictLine')}</span>{' '}
-              <button type="button" className="text-accent-text hover:underline" onClick={() => openTeamFile(x.copyPath)}>
-                {x.copyPath}
+              <button type="button" className="text-accent-text hover:underline" title={x.copyPath} onClick={() => openTeamFile(x.copyPath)}>
+                {words.path(x.copyPath, ' › ')}
               </button>{' '}
               <span className="text-faint">({t('files.summary.original')}: </span>
-              <button type="button" className="text-accent-text hover:underline" onClick={() => openTeamFile(x.path)}>
-                {x.path}
+              <button type="button" className="text-accent-text hover:underline" title={x.path} onClick={() => openTeamFile(x.path)}>
+                {words.path(x.path, ' › ')}
               </button>
               <span className="text-faint">)</span>
             </li>

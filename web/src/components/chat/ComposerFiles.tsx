@@ -25,6 +25,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, typ
 import { CHAT_FILES_FOLDER, chatFilesWord } from '@mycel/shared'
 import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText, thumbnailUrl } from '../../lib/api'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
 import { formatSize } from '../../lib/format'
@@ -368,6 +369,7 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
 export function ComposerFileList({ files, onRemove, className }: { files: Pending[]; onRemove: (f: Pending) => void; className?: string }) {
   const t = useT()
   const words = useFolderWords()
+  const place = useTeamPlace()
   // a guest: their project's folder without the Projects step on the way (lib/guestFiles.ts)
   const guest = isGuestMe(useMe())
   const locale = useLocale()
@@ -427,7 +429,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
             data-status={f.status}
           >
             {f.source === 'team' ? (
-              <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
+              <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: place(f.attachment?.path ?? f.path ?? '') })} />
             ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
               <FileAudio size={15} className="text-accent-text" aria-hidden />
             ) : (

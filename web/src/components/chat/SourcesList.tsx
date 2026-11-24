@@ -9,6 +9,7 @@ import type { MessageSourceFile, MessageSources, SourceLoc } from '@mycel/shared
 import { api, API, errorText } from '../../lib/api'
 import { openTeamFile } from '../../lib/sidePanel'
 import { parentPath } from '../../lib/paths'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { useLocale, useT } from '../../i18n'
 import { Button } from '../ui'
 
@@ -31,6 +32,7 @@ export function locChip(t: T, l: SourceLoc): string {
 export default function SourcesList({ chatId, messageId, count, defaultOpen = false, initial, load }: { chatId: string; messageId: string; count: number; defaultOpen?: boolean; initial?: MessageSources; load?: (signal: AbortSignal) => Promise<MessageSources> }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const [open, setOpen] = useState(defaultOpen)
   const [data, setData] = useState<MessageSources | null>(initial ?? null)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +75,7 @@ export default function SourcesList({ chatId, messageId, count, defaultOpen = fa
             </p>
           ) : (
             <ul className="space-y-1.5">
-              {shown.map((f) => <SourceRow key={f.path} f={f} t={t} />)}
+              {shown.map((f) => <SourceRow key={f.path} f={f} t={t} place={place} />)}
               {files.length > SOURCES_SHOWN && !all && (
                 <li>
                   <button type="button" className="text-xs text-accent-text hover:underline" onClick={() => setAll(true)} data-testid="answer-sources-more">
@@ -92,7 +94,9 @@ export default function SourcesList({ chatId, messageId, count, defaultOpen = fa
   )
 }
 
-function SourceRow({ f, t }: { f: MessageSourceFile; t: T }) {
+function SourceRow({ f, t, place }: { f: MessageSourceFile; t: T; place: (path: string) => string }) {
+  // the folder as the rest of the app says it ("My files › 공문"), never its disk path (QA TC-8922); the path stays in
+  // the tooltip
   const folder = parentPath(f.path)
   const onlyPassages = !f.via.includes('read')
   return (
@@ -100,7 +104,7 @@ function SourceRow({ f, t }: { f: MessageSourceFile; t: T }) {
       <button type="button" className="min-w-0 max-w-full truncate text-left text-accent-text hover:underline" title={f.path} onClick={() => openTeamFile(f.path, f.locs[0])}>
         {f.name}
       </button>
-      {folder && <span className="min-w-0 max-w-[40%] truncate text-xs text-faint" title={f.path}>{folder}/</span>}
+      {folder && <span className="min-w-0 max-w-[40%] truncate text-xs text-faint" title={f.path}>{place(folder)}</span>}
       {f.locs.map((l, i) => (
         <button key={i} type="button" onClick={() => openTeamFile(f.path, l)} className="max-w-[16rem] truncate rounded-md border border-line bg-subtle px-1.5 py-0.5 text-micro text-muted hover:bg-hover hover:text-ink" data-testid="answer-source-loc">
           {locChip(t, l)}

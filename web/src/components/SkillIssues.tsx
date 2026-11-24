@@ -5,6 +5,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { SkillIssue } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { useTeamPlace } from '../lib/teamPlace'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath, issuesIn, issueText } from '../lib/skillIssues'
 import { navigateTo } from '../lib/nav'
@@ -47,13 +48,14 @@ export function SkillIssues({ folder, className }: { folder?: string; className?
 
 function IssueNote({ title, items, className, testId }: { title: string; items: SkillIssue[]; className?: string; testId: string }) {
   const t = useT()
+  const place = useTeamPlace()
   return (
     <div role="note" className={`rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn ${className ?? ''}`} data-testid={testId}>
       <p className="flex items-center gap-1.5 font-medium"><AlertTriangle size={13} aria-hidden /> {title}</p>
       <ul className="mt-1 space-y-0.5">
         {items.map((i) => (
           <li key={`${i.problem}:${i.path}`} data-testid="skill-issue" data-problem={i.problem}>
-            <button type="button" className="font-mono hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(parentPath(i.path))}&select=${encodeURIComponent(i.path)}`)}>{i.path}</button>
+            <button type="button" className="hover:underline" title={i.path} onClick={() => navigateTo(`/files?path=${encodeURIComponent(parentPath(i.path))}&select=${encodeURIComponent(i.path)}`)}>{place(i.path)}</button>
             {': '}{issueText(t, i)}
           </li>
         ))}
