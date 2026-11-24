@@ -26,8 +26,8 @@
   already sent on a card in this chat to everyone the new place holds: one card per source, `post_sources`, never wider), a guest 1:1 or a guest in the room when
   files go, a screen target, a waiting rerun, Slack and runs. `share_with_person`: the same in shared and project chats
   nobody else wrote in. `share_folder` add: the person's own folder (named, or the one they used last in this chat) with
-  people they named, a resolved title, or "팀원들" (the project's or their group's people, never guests). When the
-  files are only in the chat (the person's own attachments here) there is no folder to pick: on the same clear ask it
+  people they named, a resolved title, or a word for the whole team such as "팀원들" (the people of this shared chat; in a project chat the project's: no card when it is all the message names; otherwise their one group, on a card; several groups: asked once; never guests). When the
+  files are only in the chat (the attachments of this very message) there is no folder to pick: on the same clear ask it
   makes a folder in their own files named for the chat, puts copies in it and shares that ("<폴더>를 만들고 공유했어요 ·
   취소"; 취소 stops the share and deletes the folder and the unchanged copies). A guest here or an unclear recipient:
   nothing is made, the AI asks for the folder as before. The app's

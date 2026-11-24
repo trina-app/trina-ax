@@ -127,8 +127,8 @@ export function learnAlias(db: Database, userId: string, target: { id: string; n
 /** an ask to send or share in a message (then it is a new request, not an answer to "who is that?") */
 const SENDS = /보내|올려|전달|공유|send|post|share|forward|kirim|bagikan|送って|共有|发给|分享|env[ií]a|compart/iu
 
-/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the project's
- * people, the one group, or the shared chat's people: chat/share-folder.ts teamPeople). */
+/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the shared
+ * chat's people, the project's, or the one group: chat/share-folder.ts teamPeople). */
 // (plural or "my team" forms only: a bare "team" is a topic as often, "팀 회의록 폴더 민수한테 공유해줘": security review)
 const TEAM_WORDS = new Set(['팀원', '팀원들', '팀원분들', '우리팀', '팀사람들', '팀전체', '동료들', 'teammates', 'teammembers', 'myteam', 'ourteam', 'everyoneontheteam',
   'チームメンバー', 'チームのみんな', '团队成员', 'compañeros', 'miequipo', 'anggotatim', 'timsaya'].map((w) => w.normalize('NFC').toLowerCase()))
@@ -163,16 +163,26 @@ export function keepPick(db: Database, userId: string, ref: string, pickedId: st
   return key
 }
 
-/** The person's own words say "팀원들", "my team" …: a word of TEAM_WORDS as a word of the text (a Korean particle after
- * it left out), never a part of another word ("팀" in "팀장"). */
+/** The team word stands as who it goes to in the person's own words ("팀원들한테", "with my team", "a mi equipo",
+ * "チームメンバーに", "给团队成员"), in its plural or "my team" form. A word that only names something ("우리 팀 자료 폴더"), a
+ * singular before a name ("팀원 민수") one they leave out ("팀원들 말고") or something that only came from them ("팀원들한테 받은 자료", "notes I sent to my team") is no recipient: another
+ * person's words could otherwise widen a share to everyone here (security review). */
+const END = '(?=\\s*(?:please\\b|por favor|ya\\b)?\\s*[.!?\\u3002]*\\s*(?:$|\\n))'
+const TEAM_AS_RECIPIENT = new RegExp([
+  // Korean: the team word, its particle, and the request to share or send right after it (공유해, 보내, 전달해, 올려 + 줘/주세요)
+  '(?:\\uD300\\uC6D0(?:\\uB4E4|\\uBD84\\uB4E4)|\\uC6B0\\uB9AC\\s?\\uD300|\\uD300\\s?\\uC0AC\\uB78C\\uB4E4|\\uD300\\s?\\uC804\\uCCB4|\\uB3D9\\uB8CC\\uB4E4)\\s?(?:\\uAED8|\\uD55C\\uD14C|\\uC5D0\\uAC8C|\\uB354\\uB7EC)\\s?(?:\\uACF5\\uC720\\s?\\uD574|\\uBCF4\\uB0B4|\\uC804\\uB2EC\\s?\\uD574|\\uC62C\\uB824)\\s?(?:\\uC918|\\uC8FC|\\uB2EC\\uB77C)',
+  // the others: the verb before it in the same sentence and the team word ending that sentence ("share the notes I sent to my team with Bob" is no)
+  `\\b(?:share|send|post)\\b[^.!?\\n]{0,80}\\b(?:with|to)\\s+(?:my team|our team|my teammates|our teammates|teammates|team members|everyone on the team)${END}`,
+  `\\b(?:comparte|compartir|env\\u00EDa|enviar)\\b[^.!?\\n]{0,80}\\b(?:con|a)\\s+(?:mi equipo|mis compa\\u00F1eros)${END}`,
+  `\\b(?:bagikan|kirim(?:kan)?)\\b[^.!?\\n]{0,80}\\b(?:dengan|ke|kepada)\\s+(?:tim saya|anggota tim)${END}`,
+  '\\u30C1\\u30FC\\u30E0(?:\\u30E1\\u30F3\\u30D0\\u30FC|\\u306E\\u307F\\u3093\\u306A)\\u306B(?:\\u5171\\u6709|\\u9001)(?:\\u3057\\u3066|\\u3063\\u3066)',
+  '(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)\\u7ED9\\u56E2\\u961F\\u6210\\u5458', '\\u7ED9\\u56E2\\u961F\\u6210\\u5458(?:\\u5206\\u4EAB|\\u53D1\\u9001|\\u53D1)',
+].join('|'), 'iu')
+/** ...and nothing in the words leaves anyone out ("not with my team", "rather than", "except", 말고, 빼고, 以外, 不要) */
+const TEAM_LEFT_OUT = new RegExp(["\\b(?:not|rather than|instead of|except|excluding|without|only|don'?t|never|sin|excepto|solo|bukan|kecuali|tanpa|hanya)\\b", '\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uB9CC\\s|\\uC5C6\\uC774|\\uC548\\s?\\uBCF4|\\uBCF4\\uBA74\\s?\\uC548', '\\u4EE5\\u5916|\\u3067\\u306F\\u306A\\u304F|\\u4E0D\\u8981|\\u9664\\u4E86'].join('|'), 'iu')
 export function saysTeam(said: string): boolean {
-  const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC').toLowerCase()
-  const words = own.split(/[\s,.!?;:·()"'“”‘’「」]+/u).filter(Boolean)
-  for (let i = 0; i < words.length; i++) {
-    if (isTeamRef(words[i]!) || isTeamRef(words[i]!.replace(/(한테|에게|께|들한테|들에게|이랑|하고|과|와|을|를|은|는|이|가)$/u, ''))) return true
-    if (i + 1 < words.length && isTeamRef(`${words[i]}${words[i + 1]}`)) return true
-  }
-  return false
+  const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC')
+  return TEAM_AS_RECIPIENT.test(own) && !TEAM_LEFT_OUT.test(own)
 }
 
 /** The person's own words call exactly this teammate by a title (QA F5 shared1-sh2: "이거 팀장님한테 보내줘" again, and

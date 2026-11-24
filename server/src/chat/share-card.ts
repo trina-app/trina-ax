@@ -3,6 +3,7 @@
 // step (`Step.shared`), and their confirmation card carries the same rows (`AskUserRequest.share`): the app draws the
 // card from these, never from the AI's words. Everything here is read from the server's own records: a file's name and
 // its place in words (chat/place-words.ts, never a path), a person's name and picture version, a group's size.
+import { createHash } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { FILE_SHARE_EVERYONE, SHARE_CARD_PEOPLE_MAX, SHARE_CARD_STILL_MAX, plainLabel, type Locale, type ShareCardAsk, type ShareCardFile, type ShareCardStill, type ShareCardWho, type StepShared } from '@mycel/shared/api'
 import type { FileShares, StillOpens } from '../files/shares'
@@ -33,9 +34,12 @@ export function cardWho(db: Database, w: CardSubject): ShareCardWho {
 }
 
 /** The people rows of a card, the first SHARE_CARD_PEOPLE_MAX and how many more. */
-export function cardPeople(db: Database, who: readonly CardSubject[]): Pick<ShareCardAsk, 'who' | 'whoMore'> {
+export function cardPeople(db: Database, who: readonly CardSubject[]): Pick<ShareCardAsk, 'who' | 'whoMore' | 'whoKey'> {
   const more = who.length - SHARE_CARD_PEOPLE_MAX
-  return { who: who.slice(0, SHARE_CARD_PEOPLE_MAX).map((w) => cardWho(db, w)), ...(more > 0 ? { whoMore: more } : {}) }
+  // (more people than the card lists: their digest is part of the card, so a yes never reaches someone swapped in among
+  // the ones it counts but does not show, chat/open-questions.ts sameCard; security review)
+  const key = () => createHash('sha256').update(who.map((w) => `${w.subjectType}:${w.subjectId}`).sort().join('\n')).digest('hex').slice(0, 32)
+  return { who: who.slice(0, SHARE_CARD_PEOPLE_MAX).map((w) => cardWho(db, w)), ...(more > 0 ? { whoMore: more, whoKey: key() } : {}) }
 }
 
 /** After a stop of several files: each person who can still open some of them, once, with how many files and through
