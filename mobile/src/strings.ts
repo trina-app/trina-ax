@@ -339,46 +339,53 @@ export function stringsFor(languageCode: string | null | undefined): Strings {
   return en
 }
 
+const iosUsage = (camera: string, mic: string, photos: string, speech: string) => ({
+  NSCameraUsageDescription: camera,
+  NSMicrophoneUsageDescription: mic,
+  NSPhotoLibraryUsageDescription: photos,
+  // voice input written on the phone itself; only iPhones before iOS 26 ask this (modules/dictation)
+  NSSpeechRecognitionUsageDescription: speech,
+})
+
 /** iOS permission texts (Info.plist) in all six app locales. The web app asks for the camera (photo attachment), the
  * microphone (voice input) and the photo library (file picker) inside the WebView. */
 export const IOS_USAGE = {
-  en: {
-    NSCameraUsageDescription: 'Take a photo to attach in chat.',
-    NSMicrophoneUsageDescription: 'Use your voice to type in chat.',
-    NSPhotoLibraryUsageDescription: 'Choose a photo to attach in chat.',
-    // voice input written on the phone itself; only iPhones before iOS 26 ask this (modules/dictation)
-    NSSpeechRecognitionUsageDescription: 'Turn your voice into text on this iPhone, without sending the recording anywhere.',
-  },
-  ko: {
-    NSCameraUsageDescription: '채팅에 첨부할 사진을 찍을 때 사용해요.',
-    NSMicrophoneUsageDescription: '채팅에서 음성으로 입력할 때 사용해요.',
-    NSPhotoLibraryUsageDescription: '채팅에 첨부할 사진을 고를 때 사용해요.',
-    NSSpeechRecognitionUsageDescription: '녹음을 밖으로 보내지 않고 이 iPhone에서 바로 글자로 바꿀 때 사용해요.',
-  },
-  id: {
-    NSCameraUsageDescription: 'Ambil foto untuk dilampirkan di chat.',
-    NSMicrophoneUsageDescription: 'Gunakan suara Anda untuk mengetik di chat.',
-    NSPhotoLibraryUsageDescription: 'Pilih foto untuk dilampirkan di chat.',
-    NSSpeechRecognitionUsageDescription: 'Ubah suara Anda menjadi teks langsung di iPhone ini, tanpa mengirim rekaman ke mana pun.',
-  },
-  ja: {
-    NSCameraUsageDescription: 'チャットに添付する写真を撮影するために使用します。',
-    NSMicrophoneUsageDescription: 'チャットで音声入力するために使用します。',
-    NSPhotoLibraryUsageDescription: 'チャットに添付する写真を選択するために使用します。',
-    NSSpeechRecognitionUsageDescription: '録音を外部に送信せず、この iPhone 上で音声をテキストに変換するために使用します。',
-  },
-  es: {
-    NSCameraUsageDescription: 'Tomar una foto para adjuntarla en el chat.',
-    NSMicrophoneUsageDescription: 'Usar su voz para escribir en el chat.',
-    NSPhotoLibraryUsageDescription: 'Elegir una foto para adjuntarla en el chat.',
-    NSSpeechRecognitionUsageDescription: 'Convertir su voz en texto directamente en este iPhone, sin enviar la grabación a ningún sitio.',
-  },
-  zh: {
-    NSCameraUsageDescription: '拍摄照片并在聊天中发送。',
-    NSMicrophoneUsageDescription: '在聊天中用语音输入文字。',
-    NSPhotoLibraryUsageDescription: '选择照片并在聊天中发送。',
-    NSSpeechRecognitionUsageDescription: '在这台 iPhone 上直接把语音转成文字，录音不会发送到任何地方。',
-  },
+  en: iosUsage(
+    'Take a photo to attach in chat.',
+    'Use your voice to type in chat.',
+    'Choose a photo to attach in chat.',
+    'Turn your voice into text on this iPhone, without sending the recording anywhere.',
+  ),
+  ko: iosUsage(
+    '채팅에 첨부할 사진을 찍을 때 사용해요.',
+    '채팅에서 음성으로 입력할 때 사용해요.',
+    '채팅에 첨부할 사진을 고를 때 사용해요.',
+    '녹음을 밖으로 보내지 않고 이 iPhone에서 바로 글자로 바꿀 때 사용해요.',
+  ),
+  id: iosUsage(
+    'Ambil foto untuk dilampirkan di chat.',
+    'Gunakan suara Anda untuk mengetik di chat.',
+    'Pilih foto untuk dilampirkan di chat.',
+    'Ubah suara Anda menjadi teks langsung di iPhone ini, tanpa mengirim rekaman ke mana pun.',
+  ),
+  ja: iosUsage(
+    'チャットに添付する写真を撮影するために使用します。',
+    'チャットで音声入力するために使用します。',
+    'チャットに添付する写真を選択するために使用します。',
+    '録音を外部に送信せず、この iPhone 上で音声をテキストに変換するために使用します。',
+  ),
+  es: iosUsage(
+    'Tomar una foto para adjuntarla en el chat.',
+    'Usar su voz para escribir en el chat.',
+    'Elegir una foto para adjuntarla en el chat.',
+    'Convertir su voz en texto directamente en este iPhone, sin enviar la grabación a ningún sitio.',
+  ),
+  zh: iosUsage(
+    '拍摄照片并在聊天中发送。',
+    '在聊天中用语音输入文字。',
+    '选择照片并在聊天中发送。',
+    '在这台 iPhone 上直接把语音转成文字，录音不会发送到任何地方。',
+  ),
 } as const
 
 /** Which WebView load errors mean "this phone has no network" rather than "the team server did not answer". */
