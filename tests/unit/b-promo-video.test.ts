@@ -510,7 +510,7 @@ process.exit(1)
     fs.writeFileSync(path.join(cli, 'hyperframes.mjs'), `import fs from 'node:fs'
 const a = process.argv.slice(2), dir = a[1], out = a[a.indexOf('--output') + 1]
 if (!out.startsWith(dir + '/') || a[a.indexOf('--workers') + 1] !== '1') process.exit(5)
-if (process.env.HOME !== dir || process.env.HYPERFRAMES_NO_TELEMETRY !== '1' || process.env.HYPERFRAMES_BROWSER_PATH !== ${JSON.stringify(fs.realpathSync(path.dirname(browser)))} + '/chrome-headless-shell') process.exit(6)
+if (process.env.HOME !== dir || process.env.HYPERFRAMES_NO_TELEMETRY !== '1' || process.env.PRODUCER_ENABLE_STREAMING_ENCODE !== 'false' || process.env.HYPERFRAMES_BROWSER_PATH !== ${JSON.stringify(fs.realpathSync(path.dirname(browser)))} + '/chrome-headless-shell') process.exit(6)
 let team = false
 try { fs.readdirSync(${JSON.stringify(h.team)}); team = true } catch {}
 if (team || !fs.existsSync(dir + '/index.html')) process.exit(7)

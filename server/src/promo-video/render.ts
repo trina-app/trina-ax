@@ -312,6 +312,11 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
 }
 
 const QUIET_ENV = { HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAMES_NO_UPDATE_CHECK: '1', HYPERFRAMES_SKIP_SKILLS: '1' }
+/** Linux: the frames are written to the work folder and encoded after the browser is done, not piped into ffmpeg while
+ * the browser draws. Measured in the render's leaf (arm64, a video with three photos): the encoder's ~270 MiB no longer
+ * sits on top of the browser's, anon 640–720 → 430 MiB at the same time and size of the MP4; the frames take about
+ * 400 MB of disk in the work folder until the render ends. */
+const LOW_MEMORY_ENV = { PRODUCER_ENABLE_STREAMING_ENCODE: 'false' }
 
 /** The CLI with Node, its output to the log only (the last lines on a failure). On Linux inside bwrap (isolatedCommand:
  * HOME and TMPDIR in the work folder, no network; the tree, node and the browser's folder read-only) and in a leaf of
@@ -343,7 +348,7 @@ async function runCli(t: RenderTools, work: string, args: string[], ctx: AppCont
         // the tree, node's own folder (bin/ and lib/) and the browser's folder (its libraries and resources)
         readPaths: [...new Set([t.dir, path.dirname(path.dirname(t.node)), ...(t.browser ? [browserHome(t.browser)] : [])])],
         ...(lim ? { bindFiles: ['memory.max', 'cpu.max'].map((f) => ({ from: path.join(lim, f), to: `/sys/fs/cgroup/${f}` })) } : {}),
-        env: { ...QUIET_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
+        env: { ...QUIET_ENV, ...LOW_MEMORY_ENV, ...(t.browser ? { HYPERFRAMES_BROWSER_PATH: t.browser } : {}) },
         timeoutMs, background: false, cpuThreads: Math.max(1, os.availableParallelism()),
         ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: 900 } } : {}),
       })
