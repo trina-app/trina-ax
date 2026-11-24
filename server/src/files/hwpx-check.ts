@@ -15,6 +15,9 @@ import type { HwpLayout, HwpPictureNote } from './hwp-picture'
 export const HWPX_WRITE_MODE = 'hwpx-write'
 /** The text of one document, in characters: larger ones are refused (hwp.ts reads at most 8M characters back). */
 export const HWPX_TEXT_MAX = 6_000_000
+/** pandoc's reader for a Hangul document's Markdown: without fancy_lists, so "1)", "(1)" and "가." stay the text of
+ * a paragraph that starts with an outline label (Korean numbering, laid out by level) instead of becoming a list */
+export const HWPX_MARKDOWN = 'markdown-fancy_lists'
 /** a template .hwpx (a team's, under skills/) */
 export const HWPX_TEMPLATE_MAX = 20 * 1024 * 1024
 
@@ -43,6 +46,111 @@ interface Node { t?: unknown; c?: unknown }
 const isNode = (v: unknown): v is Node => !!v && typeof v === 'object' && !Array.isArray(v)
 const QUOTES: Record<string, [string, string]> = { DoubleQuote: ['“', '”'], SingleQuote: ['‘', '’'] }
 
+// ---------------------------------------------------------------- Korean outline labels
+// Korean business and official documents number their items by a fixed order of levels (행정 효율과 협업 촉진에 관한
+// 규정 시행규칙 제2조: 1. → 가. → 1) → 가) → (1) → (가) → ① → ㉮), and reports written 개조식 mark them □ → ○ → - → ·.
+// A paragraph that starts with one of these labels is laid out by its level (files/hwpx-write.ts); a line in the
+// source that starts with one starts a new paragraph (normalizeHwpxTree), for the writer and the read-back alike.
+const GANADA = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허'
+const G = `[${GANADA}]`
+const LABELS: [RegExp, number][] = [
+  [/^\d{1,3}\.$/, 0], [new RegExp(`^${G}\\.$`), 1], [/^\d{1,3}\)$/, 2], [new RegExp(`^${G}\\)$`), 3],
+  [/^\(\d{1,3}\)$/, 4], [new RegExp(`^\\(${G}\\)$`), 5], [/^[\u2460-\u2473]$/, 6], [/^[\u326e-\u327b]$/, 7],
+  [/^[□■]$/, 0], [/^[○●◦]$/, 1], [/^[-―–]$/, 2], [/^[·∙•]$/, 3], [/^※$/, 1],
+]
+/** The level (0 = the first) of an outline label that is a whole word (the text before the first space), or -1. */
+export function outlineLevel(word: string): number {
+  for (const [re, level] of LABELS) if (re.test(word)) return level
+  return -1
+}
+/** The label a paragraph's inlines start with: its level, its text, and whether a space follows it. */
+function startsWithLabel(inlines: unknown[], from: number): boolean {
+  const first = inlines[from]
+  if (!isNode(first) || first.t !== 'Str') return false
+  const word = String(first.c ?? '')
+  // a label is a word of its own: "가. 대상" (Str "가.", Space ...), or "①대상" for the circled ones
+  if (outlineLevel(word) >= 0) { const next = inlines[from + 1]; return next === undefined || (isNode(next) && next.t === 'Space') }
+  return /^[\u2460-\u2473\u326e-\u327b□■○●◦※]/.test(word)
+}
+/** The outline label a paragraph's text starts with ({ level, label }), or null. */
+export function paragraphLabel(text: string): { level: number; label: string } | null {
+  const m = /^(\S+)(\s|$)/.exec(text)
+  if (m && outlineLevel(m[1]!) >= 0) return { level: outlineLevel(m[1]!), label: m[1]! }
+  const c = /^([\u2460-\u2473\u326e-\u327b□■○●◦※])/.exec(text)
+  return c ? { level: outlineLevel(c[1]!), label: c[1]! } : null
+}
+
+/**
+ * pandoc's tree as the .hwpx writer and the read-back both take it (pure; the same tree gives the same result, and a
+ * normalized tree normalizes to itself):
+ * - a paragraph is split where a source line (after a soft or hard line break) starts with an outline label, so
+ *   "제목\n가. 대상\n나. 기간" without blank lines is three paragraphs, as it reads;
+ * - a bullet list right after a paragraph that starts with a label continues that outline: each item becomes a
+ *   paragraph "- item" (a dash item of 개조식), when every item is one paragraph.
+ * Walks the blocks of the document, of divs, of list items and of table cells.
+ */
+export function normalizeHwpxTree<T>(ast: T): T {
+  if (!isNode(ast) || !Array.isArray((ast as { blocks?: unknown }).blocks)) return ast
+  return { ...ast, blocks: normBlocks((ast as unknown as { blocks: unknown[] }).blocks, 0) } as T
+}
+const NORM_DEPTH = 64
+function normBlocks(blocks: unknown[], depth: number): unknown[] {
+  if (depth > NORM_DEPTH) return blocks
+  const out: unknown[] = []
+  for (const b of blocks) {
+    if (!isNode(b)) { out.push(b); continue }
+    const c = b.c as any
+    switch (b.t) {
+      case 'Para': case 'Plain': {
+        const inl = Array.isArray(c) ? c : []
+        let start = 0
+        for (let i = 0; i < inl.length; i++) {
+          const v = inl[i]
+          if (isNode(v) && (v.t === 'SoftBreak' || v.t === 'LineBreak') && startsWithLabel(inl, i + 1)) {
+            out.push({ t: b.t, c: inl.slice(start, i) })
+            start = i + 1
+          }
+        }
+        out.push(start ? { t: b.t, c: inl.slice(start) } : b)
+        break
+      }
+      case 'BulletList': {
+        const prev = out[out.length - 1]
+        const items = Array.isArray(c) ? c : []
+        const simple = items.length > 0 && items.every((it: unknown) => Array.isArray(it) && it.length === 1 && isNode(it[0]) && (it[0].t === 'Plain' || it[0].t === 'Para'))
+        if (simple && isNode(prev) && (prev.t === 'Para' || prev.t === 'Plain') && Array.isArray(prev.c) && startsWithLabel(prev.c, 0)) {
+          for (const it of items as Node[][]) out.push({ t: 'Para', c: [{ t: 'Str', c: '-' }, { t: 'Space' }, ...(Array.isArray(it[0]!.c) ? it[0]!.c : [])] })
+        } else out.push({ t: b.t, c: items.map((it: unknown) => (Array.isArray(it) ? normBlocks(it, depth + 1) : it)) })
+        break
+      }
+      case 'OrderedList': {
+        const [attrs, items] = Array.isArray(c) ? c : [undefined, []]
+        out.push({ t: b.t, c: [attrs, (Array.isArray(items) ? items : []).map((it: unknown) => (Array.isArray(it) ? normBlocks(it, depth + 1) : it))] })
+        break
+      }
+      case 'Div': {
+        const [attr, inner] = Array.isArray(c) ? c : [undefined, []]
+        out.push({ t: 'Div', c: [attr, Array.isArray(inner) ? normBlocks(inner, depth + 1) : inner] })
+        break
+      }
+      case 'Table': {
+        if (!Array.isArray(c)) { out.push(b); break }
+        const cells = (rows: unknown) => (Array.isArray(rows) ? rows.map((r: any) => (Array.isArray(r) && Array.isArray(r[1])
+          ? [r[0], r[1].map((cell: any) => (Array.isArray(cell) && Array.isArray(cell[4]) ? [cell[0], cell[1], cell[2], cell[3], normBlocks(cell[4], depth + 1)] : cell))]
+          : r)) : rows)
+        const [attr, caption, specs, head, bodies, foot] = c
+        out.push({ t: 'Table', c: [attr, caption, specs,
+          Array.isArray(head) ? [head[0], cells(head[1])] : head,
+          Array.isArray(bodies) ? bodies.map((bd: any) => (Array.isArray(bd) ? [bd[0], bd[1], cells(bd[2]), cells(bd[3])] : bd)) : bodies,
+          Array.isArray(foot) ? [foot[0], cells(foot[1])] : foot] })
+        break
+      }
+      default: out.push(b)
+    }
+  }
+  return out
+}
+
 /** The text of inlines: `flat` (a heading) joins hard line breaks with a space, as hwp.ts does for headings. Only the
  * inlines the writer supports have text here; it refuses the rest before this is asked. */
 function inlineText(inlines: unknown, flat: boolean): string {
@@ -57,7 +165,7 @@ function inlineText(inlines: unknown, flat: boolean): string {
       case 'Str': s += String(v.c ?? ''); break
       case 'Space': case 'SoftBreak': s += ' '; break
       case 'LineBreak': s += flat ? ' ' : '\n'; break
-      case 'Strong': case 'Emph': stack.push(v.c); break
+      case 'Strong': case 'Emph': case 'Underline': case 'Strikeout': stack.push(v.c); break
       case 'Quoted': {
         const [kind, inner] = (v.c as [Node, unknown]) ?? []
         const q = QUOTES[String(kind?.t)] ?? ['"', '"']
@@ -92,6 +200,7 @@ export function hwpxExpectedLines(ast: unknown): string[] {
         case 'Para': case 'Plain': push(0, inlineText(c, false)); break
         case 'BulletList': for (const item of c ?? []) blocks(item); break
         case 'OrderedList': for (const item of c?.[1] ?? []) blocks(item); break
+        case 'Div': blocks(c?.[1]); break
         case 'Table': {
           const rows: unknown[] = [...(c?.[3]?.[1] ?? [])]
           for (const body of c?.[4] ?? []) rows.push(...(body?.[2] ?? []), ...(body?.[3] ?? []))
@@ -102,7 +211,8 @@ export function hwpxExpectedLines(ast: unknown): string[] {
       }
     }
   }
-  blocks(isNode(ast) ? (ast as { blocks?: unknown }).blocks : [])
+  const tree = normalizeHwpxTree(ast)
+  blocks(isNode(tree) ? (tree as { blocks?: unknown }).blocks : [])
   return out
 }
 
