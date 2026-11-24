@@ -19,9 +19,11 @@
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
 // Trust (lib/connectCard.ts cardTrust): a service in the app's list at exactly its official address says so; any other
-// address gets a warning with the address in bold, and one that calls itself a listed service (a self-hosted edition,
-// a made-up address) is named by its host, never by the listed name. A reconnect card is for a connection the person
-// already has and fixes that one.
+// address gets one warning with the host in bold: that it is not in the app's list and to check it against the
+// service's official docs (docs/decisions/20261124-connect-card-unlisted.md), and it can still be connected. One that
+// calls itself a listed service (a self-hosted edition, a made-up address) is named by its host, never by the listed
+// name, and its warning names that service's official host instead. An admin's template and a reconnect card (a
+// connection the person already has, which it fixes) get no such warning.
 import clsx from 'clsx'
 import { BadgeCheck, Globe, Lock, LogIn, Plug, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
@@ -258,7 +260,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
             )}
           </div>
         )}
-        {/* a service the app does not know: the person is the only check that the address belongs to it */}
+        {/* an address not in the app's list: the person is the only check that it belongs to the service, against the
+            service's own docs (owner decision 2026-11-24); one line, and Connect stays */}
         {/* the AI named a listed service at another address: say plainly whose address this is not, and which one is */}
         {notOff ? (
           <p role="note" className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="connect-not-official">

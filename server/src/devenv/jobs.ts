@@ -8,6 +8,7 @@
 //
 // dev_env_jobs and dev_env_stops are the tables of the removed box runner (docs/DECISIONS.md "Dev environment: box
 // runner removed, srt only"): nothing writes them now, and purgeOldJobs deletes their old rows.
+import { settleRunWrites } from './track'
 import { hideProxyLogin } from './srt/proxy-login'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
@@ -23,6 +24,9 @@ import { REQUEST_SOURCE, requestOutcome, requestSource, requestSourcePrefix, typ
 export { REQUEST_SOURCE, requestOutcome, requestSource, type RequestOutcome, type RequestStop }
 
 export const JOB_POLL_MS = 10_000
+/** how often what a running job or dev server wrote is checked (track.ts settleRunWrites) */
+const SETTLE_MS = 30_000
+const settled = new Map<string, number>()
 const JOB_KEEP_MS = 30 * 86400_000
 /** the end of the log that goes to the AI */
 const AI_TAIL = 2000
@@ -289,7 +293,18 @@ export async function pollSrt(ctx: AppContext, filter?: { chatId?: string; userI
     for (const [id, j] of rows) {
       const row = byId.get(id)
       if (!row) continue
-      if (j.state === 'ended') { endRun(ctx, row, { code: j.code, note: j.reason && j.reason !== 'exit' ? (j.why ?? '') : '', tail: j.tail, lastLine: j.lastLine, reason: j.reason ?? 'exit' }); continue }
+      // what the job or dev server wrote straight into a team folder: checked when it ends and every SETTLE_MS while it
+      // runs, like a command's writes (track.ts settleRunWrites, files/office-exit.ts)
+      let blockedNote = ''
+      if (j.state === 'ended' || Date.now() - (settled.get(id) ?? 0) >= SETTLE_MS) {
+        settled.set(id, Date.now())
+        try {
+          const b = await settleRunWrites(ctx, { userId: row.user_id, projectId: row.project_id })
+          if (b.length) blockedNote = ` Not kept, because the team's Office safety check refused them: ${b.map((x) => `${x.path} (${x.why.slice(0, 160)}${x.kept ? '; a newer save there was kept' : x.restored ? '; the version before is back' : '; moved to the trash'})`).join('; ')}.`
+        } catch (err) { ctx.log.warn('dev env: the writes of a run were not checked', { err, run: id }) }
+        if (j.state === 'ended') settled.delete(id)
+      }
+      if (j.state === 'ended') { endRun(ctx, row, { code: j.code, note: (j.reason && j.reason !== 'exit' ? (j.why ?? '') : '') + blockedNote, tail: j.tail, lastLine: j.lastLine, reason: j.reason ?? 'exit' }); continue }
       if (j.tail !== row.log_tail) {
         const r = redactorFor(ctx, row.user_id)
         ctx.db.query('UPDATE dev_env_runs SET last_line = ?, log_tail = ? WHERE id = ? AND ended_at IS NULL').run(hideRunning(r, j.lastLine).slice(0, LINE_MAX), hideRunning(r, j.tail), row.id)

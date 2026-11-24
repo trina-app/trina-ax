@@ -144,6 +144,38 @@ The container has no writable cgroup tree, so `mycel-ctl supervise` cannot deleg
 - No per-turn limits (memory, tasks, CPU) and no shared converter limit. The log says `no turn cgroups` and `converters run without a cgroup limit`.
 - The compose limits (`mem_limit`, `memswap_limit`, `pids_limit`, `cpus`) hold the whole team. One run-away turn or converter can slow or stop the others, but not the host.
 - Safe PowerPoint (safe operations 1A) is not supported in Docker: it needs the cgroup limits.
+- The AI's builds (see [Documents](#documents)) have no cgroup either, so the server holds their limits itself. One
+  build at a time. Twice a second it counts the build's memory and processes (over 1024 MiB or 512 processes: stopped)
+  and the container's own memory (within 768 MiB of `mem_limit`, tmpfs files included: the build is stopped). The
+  process cap is also a hard limit of the build (RLIMIT_NPROC). Builds run at the lowest CPU priority (nice 19,
+  SCHED_IDLE), so they never slow the team. When a build ends, however it ends, everything it started is killed, and a
+  restarted server kills what an earlier one left. A spike shorter than half a second can still go over; the compose
+  limits are the backstop. One page view or print at a time.
+
+## Documents
+
+The default image builds Word, PowerPoint, Excel and PDF files the way a hosted server does: the AI writes them with the
+document skills and real libraries, then looks at the pages and fixes what it sees.
+
+- **Build:** in a sandbox (srt: bubblewrap and a seccomp filter) started by the server with no systemd
+  (`MYCEL_DEV_ENV_SRT_DIRECT=1`), as the server account. No network, no Unix sockets, no server folders: only the work
+  folder and the folders the person may open. The network stays off whatever the team setting says: the entrypoint
+  writes a root-owned plan file (`/var/lib/mycel/root/dev-env.json`, plan `docker`) at every start, which the server
+  cannot change.
+- **Look:** LibreOffice draws the pages in the converter sandbox (bubblewrap with no network, the product's seccomp
+  filter). Korean, Japanese and Chinese draw with Noto CJK; Calibri and Cambria with Carlito and Caladea.
+- **Size:** the image is larger (LibreOffice, the fonts and the build kit: Node, srt, the Python and Node libraries).
+- **Updates:** LibreOffice gets security fixes only with a new image. Pull a new image tag when one is released.
+- **Which teams:** the same as on a hosted server. A new team gets the dev environment (offline here); a team that had
+  people before it came and never chose gets documents mode (only the chat's own folder); a team whose admin turned it
+  off gets nothing. To turn AI commands off for every team on this server, set `TRINA_AX_DEV_ENV=0` in `.env` and run
+  `docker compose up -d`.
+- **Needs** the same [security settings](#security-settings) as the rest of the container. On a host where the sandbox
+  cannot start, the server says the dev environment is not available, and the AI makes documents from Markdown
+  (`make_file`) instead.
+
+Check: `docker compose exec trina-ax cat /var/lib/mycel/root/dev-env.json` shows `"network":"offline"`; Admin › Dev
+environment shows the `docker` plan.
 
 ## Updates
 
@@ -202,6 +234,7 @@ A volume copy holds secrets (AI connections, keys): keep it encrypted and off th
 |---|---|---|
 | Service manager | systemd units | `mycel-ctl supervise` as PID 1 |
 | Per-turn cgroup limits, converter limit | Yes | No (container limits only) |
+| AI document builds | srt in a systemd unit per build, limits by cgroup | srt with no systemd, offline, one at a time, memory and processes watched by the server |
 | Safe PowerPoint (1A) | Yes | No |
 | Updates | Update timer, `mycel-ctl update`, in-app | New image tag |
 | `ptrace_scope` | Set by the installer | Set on the host by you |
@@ -211,7 +244,7 @@ A volume copy holds secrets (AI connections, keys): keep it encrypted and off th
 
 ## Test
 
-`docker/test.sh` builds the image, starts it with a separate project name and port, and checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall (`axagent` reaches only the model proxy), bubblewrap + Landlock + seccomp as `axagent`, the launcher's own status (bwrap, Landlock required, firewall loaded), and a new container on the same volume. It does not run a real AI turn (that needs an AI account). Then it removes the container, the volume and the network.
+`docker/test.sh` builds the image, starts it with a separate project name and port, and checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall (`axagent` reaches only the model proxy), bubblewrap + Landlock + seccomp as `axagent`, the launcher's own status (bwrap, Landlock required, firewall loaded), documents (the server's dev environment available with the offline `docker` plan, a Korean Word file built in srt with no network, Unix socket or server folder, and LibreOffice drawing it with Noto CJK in bubblewrap with the seccomp filter), and a new container on the same volume. It does not run a real AI turn (that needs an AI account). Then it removes the container, the volume and the network.
 
 ```sh
 TRINA_AX_VERSION=<latest stable> bash docker/test.sh

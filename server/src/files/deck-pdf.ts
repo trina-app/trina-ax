@@ -113,6 +113,8 @@ export const SLIDE_IMAGE_EXT = new Set(['pptx'])
 export function pagesOnlyText(e: string): string {
   return ['ppt', 'pps', 'odp', 'key', 'pptm', 'ppsx', 'potx'].includes(e)
     ? `pages and as_images are for PDF files and PowerPoint .pptx decks; slides of a .${e} file cannot be shown as images here. Read it without them for its text, and tell the user that a copy saved as .pptx (or PDF) can be looked at slide by slide`
+    : ['docx', 'xlsx'].includes(e)
+    ? `this server cannot draw the pages of a .${e} file. Read it without pages and as_images for its text, and tell the user you did not see how its pages look`
     : 'pages and as_images are only for PDF files and PowerPoint (.pptx) decks'
 }
 

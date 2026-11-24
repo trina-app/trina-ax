@@ -18,6 +18,7 @@
 // the team's storage (system/storage.ts counts .system/chat-files with the team folder).
 import fs from 'node:fs'
 import path from 'node:path'
+import { assertSafeTeamPath, readVouchers, replacedAsRead } from '../files/office-exit'
 import { createHash } from 'node:crypto'
 import { CHAT_FILE_AI_MAX, SMALL_UPLOAD_MAX, type Attachment, type ChatFileVersion } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
@@ -84,7 +85,7 @@ export interface PutVersionOptions {
    * (the AI's saves of this answer): a save over a head this same answer wrote takes that head's place (the same
    * version number) instead of adding one, so an answer that edits a file several times leaves one version and never
    * pushes people's versions out of CHAT_FILE_VERSIONS_KEPT */
-  turn?: { bytesWritten: number; filesWritten: Set<string>; chatVersionsMade?: Map<string, string> }
+  turn?: { bytesWritten: number; filesWritten: Set<string>; chatVersionsMade?: Map<string, string>; readHashes?: Map<string, string> }
   /** the head's id the caller read; another head now makes the result `beside` */
   expectHead?: string
   /** audit action ('chat.file_version', or 'chat.file_restore') */
@@ -287,7 +288,7 @@ export class ChatFiles {
    * file is theirs as an upload would be). The caller puts it into the answer's attachments at once (sent()). Audited.
    * ToolError with plain words for the AI.
    */
-  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string): Promise<Attachment> {
+  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string, read: Iterable<[string, string]> = [], fetched = false): Promise<Attachment> {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = !clean || clean.includes('/') || clean.includes('\\') ? 'not a file name' : badSegment(clean)
     if (bad) throw new ToolError(`'${clean}' cannot be a file name here: ${bad}`, 'bad_name')
@@ -295,6 +296,8 @@ export class ChatFiles {
     if (size > CHAT_FILE_AI_MAX) throw new ToolError(`the file is ${(size / 1024 ** 2).toFixed(0)} MB; a file attached to an answer may be at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB. Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
     assertStorageRoomForAI(size)
     let stored = sha256
+    // the one check of an AI's file, by its content (files/office-exit.ts): the files this answer read vouch, as read
+    if (!fetched && await assertSafeTeamPath(clean, src, null, undefined, { read: () => readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
     let kind = attachmentKind(clean)
     if (kind === 'image') {
       // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
@@ -647,6 +650,13 @@ export class ChatFiles {
       await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
       const dst = this.abs({ chat_id: chatId, id })
       let sha = await this.writeVersion(dst, src, size)
+      if (opts.origin === 'ai') {
+        // the one check of an AI's file (files/office-exit.ts): the head it replaces vouches only in the bytes this
+        // answer read
+        const head = this.headOf(root.id) ?? root
+        const vouch = turn?.readHashes && [...turn.readHashes.values()].includes(head.sha256) ? replacedAsRead(this.abs(head), head.sha256) : null
+        if (await assertSafeTeamPath(root.name, dst, vouch, undefined, { read: () => (turn?.readHashes ? readVouchers(this.ctx.files.fx.root, turn.readHashes) : []) })) sha = createHash('sha256').update(fs.readFileSync(dst)).digest('hex')
+      }
       let kind = attachmentKind(root.name)
       if (kind === 'image') {
         const pic = cleanPicture(root.name, new Uint8Array(await fs.promises.readFile(dst)), this.ctx.files.quarantine.hasHash(sha))

@@ -19,6 +19,9 @@ import { stepLabel } from '@mycel/shared'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { confirmSources } from '../../server/src/tools/make-file'
 import { componentC } from '../../server/src/team-files/component'
+import { fileEvent } from '../../server/src/files/store'
+import { docx, UNC } from '../lib/office-fixture'
+import crypto from 'node:crypto'
 
 setDefaultTimeout(60_000)
 
@@ -570,3 +573,38 @@ describe('the lists', () => {
     expect(stepLabel('unzip_file', { path: 'groups/a.zip' }, 'ko', new Set())).toBe('압축 풀기 · groups/a.zip')
   })
 })
+
+describe('an unzipped entry is outside bytes only when its archive is (files/office-exit.ts cameFromOutside)', () => {
+  const bad = () => zip([{ name: 'report.docx', data: docx({ link: UNC }) }, { name: 'notes.txt', data: 'hello' }])
+  const record = (rel: string, b: Uint8Array, turnId: string | null, detail: Record<string, unknown>) =>
+    fileEvent(A.ctx.db, { turnId, userId: 'alice', path: rel, action: 'create', size: b.length, sha256: crypto.createHash('sha256').update(b).digest('hex'), detail })
+  test('a zip the AI built and copied out: its Office entries get the exit check (the round-trip bypass)', async () => {
+    const b = bad(); put(`${D}/ai-built.zip`, b)
+    record(`${D}/ai-built.zip`, b, 'turn-ai-1', { tool: 'save_work_file', from: 'work folder' })
+    await turn('alice')('unzip_file', { path: `${D}/ai-built.zip` })
+    expect(fs.existsSync(file(`${D}/ai-built/report.docx`))).toBe(false)
+    expect(fs.existsSync(file(`${D}/ai-built/notes.txt`))).toBe(true)
+  })
+  test('a zip with no record of where it came from is checked the same way', async () => {
+    put(`${D}/unknown.zip`, bad())
+    await turn('alice')('unzip_file', { path: `${D}/unknown.zip` })
+    expect(fs.existsSync(file(`${D}/unknown/report.docx`))).toBe(false)
+  })
+  test('a zip a person uploaded, unchanged since: its entries are saved as they came', async () => {
+    const b = bad(); put(`${D}/from-person.zip`, b)
+    record(`${D}/from-person.zip`, b, null, { tool: 'file-screen' })
+    await turn('alice')('unzip_file', { path: `${D}/from-person.zip` })
+    expect(fs.existsSync(file(`${D}/from-person/report.docx`))).toBe(true)
+  })
+  test('a zip saved as fetched (a download) keeps that; changed since, it does not', async () => {
+    const b = bad(); put(`${D}/downloaded.zip`, b)
+    record(`${D}/downloaded.zip`, b, 'turn-ai-2', { tool: 'save_url', fetched: true })
+    await turn('alice')('unzip_file', { path: `${D}/downloaded.zip` })
+    expect(fs.existsSync(file(`${D}/downloaded/report.docx`))).toBe(true)
+    const changed = zip([{ name: 'report.docx', data: docx({ link: UNC, body: 'changed' }) }]); put(`${D}/downloaded2.zip`, changed)
+    record(`${D}/downloaded2.zip`, b, 'turn-ai-3', { tool: 'save_url', fetched: true })
+    await turn('alice')('unzip_file', { path: `${D}/downloaded2.zip` })
+    expect(fs.existsSync(file(`${D}/downloaded2/report.docx`))).toBe(false)
+  })
+})
+

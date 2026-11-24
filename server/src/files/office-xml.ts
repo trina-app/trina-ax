@@ -170,13 +170,13 @@ export function looksXml(d: Uint8Array): boolean {
  * part that starts with "<" (not a .rels) read for its fields. `problem(part, why)` is called for the first field
  * that is not allowed; `fail` for a part that cannot be read.
  */
-export function scanWordFields(entries: { name: string; data: Uint8Array }[], fail: (part: string, why: string) => never, problem: (part: string, why: string) => never): void {
+export function scanWordFields(entries: { name: string; data: Uint8Array }[], fail: (part: string, why: string) => never, problem: (part: string, why: string, code: string) => never): void {
   for (const e of entries) {
     const wide = wideTextProblem(e.name, e.data)
     if (wide) fail(e.name, wide)
     if (/\.rels$/i.test(e.name) || !looksXml(e.data)) continue
     let xml: string
     try { xml = new TextDecoder('utf-8', { fatal: true }).decode(e.data) } catch { return fail(e.name, 'is not UTF-8 text') }
-    for (const f of fieldCodes(xml, e.name, fail)) { const why = fieldProblem(f); if (why) problem(e.name, `has ${why}`) }
+    for (const f of fieldCodes(xml, e.name, fail)) { const why = fieldProblem(f); if (why) problem(e.name, `has ${why}`, f.code) }
   }
 }

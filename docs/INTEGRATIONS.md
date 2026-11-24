@@ -254,6 +254,13 @@ was shown"; AI scenario CON-02). Code: `server/src/chat/connect-service.ts` (the
   the Discover list) the card says "Official {name} address" only for exactly its official address (https, host and
   path). Its name, a look-alike ("Nоtion", "노션") or a name holding it, at any other address (a self-hosted GitLab, a
   made-up address) is an unknown service named by its host, with a warning and the host in bold; it is not refused.
+  Any address that is not a listed service's official one (another official address of it, such as Atlassian's v1 or
+  Canva's documented one, counts as official) gets one line beside its host in bold, unless the card is an admin's
+  template or a reconnect: "This address is not in Trina's list of apps. Check that it matches the address in the
+  service's official docs." / "트리나 앱 목록에 없는 주소예요. 이 서비스의 공식 문서에 나온 주소와 같은지 확인해 주세요."
+  (`connect.unlisted`). The person can still connect. A listed name at another address gets the more exact line in its
+  place: "This is not {name}'s official address. {name}'s official address is {official}. …" (`connect.notOfficial`).
+  Owner decision 2026-11-24, docs/decisions/20261124-connect-card-unlisted.md.
   A service the person already uses is not connected twice: a working one gets no card, their own that needs a
   sign-in or key gets a card for that same connection (`reconnect`). A team connection is never named to someone who
   may not use it. docs/DECISIONS.md "The chat's connect card trusts the app's list".

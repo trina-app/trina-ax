@@ -46,6 +46,12 @@ function DevEnvTeamForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (hidden || !r || !d) return null
+  // an office Mac: documents mode only (one line, nothing to change)
+  if (r.documentsOnly) return (
+    <Card id="dev-env" title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')}</span>}>
+      <p className="text-sm break-keep" data-testid="dev-env-documents-only" data-on={r.documentsOnly.on ? 'true' : 'false'}>{t(r.documentsOnly.on ? 'devEnvTeam.documentsOnlyOn' : 'devEnvTeam.documentsOnlyOff')}</p>
+    </Card>
+  )
   const warn = needsWarning(r, d)
   const body = teamBody(r, d, accept)
   const dirty = Object.keys(body).some((k) => k !== 'acceptWarning')
