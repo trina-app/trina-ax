@@ -2,6 +2,7 @@
 
 - Date: 2026-11-24
 - Status: accepted
+- Supersedes: none
 - Branch: fix/connector-fallback-undo-particle (F1 measurement, 2026-11-24)
 
 - **Ask:** `web_fetch` got a 403. The AI then asked "Bright Data로 시도해 볼까요?", and the person had to repeat the

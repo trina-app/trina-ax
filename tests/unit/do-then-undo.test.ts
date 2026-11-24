@@ -115,7 +115,7 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
 type Card = { question: string; options?: { label: string; value: string }[] }
-type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[]; mentionsAll?: true; to?: string }; scheduled?: { id: string; title: string; quiet?: true } }
+type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[]; mentionsAll?: true; to?: string; toPerson?: true }; scheduled?: { id: string; title: string; quiet?: true } }
 /** One turn: whether a card showed (answered with `answer`), what the AI said and the steps. A card is waited for only a
  * short while when none is expected. */
 async function turn(user: string, content: string, o: { chat?: string; answer?: string } = {}) {

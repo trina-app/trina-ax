@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 17:00
 - Branch: `fix/connector-fallback-undo-particle` (off `fix/sends-verbatim`, #518; rebased onto `dev` once it merges)
-- Status: in progress (real check below)
+- Status: done
 - Where: server/src/integrations/connections/tools.ts ("Connected services"), server/src/tools/index.ts (web_fetch),
   server/src/chat/post-to-room.ts (Step.posted), shared/src/api/entities.ts, web/src/components/chat/PostedCard.tsx,
   web/src/i18n (6 languages).
@@ -39,4 +39,16 @@ Out: the read tiers themselves, the card rules for tools that change something.
 
 ## Result
 
-(after the real check)
+Real check on a private copy (QA token, one lane, Claude Code engine) with stand-in services behind a quick tunnel: a
+site that answers 403, a page scraper, market data, weather and a code host (each read-only; the code host also has a
+change tool). No limit error.
+
+| Run | Cards | ask_user | web_fetch | Expected connector | Other connector | Write calls | Done |
+|---|---|---|---|---|---|---|---|
+| Round 1 (first wording) F1 x3 | 0/0/0 | 0/0/0 | 1/1/1 | 1/1/1 | 0/0/0 | 0 | 3/3 |
+| Round 1 held-out quote / weather / issue | 0/0/0 | 0/0/0 | 1/1/1 | 1/1/0 | 0/1/1 | 0 | 2/3 (issue: asked the person after the scraper's sign-in wall) |
+| Round 2 (final wording) F1 x3 | 0/0/0 | 0/0/0 | 1/1/1 | 1/1/1 | 0/0/0 | 0 | 3/3 |
+| Round 2 held-out quote / weather / issue | 0/0/0 | 0/0/0 | 1/1/1 | 1/1/1 | 0/1/1 | 0 | 3/3 |
+
+Round 1's miss led to the final wording: pick by what the request is about, and try the next fitting tool before asking.
+Round 1 answers also said "읽기 전용" to the person; the final wording asks for one plain line, and round 2 had none.
