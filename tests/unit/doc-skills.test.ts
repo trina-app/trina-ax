@@ -70,8 +70,10 @@ describe('the prompt', () => {
     expect(r).toContain('save_work_file')
     expect(r).toContain('read the saved file with as_images')
   })
-  test('without them the rule is what it was', () => {
-    expect(makeFileRule(false, true)).toContain('write Markdown or CSV and convert it with make_file')
-    expect(makeFileRule(false, true)).not.toContain('TRINA_DOC_SKILLS')
+  test('without them: make_file, and the AI looks only where the server can draw the pages', () => {
+    expect(makeFileRule(false, true, false, true)).toContain('write Markdown or CSV and convert it with make_file')
+    expect(makeFileRule(false, true, false, true)).not.toContain('TRINA_DOC_SKILLS')
+    expect(makeFileRule(false, true, false, true)).toContain('with read as_images')
+    expect(makeFileRule(false, true, false, false)).toContain('did not see how its pages look')
   })
 })

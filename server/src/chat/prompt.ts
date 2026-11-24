@@ -1423,7 +1423,7 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
     : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml +
     // what the AI can honestly say about a Word or Excel file it made (files/office-view.ts)
-    (docSkills ? '' : officeView ? ' Look at a Word or Excel file you made with read as_images before you answer, and fix what you see.' : ' This server cannot show you Word or Excel pages: never say you checked how one looks.') +
+    (docSkills ? '' : officeView ? ' Look at a Word or Excel file you made with read as_images before you answer, and fix what you see.' : ' This server cannot show you Word or Excel pages: when you make one, say in one short line of your answer that you did not see how its pages look, and never say you checked.') +
     // second limits audit N4: a chart picture is an SVG saved as PNG by make_file (tools/svg-png.ts)
     (docSkills ? '' : ' A chart, Gantt chart or diagram the user wants as a picture: draw it as SVG and save it as PNG with make_file (format "png"); in a Word or PowerPoint file refer to the SVG or the PNG as a Markdown image.') +
     // QA TC-f2-a03: a PDF's .html source stayed in the project folder for every member to see
