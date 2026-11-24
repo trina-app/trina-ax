@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import { createHash, generateKeyPairSync, sign, verify, type KeyObject } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   PUSH_GATEWAY_ERRORS, PUSH_SYNC_CODE, parsePushGatewayAuthorization, parsePushGatewaySend, pushGatewayAuthorization,
   pushGatewaySigningString, validPushBadge, validPushPath, validPushToken,
@@ -173,7 +174,7 @@ describe('push gateway contract', () => {
     const file = path.resolve(import.meta.dir, '../../shared/src/cloud-protocol/push-gateway.ts')
     expect(fs.readFileSync(file, 'utf8')).not.toMatch(/^\s*(import|export .* from)\b/m)
     if (!Bun.which('node')) return
-    const p = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', `import(${JSON.stringify(file)}).then((m) => console.log(m.pushGatewaySigningString(1, 'ab'), m.PUSH_GATEWAY_ERRORS.token_invalid))`])
+    const p = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', `import(${JSON.stringify(pathToFileURL(file).href)}).then((m) => console.log(m.pushGatewaySigningString(1, 'ab'), m.PUSH_GATEWAY_ERRORS.token_invalid))`])
     expect(p.exitCode).toBe(0)
     expect(p.stdout.toString()).toBe('mycel-push-v1\nPOST\n/v1/send\n1\nab 410\n')
   })

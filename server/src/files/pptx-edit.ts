@@ -9,12 +9,17 @@
 // - { add_slide: { layout, after?, title?, body? } }: a new slide from one of the deck's layouts, by name.
 // - { replace_picture: { slide, picture, image } }: the picture (by name or its number on the slide) shows a new image
 //   (PNG, JPEG or GIF), fitted into the old picture's frame; the old image part stays for other slides that use it.
+// - { insert_picture: { image, slide, x_mm?, y_mm?, center?, width_mm?, height_mm? } }: a new picture on the slide (no
+//   position: centred). { move_picture: { slide, picture, x_mm?, y_mm?, center?, width_mm?, height_mm? } }: moves or
+//   resizes a picture of the slide as read, in slide millimetres also when it is inside a group.
 // Kept: masters, layouts, themes, notes, animations, transitions, charts and every other slide byte for byte.
 import {
   addRel, applySplices, attrOf, ensureContentType, escAttr, escText, find, findAll, kid, kidsNamed, mainPart, matchesOf, paragraphs, pick,
   readRels, refuse, relId, relIdPrefix, registerEditor, registerLister, slice, textSplices, withAttr, without, xmlTree, A,
   type EditNote, type Para, type Pkg, type Splice, type XNode,
 } from './office-edit'
+import type { PlacedPicture } from './office-edit-check'
+import { emuToMm, fitPicture, freePictureName, mmToEmu, NS_A, NS_R, pickPicture, pictureList, shapeIds, shapeNames } from './office-picture'
 
 export type PptxChange =
   | { find: string; replace: string; slide?: number; occurrence?: number; all?: boolean }
@@ -22,6 +27,8 @@ export type PptxChange =
   | { duplicate_slide: { slide: number; after?: number } }
   | { add_slide: { layout: string; after?: number; title?: string; body?: string } }
   | { replace_picture: { slide: number; picture: string | number; image: number } }
+  | { insert_picture: { slide: number; image: number; x_mm?: number; y_mm?: number; center?: boolean; width_mm?: number; height_mm?: number } }
+  | { move_picture: { slide: number; picture: string | number; x_mm?: number; y_mm?: number; center?: boolean; width_mm?: number; height_mm?: number } }
 
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const SLIDE_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'
@@ -92,7 +99,7 @@ export function imageInfo(b: Uint8Array): { ext: 'png' | 'jpeg' | 'gif'; type: s
   return null
 }
 
-export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { notes: EditNote[] } {
+export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { notes: EditNote[]; placed: PlacedPicture[] } {
   const pres = mainPart(pkg, 'ppt/presentation.xml')
   const presXml = pkg.need(pres)
   const presTree = xmlTree(presXml, pres)
@@ -113,6 +120,81 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
   const insertAt = (i: number, after: number) => {
     if (!Number.isInteger(after) || after < 0 || after > slides.length) refuse(`change ${i + 1}: after is 0 (first) to ${slides.length}`)
     return after === 0 ? slides[0]!.sldId.start : slides[after - 1]!.sldId.end
+  }
+  // pictures added by this call: one image part per image, one relationship per slide and image, new shape ids
+  const sz = find(presTree, 'p:sldSz')
+  const slideW = Number(attrOf(sz?.head ?? '', 'cx')) || 12_192_000, slideH = Number(attrOf(sz?.head ?? '', 'cy')) || 6_858_000
+  const mediaOf = new Map<number, { media: string; ext: string; type: string; w: number; h: number }>()
+  const ridOf = new Map<string, string>()
+  const placed: PlacedPicture[] = []
+  const idsOn = new Map<string, { next: number; names: Set<string> }>()
+  const picName = (p: XNode) => { const c2 = find(p, 'p:cNvPr'); return c2 ? attrOf(c2.head, 'name') ?? '' : '' }
+  const picsOn = (s: Slide) => findAll(find(trees.get(s.part)!, 'p:spTree')!, 'p:pic', true)
+  const placedText = (n: number, name: string, x: number, y: number, b: { cx: number; cy: number }) =>
+    `slide ${n}, picture ${JSON.stringify(name)} at ${emuToMm(x)}, ${emuToMm(y)} mm, ${emuToMm(b.cx)} x ${emuToMm(b.cy)} mm (the slide is ${emuToMm(slideW)} x ${emuToMm(slideH)} mm)`
+  const insertPicture = (i: number, x: Extract<PptxChange, { insert_picture: unknown }>['insert_picture']) => {
+    const s = slide(i, x.slide), xml = xmls.get(s.part)!
+    const img = images[Number(x.image)] ?? refuse(`change ${i + 1}: the image could not be read`)
+    let m = mediaOf.get(Number(x.image))
+    if (!m) {
+      const info = imageInfo(img) ?? refuse(`change ${i + 1}: the new image is not a PNG, JPEG or GIF`)
+      if (!info.w || !info.h) refuse(`change ${i + 1}: the new image has no size`)
+      const media = pkg.free('ppt/media/image', `.${info.ext}`, 1)
+      pkg.add(media, img)
+      ensureContentType(pkg, { ext: info.ext, type: info.type })
+      m = { media, ...info }
+      mediaOf.set(Number(x.image), m)
+    }
+    const key = `${s.part}|${x.image}`
+    const rid = ridOf.get(key) ?? addRel(pkg, s.part, `${REL}/image`, `../media/${m.media.split('/').pop()}`)
+    ridOf.set(key, rid)
+    let ids = idsOn.get(s.part)
+    if (!ids) { ids = { next: Math.max(1, ...shapeIds(xml)) + 1, names: shapeNames(xml) }; idsOn.set(s.part, ids) }
+    const id = ids.next++, name = freePictureName(ids.names, id)
+    const box = fitPicture(m.w, m.h, x.width_mm, x.height_mm)
+    const ox = x.x_mm !== undefined && !x.center ? mmToEmu(x.x_mm) : Math.round((slideW - box.cx) / 2)
+    const oy = x.y_mm !== undefined && !x.center ? mmToEmu(x.y_mm) : Math.round((slideH - box.cy) / 2)
+    const tree = find(trees.get(s.part)!, 'p:spTree')!, at = kid(tree, 'p:extLst')?.start ?? tree.closeStart
+    splices.get(s.part)!.push({ from: at, to: at, change: i, text: `<p:pic xmlns:a="${NS_A}" xmlns:r="${NS_R}"><p:nvPicPr><p:cNvPr id="${id}" name="${name}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${ox}" y="${oy}"/><a:ext cx="${box.cx}" cy="${box.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>` })
+    placed.push({ part: s.part, id, rid })
+    notes.push({ change: i, where: `new ${placedText(s.n, name, ox, oy, box)}` })
+  }
+  const movePicture = (i: number, x: Extract<PptxChange, { move_picture: unknown }>['move_picture']) => {
+    const s = slide(i, x.slide), pics = picsOn(s)
+    const pic = pickPicture(pics, picName, x.picture) ?? refuse(`change ${i + 1}: no picture ${JSON.stringify(x.picture)} on slide ${s.n} (its pictures: ${pictureList(pics, picName)})`)
+    const spPr = kid(pic, 'p:spPr') ?? refuse(`change ${i + 1}: that picture has no frame to move`)
+    const xfrm = kid(spPr, 'a:xfrm'), off = xfrm ? kid(xfrm, 'a:off') : null, ext = xfrm ? kid(xfrm, 'a:ext') : null
+    // a picture in a group: its numbers are in the group's space; slide = t + k * own
+    let tx = 0, ty = 0, kx = 1, ky = 1
+    for (let g = pic.parent; g; g = g.parent) {
+      if (g.name !== 'p:grpSp') continue
+      const f = kid(kid(g, 'p:grpSpPr') ?? g, 'a:xfrm')
+      const n = (el: string, a: string) => { const e = f ? kid(f, el) : null; return e ? Number(attrOf(e.head, a)) || 0 : 0 }
+      const sx = n('a:chExt', 'cx') ? n('a:ext', 'cx') / n('a:chExt', 'cx') : 1, sy = n('a:chExt', 'cy') ? n('a:ext', 'cy') / n('a:chExt', 'cy') : 1
+      tx = n('a:off', 'x') + (tx - n('a:chOff', 'x')) * sx; ty = n('a:off', 'y') + (ty - n('a:chOff', 'y')) * sy
+      kx *= sx; ky *= sy
+    }
+    const own = off && ext ? { x: Number(attrOf(off.head, 'x')), y: Number(attrOf(off.head, 'y')), cx: Number(attrOf(ext.head, 'cx')), cy: Number(attrOf(ext.head, 'cy')) } : null
+    const known = own && [own.x, own.y, own.cx, own.cy].every(Number.isFinite) && own.cx > 0 && own.cy > 0 ? own : null
+    const hasPlace = (x.x_mm !== undefined && x.y_mm !== undefined) || x.center
+    if (!known && (!hasPlace || x.width_mm === undefined || x.height_mm === undefined)) refuse(`change ${i + 1}: that picture takes its place from the slide layout; give x_mm, y_mm, width_mm and height_mm`)
+    const cur = known ? { cx: Math.round(known.cx * kx), cy: Math.round(known.cy * ky) } : { cx: mmToEmu(x.width_mm!), cy: mmToEmu(x.height_mm!) }
+    const box = fitPicture(cur.cx, cur.cy, x.width_mm, x.height_mm, cur)
+    const wx = x.center ? Math.round((slideW - box.cx) / 2) : x.x_mm !== undefined ? mmToEmu(x.x_mm) : Math.round(tx + known!.x * kx)
+    const wy = x.center ? Math.round((slideH - box.cy) / 2) : x.y_mm !== undefined ? mmToEmu(x.y_mm) : Math.round(ty + known!.y * ky)
+    const lx = Math.round((wx - tx) / kx), ly = Math.round((wy - ty) / ky), lw = Math.max(1, Math.round(box.cx / kx)), lh = Math.max(1, Math.round(box.cy / ky))
+    if (![lx, ly, lw, lh].every(Number.isFinite)) refuse(`change ${i + 1}: this picture cannot be moved (its group has no size)`)
+    const sp = splices.get(s.part)!
+    if (off && ext) {
+      sp.push({ from: off.start, to: off.end, change: i, text: `<a:off${withAttr(withAttr(off.head.replace(/\/$/, ''), 'x', String(lx)), 'y', String(ly))}/>` })
+      sp.push({ from: ext.start, to: ext.end, change: i, text: `<a:ext${withAttr(withAttr(ext.head.replace(/\/$/, ''), 'cx', String(lw)), 'cy', String(lh))}/>` })
+    } else {
+      const frame = `<a:xfrm xmlns:a="${NS_A}"><a:off x="${lx}" y="${ly}"/><a:ext cx="${lw}" cy="${lh}"/></a:xfrm>`
+      if (xfrm) sp.push({ from: xfrm.start, to: xfrm.end, change: i, text: frame })
+      else if (spPr.self) sp.push({ from: spPr.start, to: spPr.end, change: i, text: `<p:spPr${spPr.head.replace(/\/$/, '')}>${frame}</p:spPr>` })
+      else sp.push({ from: spPr.openEnd, to: spPr.openEnd, change: i, text: frame })
+    }
+    notes.push({ change: i, where: `moved ${placedText(s.n, picName(pic), wx, wy, box)}` })
   }
   const rIdAttr = relIdPrefix(slides[0]!.sldId.head)
   const newSlideEntry = (i: number, part: string, after: number, what: string) => {
@@ -218,6 +300,8 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
       notes[notes.length - 1]!.after = made
       return
     }
+    if (c.insert_picture) { insertPicture(i, c.insert_picture); return }
+    if (c.move_picture) { movePicture(i, c.move_picture); return }
     if (c.replace_picture) {
       const x = c.replace_picture
       const s = slide(i, x.slide)
@@ -259,7 +343,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
       notes.push({ change: i, where: `slide ${s.n}, picture ${JSON.stringify(nameOf(pic))} now shows the new image (${info.w}x${info.h})` })
       return
     }
-    refuse(`change ${i + 1} is not a change edit_office makes in a deck (find/replace, shape_text, duplicate_slide, add_slide, replace_picture)`)
+    refuse(`change ${i + 1} is not a change edit_office makes in a deck (find/replace, shape_text, duplicate_slide, add_slide, replace_picture, insert_picture, move_picture)`)
   })
 
   for (const [para, edits] of textEdits) {
@@ -277,7 +361,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     pkg.set(pres, applySplices(presXml, presSplices, pres))
   }
   notes.sort((a, b) => a.change - b.change)
-  return { notes }
+  return { notes, placed }
 }
 
 /** The paragraphs of every slide in show order, as the read-back compares them. */

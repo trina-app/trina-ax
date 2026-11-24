@@ -1,0 +1,2 @@
+- In a shared or project chat, everyone else now sees **Waiting for {name} to confirm** while the AI is stopped on that person's card, for every kind of card, also after the answer has ended. The chat's row shows a still ring that does not count as needing you, and the line goes away as soon as the card is answered, times out or is cancelled.
+- The others in a shared chat no longer read what a card asks in the answer's step lines (a question, a web address, a connected service): they see the step's plain name.

@@ -16,7 +16,7 @@ import { cardQuestion, reasonText, useSessionMarkers } from '../../store/session
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 export const isUnused = (c: Pick<Chat, 'title' | 'createdAt' | 'updatedAt' | 'runState'>) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
-type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'> & Partial<Pick<Chat, 'unreadCount'>>
+type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'> & Partial<Pick<Chat, 'unreadCount' | 'waitsFor'>>
 /** A chat's marker and its reason in words, as this window shows them: the AI's question itself when this window has
  * its card (not for a confidential chat), else the marker's words. */
 export function useChatMarker(chat: Marked): { marker: Marker | null; reason: string } {
@@ -25,6 +25,7 @@ export function useChatMarker(chat: Marked): { marker: Marker | null; reason: st
   const card = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
   const marker = markerOf(chat, { here, card })
   const question = useChats((s) => (marker?.reason === 'card' && !chat.confidential ? cardQuestion(s.requests, chat.id) : undefined))
+  if (marker?.reason === 'someone' && chat.waitsFor) return { marker, reason: t('chat.sharedWaiting', { name: chat.waitsFor }) }
   return { marker, reason: marker ? reasonText(marker.reason, t, question) : '' }
 }
 
@@ -36,6 +37,9 @@ export function SessionMarker({ marker, label, className }: { marker: Marker; la
         <span aria-hidden>?</span>
       </span>
     )
+  // the AI is stopped on someone else's card: the ring standing still
+  if (marker.reason === 'someone')
+    return <span role="img" aria-label={label} className={clsx('size-3 shrink-0 rounded-full border-[1.5px] border-faint', className)} data-testid="marker-someone" />
   if (marker.kind === 'running')
     return <span role="img" aria-label={label} className={clsx('size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-faint border-r-transparent motion-reduce:animate-none', className)} data-testid="marker-running" data-reason={marker.reason} />
   // a chat shared with people: its unread messages as a number, the rooms' count pill (nav/RoomsList.tsx UnreadBadge)

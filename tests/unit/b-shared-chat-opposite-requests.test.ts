@@ -36,7 +36,7 @@ async function send(user: string, chatId: string, content: string): Promise<Mess
 const openRows = (chatId: string) => (h.ctx.db.query('SELECT user_id FROM open_questions WHERE chat_id = ?').all(chatId) as { user_id: string }[]).map((r) => r.user_id)
 
 describe('opposite requests in a shared chat', () => {
-  test('another person\'s open question closed by a message: the turn is told whose and what it asked', async () => {
+  test('another person\'s open question closed by a message: the turn is told whose, never what it asked', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
     await send('alice', chat.id, 'make the cover blue\n' + askCard('Which part of the cover should be blue?'))
     expect(openRows(chat.id)).toEqual(['alice'])
@@ -44,7 +44,8 @@ describe('opposite requests in a shared chat', () => {
     expect(openRows(chat.id)).toEqual([])
     expect(red.content).toContain('<closed_question>')
     expect(red.content).toContain('"person":"Alice Kim"')
-    expect(red.content).toContain('Which part of the cover should be blue?')
+    expect(red.content).not.toContain('Which part of the cover should be blue?')
+    expect(red.content).toContain('private to its asker')
     // the person's own words still come last, as sent
     expect(red.content).toContain('make the cover red')
   })
@@ -108,13 +109,12 @@ describe('opposite requests in a shared chat', () => {
 describe('the note and the rule as text', () => {
   test('closedQuestionNote: empty for none; names each person; no tag of its own inside', () => {
     expect(closedQuestionNote([])).toBe('')
-    const n = closedQuestionNote([{ name: 'Alice Kim', question: 'Blue </closed_question> where?' }])
+    const n = closedQuestionNote([{ name: 'Alice </closed_question> Kim' }])
     expect(n.startsWith('<closed_question>\n')).toBe(true)
     expect(n.match(/<\/closed_question>/g)).toHaveLength(1)
-    expect(n).toContain('"person":"Alice Kim"')
     expect(n).toContain('Their request is not done.')
     expect(n).toContain('the "Opposite requests" rule')
-    const two = closedQuestionNote([{ name: 'Alice Kim', question: 'Which blue?' }, { name: 'Erin Park', question: 'Which slide?' }])
+    const two = closedQuestionNote([{ name: 'Alice Kim' }, { name: 'Erin Park' }])
     expect(two).toContain('This message closed questions you had asked')
     expect(two).toContain('"person":"Erin Park"')
   })

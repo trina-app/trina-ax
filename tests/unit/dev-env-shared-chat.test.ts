@@ -60,6 +60,7 @@ const shell = (userId: string, shared: SharedRun | undefined, chatId = chat, sig
   boxShellTool({ ctx: h.ctx, project: shared ? (shared.within === null ? null : P) : chatId === chat ? P : null, userId, turnId: 't-' + crypto.randomUUID(), chatId, signal, redact: (s) => s,
     confirm: async (q) => { confirms.push(q); return 'run' }, ...(shared ? { shared } : {}) })
 const abs = (rel: string) => path.join(team, rel)
+const listCards = async (id: string) => (await h.api('alice').call(API.listTurnRequests, { params: { id } })).items
 const fsOf = (r: FakeRun) => r.settings.filesystem
 const readable = (r: FakeRun) => [...new Set([...fsOf(r).allowRead, ...fsOf(r).allowWrite])]
 /** every path a run's settings name (an entry of any list shows its name in the run) */
@@ -103,6 +104,22 @@ describe('a shared project chat', () => {
     expect(off).toContain('the dev environment.')
     expect(on).not.toContain('the dev environment.')
     expect(on).toContain('box_shell commands here see only the team folders everyone in this chat may open inside the project folder')
+  })
+
+  test('the site card of a command: bob reads only who it waits for, never the host', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: { projectId: P.id } })
+    const from = ws.bob!.frames.length
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: c.id }, body: { content: '@fake ' + JSON.stringify({ tool: 'box_shell', args: { command: 'echo reached', request_sites: ['site-secret.example.com'] }, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    let card: Awaited<ReturnType<typeof listCards>>[number] | undefined
+    for (let i = 0; i < 400 && !card; i++) { card = (await listCards(c.id)).find((x) => x.turnId === r.turnId && x.request.kind === 'dev_env_site'); if (!card) await Bun.sleep(25) }
+    expect(card?.request).toMatchObject({ kind: 'dev_env_site', host: 'site-secret.example.com' })
+    const bobView = await h.api('bob').call(API.getChat, { params: { id: c.id } })
+    expect(bobView.waitsFor).toBe('Alice Kim')
+    const got = JSON.stringify([bobView, ws.bob!.frames.slice(from).filter((f) => f.type === 'chat.updated' || f.type === 'turn.request')])
+    expect(got).not.toContain('site-secret')
+    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'dev_env_site', requestId: card!.request.requestId, decision: 'deny' } })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    expect((await h.api('bob').call(API.getChat, { params: { id: c.id } })).waitsFor).toBeUndefined()
   })
 
   test('a whole turn: the command runs in the project folder, without what bob cannot open, and the answer records what it may read', async () => {

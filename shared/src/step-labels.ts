@@ -306,6 +306,10 @@ export function stepWords(step: { kind: string; tool?: string }, locale: Locale)
 /** A tool of ours (one with words of its own), whose name says nothing about the person: a connection's tool is named
  * after the connection (mcp__…__<slug>__<tool>), so where only a step's words may show, its name goes too. */
 export const knownStepTool = (tool: string): boolean => Object.hasOwn(FILE_STEP_VERB, tool) || Object.hasOwn(BROWSER_STEP_VERB, tool)
+/** The server's own step kinds, which no connection can be named: where only a step's words may show, they keep their
+ * tool name (the apps group and draw steps by it) and still lose their label. */
+const INTERNAL_STEP_TOOLS: ReadonlySet<string> = new Set(['agent', 'todo_write', 'attachment', 'engine', 'refusal', 'context', 'history_summary', 'demo_replay'])
+export const internalStepTool = (tool: string): boolean => INTERNAL_STEP_TOOLS.has(tool)
 
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{(\w+)\}/g, (all, k: string) => vars[k] ?? all)
 export const stepText = (key: StepTextKey, locale: Locale, vars: Record<string, string> = {}) => fill(STEP_TEXT[key][locale] ?? STEP_TEXT[key].en, vars)
