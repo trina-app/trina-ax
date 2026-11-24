@@ -404,6 +404,9 @@ export interface DesktopBridge {
     /** Connect was pressed in the confirm after the call that asked stopped waiting (the page checks the connection
      * again by itself). Optional: desktop apps before this addition do not have it. */
     onConfirmed?(cb: (s: { id: string }) => void): () => void
+    /** The app's own "Connect a program" window opened (asking: true) or was answered or closed (false), for this
+     * connection (the page says so while it waits). Optional: desktop apps before this addition do not have it. */
+    onAsking?(cb: (s: { id: string; name: string; asking: boolean }) => void): () => void
     setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
     settingNames(connectionId: string): Promise<string[]>
     /** The connections confirmed (Connect pressed) for this window's team on this computer, by id. Optional: desktop

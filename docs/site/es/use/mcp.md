@@ -210,6 +210,9 @@ con su propia clave, o rechaza. El administrador nunca ve la clave.
 También puede pedirlo en un chat: "Conecta Linear." La IA rellena la dirección oficial de la app y muestra una tarjeta.
 Usted solo inicia sesión o pega la clave en la tarjeta. La clave nunca llega a la IA.
 
+Si la dirección no está en la lista de apps de Trina AX, la tarjeta lo indica junto a la dirección. Antes de conectar,
+compruebe que coincide con la de la documentación oficial de la app.
+
 ## Problemas
 
 | Qué ve | Qué hacer |

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Trina dev environment (srt runner): the first program of each run (docs/research/srt-dev-env.md 2.2). It does:
 #   1. rlimits: file size 4 GiB, open files 4096, no core files;
-#   2. oom_score_adj 800: when the whole machine is short of memory, the kernel picks the run before the server;
+#   2. oom_score_adj 700: when the whole machine is short of memory, the kernel picks the run before the server (with
+#      no systemd the server raises the run's commands to 1000, so they go before srt itself: devenv/srt/system.ts);
 #   3. runs the rest of the argv (srt);
 #   4. writes the exit code to the exit file. The server reads it; the sandbox can only read that folder.
 # Usage:
@@ -41,7 +42,7 @@ shift
 ulimit -f 4194304   # bash counts 1024-byte blocks: 4 GiB
 ulimit -n 4096
 ulimit -c 0
-echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
+echo 700 > /proc/self/oom_score_adj 2>/dev/null || true
 "$@"
 code=$?
 # no shell redirection follows a link here: the folder belongs to the server and the sandbox cannot write it

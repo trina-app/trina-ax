@@ -43,7 +43,7 @@ export const ReadInput = z.strictObject({
   char_offset: z.number().int().min(0).optional().describe('0-based character position inside the line at offset to start from: to go on reading a long line. A read that stops inside a line says the offset and char_offset to send next.'),
   pretty: z.boolean().optional().describe('.json and .jsonl only: true shows the JSON pretty-printed (each .jsonl line as its own block). A .json file that is one long line is shown pretty-printed by default when no offset is given; false gives the raw text.'),
   pages: z.string().max(100).optional().describe('PDF and PowerPoint (.pptx) only: pages to read, e.g. "3", "1-5" or "1-3,7" (for a deck, slide numbers: each slide comes as a picture with its text). At most 20 pages per call; required for PDFs and decks over 10 pages.'),
-  as_images: z.boolean().optional().describe('PDF only: also show the pages as images, even pages that have text (charts, tables, layout). Pages without a text layer are always shown as images. For a PowerPoint deck (.pptx): see its slides as pictures (as pages does).'),
+  as_images: z.boolean().optional().describe('PDF only: also show the pages as images, even pages that have text (charts, tables, layout). Pages without a text layer are always shown as images. For a PowerPoint deck (.pptx): see its slides as pictures (as pages does). For Word (.docx) and Excel (.xlsx): their pages as pictures where this server can draw them; if it says it cannot, you have not seen them.'),
   sheet: z.string().max(200).optional().describe('Spreadsheets only (.xlsx, .xls, .ods): the sheet to read, by its name. With range, or alone for its first rows.'),
   range: z.string().max(40).optional().describe('Spreadsheets only: the cells to read, e.g. "A1:H2000", "5000:7000" (rows) or "C:F" (columns); at most 2,000 rows with data per read (the result says where to read on). Without sheet: the first sheet.'),
   time: z.string().max(40).optional().describe('Video and audio only: the part to read, e.g. "1:00-2:30", "90-150" (seconds) or "0:05" (one moment). Without it: the whole file, as far as one read goes (the result says what to read next).'),
@@ -185,6 +185,23 @@ export const EditHwpChange = z.union([
     width_mm: z.number().min(2).max(300).optional().describe('The picture\'s width in mm (a seal is usually 10-20, a signature 25-40); its height follows the picture'),
     height_mm: z.number().min(2).max(300).optional().describe('Or its height in mm (with width_mm too: both as given)'),
     layer: z.enum(['behind', 'front']).optional().describe('Behind the text or in front of it. Default: behind in body text, in front in a table (filled cells would hide it)'),
+    page: n1.optional().describe('Or a spot on a page (1-based), with x_mm and y_mm'),
+    x_mm: z.number().min(0).max(2000).optional().describe('With page: from the paper\'s left edge to the picture\'s left edge'),
+    y_mm: z.number().min(0).max(2000).optional().describe('With page: from the paper\'s top edge to the picture\'s top edge'),
+  }),
+  z.strictObject({
+    move_picture: z.strictObject({
+      picture: z.string().min(1).max(40).describe('The id the result gave the picture, e.g. pic-1a2b3c4d'),
+      dx_mm: z.number().min(-2000).max(2000).optional().describe('Move it right (negative: left) by this much'),
+      dy_mm: z.number().min(-2000).max(2000).optional().describe('Move it down (negative: up) by this much'),
+      at: z.string().min(1).max(500).optional().describe('Or a new place: a text, as in an image change'),
+      place: z.enum(['over', 'after', 'before']).optional(),
+      cell: z.strictObject({ next_to: z.string().min(1).max(500), direction: z.enum(['right', 'below']).optional() }).optional(),
+      occurrence: n1.optional(),
+      page: n1.optional(), x_mm: z.number().min(0).max(2000).optional(), y_mm: z.number().min(0).max(2000).optional(),
+      width_mm: z.number().min(2).max(300).optional(), height_mm: z.number().min(2).max(300).optional(),
+      layer: z.enum(['behind', 'front']).optional(),
+    }).describe('Move or resize a picture an earlier edit_hwp call of this chat placed, while the file is still that result: alone in its call'),
   }),
 ])
 export const EditHwpInput = z.strictObject({

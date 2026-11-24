@@ -6,6 +6,8 @@
 // can tell the AI in plain words instead of waiting for the deadline.
 import { LOCAL_APPS_BRIDGE_VERSION, type ClientFrame, type LocalCall, type LocalResult } from '@mycel/shared/api'
 import { desktop, type DesktopBridge } from './desktop'
+import { t } from '../i18n'
+import { toast, useUi } from '../store/ui'
 
 const KEEP = 100
 const KEEP_CHARS = 32 * 1024 * 1024
@@ -57,4 +59,20 @@ export class LocalRelay {
   cancel(callId: string) {
     if (this.inFlight.has(callId)) this.app()?.localApps?.cancel(callId)
   }
+}
+
+/** While the desktop app's own "Connect a program" window waits for the person (a turn's first call of a new command),
+ * a notice in this window says so: that window can sit behind others, and the chat only spun meanwhile (QA on Windows,
+ * 2026-11-24). It goes when the window is answered or closed. Returns the stop. */
+export function watchLocalAsking(app: () => DesktopBridge | null = desktop): () => void {
+  const apps = app()?.localApps
+  if (!apps?.onAsking) return () => {}
+  const shown = new Map<string, number>()
+  const off = apps.onAsking((s) => {
+    if (!s || typeof s.id !== 'string') return
+    const was = shown.get(s.id)
+    if (was !== undefined) { useUi.getState().dismiss(was); shown.delete(s.id) }
+    if (s.asking) shown.set(s.id, toast({ level: 'info', sticky: true, text: t('localApps.asking', { name: String(s.name ?? '').slice(0, 60) }) }))
+  })
+  return () => { off(); for (const id of shown.values()) useUi.getState().dismiss(id); shown.clear() }
 }

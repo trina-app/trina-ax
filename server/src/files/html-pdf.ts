@@ -62,10 +62,14 @@ export type HtmlPdfLimits = typeof HTML_PDF_LIMITS
 /** renders running at the same time on the server at most; more wait */
 export const RENDER_PARALLEL = 2
 /** In Linux production prints run in their own cgroup (system/cgroups.ts S/print, never the converters'), which holds
- * one or two of them by the machine's memory; elsewhere two. */
-export const renderParallel = (): number => {
+ * one or two of them by the machine's memory; elsewhere two. MYCEL_RENDER_PARALLEL (1 or 2; the Docker entrypoint
+ * writes 1, docs/decisions/20261124-doc-kit-docker.md) lowers it where nothing else limits a render's memory: a
+ * container has no cgroup per render, so a print and a Word, PowerPoint or Excel page view go one at a time there. */
+export const renderParallel = (env: Record<string, string | undefined> = process.env): number => {
   const p = printCgroup()
-  return p ? Math.max(1, Math.min(RENDER_PARALLEL, p.parallel)) : RENDER_PARALLEL
+  const n = p ? Math.max(1, Math.min(RENDER_PARALLEL, p.parallel)) : RENDER_PARALLEL
+  const cap = Number(env.MYCEL_RENDER_PARALLEL)
+  return Number.isInteger(cap) && cap >= 1 ? Math.min(n, cap) : n
 }
 /** the print's OOM score in its leaf: under memory pressure in the server's cgroup the browser goes before the
  * converters (500) and the server */

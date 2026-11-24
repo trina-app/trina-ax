@@ -65,7 +65,7 @@ import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
-import { mayUseDevEnv } from '../devenv/setting'
+import { mayRunCommands } from '../devenv/setting'
 import { inOldWorkFolder, noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt, workFolderChange } from '../devenv/srt/runner'
 import { NO_WORK_WORDS, workUnavailableText } from '../devenv/work-files'
 import { saveWorkFileTool } from './work-file-tool'
@@ -253,7 +253,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     return true
   }
   for (const t of bTools(exec)) add(t)
-  for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL))) add(t)
+  for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL) && !exec.devEnv?.documents)) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
   // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files
   // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
@@ -336,6 +336,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       ...(exec.devEnv.shared ? { shared: exec.devEnv.shared } : {}),
+      ...(exec.devEnv.documents ? { documents: true } : {}),
       // a sub-agent's call comes with its own turn state (files/service.ts forAgent), the main AI's with the turn's
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
@@ -381,7 +382,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.devEnv && tools.has(BOX_SHELL_TOOL)) {
     const d = exec.devEnv
     const where = () => {
-      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return null
+      if (!mayRunCommands(exec.rt.db, exec.rt.files, exec.spec.userId)) return null
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
@@ -389,7 +390,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const at0 = { userId: exec.spec.userId, chatId: exec.spec.chatId, ...(d.shared ? { shared: d.shared } : {}) }
     const change = () => { try { return workFolderChange(exec.rt.ctx, at0) } catch { return null } }
     exec.files.workWhy = () => {
-      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
+      if (!mayRunCommands(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
       let here = false
       try { here = runsInWorkFolder(exec.rt.ctx, { ...at0, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null }) } catch { here = false }
       if (!here) return 'elsewhere'

@@ -34,7 +34,7 @@ export interface ChatPlaces {
   ctx: ResolveCtx
   /** attach a produced file (a server-only temp file, moved) to this answer as a chat file named `name`; `sha256` of the
    * bytes kept (a picture's metadata is cut out first) */
-  attach(name: string, src: string, sha256: string): Promise<Attachment & { sha256: string }>
+  attach(name: string, src: string, sha256: string, o?: { fetched?: boolean }): Promise<Attachment & { sha256: string }>
   /** a chat file of this chat for the person (ChatFiles.open: sent, or their own unsent upload), by id or newest of a name */
   open(id: string | null, name: string): { abs: string; name: string; quarantined: boolean; sha256: string; id: string }
   /** names of this chat's files now (a new attach never takes one) */
@@ -148,7 +148,7 @@ function freeChatName(taken: Set<string>, name: string): string {
  * as a team save (the turn's bytes and files, the storage check) plus the chat file's own 1 GB; the k rule and the
  * person's sight of the chat checked again right before (the conversion may have taken a while).
  */
-export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[], produced: string, o: { turnBytes?: boolean; turnFiles?: boolean } = {}): Promise<{ path: string; size: number; sha256: string; chatFile: ChatMade }> {
+export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[], produced: string, o: { turnBytes?: boolean; turnFiles?: boolean; fetched?: boolean } = {}): Promise<{ path: string; size: number; sha256: string; chatFile: ChatMade }> {
   const out = chatOutput(c, segs.join('/'))
   if (!out) throw new ToolError(PLACE_WORDS.noChat, 'no_chat')
   if (out.id) return versionProduced(ctx, c, out as { name: string; id: string }, produced)
@@ -169,7 +169,7 @@ export async function attachProduced(ctx: AppContext, c: ToolCtx, segs: string[]
   c.beforePlace?.()
   const name = freeChatName(p.names(), out.name)
   // the chat store moves the file in (createFromAi); the tool's work folder is cleaned after either way
-  const att = await p.attach(name, produced, sha)
+  const att = await p.attach(name, produced, sha, o.fetched ? { fetched: true } : undefined)
   if (o.turnBytes !== false) c.files.bytesWritten += att.size
   if (o.turnFiles !== false) c.files.filesWritten.add(`chat-file:${att.id}`)
   const at = chatFilePath(att.id, att.name)

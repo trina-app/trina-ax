@@ -105,6 +105,7 @@ describe('server and relay texts', () => {
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/chat/person-aliases.ts': { why: 'title and team words the server matches in the person\'s own message (팀장, 팀원들 …) and Korean particles after them, in every language: data, not screen text (docs/decisions/20261123-do-then-undo.md)', also: /./ },
+  'server/src/files/office-profile.ts': { why: 'the Korean names of Office fonts (맑은 고딕, 바탕 …) the page render replaces with the kit\'s fonts: data a file holds, not screen text', also: /^\s*\.\.\.\['[^']*'(, '[^']*')*\]/ },
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
   'server/src/tools/edit-office.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a Word document (ko next to en/id/ja/es)' },

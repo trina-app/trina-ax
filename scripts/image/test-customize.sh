@@ -116,7 +116,7 @@ if [[ $SRT == 1 ]]; then
     [ "$(/opt/trina/node/bin/node /opt/trina/srt/$v/cli.js --version)" = "$v" ] || { echo "srt $v does not answer"; exit 1; }
     /opt/trina/node/bin/node /opt/trina/srt/$v/full.mjs --self-test >/dev/null || { echo "srt $v full.mjs missing or allows an address"; exit 1; }
     [ "$(stat -c "%U %a" /opt/trina/devenv/run-wrap)" = "root 755" ] || { echo "run-wrap owner/mode"; exit 1; }
-    for p in $(pk_packages "$(pk_distro)" "$(pk_arch)" core media fonts devenv); do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
+    for p in $(pk_packages "$(pk_distro)" "$(pk_arch)" core media fonts docrun devenv); do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
     [ -z "$(find /opt/trina -perm /022 ! -type l)" ] || { echo "a file in /opt/trina is group/world writable"; exit 1; }
     for f in /etc/polkit-1/rules.d/60-mycel-devenv.rules /etc/systemd/system/mycel-devenv.slice /etc/systemd/system/mycel-server.service.d/dev-env.conf; do
       [ ! -e "$f" ] || { echo "image mode wrote $f (the dev environment must stay off)"; exit 1; }; done

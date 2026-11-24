@@ -133,6 +133,9 @@ export const ATTACHMENT_SIZE_ARG = 'file_size'
  * drive_read. The attachment tool's schema loses `return_base64` (always on: Trina turns the bytes into text or a
  * picture, tools.ts) and gains `file_name` and `file_size`.
  */
+/** is `name` one of this app's tools of the library's (appTools keeps only those) */
+export const isAppTool = (app: GoogleAppId, name: string) => TOOLS[app].some((e) => e[0] === name)
+
 export function appTools(app: GoogleAppId, tools: readonly RemoteTool[]): RemoteTool[] {
   const listed = new Map(TOOLS[app].map((e) => [e[0], e]))
   const out: RemoteTool[] = []

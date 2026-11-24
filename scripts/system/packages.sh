@@ -44,6 +44,7 @@ pk_err() { echo "packages: $*" >&2; }
 #   D <distro> <os id> <version> <suite>          A <arch>
 #   G <group> <install>                           GA <group> <artifact>
 #   P <group> <package> <floor> <on> <when>       R <group> <package to remove>
+#     <floor>: a version for every system, or "<distro>=<version>,..." for the named distributions only
 #   F <artifact> <platform> <version> <url> <sha256> <size> <dir>
 #   X <artifact> <revoked version>                (a version that must not stay, even when newer than the pin)
 #   GY <group> <python program>                   Y <program> <version> <python floor> <file in bin/>
@@ -57,7 +58,8 @@ for (const [g, v] of Object.entries(j.groups)) {
   t("G", g, v.install)
   for (const [n, s] of Object.entries(v.packages ?? {})) {
     const p = typeof s === "string" ? { min: s } : s
-    t("P", g, n, (p.min ?? "").replace(/^>=/, ""), (p.on ?? []).join(","), p.when)
+    const m = p.min ?? "", floor = typeof m === "string" ? m.replace(/^>=/, "") : Object.entries(m).map(([d, v]) => d + "=" + String(v).replace(/^>=/, "")).join(",")
+    t("P", g, n, floor, (p.on ?? []).join(","), p.when)
   }
   for (const n of v.remove ?? []) t("R", g, n)
   for (const a of v.artifacts ?? []) t("GA", g, a)
@@ -75,7 +77,7 @@ if .format != 1 then error("format \(.format)") else . end
     (.groups | to_entries[] | .key as $g | .value as $v
       | ["G", $g, $v.install],
         (($v.packages // {}) | to_entries[] | (.value | if type == "string" then {min: .} else . end) as $p
-          | ["P", $g, .key, (($p.min // "") | sub("^>="; "")), (($p.on // []) | join(",")), $p.when]),
+          | ["P", $g, .key, (($p.min // "") | if type == "object" then (to_entries | map(.key + "=" + (.value | sub("^>="; ""))) | join(",")) else sub("^>="; "") end), (($p.on // []) | join(",")), $p.when]),
         (($v.remove // [])[] | ["R", $g, .]),
         (($v.artifacts // [])[] | ["GA", $g, .]),
         (($v.python // [])[] | ["GY", $g, .])),
@@ -223,11 +225,15 @@ pk_packages() {
     }
     END { exit bad }'
 }
-# pk_floors DISTRO ARCH PROFILE|GROUP...: "package floor" for the packages that have one
+# pk_floors DISTRO ARCH PROFILE|GROUP...: "package floor" for the packages that have one on DISTRO (a floor may name
+# its distributions: "debian-13=V" holds only there)
 pk_floors() {
   local d=$1 a=$2 p; shift 2
   p=" $(pk_packages "$d" "$a" "$@" | tr '\n' ' ') " || return 1
-  pk__lines | awk -F'\t' -v ps="$p" '$1 == "P" && $4 != "-" && index(ps, " " $3 " ") && !seen[$3]++ { print $3, $4 }'
+  pk__lines | awk -F'\t' -v ps="$p" -v d="$d" '$1 == "P" && $4 != "-" && index(ps, " " $3 " ") && !seen[$3]++ {
+    f = $4
+    if (index(f, "=")) { f = ""; n = split($4, e, ","); for (i = 1; i <= n; i++) { k = index(e[i], "="); if (substr(e[i], 1, k - 1) == d) f = substr(e[i], k + 1) } }
+    if (f != "") print $3, f }'
 }
 # pk_removals GROUP...: packages the groups remove (the image: no SSH server)
 pk_removals() {

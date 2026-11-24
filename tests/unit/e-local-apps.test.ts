@@ -631,7 +631,8 @@ describe('ego lite not open', () => {
       const out = h.texts(await h.run())
       expect(out.at(-1)).toContain("ego lite is open but isn't answering")
     } finally { h.done() }
-    const w = egoHarness({ platform: 'win32' })
+    // Linux: no way to open it here, only the words (Windows: e-local-apps-windows.test.ts)
+    const w = egoHarness({ platform: 'linux' })
     try {
       const out = w.texts(await w.run())
       expect(out.at(-1)).toBe(notOpenWords("ego lite isn't open. Open ego lite, then ask again."))

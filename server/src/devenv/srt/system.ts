@@ -3,6 +3,7 @@
 // (an older install with no template: systemd-run --scope), or, with MYCEL_DEV_ENV_SRT_DIRECT=1, runs srt with no unit
 // (a process group; the Docker attack test, where there is no systemd).
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { SRT_PATHS, UNIT_RE, devenvPaths, scopeArgv, srtArgv, templateInstalled, unitArgs, unitLimits, unitName, wrappedArgv, type ScopeLimits } from './config'
 
@@ -264,15 +265,189 @@ export function systemdSystem(id: string, base: string, template: () => boolean 
 
 /** No systemd: srt runs in its own process group. For the Docker attack test and for development only; there are no
  * memory or CPU limits. */
-export function directSystem(): SrtSystem {
+/** One /proc entry: parent, start time (stat field 22: a later process with the same pid has another) and owner. */
+export interface ProcEntry { ppid: number; start: string; uid: number }
+
+/** Every process /proc shows now. Linux only; elsewhere empty. */
+export function procTable(procDir = '/proc'): Map<number, ProcEntry> {
+  const t = new Map<number, ProcEntry>()
+  let names: string[] = []
+  try { names = fs.readdirSync(procDir) } catch { return t }
+  for (const n of names) {
+    if (!/^[0-9]+$/.test(n)) continue
+    try {
+      // "pid (comm) state ppid ... starttime(22) ...": comm may hold spaces and parentheses, so read after the last ")"
+      const st = fs.readFileSync(`${procDir}/${n}/stat`, 'utf8')
+      const f = st.slice(st.lastIndexOf(')') + 2).split(' ')
+      let uid = -1
+      try { uid = Number(/^Uid:\s+(\d+)/m.exec(fs.readFileSync(`${procDir}/${n}/status`, 'utf8'))?.[1] ?? -1) } catch {}
+      t.set(Number(n), { ppid: Number(f[1]), start: f[19] ?? '', uid })
+    } catch { /* gone */ }
+  }
+  return t
+}
+
+/** `roots` and every process below them in `table`. */
+export function descendants(roots: readonly number[], table: Map<number, ProcEntry>): number[] {
+  const kids = new Map<number, number[]>()
+  for (const [pid, e] of table) { const l = kids.get(e.ppid); if (l) l.push(pid); else kids.set(e.ppid, [pid]) }
+  const out: number[] = [], seen = new Set<number>(), todo = [...roots]
+  while (todo.length) {
+    const q = todo.pop()!
+    if (seen.has(q) || !table.has(q)) continue
+    seen.add(q); out.push(q)
+    for (const c of kids.get(q) ?? []) todo.push(c)
+  }
+  return out
+}
+
+/** A run's process tree as /proc shows it now: every descendant of `root` (srt's bwrap starts its own sessions, so the
+ * process group alone misses them), their resident memory added up, and how many there are. One read of /proc per call,
+ * no cap on the count: a run cannot hide memory in more processes. Linux only; elsewhere an empty tree. */
+export function runTree(root: string | number, procDir = '/proc', table: Map<number, ProcEntry> = procTable(procDir)): { pids: number[]; rssKiB: number } {
+  const pids: number[] = []
+  let rssKiB = 0
+  for (const q of descendants([Number(root)], table)) {
+    try {
+      const m = /^VmRSS:\s+(\d+)/m.exec(fs.readFileSync(`${procDir}/${q}/status`, 'utf8'))
+      pids.push(q)
+      if (m) rssKiB += Number(m[1])
+    } catch { /* gone */ }
+  }
+  return { pids, rssKiB }
+}
+
+/** The container's memory (cgroup v2 at `dir`, the container's own with a private cgroup namespace): its working set
+ * now, memory.current less the inactive page cache the kernel gives back first (as kubelet counts it; tmpfs files, which
+ * srt's /tmp and /run are, are shmem and stay counted, though a process's resident memory does not count them), its
+ * limit (memory.max, or the machine's memory when it has none) and its OOM kills so far. null where there is no
+ * cgroup v2 file to read. */
+export function containerMemory(dir = '/sys/fs/cgroup'): { current: number; max: number; ooms: number } | null {
+  try {
+    let inactive = 0
+    try { inactive = Number(/^inactive_file (\d+)/m.exec(fs.readFileSync(path.join(dir, 'memory.stat'), 'utf8'))?.[1] ?? 0) } catch {}
+    const current = Number(fs.readFileSync(path.join(dir, 'memory.current'), 'utf8').trim()) - inactive
+    const m = fs.readFileSync(path.join(dir, 'memory.max'), 'utf8').trim()
+    let max = Number(m)
+    if (m === 'max' || !Number.isFinite(max)) max = Number(/^MemTotal:\s+(\d+)/m.exec(fs.readFileSync('/proc/meminfo', 'utf8'))?.[1] ?? 0) * 1024
+    let ooms = 0
+    try { ooms = Number(/^oom_kill (\d+)/m.exec(fs.readFileSync(path.join(dir, 'memory.events'), 'utf8'))?.[1] ?? 0) } catch {}
+    return Number.isFinite(current) && current > 0 && max > 0 ? { current, max, ooms } : null
+  } catch { return null }
+}
+
+/** Tasks (threads) of this account now: what RLIMIT_NPROC counts, which is per account, not per run. */
+export function accountTasks(uid = process.getuid?.() ?? -1, procDir = '/proc'): number {
+  let n = 0
+  for (const [pid, e] of procTable(procDir)) {
+    if (e.uid !== uid) continue
+    try { n += Number(/^Threads:\s+(\d+)/m.exec(fs.readFileSync(`${procDir}/${pid}/status`, 'utf8'))?.[1] ?? 1) } catch {}
+  }
+  return n
+}
+
+/** how often a direct run's memory and processes are counted */
+export const DIRECT_WATCH_MS = 500
+/** the memory the container keeps for the server, the engines and the page render while a direct run builds: the run
+ * is stopped when the container's memory.current comes within this of its limit */
+export const DIRECT_HEADROOM_MIB = 768
+/** oom_score_adj: srt's own process and run-wrap below what a run's commands get, so the kernel (or the container's
+ * OOM) takes the command first and srt lives to report it; both above the server's */
+export const SRT_OOM_SCORE = 700, PAYLOAD_OOM_SCORE = 1000
+
+/** The command a direct run's sandboxed shell gets: it raises its own oom_score_adj to PAYLOAD_OOM_SCORE first (a
+ * builtin redirect, no process; raising needs no privilege), so everything the command starts is above srt's node and
+ * run-wrap (SRT_OOM_SCORE) from its first instruction, before the watch's first poll. On its own line, so a heredoc or a
+ * comment in the command is untouched. */
+export function directCommand(command: string): string {
+  return `echo ${PAYLOAD_OOM_SCORE} > /proc/self/oom_score_adj 2>/dev/null\n${command}`
+}
+
+/** The argv of a direct run: its own session, the lowest CPU priority (nice 19, and SCHED_IDLE where chrt can set it),
+ * a hard cap on processes (RLIMIT_NPROC counts the whole account, so the account's tasks now plus the run's pids), then
+ * run-wrap and srt as with systemd. Programs that are missing are left out, never the run. */
+export function directArgv(s: Pick<SpawnSpec, 'exitFile' | 'settingsFile' | 'command' | 'full' | 'limits'>, accountNow: number, has: (f: string) => boolean = fs.existsSync): string[] {
+  return [
+    '/usr/bin/setsid',
+    ...(has('/usr/bin/nice') ? ['/usr/bin/nice', '-n', '19'] : []),
+    ...(has('/usr/bin/chrt') ? ['/usr/bin/chrt', '--idle', '0'] : []),
+    ...(has('/usr/bin/prlimit') ? ['/usr/bin/prlimit', `--nproc=${accountNow + s.limits.pids}`] : []),
+    ...wrappedArgv(s),
+  ]
+}
+
+/** No systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker image, docs/decisions/20261124-doc-kit-docker.md, and the attack
+ * tests): srt in a session of its own, with no unit cgroup, so the server holds the run's limits itself:
+ *  - CPU: nice 19 and SCHED_IDLE (directArgv): a run never slows the server or a turn;
+ *  - processes: RLIMIT_NPROC (hard), and the tree is counted every DIRECT_WATCH_MS;
+ *  - memory: the tree's resident memory against the run's memoryMiB, and, with `memory`, the container's own
+ *    memory.current against its limit less a fixed headroom (page cache and tmpfs files, which srt's /tmp and /run are,
+ *    count only there; one run builds at a time in the Docker plan, so the container's growth is that run's);
+ *  - OOM: the run's commands get a higher oom_score_adj than srt and run-wrap.
+ * A run over a limit is killed, the whole tree, and ends as out of memory (oomKills, unit result oom-kill), as a unit's
+ * OOM kill does; so does a run the container's OOM killer hit. Every process the watch has seen is remembered (with
+ * its start time): when the run ends, however it ends, whatever is left of them and below them is killed, so nothing
+ * of a run outlives it (security review of #511: srt's node OOM-killed, run-wrap gone, the sandboxed shell went on).
+ * At its first start the system also kills what an earlier server left (sweepLeftoverRuns). */
+export function directSystem(o: { watchMs?: number; base?: string; memory?: { dir?: string; headroomMiB?: number } | null; procDir?: string } = {}): SrtSystem {
+  const procDir = o.procDir ?? '/proc'
   const live = new Map<string, number>()
+  /** runs killed for their memory or processes, or by the container's OOM: kept until forget */
+  const oomed = new Set<string>()
+  const memDir = o.memory ? o.memory.dir ?? '/sys/fs/cgroup' : null
+  const headroom = (o.memory?.headroomMiB ?? DIRECT_HEADROOM_MIB) * 1024 * 1024
+  const killAll = (pids: Iterable<number>) => { for (const q of pids) { try { process.kill(q, 'SIGKILL') } catch {} } }
+  /** what is left of `seen` (same pid, same start) and everything below it, killed until nothing is left */
+  async function finish(rootPid: number, seen: Map<number, string>) {
+    for (let round = 0; round < 10; round++) {
+      try { process.kill(-rootPid, 'SIGKILL') } catch {}
+      const t = procTable(procDir)
+      const alive = [...seen].filter(([pid, start]) => t.get(pid)?.start === start).map(([pid]) => pid)
+      const all = descendants(alive, t)
+      if (!all.length) return
+      for (const q of all) { const e = t.get(q); if (e) seen.set(q, e.start) }
+      killAll(all)
+      await Bun.sleep(100)
+    }
+  }
+  if (o.base) sweepLeftoverRuns(procDir)
   return {
     spawn(s) {
       const out = openOut(s.stdoutFile), err = s.stderrFile === s.stdoutFile ? out : openOut(s.stderrFile)
       try {
-        const p = Bun.spawn(['/usr/bin/setsid', ...wrappedArgv(s)], { cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err })
+        const before = memDir ? containerMemory(memDir) : null
+        const p = Bun.spawn(directArgv({ ...s, command: directCommand(s.command) }, accountTasks(process.getuid?.() ?? -1, procDir)), { cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err })
         live.set(s.runId, p.pid)
-        return { pid: p.pid, exited: p.exited.then((code) => { live.delete(s.runId); return { code, signal: p.signalCode ?? null } }) }
+        oomed.delete(s.runId)
+        const maxKiB = s.limits.memoryMiB * 1024, maxPids = s.limits.pids
+        const seen = new Map<number, string>()
+        const raised = new Set<number>()
+        const tick = () => {
+          const table = procTable(procDir)
+          const t = runTree(p.pid, procDir, table)
+          for (const q of t.pids) { const e = table.get(q); if (e) seen.set(q, e.start) }
+          // the commands (below srt's node, which is run-wrap's child) go first when memory runs out
+          for (const q of t.pids) {
+            if (raised.has(q) || q === p.pid || table.get(q)?.ppid === p.pid) continue
+            raised.add(q)
+            try { fs.writeFileSync(`${procDir}/${q}/oom_score_adj`, String(PAYLOAD_OOM_SCORE)) } catch { /* not ours to set: best effort */ }
+          }
+          const cm = memDir ? containerMemory(memDir) : null
+          if (t.rssKiB > maxKiB || t.pids.length > maxPids || (cm && cm.current > cm.max - headroom)) { oomed.add(s.runId); try { process.kill(-p.pid, 'SIGKILL') } catch {}; killAll(t.pids) }
+        }
+        // the first poll at once: run-wrap, srt and bwrap are remembered from the start (finish kills what is left of them)
+        tick()
+        const watch = setInterval(tick, o.watchMs ?? DIRECT_WATCH_MS)
+        const exited = p.exited.then(async (code) => {
+          clearInterval(watch)
+          seen.set(p.pid, procTable(procDir).get(p.pid)?.start ?? '')
+          await finish(p.pid, seen)
+          const after = memDir ? containerMemory(memDir) : null
+          if (before && after && after.ooms > before.ooms) oomed.add(s.runId)
+          live.delete(s.runId)
+          return { code, signal: p.signalCode ?? null }
+        })
+        return { pid: p.pid, exited }
       } finally {
         fs.closeSync(out); if (err !== out) fs.closeSync(err)
       }
@@ -282,17 +457,70 @@ export function directSystem(): SrtSystem {
       if (!p) return
       try { process.kill(-p, 'SIGTERM') } catch {}
       await Bun.sleep(2000)
+      // the rest goes when the run's process ends (finish); a run of an earlier server: its tree now
       try { process.kill(-p, 'SIGKILL') } catch {}
+      killAll(runTree(p, procDir).pids)
     },
-    async unit(runId) { return live.has(runId) ? { state: 'active', result: '', memoryBytes: null } : { state: '', result: '', memoryBytes: null } },
+    async unit(runId) {
+      if (live.has(runId)) return { state: 'active', result: '', memoryBytes: null }
+      return oomed.has(runId) ? { state: 'failed', result: 'oom-kill', memoryBytes: null } : { state: '', result: '', memoryBytes: null }
+    },
     async units() { return [...live.keys()].map((r) => unitName(r, false)) },
-    async forget() {},
-    oomKills() { return null },
+    async forget(runId) { oomed.delete(runId) },
+    oomKills(runId) { return oomed.has(runId) ? 1 : 0 },
     cpuUsec() { return null },
     procs() { return [] },
-    async selfTest() { return '' },
+    // a real command through srt, as a run starts it (no network, the base folder hidden; the settings file may sit in
+    // the base folder, srt reads it before the sandbox starts): a host where srt cannot make
+    // its namespaces (a container without the guide's security settings, an Ubuntu host's AppArmor) has no box_shell,
+    // and the AI makes documents with make_file. Without a base (the attack tests) nothing to check here
+    async selfTest() { return o.base ? directSelfTest(o.base) : '' },
     // no unit cgroup: port-forward cannot tell this run's processes from others, so there is no preview here
     forward: null,
     bridge: null,
+  }
+}
+
+/** At a server's start with direct runs: kill what an earlier server of this account left running (a run whose server
+ * died or restarted: the container keeps its orphans). Only processes of this account that are not this server, its
+ * parents (the bootstrap) or its children (converters started since), and that are a run's: in another pid namespace
+ * than this server (inside a run's bwrap) or a run's own programs (run-wrap, srt, bwrap). Returns how many. */
+export function sweepLeftoverRuns(procDir = '/proc', me = process.pid, uid = process.getuid?.() ?? -1): number {
+  const t = procTable(procDir)
+  const keep = new Set<number>(descendants([me], t))
+  for (let q: number | undefined = me; q && q > 1 && !keep.has(-q); q = t.get(q)?.ppid) { keep.add(q); keep.add(-q) }
+  let myNs = ''
+  try { myNs = fs.readlinkSync(`${procDir}/${me}/ns/pid`) } catch {}
+  const runProg = /\/opt\/trina\/devenv\/run-wrap|\/opt\/trina\/srt\/|(^|\/)bwrap(\0|$)/
+  const victims: number[] = []
+  for (const [pid, e] of t) {
+    if (e.uid !== uid || keep.has(pid)) continue
+    let ns = '', cmd = ''
+    try { ns = fs.readlinkSync(`${procDir}/${pid}/ns/pid`) } catch {}
+    try { cmd = fs.readFileSync(`${procDir}/${pid}/cmdline`, 'utf8') } catch {}
+    if ((myNs && ns && ns !== myNs) || runProg.test(cmd)) victims.push(pid)
+  }
+  const all = descendants(victims, t).filter((q) => !keep.has(q) && t.get(q)?.uid === uid)
+  for (const q of all) { try { process.kill(q, 'SIGKILL') } catch {} }
+  return all.length
+}
+
+/** One `echo` through srt as this account, offline, with `base` hidden: '' when it printed, else why not. */
+export async function directSelfTest(base: string, timeoutMs = 30_000): Promise<string> {
+  let dir = ''
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trina-srt-check-'))
+    const settings = path.join(dir, 'settings.json')
+    fs.writeFileSync(settings, JSON.stringify({ network: { allowedDomains: [], deniedDomains: [] }, filesystem: { denyRead: [base], allowWrite: [], denyWrite: [] } }), { mode: 0o600 })
+    const p = Bun.spawn(srtArgv({ settingsFile: settings, command: 'echo srt-ok' }), { cwd: '/', env: { PATH: '/usr/bin:/bin', HOME: '/', LANG: 'C.UTF-8' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+    const t = setTimeout(() => { try { p.kill('SIGKILL') } catch {} }, timeoutMs)
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+    clearTimeout(t)
+    if (code === 0 && out.trim() === 'srt-ok') return ''
+    return `a command in srt did not run here (exit ${code}): ${(err || out).trim().replace(/\s+/g, ' ').slice(0, 300)}`
+  } catch (e) {
+    return `a command in srt did not run here: ${(e as Error).message.slice(0, 300)}`
+  } finally {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
   }
 }

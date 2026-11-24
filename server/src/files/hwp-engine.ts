@@ -12,6 +12,7 @@ import { sha256 } from './store'
 import { isolation, isPlainDir, makeWorkDir, readOutput, runIsolated, type IsolatedRun } from '../tools/isolate'
 import { converterCgroup } from '../system/cgroups'
 import { LAYOUT_LIMITS, parsePagination, parseRenderTree, type HwpLayout } from './hwp-picture'
+import { paragraphTops } from './hwpx-float'
 
 export class HwpError extends ToolError {
   constructor(readonly reason: HwpReason) { super(`HWP preview unavailable: ${reason}. Download the original to open it.`, 'hwp_' + reason) }
@@ -90,7 +91,7 @@ export class NativeHwpEngine implements HwpEngine {
     const target = `${process.platform}-${process.arch}` as keyof typeof manifest.targets
     this.pin = manifest.targets[target]?.binary
     this.bin = a.bin
-    this.identity = `rhwp-${manifest.version}:${this.pin}:${this.fontHash}:png-${L.edge}-v1${a.digest ? `:pkg-${a.digest}` : ''}`
+    this.identity = `rhwp-${manifest.version}:${this.pin}:${this.fontHash}:png-${L.edge}-v2${a.digest ? `:pkg-${a.digest}` : ''}`
     // Startup verification; retain a handled promise so missing optional preview support never crashes the server.
     this.ready = this.verify(this.pin)
     void this.ready.catch(() => {})
@@ -187,7 +188,7 @@ export class NativeHwpEngine implements HwpEngine {
       if (Date.now() >= deadline) throw new HwpError('timeout')
       const r = await runIsolated({ cmd, args, workDir: work, curatedFonts: true, timeoutMs: Math.max(1, deadline - Date.now()), maxRssMiB: L.rssMiB,
         env: { FONTCONFIG_FILE: path.join(work, 'fonts.conf') },
-        maxWorkBytes: bytes.length + this.fonts.reduce((n, f) => n + f.bytes.length, 0) + L.outputBytes, maxStdout: 1024 * 1024, signal, ...extra })
+        maxWorkBytes: 3 * bytes.length + 2 * L.outputBytes + this.fonts.reduce((n, f) => n + f.bytes.length, 0) + L.outputBytes, maxStdout: 1024 * 1024, signal, ...extra })
       if (r.killed) throw new HwpError(r.killed === 'aborted' ? 'cancelled' : r.killed === 'timeout' ? 'timeout' : r.killed === 'workdir' ? 'damaged' : 'limit')
       return r
     }
@@ -203,15 +204,54 @@ export class NativeHwpEngine implements HwpEngine {
         const reason = checked.stdout.toString()
         throw new HwpError(['locked','distribution','damaged','unsupported','limit'].includes(reason) ? reason as HwpReason : 'damaged')
       }
-      const info = await run(this.bin, ['info', input, '--json'])
+      // the floating-picture fix never fails a preview: anything but a cancel or the time running out draws the file as it is
+      const drawn = ext === 'hwpx' ? await this.pinFloats(run, work, script, input).catch((e: unknown) => {
+        if (e instanceof HwpError && (e.reason === 'cancelled' || e.reason === 'timeout')) throw e
+        return input
+      }) : input
+      const info = await run(this.bin, ['info', drawn, '--json'])
       if (info.code !== 0) throw new HwpError('damaged')
       let data: { pageCount: number; warnings?: unknown[] }
       try { data = JSON.parse(info.stdout.toString()) } catch { throw new HwpError('damaged') }
       if (diagnostics(info.stderr).length || data.warnings?.length) throw new HwpError('loss')
       if (!Number.isInteger(data.pageCount) || data.pageCount < 1) throw new HwpError('damaged')
       if (data.pageCount > L.pages) throw new HwpError('limit')
-      return await body({ run, input, fontDir, output, pageCount: data.pageCount })
+      return await body({ run, input: drawn, fontDir, output, pageCount: data.pageCount })
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }
+
+  /** A .hwpx with pictures floating behind or in front of the text, placed from their paragraph, which the renderer
+   * lays out wrong (hwpx-float.ts): the worker writes a probe without them, the renderer lays the probe out, and the
+   * worker places each one from the paper at its paragraph's top. The file the renderer then draws (or lays out), or
+   * `input` when there is none. */
+  private async pinFloats(run: (cmd: string, args: string[], extra?: Partial<IsolatedRun>) => Promise<Awaited<ReturnType<typeof runIsolated>>>,
+    work: string, script: string, input: string): Promise<string> {
+    const probe = path.join(work, 'probe.hwpx'), trees = path.join(work, 'probe-tree'), pins = path.join(work, 'tops.json'), fixed = path.join(work, 'drawn.hwpx')
+    const p = await run(process.execPath, [script, 'float-probe', input, probe])
+    if (p.code !== 0) throw new HwpError('damaged')
+    if (p.stdout.toString() !== 'probe') return input
+    fs.mkdirSync(trees)
+    const r = await run(this.bin, ['export-render-tree', probe, '-o', trees])
+    if (r.code !== 0 || !isPlainDir(trees)) throw new HwpError('damaged')
+    const files = fs.readdirSync(trees).sort()
+    if (files.length > L.pages) throw new HwpError('limit')
+    if (!files.length || files.some((f, i) => f !== `render_tree_${String(i + 1).padStart(3, '0')}.json`)) throw new HwpError('damaged')
+    let left = L.outputBytes
+    const pages = files.map((f) => {
+      const got = readOutput(trees, f, left)
+      if (!got.ok) throw new HwpError(got.why === 'missing' ? 'damaged' : 'limit')
+      left -= got.bytes.length
+      try { return JSON.parse(got.bytes.toString('utf8')) as unknown } catch { throw new HwpError('damaged') }
+    })
+    const d = await run(this.bin, ['dump-pages', probe, '--json'], { maxStdout: L.outputBytes })
+    if (d.code !== 0) throw new HwpError('damaged')
+    let sections: number[]
+    try { sections = parsePagination(JSON.parse(d.stdout.toString('utf8')), files.length).map((x) => x.section) } catch { throw new HwpError('damaged') }
+    fs.rmSync(trees, { recursive: true, force: true }); fs.rmSync(probe, { force: true })
+    fs.writeFileSync(pins, JSON.stringify(paragraphTops(pages, sections)), { mode: 0o600 })
+    const w = await run(process.execPath, [script, 'float-pin', input, pins, fixed])
+    if (w.code !== 0 || w.stdout.toString() !== 'pinned' || !fs.existsSync(fixed)) throw new HwpError('damaged')
+    return fixed
   }
 }
 

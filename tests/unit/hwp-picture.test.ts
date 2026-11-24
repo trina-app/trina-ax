@@ -186,12 +186,12 @@ describe('.hwp', () => {
     expect(() => hwpVerifyRequest(encodeVerifyPictures(before, bad))).toThrow(/DocInfo changed more/)
   })
 
-  test('refused: a label the layout does not show as often as the document, at and cell together, a label in a header only', () => {
+  test('refused: at and cell together, a label that is not in the document; a label drawn twice is placed, not refused', () => {
     const before = hwpEmploymentForm()
     const twice: HwpLayout = { pages: [{ ...EMPLOYMENT.pages[0]!, lines: [...EMPLOYMENT.pages[0]!.lines, { ...EMPLOYMENT.pages[0]!.lines[2]!, para: 'x' }] }] }
-    expect(() => editHwp(before, [SEAL_OVER], { layout: twice, images: new Map([[0, clean()]]) })).toThrow(/1 in the document's text but 2 on its pages/)
+    expect(editHwp(before, [SEAL_OVER], { layout: twice, images: new Map([[0, clean()]]) }).report.pictures).toHaveLength(1)
     const both = { ...SEAL_OVER, cell: { next_to: '성명' } } as HwpChange
-    expect(() => editHwp(before, [both], pictures([both]))).toThrow(/give at .* or cell/)
+    expect(() => editHwp(before, [both], pictures([both]))).toThrow(/give one of at/)
     expect(() => editHwp(before, [{ image: 'x.png', at: '없는 글자' }], pictures([{ image: 'x.png', at: '없는 글자' }]))).toThrow(/is not in the document/)
   })
 })
@@ -343,16 +343,15 @@ else describe('laid out, stamped and drawn by the pinned renderer', () => {
     expect(Math.abs(px(sign!.yMm + sign!.heightMm / 2) - 435)).toBeLessThan(4)
     const a = await engine.render(before, ext, 1), b = await engine.render(Buffer.from(r.file), ext, 1)
     expect([a.meta.width, a.meta.height]).toEqual([b.meta.width, b.meta.height])
-    // a document without Hangul's layout everywhere is tied to its paragraphs: right in Hangul, while this renderer draws
-    // the line after such a paragraph too high, so only a fully cached one is compared pixel by pixel
-    if (seal!.fromParagraph) return
     const rows = diffRows(a.bytes, b.bytes)
     const top = Math.floor(px(Math.min(seal!.yMm, sign!.yMm))) - 1, bottom = Math.ceil(px(Math.max(seal!.yMm + seal!.heightMm, sign!.yMm + sign!.heightMm))) + 1
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.filter((y) => y < top || y > bottom)).toEqual([])
-    // the new file is laid out again with the same text where it was
+    // the new file is laid out again with the same text where it was (an empty paragraph that now holds a picture has
+    // no empty text line in the render tree: nothing is drawn either way)
     const again = await engine.layout(Buffer.from(r.file), ext)
-    expect(again.pages[0]!.lines.map((l) => [l.text, l.y])).toEqual(layout.pages[0]!.lines.map((l) => [l.text, l.y]))
+    const text = (l: HwpLayout) => l.pages[0]!.lines.filter((x) => x.text).map((x) => [x.text, x.y])
+    expect(text(again)).toEqual(text(layout))
   }, 60_000)
 })
 
