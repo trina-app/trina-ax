@@ -55,7 +55,8 @@ import { reserveSignInWindow, useIntegrationActions } from '../components/integr
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { LocalProgramsHere } from '../components/integrations/LocalProgramsHere'
-import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
+import { desktop } from '../lib/desktop'
+import { localAppById, localAppLogo, localAppOf, localAppSpec, localAppsFor, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -319,7 +320,7 @@ function ConnectorsHome() {
   // connections; + connects at once in the desktop app (the app asks once in its own window); elsewhere (the web, the
   // phone) the card says it works in the desktop app, in the same grey words as its connection's row
   const desk = !!localAppsBridge()
-  const localCards: Card[] = list.data?.localAllowed && personalAllowed ? LISTED_LOCAL_APPS.filter((a) => !mine.some((i) => localAppOf(i)?.id === a.id)).map((a) => ({
+  const localCards: Card[] = list.data?.localAllowed && personalAllowed ? localAppsFor(desktop()?.platform).filter((a) => !mine.some((i) => localAppOf(i)?.id === a.id)).map((a) => ({
     id: a.id, name: a.name, line: t(a.line), logo: localAppLogo(a), state: desk ? 'available' as const : 'off' as const,
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },

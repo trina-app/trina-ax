@@ -7,7 +7,7 @@
 | Team AX/Trina 코드 | [LICENSE](../LICENSE), [NOTICE](../NOTICE) | 별도 라이선스·권리 미확정 부분을 새로 허락하지 않음 |
 | 공유 cloud 프로토콜 | [폴더 한정 MIT](../shared/src/cloud-protocol/LICENSE) | ee/cloud 및 shared의 다른 폴더까지 확대하지 않음 |
 | 역사적 Trina 웹사이트 | [Apache-2.0](../editions/trina/branding/LICENSE.website-upstream.txt), [원 저작권 출처](../editions/trina/branding/NOTICE.website-upstream.md) | 새 서버판 전체가 Apache라는 뜻이 아님 |
-| 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive)와 그 뒤에 더한 파일(Claude, Codex, Slack, 2026-11-19의 Aside·ego lite). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
+| 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive)와 그 뒤에 더한 파일(Claude, Codex, Slack, 2026-11-19의 Aside·ego lite, 2026-11-24의 Playwright·Chrome DevTools). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
 | 대화방 앱 표시 | `web/public/icons/room-apps`의 `sentry.svg`, `github.svg`, `notion.svg`, `zendesk.svg`, `stripe.svg`: Simple Icons 16.37.0(npm `simple-icons`, CC0-1.0)의 같은 이름 파일을 바꾸지 않고 복사(2026-11-14). 아래 [대화방 앱 표시](#대화방-앱-표시-webpubliciconsroom-apps) | 각 표시는 그 소유자의 상표(Sentry: Functional Software, Inc., GitHub: GitHub, Inc.)이고 서비스를 가리키는 데만 쓴다. CC0는 상표권을 주지 않는다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
@@ -66,6 +66,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `brex.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Brex</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `calendly.svg` | 미확인 | 미확인 | viewBox `0 0 841.89 595.28`; Adobe Illustrator 27.5.0(으)로 내보낸 파일(파일 안 주석), 어디서 받았는지는 없음 |
 | `canva.svg` | 미확인 | 미확인 | viewBox `0 0 80 80`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `chrome-devtools.png` | https://github.com/ChromeDevTools.png (Chrome DevTools 팀의 공식 GitHub 조직 아이콘, chrome-devtools-mcp 저장소의 주인, 2026-11-24 받음, SHA-256 `83cd225a…`; macOS `sips -Z 180`으로 180×180으로 줄임) | 이용 조건은 확인하지 않음. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. Chrome·Chrome DevTools 표시는 Google의 상표 | 180×180 PNG |
 | `claude.svg` | https://svgl.app/library/claude-ai-icon.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Claude 로고는 Anthropic의 상표이고 Anthropic 브랜드 지침을 따른다 | viewBox `0 0 256 257`; 한 가지 `fill`(`#D97757`) path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Claude와 Claude Code에 쓴다 |
 | `clickup.svg` | 미확인 | 미확인 | viewBox `0 0 64 64`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudflare.svg` | 미확인 | 미확인 | viewBox `0 0 256 116`; 만든 곳을 알려 주는 메타데이터 없음 |
@@ -89,6 +90,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `openrouter.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>OpenRouter</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `paypal.svg` | 미확인 | 미확인 | viewBox `7.056000232696533 3 37.35095977783203 45`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `planetscale.svg` | 미확인 | 미확인 | viewBox `0 0 256 256`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `playwright.svg` | https://playwright.dev/img/playwright-logo.svg (Playwright 공식 사이트, 2026-11-24 받음, SHA-256 `6b0a4367…`), 바꾸지 않음 | 이용 조건은 확인하지 않음. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. Playwright는 Microsoft의 오픈 소스(Apache-2.0) 프로젝트 | viewBox `0 0 400 400`; 스크립트·외부 링크 없음 |
 | `posthog.svg` | 미확인 | 미확인 | viewBox `0 0 50 30`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `postman.svg` | 미확인 | 미확인 | viewBox `0 0 256 256`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `railway.svg` | 미확인 | 미확인 | viewBox `0 0 1024 1024`; 만든 곳을 알려 주는 메타데이터 없음 |
