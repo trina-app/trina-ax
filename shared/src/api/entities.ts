@@ -550,6 +550,10 @@ export const Step = z.object({
    * card, the person chose not to share it here, it was not allowed, it failed). Only for the person whose turn it was
    * (ChatStore.viewSteps); absent on every other step */
   outcome: StepOutcome.optional(),
+  /** the end of `label` that is the call's key input (" · \"YC Korea founders\"", " · example.com/a"; docs/decisions/
+   * 20261124-step-key-input.md): a narrow screen shows it on its own line under the tool's words. Only for the person
+   * whose turn it was (ChatStore.viewSteps), as the label's details are */
+  key: z.string().max(200).optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({

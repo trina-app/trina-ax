@@ -87,7 +87,7 @@ test("a connection step's key input, outcome and error words are the asker's", a
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
   await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
   const steps = [
-    { id: 'k1', kind: 'tool', tool: 'my_bright__search_engine', label: `Bright Data · Search Engine · "${SECRET} founders"`, outcome: { count: 10 }, ...stamp() },
+    { id: 'k1', kind: 'tool', tool: 'my_bright__search_engine', label: `Bright Data · Search Engine · "${SECRET} founders"`, key: ` · "${SECRET} founders"`, outcome: { count: 10 }, ...stamp() },
     { id: 'k2', kind: 'tool', tool: 'my_bright__scrape_as_markdown', label: `Bright Data · Scrape as Markdown · ${SECRET}.example.com/in/x`, outcome: { end: 'failed' }, detail: `rate limited for ${SECRET}`, ...stamp(), status: 'error' },
     { id: 'k3', kind: 'tool', tool: 'call_tool', label: `Bright Data · Search Dataset · "${SECRET}"`, outcome: { end: 'declined' }, ...stamp(), status: 'error' },
     { id: 'k4', kind: 'tool', tool: 'api_request', label: `AI PM · Read · /tasks/${SECRET}`, outcome: { count: 2 }, ...stamp() },
@@ -97,6 +97,7 @@ test("a connection step's key input, outcome and error words are the asker's", a
   expect(JSON.stringify(forBob)).not.toContain(SECRET)
   for (const s of forBob) {
     expect(s.outcome).toBeUndefined()
+    expect(s.key).toBeUndefined()
     expect(s.detail).toBeUndefined()
     expect(s.tool).toBeUndefined()
     expect(['Step', '작업']).toContain(s.label)

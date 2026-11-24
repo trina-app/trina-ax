@@ -81,3 +81,16 @@ describe('runs of one tool fold', () => {
     })
   }
 })
+
+describe('a narrow screen keeps the key input', () => {
+  test('its own line under the tool\'s words, the whole line at sm and wider', () => {
+    setLocale('en')
+    const rows = renderToStaticMarkup(<Steps steps={[step({ key: ' · "YC Korea founders 2025"', outcome: { count: 8 } })]} streaming />)
+    expect(rows).toContain('data-testid="step-key">&quot;YC Korea founders 2025&quot;</p>')
+    expect(rows).toContain('<span class="hidden sm:inline">Bright Data · Search Engine · &quot;YC Korea founders 2025&quot;</span>')
+    expect(rows).toContain('<span class="sm:hidden">Bright Data · Search Engine</span>')
+    // a line that no longer ends in it (changed since): one line, as before
+    expect(renderToStaticMarkup(<Steps steps={[step({ key: ' · "other"' })]} streaming />)).not.toContain('step-key')
+  })
+})
+

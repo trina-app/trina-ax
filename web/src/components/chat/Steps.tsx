@@ -299,9 +299,15 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   // a row that opens is a button; one with nothing to open is not a control (a disabled button would also swallow the
   // pointer, and with it the tooltip of its mark)
-  const rowClass = clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')
+  // the key input on its own line under the tool's words on a narrow screen, never cut there (Step.key: the line's end
+  // the server marked; a line changed since, or redrawn in other words, stays one line)
+  const split = !runHead && step.key && place.label.endsWith(step.key) && place.label.length > step.key.length
+    ? { head: place.label.slice(0, -step.key.length), key: step.key.replace(/^ · /, '').trim() } : null
+  const rowClass = clsx('flex w-full gap-2 rounded px-1 py-0.5 text-left', runHead ? 'items-start sm:items-center' : 'items-center', expandable && 'hover:bg-hover')
   const head = (
     <>
+      {/* a call's line that may wrap (a folded run's call on a narrow screen): its marks stay on the first line */}
+      <span className={runHead ? 'flex h-lh shrink-0 items-center gap-2 sm:contents' : 'contents'}>
       {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : mark === 'note' ? (
         // what happened to an attached team file (changed, moved, unavailable): a note, not a success or a failure
         <Info size={13} className="shrink-0 text-faint" aria-hidden />
@@ -321,11 +327,17 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         </Tooltip>
       ) : mark === 'failed' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} data-testid="step-failed" /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
       <Icon size={13} className="shrink-0 text-faint" aria-hidden />
+      </span>
       {step.memory && !expandable ? (
         // a memory step: its words open Settings › Memory (docs/decisions/20261122-auto-memory.md)
         <button type="button" onClick={() => navigateTo('/settings/memory')} title={t('steps.memoryOpen')}
           className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="step-memory-open">{place.label}</button>
-      ) : <span className="min-w-0 flex-1 truncate" title={place.path ?? place.label}>{place.label}</span>}
+      ) : split ? (
+        <span className="min-w-0 flex-1 truncate" title={place.path ?? place.label}>
+          <span className="hidden sm:inline">{place.label}</span>
+          <span className="sm:hidden">{split.head}</span>
+        </span>
+      ) : <span className={clsx('min-w-0 flex-1', runHead ? '[overflow-wrap:anywhere] sm:truncate' : 'truncate')} title={place.path ?? place.label}>{place.label}</span>}
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {came ? <span className={clsx('shrink-0 text-xs', mark === 'failed' ? 'text-danger' : 'text-faint')} data-testid="step-outcome">{came}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
@@ -350,6 +362,8 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
       ) : (
         <div className={rowClass}>{head}</div>
       )}
+      {/* a narrow screen: the key input on its own dimmer line, under the tool's words, never cut */}
+      {split && <p className="ml-11 pr-1 pl-0.5 text-xs text-faint [overflow-wrap:anywhere] sm:hidden" data-testid="step-key">{split.key}</p>}
       {step.devEnvRun && (step.devEnvRun.kind === 'server' ? <PreviewLine step={step} /> : <QueueLine step={step} />)}
       {step.memory?.first && (
         <p className="ml-6 px-1 text-xs text-muted" data-testid="memory-first-line">

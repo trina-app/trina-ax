@@ -22,6 +22,10 @@
   results / items / data …); `end` from the server's own reason (declined, no answer, skipped in a shared chat, not
   allowed, failed); a service's error answer's first line as the step's detail. Beside the line in words; a failed step
   the AI got past says "Didn't work" in place, not only in a tooltip.
+- **Narrow screens:** the server marks the line's end that is the key input (`Step.key`, the runner's alone). Below the
+  `sm` width the tool's words stay on the first line with the result on the right, and the key input goes on its own
+  dimmer line under them, wrapping, never cut (only the 60-character cap cuts it). A folded run's calls wrap the same
+  way. At `sm` and wider the line is as before.
 - **Runs:** 3+ calls in a row of the same tool fold into one row (`<tool's words> · 12 calls · 2 didn't work`) that
   opens to each call's input, like Claude Code's grouped calls. While the answer runs, the last steps show one by one.
 - **Everywhere:** the line and the outcome are written by the server at the one place every step comes from (chat/turn.ts

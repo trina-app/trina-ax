@@ -307,6 +307,8 @@ describe('external-service connections in a turn', () => {
       const search = steps.find((s) => s.tool === 'my_tasks__search_tasks')!
       expect(search.label).toBe('Tasks · Search tasks · "YC Korea founders 2025"')
       expect(search.outcome).toEqual({ count: 3 })
+      // its end that is the key input, for a narrow screen's second line
+      expect(search.key).toBe(' · "YC Korea founders 2025"')
       const failed = steps.find((s) => s.tool === 'my_tasks__rpc_fail')!
       expect(failed.status).toBe('error')
       expect(failed.outcome?.end).toBe('failed')
