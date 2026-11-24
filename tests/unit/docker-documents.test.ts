@@ -92,6 +92,9 @@ describe('the direct runner counts a run\'s whole process tree', () => {
     try {
       fs.writeFileSync(path.join(d, 'memory.current'), '3221225472\n'); fs.writeFileSync(path.join(d, 'memory.max'), '4294967296\n'); fs.writeFileSync(path.join(d, 'memory.events'), 'low 0\nhigh 0\nmax 3\noom 1\noom_kill 2\n')
       expect(containerMemory(d)).toEqual({ current: 3221225472, max: 4294967296, ooms: 2 })
+      // the working set: inactive page cache does not count, tmpfs (shmem) does
+      fs.writeFileSync(path.join(d, 'memory.stat'), 'anon 1000\nshmem 2147483648\ninactive_file 1073741824\nactive_file 5\n')
+      expect(containerMemory(d)!.current).toBe(3221225472 - 1073741824)
       fs.writeFileSync(path.join(d, 'memory.max'), 'max\n')
       if (process.platform === 'linux') expect(containerMemory(d)!.max).toBeGreaterThan(0)
       expect(containerMemory(path.join(d, 'none'))).toBeNull()

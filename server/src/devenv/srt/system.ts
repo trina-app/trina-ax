@@ -317,12 +317,16 @@ export function runTree(root: string | number, procDir = '/proc', table: Map<num
   return { pids, rssKiB }
 }
 
-/** The container's memory (cgroup v2 at `dir`, the container's own with a private cgroup namespace): what it uses now
- * (page cache and tmpfs included, which a process's resident memory does not count), its limit (memory.max, or the
- * machine's memory when it has none) and its OOM kills so far. null where there is no cgroup v2 file to read. */
+/** The container's memory (cgroup v2 at `dir`, the container's own with a private cgroup namespace): its working set
+ * now, memory.current less the inactive page cache the kernel gives back first (as kubelet counts it; tmpfs files, which
+ * srt's /tmp and /run are, are shmem and stay counted, though a process's resident memory does not count them), its
+ * limit (memory.max, or the machine's memory when it has none) and its OOM kills so far. null where there is no
+ * cgroup v2 file to read. */
 export function containerMemory(dir = '/sys/fs/cgroup'): { current: number; max: number; ooms: number } | null {
   try {
-    const current = Number(fs.readFileSync(path.join(dir, 'memory.current'), 'utf8').trim())
+    let inactive = 0
+    try { inactive = Number(/^inactive_file (\d+)/m.exec(fs.readFileSync(path.join(dir, 'memory.stat'), 'utf8'))?.[1] ?? 0) } catch {}
+    const current = Number(fs.readFileSync(path.join(dir, 'memory.current'), 'utf8').trim()) - inactive
     const m = fs.readFileSync(path.join(dir, 'memory.max'), 'utf8').trim()
     let max = Number(m)
     if (m === 'max' || !Number.isFinite(max)) max = Number(/^MemTotal:\s+(\d+)/m.exec(fs.readFileSync('/proc/meminfo', 'utf8'))?.[1] ?? 0) * 1024
