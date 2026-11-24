@@ -9,6 +9,7 @@
 // A plain file (text, an image, a PDF, a zip that is not Office) passes: their own tools check them.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 import { OFFICE_WRITE_MAX, officeWorkerWrite } from './extract'
 import { OFFICE_EXIT_MODE } from './office-links-check'
 import { ToolError } from '../policy/errors'
@@ -49,16 +50,18 @@ export function contentKind(name: string, head: Uint8Array, tail: Uint8Array = h
  * ToolError naming what is not allowed. `replaced`: the bytes of the file it replaces, as this answer read them (null:
  * a new file, or one not read). Only that file vouches for items it already held.
  */
-export async function assertSafeTeamFile(name: string, bytes: Uint8Array, replaced: Uint8Array | null, signal?: AbortSignal): Promise<Uint8Array> {
+export async function assertSafeTeamFile(name: string, bytes: Uint8Array, replaced: Uint8Array | null, signal?: AbortSignal, read: Uint8Array[] = []): Promise<Uint8Array> {
   const k = contentKind(name, bytes.subarray(0, HEAD_BYTES), bytes.subarray(Math.max(0, bytes.length - TAIL_BYTES)))
   if (!k) return bytes
   if ('shortcut' in k) throw new ToolError(`'${name}' is ${k.shortcut.startsWith('.') ? `a ${k.shortcut} file` : k.shortcut}, which can open places outside the team folder; it is not saved`, 'office_unsafe')
   if ('opaque' in k) {
-    if (replaced && Buffer.compare(Buffer.from(replaced), Buffer.from(bytes)) === 0) return bytes
+    if ([replaced, ...read].some((v) => v && Buffer.compare(Buffer.from(v), Buffer.from(bytes)) === 0)) return bytes
     throw new ToolError(`'${name}' is ${k.opaque}, which cannot be checked for links that leave the file; save it as .docx, .pptx or .xlsx instead`, 'office_unsafe')
   }
   if (bytes.length > OFFICE_WRITE_MAX) throw new ToolError(`'${name}' is too large to be checked for links that leave the file`, 'office_unsafe')
-  const earlier = replaced && replaced.length <= OFFICE_EXIT_EARLIER_MAX ? [replaced] : []
+  // what vouches: the replaced file and the files this answer read, each as read (exact items only, office-links-check.ts)
+  let room = OFFICE_EXIT_EARLIER_MAX
+  const earlier = [replaced, ...read].filter((v): v is Uint8Array => !!v && v.length <= room && (room -= v.length) >= 0)
   const head = new TextEncoder().encode(JSON.stringify({ kind: k.office, sizes: [bytes.length, ...earlier.map((e) => e.length)] }))
   const req = new Uint8Array(4 + head.length + bytes.length + earlier.reduce((n, e) => n + e.length, 0))
   new DataView(req.buffer).setUint32(0, head.length)
@@ -79,7 +82,7 @@ export function officeKind(name: string): 'docx' | 'pptx' | 'xlsx' | null {
 /** A file on disk as the AI is about to place it (`abs`): checked like assertSafeTeamFile, reading only its head and
  * tail unless it is an Office file; a cleaned Office file (its attached template taken out) is written back to `abs`.
  * Returns whether the bytes changed. */
-export async function assertSafeTeamPath(name: string, abs: string, replaced: Uint8Array | null, signal?: AbortSignal, o: { writeBack?: boolean } = {}): Promise<boolean> {
+export async function assertSafeTeamPath(name: string, abs: string, replaced: Uint8Array | null, signal?: AbortSignal, o: { writeBack?: boolean; read?: Uint8Array[] } = {}): Promise<boolean> {
   const fd = fs.openSync(abs, 'r')
   let head: Uint8Array, tail: Uint8Array, size: number
   try {
@@ -90,7 +93,7 @@ export async function assertSafeTeamPath(name: string, abs: string, replaced: Ui
   if (!contentKind(name, head, tail)) return false
   if (size > OFFICE_WRITE_MAX) throw new ToolError(`'${name}' is too large to be checked for links that leave the file`, 'office_unsafe')
   const bytes = new Uint8Array(fs.readFileSync(abs))
-  const out = await assertSafeTeamFile(name, bytes, replaced, signal)
+  const out = await assertSafeTeamFile(name, bytes, replaced, signal, o.read ?? [])
   if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0 || o.writeBack === false) return false
   fs.writeFileSync(abs, out)
   return true
@@ -127,4 +130,28 @@ export function replacedAsRead(abs: string, readHash: string | undefined): Uint8
     const b = fs.readFileSync(abs)
     return crypto.createHash('sha256').update(b).digest('hex') === readHash ? new Uint8Array(b) : null
   } catch { return null }
+}
+
+/** The team files this answer read (`readHashes`: team path -> the hash it read), in exactly the bytes it read: a file
+ * changed on disk since is left out (it no longer has the bytes that were read). Only Office and similar documents, at
+ * most READ_VOUCH_FILES of them and OFFICE_EXIT_EARLIER_MAX bytes in all. An exact copy of an item they hold adds no
+ * exposure (those bytes are in the team's files already); anything new or changed is still refused. */
+export const READ_VOUCH_FILES = 20
+export function readVouchers(root: string, readHashes: Iterable<[string, string]>): Uint8Array[] {
+  const out: Uint8Array[] = []
+  let room = OFFICE_EXIT_EARLIER_MAX
+  for (const [rel, hash] of readHashes) {
+    if (out.length >= READ_VOUCH_FILES) break
+    if (!rel || rel.includes(':') || rel.split('/').some((x) => x === '..' || x === '')) continue
+    try {
+      const abs = path.join(root, ...rel.split('/'))
+      const st = fs.lstatSync(abs)
+      if (!st.isFile() || st.size > room) continue
+      const b = fs.readFileSync(abs)
+      if (!contentKind(rel, b.subarray(0, HEAD_BYTES), b.subarray(Math.max(0, b.length - TAIL_BYTES)))) continue
+      if (crypto.createHash('sha256').update(b).digest('hex') !== hash) continue
+      out.push(new Uint8Array(b)); room -= b.length
+    } catch { /* gone or unreadable: vouches for nothing */ }
+  }
+  return out
 }

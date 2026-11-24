@@ -233,6 +233,22 @@ describe('a run writes an Office file straight into a team folder', () => {
   })
 })
 
+describe('files this answer read vouch only in the bytes it read', () => {
+  test('a file changed on disk after the read vouches for nothing', async () => {
+    const { readVouchers } = await import('../../server/src/files/office-exit')
+    const crypto = await import('node:crypto')
+    const rel = `${P.folderPath}/read-then-changed.docx`
+    const v1 = docx({ link: UNC, body: 'v1' })
+    fs.writeFileSync(abs(rel), v1)
+    const readHash = crypto.createHash('sha256').update(v1).digest('hex')
+    expect(readVouchers(team, [[rel, readHash]]).length).toBe(1)
+    fs.writeFileSync(abs(rel), docx({ link: 'file:///etc/shadow', body: 'v2' }))
+    expect(readVouchers(team, [[rel, readHash]])).toEqual([])
+    // and a changed item is not vouched by the original either
+    expect(() => officeExitRequest(frame('docx', docx({ link: 'file:///etc/shadow' }), [v1]))).toThrow(/file:/)
+  })
+})
+
 describe('copies and renames by the AI', () => {
   test('a copy inside the team folder is checked; the same file copied by a person on the Files screen is not', async () => {
     const src = `${P.folderPath}/src.docx`

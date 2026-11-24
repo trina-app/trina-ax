@@ -42,7 +42,7 @@
   .xlsb pass only as the replaced file's own unchanged bytes; .url, .library-ms, .searchConnector-ms and .scf files (or
   their content) are refused. Each risky item has an exact identity (relationship type and target, a field's full
   code, an embedded object's part and hash, a macro project's hash, an Excel DDE/OLE link or data connection, a VML
-  src/href). Only the file being replaced, in the bytes this answer read, vouches, and only for those exact items. A
+  src/href). The file being replaced and the team files this answer read vouch, each only in the bytes this answer read (a file changed on disk since vouches for nothing) and only for those exact items: filling a company template into a new file keeps its own intranet picture, while any new or changed item is refused. A
   run's file is undone or written back only while the disk still holds the run's bytes; a person's save through the
   file layer is never undone. People's own uploads on the Files screen are not checked here.
 - **Excel values.** A workbook leaving the work folder is recalculated by LibreOffice in the converters' isolation (a

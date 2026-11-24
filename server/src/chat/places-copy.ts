@@ -310,7 +310,7 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
 async function attach(exec: TurnExec, files: TurnFiles, o: { tmp: string; name: string; sha256: string; tool: string; shown: string }): Promise<Routed> {
   const { rt, spec } = exec
   if (exec.hiddenFromLater) return { ok: false, text: 'Not attached: this answer now holds a connected service\'s answer that people added later may not see.', summary: `${o.tool} -> refused: answer hidden from later people` }
-  const att = await chatFilesOf(rt.ctx).createFromAi(spec.userId, spec.chatId, o.name, o.tmp, o.sha256)
+  const att = await chatFilesOf(rt.ctx).createFromAi(spec.userId, spec.chatId, o.name, o.tmp, o.sha256, files.readHashes)
   files.bytesWritten += att.size
   files.filesWritten.add(`chat-file:${att.id}`)
   exec.attachToAnswer(att)

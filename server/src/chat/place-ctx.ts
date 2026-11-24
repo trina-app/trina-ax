@@ -56,7 +56,7 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       if (!seesChatFiles(rt.db, me, chatId)) throw new ToolError(PLACE_WORDS.notSeen, 'not_here')
       // the chat itself joins the read scope, as save_work_file's attach does (who may see the answer and its file)
       addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
-      const att = await store.createFromAi(me, chatId, name, src, sha256)
+      const att = await store.createFromAi(me, chatId, name, src, sha256, exec.files.readHashes)
       exec.attachToAnswer(att)
       const kept = (store.row(att.id)?.sha256) ?? sha256
       return { ...att, sha256: kept }

@@ -18,7 +18,7 @@
 // the team's storage (system/storage.ts counts .system/chat-files with the team folder).
 import fs from 'node:fs'
 import path from 'node:path'
-import { assertSafeTeamPath, replacedAsRead } from '../files/office-exit'
+import { assertSafeTeamPath, readVouchers, replacedAsRead } from '../files/office-exit'
 import { createHash } from 'node:crypto'
 import { CHAT_FILE_AI_MAX, SMALL_UPLOAD_MAX, type Attachment, type ChatFileVersion } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
@@ -288,7 +288,7 @@ export class ChatFiles {
    * file is theirs as an upload would be). The caller puts it into the answer's attachments at once (sent()). Audited.
    * ToolError with plain words for the AI.
    */
-  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string): Promise<Attachment> {
+  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string, read: Iterable<[string, string]> = []): Promise<Attachment> {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = !clean || clean.includes('/') || clean.includes('\\') ? 'not a file name' : badSegment(clean)
     if (bad) throw new ToolError(`'${clean}' cannot be a file name here: ${bad}`, 'bad_name')
@@ -296,8 +296,8 @@ export class ChatFiles {
     if (size > CHAT_FILE_AI_MAX) throw new ToolError(`the file is ${(size / 1024 ** 2).toFixed(0)} MB; a file attached to an answer may be at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB. Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
     assertStorageRoomForAI(size)
     let stored = sha256
-    // the one check of an AI's file, by its content (files/office-exit.ts): a new chat file has nothing to vouch for it
-    if (await assertSafeTeamPath(clean, src, null)) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
+    // the one check of an AI's file, by its content (files/office-exit.ts): the files this answer read vouch, as read
+    if (await assertSafeTeamPath(clean, src, null, undefined, { read: readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
     let kind = attachmentKind(clean)
     if (kind === 'image') {
       // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
@@ -655,7 +655,7 @@ export class ChatFiles {
         // answer read
         const head = this.headOf(root.id) ?? root
         const vouch = turn?.readHashes && [...turn.readHashes.values()].includes(head.sha256) ? replacedAsRead(this.abs(head), head.sha256) : null
-        if (await assertSafeTeamPath(root.name, dst, vouch)) sha = createHash('sha256').update(fs.readFileSync(dst)).digest('hex')
+        if (await assertSafeTeamPath(root.name, dst, vouch, undefined, { read: turn?.readHashes ? readVouchers(this.ctx.files.fx.root, turn.readHashes) : [] })) sha = createHash('sha256').update(fs.readFileSync(dst)).digest('hex')
       }
       let kind = attachmentKind(root.name)
       if (kind === 'image') {
