@@ -20,7 +20,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, knownStepTool, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { webAllowAll } from '../tools/web-allow-all'
@@ -220,6 +220,9 @@ export const SESSION_STASH_MAX = 40 * 1024 * 1024
 /** Where a call saves and what it copies, for the wider-audience check asked with a room change (chat/tools.ts widenOf,
  * Tool.widen): `target` the team path it saves at, `extra` team files whose bytes it copies, `read` other places its
  * bytes come from (save_room_file: the room of the file, from its message on). */
+/** Steps whose line is a template with someone's words, or a command: no key input of their own (Step.key) */
+const KEYLESS_STEP_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment', 'box_shell', 'connect_service', 'todo_write'])
+
 export interface WidenOf { target: string; extra: string[]; read?: ReadSource[] }
 /** The wider-audience card's facts (TurnExec.widenNeed): where it saves, its folder, the narrower places read, how many
  * people can see the target. */
@@ -625,6 +628,8 @@ export class TurnExec {
   /** Codex searches the model proxy took and whose item has not ended yet (chat/codex-search-step.ts) */
   private searchAsks: SearchAsk[] = []
   private patched = new Set<string>()
+  /** a call's outcome that came before its step (patchStepOf), by the step's id */
+  private outcomeById = new Map<string, Partial<StoredStep>>()
   private pendingPatches = new Map<string, ((s: Step) => Partial<StoredStep>)[]>()
   private attemptHadOutput = false
   /** set by the model proxy (upstream 401, budget used up, subscription limit): ends the turn with this error */
@@ -2266,11 +2271,16 @@ export class TurnExec {
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
-        const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        const shown = work !== null ? { label } : this.sharedStep(tool, e.input, label)
+        // the line's end that is the key input, for a narrow screen's second line (only where the line is shown whole)
+        const key = kind === 'tool' && work === null && !shown.sv ? this.keyPart(tool, e.input, label) : ''
+        const step = this.addStep({ id: e.id, kind, tool, ...shown, ...(key ? { key } : {}), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
         // the call's key arguments, for the next fresh session's record of this answer (chat/step-record.ts); a read
         // of the work folder by the path the step shows, never the server's own
         // (set whole: an engine that numbers its calls again in a relaunch reuses an id, never the old call's note)
         if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input), undefined, tool) }, true)
+        const early = this.outcomeById.get(step.id)
+        if (early) { this.outcomeById.delete(step.id); this.updateStep(step.id, early) }
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -2523,7 +2533,7 @@ export class TurnExec {
       id: s.id !== undefined ? stepId(s.id) : `s-${crypto.randomUUID()}`, kind: s.kind, label: s.label.slice(0, 500), status: s.status,
       ...(s.sv ? { sv: { label: s.sv.label.slice(0, 500), paths: s.sv.paths.slice(0, 50) } } : {}),
       startedAt: s.startedAt ?? new Date().toISOString(), endedAt: s.status === 'running' ? null : (s.endedAt ?? new Date().toISOString()),
-      ...(s.tool ? { tool: s.tool.slice(0, 100) } : {}), ...(s.detail ? { detail: s.detail.slice(0, 4000) } : {}),
+      ...(s.tool ? { tool: s.tool.slice(0, 100) } : {}), ...(s.detail ? { detail: s.detail.slice(0, 4000) } : {}), ...(s.key ? { key: s.key.slice(0, 200) } : {}),
       ...(s.sources ? { sources: s.sources.slice(0, 50) } : {}), ...(s.images ? { images: s.images.slice(0, 20) } : {}),
       // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
@@ -2592,6 +2602,20 @@ export class TurnExec {
     this.pendingPatches.set(tool, q)
   }
 
+  /** What one call came back with, onto that call's own step (Step.outcome, docs/decisions/20261124-step-key-input.md):
+   * by the engine's id of the call (Claude Code gives it), so calls side by side and a sub-agent's calls never swap
+   * results; a step the stream has not named yet gets it when it does (tool_start). Without an id (Codex, the API engine:
+   * no sub-agents, and a connection's calls run one at a time) the main AI's oldest running step of that tool. */
+  patchStepOf(call: { id: string | null; tool: string; agent: { helper: boolean } }, patch: Partial<StoredStep>) {
+    if (call.id) {
+      const id = stepId(call.id)
+      if (this.steps.some((x) => x.id === id)) this.updateStep(id, patch)
+      else this.outcomeById.set(id, patch)
+      return
+    }
+    if (!call.agent.helper) this.patchToolStep(call.tool, () => patch)
+  }
+
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
   private redactStep<T extends Partial<StoredStep>>(s: T): T {
     const r = this.redactor()
@@ -2600,6 +2624,7 @@ export class TurnExec {
     if (out.label !== undefined) out.label = r.hide(out.label)
     if (out.sv) out.sv = { ...out.sv, label: r.hide(out.sv.label) }
     if (out.detail) out.detail = r.hide(out.detail)
+    if (out.key) out.key = r.hide(out.key)
     if (out.sources) out.sources = out.sources.map((x) => ({ ...x, title: r.hide(x.title), url: r.hide(x.url) }))
     if (out.todos) out.todos = out.todos.map((x) => ({ ...x, content: r.hide(x.content), ...(x.activeForm !== undefined ? { activeForm: r.hide(x.activeForm) } : {}) }))
     return out
@@ -3412,7 +3437,7 @@ export class TurnExec {
     const L = this.spec.locale
     // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
     const words = this.toolCard(tool, input)
-    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, tool === 'artifact' ? this.artifactTitled(this.cardInput(tool, input)) : this.cardInput(tool, input), L))
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L, { bare: true }) ?? roomCardWhat(tool, tool === 'artifact' ? this.artifactTitled(this.cardInput(tool, input)) : this.cardInput(tool, input), L))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input, words)
@@ -4813,6 +4838,18 @@ export class TurnExec {
     } catch { return input }
   }
 
+  /** The end of a step's line that is its key input (Step.key): what the line adds to the tool's own words, as the same
+   * label without it (a connection's `bare` label; a tool of ours with no input) shows. '' when it cannot be told. */
+  private keyPart(tool: string, input: unknown, label: string): string {
+    if (KEYLESS_STEP_TOOLS.has(tool)) return ''
+    let bare: string | null = null
+    try { bare = this.toolSet?.stepLabel(tool, input, this.spec.locale, { bare: true }) ?? stepLabel(tool, {}, this.spec.locale, BROWSER_TOOL_NAMES) } catch { bare = null }
+    if (!bare) return ''
+    const head = bare.replace(/[\s·]+$/, '')
+    const rest = label.slice(head.length)
+    return head && label.startsWith(head) && /^ (?:· |")/.test(rest) && rest.length > 3 ? rest : ''
+  }
+
   /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside
    * (ChatStore.viewSteps shows it to a viewer who may see every path it names). */
   private sharedStep(tool: string, input: unknown, label: string): Pick<StoredStep, 'label' | 'sv'> {
@@ -6162,6 +6199,8 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
+    // an outcome whose step never came (patchStepOf) has nothing to go to
+    this.outcomeById.clear()
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
     for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }
@@ -6586,6 +6625,9 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   // may steer the AI (review of the plain-words change)
   if (tool === 'box_shell') return shellCardWords(typeof a.command === 'string' ? a.command : '', L)
   if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
+  // a tool without words of its own: its name alone, never its key input (the card lists every value itself:
+  // docs/decisions/20261124-step-key-input.md)
+  if (!knownStepTool(tool) && !BROWSER_TOOL_NAMES.has(tool)) return stepLabel(tool, {}, L, BROWSER_TOOL_NAMES)
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 

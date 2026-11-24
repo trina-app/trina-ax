@@ -234,15 +234,18 @@ describe('reading a slow tools/list', () => {
     } finally { await checking; fake.pace = null }
   })
 
-  test('a step names the connection and the tool in words, never the arguments (plain words: no raw ids or arguments)', () => {
+  test('a step names the connection, the tool in words and one key input; never a key or the other arguments (docs/decisions/20261124-step-key-input.md)', () => {
     const { tools } = turn('alice')
     const label = tools.get('my_studio__s0')!.label!
     const secret = 'CANARY-' + 'k'.repeat(60)
-    // the tool has no title of its own: its id in words; nothing the AI passed shows, a stored secret included
-    for (const args of [{ model: 'z_image', prompt: 'a green leaf', get_cost: true }, { note: `use ${secret} here`, api_key: 'typed-key' }, {}]) {
+    // the tool has no title of its own: its id in words, then the prompt (a key input by its name), nothing else
+    expect(label({ model: 'z_image', prompt: 'a green leaf', get_cost: true }, 'en')).toBe('Studio · S0 · "a green leaf"')
+    // a stored secret and a key never show, nor an argument no name says anything about
+    for (const args of [{ note: `use ${secret} here`, api_key: 'typed-key' }, { prompt: secret }, {}]) {
       const l = label(args, 'en')
       expect(l).toBe('Studio · S0')
-      for (const v of ['z_image', 'green leaf', 'get_cost', 'CANARY', 'typed-key']) expect(l).not.toContain(v)
+      for (const v of ['z_image', 'get_cost', 'CANARY', 'typed-key']) expect(l).not.toContain(v)
     }
+    expect(label({ prompt: 'a green leaf' }, 'en', { bare: true })).toBe('Studio · S0')
   })
 })
