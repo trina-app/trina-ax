@@ -1,6 +1,6 @@
 // What a visitor sees when the relay itself answers: the team server is offline, the address is not registered, or
 // the address is suspended. HTML for browsers, the usual { error: { code, message } } JSON for API calls.
-// Languages ko / en / id: the language the team's page last showed in this browser (the web app keeps it in the
+// Languages ko / en / id / ja / es / zh: the language the team's page last showed in this browser (the web app keeps it in the
 // mycel_locale cookie of the team address; API calls carry it in X-Mycel-Locale), else English. The browser's own
 // language does not decide, as on the team server (docs/DECISIONS.md "언어"); the relay cannot ask an offline team
 // server for its default language.
