@@ -18,6 +18,7 @@ import {
   readRels, refuse, relId, relIdPrefix, registerEditor, registerLister, slice, textSplices, withAttr, without, xmlTree, A,
   type EditNote, type Para, type Pkg, type Splice, type XNode,
 } from './office-edit'
+import type { PlacedPicture } from './office-edit-check'
 import { emuToMm, fitPicture, freePictureName, mmToEmu, NS_A, NS_R, pickPicture, pictureList, shapeIds, shapeNames } from './office-picture'
 
 export type PptxChange =
@@ -98,7 +99,7 @@ export function imageInfo(b: Uint8Array): { ext: 'png' | 'jpeg' | 'gif'; type: s
   return null
 }
 
-export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { notes: EditNote[] } {
+export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { notes: EditNote[]; placed: PlacedPicture[] } {
   const pres = mainPart(pkg, 'ppt/presentation.xml')
   const presXml = pkg.need(pres)
   const presTree = xmlTree(presXml, pres)
@@ -125,6 +126,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
   const slideW = Number(attrOf(sz?.head ?? '', 'cx')) || 12_192_000, slideH = Number(attrOf(sz?.head ?? '', 'cy')) || 6_858_000
   const mediaOf = new Map<number, { media: string; ext: string; type: string; w: number; h: number }>()
   const ridOf = new Map<string, string>()
+  const placed: PlacedPicture[] = []
   const idsOn = new Map<string, { next: number; names: Set<string> }>()
   const picName = (p: XNode) => { const c2 = find(p, 'p:cNvPr'); return c2 ? attrOf(c2.head, 'name') ?? '' : '' }
   const picsOn = (s: Slide) => findAll(find(trees.get(s.part)!, 'p:spTree')!, 'p:pic', true)
@@ -154,6 +156,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     const oy = x.y_mm !== undefined && !x.center ? mmToEmu(x.y_mm) : Math.round((slideH - box.cy) / 2)
     const tree = find(trees.get(s.part)!, 'p:spTree')!, at = kid(tree, 'p:extLst')?.start ?? tree.closeStart
     splices.get(s.part)!.push({ from: at, to: at, change: i, text: `<p:pic xmlns:a="${NS_A}" xmlns:r="${NS_R}"><p:nvPicPr><p:cNvPr id="${id}" name="${name}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${ox}" y="${oy}"/><a:ext cx="${box.cx}" cy="${box.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>` })
+    placed.push({ part: s.part, id, rid })
     notes.push({ change: i, where: `new ${placedText(s.n, name, ox, oy, box)}` })
   }
   const movePicture = (i: number, x: Extract<PptxChange, { move_picture: unknown }>['move_picture']) => {
@@ -180,6 +183,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     const wx = x.center ? Math.round((slideW - box.cx) / 2) : x.x_mm !== undefined ? mmToEmu(x.x_mm) : Math.round(tx + known!.x * kx)
     const wy = x.center ? Math.round((slideH - box.cy) / 2) : x.y_mm !== undefined ? mmToEmu(x.y_mm) : Math.round(ty + known!.y * ky)
     const lx = Math.round((wx - tx) / kx), ly = Math.round((wy - ty) / ky), lw = Math.max(1, Math.round(box.cx / kx)), lh = Math.max(1, Math.round(box.cy / ky))
+    if (![lx, ly, lw, lh].every(Number.isFinite)) refuse(`change ${i + 1}: this picture cannot be moved (its group has no size)`)
     const sp = splices.get(s.part)!
     if (off && ext) {
       sp.push({ from: off.start, to: off.end, change: i, text: `<a:off${withAttr(withAttr(off.head.replace(/\/$/, ''), 'x', String(lx)), 'y', String(ly))}/>` })
@@ -357,7 +361,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     pkg.set(pres, applySplices(presXml, presSplices, pres))
   }
   notes.sort((a, b) => a.change - b.change)
-  return { notes }
+  return { notes, placed }
 }
 
 /** The paragraphs of every slide in show order, as the read-back compares them. */

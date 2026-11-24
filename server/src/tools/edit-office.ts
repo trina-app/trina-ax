@@ -364,7 +364,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   const parts = officePartsMismatch(kind, bytes, file, report, a.changes.some((ch) => 'insert_picture' in ch || 'move_picture' in ch))
   if (parts) throw new ToolError(`the changed file did not read back as expected (${parts}); nothing was saved`)
   try {
-    await officeWorkerWrite(OFFICE_VERIFY_MODE, frame({ kind, changed: report.changed, added: report.added, notes: report.notes, cells: report.cells ?? [] }, [bytes, file]), c.signal)
+    await officeWorkerWrite(OFFICE_VERIFY_MODE, frame({ kind, changed: report.changed, added: report.added, notes: report.notes, cells: report.cells ?? [], placed: report.placed ?? [] }, [bytes, file]), c.signal)
   } catch (e) {
     if (!(e instanceof ToolError)) throw e
     throw new ToolError(e.message.includes('nothing was saved') ? e.message : `the changed file did not pass the checks (${e.message.slice(0, 300)}); nothing was saved`)

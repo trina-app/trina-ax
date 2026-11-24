@@ -23,7 +23,7 @@ function edit(kind: OfficeKind, file: Uint8Array, changes: unknown[], images: Ui
   const r = unframe<EditReport>(officeEditRequest(frame({ kind, changes }, [file, ...images])))
   const out = r.blobs[0]!
   expect(officePartsMismatch(kind, file, out, r.json, true)).toBeNull()
-  officeVerifyRequest(frame({ kind, changed: r.json.changed, added: r.json.added, notes: r.json.notes, cells: r.json.cells ?? [] }, [file, out]))
+  officeVerifyRequest(frame({ kind, changed: r.json.changed, added: r.json.added, notes: r.json.notes, cells: r.json.cells ?? [], placed: r.json.placed ?? [] }, [file, out]))
   return { file: out, report: r.json }
 }
 const part = (f: Uint8Array, n: string) => new TextDecoder().decode(readZip(f).find((e) => e.name === n)!.data)
@@ -53,6 +53,20 @@ describe('PowerPoint', () => {
     const moved = edit('pptx', grouped, [{ move_picture: { slide: 1, picture: 1, x_mm: 30, y_mm: 40 } }], [])
     expect(moved.report.notes[0]!.where).toContain('at 30, 40 mm, 80 x 40 mm')
     expect(part(moved.file, 'ppt/slides/slide1.xml')).toContain(`<a:off x="${10 * 36000}" y="${15 * 36000}"/>`)
+  })
+  test('duplicate_slide keeps a slide with mc:AlternateContent (one shape id in Choice and Fallback), also next to a new picture', () => {
+    const sp = (name: string) => `<p:sp><p:nvSpPr><p:cNvPr id="77" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/></p:sp>`
+    const alt = `<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice Requires="p14">${sp('New')}</mc:Choice><mc:Fallback>${sp('Old')}</mc:Fallback></mc:AlternateContent>`
+    const a = writeZip(readZip(deck()).map((e) => (e.name === 'ppt/slides/slide1.xml' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('</p:spTree>', `${alt}</p:spTree>`)) } : e)))
+    expect(edit('pptx', a, [{ duplicate_slide: { slide: 1 } }], []).report.added.some((n) => /slides\/slide\d+\.xml$/.test(n))).toBe(true)
+    const both = edit('pptx', a, [{ duplicate_slide: { slide: 1 } }, { insert_picture: { image: 0, slide: 1 } }])
+    expect(both.report.placed!.length).toBe(1)
+  })
+  test('a picture in a group with no size is refused, nothing is written', () => {
+    const one = edit('pptx', deck(), [{ insert_picture: { image: 0, slide: 1, width_mm: 40 } }])
+    const x = part(one.file, 'ppt/slides/slide1.xml').replace(/<p:pic\b[\s\S]*<\/p:pic>/, (m) => `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="900" name="G"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="100" cy="100"/></a:xfrm></p:grpSpPr>${m}</p:grpSp>`)
+    const f = writeZip(readZip(one.file).map((e) => (e.name === 'ppt/slides/slide1.xml' ? { name: e.name, data: new TextEncoder().encode(x) } : e)))
+    expect(() => edit('pptx', f, [{ move_picture: { slide: 1, picture: 1, x_mm: 5, y_mm: 5 } }], [])).toThrow(/cannot be moved/)
   })
   test('a picture that is not there is refused with the slide\'s pictures listed', () => {
     const one = edit('pptx', deck(), [{ insert_picture: { image: 0, slide: 1 } }])

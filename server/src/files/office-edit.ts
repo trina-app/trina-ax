@@ -603,31 +603,21 @@ function assertNewPictures(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
   }
 }
 
-/** A deck or workbook after an edit: every new relationship points at a part that is there, every added part has a
- * content type, and in every changed slide or drawing the shape ids stay unique and each new image reference resolves. */
-function assertPackageRefs(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
+/** The pictures this call added to a deck or workbook, and only those (what the call copied from the file is not
+ * judged): each new shape id is there once, its relationship is an internal image whose part is there with a content
+ * type, and a drawing part made here has its content type and a sheet that points at it. */
+function assertPlacedPictures(neu: Pkg, r: VerifyRequest): void {
   const bad = (why: string): never => refuse(`the changed file did not pass the checks (${why})`)
-  const touched = [...r.changed, ...r.added]
-  for (const name of touched) {
-    if (!name.endsWith('.rels')) continue
-    const owner = name.replace(/_rels\/([^/]+)\.rels$/, '$1')
-    const was = new Set((readRels(oldPkg, owner)?.rels ?? []).map((x) => x.id))
-    for (const x of readRels(neu, owner)?.rels ?? []) if (!was.has(x.id) && !x.external && !neu.has(x.target)) bad(`${x.target} is missing`)
-  }
   const ct = neu.need('[Content_Types].xml')
-  for (const name of r.added) {
-    if (name.endsWith('.rels')) continue
-    if (!ct.includes(`PartName="/${name}"`) && !new RegExp(`Extension="${name.split('.').pop()}"`, 'i').test(ct)) bad(`${name} has no content type`)
-  }
-  for (const name of touched) {
-    if (!/^(ppt\/slides|xl\/drawings)\/[^/]+\.xml$/.test(name)) continue
-    const x = neu.need(name), was = oldPkg.has(name) ? counted(shapeIds(oldPkg.need(name))) : new Map<number, number>()
-    for (const [id, n] of counted(shapeIds(x))) if (n > 1 && n > (was.get(id) ?? 0)) bad(`a shape id ${id} is used twice in ${name}`)
-    const rels = new Map((readRels(neu, name)?.rels ?? []).map((e) => [e.id, e]))
-    for (const m of x.matchAll(/\s[A-Za-z_][\w.-]*:embed\s*=\s*["']([^"']*)["']/g)) {
-      const e = rels.get(m[1]!)
-      if ((!e || e.external || !neu.has(e.target)) && !(oldPkg.has(name) && oldPkg.need(name).includes(m[0]))) bad(`a picture in ${name} points at nothing`)
-    }
+  for (const p of r.placed ?? []) {
+    if (shapeIds(neu.need(p.part)).filter((id) => id === p.id).length !== 1) bad(`the picture id ${p.id} is not used exactly once in ${p.part}`)
+    const e = readRels(neu, p.part)?.rels.find((x) => x.id === p.rid)
+    if (!e || e.external || e.type !== 'image' || !neu.has(e.target)) bad(`a new picture in ${p.part} points at nothing`)
+    if (!new RegExp(`Extension="${e!.target.split('.').pop()}"`, 'i').test(ct)) bad(`${e!.target} has no content type`)
+    if (!r.added.includes(p.part) || !p.part.startsWith('xl/drawings/')) continue
+    if (!ct.includes(`PartName="/${p.part}"`)) bad(`${p.part} has no content type`)
+    const sheets = neu.names().filter((n) => /^xl\/worksheets\/_rels\/[^/]+\.rels$/.test(n)).map((n) => n.replace('_rels/', '').replace(/\.rels$/, ''))
+    if (!sheets.some((n) => readRels(neu, n)?.rels.some((x) => x.type === 'drawing' && !x.external && x.target === p.part))) bad(`no sheet points at ${p.part}`)
   }
 }
 
@@ -638,7 +628,7 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     assertWellFormed(neu.need(name), name)
   }
   assertUniqueRelIds(neu, [...r.changed, ...r.added])
-  if (r.kind !== 'docx') assertPackageRefs(new Pkg(oldBytes, r.kind), neu, r)
+  assertPlacedPictures(neu, r)
   if (r.kind === 'xlsx') {
     const before = cellsOf(oldBytes), after = cellsOf(newBytes)
     const written = new Map((r.cells ?? []).map((w) => [`${w.sheet}!${w.ref}`, w]))

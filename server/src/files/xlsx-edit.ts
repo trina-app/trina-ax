@@ -19,6 +19,7 @@ import {
   addRel, applySplices, attrOf, ensureContentType, escAttr, escText, find, kid, kidsNamed, mainPart, readRels, refuse, registerEditor, relId,
   relsPartOf, slice, withAttr, xmlTree, type CellWrite, type EditNote, type Pkg, type Splice, type XNode,
 } from './office-edit'
+import type { PlacedPicture } from './office-edit-check'
 import { emuToMm, fitPicture, freePictureName, mmToEmu, NS_A, NS_R, pickPicture, pictureList, shapeIds, shapeNames } from './office-picture'
 import { imageInfo } from './pptx-edit'
 import { unescapeXml } from './ooxml'
@@ -90,7 +91,7 @@ const AFTER_DRAWING = new Set(['legacyDrawing', 'legacyDrawingHF', 'drawingHF', 
 interface Drawing { part: string; xml: string; tree: XNode; root: XNode; p: string; splices: Splice[]; next: number; names: Set<string>; rids: Map<number, string> }
 const localName = (n: string) => n.slice(n.indexOf(':') + 1)
 
-export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []): { notes: EditNote[]; cells: CellWrite[]; recalc: boolean } {
+export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []): { notes: EditNote[]; cells: CellWrite[]; recalc: boolean; placed: PlacedPicture[] } {
   const wbPart = mainPart(pkg, 'xl/workbook.xml')
   const wbXml = pkg.need(wbPart)
   const wbTree = xmlTree(wbXml, wbPart)
@@ -221,6 +222,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
 
   // pictures: each sheet's drawing part (made when the sheet has none), one image part per image of the call
   const drawings = new Map<Sheet, Drawing>()
+  const placed: PlacedPicture[] = []
   const newDrawingTag = new Map<Sheet, string>()
   const mediaOf = new Map<number, { media: string; w: number; h: number }>()
   const drawingOf = (i: number, s: Sheet, make: boolean): Drawing | null => {
@@ -271,6 +273,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       `<${p}blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></${p}blipFill><${p}spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${b.cx}" cy="${b.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></${p}spPr></${p}pic>` +
       `<${p}clientData/></${p}oneCellAnchor>`
     d.splices.push({ from: d.root.closeStart, to: d.root.closeStart, text, change: i })
+    placed.push({ part: d.part, id, rid })
     notes.push({ change: i, where: `${s.name}!${colName(at.col)}${at.row}, new picture ${JSON.stringify(name)}, ${emuToMm(b.cx)} x ${emuToMm(b.cy)} mm` })
   }
   const movePicture = (i: number, x: Extract<XlsxChange, { move_picture: unknown }>['move_picture']) => {
@@ -425,7 +428,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     pkg.set(s.part, `${x.slice(0, at)}<drawing xmlns:r="${NS_R}" r:id="${rid}"/>${x.slice(at)}`)
   }
   // only pictures: no cell reads differently, so the workbook is not touched
-  if (changes.every((c) => (c as Record<string, unknown>).insert_picture || (c as Record<string, unknown>).move_picture)) return { notes, cells, recalc: false }
+  if (changes.every((c) => (c as Record<string, unknown>).insert_picture || (c as Record<string, unknown>).move_picture)) return { notes, cells, recalc: false, placed }
 
   // stored results of formulas would be the old ones (LibreOffice does not calculate a file from Excel again on open,
   // and previews show the stored results): every formula cell of the workbook's sheets loses its stored result, so the
@@ -482,7 +485,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
     pkg.set('[Content_Types].xml', types.replace(new RegExp(`<Override\\b[^>]*PartName="/${chain.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*/>`), ''))
   }
   if (cleared) notes.push({ change: 0, where: `${cleared} formula result${cleared === 1 ? '' : 's'} cleared, so Excel and LibreOffice calculate them when they open the file` })
-  return { notes, cells, recalc: cleared > 0 }
+  return { notes, cells, recalc: cleared > 0, placed }
 }
 
 registerEditor('xlsx', (pkg, changes, images) => editXlsx(pkg, changes, images))
