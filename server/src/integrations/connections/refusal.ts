@@ -8,7 +8,8 @@
 // - any other 403: `no_access` (signed in, but this account may not use the service: its owner turns it on).
 // The excerpt is plain text: the connection's stored secrets and anything that looks like a token hidden, tags and
 // control characters taken out, at most REFUSAL_SAID_MAX characters. Never the body as it came.
-import { scrubSecrets } from '../../chat/step-record'
+// leaf modules only (no mcp.ts, service.ts or chat code): mcp.ts imports this file
+import { scrubSecrets } from '../../secret-scrub'
 
 /** the most characters of the service's words kept */
 export const REFUSAL_SAID_MAX = 200
