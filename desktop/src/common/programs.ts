@@ -72,8 +72,10 @@ function resolveWindows(command: string, dirs: string[], host: ProgramHost): str
   const c = /^~[\\/]/.test(command) ? w.join(host.home, command.slice(2)) : command
   const exts = pathExts(host.env)
   const own = w.extname(c).toLowerCase()
-  // a name with one of PATHEXT's endings is tried as it is; otherwise each ending is added, in PATHEXT's order
-  const names = (base: string) => (own && exts.includes(own) ? [base] : exts.map((e) => base + e))
+  // a name with one of PATHEXT's endings is tried as it is; otherwise each ending is added, in PATHEXT's order, and a
+  // file named with another ending (tool.ps1) last, so the person hears it is not a kind Windows starts (launchFor),
+  // not that it is missing
+  const names = (base: string) => (own && exts.includes(own) ? [base] : [...exts.map((e) => base + e), ...(own ? [base] : [])])
   if (c.includes('\\') || c.includes('/')) {
     if (!winAbsolute(c)) return null
     return names(w.normalize(c)).find((p) => host.isFile(p)) ?? null

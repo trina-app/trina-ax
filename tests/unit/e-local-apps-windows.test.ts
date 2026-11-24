@@ -93,6 +93,11 @@ describe('resolveProgram, Windows (PATH + PATHEXT)', () => {
     expect(resolveProgram('bin\\x.exe', ['C:\\Users\\qa'], h)).toBeNull()
     expect(resolveProgram('x', ['bin', '.'], winHost({ 'bin\\x.exe': '', '.\\x.exe': '' }))).toBeNull()
     expect(resolveProgram('aside', dirs, winHost())).toBeNull()
+    // a file with an ending PATHEXT does not list: found as it is (then refused as a kind Windows does not start)
+    const ps = winHost({ 'C:\\t\\tool.ps1': '' }, { PATHEXT: '.COM;.EXE;.BAT;.CMD' })
+    expect(resolveProgram('C:\\t\\tool.ps1', [], ps)).toBe('C:\\t\\tool.ps1')
+    expect(resolveProgram('tool.ps1', ['C:\\t'], ps)).toBe('C:\\t\\tool.ps1')
+    expect(resolveProgram('tool', ['C:\\t'], ps)).toBeNull()
   })
   test('PATHEXT: the person\'s endings, Windows\' own when unset; PATH split on ; for Windows', () => {
     expect(pathExts({ PATHEXT: '.EXE;;.CMD;bad;.exe' })).toEqual(['.exe', '.cmd'])

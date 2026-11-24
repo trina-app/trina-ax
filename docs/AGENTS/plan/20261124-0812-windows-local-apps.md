@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 08:12
 - Branch: `fix/windows-local-apps`
-- Status: in progress
+- Status: done
 - Where: shared/src/api/local-apps.ts, desktop/src/common/local-apps.ts, desktop/src/main, server/src/integrations/connections, web. Why: the command parser, the program lookup and the start of a program assumed macOS (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix of an existing feature on one more system; no new API a client must speak (one optional field)
 
@@ -68,4 +68,11 @@ no shell for arbitrary text, personal only, one-time confirm).
 
 ## Result
 
-(filled in at the end)
+Built as planned (decision: `docs/decisions/20261124-windows-local-apps.md`). Differences: the "missing" check also
+covers a declared CLI (ego lite answered initialize itself, so it read Connected with nothing installed); a file with an
+ending PATHEXT does not list (`tool.ps1`) is found as it is and refused as "unsupported", not "not found". The confirm is
+not shown at all for a program that is not there (nothing to confirm); the download link is on the app's page and in
+the AI's words. Tests: `tests/unit/e-local-apps-windows.test.ts` (24), `web/test/unit/local-relay.test.ts`. Real
+Windows 11 run (owner's PC, SSH session only, no desktop app started): 15/15 checks of the manager with real files,
+cmd.exe, an npm-style shim and taskkill; PC state unchanged afterwards (data folder, HKCU Run and trina-ax class,
+Start Menu shortcut), test folder removed.
