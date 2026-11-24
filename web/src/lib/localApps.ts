@@ -36,6 +36,8 @@ export const localAppsFor = (platform: string | undefined): readonly LocalAppEnt
 export const localAppLogo = (a: LocalAppEntry) => `/icons/connectors/${a.logo}`
 export const localAppById = (id: string) => LISTED_LOCAL_APPS.find((a) => a.id === id) ?? null
 export const localAppSpec = (a: LocalAppEntry): LocalAppSpec => LOCAL_APP_PRESETS.find((p) => p.id === a.id)!.spec
+/** the app's own download page (macOS and Windows builds); none for the npx presets (their install line names Node.js) */
+export const localAppDownload = (a: LocalAppEntry): string | null => LOCAL_APP_PRESETS.find((p) => p.id === a.id)?.download ?? null
 
 /** Two commands run the same program the same way: the part the computer's confirm covers (its settings' names aside:
  * those are the person's own). */

@@ -20,7 +20,7 @@ export class LocalAppsHost {
   private file: string
   private data: Saved
 
-  constructor(private o: { userData: string; parent: () => BaseWindow | null; locale: () => UiLocale; teamLabel: (team: string) => string; onChange: (team: string, id: string, running: boolean) => void; onConfirmed?: (team: string, id: string) => void; deps?: Partial<LocalAppsDeps> }) {
+  constructor(private o: { userData: string; parent: () => BaseWindow | null; locale: () => UiLocale; teamLabel: (team: string) => string; onChange: (team: string, id: string, running: boolean) => void; onConfirmed?: (team: string, id: string) => void; onAsking?: (team: string, s: { id: string; name: string; asking: boolean }) => void; deps?: Partial<LocalAppsDeps> }) {
     this.file = path.join(o.userData, 'local-apps.json')
     this.data = this.read()
     this.apps = new LocalApps({
@@ -98,9 +98,20 @@ export class LocalAppsHost {
     return true
   }
 
-  private async confirm(c: { team: string; name: string; lines: string[]; program: string }): Promise<boolean> {
+  private async confirm(c: { team: string; id: string; name: string; lines: string[]; program: string }): Promise<boolean> {
     const parent = this.o.parent()
     if (!parent) return false
+    // the window comes back from the Dock or the taskbar and draws the eye (a dialog over a hidden window waited
+    // unseen while the chat spun: QA on Windows, 2026-11-24); its page says it is asking until it is answered
+    try { if (parent.isMinimized()) parent.restore(); parent.flashFrame(true) } catch {}
+    this.o.onAsking?.(c.team, { id: c.id, name: c.name, asking: true })
+    try { return await this.ask(parent, c) } finally {
+      try { parent.flashFrame(false) } catch {}
+      this.o.onAsking?.(c.team, { id: c.id, name: c.name, asking: false })
+    }
+  }
+
+  private async ask(parent: BaseWindow, c: { team: string; name: string; lines: string[]; program: string }): Promise<boolean> {
     const L = this.o.locale()
     const opts = {
       type: 'warning' as const,

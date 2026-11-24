@@ -624,6 +624,8 @@ async function createWindow() {
     onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
     // Connect pressed after the check stopped waiting: the open team's page checks the connection again
     onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
+    // the confirm opened or closed: the open team's page says so while it waits (it can sit behind other windows)
+    onAsking: (team, s) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-asking', s) },
   })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))

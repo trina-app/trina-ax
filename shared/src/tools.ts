@@ -185,6 +185,23 @@ export const EditHwpChange = z.union([
     width_mm: z.number().min(2).max(300).optional().describe('The picture\'s width in mm (a seal is usually 10-20, a signature 25-40); its height follows the picture'),
     height_mm: z.number().min(2).max(300).optional().describe('Or its height in mm (with width_mm too: both as given)'),
     layer: z.enum(['behind', 'front']).optional().describe('Behind the text or in front of it. Default: behind in body text, in front in a table (filled cells would hide it)'),
+    page: n1.optional().describe('Or a spot on a page (1-based), with x_mm and y_mm'),
+    x_mm: z.number().min(0).max(2000).optional().describe('With page: from the paper\'s left edge to the picture\'s left edge'),
+    y_mm: z.number().min(0).max(2000).optional().describe('With page: from the paper\'s top edge to the picture\'s top edge'),
+  }),
+  z.strictObject({
+    move_picture: z.strictObject({
+      picture: z.string().min(1).max(40).describe('The id the result gave the picture, e.g. pic-1a2b3c4d'),
+      dx_mm: z.number().min(-2000).max(2000).optional().describe('Move it right (negative: left) by this much'),
+      dy_mm: z.number().min(-2000).max(2000).optional().describe('Move it down (negative: up) by this much'),
+      at: z.string().min(1).max(500).optional().describe('Or a new place: a text, as in an image change'),
+      place: z.enum(['over', 'after', 'before']).optional(),
+      cell: z.strictObject({ next_to: z.string().min(1).max(500), direction: z.enum(['right', 'below']).optional() }).optional(),
+      occurrence: n1.optional(),
+      page: n1.optional(), x_mm: z.number().min(0).max(2000).optional(), y_mm: z.number().min(0).max(2000).optional(),
+      width_mm: z.number().min(2).max(300).optional(), height_mm: z.number().min(2).max(300).optional(),
+      layer: z.enum(['behind', 'front']).optional(),
+    }).describe('Move or resize a picture an earlier edit_hwp call of this chat placed, while the file is still that result: alone in its call'),
   }),
 ])
 export const EditHwpInput = z.strictObject({
