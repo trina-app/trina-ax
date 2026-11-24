@@ -37,4 +37,4 @@
   Google after the merge settles which it is (Google asks for the password again; the token carries `auth_time`).
 - **Left out:** `prompt=login` (Google refuses it).
 - **Tests:** tests/unit/a-google-reauth.test.ts (the attack paths, freshness, notices, sessions, the flood).
-- **Version impact:** patch.
+- **Version impact:** patch (0.18.0 shipped Sign in with Google; these fixes go in the next patch release).
