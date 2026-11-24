@@ -152,6 +152,7 @@ describe('a post the person named: no card, then undo', () => {
     expect(m.files.map((f) => f.name)).toEqual(['quote-a.md'])
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
     expect(step.posted).toMatchObject({ roomId: rooms.marketing, messageId: m.id })
+    expect(step.posted!.toPerson).toBeUndefined()
     // the step's Undo is the room's own delete: the text and the file go for erin too
     await h.api('alice').call(API.deleteRoomMessage, { params: { id: rooms.marketing, messageId: m.id } })
     const gone = (await messagesAs('erin', rooms.marketing)).find((x) => x.id === m.id)!
@@ -262,7 +263,8 @@ describe('a send without a card carries exactly the person\'s words', () => {
   test('a 1:1 send follows the same rule, and the step names where it went', async () => {
     const ok = await turn('alice', `Carol Park한테 보내줘: 내일 회의 10시\n${post({ room: 'Carol Park', text: '내일 회의 10시', own_words: true })}`)
     expect(ok.card).toBeNull()
-    expect(ok.steps.find((s) => s.tool === 'post_to_room')!.posted?.to).toBeTruthy()
+    // a 1:1 chat names its person, marked so the card says "Carol Park님에게", not "…에" (a room keeps no mark)
+    expect(ok.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ to: 'Carol Park', toPerson: true })
     const changed = await turn('alice', `Carol Park한테 보내줘: 내일 회의 10시\n${post({ room: 'Carol Park', text: '내일 오전 10시 회의입니다', own_words: true })}`, { answer: 'no' }).catch(() => null)
     expect(changed === null || changed.card !== null).toBe(true)
   })

@@ -127,6 +127,8 @@ export function roomTitleFor(db: import('bun:sqlite').Database, room: RoomRow, m
   const more = Math.max(0, memberCount(db, room.id) - 1 - Math.min(3, peers.length))
   return peers.length ? `${oneLine(peers.slice(0, 3).join(', '), 60)}${more ? ` +${more}` : ''}` : tr('postRoomGroup', L)
 }
+/** The other person of a 1:1 chat, by name (null when they are gone). */
+const dmPeerName = (db: import('bun:sqlite').Database, roomId: string, me: string) => (db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ? LIMIT 1').get(roomId, me) as { name: string } | null)?.name ?? null
 const memberCount = (db: import('bun:sqlite').Database, roomId: string) => (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
 
 /** A place some people cannot see, named as the app's confirm step names it (web ShareToRoom.tsx placeName). */
@@ -500,7 +502,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const sentFiles = (r.message.files ?? []).slice(0, 10).map((f) => oneLine(f.name, 255))
           // the files that went, by name (a shared chat: how many only, everyone there reads the result)
           const fileNames = exec.shared ? `${fileCount}` : sentFiles.map((f) => `"${neutralizeTags(f)}"`).join(', ')
-          posted = { roomId, messageId: r.message.id, to: oneLine(title, 80), ...(threadRootId ? { threadRootId } : {}), ...(r.message.mentionsAll ? { mentionsAll: true as const } : {}), ...(firstWords ? { preview: firstWords } : {}), ...(sentFiles.length ? { files: sentFiles } : {}) }
+          // a 1:1 chat: its person by name, so the card says "to 박준호" (님에게), not "in a room" (에)
+          const person = pendingTo ? pendingTo.name : mine?.room.kind === 'dm' ? dmPeerName(db, mine.room.id, spec.userId) : null
+          posted = { roomId, messageId: r.message.id, to: oneLine(person ?? title, 80), ...(person ? { toPerson: true as const } : {}), ...(threadRootId ? { threadRootId } : {}), ...(r.message.mentionsAll ? { mentionsAll: true as const } : {}), ...(firstWords ? { preview: firstWords } : {}), ...(sentFiles.length ? { files: sentFiles } : {}) }
           return {
             ...text(JSON.stringify({
               status: 'sent', room: titleAi, room_id: roomId, ...(threadRootId ? { thread_id: threadRootId } : {}), message_id: r.message.id,

@@ -544,6 +544,8 @@ export const Step = z.object({
     roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
     /** where it went, as the person sees it (a room's title, or the person of a 1:1 chat): the card and its Undo name it */
     to: z.string().max(80).optional(),
+    /** `to` is a person (a 1:1 chat), not a room: the card says "to 박준호" (박준호님에게), not "in #Sales" (#Sales에) */
+    toPerson: z.literal(true).optional(),
     /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
      * read from the posted message itself (never the AI's words about it) */
     preview: z.string().max(120).optional(),

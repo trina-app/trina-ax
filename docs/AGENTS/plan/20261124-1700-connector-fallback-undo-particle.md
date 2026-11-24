@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 17:00
 - Branch: `fix/connector-fallback-undo-particle` (off `fix/sends-verbatim`, #518; rebased onto `dev` once it merges)
-- Status: in progress
+- Status: in progress (real check below)
 - Where: server/src/integrations/connections/tools.ts ("Connected services"), server/src/tools/index.ts (web_fetch),
   server/src/chat/post-to-room.ts (Step.posted), shared/src/api/entities.ts, web/src/components/chat/PostedCard.tsx,
   web/src/i18n (6 languages).
