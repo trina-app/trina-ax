@@ -10,6 +10,7 @@ import { LocalAppSpec, type IntegrationKind, type LocalFailure, type LocalResult
 import { PRODUCT } from '@mycel/shared'
 import { getTeamSettings } from '../../admin/settings'
 import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
+import { MCP_LIST_TIMEOUT_MS } from './mcp'
 import type { LocalRelay } from '../../realtime/local-relay'
 import type { Row } from './store'
 
@@ -17,6 +18,10 @@ import type { Row } from './store'
  * from the screen for a while. A check from Settings keeps its own 90 s: the confirm stays open after it, and a Connect
  * pressed later checks again by itself (the desktop app tells the page). */
 export const CONFIRM_WAIT_MS = 5 * 60_000
+
+/** a Settings check's initialize (no turn): the check's own deadline (mcp.ts MCP_LIST_TIMEOUT_MS), less a moment so
+ * the desktop app's 'late' answer (unconfirmed) reaches the check before it stops waiting */
+export const CHECK_CONFIRM_WAIT_MS = MCP_LIST_TIMEOUT_MS - 2000
 
 /** a local connection's `url`: a placeholder under the reserved .invalid name (RFC 6761), never used to connect */
 export const LOCAL_URL_ORIGIN = 'https://local-app.invalid'
@@ -103,8 +108,13 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
     let message: Record<string, unknown>
     try { message = JSON.parse(r.body?.toString('utf8') ?? '') } catch { throw new LocalError('failed', `${o.row.name}: the message could not be read`) }
     // the first message of a client (initialize) is the one the desktop app may hold while it asks the person on the
-    // computer (the one-time confirm): it waits as long as a person reads that window, not a network's 30 s
-    const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? CONFIRM_WAIT_MS : TIMEOUT_MS)
+    // computer (the one-time confirm): a turn's waits as long as a person reads that window, not a network's 30 s. A
+    // Settings check (no turn) stops at its own deadline (MCP_LIST_TIMEOUT_MS), so its initialize ends there too: the
+    // desktop app then hears that the confirm came late, and a Connect pressed after it makes the page check again
+    // (DesktopBridge.localApps.onConfirmed). With five minutes here, a Connect between 90 s and five minutes left the
+    // check at list_timeout and the page never checked again (QA 2026-11-24, Aside on Windows).
+    const confirmWait = o.via.turnId === null ? CHECK_CONFIRM_WAIT_MS : CONFIRM_WAIT_MS
+    const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? confirmWait : TIMEOUT_MS)
     const timeoutMs = Math.max(1000, deadline - Date.now())
     if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
     const res = await o.relay.call({ userId: o.userId, windowId: o.via.windowId, turnId: o.via.turnId, connectionId: o.row.id, name: o.row.name, spec: o.spec, message, timeoutMs, signal: r.signal })
