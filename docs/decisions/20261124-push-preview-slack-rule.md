@@ -23,10 +23,12 @@
   whether a locked screen shows it, as for every messenger.
 - **Never a secret.** No text when it looks like a password, an API key or token, a card number or a one-time code
   (the same detector the AI's memory uses, chat/auto-memory.ts `secretIn`), or holds a stored connection secret of the
-  writer or the reader (the redactor fails closed). The generic line shows instead. A file in the team folder is never
-  named (each person sees those by their own access).
+  writer or the reader (the redactor fails closed). The generic line shows instead. A chat title that looks like a
+  secret is left out of the title. A file in the team folder is never named (each person sees those by their own
+  access). A scheduled answer is checked again at the ask: hidden from the reader now (a place it read they no longer
+  may), no words at all.
 - **Confidential chats.** A confidential conversation (safe operations 1A) is never shared with people, so it makes no
-  message push; its own "Trina answered" push stays generic. While the team runs safe operations (`MYCEL_SAFE_OPS_1A`,
+  message push; its own "Trina answered" push stays generic. As a guard, a chat marked confidential never sends text. While the team runs safe operations (`MYCEL_SAFE_OPS_1A`,
   every conversation confidential), no notification carries text: who and where only. Why: a team that turned that
   mode on asked for the strictest handling, and a lock screen is outside the team server.
 - **Left out on purpose:** the own-AI-chat notice (`chat.answer_done`, a status line, not someone's message), file

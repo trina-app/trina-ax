@@ -195,11 +195,14 @@ export function chatMessageLabel(ctx: AppContext, notificationId: string, locale
   if (!n || !chatMessageWanted(ctx, notificationId)) return null
   const m = ctx.db.query('SELECT role, content, attachments FROM messages WHERE id = ? AND chat_id = ?').get(n.source_id, n.chat_id) as { role: 'user' | 'assistant'; content: string; attachments: string } | null
   if (!m) return null
+  // an answer of Trina's (a scheduled run's) may have become hidden from the reader since its notice was made (a place
+  // it read that they no longer may): asked again now, as the chat does when it shows it
+  if (m.role === 'assistant' && answerHiddenFrom(ctx.db, ctx.files, n.chat_id, n.source_id, [n.user_id]).has(n.user_id)) return null
   const who = n.by_user ? activeName(ctx.db, n.by_user) : m.role === 'assistant' ? ROOM_WORDS[locale].ai : null
-  const place = chatPlace(ctx, n.chat_id)
+  const place = chatPlace(ctx, n.chat_id, n.user_id)
   const title = plainLabel(who && place ? `${who} · ${place}` : who || place, 120)
   if (!title) return null
   const text = m.role === 'assistant' ? plainMarkdown(m.content) : m.content
-  const body = pushPreview(ctx, { preview, text, files: previewFiles(m.attachments), writer: n.by_user, reader: n.user_id, locale })
+  const body = pushPreview(ctx, { preview, text, files: previewFiles(m.attachments), writer: n.by_user, reader: n.user_id, locale, chatId: n.chat_id })
   return { title, body, roomId: n.chat_id }
 }

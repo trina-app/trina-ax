@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 10:14
 - Branch: `fix/push-preview-slack-rule`
-- Status: in progress
+- Status: done
 - Where: server (notifications, rooms, chat). Why: the owner sees phone notifications that only say "새 메시지가
   왔어요" / "새 메시지가 있어요"; Slack's rule is who, where and a preview, with a per-person switch.
 - Version impact: minor (phone notifications of chats with people and thread replies change what they show; no
@@ -71,4 +71,9 @@ notifications; the own-AI-chat finished notice (`chat.answer_done`, a status, no
 
 ## Result
 
-(at the end)
+Built as planned. Added after an independent review: a scheduled answer is checked again for being hidden from the
+reader at the ask, a chat title that looks like a secret is left out, a chat marked confidential never sends text, and
+the thread label re-checks the person's thread-reply setting. Server text for file lines is in all six languages (the
+type needs them); the setting's wording changed in en and ko only (id/ja/es/zh keep the older, still true wording).
+Not verified on a phone: the label route needs an https team address with this build, which comes with the QA server
+after the merge.

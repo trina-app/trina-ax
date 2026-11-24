@@ -14,6 +14,7 @@ import { secretIn } from '../chat/auto-memory'
 import type { Database } from 'bun:sqlite'
 import { holdsKey, redactorFor } from '../integrations/connections/redact'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { confidentialChat } from '../safe-ops/confidential'
 import { PUSH_FILE_WORDS } from './text'
 
 /** The longest line sent (a phone shows two to four lines of it). */
@@ -38,8 +39,8 @@ export function unsafeForPush(ctx: AppContext, text: string, writer: string | nu
 }
 
 /** The line, or null for the caller's generic line. */
-export function pushPreview(ctx: AppContext, o: { preview: boolean; text: string; files?: readonly PreviewFile[]; writer: string | null; reader: string; locale: Locale }): string | null {
-  if (!o.preview || safeOpsEnabled()) return null
+export function pushPreview(ctx: AppContext, o: { preview: boolean; text: string; files?: readonly PreviewFile[]; writer: string | null; reader: string; locale: Locale; chatId?: string }): string | null {
+  if (!o.preview || safeOpsEnabled() || (o.chatId && confidentialChat(ctx.db, o.chatId))) return null
   const line = previewOf(o.text)
   if (line) return unsafeForPush(ctx, line, o.writer, o.reader) ? null : line
   const files = o.files ?? []
@@ -57,12 +58,16 @@ export const activeName = (db: Database, id: string) => {
   const u = db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id) as { name: string } | null
   return u ? plainLabel(u.name, 80) : null
 }
-/** Where a chat is, as a notification's title says it: its title (its creator's stored connection secrets hidden, as
- * the Inbox does), else its project's name; '' when it has neither. */
-export function chatPlace(ctx: AppContext, chatId: string): string {
+/** Where a chat is, as a notification's title says it (also with the preview off, as a room's name is): its title (its
+ * creator's stored connection secrets hidden, as the Inbox does), else its project's name; '' when it has neither. A
+ * title made from a message can hold a secret: such a title is left out (unsafeForPush, as the line). */
+export function chatPlace(ctx: AppContext, chatId: string, reader: string): string {
   const c = ctx.db.query('SELECT c.user_id, c.title, p.name project FROM chats c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(chatId) as { user_id: string; title: string; project: string | null } | null
   if (!c) return ''
-  return plainLabel(redactorFor(ctx, c.user_id).hide(c.title || ''), 80) || plainLabel(c.project ?? '', 80)
+  const title = plainLabel(redactorFor(ctx, c.user_id).hide(c.title || ''), 80)
+  if (title && !unsafeForPush(ctx, title, c.user_id, reader)) return title
+  const project = plainLabel(c.project ?? '', 80)
+  return project && !unsafeForPush(ctx, project, null, reader) ? project : ''
 }
 /** A chat message's files for its push line: pictures, and a name only for a file kept with the chat (never a team
  * folder file's: each person sees those by their own access). */

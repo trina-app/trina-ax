@@ -157,6 +157,13 @@ test('a message in a chat shared with people: sent as a room code; who, the chat
   // a secret: the generic line
   const key = await c.say('token: xoxb-1234567890-abcdefghij')
   expect(w.ask(key).body).toBe(TEXT['chat.message'].en)
+  // a chat whose title holds a secret is not named; a confidential chat (a safe workflow ran there) has no text
+  h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run('wifi password: Tr1na-guest!77', c.chat.id)
+  expect(w.ask(id).title).toBe('MIA')
+  h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run('Launch plan', c.chat.id)
+  h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(c.chat.id)
+  expect(w.ask(id).body).toBe(TEXT['chat.message'].en)
+  h.ctx.db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(c.chat.id)
   // previews off: who and where, never the text
   savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
   const off = w.ask(id)
