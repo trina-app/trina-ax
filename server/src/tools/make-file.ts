@@ -54,7 +54,7 @@ import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/off
 import { DOCX_LINK_CHECK_MODE, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from '../files/office-links-check'
 import { deckPdf, type DrawnDeck } from '../files/deck-pdf'
 import type { SlidesHtml } from '../files/pptx-html'
-import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
+import { encodeHwpxRequest, firstDifference, HWPX_MARKDOWN, hwpxMarkdown, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
@@ -799,8 +799,8 @@ export class MakeFile {
     const tpl = a.template ? this.hwpxTemplate(c, a.template) : null
     if (tpl) sources.push(tpl.rel)
     const input = kind === 'markdown' ? 'in.md' : 'in.csv'
-    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
-    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? 'markdown' : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
+    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : kind === 'markdown' ? hwpxMarkdown(text) : text)
+    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? HWPX_MARKDOWN : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
     if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
     const got = readOutput(work, 'ast.json', MAX_AST)
     if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')

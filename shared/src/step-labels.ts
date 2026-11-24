@@ -740,7 +740,7 @@ export function shellWorkWords(command: string, locale: Locale): string {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files', 'save_connector_file', 'save_promo_video', 'comment_docx'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
@@ -752,7 +752,20 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
   // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
   // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
   // words of a question, a memory or a sub-task, which are someone's own
-  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(r.label, locale) }
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale), locale) }
+}
+
+/** A line's "<what> → <where>" with <where> in words when it is a team path ("… → users/qa-member/보고서/" reads
+ * "… → 내 파일 › 보고서"): the save tools end their line this way (QA step list "작업 결과 저장"). A target that is no path
+ * (a new name, a group) stays as it is. */
+function arrowPlace(label: string, locale: Locale): string {
+  const at = label.lastIndexOf(' → ')
+  if (at < 0) return label
+  const cover = coverWhy(label)?.end ?? ''
+  const tail = label.slice(at + 3, cover ? label.length - cover.length : undefined)
+  const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
+  const named = placeName(path, locale)
+  return named ? `${label.slice(0, at + 3)}${named}${suffix}${cover}` : label
 }
 
 /** chat:files/<id>/, chat:work/ and $TRINA_WORK inside a step line, in words. ($TRINA_TEAM is not: a file tool takes it as
