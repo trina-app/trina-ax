@@ -22,7 +22,7 @@
 // The owner hands the role over from a person's "…" (팀장 넘기기, components/handover/HandoverDialog.tsx) and may flag an
 // invite "이 사람이 팀장이에요" (components/handover/LeadInvite.tsx, docs/DECISIONS.md "W6"); a flagged one is listed as
 // "팀장 링크 · 받는 사람: …".
-import { Crown, FolderLock, Gauge, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import { Crown, FolderLock, Gauge, KeyRound, Link2, LogOut, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -145,6 +145,8 @@ export default function Members() {
   }, [focusId])
   /** asked for their account to be deleted (the owner's and the admins' lists) */
   const requested = (u: User) => !!users.data?.deletionRequested?.includes(u.id)
+  /** connected a Google account to sign in with (Sign in with Google; GET /api/admin/users `google`) */
+  const google = (u: User) => !!users.data?.google?.includes(u.id)
   const navigate = useNavigate()
   // the team invite link: made and managed in a popup (TeamLinkDialog); the page lists it under the members
   const teamLink = useLoad(() => api.call(API.getTeamLink))
@@ -184,6 +186,12 @@ export default function Members() {
     const r = await act(() => api.call(API.createResetLink, { params: { id: u.id } }))
     if (r) setResetLink({ name: u.name, url: /^https?:\/\//.test(r.url) ? r.url : `${location.origin}${r.url.startsWith('/') ? '' : '/'}${r.url}`, expiresAt: r.expiresAt })
   }
+  /** Sign in with Google: the person's Google account no longer signs them in (the server's people rules: never the
+   * owner or yourself, only the owner acts on admins); they keep their sessions and can connect one again */
+  const disconnectGoogle = async (u: User) => {
+    if (!(await confirmDialog({ title: t('members.googleDisconnectTitle', { name: u.name }), body: t('members.googleDisconnectBody'), confirm: t('members.googleDisconnect'), danger: true }))) return
+    if (await actOk(() => api.call(API.disconnectUserGoogle, { params: { id: u.id } }), t('members.googleDisconnected'))) await users.reload()
+  }
   const toggleDisabled = async (u: User) => {
     const disabling = u.status === 'active'
     // an admin who leaves could see the team invite link: their own link ends with them, someone else's may need replacing
@@ -222,6 +230,7 @@ export default function Members() {
    * the others, on a wide screen in the row's "…" menu next to Edit and Reset password, so the row keeps one line. */
   const moreActions = (u: User): MemberMenuItem[] => [
     { label: t('members.resetLinkButton'), icon: <UserRoundKey size={14} aria-hidden />, onSelect: () => void createResetLink(u), testId: `reset-link-${u.username}` },
+    ...(google(u) ? [{ label: t('members.googleDisconnect'), icon: <LogOut size={14} aria-hidden />, onSelect: () => void disconnectGoogle(u), testId: `google-disconnect-${u.username}` }] : []),
     u.status === 'active'
       ? { label: t('members.disable'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `disable-member-${u.username}` }
       : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
@@ -330,8 +339,8 @@ export default function Members() {
         <div className="px-4">
           <h2 className="text-title font-semibold break-words text-ink">{u.name}</h2>
           <p className="mt-0.5 text-sm break-all text-muted">{[u.username, u.email].filter(Boolean).join(' · ')}</p>
-          {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi) && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} /></div>
+          {(u.status === 'disabled' || requested(u) || u.mustChangePassword || noAi || google(u)) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5"><AttentionBadges user={u} noAi={noAi} noAiUntil={users.data?.noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />{google(u) && <GoogleBadge user={u} />}</div>
           )}
         </div>
         <PhoneListGroup>
@@ -451,7 +460,7 @@ export default function Members() {
                   const username = lower(u.username) !== lower(u.name)
                   const byEmail = !!q && !!u.email && matches(q, locale, u.email) && !matches(q, locale, u.name, u.username)
                   const over = personBudgets(budgets.data, u.id).some(budgetExceeded)
-                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id) || over
+                  const flagged = u.status === 'disabled' || requested(u) || u.mustChangePassword || !!noAi?.includes(u.id) || over || google(u)
                   return (
                     <CompactRow
                       key={u.id}
@@ -466,6 +475,7 @@ export default function Members() {
                           {username && <span className="truncate">{u.username}</span>}
                           {byEmail && <span className="truncate" data-testid={`member-email-${u.username}`}>{u.email}</span>}
                           <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
+                          {google(u) && <GoogleBadge user={u} />}
                           {over && <span className="shrink-0 text-danger" data-testid={`member-over-limit-${u.username}`}>{t('budgets.over')}</span>}
                         </>
                       )}
@@ -495,6 +505,7 @@ export default function Members() {
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium text-ink">{u.name}</span>
                             <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} deletionDue={users.data?.deletionDue?.[u.id]} />
+                            {google(u) && <GoogleBadge user={u} />}
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
                           {limitLine(u)}
@@ -644,8 +655,8 @@ export default function Members() {
           body={removeBody(removing.user, removing.off, removing.sharedChats)}
           confirm={t('common.delete')}
           onClose={() => setRemoving(null)}
-          onConfirm={async (password) => {
-            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.user.id }, body: { password } })))) return
+          onConfirm={async (proof) => {
+            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.user.id }, body: { ...proof } })))) return
             if (removing.off.length) void connections.reload()
             setRemoving(null)
             await users.reload()
@@ -693,6 +704,18 @@ function AttentionBadges({ user: u, noAi, noAiUntil, requested = false, deletion
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
       {noAi && <NoAiBadge until={noAiUntil} />}
     </>
+  )
+}
+
+/** "Google": this person connected a Google account to sign in with (Sign in with Google). A plain label, not a warning;
+ * the address is theirs to see (Settings › Security & devices), never the admin's. */
+function GoogleBadge({ user }: { user: User }) {
+  const t = useT()
+  return (
+    <span className="inline-flex" title={t('members.googleBadgeHint')} data-testid={`member-google-${user.username}`}>
+      <Badge>{t('members.googleBadge')}</Badge>
+      <span className="sr-only">{t('members.googleBadgeHint')}</span>
+    </span>
   )
 }
 

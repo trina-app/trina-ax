@@ -173,10 +173,12 @@ export function AccountDeletion() {
           title={t('accountDeletion.confirmTitle')}
           body={t('accountDeletion.confirmBody', { date: formatDate(new Date(Date.now() + ACCOUNT_DELETION_GRACE_DAYS * 86_400_000).toISOString(), locale) })}
           confirm={t('accountDeletion.request')}
+          // an account without a password in the apps: a sign-in of the last 10 minutes stands for the Google check
+          recentSignIn
           onClose={() => setAsking(false)}
-          onConfirm={async (password) => {
+          onConfirm={async (proof) => {
             try {
-              const v = await api.call(API.requestAccountDeletion, { body: { confirm: true, password } })
+              const v = await api.call(API.requestAccountDeletion, { body: { confirm: true, ...proof } })
               setValue(v)
               setAsking(false)
               toast({ level: 'success', text: v.dueAt ? t('accountDeletion.sent', { date: formatDate(v.dueAt, locale) }) : t('accountDeletion.sentUndated') })

@@ -47,12 +47,12 @@ import type { Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
 import { resolveLayout } from '../system/layout'
-import { linkBase, viaOf } from './accounts'
+import { insertAccount, joinedBefore, linkBase, viaOf, type JoinEnd, type Joiner, type NewCredential } from './accounts'
 import { msg, weakPasswordMessage, type MessageKey } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem } from './passwords'
 import { linkKey, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, userRef, usernameTaken } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, userRef, usernameTaken } from './users'
 
 const DAY_MS = 86_400_000
 const SEAL_KIND = 'team-link'
@@ -371,18 +371,46 @@ export function teamLinkInfo(c: Context<AppEnv>, ctx: AppContext, token: string)
   return { teamName: getTeamSettings(ctx.db).teamName, valid: problem === null, problem, expiresAt: r.expires_at, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null, inviterName }
 }
 
-class UsernameTaken extends Error {}
-
 /** POST /api/team-link/join (public): a member account in the link's groups, signed in. */
 export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof JoinTeamLinkBody>): Promise<JoinTeamLinkResponse> {
   const a = authOf(ctx)
   const locale = c.get('locale')
   const info = c.get('info')
+  const { r, hold } = linkAttempt(c, ctx, b.token, b.username)
+  const weak = passwordProblem(b.password, { username: b.username })
+  if (weak) fail('validation', weakPasswordMessage(weak, locale), { fields: { 'body.password': weak } })
+  const passwordHash = await hashPassword(b.password)
+  const done = joinWithLink(ctx, r.id, { username: b.username, name: b.name, locale: b.locale ?? null }, { passwordHash }, info)
+  if (!done.ok) {
+    if (done.why === 'taken') return fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+    if (done.why === 'full') return fail('plan_limit', say('full', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
+    // 'connected' comes only with a Google account
+    const why = done.why === 'connected' ? 'revoked' : done.why
+    return fail('gone', problemText(why, locale), { params: { reason: why } })
+  }
+  // a join that worked does not count toward the link's limit (its uses cap those): a big team joining at once is not
+  // turned away, only failed and refused attempts add up
+  hold.release()
+  afterLinkJoin(ctx, r.created_by, done.id, done.groups)
+  // a new member lands on Home and its welcome card, never on a skill form, even when the link names a skill: the invite
+  // message names it (docs/DECISIONS.md "A new member lands on Home"). `next` stays in the answer for older apps
+  const signed = a.signIn(c, done.id, b.client, b.tokenMode)
+  return { ...signed, next: null }
+}
+
+/**
+ * A join's checks before the slow part (the password hash, or the trip to Google: auth/google-signup.ts): a known token
+ * (unknown ones count per address), the per-link limit (every attempt counts from anywhere, so a link posted in a big
+ * chat cannot be used to hammer the server or to try usernames; the caller gives it back once the join worked), a link
+ * that lets people in now, a free username.
+ */
+function linkAttempt(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { r: Row; hold: { release(): void } } {
+  const a = authOf(ctx)
+  const locale = c.get('locale')
+  const info = c.get('info')
   const guard = tokenGuard(ctx, info.ip)
-  const r = rowByToken(ctx.db, b.token)
+  const r = rowByToken(ctx.db, token)
   if (!r) { guard.fail(); return fail('not_found') }
-  // every attempt through this link counts from anywhere, before the slow password hash, so a link posted in a big
-  // chat cannot be used to hammer the server or to try usernames; only a join that worked is taken back below
   const hold = a.limiter.hold([linkKey(r.id)])
   if (hold.wait > 0) {
     if (a.firstInMinute(`rl-link:${r.id}`)) audit(ctx.db, { actor: null, action: 'team_link.rate_limited', target: r.id, detail: { ip: info.ip, via: viaOf(info) } })
@@ -391,57 +419,62 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const before = problemOf(ctx.db, r, a.now())
   if (before === 'full') fail('plan_limit', say('full', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
   if (before) fail('gone', problemText(before, locale), { params: { reason: before } })
-  if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
-  const weak = passwordProblem(b.password, { username: b.username })
-  if (weak) fail('validation', weakPasswordMessage(weak, locale), { fields: { 'body.password': weak } })
-  const passwordHash = await hashPassword(b.password)
-  // the link's groups as they are inside the write (below), not as read before the slow hash: an admin may change
-  // them meanwhile (Admin › Members, QA TC-458), and a join in flight must not land in the groups just taken off
-  let groups: string[] = []
-  let id = ''
-  const tx = ctx.db.transaction((): TeamLinkProblem | 'ok' => {
+  if (usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  return { r, hold }
+}
+
+/** POST /api/team-link/google's checks before Google (auth/google-signup.ts): joinTeamLink's own. The start counts on
+ * the link's limit like a join; Google's return gives it back once the account is made and keeps it for a refusal (the
+ * hold, for a start that never reaches Google). Only the link's id goes on with the flow, never its token. */
+export function linkForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { id: string; hold: { release(): void } } {
+  const { r, hold } = linkAttempt(c, ctx, token, username)
+  return { id: r.id, hold }
+}
+
+/**
+ * The one write that makes a member from the team link: joinTeamLink with a password, Google's return of a join started
+ * with Google (auth/google-signup.ts). Inside it: an already connected Google account (accounts.ts joinedBefore: they
+ * sign in, nothing used up), a free username, the link checked again (it may have been revoked, replaced, used up or
+ * its maker demoted during the slow hash or the trip to Google; two joins at once must not both take the last use or
+ * the last seat), one use taken, the account always a member in the link's groups as they are now (an admin may change
+ * them meanwhile, Admin › Members, QA TC-458: a join in flight must not land in the groups just taken off). What
+ * follows the join runs after the commit (afterLinkJoin).
+ */
+export function joinWithLink(ctx: AppContext, linkId: string, who: Joiner, cred: NewCredential, info: { ip: string | null; via: string; tunnel?: boolean; tailnet?: boolean }): JoinEnd<{ createdBy: string | null }, TeamLinkProblem> {
+  const a = authOf(ctx)
+  return ctx.db.transaction((): JoinEnd<{ createdBy: string | null }, TeamLinkProblem> => {
+    const known = joinedBefore(ctx.db, cred)
+    if (known) return known
     const now = a.now()
     const at = new Date(now).toISOString()
-    if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
-    // checked again inside the write: the link may have been revoked, replaced, used up or its maker demoted during
-    // the (slow) hash, and two joins at once must not both take the last use or the last seat
-    const fresh = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE id = ?`).get(r.id) as Row | null
-    if (!fresh) return 'revoked'
+    if (usernameTaken(ctx.db, who.username)) return { ok: false, why: 'taken' }
+    const fresh = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE id = ?`).get(linkId) as Row | null
+    if (!fresh) return { ok: false, why: 'revoked' }
     const why = problemOf(ctx.db, fresh, now)
-    if (why) return why
-    if (ctx.db.query('UPDATE team_links SET uses = uses + 1 WHERE id = ? AND revoked_at IS NULL AND uses < max_uses AND expires_at > ?').run(r.id, at).changes !== 1) return 'used_up'
-    groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
-    id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
+    if (why) return { ok: false, why }
+    if (ctx.db.query('UPDATE team_links SET uses = uses + 1 WHERE id = ? AND revoked_at IS NULL AND uses < max_uses AND expires_at > ?').run(linkId, at).changes !== 1) return { ok: false, why: 'used_up' }
+    const groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
+    const id = deriveUserId(ctx.db, who.username, ctx.files.fx.root)
     // always a member: a team link has no role of its own
-    insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
-    audit(ctx.db, { actor: id, action: 'team_link.join', target: r.id, detail: { userId: id, role: 'member', groupIds: groups, uses: fresh.uses + 1, maxUses: fresh.max_uses, ip: info.ip, via: viaOf(info) } })
-    return 'ok'
-  })
-  let result: TeamLinkProblem | 'ok'
-  try { result = tx.immediate() } catch (e) {
-    if (e instanceof UsernameTaken) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
-    throw e
-  }
-  if (result! === 'full') fail('plan_limit', say('full', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
-  if (result! !== 'ok') fail('gone', problemText(result!, locale), { params: { reason: result! } })
-  // a join that worked does not count toward the link's limit (its uses cap those): a big team joining at once is not
-  // turned away, only failed and refused attempts add up
-  hold.release()
+    insertAccount(ctx.db, { id, username: who.username, name: who.name, email: 'google' in cred ? cred.google.email : null, role: 'member', locale: who.locale, mustChangePassword: false, groupIds: groups }, cred, at)
+    // with Google: that it was Google, never the address
+    audit(ctx.db, { actor: id, action: 'team_link.join', target: linkId, detail: { userId: id, role: 'member', groupIds: groups, uses: fresh.uses + 1, maxUses: fresh.max_uses, ip: info.ip, via: viaOf(info), ...('google' in cred ? { method: 'google' } : {}) } })
+    return { ok: true, id, groups, createdBy: fresh.created_by }
+  }).immediate()
+}
+
+/** After joinWithLink's commit: the personal folder, the welcome card, project joins, notices, the everyone room. */
+export function afterLinkJoin(ctx: AppContext, createdBy: string | null, id: string, groups: string[]): void {
   ensurePersonalFolder(ctx.files.fx.root, id)
   // who invited them (the link's maker: the welcome card's "{inviter} invited you"). First, so the template notice
   // below waits until the person opens Connected apps (onboarding/member-welcome.ts)
-  recordJoin(ctx, { userId: id, via: 'team_link', invitedBy: r.created_by })
+  recordJoin(ctx, { userId: id, via: 'team_link', invitedBy: createdBy })
   // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
   if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // the owners hear about every join, and so does the admin who made the link
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
-  notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)
+  notifyTeamJoined(ctx, createdBy ? [...owners, createdBy] : owners, id)
   // and one line in the everyone room, so the rest of the team can say hello (rooms/service.ts memberJoined)
   roomsOf(ctx).memberJoined(id)
-  // a new member lands on Home and its welcome card, never on a skill form, even when the link names a skill: the invite
-  // message names it (docs/DECISIONS.md "A new member lands on Home"). `next` stays in the answer for older apps
-  const signed = a.signIn(c, id, b.client, b.tokenMode)
-  return { ...signed, next: null }
 }
-

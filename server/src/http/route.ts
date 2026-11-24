@@ -1,7 +1,7 @@
 // Typed route registration: route modules implement contract endpoints (shared/src/api) with
 //   kit.handle(API.listChats, async ({ query, auth }) => ({ items, nextCursor }))
 // The kit validates params / query / body against the contract, enforces the endpoint's auth level and the
-// must-change-password gate, re-checks the password for owner-reauth endpoints, reads bodies with size limits,
+// must-change-password gate, re-checks the password (or a Google check) for owner-reauth endpoints, reads bodies with size limits,
 // and (when config.validateResponses) checks the response against the contract.
 import type { Context, Hono } from 'hono'
 import fs from 'node:fs'
@@ -10,8 +10,8 @@ import { z } from 'zod'
 import { isSchema, type BinaryBody, type Endpoint, type MultipartBody, type ParamsOf, type ParsedQueryOf, type StreamResponse, type EmptyResponse } from '@mycel/shared/api'
 import type { AppEnv } from './env'
 import { HttpError, fail } from './errors'
-import { msg } from '../auth/messages'
 import { GUEST_ENDPOINTS } from '../auth/guest-endpoints'
+import { requireReauth } from '../auth/reauth'
 import { removedSignIn } from '../auth/account-removal'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
@@ -159,13 +159,8 @@ export class RouteKit {
         freeRoamBody(this.ctx, ep, { body, locale: c.get('locale') })
       }
 
-      if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth') {
-        const pw = (body as { password?: unknown } | undefined)?.password
-        if (typeof pw !== 'string' || !(await this.ctx.services.sessions.verifyPassword(auth!.user.id, pw, c.get('info')))) {
-          // in words: the bare 'forbidden' text ("you do not have permission") sent owners looking for a missing right
-          fail('forbidden', msg('wrongPassword', c.get('locale')), { fields: { 'body.password': 'wrong password' } })
-        }
-      }
+      // the password again, or for an account without one a Google check this session just finished (auth/reauth.ts)
+      if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth') await requireReauth(c, this.ctx, body)
 
       const out = await handler({ c, params, query, body: body as BodyIn<E>, auth: auth as AuthIn<E> })
       const res = ep.response

@@ -51,7 +51,7 @@ import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
-import { AcceptInvite, ForcedPassword, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, GoogleReturn, InviteGoogleBack, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import { AppSignIn, OpenApp } from './pages/OpenApp'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
@@ -351,7 +351,11 @@ function Gate() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* the desktop app's Google sign-in (pages/Auth.tsx GoogleReturn): the code is after # (never in a path or a log) */}
+        <Route path="/login/google" element={<GoogleReturn />} />
         <Route path="/invite/:token" element={<AcceptInvite />} />
+        {/* Join with Google that made no account comes back here (never with the token): the invite page this tab started from */}
+        <Route path="/invite" element={<InviteGoogleBack />} />
         {/* the team invite link: the token is after # (never in a path or a log) */}
         <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
@@ -457,6 +461,8 @@ function Gate() {
         <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
         {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
         <Route path="/app-signin" element={<AppSignIn />} />
+        {/* the desktop app's Google sign-in while someone is signed in: the same person signs in again, another is refused */}
+        <Route path="/login/google" element={<GoogleReturn />} />
       </Routes>
       </div>
       </RealPath.Provider>

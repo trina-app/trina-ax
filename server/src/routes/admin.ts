@@ -14,6 +14,7 @@ import { fail } from '../http/errors'
 import { createGuestInviteFor, createInvite, guestInviteLimit, createResetLink, linkBase, listInvites, revokeInvite } from '../auth/accounts'
 import { convertGuest, disablePlacelessGuests, updateGuestAi } from '../admin/guests'
 import { msg } from '../auth/messages'
+import { requireReauth } from '../auth/reauth'
 import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
@@ -31,7 +32,9 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
-import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { createUser, deleteUser, disconnectUserGoogle, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { googleConnectedUsers } from '../auth/login-identities'
+import { googleSignInAdminStatus } from '../auth/google-login-admin'
 import { dismissLead, endPending, handoverState, noteReauthLocked, retryPendingEnds } from '../admin/handover'
 import { setHandoverPushConfig } from '../admin/handover-notices'
 import { authOf } from '../auth/service'
@@ -88,16 +91,19 @@ export const adminRoutes: RouteModule = {
       // the members' requests only: an admin's own is the owner's to handle)
       const open = openDeletionRequests(ctx, auth.user.role === 'owner' ? undefined : 'member')
       const deletionDue = Object.fromEntries(open.flatMap((r) => (r.dueAt ? [[r.userId, r.dueAt]] : [])))
-      return { items: listUsers(ctx), ...(noAi ? { noAi: noAi.ids, noAiUntil: noAi.until } : {}), deletionRequested: open.map((r) => r.userId), deletionDue }
+      // who connected a Google account to sign in with: "Google" beside them (ids only, never the account)
+      return { items: listUsers(ctx), ...(noAi ? { noAi: noAi.ids, noAiUntil: noAi.until } : {}), deletionRequested: open.map((r) => r.userId), deletionDue, google: googleConnectedUsers(ctx.db) }
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
-    kit.handle(API.deleteUser, ({ c, params, query, body }) => deleteUser(c, ctx, params.id, query.personalFolder, body.password))
+    kit.handle(API.deleteUser, ({ c, params, query, body }) => deleteUser(c, ctx, params.id, query.personalFolder, body))
     kit.handle(API.resetPassword, ({ c, params, body }) => resetPassword(c, ctx, params.id, body))
     kit.handle(API.createResetLink, ({ c, params, auth }) => {
       guardResetLink(c, ctx, params.id)
       return createResetLink(ctx, params.id, auth.user.id, linkBase(c, ctx))
     })
+    // Sign in with Google (admin/users.ts disconnectUserGoogle): the people rules of the other actions here
+    kit.handle(API.disconnectUserGoogle, ({ c, params }) => disconnectUserGoogle(c, ctx, params.id))
     kit.handle(API.transferOwnership, ({ c, body }) => transferOwnership(c, ctx, body))
     // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕; a wrong password that locks the owner's
     // re-check (any of them: the transfer's, updates, restore, the current password) tells the owner
@@ -366,6 +372,8 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.settings, () => getTeamSettings(ctx.db))
+    // whether Team settings shows "Sign in with Google" (auth/google-login-admin.ts): never the client
+    kit.handle(API.googleSignInAdminStatus, () => googleSignInAdminStatus(ctx))
     kit.handle(API.updateSettings, ({ c, body, auth }) => {
       assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)
@@ -443,10 +451,8 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.speechHost, () => ctx.files.speechHost())
     kit.handle(API.setSpeechKey, async ({ c, body, auth }) => {
       const locale = c.get('locale')
-      // the password again (route.ts reauth), admins may do it too: audio goes to a third party
-      if (!(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
-        fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
-      }
+      // the password again (or a Google check without one: auth/reauth.ts), admins may do it too: audio goes to a third party
+      await requireReauth(c, ctx, body)
       const cc = credentialsOf(ctx)
       let key: string | null = null
       if (body.sealed) {

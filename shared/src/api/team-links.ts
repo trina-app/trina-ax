@@ -14,7 +14,7 @@ import { Uuid7 } from '../ids'
 import { IsoTime } from './common'
 import { endpoint, empty } from './endpoint'
 import { UserRef } from './entities'
-import { AcceptInviteBody, LoginResponse } from './auth'
+import { AcceptInviteBody, GoogleJoinBody, GoogleStart, LoginResponse } from './auth'
 
 /** how long a new link works, in days (default: TEAM_LINK_DEFAULT_DAYS, the trial's length) */
 export const TEAM_LINK_DAYS = [7, 14, 30] as const
@@ -117,6 +117,9 @@ export const TeamLinkInfo = z.object({
   /** who made the link ("{inviter} invited you to {team}"), only while it is valid; null: not known any more. Absent
    * from an older server */
   inviterName: z.string().nullable().optional(),
+  /** the page may offer "Join with Google" (startGoogleJoin; server/src/auth/google-signup.ts): the link works and
+   * Google can sign in at this address. Absent: no button */
+  googleSignUp: z.literal(true).optional(),
 })
 export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 
@@ -138,4 +141,7 @@ export const TEAM_LINKS = {
   revokeTeamLink: endpoint({ method: 'DELETE', path: '/api/admin/team-link', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Turn the team invite link off; its address never works again (a new link has a new token).' }),
   teamLinkInfo: endpoint({ method: 'POST', path: '/api/team-link/info', auth: 'public', owner: 'A', body: TeamLinkInfoBody, response: TeamLinkInfo, summary: 'What a team invite link is for (team, still valid or why not). The token comes in the body, never in the path.' }),
   joinTeamLink: endpoint({ method: 'POST', path: '/api/team-link/join', auth: 'public', owner: 'A', status: 201, body: JoinTeamLinkBody, response: JoinTeamLinkResponse, summary: 'Create a member account with the team invite link and sign in (rate-limited per link; the owners are told).' }),
+  // Join with Google (server/src/auth/google-signup.ts): the same checks as a join, then Google; its return makes the
+  // account or signs in the person this Google account already belongs to
+  startGoogleJoin: endpoint({ method: 'POST', path: '/api/team-link/google', auth: 'public', owner: 'A', body: GoogleJoinBody, response: GoogleStart, summary: 'Start joining with the team invite link and a Google account instead of a password: Google\'s address to open (rate-limited per link).' }),
 } as const

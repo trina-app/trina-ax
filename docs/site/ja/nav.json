@@ -12,7 +12,7 @@
       { "title": "AI と仕事をする", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
       { "title": "アプリをつなぐ", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
       { "title": "ファイルとメンバー", "pages": ["use/files-and-permissions", "use/find-work-files", "use/usage-and-limits", "use/admin", "use/guests"] },
-      { "title": "自分のアカウント", "pages": ["use/settings-and-search"] }
+      { "title": "自分のアカウント", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "運用する", "groups": [
       { "title": "インストールと設定", "pages": ["operate/install", "operate/configuration"] },

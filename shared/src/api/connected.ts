@@ -3,6 +3,7 @@
 // Owner: A (server/src/routes/admin.ts).
 import { z } from 'zod'
 import { endpoint, empty } from './endpoint'
+import { ReauthFields } from './common'
 
 export const ConnectedFolder = z.object({
   id: z.string(),
@@ -21,7 +22,7 @@ export const ConnectedFolder = z.object({
 })
 export type ConnectedFolder = z.infer<typeof ConnectedFolder>
 
-export const AddConnectedBody = z.object({ name: z.string().min(1).max(60), source: z.string().min(1).max(1000), password: z.string().min(1).max(256) })
+export const AddConnectedBody = z.object({ name: z.string().min(1).max(60), source: z.string().min(1).max(1000), ...ReauthFields })
 
 export const CONNECTED = {
   listConnected: endpoint({ method: 'GET', path: '/api/admin/connected', auth: 'owner', owner: 'A', response: z.object({ items: z.array(ConnectedFolder),

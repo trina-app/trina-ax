@@ -129,6 +129,11 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
 }
 
 /** The request builders, keyed by API route name. 'self' builders act on the caller's own newly-made data. */
+// GET /api/auth/google/return (Sign in with Google through the hosting service): public by design (the browser comes back
+// from the console without a session); a flow works once, only in the browser that started it, and the id_token is
+// checked against Google's keys (tests/unit/a-google-login-broker.test.ts)
+export const GOOGLE_SIGNIN_RAW_COVERED = ['RAW GET GOOGLE_SIGNIN_TEAM_RETURN_PATH']
+
 export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
@@ -154,6 +159,10 @@ export const SPECS: Record<string, Spec> = {
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
     check: (r) => { if (r.status === 201) throw new Error('setup created a second owner after the team exists') } },
+  // Start with Google (server/src/auth/google-signup.ts): the team is set up and has no Google client, so nothing starts,
+  // whatever token is sent
+  startGoogleSetup: { skipPositive: true, build: (c) => c.post('/api/setup/google', { setupToken: 'x'.repeat(32), teamName: 't' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a setup with Google started after the team exists: ${r.text}`) } },
   login: { skipPositive: true, build: (c) => c.post('/api/auth/login', { username: 'nobody', password: 'wrong-pass-xyz' }), scope: 'byLevel' },
   logout: { skipPositive: true, build: (c) => c.post('/api/auth/logout'), scope: 'byLevel' },
   changePassword: { skipPositive: true, build: (c) => c.post('/api/auth/password', { currentPassword: 'wrong', newPassword: 'Totally-new-pass-99-zz' }), scope: 'byLevel' },
@@ -195,12 +204,36 @@ export const SPECS: Record<string, Spec> = {
       inviterOnlyByName(r, w, who, "the invite's info")
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
+  // Join with Google from an invite (server/src/auth/google-signup.ts): the token in the body; the test team has no Google
+  // client, so nothing starts and nothing is used up
+  startGoogleInvite: { skipPositive: true, build: (c, w) => c.post('/api/invites/google', { token: w.ids.inviteToken, username: 'gnewbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a join with Google started without a Google client: ${r.text}`) } },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
   // the desktop app's one-time sign-in code (server/src/auth/app-signin.ts): every signed-in person makes their own (a
   // guest is off the list); a made-up code signs nobody in
   appSignIn: { build: (c) => c.post('/api/auth/app-signin'), scope: 'byLevel' },
   redeemAppSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/app-signin/redeem', { code: 'A'.repeat(43) }), scope: 'byLevel',
     check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up app sign-in code signed in: ${r.text}`) } },
+  // Sign in with Google (server/src/auth/google-login.ts): the test team has no Google client, so nothing starts; each
+  // person reads and disconnects only their own connected Google account; a connect needs the current password
+  startGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/google/start', {}), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google sign-in started without a Google client: ${r.text}`) } },
+  // the apps' one-time code (server/src/auth/google-login-apps.ts): a made-up code with a made-up secret signs nobody in
+  redeemGoogleSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/google/redeem', { code: 'A'.repeat(43), appSecret: 'B'.repeat(43), client: 'desktop' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up Google sign-in code signed in: ${r.text}`) } },
+  myGoogle: { build: (c) => c.get('/api/me/google'), scope: 'self' },
+  connectGoogle: { skipPositive: true, build: (c) => c.post('/api/me/google/connect', { password: 'Not-the-password-0000' }), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google connect started with a wrong password: ${r.text}`) } },
+  disconnectGoogle: { build: (c) => c.del('/api/me/google'), scope: 'self' },
+  // a Google check instead of the password (server/src/auth/reauth.ts): only for an account without a password, with a
+  // Google account connected; everyone here has a password and the team no Google client, so nothing starts; a check's
+  // state only for the session that started it (a made-up id is a 404); a first password only for an account without one
+  startGoogleReauth: { skipPositive: true, build: (c) => c.post('/api/me/google/reauth', {}), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a Google check started for an account with a password: ${r.text}`) } },
+  googleReauthState: { skipPositive: true, build: (c) => c.get('/api/me/google/reauth/019a0000-0000-7000-8000-000000000000'), scope: 'self', allowNotFound: true,
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: read a Google check that is not theirs: ${r.text}`) } },
+  setPassword: { skipPositive: true, build: (c) => c.post('/api/me/password', { newPassword: 'A-new-password-0000', reauthFlow: '019a0000-0000-7000-8000-000000000000' }), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: set a password without a Google check: ${r.text}`) } },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 
@@ -638,6 +671,9 @@ export const SPECS: Record<string, Spec> = {
   deleteUser: { skipPositive: true, build: (c) => c.del('/api/admin/users/erin'), scope: 'byLevel' },
   resetPassword: { build: (c) => c.post('/api/admin/users/bob/reset-password'), scope: 'byLevel' },
   createResetLink: { build: (c) => c.post('/api/admin/users/bob/reset-link'), scope: 'byLevel' },
+  // Sign in with Google (admin/users.ts disconnectUserGoogle): the people rules of the other actions here; bob has none
+  // connected, so an allowed caller gets the 204 of nothing to remove
+  disconnectUserGoogle: { build: (c) => c.del('/api/admin/users/bob/google'), scope: 'byLevel' },
   transferOwnership: { skipPositive: true, build: (c) => c.post('/api/admin/transfer-ownership', { userId: 'carol', password: 'wrong-pass' }), scope: 'byLevel' },
   // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕ are the owner's only (an unknown invite: 404)
   handoverState: { build: (c) => c.get('/api/admin/handover'), scope: 'byLevel' },
@@ -820,6 +856,9 @@ export const SPECS: Record<string, Spec> = {
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },
   deleteBudget: { build: (c, w) => c.del(`/api/admin/budgets/${w.ids.budget}`), scope: 'byLevel' },
   settings: { build: (c) => c.get('/api/admin/settings'), scope: 'byLevel' },
+  // whether Team settings shows "Sign in with Google" (auth/google-login-admin.ts): a yes or no, never the client
+  googleSignInAdminStatus: { build: (c) => c.get('/api/admin/google-login'), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300 && JSON.stringify(r.json) !== JSON.stringify({ client: false })) throw new Error(`${who}: unexpected Google sign-in status ${r.text}`) } },
   updateSettings: { build: (c) => c.patch('/api/admin/settings', { browserAllowAll: true }), scope: 'byLevel' },
   speechHost: { build: (c) => c.get('/api/admin/speech-host'), scope: 'byLevel' },
   speechKey: { build: (c) => c.get('/api/admin/speech-key'), scope: 'byLevel', check: (r) => { if (r.text.includes('sk-or-')) throw new Error('the speech key status shows a key') } },

@@ -685,13 +685,13 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
           body={modeName(change.mode)}
           confirm={t('common.save')}
           onClose={() => setConfirming(false)}
-          onConfirm={async (password) => {
+          onConfirm={async (proof) => {
             const r = await act(
               () =>
                 api.call(API.updateConnection, {
                   body: {
                     mode: change.mode, relayUrl: change.mode === 'self-relay' ? change.relayUrl : undefined, teamName: needsTeamName(change.mode) ? change.teamName : undefined,
-                    claimCode: needsTeamName(change.mode) && change.claimCode.trim() ? change.claimCode.trim() : undefined, password,
+                    claimCode: needsTeamName(change.mode) && change.claimCode.trim() ? change.claimCode.trim() : undefined, ...proof,
                   },
                 }),
               t('common.saved'),
@@ -795,8 +795,8 @@ function ConnectedFolders() {
           body={t('connected.addBody', { source: source.trim(), name: name.trim() })}
           confirm={t('connected.add')}
           onClose={() => setAsking(false)}
-          onConfirm={async (password) => {
-            const r = await act(() => api.call(API.addConnected, { body: { name: name.trim(), source: source.trim(), password } }))
+          onConfirm={async (proof) => {
+            const r = await act(() => api.call(API.addConnected, { body: { name: name.trim(), source: source.trim(), ...proof } }))
             if (r) {
               setAsking(false)
               setName('')
@@ -1053,9 +1053,9 @@ function Backups({ onChanged }: { onChanged: () => void }) {
           body={t('system.restoreBody', { date: formatDateTime(restore.createdAt, locale) })}
           confirm={t('system.restore')}
           onClose={() => setRestore(null)}
-          onConfirm={async (password) => {
+          onConfirm={async (proof) => {
             // a wrong password stays in the dialog, under the field (QA TC-221); it closes once the restore started
-            const r = await reauth(() => api.call(API.startRestore, { body: { password, backupId: restore.id } }))
+            const r = await reauth(() => api.call(API.startRestore, { body: { ...proof, backupId: restore.id } }))
             if (r && 'refused' in r) return r.refused
             setRestore(null)
             if (!r) return

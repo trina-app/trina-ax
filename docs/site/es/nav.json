@@ -12,7 +12,7 @@
       { "title": "Trabajar con la IA", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
       { "title": "Conectar apps", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
       { "title": "Archivos y personas", "pages": ["use/files-and-permissions", "use/find-work-files", "use/usage-and-limits", "use/admin", "use/guests"] },
-      { "title": "Su cuenta", "pages": ["use/settings-and-search"] }
+      { "title": "Su cuenta", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "Ejecutar y operar", "groups": [
       { "title": "Instalación", "pages": ["operate/install", "operate/configuration"] },

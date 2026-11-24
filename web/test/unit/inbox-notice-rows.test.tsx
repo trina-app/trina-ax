@@ -92,6 +92,18 @@ test('a reset link made for me says who made it, and how to stop it while it sti
   expect(noticeLink(reset({ server: true, by: null, open: false }))).toBeNull()
 })
 
+test('a Google account connected to my account: what to do if it was not me, while it is still connected', () => {
+  const linked = (googleConnected?: { connected: boolean }) => notice({ eventType: 'account.google_connected', code: 'account.google_connected', link: null, chatId: null, outcome: null, ...(googleConnected ? { googleConnected } : {}) })
+  expect(text(linked({ connected: true }))).toBe('내 계정에 Google 계정이 연결돼서 이제 그 계정으로 로그인할 수 있어요. 내가 한 게 아니면 보안·기기에서 연결을 끊고 비밀번호를 바꿔 주세요.')
+  expect(text(linked({ connected: false }), 'en')).toBe('A Google account was connected to your account.')
+  // an older server without the details: the plain line
+  expect(text(linked())).toBe(ko('notifications.event.account.google_connected'))
+  // while it is there the row opens Settings › 보안·기기, where it is disconnected; after, it opens nothing
+  expect(noticeLink(linked({ connected: true }))).toEqual({ to: '/settings/security', testId: 'notification-google-connected-link' })
+  expect(noticeLink(linked({ connected: false }))).toBeNull()
+  expect(noticeLink(linked())).toBeNull()
+})
+
 // ---------------- in the Inbox ----------------
 const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [],
   team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: uuidv7(), client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: false, timeZone: 'Asia/Seoul' } } as unknown as Me

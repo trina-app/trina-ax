@@ -2,7 +2,7 @@
 // Owner: G (server/src/routes/office-update.ts, server/src/office/update.ts). The work itself is done by the
 // installation's update LaunchAgent; the server only reads its state and asks it to run ("now").
 import { z } from 'zod'
-import { IsoTime } from './common'
+import { IsoTime, ReauthFields } from './common'
 import { endpoint } from './endpoint'
 
 const Channel = z.enum(['stable', 'beta'])
@@ -51,7 +51,7 @@ export const OfficeUpdateStatus = z.object({
 export type OfficeUpdateStatus = z.infer<typeof OfficeUpdateStatus>
 
 /** "now" re-asks the caller's password (like the owner's update and restore): it restarts the office's server */
-export const OfficeUpdateAction = z.object({ action: z.enum(['now', 'pause', 'resume']), password: z.string().min(1).max(256).optional() })
+export const OfficeUpdateAction = z.object({ action: z.enum(['now', 'pause', 'resume']), ...ReauthFields })
 export type OfficeUpdateAction = z.infer<typeof OfficeUpdateAction>
 
 /** Office mode with this Mac's own Claude sign-in: the server takes the Claude Code connections (MCP servers) out of this

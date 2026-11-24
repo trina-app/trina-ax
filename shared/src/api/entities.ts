@@ -1160,5 +1160,10 @@ export const TeamSettings = z.object({
    * quick ≈ 3 min, standard ≈ 5 min (the default, DEFAULT_DECK_TIER: more of the site, sourced web facts), deep ≈ 10 min
    * (more again, the strongest model, two reviews). Owners and admins choose it. */
   introDeckTier: z.enum(['quick', 'standard', 'deep']),
+  /** "Sign in with Google" (default on; server/src/auth/google-login.ts, docs/AGENTS/plan/20261122-0616-google-login-admin.md):
+   * people may sign in with the Google account they connected in Settings › Security & devices, where this server has
+   * a Google client. Off: no button, no connect, and a Google return already on its way neither signs in nor connects;
+   * the connected accounts stay and work again when it is turned back on. Older servers omit it. */
+  googleSignIn: z.boolean().optional(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>

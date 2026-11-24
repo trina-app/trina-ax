@@ -11,7 +11,8 @@
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
 // (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
 // (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
-// docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
+// docs/DECISIONS.md "Projects live only in projects/"), whether people may sign in with Google (GoogleSignInSwitch,
+// only where this server has a Google client). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
 // accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the file list (FileList.tsx, #file-list), which
 // save on their own. The OpenRouter key is
@@ -21,7 +22,7 @@
 // change, and it keeps a phone's unsaved changes when Team settings is left.
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, SPEECH_MODEL_SUGGESTIONS, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
@@ -36,7 +37,7 @@ import { LanguageSelect } from '../../components/LanguageSelect'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
 import { PhonePickSheet, useDevicePick } from '../../components/DevicePick'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
-import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
+import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, ReauthInput, SettingRow, SettingsSection, useAction, useLoad, useReauth } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
 import { changesOf, keepChanges, takeChanges, useDraftOwner } from '../../lib/keptDraft'
 import { legacyWindow } from '../../lib/officeUpdate'
@@ -250,6 +251,8 @@ export default function TeamSettingsPage() {
                     )}
                     {shows('members') && (
                       <SettingsSection title={t('teamSettings.section.ai')} id="ts-ai" testId="team-settings-ai">
+                        {/* Sign in with Google (server/src/auth/google-login-admin.ts): on by default, where this server has a Google client */}
+                        <GoogleSignInSwitch value={f.googleSignIn !== false} onChange={(v) => setF({ ...f, googleSignIn: v })} />
                         <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                         <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
                         <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
@@ -575,6 +578,24 @@ export function LocalAppsSwitch({ value, onChange }: { value: boolean; onChange:
   return <SwitchRow id="ts-local-apps" testId="team-local-apps" value={value} onChange={onChange} title={t('teamSettings.localApps')} desc={t('teamSettings.row.localAppsDesc')} more={t('teamSettings.localAppsHint')} />
 }
 
+/** "Sign in with Google" (default on; server/src/auth/google-login-admin.ts, docs/AGENTS/plan/20261122-0616-google-login-admin.md):
+ * people sign in with the Google account they connected in Settings › Security & devices. The switch shows only where
+ * this server has a Google client (GET /api/admin/google-login); without one, one line says where a server gets one:
+ * Connected apps › Google Drive, where the server's own Google app and the company's own Google app are set. Off: only
+ * passwords work; the connected accounts stay. Saves with the page's Save, like the other switches. */
+export function GoogleSignInSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  const status = useLoad(() => api.call(API.googleSignInAdminStatus))
+  // reading, or an older server without the read: no row
+  if (!status.data) return null
+  if (!status.data.client)
+    return (
+      <SettingRow title={t('teamSettings.googleSignIn')} desc={t('teamSettings.googleSignInNoClient')} testId="team-google-sign-in" attrs={{ 'data-client': 'none' }} inline
+        control={<Link to="/admin/connectors/google-drive" className="inline-flex items-center text-sm font-medium whitespace-nowrap text-accent-text underline-offset-2 hover:underline max-md:min-h-11" data-testid="team-google-sign-in-setup">{t('teamSettings.googleSignInSetUp')}</Link>} />
+    )
+  return <SwitchRow id="ts-google-sign-in" testId="team-google-sign-in" value={value} onChange={onChange} title={t('teamSettings.googleSignIn')} desc={t('teamSettings.row.googleSignInDesc')} more={t('teamSettings.googleSignInHint')} />
+}
+
 /** "Send images, PDF pages and video frames to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no
  * pixels. The short line keeps the one thing to know: the images go to the AI provider. */
 export function AiVisionSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
@@ -701,14 +722,18 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     ? t('speech.localHintMac') + (host.data.localModelMb ? ' ' + t('speech.localFirstDownload', { mb: host.data.localModelMb }) : '')
     : t('speech.localHint')
   const [secret, setSecret] = useState('')
-  const [password, setPassword] = useState('')
+  // my password again, or without one a Google check (common.tsx useReauth)
+  const r = useReauth()
   const [busy, setBusy] = useState(false)
   const secure = canSeal()
   const send = async (value: string | null) => {
+    // in the press: for an account without a password this opens the Google window
+    const p = await r.proof()
+    if (!p) return
     setBusy(true)
-    const r = await act(async () => {
+    const res = await act(async () => {
       const sealed = value === null ? null : await sealSecret(await api.call(API.sealingKey), value, 'speech.key')
-      const out = await api.call(API.setSpeechKey, { body: { sealed, password } })
+      const out = await api.call(API.setSpeechKey, { body: { sealed, ...p } })
       // with no provider chosen, the server reads OpenRouter while the team's key is there (nothing stored: removing the
       // key turns voice input off again). Write a choice only over another saved one, or for another model
       const now = await api.call(API.settings)
@@ -718,10 +743,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       return out
     }, value === null ? t('speech.keyRemoved') : t('speech.keySaved'))
     setBusy(false)
-    if (!r) return
-    key.setData(r)
+    if (!res) return
+    key.setData(res)
     setSecret('')
-    setPassword('')
+    r.setPw('')
     await api.call(API.me).then(signedIn, () => {})
   }
   const remove = async () => {
@@ -783,12 +808,14 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
                       <Field label={t('speech.key')}>
                         <input className={inputCls} type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-…" value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="team-speech-key" />
                       </Field>
-                      <Field label={t('credentials.reauth')}>
-                        <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="team-speech-password" />
-                      </Field>
+                      {r.google ? <div className="sm:col-span-2"><ReauthInput r={r} autoFocus={false} /></div> : (
+                        <Field label={t('credentials.reauth')}>
+                          <input className={inputCls} type="password" autoComplete="current-password" value={r.pw} onChange={(e) => r.setPw(e.target.value)} data-testid="team-speech-password" />
+                        </Field>
+                      )}
                       <div className="flex flex-wrap gap-2 sm:col-span-2">
-                        <Button size="sm" variant="primary" busy={busy} disabled={secret.trim().length < 16 || !password} onClick={() => send(secret.trim())} data-testid="team-speech-save-key">{t('speech.saveKey')}</Button>
-                        {k.set && <Button size="sm" busy={busy} disabled={!password} onClick={remove} data-testid="team-speech-remove-key">{t('speech.removeKey')}</Button>}
+                        <Button size="sm" variant="primary" busy={busy} disabled={secret.trim().length < 16 || !r.ready || r.waiting} onClick={() => send(secret.trim())} data-testid="team-speech-save-key">{t('speech.saveKey')}</Button>
+                        {k.set && <Button size="sm" busy={busy} disabled={!r.ready || r.waiting} onClick={remove} data-testid="team-speech-remove-key">{t('speech.removeKey')}</Button>}
                       </div>
                     </div>
                   )}

@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, GuestAiChoiceBody, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
+import { Access, EngineId, GuestAiChoiceBody, ReauthFields, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -50,7 +50,7 @@ export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), ex
 export const DeleteUserQuery = z.object({ personalFolder: z.enum(['transfer', 'delete']).default('transfer') })
 /** An admin types their own password again to delete a member (checked like the AI connections' and the speech key's,
  * rate-limited); the owner is not asked, as before. Without it an admin is refused (403). */
-export const DeleteUserBody = z.object({ password: z.string().min(1).max(256).optional() })
+export const DeleteUserBody = z.object({ ...ReauthFields })
 export const UsersResponse = z.object({
   items: z.array(User),
   /** "No AI": the active people who cannot use any AI connection now: no personal connection of theirs and no team
@@ -69,12 +69,20 @@ export const UsersResponse = z.object({
   deletionRequested: z.array(UserId).optional(),
   /** With `deletionRequested`: when each of those accounts is deleted by itself (ISO). Absent from older servers. */
   deletionDue: z.record(UserId, IsoTime).optional(),
+  /** The people who connected a Google account to sign in with (Sign in with Google, server/src/auth/google-login.ts):
+   * Admin › Members shows "Google" beside them. Never the Google account or its address. Absent from older servers. */
+  google: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
+/** Sign in with Google for Admin › Team settings (server/src/auth/google-login-admin.ts). `client`: this server has a
+ * Google client it can use, so the row "Sign in with Google" shows (the team switch is TeamSettings.googleSignIn);
+ * without one the page says how a self-installed server adds one (Admin › Connectors › Google Drive). */
+export const GoogleSignInAdminStatus = z.object({ client: z.boolean() })
+export type GoogleSignInAdminStatus = z.infer<typeof GoogleSignInAdminStatus>
 /** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
  * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
  * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
-export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256), end: z.array(HandoverConnectionRef).max(100).default([]) })
+export const TransferOwnershipBody = z.object({ userId: UserId, ...ReauthFields, end: z.array(HandoverConnectionRef).max(100).default([]) })
 /** `ended`: what became of each connection asked to be ended (handover.ts EndedConnection). Older servers answer
  * `{ ok: true }` only. A transfer that lost a race (the owner changed meanwhile) is 409 with params.reason
  * `owner_changed`; a target not ready (temporary password, never signed in) is 409 with `target_not_ready`. */
@@ -481,8 +489,8 @@ export const ApiEngineBody = z.object({
   key: z.string().max(500).nullable().optional(),
   /** "Reads pictures" while the model's server does not say: on, off, null to clear, absent to keep */
   vision: z.enum(['on', 'off']).nullable().optional(),
-  /** the caller's own password again (admin-reauth) */
-  password: z.string().min(1).max(256),
+  /** the caller's own password again, or a Google check (admin-reauth; common.ts ReauthFields) */
+  ...ReauthFields,
 })
 
 export const EngineStatus = z.object({
@@ -621,7 +629,7 @@ export const SpeechHost = z.object({
 })
 export type SpeechHost = z.infer<typeof SpeechHost>
 /** sealed in the browser (purpose 'speech.key'); null removes the key. The password again, like AI connections. */
-export const SetSpeechKeyBody = z.object({ sealed: SealedSecret.nullable(), password: z.string().min(1).max(256) })
+export const SetSpeechKeyBody = z.object({ sealed: SealedSecret.nullable(), ...ReauthFields })
 export const UsageQuery = z.object({
   from: IsoTime.optional(),
   to: IsoTime.optional(),
@@ -673,6 +681,8 @@ export const ADMIN = {
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
+  // Sign in with Google (server/src/auth/google-login.ts): the same rules as the other actions on people
+  disconnectUserGoogle: endpoint({ method: 'DELETE', path: '/api/admin/users/:id/google', auth: 'admin', owner: 'A', response: empty, status: 204, summary: "Disconnect a person's Google account: it no longer signs them in (their sessions stay). Never the owner or yourself; only the owner acts on admins; audited." }),
   transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: TransferResult, summary: 'Make another member the owner (password re-entry; 5 wrong tries per 15 minutes, then the owner gets an Inbox note): one locked write, 409 when the owner changed meanwhile. The old owner becomes admin; every lead flag is cleared; the connections in `end` that are the caller\'s own are ended after the commit. Both people, the other admins and their open windows are told.' }),
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
@@ -715,6 +725,7 @@ export const ADMIN = {
 
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings. Owner only: the team name (also renames the relay address), the retention periods and the update channel (OWNER_ONLY_SETTINGS).' }),
+  googleSignInAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-login', auth: 'admin', owner: 'A', response: GoogleSignInAdminStatus, summary: 'Whether this server has a Google client for Sign in with Google (the team switch is the googleSignIn setting); never the client.' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (shown at the top left on computers, with the team name; tab and app icons stay the product\'s): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),
   deleteTeamIcon: endpoint({ method: 'DELETE', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove the team logo: the product\'s mark shows again; audited.' }),
   speechHost: endpoint({ method: 'GET', path: '/api/admin/speech-host', auth: 'admin', owner: 'A', response: SpeechHost, summary: 'How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here.' }),

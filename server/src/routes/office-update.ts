@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Locale, type OfficeUpdateStatus } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
-import { msg } from '../auth/messages'
+import { requireReauth } from '../auth/reauth'
 import type { AppConfig } from '../app-config'
 import { fail } from '../http/errors'
 import { loadSettings } from '../office/settings'
@@ -61,10 +61,9 @@ export const officeUpdateRoutes: RouteModule = {
       if (!home) fail('conflict', tr(locale, T.notOffice))
       const v = view(home!)
       if (body.action === 'now') {
-        // the password again, like the owner's update and restore: this restarts the office's server
-        if (!body.password || !(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
-          fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
-        }
+        // the password again (or a Google check without one: auth/reauth.ts), like the owner's update and restore: this
+        // restarts the office's server
+        await requireReauth(c, ctx, body, { missing: 'forbidden' })
         if (!v.agentInstalled) fail('conflict', tr(locale, T.noAgent))
         if (readUpdateState(home!).running) fail('busy', tr(locale, T.running))
         requestUpdate(home!, auth.user.username)

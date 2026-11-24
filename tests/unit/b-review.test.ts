@@ -183,7 +183,7 @@ class MemConn implements RealtimeConn {
 const authOf = (id: string): AuthInfo => ({ user: { id, username: id, name: id, role: 'member', locale: 'ko', mustChangePassword: false }, session: { id: uuidv7(), client: 'web' }, via: 'cookie' })
 const hubCtx = () => ({
   log: silentLogger, epoch: 'epoch-r', version: 't', config: { publicOrigins: [] },
-  services: { sessions: { async resolve(req: Request) { const u = req.headers.get('x-user'); return u ? authOf(u) : null }, async verifyPassword() { return false } } },
+  services: { sessions: { async resolve(req: Request) { const u = req.headers.get('x-user'); return u ? authOf(u) : null }, async verifyPassword() { return false }, async verifyReauth() { return false } } },
 }) as unknown as AppContext
 const attach = (hub: Hub, conn: RealtimeConn, user: string, q: string) =>
   hub.attach(conn, new Request(`http://team.localhost/api/ws?${q}`, { headers: { origin: 'http://team.localhost', 'x-user': user } }), { ip: null, via: 'test' })
