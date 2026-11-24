@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 09:54
 - Branch: `fix/connector-403-no-access`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections, web/src/components/integrations, web/src/i18n. Why: a service that
   answers 403 to a working sign-in is shown as a bad key ("Sign in again"), which signing in again cannot fix.
 - Version impact: patch (a fix to what a failed connection check says and records; no API or data change)
@@ -59,4 +59,9 @@ none (follows the existing reason-code design in docs/INTEGRATIONS.md).
 
 ## Result
 
-(at the end)
+Built as planned. New `server/src/integrations/connections/refusal.ts` (parse, sanitize, classify); mcp.ts `McpError`
+carries `refusal`; service.ts statusOf / check / withMcp / callMessage use it and log one line per refused check;
+text.ts reasons `scope`, `no_access`, `no_access_bare` in six languages; connect-service gives the AI the code only.
+Web: `scope` has its own line ("Sign in again and allow the access it asks for"); `no_access` shows the server's words.
+Differs: text.ts parses the code itself instead of importing refusal.ts, since the web mock server imports text.ts and
+refusal.ts reaches the chat code (web typecheck). No migration. Tests: tests/unit/c-integrations-403.test.ts.
