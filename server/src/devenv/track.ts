@@ -24,7 +24,7 @@ import { ownSharedFolders } from '../files/share-readers'
 import { diffSnapshots, keepable, PROJECT_CAPS, readInside, SnapshotStore, takeSnapshot, type Change, type Manifest, type StoreCaps } from './snapshot'
 import crypto from 'node:crypto'
 import { OFFICE_WRITE_MAX } from '../files/extract'
-import { assertSafeTeamFile, contentKind, HEAD_BYTES, officeKind, TAIL_BYTES } from '../files/office-exit'
+import { assertSafeTeamFile, bytesReader, contentKind, officeKind } from '../files/office-exit'
 
 export interface Actor { userId: string; turnId: string | null }
 
@@ -242,9 +242,9 @@ async function guardOffice(ctx: AppContext, s: ProjectState, changes: Change[], 
     if (!bytes) { const now = readInside(path.join(root, ...segs), within, OFFICE_WRITE_MAX); bytes = now && sha256Of(now.bytes) === c.after ? new Uint8Array(now.bytes) : null }
     if (!bytes) {
       // not readable as the run left it: an Office name is undone if the disk still holds its bytes, else left to the next check
-      if (!officeKind(name) && !contentKind(name, new Uint8Array(0))) continue
+      if (!officeKind(name) && !contentKind(name, 0, bytesReader(new Uint8Array(0)))) continue
       if (!stillRuns(segs, c.after)) continue
-    } else if (!contentKind(name, bytes.subarray(0, HEAD_BYTES), bytes.subarray(Math.max(0, bytes.length - TAIL_BYTES)))) continue
+    } else if (!contentKind(name, bytes.length, bytesReader(bytes))) continue
     const earlier = c.before ? s.store.blob(c.before) : null
     let why: string | null = null
     try {

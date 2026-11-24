@@ -87,6 +87,7 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
     }
   }
 
+  if (entries.some((e) => /(^|\/)workbook\.bin$/i.test(e.name))) stop('the package', 'is a binary workbook (.xlsb), whose links cannot be checked')
   // every XML part: a macro project, Excel's external links (DDE, OLE links), data connections and query tables, and any
   // src / href attribute (VML v:imagedata, v:fill, o:href ...) that points outside the document
   for (const e of entries) {
@@ -116,7 +117,8 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
   }
 
   // Word fields in every XML part of a .docx, wherever it is, UTF-16 refused: the same scan as the template check
-  if (kind === 'docx') scanWordFields(entries, stop, (part, why, code) => fail(part, why, `field|${code.trim().replace(/\s+/g, ' ').toLowerCase()}`))
+  // every package, whatever its kind: a Word main part can sit anywhere (its kind comes only from its content type)
+  scanWordFields(entries, stop, (part, why, code) => fail(part, why, `field|${code.trim().replace(/\s+/g, ' ').toLowerCase()}`))
 
   if (!stripOwners.size) return bytes
   // take the attached template out: its relationship(s) in the .rels, and the w:attachedTemplate element in the owner

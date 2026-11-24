@@ -29,7 +29,7 @@ import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
 import { openToRead } from '../files/store'
-import { contentKind, HEAD_BYTES, TAIL_BYTES } from '../files/office-exit'
+import { contentKind, fdReader, type ContentKind } from '../files/office-exit'
 import { officeRecalc, officeViewer } from '../files/office-view'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
@@ -166,11 +166,9 @@ function noteWorkRead(exec: TurnExec): boolean {
 /** A workbook leaving the work folder gets every formula's result stored (files/xlsx-values.ts), so a preview shows
  * numbers. The safety check itself is where the file lands (placeProduced, chat files: files/office-exit.ts). */
 async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
-  const head = Buffer.alloc(HEAD_BYTES)
-  const fd = fs.openSync(tmp, 'r'); let n = 0
-  try { n = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
-  const k = contentKind(got.name, head.subarray(0, n), fs.statSync(tmp).size <= TAIL_BYTES ? new Uint8Array(fs.readFileSync(tmp)) : head.subarray(0, n))
-  if (!k || !('office' in k) || k.office !== 'xlsx') return got
+  const fd = fs.openSync(tmp, 'r'); let k: ContentKind
+  try { k = contentKind(got.name, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) }
+  if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
   if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
   let out: Uint8Array

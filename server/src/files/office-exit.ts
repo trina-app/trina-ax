@@ -19,30 +19,86 @@ export const OFFICE_EXIT_EARLIER_MAX = 64 * 1024 * 1024
 const SHORTCUT_EXT = /\.(url|library-ms|searchconnector-ms|scf|website|lnk|appref-ms)$/i
 
 const startsWith = (b: Uint8Array, sig: number[]) => sig.every((x, i) => b[i] === x)
-/** bytes read from the start of a file, and from its end (a zip's central directory names every part) */
-export const HEAD_BYTES = 8192, TAIL_BYTES = 4 * 1024 * 1024
+/** bytes read from the start of a file for its signature */
+export const HEAD_BYTES = 8192
+/** a zip directory larger than this is not listed: such a file is refused as unreadable */
+const ZIP_DIR_MAX = 256 * 1024 * 1024
+/** kept for callers that read a file's end themselves */
+export const TAIL_BYTES = 65_557
 
-export type ContentKind = { office: 'docx' | 'pptx' | 'xlsx' } | { opaque: string } | { shortcut: string } | null
+/** Read `len` bytes at `pos` of a file or a buffer. */
+export type ReadAt = (pos: number, len: number) => Uint8Array
+export const bytesReader = (b: Uint8Array): ReadAt => (pos, len) => b.subarray(Math.max(0, pos), Math.max(0, pos) + Math.max(0, len))
+export function fdReader(fd: number): ReadAt {
+  return (pos, len) => { const out = Buffer.alloc(Math.max(0, len)); const n = fs.readSync(fd, out, 0, out.length, Math.max(0, pos)); return out.subarray(0, n) }
+}
 
-/** What a file is by its bytes: `head` its first bytes, `tail` its last (the whole file when small). The name only for
- * shortcuts, which are plain text. */
-export function contentKind(name: string, head: Uint8Array, tail: Uint8Array = head): ContentKind {
+/**
+ * Every entry name of a zip, read from its directory as unzip does: the end record found from the end of the file,
+ * zip64 records, any bytes put before the zip. null: not a zip. 'unreadable': a zip whose directory cannot be listed in
+ * full (the caller refuses it: fail closed).
+ */
+export function zipNames(size: number, readAt: ReadAt): string[] | 'unreadable' | null {
+  const tailLen = Math.min(size, 65_557)
+  const tail = readAt(size - tailLen, tailLen)
+  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength)
+  let at = -1
+  for (let i = tail.length - 22; i >= 0; i--) if (tv.getUint32(i, true) === 0x06054b50) { at = i; break }
+  if (at < 0) return startsWith(readAt(0, 4), [0x50, 0x4b, 0x03, 0x04]) ? 'unreadable' : null
+  const eocd = size - tailLen + at
+  let entries = tv.getUint16(at + 10, true), cdSize = tv.getUint32(at + 12, true), cdOff = tv.getUint32(at + 16, true), end = eocd
+  if (entries === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) {
+    // zip64: the locator right before the end record names the zip64 end record
+    if (eocd < 20) return 'unreadable'
+    const loc = readAt(eocd - 20, 20), lv = new DataView(loc.buffer, loc.byteOffset, loc.byteLength)
+    if (loc.length < 20 || lv.getUint32(0, true) !== 0x07064b50) return 'unreadable'
+    const recAt = Number(lv.getBigUint64(8, true))
+    // with bytes before the zip the record is further on by the same amount: found next to the locator
+    const z64 = eocd - 20 - 56
+    if (z64 < 0) return 'unreadable'
+    const rec = readAt(z64, 56), rv = new DataView(rec.buffer, rec.byteOffset, rec.byteLength)
+    if (rec.length < 56 || rv.getUint32(0, true) !== 0x06064b50 || recAt > z64) return 'unreadable'
+    entries = Number(rv.getBigUint64(32, true)); cdSize = Number(rv.getBigUint64(40, true)); cdOff = Number(rv.getBigUint64(48, true)); end = z64
+  }
+  const prefix = end - cdSize - cdOff
+  if (prefix < 0 || cdSize > ZIP_DIR_MAX || !Number.isSafeInteger(entries)) return 'unreadable'
+  const cd = readAt(cdOff + prefix, cdSize)
+  if (cd.length !== cdSize) return 'unreadable'
+  const cv = new DataView(cd.buffer, cd.byteOffset, cd.byteLength)
+  const names: string[] = []
+  let p = 0
+  for (let n = 0; n < entries; n++) {
+    if (p + 46 > cd.length || cv.getUint32(p, true) !== 0x02014b50) return 'unreadable'
+    const nlen = cv.getUint16(p + 28, true), xlen = cv.getUint16(p + 30, true), clen = cv.getUint16(p + 32, true)
+    if (p + 46 + nlen > cd.length) return 'unreadable'
+    names.push(Buffer.from(cd.subarray(p + 46, p + 46 + nlen)).toString('utf8'))
+    p += 46 + nlen + xlen + clen
+  }
+  return names
+}
+
+export type ContentKind = { office: 'docx' | 'pptx' | 'xlsx'; names: string[] } | { opaque: string } | { shortcut: string } | null
+
+/** What a file is by its bytes (the name only for shortcuts, which are plain text). Fail closed: a zip whose directory
+ * cannot be listed is opaque (refused unless it is the replaced file's own bytes). */
+export function contentKind(name: string, size: number, readAt: ReadAt): ContentKind {
   if (SHORTCUT_EXT.test(name)) return { shortcut: name.slice(name.lastIndexOf('.')) }
+  const head = readAt(0, HEAD_BYTES)
   const text = Buffer.from(head).toString('latin1').replace(/^\uFEFF/, '').trimStart()
   if (/^\[(InternetShortcut|\.ShellClassInfo|Shell)\]/i.test(text) || /<(libraryDescription|searchConnectorDescription)\b/.test(text)) return { shortcut: 'a Windows shortcut' }
   if (startsWith(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) return { opaque: 'a legacy Office file (.doc, .xls, .ppt)' }
   if (/^\{\\rtf/i.test(text)) return { opaque: 'an RTF document' }
   if (/^MIME-Version:/im.test(text.slice(0, 2048)) && /multipart\/related/i.test(text)) return { opaque: 'a web archive (MHT)' }
-  if (startsWith(head, [0x50, 0x4b, 0x03, 0x04]) || startsWith(head, [0x50, 0x4b, 0x05, 0x06])) {
-    const names = Buffer.from(tail).toString('latin1')
-    if (Buffer.from(head.subarray(0, 200)).toString('latin1').includes('mimetypeapplication/vnd.oasis.opendocument')) return { opaque: 'an OpenDocument file' }
-    if (!names.includes('[Content_Types].xml')) return null
-    if (names.includes('xl/workbook.bin')) return { opaque: 'a binary Excel workbook (.xlsb)' }
-    if (names.includes('word/')) return { office: 'docx' }
-    if (names.includes('xl/')) return { office: 'xlsx' }
-    return { office: 'pptx' }
-  }
-  return null
+  const names = zipNames(size, readAt)
+  if (names === null) return null
+  if (names === 'unreadable') return { opaque: 'a zip file whose contents could not be listed' }
+  const lower = names.map((n) => n.toLowerCase())
+  if (lower.includes('mimetype') && lower.some((n) => n === 'content.xml' || n === 'meta-inf/manifest.xml')) return { opaque: 'an OpenDocument file' }
+  if (!lower.includes('[content_types].xml')) return null
+  if (lower.some((n) => /(^|\/)workbook\.bin$/.test(n))) return { opaque: 'a binary Excel workbook (.xlsb)' }
+  // the kind only words the refusal: every scan runs on every Office package (office-links-check.ts)
+  const office = lower.some((n) => n.startsWith('word/')) ? 'docx' : lower.some((n) => n.startsWith('xl/')) ? 'xlsx' : 'pptx'
+  return { office, names }
 }
 
 /**
@@ -51,7 +107,7 @@ export function contentKind(name: string, head: Uint8Array, tail: Uint8Array = h
  * a new file, or one not read). Only that file vouches for items it already held.
  */
 export async function assertSafeTeamFile(name: string, bytes: Uint8Array, replaced: Uint8Array | null, signal?: AbortSignal, read: Uint8Array[] = []): Promise<Uint8Array> {
-  const k = contentKind(name, bytes.subarray(0, HEAD_BYTES), bytes.subarray(Math.max(0, bytes.length - TAIL_BYTES)))
+  const k = contentKind(name, bytes.length, bytesReader(bytes))
   if (!k) return bytes
   if ('shortcut' in k) throw new ToolError(`'${name}' is ${k.shortcut.startsWith('.') ? `a ${k.shortcut} file` : k.shortcut}, which can open places outside the team folder; it is not saved`, 'office_unsafe')
   if ('opaque' in k) {
@@ -84,13 +140,12 @@ export function officeKind(name: string): 'docx' | 'pptx' | 'xlsx' | null {
  * Returns whether the bytes changed. */
 export async function assertSafeTeamPath(name: string, abs: string, replaced: Uint8Array | null, signal?: AbortSignal, o: { writeBack?: boolean; read?: Uint8Array[] } = {}): Promise<boolean> {
   const fd = fs.openSync(abs, 'r')
-  let head: Uint8Array, tail: Uint8Array, size: number
-  try {
-    size = fs.fstatSync(fd).size
-    head = Buffer.alloc(Math.min(HEAD_BYTES, size)); fs.readSync(fd, head, 0, head.length, 0)
-    const n = Math.min(TAIL_BYTES, size); tail = Buffer.alloc(n); fs.readSync(fd, tail, 0, n, size - n)
-  } finally { fs.closeSync(fd) }
-  if (!contentKind(name, head, tail)) return false
+  let size: number, k: ContentKind
+  try { size = fs.fstatSync(fd).size; k = contentKind(name, size, fdReader(fd)) } finally { fs.closeSync(fd) }
+  if (!k) return false
+  // a shortcut, or a large file of a format that cannot be read inside: refused without reading it all
+  if ('shortcut' in k) throw new ToolError(`'${name}' is ${k.shortcut.startsWith('.') ? `a ${k.shortcut} file` : k.shortcut}, which can open places outside the team folder; it is not saved`, 'office_unsafe')
+  if ('opaque' in k && size > OFFICE_EXIT_EARLIER_MAX) throw new ToolError(`'${name}' is ${k.opaque}, which cannot be checked for links that leave the file`, 'office_unsafe')
   if (size > OFFICE_WRITE_MAX) throw new ToolError(`'${name}' is too large to be checked for links that leave the file`, 'office_unsafe')
   const bytes = new Uint8Array(fs.readFileSync(abs))
   const out = await assertSafeTeamFile(name, bytes, replaced, signal, o.read ?? [])
@@ -105,16 +160,8 @@ export function renameProblem(oldName: string, newName: string, abs: string): st
   if (SHORTCUT_EXT.test(newName)) return `a ${newName.slice(newName.lastIndexOf('.'))} file can open places outside the team folder`
   const ext = (n: string) => (n.includes('.') ? n.slice(n.lastIndexOf('.') + 1).toLowerCase() : '')
   if (ext(oldName) === ext(newName)) return null
-  let head: Uint8Array, tail: Uint8Array
-  try {
-    const fd = fs.openSync(abs, 'r')
-    try {
-      const size = fs.fstatSync(fd).size
-      head = Buffer.alloc(Math.min(HEAD_BYTES, size)); fs.readSync(fd, head, 0, head.length, 0)
-      const n = Math.min(TAIL_BYTES, size); tail = Buffer.alloc(n); fs.readSync(fd, tail, 0, n, size - n)
-    } finally { fs.closeSync(fd) }
-  } catch { return null }
-  const k = contentKind(newName, head, tail)
+  let k: ContentKind
+  try { const fd = fs.openSync(abs, 'r'); try { k = contentKind(newName, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) } } catch { return null }
   if (!k) return null
   if ('office' in k && officeKind(oldName) === k.office) return null
   return 'its content is an Office or similar document that was not checked under this name; save it again with make_file or from the work folder instead'
@@ -148,7 +195,7 @@ export function readVouchers(root: string, readHashes: Iterable<[string, string]
       const st = fs.lstatSync(abs)
       if (!st.isFile() || st.size > room) continue
       const b = fs.readFileSync(abs)
-      if (!contentKind(rel, b.subarray(0, HEAD_BYTES), b.subarray(Math.max(0, b.length - TAIL_BYTES)))) continue
+      if (!contentKind(rel, b.length, bytesReader(b))) continue
       if (crypto.createHash('sha256').update(b).digest('hex') !== hash) continue
       out.push(new Uint8Array(b)); room -= b.length
     } catch { /* gone or unreadable: vouches for nothing */ }
