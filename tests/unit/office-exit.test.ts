@@ -82,6 +82,11 @@ describe('the exit check', () => {
     for (const n of ['a.url', 'b.library-ms', 'c.searchConnector-ms', 'd.scf']) await expect(assertSafeTeamFile(n, enc.encode('x'), null)).rejects.toThrow(/outside the team folder/)
     await expect(assertSafeTeamFile('ok.txt', enc.encode('[InternetShortcut]\r\nURL=file://h/s\r\n'), null)).rejects.toThrow(/shortcut/)
     expect(contentKind('a.txt', 5, bytesReader(enc.encode('hello')))).toBeNull()
+    // a Hangul .hwpx (mimetype + manifest, no [Content_Types].xml) is not Office and not OpenDocument
+    const hwpx = writeZip([{ name: 'mimetype', data: enc.encode('application/hwp+zip'), store: true }, { name: 'META-INF/manifest.xml', data: enc.encode('<m/>') }, { name: 'Contents/section0.xml', data: enc.encode('<s/>') }])
+    expect(contentKind('a.hwpx', hwpx.length, bytesReader(hwpx))).toBeNull()
+    const odt = writeZip([{ name: 'mimetype', data: enc.encode('application/vnd.oasis.opendocument.text'), store: true }, { name: 'content.xml', data: enc.encode('<c/>') }])
+    expect(contentKind('a.odt', odt.length, bytesReader(odt))).toMatchObject({ opaque: expect.stringMatching(/OpenDocument/) })
   })
 })
 

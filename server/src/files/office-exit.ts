@@ -150,7 +150,8 @@ export function contentKind(name: string, size: number, readAt: ReadAt): Content
   if (names === null) return null
   if (names === 'unreadable') return { opaque: 'a zip file whose contents could not be listed' }
   const lower = names.map((n) => n.toLowerCase())
-  if (lower.includes('mimetype') && lower.some((n) => n === 'content.xml' || n === 'meta-inf/manifest.xml')) return { opaque: 'an OpenDocument file' }
+  // OpenDocument by its own mimetype (stored first, uncompressed); a Hangul .hwpx has a mimetype and a manifest too
+  if (lower.includes('mimetype') && Buffer.from(head).toString('latin1').includes('application/vnd.oasis.opendocument')) return { opaque: 'an OpenDocument file' }
   if (!lower.includes('[content_types].xml')) return null
   if (lower.some((n) => /(^|\/)workbook\.bin$/.test(n))) return { opaque: 'a binary Excel workbook (.xlsb)' }
   // the kind only words the refusal: every scan runs on every Office package (office-links-check.ts)
