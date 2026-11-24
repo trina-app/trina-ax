@@ -31,7 +31,7 @@ import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
 import { reachedAt, teamAddressOf, type ReachedAt } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { devEnvFlag } from '../devenv/setting'
+import { devEnvUi } from '../devenv/setting'
 import { firstSignIn } from '../onboarding/member-welcome'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { pluginsOf } from '../plugins/manager'
@@ -334,7 +334,7 @@ export class AuthService implements SessionService {
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office && !isFreeRoam(this.ctx.config),
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
-        ...(devEnvFlag() ? { devEnv: true as const } : {}),
+        ...(devEnvUi() ? { devEnv: true as const } : {}),
         ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
         ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),
         ...(windowsApp ? { windowsApp } : {}),

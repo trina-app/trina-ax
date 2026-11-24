@@ -110,7 +110,20 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean; whisper?:
     'app/scripts/macos/engine.sb', 'app/web/dist/index.html',
     // the one list of packages and its reader: office-install.sh installs the pinned chrome-headless-shell from it
     'app/scripts/system/packages.json', 'app/scripts/system/packages.sh',
+    // the document kit (scripts/office/doc-kit.sh, group doc-kit-mac): its script, the srt and Node library locks it
+    // installs with npm ci, and the document skills a run reads (resources/doc-skills, SOURCE.json lists them)
+    ...OFFICE_DOC_KIT_FILES.map((f) => `app/${f}`), ...officeDocSkillFiles().map((f) => `app/${f}`),
   ]
+}
+
+/** the document kit's files in app/ (office-install.sh sources doc-kit.sh; doc-kit.sh runs npm ci of the locks) */
+export const OFFICE_DOC_KIT_FILES = ['scripts/office/doc-kit.sh', 'scripts/dev-env/srt/package.json', 'scripts/dev-env/srt/package-lock.json',
+  'scripts/dev-env/srt/node-libs.package.json', 'scripts/dev-env/srt/node-libs.package-lock.json'] as const
+/** resources/doc-skills as its SOURCE.json lists it (the same files a Linux bundle carries: build-bundle.ts docSkillBundleFiles) */
+export function officeDocSkillFiles(): string[] {
+  const dir = path.join(REPO, 'resources', 'doc-skills')
+  const { files } = JSON.parse(fs.readFileSync(path.join(dir, 'SOURCE.json'), 'utf8')) as { files: Record<string, string> }
+  return ['SOURCE.json', 'README.md', ...Object.keys(files)].map((f) => `resources/doc-skills/${f}`)
 }
 
 /** the entries of `manifest` the stage folder lacks */
@@ -252,6 +265,11 @@ export async function buildOffice(o: {
   fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'engine.sb'), path.join(app, 'scripts', 'macos', 'engine.sb'))
   fs.mkdirSync(path.join(app, 'scripts', 'system'), { recursive: true })
   for (const f of ['packages.json', 'packages.sh']) fs.copyFileSync(path.join(REPO, 'scripts', 'system', f), path.join(app, 'scripts', 'system', f))
+  for (const f of [...OFFICE_DOC_KIT_FILES, ...officeDocSkillFiles()]) {
+    fs.mkdirSync(path.dirname(path.join(app, f)), { recursive: true })
+    fs.copyFileSync(path.join(REPO, f), path.join(app, f))
+    fs.chmodSync(path.join(app, f), 0o644)
+  }
   fs.cpSync(path.join(REPO, 'web', 'dist'), path.join(app, 'web', 'dist'), { recursive: true })
   fs.copyFileSync(path.join(REPO, 'versions.json'), path.join(app, 'versions.json'))
 

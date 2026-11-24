@@ -7,13 +7,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { bundledDocSkillsDir } from '../config'
 import { BOX_PYTHON_BIN, DOC_SKILLS_DIR, type DevPlatform } from './srt/config'
+import { docKit } from './kit'
+import { documentsOnlyServer } from './setting'
 
 const sha256 = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex')
 const inside = (rel: string) => !path.isAbsolute(rel) && !rel.split('/').includes('..')
 
-/** Can a run on this server use them? Linux with the box's Python libraries; a Mac's run has none so far. */
+/** Can a run on this server use them? Linux with the box's Python libraries; an office Mac with its document kit
+ * (devenv/kit.ts, the documents profile); a Mac team server's run has no libraries so far. */
 export function docSkillsReady(platform: DevPlatform | NodeJS.Platform = process.platform, python: string = BOX_PYTHON_BIN): boolean {
-  if (platform !== 'linux' || !bundledDocSkillsDir()) return false
+  if (!bundledDocSkillsDir()) return false
+  if (platform === 'darwin') return documentsOnlyServer() && docKit() !== null
+  if (platform !== 'linux') return false
   try { return fs.statSync(python).isDirectory() } catch { return false }
 }
 

@@ -44,7 +44,7 @@ import { TEXT as MOVE_TEXT } from '../tools/file-moves'
 import { askConfirm } from '../tools/url-gate'
 import { confidentialChat } from '../safe-ops/confidential'
 import { isGuestUser } from '../credentials/guest-ai'
-import { mayUseDevEnv } from '../devenv/setting'
+import { mayRunCommands } from '../devenv/setting'
 import { noteSharedReads, runsInWorkFolder, spaceOf } from '../devenv/srt/runner'
 import { copyWorkFile, noWorkText, workUnavailableText, type WorkFolder } from '../devenv/work-files'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -78,7 +78,7 @@ export type Routed = { ok: true; to: string; text: string; summary: string } | {
 export function workCopyInHere(exec: TurnExec): boolean {
   const d = exec.devEnv
   if (!d || !exec.files.workFolder) return false
-  if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return false
+  if (!mayRunCommands(exec.rt.db, exec.rt.files, exec.spec.userId)) return false
   try { return runsInWorkFolder(exec.rt.ctx, workAt(exec)) } catch { return false }
 }
 

@@ -73,6 +73,8 @@ describe('the list (scripts/system/packages.json)', () => {
       ['exact pin', (l) => { l.groups.core!.packages!.curl = '=7.88.1-10' }, /curl: the floor must be/],
       ['version moved', (l) => { l.artifacts['chrome-headless-shell']!.version = '999.0.0.1' }, /does not name version 999/],
       ['unknown system', (l) => { l.groups.browser!.packages!.unzip = { on: ['debian-11'] } }, /unzip: "on" names a distro/],
+      ['a floor for an unknown distro', (l) => { l.groups.browser!.packages!.unzip = { min: { 'debian-11': '>=1' } } }, /unzip: "min" names a distro/],
+      ['a bad floor for one distro', (l) => { l.groups.browser!.packages!.unzip = { min: { 'debian-13': '=1' } } }, /unzip: the floor for debian-13 must be/],
       ['unknown group install', (l) => { (l.groups.fonts as { install: string }).install = 'maybe' }, /group fonts: install must be/],
       ['a profile name', (l) => { l.groups.minimal = { install: 'default', for: 'x', packages: { jq: '' } } }, /group minimal: bad name/],
       ['an artifact nobody has', (l) => { l.groups.browser!.artifacts = ['chromium-snap'] }, /no artifact chromium-snap/],
@@ -96,6 +98,11 @@ describe('the list (scripts/system/packages.json)', () => {
   test('the always groups are what every install needs; the image and the dev environment groups are on request', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
     expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'office-view', 'devenv', 'browser', 'video', 'google-apps'])
+    // LibreOffice for the page render: every default install, never --minimal; Debian 13's floor is its security fix
+    // (DSA-6635-1), the other distributions install it with none (docs/decisions/20261124-documents-mode.md)
+    expect(LIST.groups['office-view']!.install).toBe('default')
+    for (const d of ['debian-12', 'debian-13', 'ubuntu-24.04']) expect(packagesFor(LIST, d, 'amd64', ['default'])).toContain('libreoffice-writer')
+    expect(packagesFor(LIST, 'debian-13', 'amd64', ['minimal'])).not.toContain('libreoffice-writer')
     // the promo video's MP4 (docs/decisions/20261123-linux-video-mp4.md): node and the HyperFrames CLI on every default
     // install; it draws with the browser group's chrome-headless-shell and encodes with the media group's ffmpeg
     expect(LIST.groups.video!.artifacts).toEqual(['node', 'hyperframes'])
@@ -163,6 +170,16 @@ describe('packages.sh reads the list', () => {
     expect(packagesFor(LIST, 'debian-13', 'arm64', ['browser'])).toContain('libasound2t64')
     expect(packagesFor(LIST, 'ubuntu-24.04', 'amd64', ['devenv'])).not.toContain('chromium') // a snap there
     expect(sh(['groups', ...bun, 'nosuch']).err).toContain('no group or profile "nosuch"')
+  }, 30_000)
+
+  test('a floor per distribution holds only there; the bun and jq readers agree', () => {
+    const snippet = `pk_load; for d in debian-13 ubuntu-24.04 debian-12; do echo "$d $(pk_floors $d amd64 office-view | tr '\\n' ' ')"; done`
+    const want = ['debian-13 libreoffice-writer 4:25.2.3-2+deb13u12 libreoffice-impress 4:25.2.3-2+deb13u12 libreoffice-calc 4:25.2.3-2+deb13u12 ', 'ubuntu-24.04 ', 'debian-12 ']
+    for (const env of [{ PK_BUN: process.execPath }, {}] as Record<string, string>[]) {
+      const r = lib(snippet, env)
+      expect(r.err).toBe('')
+      expect(r.out.trim().split('\n').map((x) => x.trimEnd() + ' ').map((x) => x.replace(/ +$/, ' '))).toEqual(want)
+    }
   }, 30_000)
 
   test('artifacts and platforms', () => {
@@ -1144,11 +1161,16 @@ describe('updates carry the list', () => {
     // what a Linux server reads is the list's: groups, distros, arches, the linux and "any" downloads
     // (but the Mac groups, name ends in -mac, and the Mac-only artifacts: a Mac team server's Python)
     expect(l.groups).toEqual(Object.fromEntries(Object.entries(LIST.groups).filter(([g]) => !g.endsWith('-mac'))))
-    expect(Object.keys(LIST.groups).filter((g) => g.endsWith('-mac'))).toEqual(['srt-mac'])
+    expect(Object.keys(LIST.groups).filter((g) => g.endsWith('-mac'))).toEqual(['srt-mac', 'doc-kit-mac'])
     expect(l.artifacts.cpython).toBeUndefined()
+    // an office Mac's document kit: its fonts (platform "any") and its Python libraries are not in the Linux copy
+    for (const n of ['libreoffice', 'noto-sans-kr', 'noto-serif-kr']) expect(l.artifacts[n]).toBeUndefined()
+    expect(l.python?.['doc-kit-mac']).toBeUndefined()
+    expect(l.python?.['python-pptx']).toEqual(LIST.python!['python-pptx']!)
     expect(l.distros).toEqual(LIST.distros)
+    const macGroupsOnly = (n: string) => Object.entries(LIST.groups).every(([g, v]) => g.endsWith('-mac') || !v.artifacts?.includes(n))
     for (const [n, a] of Object.entries(LIST.artifacts)) {
-      if (Object.keys(a.platforms).every((p) => p.startsWith('darwin-'))) continue
+      if (Object.keys(a.platforms).every((p) => p.startsWith('darwin-')) || macGroupsOnly(n)) continue
       expect(l.artifacts[n]!.version).toBe(a.version)
       for (const [p, f] of Object.entries(a.platforms)) if (!p.startsWith('darwin-')) expect(l.artifacts[n]!.platforms[p]).toEqual(f)
     }

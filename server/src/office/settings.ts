@@ -57,6 +57,8 @@ export interface OfficeSettings {
   caConstraints: boolean
   /** VPN / tunnel interfaces and 100.64/10 in the certificate and the desk addresses (off: the office network only) */
   includeVpn: boolean
+  /** documents mode with the document kit (docs/decisions/20261124-office-mac-doc-kit.md): on unless TEAMAX_DOCUMENTS_MODE=0 */
+  documentsMode: boolean
   /** who may connect to the office port: 'subnet' (the Mac's own office subnets, the default), 'any', or CIDRs */
   allowFrom: 'subnet' | 'any' | string[]
   /** the internet address through a Cloudflare Tunnel (app.example.com), null = none (docs/OFFICE.md "인터넷 주소") */
@@ -146,6 +148,7 @@ export function settingsFrom(home: string, e: Record<string, string>): OfficeSet
     proxyPort: port(e.TEAMAX_PROXY_PORT, DEFAULT_PROXY_PORT_OFFICE, 'TEAMAX_PROXY_PORT'),
     caConstraints: e.TEAMAX_CA_CONSTRAINTS !== '0',
     includeVpn: e.TEAMAX_INCLUDE_VPN === '1',
+    documentsMode: e.TEAMAX_DOCUMENTS_MODE !== '0',
     allowFrom: parseAllowFrom(e.TEAMAX_ALLOW_FROM),
     publicHost: parsePublicHost(e.TEAMAX_PUBLIC_HOST),
     publicAllowFrom: (() => { const a = parseAllowFrom(e.TEAMAX_PUBLIC_ALLOW_FROM); return Array.isArray(a) ? a : [] })(),
@@ -241,6 +244,8 @@ export function settingsText(s: OfficeSettings): string {
     line('TEAMAX_PROXY_PORT', s.proxyPort),
     line('TEAMAX_CA_CONSTRAINTS', s.caConstraints ? 1 : 0),
     line('TEAMAX_INCLUDE_VPN', s.includeVpn ? 1 : 0),
+    '# documents mode: the AI builds Word, PowerPoint and Excel files with the document kit (0 = off)',
+    line('TEAMAX_DOCUMENTS_MODE', s.documentsMode ? 1 : 0),
     line('TEAMAX_ALLOW_FROM', Array.isArray(s.allowFrom) ? s.allowFrom.join(',') : s.allowFrom),
     '# internet address through a Cloudflare Tunnel (teamax public-address set|off); empty = none',
     line('TEAMAX_PUBLIC_HOST', s.publicHost),

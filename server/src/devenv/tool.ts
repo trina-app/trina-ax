@@ -24,7 +24,7 @@ import { ToolError } from '../policy/errors'
 import { authorize } from '../policy/authorize'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
-import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
+import { commandMode, mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
 import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed, userSitesFull } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
@@ -221,6 +221,8 @@ export interface BoxShellHost {
   askSite?(host: string, command: string, o?: { listFull?: boolean }): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
   unattended?: boolean
+  /** documents mode at the start of the turn (the tool's text); every call checks the mode again */
+  documents?: boolean
   /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
    * commands only, no command that needs a login, no results of the person's jobs */
   shared?: SharedRun
@@ -545,10 +547,13 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
 async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean, once: Set<string>, denied: Set<string>) {
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
-  if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
+  const mode = commandMode(ctx.db, ctx.files, h.userId)
+  if (!mode) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
   // a shared chat: no command that would use a login (no card: a run holds no credentials anyway), checked before
   // anything else runs. Jobs and dev servers run there with the chat's view (srt/runner.ts sharedRowStart)
   // a sub-agent (QA TC-4911): foreground commands only; the main AI starts jobs and dev servers
+  // documents mode (setting.ts commandMode): offline, the chat's work folder only, no dev server
+  if (mode === 'documents' && (data.background || data.job || data.port !== undefined || data.request_sites?.length)) return { ...text(DOCUMENTS_ONLY, true), summary: `${what} -> refused (documents mode)` }
   if (h.helper && (data.job || data.background)) return { ...text(HELPER_NO_JOB, true), summary: `${what} -> refused (job of a sub-agent)` }
   // a group's or project's skills folder is not in any run (srt/access.ts RunWrites.othersSkills); a command that names
   // one gets the reason before anything runs (QA TC-4932)
@@ -733,6 +738,13 @@ export function callerOf(files: unknown, main: unknown): { helper: boolean; key:
   return { helper: true, key: typeof agent === 'string' && agent ? agent : '?' }
 }
 
+/** box_shell in documents mode (docs/decisions/20261124-documents-mode.md): what it can do, said once in the tool text
+ * and again when a call asks for more */
+export const DOCUMENTS_ONLY = 'Commands here run in documents mode: no network, no team folders, no jobs or dev servers; only this chat\'s work folder. Build documents here: copy the files you need into chat:work/ with copy_files first, then save the finished file with save_work_file.'
+const DOCUMENTS_DESCRIPTION = 'Run a shell command (bash) in this chat\'s work folder ($TRINA_WORK), to build and check documents (Word, PowerPoint, Excel, PDF) with python3 and node and their document libraries. ' + DOCUMENTS_ONLY
+/** an office Mac (srt on macOS): node aborts at start when its stdout or stderr is /dev/null inside the sandbox */
+const DOCUMENTS_MAC = ' node stops at once when its output goes to /dev/null here: send it to a file instead.'
+
 export function boxShellTool(h: BoxShellHost) {
   /** the agents (main AI '', each sub-agent its own key) whose first call came already */
   const called = new Set<string>()
@@ -744,7 +756,7 @@ export function boxShellTool(h: BoxShellHost) {
   const bulk = h.bulk ?? newBulkState()
   return {
     name: BOX_SHELL_TOOL,
-    description: h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
+    description: h.documents ? DOCUMENTS_DESCRIPTION + (runPlatform() === 'darwin' ? DOCUMENTS_MAC : '') : h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
     async call(args: unknown, files?: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)
