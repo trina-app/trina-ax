@@ -4,6 +4,7 @@ import path from 'node:path'
 import ts from 'typescript'
 import { DICTS, placeholdersOf } from '../web/src/i18n'
 import { STRINGS } from '../desktop/src/common/i18n'
+import { IOS_USAGE, MOBILE_STRINGS } from '../mobile/src/strings'
 
 const locales = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
 const root = path.resolve(import.meta.dir, '..')
@@ -33,7 +34,7 @@ const voiceRules: Record<string, { name: string, pattern: RegExp, except?: strin
 export function auditI18n() {
   const problems: string[] = []
   const counts: Record<string, number> = {}
-  for (const [name, dictionaries] of [['web', DICTS], ['desktop', STRINGS]] as const) {
+  for (const [name, dictionaries] of [['web', DICTS], ['desktop', STRINGS], ['mobile', MOBILE_STRINGS], ['mobile.ios', IOS_USAGE]] as const) {
     const english = dictionaries.en
     for (const locale of locales) {
       const dictionary = (dictionaries[locale] ?? {}) as Record<string, string>
@@ -58,7 +59,7 @@ export function auditI18n() {
   const propertyName = (n: ts.PropertyName) => ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : undefined
   for (const dir of ['shared/src', 'server/src', 'relay/src', 'web/src', 'desktop/src']) {
     for (const file of fs.readdirSync(path.join(root, dir), { recursive: true }).map(String).filter(f => /\.tsx?$/.test(f))) {
-      const relative = `${dir}/${file}`
+      const relative = `${dir}/${file.split(path.sep).join('/')}`
       // signed protocol fixtures shared byte for byte with Trina Cloud (zh is optional there, as ja/es once were)
       if (relative === 'shared/src/cloud-protocol/vectors.ts') continue
       const text = fs.readFileSync(path.join(root, relative), 'utf8')
