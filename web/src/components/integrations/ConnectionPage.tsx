@@ -35,13 +35,17 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'notSignedIn' | 'slow' | 'service'> = {
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'scope' | 'notSignedIn' | 'slow' | 'service'> = {
   unreachable: 'address', private_address: 'address', blocked_port: 'address',
   // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
   not_mcp: 'notMcp', redirect: 'redirect',
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
+  // signed in, but without an access the service needs (403 insufficient_scope): sign in again and allow it. Not here:
+  // no_access (any other 403: this account may not use the service), whose server words carry what it said and that its
+  // owner turns it on (signing in again cannot fix it)
+  scope: 'scope',
   timeout: 'slow', list_timeout: 'slow', call_idle: 'slow',
   http_status: 'service', too_large: 'service', tls: 'service',
 }
@@ -64,7 +68,9 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
     : who.phone ? 'onComputer'
     : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
     // never signed in: the button there reads "Sign in", not "Sign in again"
-    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : 'signIn') : 'editKey'
+    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : kind === 'scope' ? 'signInAllow' : 'signIn')
+    // a key without an access the service needs: a key that has it, not the same key again
+    : kind === 'scope' ? 'editKeyAccess' : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
 

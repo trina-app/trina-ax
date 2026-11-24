@@ -1,0 +1,2 @@
+- A connector that signs in fine but that the service will not let this account use (HTTP 403, for example GitLab's MCP server for an account in no group) no longer says to sign in again. Its page says the account is signed in but not allowed, shows what the service said, and that the account's or organization's owner turns it on. It works again by itself once they do.
+- A connector whose sign-in lacks a permission the service needs now says to sign in again and allow the access it asks for.
