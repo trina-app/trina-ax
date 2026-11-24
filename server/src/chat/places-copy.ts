@@ -31,6 +31,8 @@ import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '.
 import { openToRead } from '../files/store'
 import { contentKind, fdReader, type ContentKind } from '../files/office-exit'
 import { officeRecalc, officeViewer } from '../files/office-view'
+import { OFFICE_WRITE_MAX, officeWorkerWrite } from '../files/extract'
+import { DOCX_REVIEW_MODE, docxReviewLine, type DocxReview } from '../files/docx-review'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
@@ -164,10 +166,13 @@ function noteWorkRead(exec: TurnExec): boolean {
 }
 
 /** A workbook leaving the work folder gets every formula's result stored (files/xlsx-values.ts), so a preview shows
- * numbers. The safety check itself is where the file lands (placeProduced, chat files: files/office-exit.ts). */
+ * numbers. A Word file is read back (files/docx-review.ts): the result says how many tracked changes and comments the
+ * saved bytes hold, so the answer does not claim what the file lacks (QA A-43-L). The safety check itself is where the
+ * file lands (placeProduced, chat files: files/office-exit.ts). */
 async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
   const fd = fs.openSync(tmp, 'r'); let k: ContentKind
   try { k = contentKind(got.name, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) }
+  if (k && 'office' in k && k.office === 'docx') return { ...got, note: await docxReadBack(exec, tmp, got.size) }
   if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
   if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
@@ -179,6 +184,18 @@ async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { 
   if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return got
   fs.writeFileSync(tmp, out)
   return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex') }
+}
+
+/** The read-back line of a Word file about to be saved (files/docx-review.ts, in the office worker). */
+async function docxReadBack(exec: TurnExec, tmp: string, size: number): Promise<string> {
+  if (size > OFFICE_WRITE_MAX) return ' It is too large to be read back here: describe its tracked changes and comments only as read shows them.'
+  try {
+    const r = JSON.parse((await officeWorkerWrite(DOCX_REVIEW_MODE, new Uint8Array(fs.readFileSync(tmp)), exec.abort.signal, 64 * 1024)).toString('utf8')) as DocxReview
+    return docxReviewLine(r)
+  } catch (e) {
+    exec.abort.signal.throwIfAborted()
+    return ` It could not be read back (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}): describe its tracked changes and comments only as read shows them.`
+  }
 }
 
 /** A work-folder file into the team folder at `to` (save_work_file's route): the wider-audience card with the work

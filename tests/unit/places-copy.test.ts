@@ -277,6 +277,21 @@ describe('out of chat:work/', () => {
     expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(true)
   })
 
+  test('a Word file leaving the work folder is read back: the result says its tracked changes and comments (QA A-43-L)', async () => {
+    const chat = await personal()
+    const p = path.join(chatWork(base, chat), 'out', 'proposal_corrected.docx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    const W = 'w:author="Alice" w:date="2026-11-24T09:00:00Z"'
+    // tracked changes and no comments part: what the QA file held while the answer said four comments were saved
+    fs.writeFileSync(p, docx({ extra: `<w:p><w:del w:id="1" ${W}><w:r><w:delText>there</w:delText></w:r></w:del><w:ins w:id="2" ${W}><w:r><w:t>their</w:t></w:r></w:ins></w:p>` }))
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/proposal_corrected.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Saved')
+    expect(saved.content).toContain('Read back from the saved file: 1 tracked insertion, 1 tracked deletion; no comments.')
+    // a comment mark whose comment is missing, through copy_files: named as a problem
+    fs.writeFileSync(p, docx({ extra: '<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>x</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p>' }))
+    const copied = await run('alice', chat, copy(['chat:work/out/proposal_corrected.docx'], 'users/alice/'))
+    expect(copied.content).toContain('no tracked changes; no comments. Problems: 1 comment mark in the text names no comment')
+  })
+
   test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
     const chat = await personal()
     const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
