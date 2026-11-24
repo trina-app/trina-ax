@@ -11,7 +11,7 @@ import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
 import { runIdOfUnit } from '../devenv/srt/config'
-import { devEnvFlag, devEnvUi, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
+import { devEnvFlag, devEnvUi, documentsModeFlag, documentsOnlyServer, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
 import { findRun, fullAvailable, networkNow, planState, previewAllowed, previewPortProblem, previewSupported, runsOf, setSharedResolver, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
@@ -175,7 +175,9 @@ export const devEnvRoutes: RouteModule = {
         warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(), offer: oldTeamOffer(ctx.db),
       }
     }
-    kit.handle(API.devEnvTeam, () => {
+    kit.handle(API.devEnvTeam, async () => {
+      // an office Mac: documents mode only, nothing to change here (one line in Settings)
+      if (documentsOnlyServer()) return { ...await teamView(), documentsOnly: { on: documentsModeFlag() } }
       if (!devEnvUi()) fail('not_found')
       return teamView()
     })

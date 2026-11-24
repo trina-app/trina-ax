@@ -3,7 +3,7 @@
 // and the PDF's pages go the way every PDF's do. Linux: the system's LibreOffice in bwrap. An office Mac: the document
 // kit's LibreOffice (devenv/kit.ts) in the converters' sandbox-exec profile with only its own single-instance pipe added
 // (tools/isolate.ts officePipeRules): no IP network, no reads under /Users but its app, the kit's fonts and its empty
-// work folder, exec only inside its app, no app or URL opened, no Apple event. Fonts follow the one rule of
+// work folder, no fork and no exec but soffice, no Mach service but two, no app or URL opened, no Apple event. Fonts follow the one rule of
 // files/office-profile.ts (the office supervisor names the kit's font folder in MYCEL_KIT_FONTS_DIR; without it
 // LibreOffice on a Mac draws no Korean, 2026-11-24). Elsewhere the AI says it did not see the pages.
 import fs from 'node:fs'
@@ -47,14 +47,15 @@ async function convert(soffice: string, bytes: Uint8Array, ext: string, to: stri
     // on an office Mac the fonts are the kit's (MYCEL_KIT_FONTS_DIR, set by the office supervisor), read from there
     const profile = writeOfficeProfile(path.join(workDir, 'profile'), undefined, cjkLocale(o.teamLocale))
     const fonts = kitFontsDir()
-    // an office Mac: the kit's LibreOffice in its own profile (tools/isolate.ts officeProfileRules)
+    // an office Mac: the kit's LibreOffice in its own profile (tools/isolate.ts officePipeRules)
     const kit = process.platform === 'darwin' ? docKit() : null
     // the seccomp step needs the sandbox helper: a production Linux server without it draws in bwrap alone (logged once)
     if (!kit && process.env.MYCEL_MODE !== 'dev' && !sandboxHelper() && !warnedHelper) { warnedHelper = true; console.warn('office-view: no MYCEL_SANDBOX_HELPER; the page render runs in bwrap without the seccomp filter') }
     fs.mkdirSync(path.join(workDir, 'out'), { mode: 0o700 })
     const r = await runIsolated({
       cmd: soffice, workDir, signal: o.signal, timeoutMs: LIMITS.timeoutMs, maxRssMiB: LIMITS.maxRssMiB, maxWorkBytes: LIMITS.maxWorkBytes,
-      ...(kit ? { helpersIn: kit.app, officePipe: true } : {}),
+      // no helper folder: it may not fork and execs only soffice (tools/isolate.ts officePipeRules)
+      ...(kit ? { officePipe: true } : {}),
       readPaths: [...(kit ? [kit.app] : fs.existsSync('/etc/libreoffice') ? ['/etc/libreoffice'] : []), ...(fonts ? [fonts] : [])],
       seccomp: 'listen',
       args: [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--nolockcheck', '--convert-to', to, '--outdir', path.join(workDir, 'out'), path.join(workDir, name)],

@@ -154,16 +154,24 @@ export function setDemoDenyRead(dirs: readonly string[]): void {
 }
 export const demoDenyReadDirs = (): readonly string[] => demoDenyRead
 
-/** LibreOffice's rules on top of a converter profile (officePipe): it checks that /private/var/tmp is writable and makes
- * its single-instance pipe there (OSL_PIPE_<uid>_SingleOfficeIPC_<hash>, a Unix socket; /tmp is not writable in the
- * profile, so it takes /var/tmp). Only that name, only to listen on (network-bind): no connect to a socket, so a file
- * cannot drive another LibreOffice of this Mac through its pipe. Without them it ends with no PDF (Mac, 2026-11-24). */
+/** LibreOffice's rules on top of a converter profile (officePipe; files/office-view.ts on an office Mac). Last rule wins
+ * in a sandbox profile, so these go after the general ones (security review of #509):
+ * - its single-instance pipe: LibreOffice checks that /private/var/tmp is writable and makes its pipe there
+ *   (OSL_PIPE_<uid>_SingleOfficeIPC_<hash>, a Unix socket; /tmp is not writable in the profile). Only that name, only to
+ *   listen on (network-bind): no connect to any socket, so a file cannot drive another LibreOffice of this Mac;
+ * - Mach services: none but the two a page render cannot start without (found by drawing with every lookup denied and
+ *   allowing back what it stopped on, 2026-11-24): the user database (getpwuid) and LaunchServices' read side. No
+ *   pasteboard, keychain (securityd), window server, notifications, TCC, location or analytics;
+ * - no app, document or URL opened, no Apple event.
+ * office-view.ts gives it no helper folder, so it may not fork and may exec only soffice itself. */
 export const OFFICE_PIPE_RE = '^/private/var/tmp/OSL_PIPE_[0-9]+_SingleOfficeIPC_[0-9a-f]+$'
-export function officePipeRules(): string[] {
+export const OFFICE_MACH_SERVICES: readonly string[] = ['com.apple.system.opendirectoryd.libinfo', 'com.apple.coreservices.launchservicesd']
+export function officePipeRules(services: readonly string[] = OFFICE_MACH_SERVICES): string[] {
   return [
     `(allow file-write* (literal "/private/var/tmp") (regex #"${OFFICE_PIPE_RE}"))`,
     `(allow network-bind (local unix-socket (regex #"${OFFICE_PIPE_RE}")))`,
-    // no app, document or URL opened, no Apple event (a macro or a link in a file)
+    '(deny mach-lookup)',
+    ...(services.length ? [`(allow mach-lookup ${services.map((s) => `(global-name ${sq(s)})`).join(' ')})`] : []),
     '(deny lsopen)',
     '(deny appleevent-send)',
   ]

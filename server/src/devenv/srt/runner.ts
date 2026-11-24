@@ -132,7 +132,7 @@ export function srtConfig(env: Record<string, string | undefined> = process.env)
   // (system-office.ts). Without its kit there is no run (srtProblem says why)
   if (devPlatform() === 'darwin' && documentsOnlyServer(env)) {
     const kit = docKit(env)
-    return kit ? { id, base, system: officeSystem(kit), planFile } : { id, base, system: directSystem(), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
+    return kit ? { id, base, system: officeSystem(kit, base), planFile } : { id, base, system: directSystem(), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
   }
   // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
   if (devPlatform() === 'darwin') {
