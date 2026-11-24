@@ -18,6 +18,13 @@ export function officeViewer(platform: NodeJS.Platform = process.platform): stri
   return which('soffice')
 }
 
+/** make_file's line after a Word or Excel file: the one place the AI reads right when it has made one. */
+export function officeViewLine(format: string, canView: boolean = officeViewer() !== null): string {
+  if (!OFFICE_VIEW_EXT.has(format)) return ''
+  return canView ? '\nYou have not seen its pages yet: look at them with read as_images before you answer.'
+    : '\nYou have not seen its pages, and this server cannot show them: tell the user in one short line that you did not see how its pages look.'
+}
+
 /** The file drawn as a PDF. Throws when it cannot be drawn (the caller tells the AI). */
 export async function officePdf(bytes: Uint8Array, ext: string, o: { user: string; workBase: string; signal?: AbortSignal }): Promise<Uint8Array> {
   const soffice = officeViewer()

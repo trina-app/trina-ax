@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { makeFileRule } from '../../server/src/chat/prompt'
 import { docSkillsReady, writeDocSkills } from '../../server/src/devenv/doc-skills'
+import { officeViewLine } from '../../server/src/files/office-view'
 import { docSkillBundleFiles } from '../../scripts/build-bundle'
 
 const REPO = path.resolve(import.meta.dir, '../..')
@@ -57,6 +58,14 @@ describe('in a run', () => {
     expect(docSkillsReady('darwin', os.tmpdir())).toBe(false)
     expect(docSkillsReady('linux', path.join(os.tmpdir(), 'no-such-python'))).toBe(false)
     expect(docSkillsReady('linux', os.tmpdir())).toBe(true)
+  })
+})
+
+describe('make_file after a Word or Excel file', () => {
+  test('says how to look, or that the pages were not seen; nothing for other formats', () => {
+    expect(officeViewLine('docx', true)).toContain('read as_images')
+    expect(officeViewLine('xlsx', false)).toContain('did not see how its pages look')
+    expect(officeViewLine('pptx', false)).toBe('')
   })
 })
 

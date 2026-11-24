@@ -16,7 +16,10 @@
   own, so the validator skips that check and prints `NOT CHECKED`. `resources/doc-skills/README.md` records the changes.
 - **Not a team skill.** The skills are part of the program, in the server's read-only bin folder. Nothing is added to a
   team's folder or skill list (the "no auto-add" rule of DS3).
-- **The look step is on the server.** srt's seccomp filter refuses AF_UNIX sockets, so LibreOffice cannot start in a run.
+- **The look step is on the server.** The skill's own `run_soffice` was tried in a real srt run with seccomp unchanged. It
+  stops with `ERROR: no valid pipe path found`: LibreOffice's pipe path is fixed to /tmp or /var/tmp, which a run cannot
+  write. Opening /tmp as a diagnostic got past that error and still made no PDF, and opening it in the product would widen
+  the sandbox, so the shim is not used.
   `read` with `as_images` draws a saved .docx or .xlsx with LibreOffice in the converters' bwrap isolation.
 - **Office Mac and Mac team servers.** LibreOffice is never installed on a Mac. An existing install is not used either:
   it does not start in the converter sandbox unless its network, exec and file rules are loosened, and the sandbox is not
