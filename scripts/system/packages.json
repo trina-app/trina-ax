@@ -13,7 +13,8 @@
     "Package versions: the distribution release is pinned (distros; the installers accept no other), each package may",
     "carry a floor \">=V\" that is checked after the install (dpkg --compare-versions), and the newest version of that",
     "release is installed, security updates included. A package value is \">=V\", \"\" (any version) or",
-    "{\"min\": \">=V\", \"on\": [\"<distro>\" | \"<distro>/<arch>\"], \"when\": \"userns-restricted\"}.",
+    "{\"min\": \">=V\" | {\"<distro>\": \">=V\"}, \"on\": [\"<distro>\" | \"<distro>/<arch>\"], \"when\": \"userns-restricted\"}: a floor per",
+    "distro holds only there (a security fix one distribution has); \"on\" limits where the package installs at all.",
     "Artifacts are pinned exactly: one version, and a url, sha256 and size for every platform. A new browser: take the",
     "Stable version of last-known-good-versions-with-downloads.json (googlechromelabs.github.io/chrome-for-testing),",
     "download its four chrome-headless-shell zips, and write their sha256 (shasum -a 256) and size here.",
@@ -47,14 +48,10 @@
     },
     "documents": {
       "install": "always",
-      "for": "the server's own converters: PDF pages, HEIC photos, and Word and Excel pages the AI looks at (LibreOffice, server/src/files/office-view.ts, with Noto CJK so Korean draws on a --minimal install or in Docker)",
+      "for": "the server's own converters: PDF pages and HEIC photos",
       "packages": {
         "poppler-utils": ">=22.12.0",
-        "libheif-examples": ">=1.15.1",
-        "libreoffice-writer": "",
-        "libreoffice-impress": "",
-        "libreoffice-calc": "",
-        "fonts-noto-cjk": ""
+        "libheif-examples": ">=1.15.1"
       }
     },
     "media": {
@@ -74,11 +71,13 @@
     },
     "office-view": {
       "install": "default",
-      "for": "Word, Excel and PowerPoint pages the AI looks at, and Excel values (LibreOffice in the converters' isolation, server/src/files/office-view.ts). Debian 13 only, from Debian's security archive with the fix of DSA-6635-1 (CVE-2026-63277): Ubuntu 24.04's build still needs that fix, so those servers say the pages were not seen",
+      "for": "the pages of Word, PowerPoint and Excel files the AI looks at, and Excel values (LibreOffice in the converters' isolation, server/src/files/office-view.ts); Carlito and Caladea draw Calibri and Cambria at their widths (the render's font table, server/src/files/office-profile.ts). LibreOffice opens untrusted files: Debian 13's floor is the security fix DSA-6635-1; Ubuntu 24.04 and Debian 12 take their distribution's newest (the render reaches no team files and no network: docs/decisions/20261124-documents-mode.md)",
       "packages": {
-        "libreoffice-writer": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] },
-        "libreoffice-impress": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] },
-        "libreoffice-calc": { "min": ">=4:25.2.3-2+deb13u12", "on": ["debian-13"] }
+        "libreoffice-writer": { "min": { "debian-13": ">=4:25.2.3-2+deb13u12" } },
+        "libreoffice-impress": { "min": { "debian-13": ">=4:25.2.3-2+deb13u12" } },
+        "libreoffice-calc": { "min": { "debian-13": ">=4:25.2.3-2+deb13u12" } },
+        "fonts-crosextra-carlito": "",
+        "fonts-crosextra-caladea": ""
       }
     },
     "devenv": {

@@ -27,7 +27,9 @@ export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
   hyperframes: ['any'],
 }
 
-export interface PackageSpec { min?: string; on?: string[]; when?: (typeof WHENS)[number] }
+/** min: one floor for every system, or one per distribution ({ "debian-13": ">=V" }: a security fix that only that
+ * distribution has; the others install the package with no floor) */
+export interface PackageSpec { min?: string | Record<string, string>; on?: string[]; when?: (typeof WHENS)[number] }
 export interface Group { install: Install; for: string; packages?: Record<string, string | PackageSpec>; remove?: string[]; artifacts?: string[]; python?: string[] }
 /** revoked: versions that must not stay on a machine even when newer than the pin (a bad pin rolled back: packages.sh
  * switches back to version and removes them) */
@@ -102,7 +104,14 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
       const spec: PackageSpec = typeof s === 'string' ? { min: s } : s
       if (typeof s !== 'string' && (!s || typeof s !== 'object' || Array.isArray(s))) { p.push(`${at}: ${n}: "" , ">=V" or an object`); continue }
       if (typeof s === 'object') for (const k of extra(s, ['min', 'on', 'when'])) p.push(`${at}: ${n}: unknown key ${k}`)
-      if (spec.min !== undefined && spec.min !== '' && !FLOOR.test(spec.min)) p.push(`${at}: ${n}: the floor must be ">=<version>" (dpkg), not ${spec.min}`)
+      if (typeof spec.min === 'string' && spec.min !== '' && !FLOOR.test(spec.min)) p.push(`${at}: ${n}: the floor must be ">=<version>" (dpkg), not ${spec.min}`)
+      if (spec.min !== undefined && typeof spec.min !== 'string') {
+        if (!spec.min || typeof spec.min !== 'object' || Array.isArray(spec.min) || !Object.keys(spec.min).length) p.push(`${at}: ${n}: "min" is ">=V" or { "<distro>": ">=V" }`)
+        else for (const [d, v] of Object.entries(spec.min)) {
+          if (!has(distros, d)) p.push(`${at}: ${n}: "min" names a distro the list does not have: ${d}`)
+          if (typeof v !== 'string' || !FLOOR.test(v)) p.push(`${at}: ${n}: the floor for ${d} must be ">=<version>" (dpkg), not ${String(v)}`)
+        }
+      }
       if (spec.on !== undefined && (!Array.isArray(spec.on) || !spec.on.length || spec.on.some((o) => !targets.has(o)))) p.push(`${at}: ${n}: "on" names a distro (or distro/arch) the list does not have`)
       if (spec.when !== undefined && !(WHENS as readonly string[]).includes(spec.when)) p.push(`${at}: ${n}: unknown "when" ${spec.when}`)
     }
@@ -209,6 +218,11 @@ export function packagesFor(l: PackageList, distro: string, arch: string, names:
 }
 
 /** The flat lines packages.sh reads (its pk_flat, with bun or jq): the same text, for the test that compares them. */
+/** a P line's floor (packages.sh): the version, or "<distro>=<version>,..." for a floor per distribution */
+const floorField = (m: PackageSpec['min']) => typeof m === 'object' && m
+  ? Object.entries(m).map(([d, v]) => `${d}=${v.replace(/^>=/, '')}`).join(',')
+  : (m ?? '').replace(/^>=/, '')
+
 export function flatLines(l: PackageList): string {
   const o: string[] = []
   const f = (x: unknown) => x === undefined || x === null || x === '' ? '-' : String(x)
@@ -219,7 +233,7 @@ export function flatLines(l: PackageList): string {
     t('G', g, v.install)
     for (const [n, s] of Object.entries(v.packages ?? {})) {
       const p: PackageSpec = typeof s === 'string' ? { min: s } : s
-      t('P', g, n, (p.min ?? '').replace(/^>=/, ''), (p.on ?? []).join(','), p.when)
+      t('P', g, n, floorField(p.min), (p.on ?? []).join(','), p.when)
     }
     for (const n of v.remove ?? []) t('R', g, n)
     for (const a of v.artifacts ?? []) t('GA', g, a)
