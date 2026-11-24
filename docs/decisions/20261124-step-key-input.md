@@ -24,6 +24,11 @@
   the AI got past says "Didn't work" in place, not only in a tooltip.
 - **Runs:** 3+ calls in a row of the same tool fold into one row (`<tool's words> · 12 calls · 2 didn't work`) that
   opens to each call's input, like Claude Code's grouped calls. While the answer runs, the last steps show one by one.
+- **Everywhere:** the line and the outcome are written by the server at the one place every step comes from (chat/turn.ts
+  tool_start, chat/tools.ts after the call), so private and project chats, scheduled runs, sub-tasks (a sub-agent's call
+  patches its own step under its sub-task, `patchAgentStep`) and both engines (Claude Code, Codex's MCP calls) get it.
+  The web step list is the one the desktop apps and the phone app show. Web searches keep their own lines: the query
+  and the result count, as before (Codex's too, codex-search-step.ts).
 - **Shared chats:** unchanged ([20261124-shared-chat-card-steps.md](20261124-shared-chat-card-steps.md)): everyone but
   the person whose turn it is gets the generic word for every connection step; `outcome` and `detail` are dropped for
   them, live and stored. Their steps still fold, by their line.

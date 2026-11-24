@@ -365,7 +365,10 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
       {open && subtask && (
         <ul className="mt-1 mb-2 ml-6 space-y-0.5 border-l border-line pl-3" data-testid="subtask-steps">
           {hidden > 0 && <li className="px-1 text-xs text-faint">{t('steps.subtaskHidden', { n: hidden })}</li>}
-          {kids.map((k) => <StepRow key={k.id} step={k} live={live} marks={marks} />)}
+          {/* a sub-task's own calls fold the same way (a sub-agent's research is often one tool many times) */}
+          {foldRuns(kids).map((it) => ('run' in it
+            ? <RunRow key={it.run[0]!.id} run={it.run} live={live} marks={marks} />
+            : <StepRow key={it.step.id} step={it.step} live={live} marks={marks} />))}
         </ul>
       )}
       {open && !subtask && (

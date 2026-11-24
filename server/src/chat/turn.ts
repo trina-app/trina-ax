@@ -2587,6 +2587,17 @@ export class TurnExec {
     this.pendingPatches.set(tool, q)
   }
 
+  /** A sub-agent's call adds to its own step (Step.outcome, docs/decisions/20261124-step-key-input.md): the oldest
+   * running step of that tool under that sub-task. One sub-agent's calls of a connection run one at a time (only the
+   * read-only file tools run side by side), so the order holds per sub-agent. A step not in the stream yet: nothing. */
+  patchAgentStep(agent: string, tool: string, patch: Partial<StoredStep>) {
+    const parent = stepId(agent)
+    const s = this.steps.find((x) => x.tool === tool && x.parentId === parent && x.status === 'running' && !this.patched.has(x.id))
+    if (!s) return
+    this.patched.add(s.id)
+    this.updateStep(s.id, patch)
+  }
+
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
   private redactStep<T extends Partial<StoredStep>>(s: T): T {
     const r = this.redactor()

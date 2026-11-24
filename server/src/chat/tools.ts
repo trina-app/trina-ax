@@ -1267,9 +1267,13 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
       }
       // what it came back with ("10 results", "Declined") and a service's error in its words, beside its step's line
       // (Step.outcome; docs/decisions/20261124-step-key-input.md). The main AI's call only, as above
-      if (r.stepOutcome && !callerOf(files, exec.files).helper) {
+      // A sub-agent's call: its own step under its sub-task (TurnExec.patchAgentStep); an agent not known: none
+      if (r.stepOutcome) {
         const { detail, ...outcome } = r.stepOutcome
-        exec.patchToolStep(t.name, () => ({ ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) }))
+        const patch = { ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) }
+        const who = callerOf(files, exec.files)
+        if (!who.helper) exec.patchToolStep(t.name, () => patch)
+        else if (who.key !== '?') exec.patchAgentStep(who.key, t.name, patch)
       }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
