@@ -166,6 +166,35 @@ test.describe('a stamped Word form in the file panel', () => {
   }
 })
 
+// The sheet preview draws the pictures anchored in a sheet (its drawing part) over their cells, not only the cells
+// (QA TC-8833). A quote sheet stamped by the real editor: a seal at D6.
+test.describe('a stamped spreadsheet in the file panel', () => {
+  let dir: string
+  test.beforeAll(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'mycel-stamped-xlsx-'))
+    execFileSync('bun', [path.join(import.meta.dirname, '../../../tests/lib/stamped-xlsx.ts'), dir], { timeout: 20_000 })
+  })
+  test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  test('shows the seal over the cell it is anchored to', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('files-input').setInputFiles(path.join(dir, 'stamp.xlsx'))
+    const panel = await open(page, 'stamp.xlsx')
+    await expect(panel.locator('table')).toContainText('가나다테스트 주식회사')
+    const seal = panel.getByTestId('sheet-picture')
+    await expect(seal).toHaveCount(1)
+    await expect.poll(() => seal.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(0)
+    if (process.env.STAMP_SHOTS) await panel.screenshot({ path: path.join(process.env.STAMP_SHOTS, 'xlsx.png') })
+    const box = (await seal.boundingBox())!, cell = (await panel.locator('#sjs-D6').boundingBox())!
+    // 15 mm wide (about 57 px), its top left corner at the cell's
+    expect(box.width).toBeGreaterThan(40)
+    expect(Math.abs(box.x - cell.x)).toBeLessThan(3)
+    expect(Math.abs(box.y - cell.y)).toBeLessThan(3)
+  })
+})
+
 // pdf.js 6 draws scanned images (CCITT fax and JBIG2, JPEG 2000) with WebAssembly decoders and text in fonts a PDF
 // does not embed with CMap files, all from /assets/pdfjs-<version>/ (web/src/lib/pdfjs-assets.ts). Without them pdf.js
 // only logs a warning and the page stays blank or loses its text, so this looks at the drawn pixels, the text layer

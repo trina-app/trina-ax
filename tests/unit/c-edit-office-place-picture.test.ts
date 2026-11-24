@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx'
 import { frame, officeEditRequest, officeVerifyRequest, unframe, type EditReport, type OfficeKind } from '../../server/src/files/office-edit'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { officePartsMismatch } from '../../server/src/tools/edit-office'
+import { readSheetPictures } from '../../web/src/lib/sheetPictures'
 
 const root = path.join(import.meta.dir, '..', '..')
 const deck = () => new Uint8Array(fs.readFileSync(path.join(root, 'server/assets/safe-reference.pptx')))
@@ -89,6 +90,18 @@ describe('Excel', () => {
     expect(part(two.file, d)).toContain('<xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>4</xdr:row>')
     expect(part(two.file, d)).toContain(`<xdr:ext cx="${60 * 36000}" cy="${30 * 36000}"/>`)
     expect(part(two.file, d).match(/oneCellAnchor>/g)!.length).toBe(2)
+  })
+  test('the sheet preview reads the placed picture where it was put (web lib/sheetPictures.ts, QA TC-8833)', () => {
+    const a = book()
+    const sheet = XLSX.read(a, { bookSheets: true }).SheetNames[0]!
+    const one = edit('xlsx', a, [{ insert_picture: { image: 0, sheet, cell: 'B3', offset_x_mm: 2, width_mm: 30 } }])
+    const parts = new Map(readZip(one.file).map((e) => [e.name, e.data]))
+    const pics = readSheetPictures((n) => parts.get(n) ?? null)
+    expect([...pics.keys()]).toEqual([sheet])
+    const [p] = pics.get(sheet)!
+    expect(p!.type).toBe('image/png')
+    expect(p!.anchor).toMatchObject({ kind: 'one', from: { col: 1, row: 2 } })
+    expect(Math.round((p!.anchor as { w: number }).w)).toBe(Math.round((30 * 36000) / 9525))
   })
   test('the new drawing tag goes before tableParts, and a twoCell picture can be moved', () => {
     const a = book(), w = readZip(a).find((e) => /^xl\/worksheets\/sheet1\.xml$/.test(e.name))!
