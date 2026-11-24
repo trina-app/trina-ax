@@ -72,6 +72,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad", "移动技能"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades", "技能文件夹文件"),
   find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones", "查找功能"),
+  // the app's own docs on this server (server/src/docs-help/tool.ts)
+  trina_docs: t('도움말 찾기', 'Search the docs', 'Cari di dokumentasi', 'ヘルプを検索', 'Buscar en la documentación', '搜索帮助文档'),
   // the next part of a long answer of a connected service (server/src/integrations/connections/tools.ts)
   connection_result: t('이어서 읽기', 'Read on', 'Baca lanjutan', "続きを読む", "Seguir leyendo", "继续阅读"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
@@ -170,7 +172,7 @@ export function mediaStepKind(step: { tool?: string; label: string }): MediaKind
 /** Tools that only look things up: the read-only Explore helper's tools (server/src/chat/subagents.ts EXPLORE_TOOLS).
  * A failed call of one changed nothing, so the steps list under an answer that did not fail shows it with the quiet
  * mark even when no later step worked (web/src/components/chat/Steps.tsx stepMark). */
-export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch', 'trina_docs'])
 /** Removed tools that only looked things up (search by meaning, the knowledge graph's knowledge_explore): never offered
  * any more, but their steps in older chats keep the quiet mark of a read-only step (Steps.tsx stepMark). */
 export const REMOVED_READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['search', 'knowledge_explore'])
@@ -470,7 +472,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_promo_video': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
-    case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
+    case 'find_skills': case 'find_tools': case 'trina_docs': return `${verb} "${clip(a.query, 60)}"`
     // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }

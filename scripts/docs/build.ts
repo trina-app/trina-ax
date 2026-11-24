@@ -503,9 +503,8 @@ ${header(ctx, page)}
 }
 
 // ---------------- build ----------------
-export function build(argv: string[]) {
-  const o = options(argv)
-  const siteNav = readSiteNav(o.siteNav)
+/** One context per language (LANGS order), English the fallback of the others. */
+function contexts(o: { base: string; siteUrl: string }, siteNav: SiteNav | null): Ctx[] {
   const ctxs = LANGS.map((lang): Ctx => {
     const nav = readNav(lang)
     const pages = loadPages(nav, lang)
@@ -514,6 +513,39 @@ export function build(argv: string[]) {
   })
   // English is the fallback for the pages and links a translation does not have
   for (const c of ctxs) { c.all = ctxs; c.alt = c.lang === 'en' ? null : ctxs[0]! }
+  return ctxs
+}
+
+/** A page as plain text, by section, with its public address (plainSite). */
+export interface PlainPage { slug: string; title: string; description: string; tab: string; group: string; url: string; sections: { heading: string; text: string }[] }
+/** One language of plainSite: its own pages, and every slug of its navigation with that language's tab and group
+ * names (a slug it has not translated too, whose page is English). */
+export interface PlainLang { lang: Lang; pages: PlainPage[]; nav: { slug: string; tab: string; group: string }[] }
+
+/** Every language's pages as plain text, cut at their h2 and h3 headings (the text before the first one is a section
+ * under the page's title), with each page's address under `o.siteUrl` + `o.base`. Rendered by the same code as the
+ * site, so the words are what the pages show (screenshots by their captions, steps and tabs by their titles). For the
+ * server's docs search (scripts/docs/help-index.ts). */
+export function plainSite(o: { base: string; siteUrl: string }): PlainLang[] {
+  return contexts(o, null).map((ctx) => ({
+    lang: ctx.lang,
+    nav: ctx.nav.tabs.flatMap((t) => t.groups.flatMap((g) => g.pages.map((slug) => ({ slug, tab: t.title, group: g.title })))),
+    pages: ctx.pages.map((page) => {
+      const { html } = postProcess(ctx, page, renderBlocks(ctx, page, page.body, { n: 0 }))
+      const sections = html.split(/(?=<h[23] id=")/).map((part) => {
+        const h = /^<h([23]) id="[^"]*">([\s\S]*?)<\/h\1>/.exec(part)
+        // the heading without its "#" link (postProcess)
+        return { heading: h ? strip(h[2]!.replace(/<a class="anchor"[^>]*>#<\/a>/, '')) : page.title, text: strip(h ? part.slice(h[0].length) : part) }
+      }).filter((s) => s.text)
+      return { slug: page.slug, title: page.title, description: page.description, tab: page.tab, group: page.group, url: `${ctx.siteUrl}${pageUrl(ctx, page.slug)}`, sections }
+    }),
+  }))
+}
+
+export function build(argv: string[]) {
+  const o = options(argv)
+  const siteNav = readSiteNav(o.siteNav)
+  const ctxs = contexts(o, siteNav)
   fs.rmSync(o.out, { recursive: true, force: true })
   fs.mkdirSync(path.join(o.out, 'assets'), { recursive: true })
   for (const ctx of ctxs) buildLang(ctx, langDir(ctx.lang) ? path.join(o.out, langDir(ctx.lang)) : o.out)

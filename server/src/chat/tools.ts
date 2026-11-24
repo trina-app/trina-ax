@@ -88,6 +88,7 @@ import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
 import { sharedWithMeOff, sharedWithMeTool } from './shared-with-me-tool'
 import { lookingAtOff, lookingAtTool } from './looking-at'
 import { myFoldersOff, myFoldersTool } from './my-folders'
+import { docsTool, docsToolOn } from '../docs-help/tool'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -253,6 +254,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     return true
   }
   for (const t of bTools(exec)) add(t)
+  // the app's own docs of this server's version (docs-help/tool.ts): a local read like the file tools, so also in shared and
+  // confidential chats and for sub-agents; never a guest's (add(): GUEST_TURN_TOOLS), nor where the server has no docs
+  if (docsToolOn()) add(docsTool(exec.spec.locale))
   for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL) && !exec.devEnv?.documents)) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
   // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files

@@ -6,7 +6,8 @@
 // Output (<out>):
 //   app/<version>/          the version folder the installer / an update puts in app/versions/<version>:
 //                           bin/bun, server/src/{main.js,admin.js,account.js,office-worker.js}, server/migrations/,
-//                           native/{mycel-gate,mycel-bridge}, web/ (when web/dist exists), RELEASE_NOTES.md,
+//                           native/{mycel-gate,mycel-bridge}, web/ (when web/dist exists), resources/docs/help-index.json
+//                           (the docs the AI's docs tool searches), RELEASE_NOTES.md,
 //                           manifest.json (+ manifest.sig when signed)
 //   <version>.tar.zst       the same folder packed, for POST /api/admin/update / `admin.js stage-update`
 //   root/                   the root-owned files (installed only by scripts/install-macos.sh, never by an update):
@@ -30,7 +31,8 @@
 // Only on a Linux machine of the bundle's arch (assertLinuxHost). Output (<out>): the install kit tree — install-linux.sh, VERSION, product.env, app/<version>/
 // with bin/{bun,rg,pandoc,typst,whisper-cli[,whisper-cli-v2]} (scripts/linux/downloads.ts; whisper from the CI build),
 // fonts/ (Noto Sans CJK Regular and Bold for make_file PDFs, scripts/linux/downloads.ts LINUX_FONTS),
-// resources/promo-video/ (the font and sounds the promo video's MP4 reads),
+// resources/promo-video/ (the font and sounds the promo video's MP4 reads), resources/docs/help-index.json (the docs the AI's docs
+// tool searches),
 // native/{mycel-gate,mycel-bridge,mycel-safeops,mycel-ocr}, server/, web/, root/ (the root-owned programs, inside the version folder
 // so the signed manifest covers them and `mycel-ctl update` can take them from a verified bundle), engines.lock.json,
 // engines/codex-<v>.model_catalog.json, RELEASE_NOTES.md, manifest.json (+ manifest.sig) — plus
@@ -52,6 +54,8 @@ import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-che
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 import { flatFile, linuxList } from './system/packages'
 import { PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES } from '../server/src/promo-video/audio'
+import { HELP_INDEX_FILE } from '../server/src/docs-help/data'
+import { stageDocsHelp } from './docs/help-index'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -98,6 +102,8 @@ export async function buildBundle(o: { version: string; out: string; signKey?: s
   if (o.notes) fs.copyFileSync(o.notes, path.join(dir, 'RELEASE_NOTES.md'))
   await stageHwp(REPO, dir, arch === 'universal' ? ['darwin-arm64', 'darwin-x64'] : [arch === 'amd64' ? 'darwin-x64' : 'darwin-arm64'])
   stagePluginCatalog(REPO, dir)
+  // the app's docs for the AI's docs tool (trina_docs), the ones of this version (server/src/docs-help/)
+  stageDocsHelp(dir)
   assertNoPluginPayload(dir)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'darwin', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)
@@ -315,6 +321,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     'resources/plugins/catalog.json',
     // the document skills a run uses (server/src/devenv/doc-skills.ts), with their licence, source and our changes
     ...docSkillBundleFiles(),
+    // the app's docs for the AI's docs tool (scripts/docs/help-index.ts)
+    HELP_INDEX_FILE,
     // what the promo video's MP4 reads from the version folder (promo-video/render.ts offers it only with all of them)
     ...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES,
     // every entry point built (main.js and the workers)
@@ -466,6 +474,8 @@ export async function buildLinuxBundle(o: {
 
   await stageHwp(REPO, dir, [arch === 'amd64' ? 'linux-x64' : 'linux-arm64'])
   stagePluginCatalog(REPO, dir)
+  // the app's docs for the AI's docs tool (trina_docs), the ones of this version (server/src/docs-help/)
+  stageDocsHelp(dir)
   assertNoPluginPayload(dir)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: dir, version: o.version, target: 'linux', arch, kind: 'bundle', includeWeb: fs.existsSync(web) })
   reportReleaseNotices(notices)

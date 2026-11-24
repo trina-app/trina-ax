@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 12:03
 - Branch: `feat/trina-docs-tool`
-- Status: in progress
+- Status: done
 - Where: server/src/docs-help/ (data, search, tool), server/src/chat/tools.ts and prompt.ts (offer and one line),
   scripts/docs/ (the data from the docs build), scripts/build-bundle.ts and scripts/build-office.ts (into every server
   bundle). Why: it is the chat's AI and the server release; nothing of it is customer- or edition-operations code (see
@@ -74,4 +74,18 @@ c-tools, b-browser, step labels, demo free-roam, shared chats, confidential, sub
 
 ## Result
 
-Filled in at the end.
+Built as planned (decision: [20261124-trina-docs-tool](../../decisions/20261124-trina-docs-tool.md)):
+
+- `scripts/docs/build.ts` exports `plainSite` (the pages as plain text by section, the site's own rendering);
+  `scripts/docs/help-index.ts` makes the index and `stageDocsHelp` writes it into the macOS, Linux and office bundles
+  (both bundle file lists name it). 1,562,693 bytes of JSON, about 360 KB in the update archive.
+- `server/src/docs-help/`: `data.ts` (the release's file, else the checkout's docs/site), `search.ts` (BM25 over
+  sections with title and description bonuses; Korean words through the shared `searchTerm`; names and loanwords in
+  Hangul, katakana or Han as their English words), `tool.ts` (the tool, its text, the instructions' line).
+- Offered by chat/tools.ts; listed in LOCAL_TOOLS, SHARED_TOOLS, READ_ONLY_TOOLS, ROOM_READ_ONLY_TOOLS,
+  OWN_WORDS_TOOLS, NO_OUTSIDE_TOOLS and FREE_ROAM_TOOLS; not GUEST_TURN_TOOLS; a step label in six languages.
+- Measured with `claude -p` (Claude Code 2.1.312, Sonnet): the definition adds 160 input tokens next to other tools,
+  the line 66.
+- Evaluation: 40 of 40 questions find their page in the first 3 (34 first).
+- Differs from the plan: a page's title and description words weigh extra (the first version found 37 of 40); the
+  Korean words use the app's existing search stemming instead of a list of their own.
