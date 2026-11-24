@@ -45,6 +45,33 @@ export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 /** Does a text hold "@everyone" in any language, "@channel" or "@here" where a mention may start? */
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
 
+/** Quoted stretches, as the person put them */
+const QUOTED = /"[^"]*"|\u201C[^\u201D]*\u201D|\u2018[^\u2019]*\u2019|'[^'\n]*'|\u300C[^\u300D]*\u300D|\u300E[^\u300F]*\u300F|`[^`]*`/gu
+/** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
+ * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
+const NOT_A_PLAIN_ASK = /\uB9D0\uACE0|\uBE7C\uACE0|\uC81C\uC678|\uC5C6\uC774|(?:^|\s)\uC548(?:\s|$)|\uC548\s?\uB3FC|\uD558\uC9C0|\uC9C0\s?\uB9C8|\uB9C8\uC138\uC694|[?\uFF1F]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|\u4E0D\u8981|\u522B|\u4EE5\u5916|\u3067\u306F\u306A\u304F/iu
+/** The asker's own words, outside anything they quote, write "@everyone" (each language's word) as a whole word in a plain
+ * request (the room named, docs/decisions/20261123-do-then-undo.md). "@전체회의", "@everyone-sync", "@전체 말고", or "@전체" only inside
+ * quoted words (someone else's, or the text) are no ask to notify everyone: the card shows. */
+export function everyoneAsked(said: string): boolean {
+  const outside = said.replace(QUOTED, ' ')
+  if (NOT_A_PLAIN_ASK.test(outside)) return false
+  const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  // (the Korean word on its own, as who it goes to: "전체에게"; never a room's name such as 전체공지, nor "팀 전체에게")
+  return new RegExp(`(?:^|[\\s(\\[])@(?:${words})(?=$|[\\s.,!)\\]])`, 'iu').test(outside)
+    || /(?<![\p{L}\p{N}]\s?)\uC804\uCCB4(?:\uC5D0\uAC8C|\uD55C\uD14C)/u.test(outside)
+}
+/** The text of a post in the person's own words, without its "@everyone", is exactly one stretch they put in quotes: where
+ * they put the mention in their sentence is not part of their text (QA b5 F6: "<text>" 이라고 @everyone 으로 올려줘). A part
+ * of a quote can change its meaning ("회의 취소 안 함" -> "회의 취소"), so only the whole quote counts. */
+export function isTheirQuote(said: string, posted: string): boolean {
+  const words = [...ROOM_MENTION_ALL_WORDS].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const body = fold(posted.replace(new RegExp(`(^|\\s)@(?:${words})(?=$|\\s)`, 'giu'), '$1'))
+  if (!body) return false
+  for (const m of said.matchAll(/"([^"\n]+)"|“([^”\n]+)”|「([^」\n]+)」/gu)) if (fold(m[1] ?? m[2] ?? m[3] ?? '') === body) return true
+  return false
+}
+
 export type PickedMentions =
   | { ok: true; ids: string[]; all: boolean; byName: { ref: string; id: string }[] }
   | { ok: false; unknown: string[]; many: { ref: string; people: Mentionable[] }[]; broadcast: boolean; tooMany: boolean }

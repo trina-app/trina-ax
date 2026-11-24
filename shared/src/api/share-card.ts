@@ -79,6 +79,8 @@ export const ShareCardAsk = z.object({
   files: z.array(ShareCardFile).max(SHARE_CARD_FILES_MAX),
   who: z.array(ShareCardWho).max(SHARE_CARD_PEOPLE_MAX),
   whoMore: z.number().int().positive().optional(),
+  /** with `whoMore`: a digest of everyone the card covers, so a change among the people not shown is a different card */
+  whoKey: z.string().max(64).optional(),
   /** whose files they are, when not the asker's own (an admin and a team file someone else added) */
   owner: z.object({ id: z.string().max(64), name: z.string().max(200) }).optional(),
   /** why the card asks although the person may have chosen "Always allow": the server's own sentence (rooms or a
@@ -121,6 +123,8 @@ export const StepShared = z.object({
   /** who has access now by this call (share), or who was taken off (stop) */
   who: z.array(ShareCardWho).max(SHARE_CARD_PEOPLE_MAX),
   whoMore: z.number().int().positive().optional(),
+  /** with `whoMore`: a digest of everyone the card covers, so a change among the people not shown is a different card */
+  whoKey: z.string().max(64).optional(),
   /** what they can do with the files (file sharing is view only) */
   level: z.literal('view'),
   /** a share: the people who got a notice (ids, the first 50); absent when nobody was told */

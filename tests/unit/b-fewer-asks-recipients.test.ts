@@ -1,7 +1,7 @@
 // Fewer asks about who and which folder (docs/decisions/20261123-do-then-undo.md; the owner, 2026-11-23: "7번이나 묻는건
 // 좀 그런거 아냐?"): a title that the team's directory resolves to one teammate names them; a title several could mean is
 // asked once and the answer kept as the person's alias (Settings › Allowed for Trina, kind person_alias); share_folder
-// without a folder takes the one this chat used; "팀원들" is the project's people, the one group, or the shared chat's
+// without a folder takes the one this chat used; "팀원들" is the shared chat's people, the project's, or the one group
 // people, never a guest; an add the person's own message asked for goes without the card, and an unnamed recipient
 // still asks.
 // The fixture team (b-harness): alice and erin in marketing, bob in finance, carol admin, dana owner; tess added.
@@ -12,7 +12,10 @@ import { API, type Step } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { findPeople, resolvedByTitle } from '../../server/src/rooms/reader'
-import { aliasOf, isTeamRef, saysTeam, saysTitle, titleKey, titlesIn } from '../../server/src/chat/person-aliases'
+import type { TurnRequest } from '@mycel/shared/api'
+import { cardPeople } from '../../server/src/chat/share-card'
+import { sameCard } from '../../server/src/chat/open-questions'
+import { aliasOf, isTeamRef, saysTitle, titleKey, titlesIn } from '../../server/src/chat/person-aliases'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -63,8 +66,6 @@ describe('titles and roles', () => {
     expect(saysTitle('> 팀장님한테 보내\n고마워', { ref: '팀장' })).toBe(false)
     expect(isTeamRef('팀원들')).toBe(true)
     expect(isTeamRef('my team')).toBe(true)
-    expect(saysTeam('이 폴더 팀원들한테 공유해줘')).toBe(true)
-    expect(saysTeam('팀장님한테 보내줘')).toBe(false)
   })
 
   test('one owner or admin with the title in their profile: found, and counted as named; a member\'s own title is asked about', () => {
@@ -83,7 +84,6 @@ describe('titles and roles', () => {
     expect(resolvedByTitle(h.ctx.db, 'bob', '과장님')).toBeNull()
     expect(titlesIn('김팀장님한테 보내줘')).toEqual([])
     expect(titlesIn('과장된 표현 고쳐줘')).toEqual([])
-    expect(saysTeam('팀 회의록 폴더 민수한테 공유해줘')).toBe(false)
   })
 
   test('an owner word: the team owner; a word for "the one above me" with no title: the one owner or admin, else several (asked)', () => {
@@ -180,8 +180,9 @@ describe('share_folder: who, which folder, and no card for what the person asked
     h.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'tess'").run()
     try {
       const dir = folder('bob', 'Team')
-      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat })
-      expect(cardsTo('bob', r.turnId)).toBe(0)
+      // (a word for the whole team always shows who it means on the card)
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'yes' })
+      expect(r.card).not.toBeNull()
       const on = peopleOn('bob', dir)
       expect(on).toContain('alice')
       expect(on).not.toContain('tess')
@@ -192,10 +193,103 @@ describe('share_folder: who, which folder, and no card for what the person asked
 
   test('"팀원들" outside a project: the person\'s one group, as the group', async () => {
     const dir = folder('bob', 'Group')
-    const r = await turn('bob', `${dir} 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`)
-    expect(cardsTo('bob', r.turnId)).toBe(0)
+    // (a group was never in this chat: its card says who, and the yes shares)
+    const r = await turn('bob', `${dir} 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`, { answer: 'yes' })
+    expect(r.card).not.toBeNull()
     const step = (await stepOf('bob', r.chatId, r.answerId))!
     expect(step.shared!.who.map((w) => w.subjectType)).toEqual(['group'])
+  })
+
+  // QA b5 F5: "팀원들" in a chat with 준호 (영업) went, with no card, to the asker's own group 마케팅
+  async function chatWith(user: string, other: string) {
+    const c = (await h.api(user).call(API.createChat, { body: {} })).id
+    const first = await turn(user, `hello\n${fake({ say: 'hi' })}`, { chat: c })
+    expect(first.content).toBe('hi')
+    const subjects = [{ subjectType: 'user' as const, subjectId: other }]
+    let r = await h.api(user).call(API.putChatAudience, { params: { id: c }, body: { subjects } }) as { status?: string; confirmKey?: string }
+    if (r.status === 'confirm') r = await h.api(user).call(API.putChatAudience, { params: { id: c }, body: { subjects, confirmKey: r.confirmKey! } }) as never
+    return c
+  }
+  test('a word for the whole team in a shared chat: the people of that chat, never the asker\'s group; the card names them', async () => {
+    const groups = (h.ctx.db.query('SELECT group_id g FROM group_members WHERE user_id = ?').all('bob') as { g: string }[]).map((x) => x.g)
+    expect(groups.length).toBe(1)
+    expect((h.ctx.db.query('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groups[0]!, 'tess'))).toBeNull()
+    for (const word of ['팀원들', 'my team']) {
+      const dir = folder('bob', `Chat ${word}`)
+      const chat = await chatWith('bob', 'tess')
+      const said = word === 'my team' ? `share "${dir.split('/').pop()}" with my team` : `"${dir.split('/').pop()}" 폴더 ${word}한테 공유해줘`
+      const r = await turn('bob', `${said}\n${sf({ folder: dir, add: [word] })}`, { chat, answer: 'yes' })
+      expect(JSON.stringify(r.card)).toContain('Tess Yoon')
+      expect(peopleOn('bob', dir)).toEqual(['tess'])
+      const step = (await stepOf('bob', chat, r.answerId))!
+      expect(step.shared!.who.map((w) => [w.subjectType, w.name])).toEqual([['user', 'Tess Yoon']])
+    }
+  })
+  test('outside a chat with people or a project, in several groups: nobody is picked, the AI asks', async () => {
+    const other = (h.ctx.db.query("SELECT id FROM groups WHERE id NOT IN (SELECT group_id FROM group_members WHERE user_id = 'bob') LIMIT 1").get() as { id: string }).id
+    h.ctx.db.query("INSERT INTO group_members (group_id, user_id) VALUES (?, 'bob')").run(other)
+    try {
+      const dir = folder('bob', 'Two groups')
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`)
+      expect(r.content).toContain('Ask the user who should get it')
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'bob'").run(other) }
+  })
+
+  test('the AI adding the team word to a named person: the card shows; after someone else\'s words too', async () => {
+    const dir = folder('bob', '우리 팀 자료')
+    const r = await turn('bob', `"우리 팀 자료" 폴더 Tess Yoon한테 공유해줘\n${sf({ folder: dir, add: ['Tess Yoon', '팀원들'] })}`, { answer: 'no' })
+    expect(r.card).not.toBeNull()
+    expect(peopleOn('bob', dir)).toEqual([])
+    const chat = await chatWith('bob', 'tess')
+    h.ctx.db.query('UPDATE chats SET others_words = 1 WHERE id = ?').run(chat)
+    const dir2 = folder('bob', 'After others')
+    const r2 = await turn('bob', `"${dir2.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir2, add: ['팀원들'] })}`, { chat, answer: 'no' })
+    expect(r2.card).not.toBeNull()
+    expect(peopleOn('bob', dir2)).toEqual([])
+  })
+  test('a request that leaves someone out or only asks: the card shows, nothing is shared before the yes', async () => {
+    for (const words of ['팀원들한테 공유해줘. 외주 인턴은 빼줘', 'share it with my team\nleave out the interns', '팀원들한테 공유해줘도 돼?']) {
+      const chat = await chatWith('bob', 'tess')
+      const dir = folder('bob', `Ask ${crypto.randomUUID().slice(0, 6)}`)
+      const r = await turn('bob', `${dir} ${words}\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'no' })
+      expect([words, r.card !== null]).toEqual([words, true])
+      expect(peopleOn('bob', dir)).toEqual([])
+    }
+  })
+  test('a group literally called by a team word still shows its card', async () => {
+    const g = (h.ctx.db.query("SELECT g.id, g.name FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = 'bob' LIMIT 1").get() as { id: string; name: string })
+    h.ctx.db.query("UPDATE groups SET name = '우리팀' WHERE id = ?").run(g.id)
+    try {
+      const dir = folder('bob', 'Literal group')
+      const r = await turn('bob', `${dir} 폴더 우리팀한테 공유해줘\n${sf({ folder: dir, add: ['우리팀'] })}`, { answer: 'no' })
+      expect(r.card).not.toBeNull()
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query('UPDATE groups SET name = ? WHERE id = ?').run(g.name, g.id) }
+  })
+  test('a teammate left out by a short name: the card shows', async () => {
+    h.ctx.db.query("UPDATE users SET name = '김민수' WHERE id = 'tess'").run()
+    try {
+      const chat = await chatWith('bob', 'tess')
+      const dir = folder('bob', 'Short name')
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘. 민수 확인 부탁\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'no' })
+      expect(r.card).not.toBeNull()
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query("UPDATE users SET name = 'Tess Yoon' WHERE id = 'tess'").run() }
+  })
+  test('a team word never reaches a group through another tool without its card, and the card names the group', async () => {
+    const group = (h.ctx.db.query("SELECT g.name FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = 'bob' LIMIT 1").get() as { name: string }).name
+    fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users/bob/team-word.txt'), 'x')
+    const r = await turn('bob', `team-word.txt 팀원들한테 공유해줘\n${fake({ tool: 'share_with_person', args: { paths: ['users/bob/team-word.txt'], people: [group] }, sayResult: true })}`, { answer: 'no' })
+    expect(r.card).not.toBeNull()
+    expect(JSON.stringify(r.card)).toContain(group)
+    expect(peopleOn('bob', 'users/bob/team-word.txt')).toEqual([])
+  })
+  test('a card with more people than it lists: someone swapped in among those not shown is a different card', () => {
+    const many = (last: string) => [...Array.from({ length: 12 }, (_, i) => `u${i}`), last].map((subjectId) => ({ subjectType: 'user' as const, subjectId, name: subjectId }))
+    const card = (last: string) => ({ kind: 'ask_user', origin: 'server', requestId: 'r', question: 'Share?', options: [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], multiple: false, allowText: false, share: { op: 'share', files: [], ...cardPeople(h.ctx.db, many(last)) } }) as unknown as TurnRequest
+    expect(sameCard(card('u12'), card('u12'))).toBe(true)
+    expect(sameCard(card('u12'), card('u13'))).toBe(false)
   })
 
   test('the floor: a recipient the person did not name, or no ask to share, still shows the card', async () => {

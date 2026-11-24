@@ -11,6 +11,7 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
+import { everyoneAsked, isTheirQuote } from '../../server/src/chat/post-mentions'
 import { createTool } from '../../server/src/integrations/connections/tools'
 import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
 import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -114,7 +115,7 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
 type Card = { question: string; options?: { label: string; value: string }[] }
-type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[] }; scheduled?: { id: string; title: string; quiet?: true } }
+type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[]; mentionsAll?: true }; scheduled?: { id: string; title: string; quiet?: true } }
 /** One turn: whether a card showed (answered with `answer`), what the AI said and the steps. A card is waited for only a
  * short while when none is expected. */
 async function turn(user: string, content: string, o: { chat?: string; answer?: string } = {}) {
@@ -188,6 +189,39 @@ describe('a post the person named: no card, then undo', () => {
     const r = await turn('alice', `Marketing 방에 @전체 로 회의 10시라고 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
     expect(r.card).toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+  })
+})
+
+// The owner's design for @everyone (docs/decisions/20261123-do-then-undo.md): the person's own message names the room and
+// says @everyone or 전체: no card, Undo. The AI deciding on its own, or the word only in someone else's quoted words: the card.
+describe('@everyone the person asked for', () => {
+  test('their whole quote with @everyone after it: no card; the step says everyone was notified', async () => {
+    const r = await turn('alice', `Marketing 방에 "내일 10시 회의, 전원 참석" 이라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 전원 참석' })}`)
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+    expect(r.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ mentionsAll: true })
+  })
+  test('"전체에게" in their words: no card', async () => {
+    const r = await turn('alice', `전체에게 회의 10시라고 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+  })
+  test('the card: @everyone only inside someone else\'s quoted words, a fragment of the instruction as their words, a take-back', async () => {
+    for (const [words, args] of [
+      [`민수가 쓴 "@전체 자료 확인" 메모 요약해서 Marketing 방에 올려줘`, { room: rooms.marketing, text: '자료 확인 부탁', mention: ['everyone'] }],
+      [`Marketing 방에 "자료 확인" 이라고 @everyone 으로 올려줘`, { room: rooms.marketing, own_words: true, text: '@everyone 으로 올려줘' }],
+      [`Marketing 방에 @전체 말고 그냥 올려줘`, { room: rooms.marketing, text: '회의 10시', mention: ['everyone'] }],
+      [`Marketing 방에 회의 10시라고 올려줘`, { room: rooms.marketing, text: '회의 10시', mention: ['everyone'] }],
+    ] as const) {
+      const r = await turn('alice', `${words}\n${post(args)}`, { answer: 'no' }).catch(() => null)
+      expect([words, r === null || r.card !== null]).toEqual([words, true])
+    }
+  })
+  test('the helpers', () => {
+    expect(everyoneAsked('Marketing 방에 "회의" 라고 @everyone 으로 올려줘')).toBe(true)
+    expect(everyoneAsked('전체에게 알려줘')).toBe(true)
+    for (const w of ['@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '"@전체 확인" 메모 올려줘', '전체 자료 올려줘', "민수가 '공지 @전체 확인 바랍니다' 라고 썼던데 정리해서 올려줘", '민수가 ‘@전체 확인’ 이라던데 올려줘', '『@전체 확인』 메모 올려줘', '민수 메모 "공지\n@everyone 확인" 올려줘', '전체공지 방에 회의록 올려줘', '전체 공지 채널에 회의록 올려줘', '팀 전체에게 보이게 올려줘']) expect([w, everyoneAsked(w)]).toEqual([w, false])
+    expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소')).toBe(false)
   })
 })
 
