@@ -69,7 +69,7 @@ export const VIDEO_MIN_MACHINE_MIB = 3584
 /** One render that encodes while the browser draws (HyperFrames' streaming encode: about 15 % faster). Measured on an
  * arm64 VM (2 CPU, 4 GiB, Debian 13, three 48 MP photos made smaller): anon+shmem+kernel 1169 MiB streaming against
  * 963 MiB encoding after drawing (docs/decisions/20261124-heavy-job-budget.md). 1169 is 91 % of VIDEO_ONE_MIB, too close;
- * this leaf keeps it near 76 %. */
+ * this leaf keeps it at 71–75 % (1087–1144 MiB, 123–127 s). */
 export const VIDEO_STREAM_MIB = 1536
 /** From this much memory (the plan's or the machine's) a render's leaf is VIDEO_STREAM_MIB and it encodes while it draws;
  * below it (the 4 GiB team VM) VIDEO_ONE_MIB, encoding after drawing. The same line as the heavy-job budget's sharing
