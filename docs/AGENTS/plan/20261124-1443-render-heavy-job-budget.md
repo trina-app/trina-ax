@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 14:43
 - Branch: `fix/render-heavy-job-budget`
-- Status: in progress
+- Status: done
 - Where: server (promo-video/render.ts, files/html-pdf.ts, files/office-view.ts, a new system/heavy-jobs.ts), shared
   API (an optional field), web (the MP4 button's words). Why: the real-render check of #526 (#529).
 - Version impact: patch. No new feature; renders and conversions that failed now finish or wait.
@@ -57,4 +57,19 @@ isolate area tests, a new heavy-jobs test.
 
 ## Result
 
-(at the end)
+Built as planned, plus: a 6 GiB+ server's render leaf is 1536 MiB and streams (VIDEO_STREAM_MIB), and save_promo_video
+gives the AI the waiting / failure reasons. Measured on a private Lima VM (arm64, 2 CPU, 3922 MiB, 0.17.0 kit with
+the default groups and LibreOffice; server files rebuilt from 9100ec9bd and from this branch), 4 renders with photos
+while a 180-page docx converts back to back:
+
+| Run | Render wall time | Overlapping conversions | OOM (global / cgroup) | Lowest MemAvailable |
+|---|---|---|---|---|
+| before | 184–206 s | 64 (all at once with a render) | 0 / 0 | 1926 MiB |
+| before + 1.8 GiB engine stand-in | 198–211 s | 64 | 0 / 0 | 167 MiB |
+| after | 163–168 s (waited 2–10 s) | none: 5, each waited for a render (163–176 s) | 0 / 0 | 2071 MiB |
+| after + 1.8 GiB stand-in | 160–192 s (waited 4–12 s) | none: 5 (158–192 s) | 0 / 0 | 414 MiB |
+
+The VM did not reproduce the global OOM itself (0 of 8 before-runs); with the stand-in the box came to 167 MiB free
+with both running, against 414 MiB with the budget. CLI only (copied 48 MP work folder, 1280 MiB leaf): after drawing
+146–166 s, streaming 123–131 s at 91–95 % of the leaf; 1536 MiB leaf streaming 123–127 s at 71–75 %. amd64 is not
+verified: from qa.trina.app's 365–457 s, the new 2-core limit (645 s) leaves 29 % or more room.
