@@ -33,6 +33,7 @@ import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_PERSONAL_WAIT
 import { activeUser, disabledTools, getRow, isAdmin, mayUse, offByTeam, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
+import { codeOnly } from '../integrations/connections/refusal'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { googleAppsOf } from '../integrations/google-apps/service'
 import { APP_NAMES } from '../integrations/google-apps/catalog'
@@ -105,7 +106,7 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
  * v2, shared/src/service-catalog.ts otherUrls): a connection saved at the older one is that service, never a second */
 export const sameAddress = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '') || sameListedService(a, b)
 /** a connection's state for the AI, as words and the stored reason code (never the service's own words) */
-const stateOf = (r: Row) => r.status === 'connected' ? 'connected' : r.status === 'needs_auth' ? `needs a sign-in or a new key${r.last_error ? ` (${r.last_error})` : ''}` : `not working${r.last_error ? ` (${r.last_error})` : ''}`
+const stateOf = (r: Row) => { const why = r.last_error ? ` (${codeOnly(r.last_error)})` : ''; return r.status === 'connected' ? 'connected' : r.status === 'needs_auth' ? `needs a sign-in or a new key${why}` : `not working${why}` }
 const accessFor = (a: 'me' | 'everyone', me: string): IntegrationAccess => a === 'everyone' ? { everyone: true, groups: [], users: [] } : { everyone: false, groups: [], users: [me] }
 
 /** what happens next after a service was connected on the card, for the AI (TurnExec.noteConnected: owner decision

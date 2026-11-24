@@ -108,10 +108,14 @@ describe('reading a slow tools/list', () => {
       // in the team's words too
       expect((await A.json('/api/integrations', { as: 'alice', headers: { 'accept-language': 'ko' } })).body.items.find((i: any) => i.id === id).status).toBe('connected')
     } finally { fake.pace = null }
-    // the service busy (HTTP 503): the same; refusing the key (HTTP 403): a sign-in is needed, not kept as connected
+    // the service busy (HTTP 503): the same; refusing this account (HTTP 403, no OAuth error code): not kept as
+    // connected, and not a sign-in to redo either (refusal.ts no_access); refusing the key (401): a sign-in is needed
     fake.listStatus = 503
     expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: TEXT.http_status.en.replace('{status}', '503') })
     fake.listStatus = 403
+    expect((await refresh(id)).r.body).toMatchObject({ status: 'error' })
+    expect(stored(id)).toEqual({ status: 'error', last_error: 'no_access:403:busy' })
+    fake.listStatus = 401
     expect((await refresh(id)).r.body).toMatchObject({ status: 'needs_auth' })
     fake.listStatus = null
     expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: null })
