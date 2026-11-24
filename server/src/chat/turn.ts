@@ -6194,6 +6194,8 @@ export class TurnExec {
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
     const cut = new Set(this.runningAtStop)
+    // an outcome whose step never came (patchStepOf) has nothing to go to
+    this.outcomeById.clear()
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason || this.budgetHit ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
     for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.finishStep('subtask', () => this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false)) }

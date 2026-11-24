@@ -14,8 +14,10 @@
 - **Never shown:** an argument whose name says secret (token, key, password, auth, cookie, session, signature …), a
   value that looks like a secret (`findSecrets`: removed, the words around it stay) or a random id (UUID, hex, base64,
   generated runs), an address's scheme, user, query and fragment (an id in its path is "…"), anything but http(s),
-  ws(s) and ftp addresses (a `file:`, `data:` or script address in any argument shows nothing), a value after a flag
-  or label named like a secret (`--password=…`, `--token …`, a command's `-p<password>`), a path's `;jsessionid=…`,
+  ws(s) and ftp addresses (a `file:`, `data:` or script address in any argument shows nothing; the scheme then no space), a value after a flag
+  or label named like a secret (`--password=…`, `--token …`), the password of `-u`/`--user user:password`, the
+  `-p<password>` of mysql-style clients and sshpass's `-p` (never another `-p…` flag such as `-print`), an AWS access key
+  id and a 40-character secret-key-shaped value, a path's `;jsessionid=…`,
   characters that show nothing or turn text around (bidi controls). Secrets come out of the whole value first; only
   then is it cut to 60 characters on one line (a path keeps its end), so a cut never leaves part of a key.
 - **Where:** connection tools and `call_tool` (`<service> · <tool> · "<query>"`), `api_request` (the path without its

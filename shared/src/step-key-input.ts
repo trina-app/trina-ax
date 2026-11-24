@@ -54,12 +54,21 @@ const clipEnd = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trim
 const clipStart = (s: string, n: number) => (s.length > n ? '…' + s.slice(s.length - n + 1) : s)
 
 /** The secrets in a value left out, before anything cuts it (a cut through a key would leave part of it): what
- * findSecrets finds, a value after a flag or label named like a secret ("--password=…", "--token …", "-p<password>" of a
- * command), and a session id in an address's path (";jsessionid=…"). */
+ * findSecrets finds, a value after a flag or label named like a secret ("--password=…", "--token …"), the password of
+ * "-u user:password" / "--user", the "-p<password>" of the database clients that take one there (mysql, mariadb …) and
+ * sshpass's "-p <password>", an AWS access key id and a 40-character secret key, and a session id in an address's path
+ * (";jsessionid=…"). Any other "-p…" flag ("-print", "-pthread") stays. */
 export function hideInValue(v: string, command = false): string {
   let out = v.replace(/;\s*jsessionid=[^/?#\s]*/gi, '')
     .replace(/((?:^|[\s"'])--?(?:password|passwd|pass|pwd|passphrase|token|secret|api[-_]?key|apikey|auth|authorization)(?:=|:\s*|\s+))(?:"[^"]*"|'[^']*'|\S+)/gi, '$1…')
-  if (command) out = out.replace(/(^|\s)-p(?!\s)\S+/g, '$1-p…')
+    .replace(/((?:^|\s)(?:-u|--user)(?:=|\s+)["']?[^\s:"']+):[^\s"']+/g, '$1:…')
+    // an AWS access key id (AKIA…, ASIA…) and a secret access key: 40 characters of base64 with both cases
+    .replace(/(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])/g, '…')
+    .replace(/(?<![A-Za-z0-9/+=])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])/g, (m) => (/[a-z]/.test(m) && /[A-Z]/.test(m) && /[0-9/+]/.test(m) ? '…' : m))
+  if (command) {
+    out = out.replace(/(^|[|;&(]\s*)((?:sudo\s+)?(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlshow|mysqlcheck|mariadb|mariadb-dump|mariadb-admin)\b[^|;&]*)/g, (_m, pre: string, seg: string) => pre + seg.replace(/(\s)-p(?!\s)\S+/g, '$1-p…'))
+      .replace(/(^|[|;&(]\s*)((?:sudo\s+)?sshpass\b[^|;&]*)/g, (_m, pre: string, seg: string) => pre + seg.replace(/(\s)-p\s*(?!-)\S+/g, '$1-p …'))
+  }
   return maskSecrets(out, '…').replace(/(?:…\s*){2,}/g, '…')
 }
 
@@ -75,8 +84,9 @@ export function stepUrl(raw: string, max = 60): string | null {
   return clipEnd(shown, max)
 }
 
-/** An address of a kind no step shows (a file on this computer, inline data, script): never in a line */
-const OTHER_SCHEME = /^(?:file|data|javascript|vbscript|blob|about|chrome|jar|smb):/i
+/** An address of a kind no step shows (a file on this computer, inline data, script): never in a line. Only an address:
+ * the scheme and then no space ("javascript: closures tutorial" is words) */
+const OTHER_SCHEME = /^(?:file|data|javascript|vbscript|blob|about|chrome|jar|smb):(?!\s)/i
 
 /** A value of the kind its argument is, as a step shows it, or null when nothing in it may show. Secrets come out of
  * the whole value first; only then is it cut to fit. */

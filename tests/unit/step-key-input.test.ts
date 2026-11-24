@@ -137,3 +137,33 @@ describe('secrets come out before the cut (review of #513)', () => {
   })
 })
 
+describe('re-review of #513: AWS keys, -u user:password, -p only where it is a password, addresses only', () => {
+  test('an AWS access key id and its secret key with no label', () => {
+    const k = stepKeyInput({ query: 'AKIAIOSFODNN7EXAMPLE wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' })
+    expect(k).toBeNull()
+    const t = stepKeyInput({ query: 'use AKIAIOSFODNN7EXAMPLE and wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY for the bucket' })!.text
+    expect(t).not.toContain('AKIAIOSFODNN7EXAMPLE')
+    expect(t).not.toContain('wJalrXUtnFEMI')
+    expect(t).toContain('for the bucket')
+    expect(stepKeyInput({ query: 'ASIAY34FZKBOKMUTVV7A temp' })?.text).not.toContain('ASIAY34FZKBOKMUTVV7A')
+  })
+  test('curl -u / --user: the password after the colon', () => {
+    expect(stepKeyInput({ command: 'curl -u admin:hunter2 https://api.example.com/x' })?.text).toBe('curl -u admin:… https://api.example.com/x')
+    expect(stepKeyInput({ command: 'curl --user=admin:hunter2 https://api.example.com' })?.text).toBe('curl --user=admin:… https://api.example.com')
+    expect(stepKeyInput({ command: 'curl -u admin https://api.example.com' })?.text).toBe('curl -u admin https://api.example.com')
+  })
+  test('-p<password> only for the clients that take one there; -print and -pthread stay', () => {
+    expect(stepKeyInput({ command: 'find . -name "*.md" -print' })?.text).toBe('find . -name "*.md" -print')
+    expect(stepKeyInput({ command: 'gcc -pthread -o app main.c' })?.text).toBe('gcc -pthread -o app main.c')
+    expect(stepKeyInput({ command: 'mysqldump -u root -pS3cr3t! shop > a.sql' })?.text).toBe('mysqldump -u root -p… shop > a.sql')
+    expect(stepKeyInput({ command: 'cd db && mysql -uroot -phunter2 shop' })?.text).toBe('cd db && mysql -uroot -p… shop')
+    expect(stepKeyInput({ command: 'sshpass -p hunter2 ssh a@b' })?.text).toBe('sshpass -p … ssh a@b')
+    expect(stepKeyInput({ command: 'mysql -p shop' })?.text).toBe('mysql -p shop')
+  })
+  test('a scheme is an address only with no space after it', () => {
+    expect(stepKeyInput({ query: 'javascript: closures tutorial' })?.text).toBe('javascript: closures tutorial')
+    expect(stepKeyInput({ query: 'javascript:alert(1)' })).toBeNull()
+    expect(stepKeyInput({ name: 'file:///Users/alice/.ssh/id_rsa' })).toBeNull()
+  })
+})
+
