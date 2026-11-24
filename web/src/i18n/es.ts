@@ -7416,6 +7416,8 @@ export const es: Record<MessageKey, string> = {
   "postedCard.delete": "Eliminar",
   "postedCard.undone": "Retirado: ya nadie lo ve",
   "postedCard.undoneNotified": "Retirado: ya nadie lo ve. Los avisos ya se enviaron.",
+  "postedCard.undoneTo": "Retirado de {to}: ya nadie lo ve",
+  "postedCard.undoneToNotified": "Retirado de {to}: ya nadie lo ve. Los avisos ya se enviaron.",
   "postedCard.undoFailed": "No se pudo retirar. Inténtelo de nuevo.",
   "shareCard.takenBack": "Se deshizo el uso compartido",
   "shareCard.madeFolder": "Se creó la carpeta \"{file}\" y se compartió",

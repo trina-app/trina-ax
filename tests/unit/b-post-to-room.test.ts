@@ -118,7 +118,7 @@ describe('the card, and the post', () => {
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
     expect(step.label).toBe('대화에 보내기 · #전체')
     // where it went, for the step's 보기
-    expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id, preview: '회의 요약 출시일: 12월 3일 담당: 영업팀' })
+    expect(step.posted).toEqual({ roomId: rooms.all, messageId: m.id, to: '#전체', preview: '회의 요약 출시일: 12월 3일 담당: 영업팀' })
     const a = audits('bob')
     expect(a.length).toBe(before + 1)
     // nothing was at stake, but bob pressed 보내기 on the card: confirmed

@@ -271,6 +271,13 @@ test('a post just sent: Undo deletes the message, then the card says it was take
   } finally { await m.unmount() }
   const old = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 60_000).toISOString()} />)
   try { expect(old.get('posted-card-delete').textContent).toBe('Delete') } finally { await old.unmount() }
+  // where it went, named in the Undo text (a 1:1 chat the viewer's list does not have yet too)
+  const dm = await mount(<PostedCard posted={{ ...posted, to: '박준호' }} endedAt={new Date().toISOString()} />)
+  try {
+    await dm.click('posted-card-undo')
+    expect(dm.get('action-card-title').textContent).toBe(t('postedCard.undoneTo', { to: '박준호' }))
+    expect(dm.get('action-card-title').textContent).toContain('박준호')
+  } finally { await dm.unmount() }
   // a post that notified everyone: taking it back says the notices already went
   const all = await mount(<PostedCard posted={{ ...posted, mentionsAll: true }} endedAt={new Date().toISOString()} />)
   try {

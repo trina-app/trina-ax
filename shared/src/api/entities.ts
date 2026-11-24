@@ -542,6 +542,8 @@ export const Step = z.object({
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({
     roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
+    /** where it went, as the person sees it (a room's title, or the person of a 1:1 chat): the card and its Undo name it */
+    to: z.string().max(80).optional(),
     /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
      * read from the posted message itself (never the AI's words about it) */
     preview: z.string().max(120).optional(),
