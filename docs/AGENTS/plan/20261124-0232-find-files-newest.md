@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 02:32
 - Branch: `fix/find-files-newest`
-- Status: in progress
+- Status: done
 - Where: server/src/team-files/find.ts, tests/unit/find-files-cap.test.ts. Why: with more than HIT_CAP readable matches the newest file can be dropped before the sort (CI flake in find-files-cap)
 - Version impact: patch, a search result fix
 
