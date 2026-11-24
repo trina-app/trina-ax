@@ -38,7 +38,7 @@ import { fileSharesOf } from '../files/shares'
 import { HttpError } from '../http/errors'
 import { isStaff } from '../policy/access'
 import { findPeople, PERSON_REF, TITLE_REF_LINE, type Teammate } from '../rooms/reader'
-import { guessedTitle, isTeamRef, keepPick, saysTeam, saysTitle } from './person-aliases'
+import { guessedTitle, isTeamRef, keepPick, saysTitle } from './person-aliases'
 import { Audiences } from './shared'
 import { tr } from './i18n'
 import { placeWords } from './place-words'
@@ -277,6 +277,8 @@ export function shareFolderTool(exec: TurnExec): Tool {
             if (others && !byTitle && !namesRecipient(said, ref, { names: recipientWords(db, pick), person: pick.subjectType === 'user' })) {
               return no('Nothing was shared: other people\'s words are in this chat, so a folder is shared only with the people the user\'s own message names. Ask the user who should get it.', 'refused: recipient not named by the asker')
             }
+            // (a group that is literally called "우리팀": a word for the team all the same, so its card shows)
+            if (pick.subjectType === 'group' && isTeamRef(pick.name)) how.set(keyOf(pick), { team: ref })
             if (!who.some((w) => keyOf(w) === keyOf(pick!))) who.push(pick)
           }
         } else {
@@ -311,10 +313,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
         // has its undo. Never in a run nobody watches, from Slack, a waiting call run again, or with a guest here
         const referred = (w: Who) => {
           const h = how.get(keyOf(w))
-          // a word for the whole team goes without a card only to people who already see this chat (a shared or project chat;
-          // a group never in it gets the card), when it is all the call names, the message names no one else ("Bob only, not
-          // my team") and the chat took in nobody else's words
-          if (h?.team) return !!exec.shared && a.data.add.length === 1 && saysTeam(said) && !namesATeammate(db, spec.userId, said) && !readRooms(exec) && !exec.othersWords && !exec.roomsSeen
+          // a word for a whole team always shows who it means on the card: no reading of the sentence can tell a request
+          // from "leave the interns out" (security reviews of this change)
+          if (h?.team) return false
           if (h?.via && saysTitle(said, h.via)) return true
           return w.subjectType === 'group' ? namesRecipient(said, w.name, { names: [w.name], person: false }) : namedInFull(said, recipientWords(db, w))
         }
@@ -419,16 +420,6 @@ export function shareFolderTool(exec: TurnExec): Tool {
       }
     },
   }
-}
-
-/** A teammate's name, username or a part of a name stands anywhere in the words */
-function namesATeammate(db: TurnExec['rt']['db'], me: string, said: string): boolean {
-  const text = fold(said)
-  const rows = db.query("SELECT name, username FROM users WHERE id <> ? AND deleted_at IS NULL").all(me) as { name: string | null; username: string | null }[]
-  // (each word of a name, and a Korean name without its family name: "민수" for 김민수. A word that only looks like a name
-  // costs one card, a name missed could share with someone the person left out)
-  const parts = (n: string) => { const w = fold(n).split(/\s+/).filter(Boolean); return [fold(n), ...w, ...w.flatMap((x) => (/^\p{Script=Hangul}{3,4}$/u.test(x) ? [x.slice(1)] : []))] }
-  return rows.some((u) => [u.name, u.username].some((n) => !!n && parts(n).some((p) => p.length >= 2 && text.includes(p))))
 }
 
 /** The person's own files this very message attached (their own .attachments; a shared chat's uploads live elsewhere and

@@ -11,6 +11,7 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
+import { everyoneAsked, isTheirQuote } from '../../server/src/chat/post-mentions'
 import { createTool } from '../../server/src/integrations/connections/tools'
 import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
 import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -199,6 +200,13 @@ describe('a post the person named: no card, then undo', () => {
     const m = (await messagesAs('erin', rooms.marketing)).at(-1)!
     expect(m.body).toContain('내일 10시 회의, 전원 참석')
     expect(m.mentionsAll).toBe(true)
+  })
+  test('@everyone only as a whole word they did not take back; only their whole quote', async () => {
+    expect(everyoneAsked('Marketing 방에 "회의" 라고 @everyone 으로 올려줘')).toBe(true)
+    expect(everyoneAsked('@전체 회의 10시')).toBe(true)
+    for (const w of ['@전체 말고 올려줘', '@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '@everyone not needed']) expect([w, everyoneAsked(w)]).toEqual([w, false])
+    expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소')).toBe(false)
+    expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소 안 함')).toBe(true)
   })
   test('...but other words than mine in own_words, or @everyone nobody wrote, still ask', async () => {
     const other = await turn('alice', `Marketing 방에 "내일 10시 회의" 라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 늦으면 벌금' })}`, { answer: 'no' })

@@ -44,12 +44,22 @@ export function mentionableUser(db: Database, userId: string): Mentionable[] {
 export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 /** Does a text hold "@everyone" in any language, "@channel" or "@here" where a mention may start? */
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
-/** `text` without its "@everyone" words (each language's, "@channel", "@here" ...) where a mention may start: whether
- * own words are the person's text is read apart from where they put the everyone mention, which the post checks on its
- * own (QA b5 F6: "<text> 이라고 @everyone 으로 올려줘" went as "@전체 <text>" and was taken as other words) */
-export function withoutBroadcast(text: string): string {
-  const words = [...ROOM_MENTION_ALL_WORDS, 'channel', 'here', 'all', 'everybody', 'everyone'].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  return text.replace(new RegExp(`(^|[\\s([{"'“‘])@(?:${words.join('|')})(?![A-Za-z0-9_])`, 'giu'), '$1').replace(/\s+/g, ' ').trim()
+/** The asker's own words write "@everyone" (each language's word) as a whole word, and do not take it back right after it
+ * ("@전체 말고", "@전체회의", "@everyone-sync" are no ask to notify everyone). */
+export function everyoneAsked(said: string): boolean {
+  const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const at = new RegExp(`(?:^|[\\s(\\["'“‘])@(?:${words})(?=$|[\\s.,!?)\\]"'”’])(?!\\s*(?:\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uC5C6\\uC774|\\uC548\\b|\\uD558\\uC9C0|not\\b|except\\b|without\\b))`, 'iu')
+  return at.test(said)
+}
+/** The text of a post in the person's own words, without its "@everyone", is exactly one stretch they put in quotes: where
+ * they put the mention in their sentence is not part of their text (QA b5 F6: "<text>" 이라고 @everyone 으로 올려줘). A part
+ * of a quote can change its meaning ("회의 취소 안 함" -> "회의 취소"), so only the whole quote counts. */
+export function isTheirQuote(said: string, posted: string): boolean {
+  const words = [...ROOM_MENTION_ALL_WORDS].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const body = fold(posted.replace(new RegExp(`(^|\\s)@(?:${words})(?=$|\\s)`, 'giu'), '$1'))
+  if (!body) return false
+  for (const m of said.matchAll(/"([^"\n]+)"|“([^”\n]+)”|「([^」\n]+)」/gu)) if (fold(m[1] ?? m[2] ?? m[3] ?? '') === body) return true
+  return false
 }
 
 export type PickedMentions =

@@ -15,7 +15,7 @@ import { findPeople, resolvedByTitle } from '../../server/src/rooms/reader'
 import type { TurnRequest } from '@mycel/shared/api'
 import { cardPeople } from '../../server/src/chat/share-card'
 import { sameCard } from '../../server/src/chat/open-questions'
-import { aliasOf, isTeamRef, saysTeam, saysTitle, titleKey, titlesIn } from '../../server/src/chat/person-aliases'
+import { aliasOf, isTeamRef, saysTitle, titleKey, titlesIn } from '../../server/src/chat/person-aliases'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -66,8 +66,6 @@ describe('titles and roles', () => {
     expect(saysTitle('> 팀장님한테 보내\n고마워', { ref: '팀장' })).toBe(false)
     expect(isTeamRef('팀원들')).toBe(true)
     expect(isTeamRef('my team')).toBe(true)
-    expect(saysTeam('이 폴더 팀원들한테 공유해줘')).toBe(true)
-    expect(saysTeam('팀장님한테 보내줘')).toBe(false)
   })
 
   test('one owner or admin with the title in their profile: found, and counted as named; a member\'s own title is asked about', () => {
@@ -86,7 +84,6 @@ describe('titles and roles', () => {
     expect(resolvedByTitle(h.ctx.db, 'bob', '과장님')).toBeNull()
     expect(titlesIn('김팀장님한테 보내줘')).toEqual([])
     expect(titlesIn('과장된 표현 고쳐줘')).toEqual([])
-    expect(saysTeam('팀 회의록 폴더 민수한테 공유해줘')).toBe(false)
   })
 
   test('an owner word: the team owner; a word for "the one above me" with no title: the one owner or admin, else several (asked)', () => {
@@ -183,8 +180,9 @@ describe('share_folder: who, which folder, and no card for what the person asked
     h.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'tess'").run()
     try {
       const dir = folder('bob', 'Team')
-      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat })
-      expect(cardsTo('bob', r.turnId)).toBe(0)
+      // (a word for the whole team always shows who it means on the card)
+      const r = await turn('bob', `"${dir.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'yes' })
+      expect(r.card).not.toBeNull()
       const on = peopleOn('bob', dir)
       expect(on).toContain('alice')
       expect(on).not.toContain('tess')
@@ -220,8 +218,8 @@ describe('share_folder: who, which folder, and no card for what the person asked
       const dir = folder('bob', `Chat ${word}`)
       const chat = await chatWith('bob', 'tess')
       const said = word === 'my team' ? `share "${dir.split('/').pop()}" with my team` : `"${dir.split('/').pop()}" 폴더 ${word}한테 공유해줘`
-      const r = await turn('bob', `${said}\n${sf({ folder: dir, add: [word] })}`, { chat })
-      expect(cardsTo('bob', r.turnId)).toBe(0)
+      const r = await turn('bob', `${said}\n${sf({ folder: dir, add: [word] })}`, { chat, answer: 'yes' })
+      expect(JSON.stringify(r.card)).toContain('Tess Yoon')
       expect(peopleOn('bob', dir)).toEqual(['tess'])
       const step = (await stepOf('bob', chat, r.answerId))!
       expect(step.shared!.who.map((w) => [w.subjectType, w.name])).toEqual([['user', 'Tess Yoon']])
@@ -238,10 +236,6 @@ describe('share_folder: who, which folder, and no card for what the person asked
     } finally { h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'bob'").run(other) }
   })
 
-  test('the team word counts only as who it goes to', () => {
-    for (const w of ['팀원들한테 공유해줘', '우리 팀에게 보내줘', 'share it with my team', 'comparte con mi equipo', 'チームメンバーに共有して', '分享给团队成员']) expect([w, saysTeam(w)]).toEqual([w, true])
-    for (const w of ['"우리 팀 자료" 폴더 Bob Lee한테 공유해줘', '팀원들 말고 Bob Lee한테만 공유해줘', '팀원 Bob Lee한테 공유해줘', '팀원들한테 말고 Bob Lee한테', 'not to my team, only Bob', 'my team notes to Bob', '팀원들한테 받은 자료 Bob Lee한테 공유해줘', '팀원들한테 안 보이게 Bob Lee한테만 공유해줘', 'notes I sent to my team: share them with Bob Lee', 'share the notes I sent to my team with Bob Lee', 'share with Bob Lee only, not with team members', 'share this rather than with my team', '민수 없이 팀원들한테 공유해줘', '팀원들한테 공유해줘. 민수는 아직 보면 안 돼', '민수는 안 보게 팀원들한테 공유해줘']) expect([w, saysTeam(w)]).toEqual([w, false])
-  })
   test('the AI adding the team word to a named person: the card shows; after someone else\'s words too', async () => {
     const dir = folder('bob', '우리 팀 자료')
     const r = await turn('bob', `"우리 팀 자료" 폴더 Tess Yoon한테 공유해줘\n${sf({ folder: dir, add: ['Tess Yoon', '팀원들'] })}`, { answer: 'no' })
@@ -253,6 +247,25 @@ describe('share_folder: who, which folder, and no card for what the person asked
     const r2 = await turn('bob', `"${dir2.split('/').pop()}" 폴더 팀원들한테 공유해줘\n${sf({ folder: dir2, add: ['팀원들'] })}`, { chat, answer: 'no' })
     expect(r2.card).not.toBeNull()
     expect(peopleOn('bob', dir2)).toEqual([])
+  })
+  test('a request that leaves someone out or only asks: the card shows, nothing is shared before the yes', async () => {
+    for (const words of ['팀원들한테 공유해줘. 외주 인턴은 빼줘', 'share it with my team\nleave out the interns', '팀원들한테 공유해줘도 돼?']) {
+      const chat = await chatWith('bob', 'tess')
+      const dir = folder('bob', `Ask ${crypto.randomUUID().slice(0, 6)}`)
+      const r = await turn('bob', `${dir} ${words}\n${sf({ folder: dir, add: ['팀원들'] })}`, { chat, answer: 'no' })
+      expect([words, r.card !== null]).toEqual([words, true])
+      expect(peopleOn('bob', dir)).toEqual([])
+    }
+  })
+  test('a group literally called by a team word still shows its card', async () => {
+    const g = (h.ctx.db.query("SELECT g.id, g.name FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = 'bob' LIMIT 1").get() as { id: string; name: string })
+    h.ctx.db.query("UPDATE groups SET name = '우리팀' WHERE id = ?").run(g.id)
+    try {
+      const dir = folder('bob', 'Literal group')
+      const r = await turn('bob', `${dir} 폴더 우리팀한테 공유해줘\n${sf({ folder: dir, add: ['우리팀'] })}`, { answer: 'no' })
+      expect(r.card).not.toBeNull()
+      expect(peopleOn('bob', dir)).toEqual([])
+    } finally { h.ctx.db.query('UPDATE groups SET name = ? WHERE id = ?').run(g.name, g.id) }
   })
   test('a teammate left out by a short name: the card shows', async () => {
     h.ctx.db.query("UPDATE users SET name = '김민수' WHERE id = 'tess'").run()

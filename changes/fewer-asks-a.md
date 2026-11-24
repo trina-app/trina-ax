@@ -1,5 +1,5 @@
 - The one-time notice before a connection's first use in a shared chat now takes one press.
-- A room post you dictated with @everyone goes without a card wherever you put @everyone in your sentence, and shows Undo.
+- A room post you wrote in quotes with @everyone goes without a card wherever you put @everyone in your sentence, and shows Undo.
 - After a file that was posted to a room changes, Trina says the room still has the old copy instead of asking whether to post it again.
-- "팀원들" or "my team" now means the people of this shared chat or project. Outside those it means your one group, and you confirm on a card first.
+- "팀원들" or "my team" now means the people of this shared chat or project, otherwise your one group. A card always shows who that is before anything is shared.
 - "Share this folder" with only chat files uses what you attached to that message, never an older attachment.
