@@ -1045,11 +1045,15 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
  * replaced only when this answer read it (a read in an earlier message keeps both, as before); make_file and the
  * tools that change a named file count the chat's earlier reads too (files/service.ts ReadHashes) */
 /** `movedCheck`: a new file where a file was moved away from is said first (make_file, copies out of the work folder) */
-export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean; movedCheck?: boolean }
+/** `fetched`: the bytes are a file from outside saved exactly as it came (a web download, a connector's or a mail's
+ * attachment, a file a person sent in a room, an entry of a zip or an email), not something the AI built or changed:
+ * like a person saving a download, it keeps the earlier behaviour and skips the Office exit check (files/office-exit.ts),
+ * which is for what the AI produces. */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean; movedCheck?: boolean; fetched?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   // `chat:files/<name>` (files/place-output.ts authorizeOutput): attached to this answer, never a team file
-  if (isChatTarget(segs)) { guard?.(); return attachProduced(ctx, c, segs, produced, { turnBytes: po.turnBytes, turnFiles: po.turnFiles }) }
+  if (isChatTarget(segs)) { guard?.(); return attachProduced(ctx, c, segs, produced, { turnBytes: po.turnBytes, turnFiles: po.turnFiles, ...(po.fetched ? { fetched: true } : {}) }) }
   // a guest has the smaller pair (files/turn-write-limits.ts)
   const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
@@ -1060,7 +1064,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   const fx = files.fx
   // the one check of an AI's file going into a team folder, by its content (files/office-exit.ts): only the file it
   // replaces, in the bytes this answer read, vouches for what that file already held
-  await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, () => replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal, { read: () => readVouchers(fx.root, c.files.readHashes) })
+  if (!po.fetched) await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, () => replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal, { read: () => readVouchers(fx.root, c.files.readHashes) })
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
   // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
   const sha = await hashFile(produced)

@@ -637,7 +637,7 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call),
       // a save a scheduled task's card covered: checked again right before the copy is placed (chat/schedule-cover.ts)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}) }
-    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, thisAnswerOnly: true, detail: { type: file.mime } })
+    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, thisAnswerOnly: true, fetched: true, detail: { type: file.mime } })
     // the room file's place, for its "In team folder" link (rooms/file-saves.ts)
     recordRoomFileSave(rt.ctx, file.id, made.path, made.sha256, made.size)
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''

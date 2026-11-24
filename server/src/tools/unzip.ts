@@ -337,7 +337,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
           if (f.data.off + f.data.len > bytes.length || f.data.len !== f.size) throw new ZipProblem('damaged', 'a part is not where the archive said')
           writeRange(tmp, bytes, f.data.off, f.data.len)
         } else await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
-        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, detail: { from: src.rel } })
+        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, fetched: true, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}), ...(instructionFileName(want) ? { instruction: true as const } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e

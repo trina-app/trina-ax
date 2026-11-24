@@ -288,7 +288,7 @@ export class ChatFiles {
    * file is theirs as an upload would be). The caller puts it into the answer's attachments at once (sent()). Audited.
    * ToolError with plain words for the AI.
    */
-  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string, read: Iterable<[string, string]> = []): Promise<Attachment> {
+  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string, read: Iterable<[string, string]> = [], fetched = false): Promise<Attachment> {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = !clean || clean.includes('/') || clean.includes('\\') ? 'not a file name' : badSegment(clean)
     if (bad) throw new ToolError(`'${clean}' cannot be a file name here: ${bad}`, 'bad_name')
@@ -297,7 +297,7 @@ export class ChatFiles {
     assertStorageRoomForAI(size)
     let stored = sha256
     // the one check of an AI's file, by its content (files/office-exit.ts): the files this answer read vouch, as read
-    if (await assertSafeTeamPath(clean, src, null, undefined, { read: () => readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
+    if (!fetched && await assertSafeTeamPath(clean, src, null, undefined, { read: () => readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
     let kind = attachmentKind(clean)
     if (kind === 'image') {
       // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
