@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 05:55
 - Branch: `feat/doc-kit-mac` (on `feat/doc-skills`, PR #499; rebased onto `feat/doc-kit-everywhere` once it is pushed)
-- Status: in progress
+- Status: done (PR open; security review next)
 - Where: `scripts/office/`, `scripts/system/packages.json`, `server/src/devenv/`, `server/src/files/office-view.ts`,
   `server/src/office/`. Why: document output on the office install is core server and installer work
   (see docs/REPOSITORY-RULES.md)
@@ -64,7 +64,7 @@ dev environment; jobs and dev servers in the documents profile; a Lima VM (rejec
   through what Seatbelt allows (checked: no `ps` of others, no signals, no keychain, no launchd submit, no Apple
   events). The security review decides.
 - The render profile still allows its OSL pipe in `/private/tmp` (LibreOffice's single-instance socket).
-- Disk: about 1.2 GB more; first install downloads about 450 MB.
+- Disk: measured 1.4-1.5 GB more; first install downloads about 450 MB.
 - No migration.
 
 ## Tests
@@ -74,4 +74,22 @@ dev environment's settings, the office render profile and the kit checks.
 
 ## Result
 
-Filled in when the work is done.
+Built as planned, on `feat/doc-kit-everywhere` (the render uses its one profile and font table: the supervisor sets
+`MYCEL_KIT_FONTS_DIR` to the kit's fonts). Measured on this Mac (Apple silicon, macOS 26) in a throwaway install from the
+office zip, removed afterwards:
+
+- First install: one step, 167 s in all, the kit 143 s (LibreOffice 26.8.3 DMG sha256, Developer ID team 7P5S3ZLCN7 and
+  notarisation checked), 1.5 GB on disk (LibreOffice 808 MB, Python 367 MB, node 192 MB before the npm trim, fonts 87 MB).
+- Update, same pins: nothing downloaded, 23 s. Changed pin: unchanged parts cloned (APFS, about 240 MB more disk), 55 s,
+  switched after the stop, the kit before kept. Download fails: a warning, the old kit stays, the server answers.
+- 18 sealed held-out requests through the real AI (Claude Code, QA token): 15 built with the document skills or
+  make_file and every one looked at its pages (Word and Excel through the kit's LibreOffice, PowerPoint through the
+  deck view); the 3 Hangul template requests made Word files instead, because an office zip has no HWP plugin.
+- Escape probes in a real run: home, ~/.claude.json, the install's config, team folder, database, kit and /tmp writes,
+  the keychain item of the Claude login, network (proxy and direct), localhost, Unix sockets, ps and signals to the
+  server, launchctl submit, open, Apple events and the pasteboard all refused.
+- Korean draws (Noto Sans CJK KR in the PDF). An Excel file with no language tag drew Korean with the SC face: the
+  shared font table's language rule, reported to the shared branch.
+- Changed from the plan: the kit fonts are Noto Sans/Serif CJK (the families the shared font table names), not Noto KR;
+  LibreOffice for Mac brings Carlito, Caladea and Liberation itself. node aborts when its output goes to /dev/null
+  inside srt on macOS (the box_shell text says so). Intel Macs: pinned, not tested.
