@@ -77,6 +77,56 @@ export function zipNames(size: number, readAt: ReadAt): string[] | 'unreadable' 
   return names
 }
 
+/** the streams and storages that make a compound file an Office document or give it macros */
+const OLE_OFFICE_STREAMS = new Set(['worddocument', 'workbook', 'book', 'powerpoint document', '_vba_project_cur', 'vba', 'macros', '_vba_project', 'objectpool'])
+
+/** Every stream and storage name of an OLE2 compound file (MS-CFB), read through its FAT; 'unreadable' when its header,
+ * FAT or directory chain cannot be followed. */
+export function oleStreamNames(size: number, readAt: ReadAt): string[] | 'unreadable' {
+  try {
+    const h = readAt(0, 512)
+    if (h.length < 512) return 'unreadable'
+    const hv = new DataView(h.buffer, h.byteOffset, 512)
+    const shift = hv.getUint16(0x1e, true)
+    if (shift !== 9 && shift !== 12) return 'unreadable'
+    const sec = 1 << shift
+    const at = (n: number) => (n + 1) * sec
+    const fatSectors: number[] = []
+    for (let i = 0; i < 109; i++) { const n = hv.getUint32(0x4c + i * 4, true); if (n < 0xfffffffa) fatSectors.push(n) }
+    // more FAT sectors through the DIFAT chain
+    let difat = hv.getUint32(0x44, true), guard = 0
+    while (difat < 0xfffffffa) {
+      if (++guard > 100_000 || at(difat) + sec > size) return 'unreadable'
+      const d = readAt(at(difat), sec), dv = new DataView(d.buffer, d.byteOffset, d.length)
+      for (let i = 0; i < sec / 4 - 1; i++) { const n = dv.getUint32(i * 4, true); if (n < 0xfffffffa) fatSectors.push(n) }
+      difat = dv.getUint32(sec - 4, true)
+    }
+    if (fatSectors.length > 1_000_000) return 'unreadable'
+    const fatCache = new Map<number, DataView>()
+    const next = (n: number) => {
+      const per = sec / 4, fs_ = fatSectors[Math.floor(n / per)]
+      if (fs_ === undefined || at(fs_) + sec > size) throw new Error('fat')
+      let v = fatCache.get(fs_)
+      if (!v) { const b = readAt(at(fs_), sec); v = new DataView(b.buffer, b.byteOffset, b.length); fatCache.set(fs_, v) }
+      return v.getUint32((n % per) * 4, true)
+    }
+    const names: string[] = []
+    let dir = hv.getUint32(0x30, true), steps = 0
+    while (dir < 0xfffffffa) {
+      if (++steps > 200_000 || at(dir) + sec > size) return 'unreadable'
+      const b = readAt(at(dir), sec)
+      for (let o = 0; o + 128 <= b.length; o += 128) {
+        const e = new DataView(b.buffer, b.byteOffset + o, 128)
+        const type = e.getUint8(0x42), len = e.getUint16(0x40, true)
+        if (type === 0 || len < 2 || len > 64) continue
+        names.push(Buffer.from(b.subarray(o, o + len - 2)).toString('utf16le'))
+      }
+      dir = next(dir)
+    }
+    return names
+  } catch { return 'unreadable' }
+}
+
 export type ContentKind = { office: 'docx' | 'pptx' | 'xlsx'; names: string[] } | { opaque: string } | { shortcut: string } | null
 
 /** What a file is by its bytes (the name only for shortcuts, which are plain text). Fail closed: a zip whose directory
@@ -86,7 +136,14 @@ export function contentKind(name: string, size: number, readAt: ReadAt): Content
   const head = readAt(0, HEAD_BYTES)
   const text = Buffer.from(head).toString('latin1').replace(/^\uFEFF/, '').trimStart()
   if (/^\[(InternetShortcut|\.ShellClassInfo|Shell)\]/i.test(text) || /<(libraryDescription|searchConnectorDescription)\b/.test(text)) return { shortcut: 'a Windows shortcut' }
-  if (startsWith(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) return { opaque: 'a legacy Office file (.doc, .xls, .ppt)' }
+  if (startsWith(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) {
+    // OLE2 holds many formats (an Outlook .msg, an installer, thumbs.db): only an Office document or a macro storage is
+    // Office here, by its streams; a directory that cannot be read is refused (fail closed)
+    const streams = oleStreamNames(size, readAt)
+    if (streams === 'unreadable') return { opaque: 'a compound file whose contents could not be listed' }
+    if (streams.some((n) => OLE_OFFICE_STREAMS.has(n.toLowerCase()))) return { opaque: 'a legacy Office file (.doc, .xls, .ppt)' }
+    return null
+  }
   if (/^\{\\rtf/i.test(text)) return { opaque: 'an RTF document' }
   if (/^MIME-Version:/im.test(text.slice(0, 2048)) && /multipart\/related/i.test(text)) return { opaque: 'a web archive (MHT)' }
   const names = zipNames(size, readAt)
@@ -138,7 +195,7 @@ export function officeKind(name: string): 'docx' | 'pptx' | 'xlsx' | null {
 /** A file on disk as the AI is about to place it (`abs`): checked like assertSafeTeamFile, reading only its head and
  * tail unless it is an Office file; a cleaned Office file (its attached template taken out) is written back to `abs`.
  * Returns whether the bytes changed. */
-export async function assertSafeTeamPath(name: string, abs: string, replaced: Uint8Array | null, signal?: AbortSignal, o: { writeBack?: boolean; read?: Uint8Array[] } = {}): Promise<boolean> {
+export async function assertSafeTeamPath(name: string, abs: string, replaced: Uint8Array | null | (() => Uint8Array | null), signal?: AbortSignal, o: { writeBack?: boolean; read?: Uint8Array[] | (() => Uint8Array[]) } = {}): Promise<boolean> {
   const fd = fs.openSync(abs, 'r')
   let size: number, k: ContentKind
   try { size = fs.fstatSync(fd).size; k = contentKind(name, size, fdReader(fd)) } finally { fs.closeSync(fd) }
@@ -148,7 +205,8 @@ export async function assertSafeTeamPath(name: string, abs: string, replaced: Ui
   if ('opaque' in k && size > OFFICE_EXIT_EARLIER_MAX) throw new ToolError(`'${name}' is ${k.opaque}, which cannot be checked for links that leave the file`, 'office_unsafe')
   if (size > OFFICE_WRITE_MAX) throw new ToolError(`'${name}' is too large to be checked for links that leave the file`, 'office_unsafe')
   const bytes = new Uint8Array(fs.readFileSync(abs))
-  const out = await assertSafeTeamFile(name, bytes, replaced, signal, o.read ?? [])
+  // what vouches is read only now, for an Office-like file (a plain file never costs a read of anything else)
+  const out = await assertSafeTeamFile(name, bytes, typeof replaced === 'function' ? replaced() : replaced, signal, typeof o.read === 'function' ? o.read() : o.read ?? [])
   if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0 || o.writeBack === false) return false
   fs.writeFileSync(abs, out)
   return true

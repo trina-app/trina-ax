@@ -1060,7 +1060,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   const fx = files.fx
   // the one check of an AI's file going into a team folder, by its content (files/office-exit.ts): only the file it
   // replaces, in the bytes this answer read, vouches for what that file already held
-  await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal, { read: readVouchers(fx.root, c.files.readHashes) })
+  await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, () => replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal, { read: () => readVouchers(fx.root, c.files.readHashes) })
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
   // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
   const sha = await hashFile(produced)

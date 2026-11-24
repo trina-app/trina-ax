@@ -297,7 +297,7 @@ export class ChatFiles {
     assertStorageRoomForAI(size)
     let stored = sha256
     // the one check of an AI's file, by its content (files/office-exit.ts): the files this answer read vouch, as read
-    if (await assertSafeTeamPath(clean, src, null, undefined, { read: readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
+    if (await assertSafeTeamPath(clean, src, null, undefined, { read: () => readVouchers(this.ctx.files.fx.root, read) })) stored = createHash('sha256').update(fs.readFileSync(src)).digest('hex')
     let kind = attachmentKind(clean)
     if (kind === 'image') {
       // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
@@ -655,7 +655,7 @@ export class ChatFiles {
         // answer read
         const head = this.headOf(root.id) ?? root
         const vouch = turn?.readHashes && [...turn.readHashes.values()].includes(head.sha256) ? replacedAsRead(this.abs(head), head.sha256) : null
-        if (await assertSafeTeamPath(root.name, dst, vouch, undefined, { read: turn?.readHashes ? readVouchers(this.ctx.files.fx.root, turn.readHashes) : [] })) sha = createHash('sha256').update(fs.readFileSync(dst)).digest('hex')
+        if (await assertSafeTeamPath(root.name, dst, vouch, undefined, { read: () => (turn?.readHashes ? readVouchers(this.ctx.files.fx.root, turn.readHashes) : []) })) sha = createHash('sha256').update(fs.readFileSync(dst)).digest('hex')
       }
       let kind = attachmentKind(root.name)
       if (kind === 'image') {

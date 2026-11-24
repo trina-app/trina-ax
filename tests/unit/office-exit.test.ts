@@ -56,9 +56,26 @@ describe('the exit check', () => {
     const pdf = enc.encode('%PDF-1.7')
     expect(await assertSafeTeamFile('a.pdf', pdf, null)).toBe(pdf)
   })
+  test('an OLE2 file is Office only by its streams: a Word document is opaque, an Outlook message is not', () => {
+    const cfb = (stream: string) => {
+      // one 512-byte header, a FAT sector (0), a directory sector (1)
+      const b = new Uint8Array(512 * 3); const v = new DataView(b.buffer)
+      b.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]); v.setUint16(0x1e, 9, true); v.setUint32(0x2c, 1, true); v.setUint32(0x30, 1, true); v.setUint32(0x44, 0xfffffffe, true)
+      v.setUint32(0x4c, 0, true); for (let i = 1; i < 109; i++) v.setUint32(0x4c + i * 4, 0xffffffff, true)
+      const fat = 512; v.setUint32(fat, 0xfffffffd, true); v.setUint32(fat + 4, 0xfffffffe, true); for (let i = 2; i < 128; i++) v.setUint32(fat + i * 4, 0xffffffff, true)
+      const put = (o: number, name: string, type: number) => { const n = Buffer.from(name + '\0', 'utf16le'); b.set(n, 1024 + o); v.setUint16(1024 + o + 0x40, n.length, true); b[1024 + o + 0x42] = type }
+      put(0, 'Root Entry', 5); put(128, stream, 2)
+      return b
+    }
+    const doc = cfb('WordDocument'), msg = cfb('__substg1.0_0037001F')
+    expect(contentKind('a.doc', doc.length, bytesReader(doc))).toMatchObject({ opaque: expect.stringMatching(/legacy Office/) })
+    expect(contentKind('mail.msg', msg.length, bytesReader(msg))).toBeNull()
+    const broken = doc.slice(0, 600)
+    expect(contentKind('a.doc', broken.length, bytesReader(broken))).toMatchObject({ opaque: expect.stringMatching(/could not be listed/) })
+  })
   test('formats that cannot be read inside pass only as the replaced file\'s own bytes; shortcuts never', async () => {
     const ole = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 1, 2, 3])
-    await expect(assertSafeTeamFile('a.doc', ole, null)).rejects.toThrow(/legacy Office/)
+    await expect(assertSafeTeamFile('a.doc', ole, null)).rejects.toThrow(/could not be listed/)
     expect(await assertSafeTeamFile('a.doc', ole, ole)).toBe(ole)
     await expect(assertSafeTeamFile('a.txt', enc.encode('{\\rtf1 {\\field{\\*\\fldinst INCLUDEPICTURE "\\\\\\\\h\\\\s"}}}'), null)).rejects.toThrow(/RTF/)
     await expect(assertSafeTeamFile('a.mht', enc.encode('MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=x\r\n'), null)).rejects.toThrow(/MHT/)
