@@ -46,42 +46,56 @@ export function opaqueValue(s: string): boolean {
   return looksRandom(v) || (/^[A-Za-z0-9+/=]{32,}$/.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v))
 }
 
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
+/** characters that show nothing or turn text around (bidi controls, joiners aside): never in a step line */
+const INVISIBLE = /(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu
+const oneLine = (s: string) => s.replace(INVISIBLE, '').replace(/\s+/g, ' ').trim()
 const clipEnd = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s)
 /** a path cut at its start: the end names the file */
 const clipStart = (s: string, n: number) => (s.length > n ? '…' + s.slice(s.length - n + 1) : s)
 
-/** An address as a step shows it: host (no "www.") and path, no scheme, user, query or fragment; an id in the path as "…". */
-export function stepUrl(raw: string, max = 60): string | null {
-  let u: URL
-  try { u = new URL(raw.trim()) } catch { return null }
-  if (!/^https?:$|^wss?:$|^ftp:$/.test(u.protocol)) return null
-  const host = u.hostname.replace(/^www\./, '')
-  const segs = u.pathname.split('/').filter(Boolean).map((p) => { let d = p; try { d = decodeURIComponent(p) } catch {} return opaqueValue(d) || maskSecrets(d) !== d ? '…' : d })
-  const shown = [host, ...segs].join('/').replace(/(?:\/…)+/g, '/…')
-  return maskSecrets(clipEnd(shown, max), '…')
+/** The secrets in a value left out, before anything cuts it (a cut through a key would leave part of it): what
+ * findSecrets finds, a value after a flag or label named like a secret ("--password=…", "--token …", "-p<password>" of a
+ * command), and a session id in an address's path (";jsessionid=…"). */
+export function hideInValue(v: string, command = false): string {
+  let out = v.replace(/;\s*jsessionid=[^/?#\s]*/gi, '')
+    .replace(/((?:^|[\s"'])--?(?:password|passwd|pass|pwd|passphrase|token|secret|api[-_]?key|apikey|auth|authorization)(?:=|:\s*|\s+))(?:"[^"]*"|'[^']*'|\S+)/gi, '$1…')
+  if (command) out = out.replace(/(^|\s)-p(?!\s)\S+/g, '$1-p…')
+  return maskSecrets(out, '…').replace(/(?:…\s*){2,}/g, '…')
 }
 
-/** A value of the kind its argument is, as a step shows it, or null when nothing in it may show. */
+/** An address as a step shows it: host (no "www.") and path, no scheme, user, query, fragment or path parameters
+ * (";jsessionid=…"); an id or a key in the path as "…". Secrets out first, then cut. */
+export function stepUrl(raw: string, max = 60): string | null {
+  let u: URL
+  try { u = new URL(oneLine(raw)) } catch { return null }
+  if (!/^https?:$|^wss?:$|^ftp:$/.test(u.protocol)) return null
+  const host = u.hostname.replace(/^www\./, '')
+  const segs = u.pathname.split('/').filter(Boolean).map((p) => { let d = p.split(';')[0]!; try { d = decodeURIComponent(d) } catch {} d = oneLine(d); return !d || opaqueValue(d) || hideInValue(d) !== d ? '…' : d })
+  const shown = hideInValue([host, ...segs].join('/').replace(/(?:\/…)+/g, '/…'))
+  return clipEnd(shown, max)
+}
+
+/** An address of a kind no step shows (a file on this computer, inline data, script): never in a line */
+const OTHER_SCHEME = /^(?:file|data|javascript|vbscript|blob|about|chrome|jar|smb):/i
+
+/** A value of the kind its argument is, as a step shows it, or null when nothing in it may show. Secrets come out of
+ * the whole value first; only then is it cut to fit. */
 export function stepValue(value: string, kind: KeyKind): { text: string; quoted: boolean } | null {
   const v = oneLine(value)
   if (!v || opaqueValue(v)) return null
   const looksUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(v)
-  if (kind === 'url' || looksUrl) {
+  if (kind === 'url' || looksUrl || OTHER_SCHEME.test(v)) {
     const u = stepUrl(v)
-    if (u) return { text: u, quoted: false }
-    if (kind === 'url') return null
+    return u ? { text: u, quoted: false } : null
   }
   // one long run without a space, a dot or a slash is no words a person wrote (a key, a token, an encoded blob)
   if (kind !== 'path' && kind !== 'command' && !/[\s./]/.test(v) && v.length >= 40) return null
-  let text: string
-  if (kind === 'path') text = clipStart(v, 60)
-  else if (kind === 'command') text = clipEnd(value.trim().split('\n')[0]!.trim(), 60)
-  else text = clipEnd(v, 60)
-  // a secret inside the words is left out, and a value that was all secret shows nothing
-  const masked = maskSecrets(text, '…').replace(/(?:…\s*){2,}/g, '…')
+  const whole = kind === 'command' ? oneLine(value.trim().split('\n')[0]!) : v
+  const masked = hideInValue(whole, kind === 'command')
+  // a value that was all secret shows nothing
   if (!/[\p{L}\p{N}]/u.test(masked.replace(/…/g, ''))) return null
-  return { text: masked, quoted: kind === 'text' }
+  const text = kind === 'path' ? clipStart(masked, 60) : clipEnd(masked, 60)
+  return { text, quoted: kind === 'text' }
 }
 
 type Schema = { properties?: Record<string, unknown>; required?: unknown } | null | undefined

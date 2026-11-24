@@ -14,14 +14,20 @@
 - **Never shown:** an argument whose name says secret (token, key, password, auth, cookie, session, signature …), a
   value that looks like a secret (`findSecrets`: removed, the words around it stay) or a random id (UUID, hex, base64,
   generated runs), an address's scheme, user, query and fragment (an id in its path is "…"), anything but http(s),
-  ws(s) and ftp addresses. Text is cut to 60 characters on one line; a path keeps its end.
+  ws(s) and ftp addresses (a `file:`, `data:` or script address in any argument shows nothing), a value after a flag
+  or label named like a secret (`--password=…`, `--token …`, a command's `-p<password>`), a path's `;jsessionid=…`,
+  characters that show nothing or turn text around (bidi controls). Secrets come out of the whole value first; only
+  then is it cut to 60 characters on one line (a path keeps its end), so a cut never leaves part of a key.
 - **Where:** connection tools and `call_tool` (`<service> · <tool> · "<query>"`), `api_request` (the path without its
   query), and any tool without words of its own. Built-in tools keep their own lines. A card's question keeps the
   tool's words alone (`label(…, { bare: true })`): the card lists every value itself.
-- **What came back** (`Step.outcome`): `count` only when the service's answer is JSON with one list (or one named like
-  results / items / data …); `end` from the server's own reason (declined, no answer, skipped in a shared chat, not
+- **What came back** (`Step.outcome`): `count` only when the service's answer is a JSON list, or an object with exactly
+  one list named like results / items / data … (a task's labels or an empty warnings list is no count); `end` from the server's own reason (declined, no answer, skipped in a shared chat, not
   allowed, failed); a service's error answer's first line as the step's detail. Beside the line in words; a failed step
-  the AI got past says "Didn't work" in place, not only in a tooltip.
+  the AI got past says "Didn't work" in place, not only in a tooltip. The outcome goes to the step of the very call by
+  the engine's id of it (Claude Code's `_meta`), so calls side by side and sub-agents' calls never swap results; an
+  outcome that comes before its step waits for it. Without an id (Codex, the API engine) the main AI's oldest running
+  step of that tool.
 - **Narrow screens:** the server marks the line's end that is the key input (`Step.key`, the runner's alone). Below the
   `sm` width the tool's words stay on the first line with the result on the right, and the key input goes on its own
   dimmer line under them, wrapping, never cut (only the 60-character cap cuts it). A folded run's calls wrap the same
@@ -30,7 +36,7 @@
   opens to each call's input, like Claude Code's grouped calls. While the answer runs, the last steps show one by one.
 - **Everywhere:** the line and the outcome are written by the server at the one place every step comes from (chat/turn.ts
   tool_start, chat/tools.ts after the call), so private and project chats, scheduled runs, sub-tasks (a sub-agent's call
-  patches its own step under its sub-task, `patchAgentStep`) and both engines (Claude Code, Codex's MCP calls) get it.
+  patches its own step by its id, `patchStepOf`) and both engines (Claude Code, Codex's MCP calls) get it.
   The web step list is the one the desktop apps and the phone app show. Web searches keep their own lines: the query
   and the result count, as before (Codex's too, codex-search-step.ts).
 - **Shared chats:** unchanged ([20261124-shared-chat-card-steps.md](20261124-shared-chat-card-steps.md)): everyone but

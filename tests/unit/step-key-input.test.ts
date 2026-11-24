@@ -109,3 +109,31 @@ describe('step lines', () => {
     expect(stepLabel('drive_read', { file_id: 'abc', name: 'x' }, 'en', NO_BROWSER)).toBe(stepLabel('drive_read', {}, 'en', NO_BROWSER))
   })
 })
+
+describe('secrets come out before the cut (review of #513)', () => {
+  const noPart = (text: string | undefined, secret: string) => { for (let n = 6; n <= secret.length; n++) for (let i = 0; i + n <= secret.length; i += 3) expect(text ?? '').not.toContain(secret.slice(i, i + n)) }
+  test('a key that straddles the 60-character cut leaves no part of itself', () => {
+    const gh = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    for (let pad = 30; pad <= 62; pad += 4) {
+      const k = stepKeyInput({ query: 'find the founders '.padEnd(pad, '.') + ' please: ' + gh })
+      noPart(k?.text, gh)
+    }
+    const bearer = 'abcDEF1234567890xyzXYZ7788'
+    for (let pad = 20; pad <= 60; pad += 5) noPart(stepKeyInput({ command: `curl -s https://api.example.com/${'v'.repeat(pad)} -H "Authorization: Bearer ${bearer}"` })?.text, bearer)
+    const aws = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+    for (let pad = 20; pad <= 60; pad += 5) noPart(stepKeyInput({ text: `${'set the key '.padEnd(pad, '.')} aws_secret_access_key=${aws}` })?.text, aws)
+  })
+
+  test('short passwords after a flag, a session id in a path, file: and other schemes, invisible characters', () => {
+    expect(stepKeyInput({ command: 'mysql -u root -pS3cr3t! shop' })?.text).toBe('mysql -u root -p… shop')
+    expect(stepKeyInput({ command: 'tool --password=hunter2 --user bob' })?.text).toBe('tool --password=… --user bob')
+    expect(stepKeyInput({ command: 'tool --token abc123 run' })?.text).toBe('tool --token … run')
+    expect(stepKeyInput({ command: 'mkdir -p out' })?.text).toBe('mkdir -p out')
+    expect(stepUrl('https://shop.example.com/cart;jsessionid=A1B2C3D4/view')).toBe('shop.example.com/cart/view')
+    expect(stepKeyInput({ name: 'file:///Users/alice/.ssh/id_rsa' })).toBeNull()
+    expect(stepKeyInput({ query: 'data:text/html;base64,PHNjcmlwdD4=' })).toBeNull()
+    expect(stepKeyInput({ query: 'Note: plain words' })?.text).toBe('Note: plain words')
+    expect(stepKeyInput({ query: 'invoice \u202Egpj.exe\u200B list' })?.text).toBe('invoice gpj.exe list')
+  })
+})
+

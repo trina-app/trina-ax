@@ -336,8 +336,9 @@ describe('external-service connections in a turn', () => {
       // Codex (its MCP calls come as mcp_tool_call items)
       const codex = await run(await h.api('alice').call(API.createChat, { body: { engine: 'codex' } }), fake(call('codex founders'), { say: 'ok' }))
       expect(codex.find((s) => s.tool === 'my_tasks__search_tasks')).toMatchObject({ label: 'Tasks · Search tasks · "codex founders"', outcome: { count: 2 } })
-      // a sub-task's own calls, under it
-      const sub = await run(await h.api('alice').call(API.createChat, { body: {} }), fake({ agents: [{ id: 'a1', type: 'general-purpose', description: 'look up', steps: [call('sub one'), call('sub two')] }] }, { say: 'ok' }))
+      // a sub-task's own calls, under it, each result on its own call's step by the call's id (the second call's stream
+      // line comes after its result: kept until the step is there)
+      const sub = await run(await h.api('alice').call(API.createChat, { body: {} }), fake({ agents: [{ id: 'a1', type: 'general-purpose', description: 'look up', steps: [call('sub one'), { ...call('sub two'), lateLine: 500 }] }] }, { say: 'ok' }))
       const kids = sub.filter((s) => s.parentId && s.tool === 'my_tasks__search_tasks')
       expect(kids.map((s) => s.label).sort()).toEqual(['Tasks · Search tasks · "sub one"', 'Tasks · Search tasks · "sub two"'])
       for (const k of kids) expect(k.outcome).toEqual({ count: 2 })

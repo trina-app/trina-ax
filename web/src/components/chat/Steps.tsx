@@ -477,8 +477,12 @@ export function runHead(labels: string[]): string {
   let p = labels[0] ?? ''
   for (const l of labels.slice(1)) { let n = 0; while (n < p.length && n < l.length && p[n] === l[n]) n++; p = p.slice(0, n) }
   if (labels.every((l) => l === p)) return p
-  const cut = Math.max(p.lastIndexOf(' · '), p.lastIndexOf(' "'))
-  return cut > 0 ? p.slice(0, cut).replace(/\s*·\s*$/, '') : ''
+  // the last place a part of the line ends that is not inside a quoted query ("a · b" is one query)
+  for (let i = p.length; i > 0; i--) {
+    if (!(p.startsWith(' · ', i) || p.startsWith(' "', i))) continue
+    if (((p.slice(0, i).match(/"/g) ?? []).length % 2) === 0) return p.slice(0, i).replace(/\s*·\s*$/, '')
+  }
+  return ''
 }
 
 /** One row for a run of calls of the same tool: its words, how many calls, how many did not work; opens to each call. */

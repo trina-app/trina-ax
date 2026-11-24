@@ -22,7 +22,7 @@ import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTI
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
-import type { ToolCard, TurnTool, TurnToolContext } from '../services'
+import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
@@ -124,7 +124,7 @@ export interface Tool {
    * read a room skips the room card for it only when its task's card allowed both (chat/schedule-cover.ts) */
   sendsTo?(args: unknown): string | null
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
-  call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string; beforeDelivery?: () => void }>
+  call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string; beforeDelivery?: () => void; stepOutcome?: TurnToolResult['stepOutcome'] }>
 }
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -572,6 +572,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
     if (again) return { ...text(again, true), summary: `${name} -> ${roomShort(again)} (room)` }
     const out = await t.call(args, files)
+    // what it came back with ("10 results", "Declined") and a service's error in its words, beside its step's line
+    // (Step.outcome; docs/decisions/20261124-step-key-input.md): on the step of this very call, by its id
+    if (out.stepOutcome) {
+      const { detail, ...outcome } = out.stepOutcome
+      exec.patchStepOf({ id: caller?.toolUseId ?? null, tool: name, agent: callerOf(files, exec.files) }, { ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) })
+    }
     // what it brought back, for auto memory's copy check (chat/auto-memory.ts; never kept on disk)
     exec.noteOutside(name, resultText(out.content), out.content.filter((c) => c.type === 'image').length)
     // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
@@ -1265,19 +1271,10 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
         const scheduled = r.stepScheduled
         exec.patchToolStep(t.name, () => ({ scheduled }))
       }
-      // what it came back with ("10 results", "Declined") and a service's error in its words, beside its step's line
-      // (Step.outcome; docs/decisions/20261124-step-key-input.md). The main AI's call only, as above
-      // A sub-agent's call: its own step under its sub-task (TurnExec.patchAgentStep); an agent not known: none
-      if (r.stepOutcome) {
-        const { detail, ...outcome } = r.stepOutcome
-        const patch = { ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) }
-        const who = callerOf(files, exec.files)
-        if (!who.helper) exec.patchToolStep(t.name, () => patch)
-        else if (who.key !== '?') exec.patchAgentStep(who.key, t.name, patch)
-      }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
-      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
+      // what it came back with goes to its step by the call's id (callTool below)
+      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}), ...(r.stepOutcome ? { stepOutcome: r.stepOutcome } : {}) }
     },
   }
 }

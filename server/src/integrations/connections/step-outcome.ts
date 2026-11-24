@@ -9,7 +9,8 @@ import type { StepOutcome } from '@mycel/shared/api'
 const LIST_NAMES = new Set(['results', 'items', 'data', 'hits', 'records', 'entries', 'rows', 'list', 'organic', 'matches', 'documents', 'files', 'pages', 'issues', 'messages'])
 const MAX_JSON = 2_000_000
 
-/** How many items an answer lists: a JSON list, or an object with one list (or one named like a result list). */
+/** How many items an answer lists: a JSON list, or an object with exactly one list named like a result list. Any other
+ * list in an object (a task's labels, an empty list of warnings) is no count of results. */
 export function answerCount(structured: unknown, text: string): number | undefined {
   let v: unknown = structured
   if (v === undefined || v === null) {
@@ -19,9 +20,7 @@ export function answerCount(structured: unknown, text: string): number | undefin
   }
   if (Array.isArray(v)) return v.length
   if (!v || typeof v !== 'object') return undefined
-  const lists = Object.entries(v as Record<string, unknown>).filter(([, x]) => Array.isArray(x)) as [string, unknown[]][]
-  if (lists.length === 1) return lists[0]![1].length
-  const named = lists.filter(([k]) => LIST_NAMES.has(k.toLowerCase()))
+  const named = Object.entries(v as Record<string, unknown>).filter(([k, x]) => Array.isArray(x) && LIST_NAMES.has(k.toLowerCase())) as [string, unknown[]][]
   return named.length === 1 ? named[0]![1].length : undefined
 }
 

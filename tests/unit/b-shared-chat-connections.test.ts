@@ -436,3 +436,46 @@ describe('the instructions and the provider in a shared chat', () => {
     expect(lateHides([g], 'gina')).toBe(true)
   })
 })
+
+// docs/decisions/20261124-step-key-input.md: a connection step's key input and what came back are the asker's alone,
+// live (message.step, message.done over the socket) and stored, in a shared project chat and in a chat shared later
+describe('step details stay the asker\'s', () => {
+  const QUERY = 'YC Korea founders 2025'
+  // (the person's own message names the query: everyone in the chat reads it; only the steps are checked)
+  const leaks = (v: unknown) => { const s = JSON.stringify(v); return s.includes(QUERY) || s.includes('"outcome"') || s.includes('"key"') }
+  const stepsOf = (frames: unknown[]) => frames.map((f) => { const d = (f as { type: string; data: { step?: unknown; message?: { steps?: unknown } } }); return d.type === 'message.step' ? d.data.step : d.data.message?.steps })
+  const listedSteps = (r: { items: { steps: unknown[] }[] }) => r.items.map((m) => m.steps)
+  test('a shared project chat: alice sees the query and the count; bob, live and stored, the generic word', async () => {
+    svc.results.search_tasks = { content: [{ type: 'text', text: JSON.stringify({ results: [{ t: 'a' }, { t: 'b' }] }) }] }
+    try {
+      const chat = await newShared()
+      const from = ws.bob!.frames.length
+      const r = await ask('alice', chat.id, fake({ tool: TEAM_TOOL, args: { q: QUERY } }, { say: 'ok' }))
+      const mine = r.done.steps.find((s) => s.tool === TEAM_TOOL)!
+      expect(mine.label).toBe(`Bright Data · Search tasks · "${QUERY}"`)
+      expect(mine.outcome).toEqual({ count: 2 })
+      expect(mine.key).toBe(` · "${QUERY}"`)
+      await waitFor(() => ws.bob!.frames.slice(from).some((f) => f.type === 'message.done'), { timeoutMs: 15_000 })
+      const bobFrames = ws.bob!.frames.slice(from).filter((f) => f.type === 'message.step' || f.type === 'message.done')
+      expect(bobFrames.some((f) => f.type === 'message.step')).toBe(true)
+      expect(leaks(stepsOf(bobFrames))).toBe(false)
+      expect(leaks(listedSteps(await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })))).toBe(false)
+    } finally { delete svc.results.search_tasks }
+  })
+
+  test('a chat shared after the run: its earlier steps reach bob without query, outcome or key', async () => {
+    svc.results.search_tasks = { content: [{ type: 'text', text: JSON.stringify([{ t: 'a' }]) }] }
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await ask('alice', chat.id, fake({ tool: TEAM_TOOL, args: { q: QUERY } }, { say: 'ok' }))
+      expect(r.done.steps.find((s) => s.tool === TEAM_TOOL)?.outcome).toEqual({ count: 1 })
+      const body = { subjects: [{ subjectType: 'user' as const, subjectId: 'bob' }] }
+      const first = await h.api('alice').call(API.putChatAudience, { params: { id: chat.id }, body })
+      if (first.status === 'confirm') await h.api('alice').call(API.putChatAudience, { params: { id: chat.id }, body: { ...body, confirmKey: first.confirmKey } })
+      const forBob = await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })
+      expect(forBob.items.some((m) => m.steps.length)).toBe(true)
+      expect(leaks(listedSteps(forBob))).toBe(false)
+      expect(leaks(listedSteps(await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })))).toBe(true)
+    } finally { delete svc.results.search_tasks }
+  })
+})

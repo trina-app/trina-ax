@@ -20,7 +20,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, knownStepTool, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { webAllowAll } from '../tools/web-allow-all'
@@ -628,6 +628,8 @@ export class TurnExec {
   /** Codex searches the model proxy took and whose item has not ended yet (chat/codex-search-step.ts) */
   private searchAsks: SearchAsk[] = []
   private patched = new Set<string>()
+  /** a call's outcome that came before its step (patchStepOf), by the step's id */
+  private outcomeById = new Map<string, Partial<StoredStep>>()
   private pendingPatches = new Map<string, ((s: Step) => Partial<StoredStep>)[]>()
   private attemptHadOutput = false
   /** set by the model proxy (upstream 401, budget used up, subscription limit): ends the turn with this error */
@@ -2272,6 +2274,8 @@ export class TurnExec {
         // of the work folder by the path the step shows, never the server's own
         // (set whole: an engine that numbers its calls again in a relaunch reuses an id, never the old call's note)
         if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input), undefined, tool) }, true)
+        const early = this.outcomeById.get(step.id)
+        if (early) { this.outcomeById.delete(step.id); this.updateStep(step.id, early) }
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -2593,15 +2597,18 @@ export class TurnExec {
     this.pendingPatches.set(tool, q)
   }
 
-  /** A sub-agent's call adds to its own step (Step.outcome, docs/decisions/20261124-step-key-input.md): the oldest
-   * running step of that tool under that sub-task. One sub-agent's calls of a connection run one at a time (only the
-   * read-only file tools run side by side), so the order holds per sub-agent. A step not in the stream yet: nothing. */
-  patchAgentStep(agent: string, tool: string, patch: Partial<StoredStep>) {
-    const parent = stepId(agent)
-    const s = this.steps.find((x) => x.tool === tool && x.parentId === parent && x.status === 'running' && !this.patched.has(x.id))
-    if (!s) return
-    this.patched.add(s.id)
-    this.updateStep(s.id, patch)
+  /** What one call came back with, onto that call's own step (Step.outcome, docs/decisions/20261124-step-key-input.md):
+   * by the engine's id of the call (Claude Code gives it), so calls side by side and a sub-agent's calls never swap
+   * results; a step the stream has not named yet gets it when it does (tool_start). Without an id (Codex, the API engine:
+   * no sub-agents, and a connection's calls run one at a time) the main AI's oldest running step of that tool. */
+  patchStepOf(call: { id: string | null; tool: string; agent: { helper: boolean } }, patch: Partial<StoredStep>) {
+    if (call.id) {
+      const id = stepId(call.id)
+      if (this.steps.some((x) => x.id === id)) this.updateStep(id, patch)
+      else this.outcomeById.set(id, patch)
+      return
+    }
+    if (!call.agent.helper) this.patchToolStep(call.tool, () => patch)
   }
 
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
@@ -6611,6 +6618,9 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   // may steer the AI (review of the plain-words change)
   if (tool === 'box_shell') return shellCardWords(typeof a.command === 'string' ? a.command : '', L)
   if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
+  // a tool without words of its own: its name alone, never its key input (the card lists every value itself:
+  // docs/decisions/20261124-step-key-input.md)
+  if (!knownStepTool(tool) && !BROWSER_TOOL_NAMES.has(tool)) return stepLabel(tool, {}, L, BROWSER_TOOL_NAMES)
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
 }
 

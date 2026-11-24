@@ -12,7 +12,9 @@ export type McpContent = { type: 'text'; text: string } | { type: 'image'; data:
 /** Tools of one turn besides the six file tools (set by the chat runtime before the engine starts). */
 /** Who made a tool call: the turn state of that agent (the main AI, or one of its sub-agents: its own read-before-write
  * state, TurnFiles.forAgent). Without it, the main AI's. */
-export interface ToolCaller { files: TurnFiles }
+/** `toolUseId`: the engine's id of the call when it gives one (Claude Code's `_meta` "claudecode/toolUseId"): the step
+ * a call's outcome belongs to (chat/turn.ts patchStepOf); absent for Codex and the API engine */
+export interface ToolCaller { files: TurnFiles; toolUseId?: string }
 export interface TurnToolSet {
   list(): { name: string; description: string; inputSchema: Record<string, unknown> }[]
   has(name: string): boolean

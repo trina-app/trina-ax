@@ -69,6 +69,8 @@ describe('runs of one tool fold', () => {
     expect(runHead(labels)).toBe('Bright Data · Search Engine')
     expect(runRest(labels[0]!, 'Bright Data · Search Engine')).toBe('"query 0"')
     expect(runHead(['Read · a/b.md', 'Read · a/c.md', 'Read · a/d.md'])).toBe('Read')
+    // a query with " · " in it is one query: the line is never cut inside its quotes (review of #513)
+    expect(runHead(['Svc · Search · "a · b one"', 'Svc · Search · "a · b two"', 'Svc · Search · "a · b three"'])).toBe('Svc · Search')
     expect(runRest('Read', 'Read')).toBe('Read')
   })
 

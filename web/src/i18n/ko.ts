@@ -815,7 +815,7 @@ export const ko = {
   'steps.someFailed': '실패한 단계가 있어요',
   'steps.results': '결과 {n}개',
   'steps.retriedShort': "안 됨",
-  'steps.endDeclined': "거절함",
+  'steps.endDeclined': "거절됨",
   'steps.endUnanswered': "답 없음",
   'steps.endSkipped': "건너뜀",
   'steps.endRefused': "허용 안 됨",
