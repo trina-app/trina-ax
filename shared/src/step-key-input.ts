@@ -11,7 +11,7 @@ const KINDS: { kind: KeyKind; words: ReadonlySet<string> }[] = [
   { kind: 'text', words: new Set(['query', 'q', 'search', 'keyword', 'keywords', 'prompt', 'question', 'term', 'terms']) },
   { kind: 'url', words: new Set(['url', 'urls', 'uri', 'link', 'links', 'href', 'website', 'domain', 'site']) },
   { kind: 'path', words: new Set(['path', 'paths', 'file', 'files', 'filename', 'filepath', 'folder', 'dir', 'directory']) },
-  { kind: 'command', words: new Set(['command', 'cmd', 'script']) },
+  { kind: 'command', words: new Set(['command', 'cmd']) },
   { kind: 'text', words: new Set(['name', 'title', 'subject', 'topic', 'text', 'message']) },
 ]
 export type KeyKind = 'text' | 'url' | 'path' | 'command'
@@ -100,6 +100,8 @@ export function stepValue(value: string, kind: KeyKind): { text: string; quoted:
   }
   // one long run without a space, a dot or a slash is no words a person wrote (a key, a token, an encoded blob)
   if (kind !== 'path' && kind !== 'command' && !/[\s./]/.test(v) && v.length >= 40) return null
+  // code in an argument named like words: never as it is (people reading the steps are not developers); its address may
+  if (kind !== 'path' && kind !== 'command' && codeLike(v)) { const u = addressIn(v); return u ? { text: u, quoted: false } : null }
   const whole = kind === 'command' ? oneLine(value.trim().split('\n')[0]!) : v
   const masked = hideInValue(whole, kind === 'command')
   // a value that was all secret shows nothing
@@ -107,6 +109,17 @@ export function stepValue(value: string, kind: KeyKind): { text: string; quoted:
   const text = kind === 'path' ? clipStart(masked, 60) : clipEnd(masked, 60)
   return { text, quoted: kind === 'text' }
 }
+
+/** Arguments that hold code (a script, an expression): never a step's key input, since the people reading the steps are not
+ * developers; an address inside it may show (`Run a browser script · example.com`). A shell command is not one of
+ * them: it shows, as in Claude Code. */
+const CODE_WORDS = new Set(['script', 'scripts', 'code', 'javascript', 'js', 'source', 'expression', 'expr', 'eval', 'snippet', 'program', 'function', 'func', 'lambda', 'sql'])
+export const codeArgName = (name: string): boolean => { const w = words(name); return w.some((x) => CODE_WORDS.has(x)) || CODE_WORDS.has(w.join('')) }
+/** Text that reads as code rather than words (an arrow, a call on an object, a statement keyword, braces, `$(…)`). */
+export const codeLike = (v: string): boolean =>
+  /=>|\$\(|`|\b(?:await|function|const|let|var|return|import|def|lambda|SELECT|INSERT|UPDATE|DELETE)\s|\b[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(|[{};]\s*$|^\s*[{[(]|\/\/\s|\)\s*;|==|!=|&&|\|\|/.test(v)
+/** The first web address in a piece of code, as a step shows it, or null. */
+const addressIn = (v: string): string | null => { const m = /https?:\/\/[^\s"'`)<>\]]+/i.exec(v); return m ? stepUrl(m[0]) : null }
 
 type Schema = { properties?: Record<string, unknown>; required?: unknown } | null | undefined
 
@@ -131,7 +144,8 @@ export function stepKeyInput(input: unknown, schema?: unknown): { text: string; 
   const s = (schema && typeof schema === 'object' ? schema : null) as Schema
   const required = Array.isArray(s?.required) ? (s!.required as unknown[]).filter((x): x is string => typeof x === 'string') : []
   const props = s?.properties && typeof s.properties === 'object' ? Object.keys(s.properties) : []
-  const order = [...new Set([...required, ...props, ...Object.keys(a)])].filter((k) => Object.hasOwn(a, k) && !secretArgName(k))
+  const all = [...new Set([...required, ...props, ...Object.keys(a)])].filter((k) => Object.hasOwn(a, k) && !secretArgName(k))
+  const order = all.filter((k) => !codeArgName(k))
   const ranked = order.map((k, i) => ({ k, i, r: rankOf(k) })).filter((x) => x.r).sort((x, y) => x.r!.rank - y.r!.rank || x.i - y.i)
   for (const { k, r } of ranked) {
     const v = valueOf(a[k])
@@ -139,10 +153,16 @@ export function stepKeyInput(input: unknown, schema?: unknown): { text: string; 
     if (shown) return { ...shown, more: v!.more }
   }
   for (const k of required) {
-    if (secretArgName(k) || !Object.hasOwn(a, k)) continue
+    if (secretArgName(k) || codeArgName(k) || !Object.hasOwn(a, k)) continue
     const v = valueOf(a[k])
     const shown = v && v.s.length <= 200 ? stepValue(v.s, 'text') : null
     if (shown) return { ...shown, more: v!.more }
+  }
+  // only code: the address it opens, if it names one
+  for (const k of all.filter(codeArgName)) {
+    const v = valueOf(a[k])
+    const u = v ? addressIn(v.s) : null
+    if (u) return { text: u, quoted: false, more: 0 }
   }
   return null
 }

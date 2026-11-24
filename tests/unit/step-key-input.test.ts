@@ -167,3 +167,24 @@ describe('re-review of #513: AWS keys, -u user:password, -p only where it is a p
   })
 })
 
+describe('code is never the key input (owner 2026-11-24: people are not developers)', () => {
+  test('an argument that holds code: its address at most', () => {
+    expect(stepKeyInput({ script: 'await page.goto("https://example.com/pricing") // $(id)' })?.text).toBe('example.com/pricing')
+    expect(stepKeyInput({ code: 'print(1 + 1)' })).toBeNull()
+    expect(stepKeyInput({ javascript: 'document.title' }, { required: ['javascript'] })).toBeNull()
+    expect(stepKeyInput({ expression: 'a && b' })).toBeNull()
+    expect(stepKeyInput({ source: 'def f(): return 1' }, { required: ['source'] })).toBeNull()
+    // the other arguments still show
+    expect(stepKeyInput({ script: 'x()', name: 'Pricing check' })?.text).toBe('Pricing check')
+  })
+  test('a value that looks like code, under any name: its address at most', () => {
+    expect(stepKeyInput({ query: 'SELECT * FROM users' })).toBeNull()
+    expect(stepKeyInput({ text: 'page.click("#buy")' })).toBeNull()
+    expect(stepKeyInput({ query: 'fetch("https://api.example.com/v1/x").then(r => r.json())' })?.text).toBe('api.example.com/v1/x')
+    expect(stepKeyInput({ query: 'YC Korea founders (2025)' })?.text).toBe('YC Korea founders (2025)')
+  })
+  test('a shell command still shows, as in Claude Code', () => {
+    expect(stepKeyInput({ command: 'npm run build && npm test' })?.text).toBe('npm run build && npm test')
+  })
+})
+

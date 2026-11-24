@@ -20,8 +20,13 @@
   id and a 40-character secret-key-shaped value, a path's `;jsessionid=…`,
   characters that show nothing or turn text around (bidi controls). Secrets come out of the whole value first; only
   then is it cut to 60 characters on one line (a path keeps its end), so a cut never leaves part of a key.
-- **Where:** connection tools and `call_tool` (`<service> · <tool> · "<query>"`), `api_request` (the path without its
-  query), and any tool without words of its own. Built-in tools keep their own lines. A card's question keeps the
+- **Where:** every connection tool, also one with a title or words of its own (a Google app's "Gmail · 메일 찾기", a demo's
+  "Higgsfield · 이미지 만들기"), and `call_tool`: `<service> · <tool> · "<query>"`; `api_request` (the path without its
+  query); any tool without words of its own. Built-in Trina tools keep their own lines.
+- **Never code:** an argument that holds code (named script, code, javascript, js, source, expression, sql …) or a value
+  that reads as code (an arrow, a call on an object, a statement keyword, `$(…)`) is never the key input: the people
+  reading the steps are not developers. An address inside it may show (`Run a browser script · example.com`). A shell
+  `command` shows, as in Claude Code. A card's question keeps the
   tool's words alone (`label(…, { bare: true })`): the card lists every value itself.
 - **What came back** (`Step.outcome`): `count` only when the service's answer is a JSON list, or an object with exactly
   one list named like results / items / data … (a task's labels or an empty warnings list is no count); `end` from the server's own reason (declined, no answer, skipped in a shared chat, not
