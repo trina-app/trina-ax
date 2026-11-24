@@ -37,6 +37,7 @@ import { dirBytes, isolatedCommand, isolation, makeWorkDir, treeRssKiB } from '.
 import { killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, printCgroup, printCgroupState, printLeafPeak } from '../system/cgroups'
 import { sanitizePdfLinks } from './pdf-links'
 import { killTree } from '../system/kill-tree'
+import { HeavyJobError, heavyJobs } from '../system/heavy-jobs'
 
 /** The address the page has in the browser: a reserved name (RFC 2606) that never resolves. */
 export const ORIGIN = 'https://html-pdf.invalid'
@@ -263,8 +264,25 @@ function pump() {
   }
 }
 
-/** A render slot for `user`: one per person, renderParallel() on the server; the caller must call the returned release. */
-export function renderSlot(user: string, signal?: AbortSignal): Promise<() => void> {
+/** How long a print or a conversion waits for the heavy-job budget (a video render or another conversion holds it) before
+ * it tells the AI the server is busy: a usual render on a 2-core server ends well within it (3–7 minutes measured), a
+ * slow one at its own limit (promo-video/render.ts renderTimeLimitMs, 9 minutes) does not keep a turn waiting that long. */
+export const HEAVY_WAIT_MAX_MS = 6 * 60_000
+
+/** A render slot for `user` (one per person, renderParallel() on the server) and then room in the server's heavy-job
+ * budget (system/heavy-jobs.ts: on a box under 6 GiB, no MP4 render or other conversion beside it). Always in this
+ * order, never the budget first (no wait cycle with another print). The caller must call the returned release. */
+export async function renderSlot(user: string, signal?: AbortSignal, kind: 'print' | 'office' = 'print'): Promise<() => void> {
+  const release = await printSlot(user, signal)
+  try {
+    const heavy = await heavyJobs.acquire(kind, { signal, maxWaitMs: HEAVY_WAIT_MAX_MS })
+    return () => { heavy(); release() }
+  } catch (e) {
+    release()
+    throw e instanceof HeavyJobError ? new HtmlPdfError(e.code, e.message) : e
+  }
+}
+function printSlot(user: string, signal?: AbortSignal): Promise<() => void> {
   return new Promise((resolve, reject) => {
     let done = false
     const release = () => { if (done) return; done = true; running--; runningUsers.delete(user); pump() }
@@ -288,10 +306,13 @@ export function renderSlot(user: string, signal?: AbortSignal): Promise<() => vo
  * counts as its own person (`key` unique per draw). */
 export function tryRenderSlot(key: string): (() => void) | null {
   if (running >= renderParallel() || waiting.length || runningUsers.has(key)) return null
+  // the heavy-job budget too (a video render or a conversion runs: skipped like a busy print queue)
+  const heavy = heavyJobs.tryAcquire('print')
+  if (!heavy) return null
   running++
   runningUsers.set(key, 1)
   let done = false
-  return () => { if (done) return; done = true; running--; runningUsers.delete(key); pump() }
+  return () => { if (done) return; done = true; heavy(); running--; runningUsers.delete(key); pump() }
 }
 /** tests: the queue's state */
 export const _queueForTest = () => ({ running, waiting: waiting.length })
