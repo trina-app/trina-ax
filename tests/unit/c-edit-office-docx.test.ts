@@ -279,8 +279,8 @@ describe('edit_office: insert_picture (a signature or seal in a Word form)', () 
     // the sign row's cell holds the picture
     expect(doc).toMatch(/<w:t[^>]*>Sign<\/w:t>[\s\S]*?<\/w:tc><w:tc>[\s\S]*?<wp:inline/)
     expect(report.notes.map((n) => n.where)).toEqual([
-      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text; its place on the page was not rendered',
-      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text; its place on the page was not rendered',
+      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text',
+      'picture over "(seal)", behind the text (15 x 15 mm), tied to that text',
       'picture after "Signature:" (30 x 10 mm)', expect.stringMatching(/^picture in the cell right of "Sign" \(/),
     ])
     if (soffice) opensInOffice(file, 'docx')
@@ -291,7 +291,7 @@ describe('edit_office: insert_picture (a signature or seal in a Word form)', () 
     const { file, report } = runPics(before, [{ insert_picture: { image: 0, after: 'Buyer:' } }], [png(30, 60)])
     expect(texts(file)).toEqual(texts(before))
     expect(report.notes[0]!.where).toBe('picture after "Buyer:" (10 x 20 mm)')
-    expect(part(file, 'word/document.xml')!).toMatch(/Buyer:<\/w:t><w:drawing>[\s\S]*?<\/w:drawing><w:t xml:space="preserve"> Example/)
+    expect(part(file, 'word/document.xml')!).toMatch(/Buyer:<\/w:t><\/w:r><w:r[^>]*>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:drawing>[\s\S]*?<\/w:drawing><\/w:r><w:r[^>]*>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t xml:space="preserve"> Example/)
   })
 
   withPandoc('a document whose root does not name the drawing namespaces: they are declared on the picture', () => {
