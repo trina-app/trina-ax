@@ -1,0 +1,20 @@
+// The Hangul writing guide in the AI's instructions (docs/decisions/20261124-hwpx-quality.md), in a file of its own:
+// it names the Korean document terms the AI writes into a Hangul document (instructions to the model, not screen text;
+// tests/unit/i18n-languages.test.ts).
+/**
+ * How to write a Hangul (.hwpx) document (docs/decisions/20261124-hwpx-quality.md): what make_file's writer can lay
+ * out (files/hwpx-write.ts) and the general conventions of Korean business and official documents, so a file can be
+ * sent as it is. The Hangul counterpart of the document skills; only while Hangul writing is on.
+ */
+export const HWPX_GUIDE = 'Writing a Hangul (.hwpx) document: make it look like a document a Korean office sends as it is, laid out with the same care as a designed Word file. ' +
+  'make_file turns pandoc Markdown into it; besides headings, paragraphs, **bold**, lists and tables it takes: `::: {.center}` … `:::` around paragraphs (also .right, .left) and `{size=20}` in points (together: `::: {.center size=20}`); `::: {.box}` for a framed box of paragraphs; ' +
+  'a table with no header row (a pipe table whose header row has only empty cells); `::: {.noborder}` around a table to take its lines off (label and value lines such as 수신 and 제목); grid tables (+---+) for merged cells; `---` for a line across the page; `[text]{.underline}`. Column widths follow what the columns hold. ' +
+  'A paragraph that starts with an outline label is indented by its level, wrapped lines under its text: 1. → 가. → 1) → 가) → (1) → (가) → ① → ㉮, and for 개조식 □ → ○ → - → ·. Put each item on its own line with its label typed out, never as a nested Markdown list. ' +
+  'Conventions: 공문 and 기안문 (from a company too): the sender\'s organisation (기관명) centred and large; then 수신 (recipient, with 참조 if known), (경유) only when it passes another office, and 제목, as a borderless two-column table; a line; the body numbered 1., 가., 1); 붙임 as "붙임  1. ○○ 1부." with 끝. after the last text (붙임\'s line, or the body\'s); the 발신명의 (e.g. company and 대표이사) centred and large, where the seal (직인) goes; a line; then, small (size 9) and borderless, 기안자/검토자/결재권자 by 직위 for a 기안문, 시행 (처리과-번호, date) and 접수, the postal code and address with 홈페이지, and 전화, 이메일 and 공개 구분. ' +
+  '보고서, 계획서 and 결과보고서: the title centred and large, department and date right-aligned under it, a short summary in a box when it helps, sections marked □ with ○ and - lines in 개조식 (short phrases ending -함, -임), figures in tables with a header row. 회의록: the title, a bordered table of 일시, 장소, 참석자 and 작성자 (no header row), then 안건, 논의 내용, 결정 사항, and the to-dos as a table of 담당, 내용 and 기한. 안내문 and 공지: the title centred, a greeting, the facts (when, where, what changes) in a bordered table or a box, what the reader should do, a contact, then the date and the sender centred at the end. ' +
+  'Dates as 2026. 11. 24., amounts as 금1,800,000원(금일백팔십만원). ' +
+  'Facts: use everything the request, this chat, the company profile and team files give (names, address, people, figures) and write the rest of the content yourself as a complete draft (purpose, details, schedule, procedure). Never leave an item or a section as a placeholder like [기재]. A detail only the person can know that you did not find (a document number, a phone number) is written ○○ (영업팀-○○호, 02-○○○-○○○○), a few at most, and your answer names them; ask first only when a missing fact decides the document (who it goes to, the amount).'
+/** looking at a Hangul file made: hwp_render where the HWP preview is offered */
+export const HWPX_LOOK = (render: boolean) => render
+  ? ' After you make a .hwpx, look at every page with hwp_render, fix what is off (alignment, a cramped or empty table, something left out) and make it again under the same name. The preview draws with a stand-in font and may not show bold, so judge the layout, not the font.'
+  : ' You cannot see Hangul pages here: when you make one, say in one short line of your answer that you did not see how its pages look.'
