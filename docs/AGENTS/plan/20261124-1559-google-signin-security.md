@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 15:59
 - Branch: `fix/google-signin-security`
-- Status: in progress
+- Status: done
 - Where: server/src/auth (google-login.ts, reauth.ts, accounts.ts, deletion-requests.ts), admin/users.ts,
   notifications, web Activity text. Why: security review of #400 (Sign in with Google) before it ships.
 - Version impact: patch — security fixes to a feature not yet released; no API shape change, one additive migration.
@@ -30,6 +30,10 @@ In:
    are never blocked by it), plus a cap of open sign-in flows per address (migration 134: `ip_hash`).
 6. `requestAccountDeletion` for a passwordless account always needs the Google re-check (no recent-sign-in shortcut).
 
+7. QA (same PR): the docs page matches the code; a made-up `state` on the Google return gets the sign-in page's words
+   (a browser with a sign-in cookie or not signed in, and no Drive flow for that state); the "in use" connect result
+   is neutral ("This Google account can't be connected. Use a different one.").
+
 Out: Google's own `prompt=login` (Google does not support it).
 
 ## Steps
@@ -54,4 +58,6 @@ tests/security.
 
 ## Result
 
-(at the end)
+Built as planned. Also: the web re-check dialog lost its `recentSignIn` shortcut (the apps say to use a browser for
+the deletion request), the staff notices reuse credential.change rows (actions `signin_*`, no new table), and the QA
+items in step 7. All six languages got the new strings. PR: see the PR that links this plan.
