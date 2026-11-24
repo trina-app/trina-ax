@@ -184,7 +184,9 @@ for _ in $(seq 1 60); do
   curl -fsS "http://127.0.0.1:$TRINA_AX_PORT/api/health" >/dev/null 2>&1 && break
   sleep 2
 done
-$C logs --no-log-prefix trina-ax 2>&1 | grep -q "kit $TRINA_AX_VERSION is installed; starting" || fail "the installer ran again on a new container"
+# the whole log first: grep -q stops at its match, and under pipefail the writer's SIGPIPE would fail the check
+LOGS=$($C logs --no-log-prefix trina-ax 2>&1)
+grep -q "kit $TRINA_AX_VERSION is installed; starting" <<<"$LOGS" || fail "the installer ran again on a new container"
 case "$(curl -fsS "http://127.0.0.1:$TRINA_AX_PORT/api/setup")" in *'"needed":false'*) pass "new container keeps the team" ;; *) fail "team lost after a new container" ;; esac
 
 echo "test: all checks passed"
