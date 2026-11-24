@@ -17,7 +17,7 @@ export const RECOMMENDED_TOOLS_MAX = 50
  * switch as well. */
 export const TEAM_CONNECT_TOOLS = ['slack'] as const
 /** The listed apps on a computer (web/src/lib/localApps.ts LISTED_LOCAL_APPS). */
-const LOCAL_APP_TOOLS = ['aside', 'ego-lite'] as const
+const LOCAL_APP_TOOLS = ['aside', 'ego-lite', 'playwright', 'chrome-devtools'] as const
 /** Every id a team pick may hold: Google Drive and the Google apps, the listed services and the listed apps on a
  * computer, minus the team-only tools (Slack). */
 export const RECOMMENDABLE_TOOLS: readonly string[] = ['google-drive', 'gmail', 'calendar', 'docs', 'sheets', ...SERVICE_CATALOG.map((c) => c.id), ...LOCAL_APP_TOOLS]

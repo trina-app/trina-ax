@@ -118,7 +118,7 @@ export function splitCommand(line: string): string[] | null {
  * `reads`: an MCP preset's tools that only read, Trina's own list for a program that marks none of its tools
  * (MCP readOnlyHint): Aside 1.26 gives no annotations, so without it listing profiles asked on the "send" card
  * (docs/decisions/20261118-local-app-connectors.md "Aside's reads"). Only for the exact listed command (presetReads). */
-export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[] }[] = [
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[] }[] = [
   // browser_profiles lists profile ids, labels and whether each is connected; memory_search searches the person's own
   // Aside notes. repl (JavaScript in the logged-in browser) and exec (Aside's browser agent) are not here: they ask.
   { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'] },
@@ -133,6 +133,14 @@ export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: Local
       ],
     },
   },
+  // The two most downloaded MCP servers people run on their own computer (npm, 2026-11-16..22): Microsoft's Playwright
+  // MCP and Google's Chrome DevTools MCP (research 2026-11-24, recommendation #6). npx runs a pinned version: the
+  // computer's one-time confirm covers the command, so a new version asks again (never @latest); -y so npx never stops
+  // at its install prompt, which would read the JSON-RPC as the answer. Both mark their read tools (readOnlyHint, checked
+  // 2026-11-24 with tools/list: 25 and 33 tools), so no `reads` here. `notOn` win32: npx is npx.cmd there, and a .cmd
+  // does not start with shell: false (Node's EINVAL, QA 2026-11-24 on Windows 11 with Node 24).
+  { id: 'playwright', name: 'Playwright', spec: { adapter: 'mcp', command: 'npx', args: ['-y', '@playwright/mcp@0.0.86'], env: [] }, notOn: ['win32'] },
+  { id: 'chrome-devtools', name: 'Chrome DevTools', spec: { adapter: 'mcp', command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.13.0'], env: [] }, notOn: ['win32'] },
 ]
 
 /** The tools Trina takes as reads for this spec: a listed preset's `reads` when the spec is exactly that preset's
