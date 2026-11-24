@@ -76,6 +76,10 @@ export const DevEnvTeamResponse = z.object({
   /** the team is off only because it had people before the dev environment came (migration 236's row, never saved by
    * an admin since): admins get a one-time notice with the switch. Never turns anything on */
   offer: z.boolean().optional(),
+  /** this server runs documents mode only (an office Mac, docs/decisions/20261124-office-mac-doc-kit.md): Settings says
+   * so in one line and shows nothing to change (the server's MYCEL_DOCUMENTS_MODE=0 turns it off). on: documents mode is
+   * on now */
+  documentsOnly: z.object({ on: z.boolean() }).optional(),
 })
 export type DevEnvTeamResponse = z.infer<typeof DevEnvTeamResponse>
 /** A change of the team setting. Only the fields given change. Turning on needs the current warning accepted. */

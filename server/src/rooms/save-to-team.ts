@@ -288,7 +288,7 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
       // a different file has the name: this copy is "name (2).ext" beside it (the person's own save, so not the AI's
       // "conflict copy - <name>" wording); placeProduced still never overwrites if one appears in between
       const free = freeName(path.join(files.root, ...at.split('/')), f.file.name)
-      const made = await placeProduced(ctx, files, c, [...at.split('/'), free], tmp, 'save_room_file', undefined, { turnBytes: false, thisAnswerOnly: true, detail: { type: f.file.mime, by: 'person' } })
+      const made = await placeProduced(ctx, files, c, [...at.split('/'), free], tmp, 'save_room_file', undefined, { turnBytes: false, thisAnswerOnly: true, fetched: true, detail: { type: f.file.mime, by: 'person' } })
       const nextTo = made.conflictCopyOf ?? (free !== f.file.name ? target : undefined)
       let seen: string | null = null
       try { seen = statKey(fs.statSync(path.join(files.root, ...made.path.split('/')))) } catch { /* hashed on the next read */ }

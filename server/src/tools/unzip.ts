@@ -23,6 +23,7 @@
 //   plan (files/unzip.ts planEntries: the zip's path, link, junk, name and size rules), unpacked again in the slot for
 //   the extraction and checked against the planned bytes; each file is a range of the unpacked tar. A lone .gz is one
 //   file, saved next to it (as gunzip does).
+import { cameFromOutside } from '../files/office-exit'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -168,6 +169,9 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   }
   // its names go to the model: the zip counts as read in this chat (also when nothing is saved)
   c.files.readPaths.add(src.rel)
+  // an entry is outside bytes only when the archive itself is: saved by a person or as fetched, unchanged since
+  // (files/office-exit.ts cameFromOutside). A zip the AI built and copied out gets its Office entries checked
+  const archiveFromOutside = cameFromOutside(ctx.db, src.rel, sha)
   const base: UnzipResult = { zip: src.rel, folder: '', newFolder: false, saved: [], folders: [], failed: [], plan, listOnly: !!a.list_only, kind }
   if (a.list_only) return base
   if (mail && !plan.files.length) throw new ToolError(`'${src.rel}' has no attachments to save${plan.skipped.length ? ` (${plan.skipped.slice(0, 5).map((s) => `${s.name}: ${s.why}`).join('; ')})` : ''}${plan.junk ? `; ${plan.junk} picture${plan.junk === 1 ? ' is' : 's are'} only shown inside the email's text` : ''}; nothing was saved`)
@@ -337,7 +341,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
           if (f.data.off + f.data.len > bytes.length || f.data.len !== f.size) throw new ZipProblem('damaged', 'a part is not where the archive said')
           writeRange(tmp, bytes, f.data.off, f.data.len)
         } else await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
-        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, detail: { from: src.rel } })
+        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, fetched: archiveFromOutside, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}), ...(instructionFileName(want) ? { instruction: true as const } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e
