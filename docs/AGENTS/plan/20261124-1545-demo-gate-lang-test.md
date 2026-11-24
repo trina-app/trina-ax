@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 15:45
 - Branch: `fix/demo-gate-lang-test`
-- Status: in progress
+- Status: done
 - Where: demo-gate/test. Why: a flaky test in the merge queue's "Demo gate suite" knocks other PRs out of the queue.
 - Version impact: none, a test-only change; no shipped code changes.
 
@@ -43,4 +43,6 @@ none: test only.
 
 ## Result
 
-Filled in at the end.
+As planned. Reproduced locally with a random 0-1.5 s start delay in the fake instance (not committed): 5 of 10 runs
+of the file failed with CI's exact error before the fix, 0 of 20 after. The whole suite passes repeatedly without the
+delay. The gate's code is unchanged: showing the busy page while a language has no warm copy is intended.
