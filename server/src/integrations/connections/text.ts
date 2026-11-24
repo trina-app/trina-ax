@@ -3,7 +3,6 @@
 import type { Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
-import { codeParts } from './refusal'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -351,7 +350,9 @@ const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'n
  */
 export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }, name?: string): string | null {
   if (!code) return null
-  const { reason, status, said } = codeParts(code)
+  // as refusal.ts codeParts (not imported: the web app's mock server reads this file, and refusal.ts reaches the chat code)
+  const [reason, status, ...rest] = code.split(':')
+  const said = rest.join(':')
   const known = !!reason && reason in TEXT
   if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
   if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
