@@ -14,21 +14,23 @@ import { eventEnabled, getPreferences, pushEventEnabled } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
 import { handoverPushWanted } from '../admin/handover-notices'
-import { roomNoticeOut } from '../rooms/inbox'
+import { messageText, roomNoticeOut, type Msg as RoomMsg } from '../rooms/inbox'
+import { pushPreview, type PreviewFile } from './push-preview'
+import { chatThreadLabel } from '../chat/threads'
 import { chatAnswerWanted } from './chat-answers'
 import { chatShareLabel, chatShareWanted } from './chat-shares'
 import { roomAppPushWanted } from '../rooms/apps/notice'
 import { fileSharePushWanted } from '../files/share-push'
 import { accessRequestPushWanted } from '../chat/access-requests'
 import { chatThreadWanted } from '../chat/threads'
-import { chatMessageWanted } from '../chat/message-notices'
+import { chatMessageLabel, chatMessageWanted } from '../chat/message-notices'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
 import { pushSecretsLogLine, pushSecretsProblem } from './push-secrets'
 import { readNativePushConfig } from './push-gateway-setting'
 import { decidePhone, type PhoneDecision } from './away'
-import { createNativeTransport, labelCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { createNativeTransport, labelCode, nativeCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 import { PUSH_SYNC_CODE, PUSH_SYNC_MAX_CLEAR } from '@mycel/shared/cloud-protocol'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
@@ -47,6 +49,12 @@ const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
  * becomes one push. What was pushed to a phone is kept SYNC_KEEP_MS (a push's day and a margin). */
 export const SYNC_EVERY_MS=5_000,SYNC_BADGE_EVERY_MS=15_000,SYNC_GAP_MS=30_000,SYNC_PER_DAY=100,SYNC_PARALLEL=3,SYNC_BUDGET_MS=20_000
 const SYNC_KEEP_MS=2*86400_000,SYNC_TTL_S=86400
+/** A room message's files for its push line (push-preview.ts): pictures, and a name only for a file kept in the room
+ * (never a team-folder file's, room_file_refs: each person sees those by their own access). */
+function roomPreviewFiles(db:Database,messageId:string):PreviewFile[]{
+  const rows=db.query('SELECT f.name,f.kind,EXISTS(SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id=f.id) ref FROM room_files f WHERE f.message_id=? ORDER BY f.rowid').all(messageId) as {name:string;kind:string;ref:number}[]
+  return rows.map(r=>({name:r.name,image:r.kind==='image',named:!r.ref}))
+}
 /** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
  * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
 export const LABEL_PER_MINUTE=30
@@ -205,7 +213,10 @@ export class PushService {
   }
   /** The iPhone app's notification extension (and the Android app's messaging service, which shows the same words) asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
    * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
-   * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
+   * the message while the person's messagePreview is on (else the generic line; push-preview.ts: the whole text as one
+   * line, what file was sent, never a secret). A person's message in a chat shared with people or a project chat and a
+   * reply in a chat thread come as room codes (push-native.ts nativeCode) and are answered the same way
+   * (docs/decisions/20261124-push-preview-slack-rule.md). No session: the label key from registration is the proof. Only for a
    * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
    * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). A chat
    * shared with the person by name (chat_share_notices, chat-shares.ts) is answered the same way: the sharer's name and
@@ -233,15 +244,34 @@ export class PushService {
       if(!pushEventEnabled(getPreferences(db,row.user_id),'chat.shared')||!chatShareWanted(this.ctx,share.id,now))return none
       return chatShareLabel(this.ctx,share.id,locale)??none
     }
+    const preview=getPreferences(db,row.user_id).messagePreview
+    // a person's message in a chat shared with people or a project chat, and a reply in a chat thread (sent as room codes:
+    // push-native.ts nativeCode): who, where and the message, as a room's (docs/decisions/20261124-push-preview-slack-rule.md)
+    const sent=(table:string,deliveries:string)=>!!db.query(`SELECT 1 FROM ${table} n WHERE n.id=? AND n.user_id=? AND n.read_at IS NULL AND n.suppressed=0
+      AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM ${deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
+      .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id)
+    if(sent('chat_message_notices','chat_message_push_deliveries')){
+      const l=chatMessageLabel(this.ctx,input.notificationId,locale,preview)
+      return l&&ID.test(l.roomId)?{title:l.title,body:l.body??TEXT['chat.message'][locale],roomId:l.roomId}:none
+    }
+    if(sent('chat_thread_notices','chat_thread_push_deliveries')){
+      const l=chatThreadLabel(this.ctx,input.notificationId,locale,preview)
+      return l&&ID.test(l.roomId)?{title:l.title,body:l.body??TEXT['chat.thread_reply'][locale],roomId:l.roomId,...(ID.test(l.threadId)?{threadId:l.threadId}:{})}:none
+    }
     const notice=db.query(`SELECT n.id,n.user_id,n.event_type,n.source_id FROM room_notices n WHERE n.id=? AND n.user_id=? AND n.read_at IS NULL AND n.suppressed=0 AND n.quiet=0
       AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM room_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
       .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string;user_id:string;event_type:'room.dm'|'room.mention';source_id:string}|null
     if(!notice||!eventEnabled(getPreferences(db,row.user_id),notice.event_type)||!noticeWanted(db,notice.id,now))return none
-    // the Inbox's and a browser push's rule of what the person may still see of the notice's message
-    const room=roomNoticeOut(db,notice,locale,{preview:getPreferences(db,row.user_id).messagePreview}),title=room?.label?plainLabel(room.label,120):''
+    // the Inbox's and a browser push's rule of what the person may still see of the notice's message; its whole text
+    // (read only while the preview is on and for a message the whole room sees) for the line
+    let msg:RoomMsg|null=null
+    const room=roomNoticeOut(db,notice,locale,{preview,text:m=>{msg=m}}),title=room?.label?plainLabel(room.label,120):''
     if(!room||!title||!ID.test(room.id))return none
-    // the message's first line while the person's messagePreview is on (never a private message's), else the generic line
-    return{title,body:room.preview||TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
+    // the message while the person's preview is on (never a private message's, never one that may hold a secret; files:
+    // what was sent), else the generic line
+    const m=msg as RoomMsg|null
+    const body=m?pushPreview(this.ctx,{preview,text:messageText(m),files:roomPreviewFiles(db,m.id),writer:m.author_kind==='ai'?null:m.author_id,reader:row.user_id,locale}):null
+    return{title,body:body??TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
   }
   /** At most LABEL_PER_MINUTE label answers a minute for one device. */
   private admitLabel(id:string,now:number){
@@ -475,8 +505,9 @@ export class PushService {
             sentBadge=badge
             // label: an Android app that registered a label key builds a room push itself (data-only FCM) and names who
             // and where (docs/decisions/20261121-android-push-who-where.md); an older app gets the gateway's line
-            const label=device.platform==='android'&&!!allowed.sub.label_hash&&labelCode(allowed.event)
-            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{}),...(label?{label:true as const}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
+            // code: a person's message in a chat goes as a room code, so the phone asks for its words (push-native.ts nativeCode)
+            const code=nativeCode(allowed.event),label=device.platform==='android'&&!!allowed.sub.label_hash&&labelCode(code)
+            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{}),...(label?{label:true as const}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')
             const sub=this.vault.decrypt(aad,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription
