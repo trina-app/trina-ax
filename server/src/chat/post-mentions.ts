@@ -46,7 +46,7 @@ export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
 
 /** Quoted stretches, as the person put them */
-const QUOTED = /"[^"\n]*"|“[^”\n]*”|「[^」\n]*」/gu
+const QUOTED = /"[^"]*"|\u201C[^\u201D]*\u201D|\u2018[^\u2019]*\u2019|'[^'\n]*'|\u300C[^\u300D]*\u300D|\u300E[^\u300F]*\u300F|`[^`]*`/gu
 /** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
  * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
 const NOT_A_PLAIN_ASK = /말고|빼고|제외|없이|(?:^|\s)안(?:\s|$)|안\s?돼|하지|지\s?마|마세요|[?？]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|不要|别|以外|ではなく/iu
@@ -57,9 +57,9 @@ export function everyoneAsked(said: string): boolean {
   const outside = said.replace(QUOTED, ' ')
   if (NOT_A_PLAIN_ASK.test(outside)) return false
   const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  // (the Korean word on its own counts as what it says: "전체에게", "전체 공지로", "전체 알림")
+  // (the Korean word on its own, as who it goes to: "전체에게"; never a room's name such as 전체공지, nor "팀 전체에게")
   return new RegExp(`(?:^|[\\s(\\[])@(?:${words})(?=$|[\\s.,!)\\]])`, 'iu').test(outside)
-    || /(?:^|\s)\uC804\uCCB4(?:\uC5D0\uAC8C|\uD55C\uD14C|\s?\uACF5\uC9C0|\s?\uC54C\uB9BC|\s?\uBA58\uC158)/u.test(outside)
+    || /(?<![\p{L}\p{N}]\s?)\uC804\uCCB4(?:\uC5D0\uAC8C|\uD55C\uD14C)/u.test(outside)
 }
 /** The text of a post in the person's own words, without its "@everyone", is exactly one stretch they put in quotes: where
  * they put the mention in their sentence is not part of their text (QA b5 F6: "<text>" 이라고 @everyone 으로 올려줘). A part

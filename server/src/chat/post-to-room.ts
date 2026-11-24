@@ -393,7 +393,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // stays plain text). "@everyone" only when the asker's own message of this turn wrote it, and in the room for
         // everyone only for an owner or admin (Rooms.send's rule, asked here before any card)
         const canMention = pendingTo ? mentionableUser(db, pendingTo.id) : mentionablesOf(db, roomId, spec.userId)
-        const allowAll = broadcastIn(ownWords(askerText(db, askerMessageId(exec))))
+        const allowAll = ((w: string) => broadcastIn(w) || everyoneAsked(w))(ownWords(askerText(db, askerMessageId(exec))))
         const picked = pickMentions(canMention, a.data.mention ?? [], { allowAll, personRef: PERSON_REF })
         if (!picked.ok) {
           const refs = (xs: readonly string[]) => xs.map((x) => `"${neutralizeTags(oneLine(x, 80))}"`).join(', ')

@@ -201,9 +201,10 @@ describe('@everyone the person asked for', () => {
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
     expect(r.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ mentionsAll: true })
   })
-  test('"전체 공지로" in their words: no card', async () => {
-    const r = await turn('alice', `Marketing 방에 전체 공지로 회의 10시라고 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
+  test('"전체에게" in their words: no card', async () => {
+    const r = await turn('alice', `전체에게 회의 10시라고 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
     expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
   })
   test('the card: @everyone only inside someone else\'s quoted words, a fragment of the instruction as their words, a take-back', async () => {
     for (const [words, args] of [
@@ -219,7 +220,7 @@ describe('@everyone the person asked for', () => {
   test('the helpers', () => {
     expect(everyoneAsked('Marketing 방에 "회의" 라고 @everyone 으로 올려줘')).toBe(true)
     expect(everyoneAsked('전체에게 알려줘')).toBe(true)
-    for (const w of ['@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '"@전체 확인" 메모 올려줘', '전체 자료 올려줘']) expect([w, everyoneAsked(w)]).toEqual([w, false])
+    for (const w of ['@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '"@전체 확인" 메모 올려줘', '전체 자료 올려줘', "민수가 '공지 @전체 확인 바랍니다' 라고 썼던데 정리해서 올려줘", '민수가 ‘@전체 확인’ 이라던데 올려줘', '『@전체 확인』 메모 올려줘', '민수 메모 "공지\n@everyone 확인" 올려줘', '전체공지 방에 회의록 올려줘', '전체 공지 채널에 회의록 올려줘', '팀 전체에게 보이게 올려줘']) expect([w, everyoneAsked(w)]).toEqual([w, false])
     expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소')).toBe(false)
   })
 })
