@@ -7,7 +7,7 @@
 // server gets their names. Also here: the part of such a connection's page that is its own (where it works, what runs,
 // Running and Stop, the settings kept on this computer).
 import { useEffect, useState, type ReactNode } from 'react'
-import { localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
+import { commandStyleFor, localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { desktop, settingsNotKeptKey } from '../../lib/desktop'
 import { useLocale, useT } from '../../i18n'
@@ -53,11 +53,12 @@ export function useLocalProgram(): { fields: ReactNode; save: () => Promise<Inte
   const save = async (): Promise<Integration | null> => {
     if (busy) return null
     setError(null)
-    const argv = splitCommand(command)
+    // read as this computer reads a command line: on Windows a backslash is part of a path (C:\Tools\x.exe)
+    const argv = splitCommand(command, commandStyleFor(desktop()?.platform))
     if (!argv) { setError({ field: 'command', text: t('localApps.error.command') }); return null }
     const values = settingLines(settings)
     if (!values) { setError({ field: 'settings', text: t('localApps.error.settings') }); return null }
-    const label = name.trim() || argv[0]!.split('/').pop()!.slice(0, 60)
+    const label = name.trim() || argv[0]!.split(/[\\/]/).pop()!.slice(0, 60)
     setBusy(true)
     try {
       let i = await createLocalApp(label, { adapter: 'mcp', command: argv[0]!, args: argv.slice(1), env: Object.keys(values) })
@@ -118,7 +119,7 @@ export function LocalAppDetails({ i, onChanged }: { i: Integration; onChanged: (
     <>
       {spec && (
         <Detail label={t('localApps.runs')} testId="local-app-command">
-          <span className="font-mono text-xs break-all">{localCommandLines(spec).map((l) => <span key={l} className="block">{l}</span>)}</span>
+          <span className="font-mono text-xs break-all">{localCommandLines(spec, bridge ? commandStyleFor(desktop()?.platform) : undefined).map((l) => <span key={l} className="block">{l}</span>)}</span>
         </Detail>
       )}
       {bridge && (

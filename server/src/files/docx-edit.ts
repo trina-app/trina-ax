@@ -22,7 +22,6 @@ import {
   type XNode, xmlTree,
 } from './office-edit'
 import { imageInfo } from './pptx-edit'
-import { bareMarkAsk, pickSignMark, placedOn } from './sign-slots'
 
 export type DocxChange =
   | { find: string; replace: string; occurrence?: number; all?: boolean }
@@ -40,6 +39,10 @@ export interface InsertPicture {
   occurrence?: number
   width_mm?: number; height_mm?: number
   behind_text?: boolean
+  /** with over or after: the picture's top-left this far from the page's top-left, on the page where that text is */
+  x_mm?: number; y_mm?: number
+  /** set by the server only (move_picture with dx_mm/dy_mm): moved this far from the place found */
+  shift?: { x_mm: number; y_mm: number }
 }
 
 /** what a new paragraph takes from the one it copies: its properties without a section break or a tracked change */
@@ -169,7 +172,7 @@ function nsDecls(rootHead: string, where: string): Record<keyof typeof NS, strin
   return out
 }
 
-interface Drawing { rid: string; id: number; cx: number; cy: number; ns: Record<keyof typeof NS, string>; float?: { dx: number; dy: number } }
+interface Drawing { rid: string; id: number; cx: number; cy: number; ns: Record<keyof typeof NS, string>; float?: { dx: number; dy: number; page?: boolean } }
 /** a w:drawing with one picture: inline in the line, or floating behind the text (wrapNone, behindDoc) at an offset
  * from the character where it is anchored and from the top of its line */
 function drawingXml(d: Drawing): string {
@@ -185,23 +188,31 @@ function drawingXml(d: Drawing): string {
   if (!d.float) return `<w:drawing><wp:inline${d.ns.wp} distT="0" distB="0" distL="0" distR="0">${graphic}</wp:inline></w:drawing>`
   return `<w:drawing><wp:anchor${d.ns.wp} distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251_658_240 + (d.id % 1_000_000)}" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">` +
     '<wp:simplePos x="0" y="0"/>' +
-    `<wp:positionH relativeFrom="character"><wp:posOffset>${d.float.dx}</wp:posOffset></wp:positionH>` +
-    `<wp:positionV relativeFrom="line"><wp:posOffset>${d.float.dy}</wp:posOffset></wp:positionV>` +
+    `<wp:positionH relativeFrom="${d.float.page ? 'page' : 'character'}"><wp:posOffset>${d.float.dx}</wp:posOffset></wp:positionH>` +
+    `<wp:positionV relativeFrom="${d.float.page ? 'page' : 'line'}"><wp:posOffset>${d.float.dy}</wp:posOffset></wp:positionV>` +
     `${graphic}</wp:anchor></w:drawing>`
 }
 
 /** Where a picture goes in a paragraph's text: the piece holding that position, and the splice that puts `drawing` there
  * (before the text at `pos`, or after it when `end`): a zero-width insertion at the piece's edge, or its w:t split. */
-function splitAt(para: Para, pos: number, end: boolean, drawing: string, where: string, change: number): Splice {
+/** The drawing in a run of its own, with the text run's look, closing that run before it and opening it again after: a
+ * reader that takes a run with a picture for the picture alone (pandoc, which read gives the AI) still reads the text. */
+export function ownRun(run: XNode, xml: string, drawing: string): string {
+  const rPr = kid(run, 'w:rPr')
+  const open = `<w:r${run.head.replace(/\s*\/$/, '')}>${rPr ? slice(xml, rPr) : ''}`
+  return `</w:r>${open}${drawing}</w:r>${open}`
+}
+function splitAt(para: Para, pos: number, end: boolean, picture: string, where: string, change: number, xml: string): Splice & { drawing: string } {
   const ch = end ? pos - 1 : pos
   const piece = para.pieces.find((p) => p.at <= ch && ch < p.at + p.text.length)
   if (!piece) return refuse(`${where}: that place cannot hold a picture`)
   if (!piece.editable || !piece.run) refuse(`${where}: the text is ${piece.why ?? 'outside a run'}, where a picture cannot go; give text next to it`)
   if (piece.tracked) refuse(`${where}: the text is inside a tracked change (a suggested edit); accept or reject it in Word first`)
   const at = pos - piece.at
-  if (at <= 0) return { from: piece.node.start, to: piece.node.start, text: drawing, change }
-  if (at >= piece.text.length) return { from: piece.node.end, to: piece.node.end, text: drawing, change }
-  return { from: piece.node.start, to: piece.node.end, text: wText(piece.node.head, piece.text.slice(0, at)) + drawing + wText(piece.node.head, piece.text.slice(at)), change }
+  const drawing = ownRun(piece.run!, xml, picture)
+  if (at <= 0) return { from: piece.node.start, to: piece.node.start, text: drawing, change, drawing }
+  if (at >= piece.text.length) return { from: piece.node.end, to: piece.node.end, text: drawing, change, drawing }
+  return { from: piece.node.start, to: piece.node.end, text: wText(piece.node.head, piece.text.slice(0, at)) + drawing + wText(piece.node.head, piece.text.slice(at)), change, drawing }
 }
 
 /** the w:t piece a position is in (for its run's font size) */
@@ -411,37 +422,42 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
       const q = JSON.stringify(label.length > 60 ? label.slice(0, 60) + '…' : label)
       const hits = matchesOf(body.filter((p) => !p.box), label)
       // one picture per change: "all" is not offered here
-      // over: a label that holds a sign mark means that mark (files/sign-slots.ts); several marks are never guessed
-      const signed = x.over !== undefined && hits.length ? pickSignMark(label, x.occurrence, hits.length) : null
-      if (signed && 'ask' in signed) return refuse(`${where}: ${signed.ask}`)
-      const at1 = signed ? { ...x, occurrence: signed.occurrence } : x
-      if (hits.length > 1 && at1.occurrence === undefined) refuse(`${where}: ${q} is in ${hits.length} places of the body; give occurrence (1 to ${hits.length}) or longer text`)
-      const hit = pick(hits, at1, i, ' of the body (pictures go into the body, not headers, footers or text boxes)', label)[0]!
-      if (x.over !== undefined) {
-        // behind the text, centred on the mark (or the label without one): anchored at its first character
-        const mark = signed?.mark ?? null
-        const bare = bareMarkAsk(label, mark, hit.para.text, x.occurrence)
-        if (bare) refuse(`${where}: ${bare}`)
-        const aimAt = hit.at + (mark?.aimFrom ?? 0)
-        const aim = mark ? label.slice(mark.aimFrom, mark.aimTo) : label
-        const atPiece = pieceAt(hit.para, aimAt)
-        const markFrom = hit.at + (mark?.from ?? 0), markTo = hit.at + (mark?.to ?? label.length)
-        if (hit.para.pieces.some((q) => q.at < markTo && q.at + q.text.length > markFrom && hiddenRun(q.run))) refuse(`${where}: that mark is hidden text, which nobody sees on the page; give a mark that shows`)
+      if (hits.length > 1 && x.occurrence === undefined) refuse(`${where}: ${q} is in ${hits.length} places of the body (${hits.slice(0, 8).map((h, n) => `${n + 1}: ${JSON.stringify(h.para.text.slice(Math.max(0, h.at - 20), h.at + label.length + 20))}`).join('; ')}); give occurrence (1 to ${hits.length}) or longer text`)
+      const hit = pick(hits, x, i, ' of the body (pictures go into the body, not headers, footers or text boxes)', label)[0]!
+      if ((x.x_mm === undefined) !== (x.y_mm === undefined)) refuse(`${where}: x_mm and y_mm go together`)
+      if (x.x_mm !== undefined && x.next_to !== undefined) refuse(`${where}: x_mm and y_mm go with over or after (the text whose page the picture goes on)`)
+      const moved = (d: Drawing) => { if (x.shift && d.float) { d.float.dx += Math.round(x.shift.x_mm * EMU_MM); d.float.dy += Math.round(x.shift.y_mm * EMU_MM) } }
+      if (x.shift && !(x.over !== undefined || x.x_mm !== undefined || x.behind_text)) refuse(`${where}: this picture is in the line of text, so it moves with the text; give over, or x_mm and y_mm, to put it where you want`)
+      if (x.x_mm !== undefined) {
+        // on the page of that text, at x/y from the page's corner, behind the text: anchored at the text's first character
         const d = picture(i, x)
-        const pt = runPt(atPiece?.run ?? null, defaultPt)
-        d.float = { dx: Math.round(textWidthEmu(aim, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy, hit.para) }
-        const drawing = drawingXml(d)
-        const splice = splitAt(hit.para, aimAt, false, drawing, where, i)
-        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at + (mark?.from ?? 0), to: hit.at + (mark?.to ?? label.length), at: aimAt, drawing, splice })
+        d.float = { dx: Math.round(x.x_mm * EMU_MM), dy: Math.round(x.y_mm! * EMU_MM), page: true }
+        moved(d)
+        const { drawing, ...splice } = splitAt(hit.para, hit.at, false, drawingXml(d), where, i, xml)
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at, to: hit.at + label.length, at: hit.at, drawing, splice })
         splices.get(main)!.push(splice)
-        notes.push({ change: i, where: `picture over ${placedOn(label, mark)}, behind the text (${d.size}), tied to that text; its place on the page was not rendered` })
+        notes.push({ change: i, where: `picture at ${x.x_mm + (x.shift?.x_mm ?? 0)}, ${x.y_mm! + (x.shift?.y_mm ?? 0)} mm from the top-left corner of the page where ${q} is, behind the text (${d.size})` })
+        return
+      }
+      if (x.over !== undefined) {
+        // behind the text, centred on it: anchored at its first character
+        if (hit.para.pieces.some((p) => p.at < hit.at + label.length && p.at + p.text.length > hit.at && hiddenRun(p.run))) refuse(`${where}: that text is hidden, which nobody sees on the page; give text that shows`)
+        const d = picture(i, x)
+        const pt = runPt(pieceAt(hit.para, hit.at)?.run ?? null, defaultPt)
+        d.float = { dx: Math.round(textWidthEmu(label, pt) / 2 - d.cx / 2), dy: lineDy(pt, d.cy, hit.para) }
+        moved(d)
+        const { drawing, ...splice } = splitAt(hit.para, hit.at, false, drawingXml(d), where, i, xml)
+        Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at, to: hit.at + label.length, at: hit.at, drawing, splice })
+        splices.get(main)!.push(splice)
+        notes.push({ change: i, where: `picture over ${q}, behind the text (${d.size}${x.shift ? `, moved ${x.shift.x_mm} mm right and ${x.shift.y_mm} mm down` : ''}), tied to that text` })
         return
       }
       if (x.after !== undefined) {
         const d = picture(i, x)
         if (x.behind_text) d.float = { dx: 0, dy: lineDy(runPt(pieceAt(hit.para, hit.at + label.length - 1)?.run ?? null, defaultPt), d.cy) }
+        moved(d)
         Object.assign(picAt[picAt.length - 1]!, { para: hit.para, from: hit.at + label.length, to: hit.at + label.length })
-        splices.get(main)!.push(splitAt(hit.para, hit.at + label.length, true, drawingXml(d), where, i))
+        { const { drawing: _, ...sp } = splitAt(hit.para, hit.at + label.length, true, drawingXml(d), where, i, xml); splices.get(main)!.push(sp) }
         notes.push({ change: i, where: `picture after ${q}${x.behind_text ? ', behind the text' : ''} (${d.size})` })
         return
       }
@@ -469,6 +485,7 @@ export function editDocx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []
         d.size = `${(d.cx / EMU_MM).toFixed(1).replace(/\.0$/, '')} x ${(d.cy / EMU_MM).toFixed(1).replace(/\.0$/, '')} mm, made smaller to fit the cell`
       }
       if (x.behind_text) d.float = { dx: 0, dy: lineDy(defaultPt, d.cy) }
+      moved(d)
       const run = `<w:r>${drawingXml(d)}</w:r>`
       splices.get(main)!.push(p.self
         ? { from: p.start, to: p.end, text: `<w:p${p.head.replace(/\s*\/$/, '')}>${run}</w:p>`, change: i }

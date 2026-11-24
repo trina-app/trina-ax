@@ -20,8 +20,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { commandStyleFor, LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { insideAppDir, withoutAppImage } from './linux'
+import { launchFor, realProgramHost, resolveProgram, SHARE_REFUSED, windowsShare, type Launch, type ProgramHost } from './programs'
 import { t, DEFAULT_UI_LOCALE, type UiKey, type UiLocale } from './i18n'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
@@ -57,6 +58,26 @@ export const EGO_START_WAIT_MS = 15_000
 const EGO_SETTLE_MS = 2000
 /** ego lite's app on the Mac (its Info.plist CFBundleIdentifier) and its process name */
 export const EGO_BUNDLE_ID = 'com.citrolabs.ego.lite'
+/** ego lite's Start Menu shortcut on Windows (its installer's name for it), and how long it gets after it was opened */
+export const EGO_SHORTCUT = /^ego[ _-]?lite\.lnk$/i
+export const EGO_WINDOWS_WAIT_MS = 6000
+
+/** Windows: the Start Menu shortcut whose file name matches `name`, the person's own Start Menu first, then everyone's
+ * (two folders deep at most). null: none. */
+export function findStartMenuShortcut(name: RegExp, host: Pick<ProgramHost, 'env'> & { list?: (dir: string) => { name: string; dir: boolean }[] }): string | null {
+  const list = host.list ?? ((dir: string) => { try { return fs.readdirSync(dir, { withFileTypes: true }).map((e) => ({ name: e.name, dir: e.isDirectory() })) } catch { return [] } })
+  const roots = [host.env.APPDATA, host.env.ProgramData ?? host.env.PROGRAMDATA].filter((x): x is string => !!x).map((r) => path.win32.join(r, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
+  const walk = (dir: string, depth: number): string | null => {
+    const entries = list(dir)
+    const hit = entries.find((e) => !e.dir && name.test(e.name))
+    if (hit) return path.win32.join(dir, hit.name)
+    if (depth >= 2) return null
+    for (const e of entries) if (e.dir) { const r = walk(path.win32.join(dir, e.name), depth + 1); if (r) return r }
+    return null
+  }
+  for (const r of roots) { const f = walk(r, 0); if (f) return f }
+  return null
+}
 const EGO_PROCESS = 'ego lite'
 /** ego-browser's own words when it cannot reach the app (ego-browser 0.6.3, exit 5). It starts the app itself through
  * LaunchServices when no ego lite is found ("Failed to start ego lite" when that fails, "cannot find the app" when it is
@@ -203,7 +224,7 @@ export function withAsideSignedOut(answer: Record<string, unknown>, note = ASIDE
 
 export interface LocalAppsDeps {
   /** The app's own window: "Connect this program?" with the exact command. true only on the person's yes there. */
-  confirm(o: { team: string; name: string; lines: string[]; program: string }): Promise<boolean>
+  confirm(o: { team: string; id: string; name: string; lines: string[]; program: string }): Promise<boolean>
   /** what the person confirmed for a connection (the hash of its command), and that they did */
   confirmed(team: string, id: string): string | null
   setConfirmed(team: string, id: string, hash: string): void
@@ -229,6 +250,10 @@ export interface LocalAppsDeps {
   sleep?: (ms: number) => Promise<void>
   /** tests: the system (default process.platform) */
   platform?: string
+  /** tests: the computer programs are looked for on (default: this one; its platform is `platform` when that is set) */
+  programHost?: Partial<ProgramHost>
+  /** tests: end a process and the processes it started, on Windows (default: taskkill /T /F by its PID) */
+  killTree?: (pid: number) => void
   now?: () => number
 }
 
@@ -243,7 +268,7 @@ export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = o
   // Homebrew's own folder only on the Mac (Apple silicon); Linux also: Ubuntu's snap programs
   const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
   // never the AppImage's own mount (Linux): its programs are the app's, not the person's
-  return [...new Set([...(env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extra])].filter((d) => !insideAppDir(d, env.APPDIR))
+  return [...new Set([...(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : ':').filter(Boolean), ...extra])].filter((d) => !insideAppDir(d, env.APPDIR))
 }
 
 /** Setting values may be sealed: the system keeps a key for this app. On Linux without a Secret Service (GNOME Keyring,
@@ -257,19 +282,7 @@ export function sealable(platform: string, available: () => boolean, backend: ()
   try { return LINUX_KEYRINGS.has(backend()) } catch { return false }
 }
 
-/** The program to start: a full path as it is (`~/` is the home folder), a bare name found in `dirs`. null: not found. */
-export function resolveProgram(command: string, dirs: string[], home = os.homedir()): string | null {
-  const c = command.startsWith('~/') ? path.join(home, command.slice(2)) : command
-  const runnable = (p: string) => { try { const st = fs.statSync(p); return st.isFile() && (process.platform === 'win32' || (st.mode & 0o111) !== 0) } catch { return false } }
-  if (c.includes('/') || c.includes('\\')) return path.isAbsolute(c) && runnable(c) ? c : null
-  for (const d of dirs) {
-    for (const ext of process.platform === 'win32' ? ['.exe', '.cmd', ''] : ['']) {
-      const p = path.join(d, c + ext)
-      if (runnable(p)) return p
-    }
-  }
-  return null
-}
+export { resolveProgram } from './programs'
 
 export class SlotError extends Error { name = 'SlotError' }
 
@@ -382,7 +395,7 @@ interface Running {
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } })
 /** what a program answered (null: nothing to answer, a notification), or why there is no answer */
-type Answer = { message: Record<string, unknown> | null } | { failure: LocalFailure; error: string }
+type Answer = { message: Record<string, unknown> | null } | { failure: LocalFailure; error: string; cause?: LocalResult['cause'] }
 
 export class LocalApps {
   private running = new Map<string, Running>()
@@ -412,7 +425,7 @@ export class LocalApps {
 
   /** Run one call. Never throws: a failure is a result the server puts into words. */
   async call(team: string, call: LocalCall): Promise<LocalResult> {
-    const fail = (failure: LocalFailure, error: string): LocalResult => ({ callId: call.callId, ok: false, failure, error: this.hide(team, call.connectionId, error).slice(0, 4000) })
+    const fail = (failure: LocalFailure, error: string, cause?: LocalResult['cause']): LocalResult => ({ callId: call.callId, ok: false, failure, error: this.hide(team, call.connectionId, error).slice(0, 4000), ...(cause ? { cause } : {}) })
     const isRoot = this.d.isRoot ?? (() => typeof process.getuid === 'function' && process.getuid() === 0)
     if (isRoot()) return fail('root', 'the app runs as root')
     const ac = new AbortController()
@@ -420,6 +433,11 @@ export class LocalApps {
     try {
       const key = commandHash(call.spec)
       const ck = this.k(team, call.connectionId)
+      // a program that is not on this computer (or not one this system starts): said at once, with no confirm for
+      // something that cannot run (a Settings check then shows "needs attention", never Connected; a turn does not
+      // wait on a window nobody needs to answer)
+      const found = this.locate(call.spec.command)
+      if ('failure' in found) return fail(found.failure, found.error, found.cause)
       if (this.d.confirmed(team, call.connectionId) !== key) {
         if (call.turnId && this.declined.has(`${ck}\u0000${key}`)) return fail('declined', 'Cancel was chosen on this computer')
         const yes = await this.askUntil(team, call, key)
@@ -428,7 +446,7 @@ export class LocalApps {
         this.declined.delete(`${ck}\u0000${key}`)
       }
       const answer = call.spec.adapter === 'mcp' ? await this.passMcp(team, call, key, ac.signal) : await this.answerCli(team, call, ac.signal)
-      if ('failure' in answer) return fail(answer.failure, answer.error)
+      if ('failure' in answer) return fail(answer.failure, answer.error, answer.cause)
       if (answer.message === null) return { callId: call.callId, ok: true, message: null }
       const text = this.hide(team, call.connectionId, JSON.stringify(answer.message))
       if (Buffer.byteLength(text) > LOCAL_MAX_ANSWER) return fail('failed', 'the answer is too large')
@@ -446,6 +464,36 @@ export class LocalApps {
     try { return hideValues(text, Object.values(this.d.settings(team, id))) } catch { return text }
   }
 
+  private platform() { return this.d.platform ?? this.d.programHost?.platform ?? process.platform }
+  private host(): ProgramHost { return { ...realProgramHost(), ...this.d.programHost, platform: this.platform() } }
+  private dirs() { return (this.d.searchPath ?? (() => defaultSearchPath(process.env, os.homedir(), this.platform())))() }
+
+  /** The program a command names on this computer, and that this system can start it; else why not (not_found:
+   * nothing by that name; unsupported: a kind of file it does not start, such as a .ps1 on Windows). */
+  private locate(command: string): { program: string } | { failure: LocalFailure; error: string; cause: NonNullable<LocalResult['cause']> } {
+    // a network share or device path on Windows: refused with words, never looked at (programs.ts windowsShare)
+    if (this.platform() === 'win32' && windowsShare(command)) return { failure: 'start_failed', error: SHARE_REFUSED(command), cause: 'unsupported' }
+    const program = resolveProgram(command, this.dirs(), this.host())
+    if (!program) return { failure: 'start_failed', error: `${command} was not found on this computer`, cause: 'not_found' }
+    const l = launchFor(program, [], this.host())
+    if ('refused' in l && l.refused === 'unsupported') return { failure: 'start_failed', error: l.error, cause: 'unsupported' }
+    return { program }
+  }
+
+  /** How to start `command` with `args` here (common/programs.ts): found and startable, or why not. */
+  private launch(command: string, args: string[]): Launch | { failure: LocalFailure; error: string; cause?: LocalResult['cause'] } {
+    const found = this.locate(command)
+    if ('failure' in found) return found
+    return launchFor(found.program, args, this.host())
+  }
+
+  /** Start a launch (never a shell of our own: cmd.exe only as common/programs.ts cmdLaunch allows). */
+  private spawnLaunch(l: Extract<Launch, { file: string }>, o: { env?: NodeJS.ProcessEnv; group: boolean }): ChildProcessWithoutNullStreams {
+    const win = this.platform() === 'win32'
+    const env = o.env && l.env ? { ...o.env, ...l.env } : o.env
+    return this.spawn(l.file, l.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env, cwd: os.homedir() } : {}), detached: o.group && !win, windowsHide: true, ...(l.verbatim ? { windowsVerbatimArguments: true } : {}) }) as ChildProcessWithoutNullStreams
+  }
+
   /** One confirm at a time per connection (a turn's calls wait for the same answer). The window stays open after the
    * call that asked stopped waiting (its deadline, less CONFIRM_EARLY_MS: 'late'); a Connect pressed then is kept and
    * told (onConfirmed), so the page checks again by itself. */
@@ -453,10 +501,10 @@ export class LocalApps {
     const k = `${this.k(team, call.connectionId)}\u0000${key}`
     let entry = this.asking.get(k)
     if (!entry) {
-      const dirs = (this.d.searchPath ?? defaultSearchPath)()
-      const program = resolveProgram(call.spec.command, dirs) ?? call.spec.command
+      // found already (call() looks it up before asking)
+      const program = resolveProgram(call.spec.command, this.dirs(), this.host()) ?? call.spec.command
       const e: { p: Promise<boolean>; late: boolean } = { p: Promise.resolve(false), late: false }
-      e.p = this.d.confirm({ team, name: call.name, lines: localCommandLines(call.spec), program }).then((yes) => {
+      e.p = this.d.confirm({ team, id: call.connectionId, name: call.name, lines: localCommandLines(call.spec, commandStyleFor(this.platform())), program }).then((yes) => {
         if (yes) {
           this.d.setConfirmed(team, call.connectionId, key)
           if (e.late) this.d.onConfirmed?.(team, call.connectionId)
@@ -476,7 +524,7 @@ export class LocalApps {
 
   // ---------------- adapter 'mcp': an MCP server over stdio ----------------
   /** `pool`: the listed Aside for a profile of another account, `aside mcp --account <pool>` beside the main one */
-  private start(team: string, call: LocalCall, key: string, pool?: string): Running | { failure: LocalFailure; error: string } {
+  private start(team: string, call: LocalCall, key: string, pool?: string): Running | { failure: LocalFailure; error: string; cause?: LocalResult['cause'] } {
     const ck = this.k(team, call.connectionId)
     const slot = pool ? `${ck}\u0000aside:${pool}` : ck
     const cur = this.running.get(slot)
@@ -485,14 +533,15 @@ export class LocalApps {
     // the main program with a new command (settings changed): the ones beside it ran the old one
     if (!pool && cur && cur.key !== key) this.killAsidePools(ck)
     const spec = call.spec as Extract<LocalAppSpec, { adapter: 'mcp' }>
-    const dirs = (this.d.searchPath ?? defaultSearchPath)()
-    const program = resolveProgram(spec.command, dirs)
-    if (!program) return { failure: 'start_failed', error: `${spec.command} was not found on this computer` }
+    const dirs = this.dirs()
     // the listed Aside with the account found to have profiles: the same program and command, one account chosen
     const account = pool ?? (isListedAside(spec) ? this.asideAccount.get(ck) : undefined)
+    const l = this.launch(spec.command, account ? [...spec.args, '--account', account] : spec.args)
+    if ('failure' in l) return l
+    if ('refused' in l) return { failure: 'start_failed', error: l.error, cause: l.refused }
     let child: ChildProcessWithoutNullStreams
     try {
-      child = this.spawn(program, account ? [...spec.args, '--account', account] : spec.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
+      child = this.spawnLaunch(l, { env: envFor(this.d.settings(team, call.connectionId), dirs), group: true })
     } catch (e) { return { failure: 'start_failed', error: e instanceof Error ? e.message : String(e) } }
     const r: Running = { key, child, waiting: new Map(), init: null, initializing: null, initialized: false, stderr: '', exited: false, onExit: new Set(), account }
     this.running.set(slot, r)
@@ -765,15 +814,15 @@ export class LocalApps {
 
   /** The listed Aside program once with these arguments (no shell, 10 s at most): what it printed ('' when it failed). */
   private runAside(team: string, call: LocalCall, args: string[]): Promise<string> {
-    const dirs = (this.d.searchPath ?? defaultSearchPath)()
-    const program = resolveProgram(call.spec.command, dirs)
-    if (!program) return Promise.resolve('')
+    const dirs = this.dirs()
+    const l = this.launch(call.spec.command, args)
+    if ('failure' in l || 'refused' in l) return Promise.resolve('')
     return new Promise((resolve) => {
       let out = '', done = false
       const finish = (code: number | null) => { if (done) return; done = true; clearTimeout(timer); resolve(code === 0 ? out : '') }
       let child: ChildProcessWithoutNullStreams
       try {
-        child = this.spawn(program, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), windowsHide: true }) as ChildProcessWithoutNullStreams
+        child = this.spawnLaunch(l, { env: envFor(this.d.settings(team, call.connectionId), dirs), group: false })
       } catch { resolve(''); return }
       const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} finish(null) }, 10_000)
       child.stdout.setEncoding('utf8')
@@ -834,11 +883,21 @@ export class LocalApps {
    * touched when it runs), then waited for (EGO_START_WAIT_MS at most). 'up': try the call again; 'not_open': it did
    * not come up, or this system has no way here; 'missing': not installed. */
   private async bringUpEgo(signal: AbortSignal): Promise<'up' | 'not_open' | 'missing'> {
-    if ((this.d.platform ?? process.platform) !== 'darwin') return 'not_open'
-    const running = this.d.appRunning ?? ((name: string) => this.exitsZero('/usr/bin/pgrep', ['-x', '-U', String(process.getuid?.() ?? ''), name]))
-    const open = this.d.openApp ?? ((id: string, args: string[]) => this.exitsZero('/usr/bin/open', ['-g', '-b', id, ...(args.length ? ['--args', ...args] : [])]))
+    const plat = this.platform()
+    if (plat !== 'darwin' && plat !== 'win32') return 'not_open'
     const sleep = this.d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
     const now = this.d.now ?? Date.now
+    // Windows: opened from its Start Menu shortcut (no process name is known to wait for: a fixed wait, then the call
+    // once more); no shortcut: the words say to open it
+    if (plat === 'win32' && !this.d.appRunning) {
+      const lnk = (this.d.openApp ? null : findStartMenuShortcut(EGO_SHORTCUT, this.host()))
+      const opened = this.d.openApp ? await this.d.openApp(EGO_BUNDLE_ID, []) : !!lnk && this.openShortcut(lnk)
+      if (!opened) return 'not_open'
+      await sleep(EGO_WINDOWS_WAIT_MS)
+      return signal.aborted ? 'not_open' : 'up'
+    }
+    const running = this.d.appRunning ?? ((name: string) => this.exitsZero('/usr/bin/pgrep', ['-x', '-U', String(process.getuid?.() ?? ''), name]))
+    const open = this.d.openApp ?? ((id: string, args: string[]) => this.exitsZero('/usr/bin/open', ['-g', '-b', id, ...(args.length ? ['--args', ...args] : [])]))
     if (!(await running(EGO_PROCESS))) {
       // what ego-browser itself passes when it starts the app (seen on its running process)
       if (!(await open(EGO_BUNDLE_ID, ['--startup-ego-browser-service']))) return 'missing'
@@ -850,6 +909,18 @@ export class LocalApps {
     }
     await sleep(EGO_SETTLE_MS)
     return signal.aborted ? 'not_open' : 'up'
+  }
+
+  /** Windows: a Start Menu shortcut opened by explorer.exe from System32's folder (one fixed argument, no shell), as a
+   * click on it would. true when explorer started. */
+  private openShortcut(lnk: string): boolean {
+    const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows'
+    try {
+      const child = this.spawn(path.win32.join(root, 'explorer.exe'), [lnk], { shell: false, stdio: 'ignore', windowsHide: true, detached: false })
+      child.on('error', () => {})
+      child.unref?.()
+      return true
+    } catch { return false }
   }
 
   /** A system program with a fixed argument list (no shell), and whether it ended with 0 (10 s at most). */
@@ -869,14 +940,16 @@ export class LocalApps {
     })
   }
 
-  private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<CliRun | { failure: LocalFailure; error: string }> {
-    const dirs = (this.d.searchPath ?? defaultSearchPath)()
-    const program = resolveProgram(spec.command, dirs)
-    if (!program) return Promise.resolve({ failure: 'start_failed', error: `${spec.command} was not found on this computer` })
+  private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<CliRun | { failure: LocalFailure; error: string; cause?: LocalResult['cause'] }> {
+    const dirs = this.dirs()
+    const l = this.launch(spec.command, argv.args)
+    if ('failure' in l) return Promise.resolve(l)
+    // a value cmd.exe would read (a batch file on Windows): this call is refused, the connection itself is fine
+    if ('refused' in l) return Promise.resolve(l.refused === 'unsafe_arg' ? { stdout: '', stderr: l.error, outChars: 0, errChars: l.error.length, code: 1 } : { failure: 'start_failed', error: l.error, cause: l.refused })
     return new Promise((resolve) => {
       let child: ChildProcessWithoutNullStreams
       try {
-        child = this.spawn(program, argv.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
+        child = this.spawnLaunch(l, { env: envFor(this.d.settings(team, call.connectionId), dirs), group: true })
       } catch (e) { resolve({ failure: 'start_failed', error: e instanceof Error ? e.message : String(e) }); return }
       const ck = this.k(team, call.connectionId)
       const r: Running = { key: 'cli', child, waiting: new Map(), init: null, initializing: null, initialized: true, stderr: '', exited: false, onExit: new Set() }
@@ -885,7 +958,7 @@ export class LocalApps {
       this.running.set(`${ck}\u0000${call.callId}`, r)
       this.d.onChange?.(team, call.connectionId, true)
       let stdout = '', stderr = '', outChars = 0, errChars = 0, settled = false
-      const finish = (v: CliRun | { failure: LocalFailure; error: string }) => {
+      const finish = (v: CliRun | { failure: LocalFailure; error: string; cause?: LocalResult['cause'] }) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -917,13 +990,29 @@ export class LocalApps {
   private kill(r: Running, hard = false) {
     if (r.exited) return
     const pid = r.child.pid
+    const win = this.platform() === 'win32'
     const sig = (s: NodeJS.Signals) => {
       // the program's own children too (it was started in a group of its own)
-      try { if (pid && process.platform !== 'win32') process.kill(-pid, s); else r.child.kill(s) } catch { try { r.child.kill(s) } catch {} }
+      try { if (pid && !win) process.kill(-pid, s); else r.child.kill(s) } catch { try { r.child.kill(s) } catch {} }
+    }
+    // Windows has no process groups: the tree under the PID this app started (cmd.exe's batch, npx's server) ends at
+    // once (taskkill /T /F by that PID only, never by a name)
+    if (win && pid) {
+      try { (this.d.killTree ?? ((p: number) => this.taskkill(p)))(pid) } catch {}
+      try { r.child.kill() } catch {}
+      return
     }
     if (hard) return sig('SIGKILL')
     sig('SIGTERM')
     setTimeout(() => { if (!r.exited) sig('SIGKILL') }, KILL_AFTER_MS).unref?.()
+  }
+
+  /** taskkill.exe from System32 (never one found in PATH), by the PID this app started, with its tree. */
+  private taskkill(pid: number) {
+    const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows'
+    const child = this.spawn(path.win32.join(root, 'System32', 'taskkill.exe'), ['/pid', String(pid), '/T', '/F'], { shell: false, stdio: 'ignore', windowsHide: true })
+    child.on('error', () => {})
+    child.unref?.()
   }
 
   /** Stop the connection's program (Settings' Stop, a removed connection). */

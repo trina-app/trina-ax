@@ -453,7 +453,7 @@ describe('edit_office insert_picture with a chat file picture (QA TC-8173)', () 
     const got = new Uint8Array(await (await h.req('erin', `/api/chats/${chat}/files/${doc.id}`)).arrayBuffer())
     const z = readZip(got)
     expect(z.filter((e) => /^word\/media\/image\d+\.png$/.test(e.name)).length).toBe(1)
-    expect(new TextDecoder().decode(z.find((e) => e.name === 'word/document.xml')!.data)).toMatch(/Seller: Hong Gildong <\/w:t><w:drawing>[\s\S]*<\/w:drawing><w:t xml:space="preserve">\(seal\)<\/w:t>/)
+    expect(new TextDecoder().decode(z.find((e) => e.name === 'word/document.xml')!.data)).toMatch(/Seller: Hong Gildong <\/w:t><\/w:r><w:r[^>]*>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:drawing>[\s\S]*<\/w:drawing><\/w:r><w:r[^>]*>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t xml:space="preserve">\(seal\)<\/w:t>/)
   })
 })
 

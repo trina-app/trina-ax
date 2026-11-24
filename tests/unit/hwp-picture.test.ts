@@ -186,12 +186,12 @@ describe('.hwp', () => {
     expect(() => hwpVerifyRequest(encodeVerifyPictures(before, bad))).toThrow(/DocInfo changed more/)
   })
 
-  test('refused: a label the layout does not show as often as the document, at and cell together, a label in a header only', () => {
+  test('refused: at and cell together, a label that is not in the document; a label drawn twice is placed, not refused', () => {
     const before = hwpEmploymentForm()
     const twice: HwpLayout = { pages: [{ ...EMPLOYMENT.pages[0]!, lines: [...EMPLOYMENT.pages[0]!.lines, { ...EMPLOYMENT.pages[0]!.lines[2]!, para: 'x' }] }] }
-    expect(() => editHwp(before, [SEAL_OVER], { layout: twice, images: new Map([[0, clean()]]) })).toThrow(/1 in the document's text but 2 on its pages/)
+    expect(editHwp(before, [SEAL_OVER], { layout: twice, images: new Map([[0, clean()]]) }).report.pictures).toHaveLength(1)
     const both = { ...SEAL_OVER, cell: { next_to: '성명' } } as HwpChange
-    expect(() => editHwp(before, [both], pictures([both]))).toThrow(/give at .* or cell/)
+    expect(() => editHwp(before, [both], pictures([both]))).toThrow(/give one of at/)
     expect(() => editHwp(before, [{ image: 'x.png', at: '없는 글자' }], pictures([{ image: 'x.png', at: '없는 글자' }]))).toThrow(/is not in the document/)
   })
 })

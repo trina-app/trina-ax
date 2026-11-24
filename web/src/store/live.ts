@@ -4,7 +4,7 @@ import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData 
 import { api, API, renewWindowId, windowId } from '../lib/api'
 import { guestRemoval } from '../lib/signedOut'
 import { BrowserRelay } from '../lib/browserRelay'
-import { LocalRelay } from '../lib/localRelay'
+import { LocalRelay, watchLocalAsking } from '../lib/localRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { conflictText, toldHere } from '../lib/conflictNotice'
@@ -75,6 +75,7 @@ let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
 /** apps on this computer (lib/localRelay.ts) */
 let localRelay: LocalRelay | null = null
+let stopAsking: (() => void) | null = null
 /** this window's own activity for the team's online status (lib/presence.ts) */
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
@@ -374,6 +375,9 @@ export function startLive() {
   })
   relay = new BrowserRelay((f) => client?.send(f))
   localRelay = new LocalRelay((f) => client?.send(f))
+  // the desktop app's "Connect a program" window is waiting: said in this window too
+  stopAsking?.()
+  stopAsking = watchLocalAsking()
   activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange, !!desktop())
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
@@ -399,6 +403,8 @@ export function stopLive() {
   client = null
   relay = null
   localRelay = null
+  stopAsking?.()
+  stopAsking = null
   usePresence.getState().clear()
   useTyping.getState().clear()
   setTypingOut(() => {})

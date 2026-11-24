@@ -56,7 +56,7 @@ import { ConnectionPage, ListedServicePage } from '../components/integrations/Co
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { LocalProgramsHere } from '../components/integrations/LocalProgramsHere'
 import { desktop } from '../lib/desktop'
-import { localAppById, localAppLogo, localAppOf, localAppSpec, localAppsFor, type LocalAppEntry } from '../lib/localApps'
+import { localAppById, localAppDownload, localAppLogo, localAppOf, localAppSpec, localAppsFor, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -612,7 +612,7 @@ function LocalListedPage({ a }: { a: LocalAppEntry }) {
           <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(allowed ? 'localApps.status.desktopOnly' : 'appConnectors.off')}</span>
         )}
         status={<>
-          <Note testId="local-app-install">{t(a.install)}</Note>
+          <LocalAppInstall a={a} />
           {error && <Note tone="warn" testId="local-app-error">{error}</Note>}
           {help}
         </>}
@@ -628,10 +628,24 @@ function LocalAppHelp({ a }: { a: LocalAppEntry }) {
   return a.help ? <Note testId="local-app-help">{t(a.help)}</Note> : null
 }
 
-/** A connected Aside or ego lite: its connection's page, with its own About and help. */
+/** What to install first, with the app's download page (macOS and Windows). `missing`: its check found no program on
+ * this computer, so it is said as the thing to fix. */
+function LocalAppInstall({ a, missing }: { a: LocalAppEntry; missing?: boolean }) {
+  const t = useT()
+  const href = localAppDownload(a)
+  return (
+    <Note testId="local-app-install" tone={missing ? 'warn' : undefined} reason={missing ? 'local_missing' : undefined}>
+      {t(a.install)}
+      {href && <>{' '}<a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline" data-testid="local-app-download">{href.replace(/^https:\/\//, '')}</a></>}
+    </Note>
+  )
+}
+
+/** A connected Aside or ego lite: its connection's page, with its own About and help (and, when its check found no
+ * program on this computer, where to get it). */
 function LocalMinePage({ i, a }: { i: Integration; a: LocalAppEntry }) {
   const t = useT()
-  return <McpShell privacy={false}><MinePage i={i} about={t('localApps.about')}><LocalAppHelp a={a} /></MinePage></McpShell>
+  return <McpShell privacy={false}><MinePage i={i} about={t('localApps.about')}>{i.lastErrorReason === 'local_missing' && <LocalAppInstall a={a} missing />}<LocalAppHelp a={a} /></MinePage></McpShell>
 }
 
 /** /settings/connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or
