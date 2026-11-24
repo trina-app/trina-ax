@@ -98,7 +98,9 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 설치기가 하는 일: macOS·프로세서·Claude 로그인(구독 토큰이면 토큰 형식)·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 →
 HTML을 PDF로 바꾸는 헤드리스 브라우저(Chrome for Testing `chrome-headless-shell`, 약 105 MB, 번들의 목록
 `app/scripts/system/packages.json`이 고정한 버전과 SHA-256)를 서버를 멈추기 전에 `~/TeamAX/browser/`에 받아 실행해 보기(이 맥
-사용자 소유, 최대 8분. 받지 못하면 HTML→PDF 없이 계속하고, 설치 프로그램이 다음에 돌 때(다음 업데이트나 다시 설치) 다시 시도) → 설정
+사용자 소유, 최대 8분. 받지 못하면 HTML→PDF 없이 계속하고, 설치 프로그램이 다음에 돌 때(다음 업데이트나 다시 설치) 다시 시도) →
+같은 방식으로 **문서 도구**(LibreOffice, 문서용 Python·Node 라이브러리, srt, 한글·한자 글꼴 Noto CJK; 약 450 MB를 받아 디스크 약
+1.4 GB, 이 맥에서 첫 설치 약 2분 30초)를 `~/TeamAX/kit/`에 받기(아래 "문서 도구") → 설정
 `~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 인터넷 주소가 있으면
 두 번째 LaunchAgent `app.team-ax.office.tunnel`(번들의 `cloudflared`) 시작 → 주소·지문·링크 출력.
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
@@ -309,6 +311,9 @@ Mac 데스크톱 앱(서명·공증된 DMG, 0.5.6부터)과 Windows 설치 파�
    내려받지 않고 `~/TeamAX/browser/chrome-headless-shell/current`만 옮기며, 바로 앞 버전은 다음 전환 때까지 남깁니다. 받지
    못하거나 실행되지 않으면 경고만 하고 옛 브라우저로 계속합니다: 업데이트를 실패시키거나 되돌리지 않습니다. 같은 버전이면
    아무것도 받지 않습니다.
+   문서 도구도 같습니다: 목록이 새 LibreOffice(보안 수정)나 라이브러리를 고정하면 서버를 멈추기 전에 받아 확인하고(최대 5분),
+   바뀌지 않은 부분은 지금 도구에서 복사만 하며(디스크를 더 쓰지 않음), 멈춘 뒤 `~/TeamAX/kit/current`만 옮깁니다. 사용자가 할
+   일은 없습니다.
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).
@@ -767,3 +772,28 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 - 실제 윈도우 PC·Edge로 인터넷 주소 앱 설치는 아직 확인하지 않았습니다(공인 인증서라 일반 웹사이트와 같음).
 - 윈도우 데스크톱 앱(부록 C)은 맥에서 교차 빌드만 했고 실제 윈도우 PC에서 설치·실행해 보지 않았습니다. 서명이 없어
   SmartScreen 경고가 나오고, 회사 정책이 서명 없는 프로그램을 막는 PC에서는 쓸 수 없습니다(그 자리는 Edge 앱).
+
+
+## 문서 도구
+
+워드·파워포인트·엑셀·PDF 파일을 AI가 디자인해서 만들고, 보내기 전에 쪽을 직접 봅니다(호스팅 팀과 같은 방식). 설치기가
+`~/TeamAX/kit/<키>/`에 받는 것(목록 `app/scripts/system/packages.json`의 `doc-kit-mac`, 모두 이 맥 사용자 소유, sudo 없음):
+
+| 무엇 | 확인 |
+|---|---|
+| LibreOffice (The Document Foundation의 DMG) | 고정한 버전과 SHA-256, Developer ID 서명(팀 7P5S3ZLCN7)과 Apple 공증 |
+| CPython과 문서 라이브러리(python-docx, python-pptx, openpyxl, pandas, matplotlib …) | 휠마다 SHA-256 |
+| node, srt, Node 라이브러리(pptxgenjs, docx) | 번들의 잠금 파일(npm ci) |
+| 글꼴 Noto Sans·Serif CJK | SHA-256 |
+
+- **만들기:** AI의 명령은 srt(macOS Seatbelt) 안에서 로그인한 사용자로 돕니다. 네트워크 없음, 홈 폴더·팀 폴더·키체인·다른
+  프로그램 접근 없음, 그 채팅의 작업 폴더에만 씁니다. 프로젝트 채팅에서는 쓰지 않습니다(그때는 `make_file`로 만듭니다).
+  관리자 설정의 개발 환경 스위치와는 상관없이 모든 팀원에게 켜져 있고, 설정 화면에는 개발 환경이 보이지 않습니다.
+- **보기:** LibreOffice가 쪽을 그림으로 그립니다. 자기 `sandbox-exec` 프로필 안에서: IP 네트워크 없음, `/Users` 아래는 앱·글꼴·
+  빈 작업 폴더만 읽기, 자기 앱 안의 프로그램만 실행, 다른 앱·URL·Apple 이벤트 없음. 쓰는 곳은 작업 폴더와 LibreOffice 자신의
+  파이프(`/private/var/tmp/OSL_PIPE_…`, 듣기만, 다른 LibreOffice에 연결 못 함)뿐입니다.
+- **업데이트:** 위 "자동 업데이트" 4번. LibreOffice 보안 수정은 목록의 새 고정 버전으로 다음 업데이트에 들어옵니다.
+- **받지 못했을 때:** 경고만 하고 서버는 그대로 돕니다. AI는 더 단순한 파일(`make_file`)을 만들고 그렇다고 말합니다. 다음
+  업데이트가 다시 받습니다.
+- **Intel 맥:** 같은 목록에 Intel용 LibreOffice·Python·node가 있지만 아직 Intel 맥에서 시험하지 않았습니다.
+- 지우기: `office-uninstall.sh`가 `kit/`도 지웁니다.
