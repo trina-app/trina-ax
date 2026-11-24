@@ -42,7 +42,7 @@ describe('skill form: Run only for the skill its name runs', () => {
     const m = await render()
     const alert = await m.until(() => m.find('skill-form-clash'), 'the clash note', 2000)
     expect(alert.getAttribute('role')).toBe('alert')
-    expect(alert.textContent).toBe(translate('en', 'skillForm.sameName', { name: 'ad-copy', path: older.path }))
+    expect(alert.textContent).toBe(translate('en', 'skillForm.sameName', { name: 'ad-copy', path: 'Team skills › aaa › ad-copy › SKILL.md' }))
     expect(m.get('skill-form-run').hasAttribute('disabled')).toBe(true)
     await m.unmount()
   })

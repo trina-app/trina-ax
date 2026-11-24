@@ -107,7 +107,7 @@ test('the 팀 스킬 row counts what waits for my review: it comes with a sugges
   }
   await expect(reviewed.locator('[data-testid="suggestion"][data-status="rejected"]').getByTestId('review-note')).toContainText('비슷한 스킬이 이미 있어요')
   const result = reviewed.locator('[data-testid="suggestion"][data-status="approved"]').getByTestId('suggestion-result')
-  await expect(result).toContainText('skills/')
+  await expect(result).toContainText('팀 스킬 ›')
   // "등록됨: …" in the line's grey, as its meta line: not the accent colour, which read as an error
   const meta = reviewed.locator('[data-testid="suggestion"][data-status="approved"]').getByTestId('review-note').or(reviewed.locator('[data-testid="suggestion"][data-status="rejected"]').getByTestId('review-note')).first()
   expect(await result.evaluate((el) => getComputedStyle(el).color)).toBe(await meta.evaluate((el) => getComputedStyle(el).color))

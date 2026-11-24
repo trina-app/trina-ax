@@ -129,7 +129,7 @@ test('save an artifact into the team folder', async ({ page }) => {
   await panel.getByRole('button', { name: '팀 폴더에 저장' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'marketing' }).click()
   await page.getByTestId('folder-pick').click()
-  await expect(page.getByText('marketing/Hello page.html에 저장했어요.')).toBeVisible()
+  await expect(page.getByText('marketing › Hello page.html에 저장했어요.')).toBeVisible()
 })
 
 test('the receiver document: sandbox CSP header, framable only by this server, no cookies needed', async ({ page }) => {

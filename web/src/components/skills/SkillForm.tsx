@@ -24,6 +24,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillExample, skillSummary, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { composeSkillMessage, initialValues, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { rememberChat } from '../../lib/teamAttach'
 import { useLocale, useT } from '../../i18n'
@@ -56,6 +57,7 @@ type Props = {
 export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose, onSkill, description = true, runLabel }: Props) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const me = useMeStrict()
   const navigate = useNavigate()
   const send = useChats((s) => s.send)
@@ -187,7 +189,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
       {description && skill.description && <p className="text-sm text-muted">{skillSummary(skill)}</p>}
       {loadError && <ErrorNote>{loadError}</ErrorNote>}
-      {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}
+      {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: place(clash.path) })}</p>}
       {inputs.filter((i) => !i.advanced).map(field)}
       {advanced.length > 0 && (
         <div>

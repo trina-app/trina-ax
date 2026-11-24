@@ -5,7 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
-import { ownFolderLabel, ownFolderWord, TOP_FOLDER_LABELS } from './folder-labels'
+import { ownFolderLabel, ownFolderWord, personFolderLabel, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
 import { maskSecrets } from './secrets'
@@ -668,10 +668,18 @@ const BRAND_NAMES = nfcSet(BRAND_FOLDER)
 const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
 const NOTES_NAMES = nfcSet(NOTES_FOLDER)
 
+/** Who reads a place (QA TC-8922): `me`, their user id, so users/<me>/ is their own folder ("My files") and any other
+ * users/<id>/ is that person's ("Mina's folder" by `nameOf`, else "Personal": never their id, never "My files"). */
+export interface PlaceViewer {
+  me: string | null | undefined
+  nameOf?: (id: string) => string | null | undefined
+}
+
 /** A team path with its well-known folder in words ("브랜드 이미지 폴더 › 홈페이지-6.jpg"), or null for any other path
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
- * named in the team's language and the screen may be in another. */
-export function placeName(path: string, locale: Locale): string | null {
+ * named in the team's language and the screen may be in another. Without `viewer`, users/<id>/ is the reader's own
+ * folder (an AI's step line in its asker's chat); with one, only users/<viewer.me>/ is. */
+export function placeName(path: string, locale: Locale, viewer?: PlaceViewer): string | null {
   // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id; $TRINA_WORK/… (box_shell's
   // spelling of the work folder) reads the same as chat:work/… (QA TC-6937)
   const place = parsePlace(WORK_VAR.test(path.trim()) ? `chat:work${path.trim().replace(WORK_VAR, '')}` : path)
@@ -694,6 +702,13 @@ export function placeName(path: string, locale: Locale): string | null {
     if (b && BRAND_NAMES.has(b)) return c && IMAGES_NAMES.has(c) ? say('brandImages', 4) : say('brand', 3)
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
     return say('team', 2, { team: a })
+  }
+  if (top === 'users' && !a) return TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
+  // another person's folder, for a viewer who is not them (a shared chat, a room, an admin): by their name
+  if (top === 'users' && a && viewer && a !== viewer.me) {
+    const name = viewer.nameOf?.(a)
+    const head = name ? personFolderLabel(name, locale) : TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
+    return (b === '.attachments' && c ? [head, STEP_PLACE.attachments[locale] ?? STEP_PLACE.attachments.en, ...segs.slice(4)] : [head, ...segs.slice(2)]).join(' › ')
   }
   // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
@@ -752,24 +767,24 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  * tooltip: { label: "파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg", path: "groups/Acme/브랜드/이미지/홈페이지-6.jpg" }.
  * Any other line comes back as it is, without `path`.
  */
-export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
-  const r = toolPlace(step, label, locale)
+export function stepPlace(step: { tool?: string }, label: string, locale: Locale, viewer?: PlaceViewer): { label: string; path?: string } {
+  const r = toolPlace(step, label, locale, viewer)
   // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
   // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
   // words of a question, a memory or a sub-task, which are someone's own
-  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale), locale) }
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale, viewer), locale) }
 }
 
 /** A line's "<what> → <where>" with <where> in words when it is a team path ("… → users/qa-member/보고서/" reads
  * "… → 내 파일 › 보고서"): the save tools end their line this way (QA step list "작업 결과 저장"). A target that is no path
  * (a new name, a group) stays as it is. */
-function arrowPlace(label: string, locale: Locale): string {
+function arrowPlace(label: string, locale: Locale, viewer?: PlaceViewer): string {
   const at = label.lastIndexOf(' → ')
   if (at < 0) return label
   const cover = coverWhy(label)?.end ?? ''
   const tail = label.slice(at + 3, cover ? label.length - cover.length : undefined)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
-  const named = placeName(path, locale)
+  const named = placeName(path, locale, viewer)
   return named ? `${label.slice(0, at + 3)}${named}${suffix}${cover}` : label
 }
 
@@ -785,7 +800,7 @@ function plainPlaces(label: string, locale: Locale): string {
     .replace(/ › (?=\s|$)/g, '')
 }
 
-function toolPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+function toolPlace(step: { tool?: string }, label: string, locale: Locale, viewer?: PlaceViewer): { label: string; path?: string } {
   // a command saved before its line said the work folder in words
   if (step.tool === 'box_shell') {
     const at = label.indexOf(' · ')
@@ -800,7 +815,7 @@ function toolPlace(step: { tool?: string }, label: string, locale: Locale): { la
   if (at < 0) return { label: chatPlaceWords(label, locale) }
   const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
-  const named = placeName(path, locale)
+  const named = placeName(path, locale, viewer)
   // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
   // (nor for the whole team folder: "/" tells nothing more)
   if (named && (parsePlace(path) || /^\s*\/+\s*$/.test(path))) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }

@@ -15,6 +15,7 @@ import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { useFrameScripts, useSharedChat } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
+import { useTeamPlace } from '../lib/teamPlace'
 import { versionBy } from '../lib/chatFileVersions'
 import { formatRelative } from '../lib/format'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
@@ -41,6 +42,7 @@ let compiler: Promise<CompileFn> | null = null
 export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose }: { chatId: string; artifactKey: string; versionId?: string; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const me = useMeStrict()
   const groups = useChatArtifacts(chatId)
   const live = useChats((s) => s.liveArtifacts[chatId]?.[artifactKey])
@@ -114,7 +116,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     try {
       const name = artifactFileName(artifact)
       const r = await api.call(API.saveContent, { body: { path: joinPath(folder, name), content: artifact.content, baseSha256: null } })
-      toast({ level: 'success', text: r.conflict ? t('artifact.savedConflict', { path: r.path }) : t('artifact.saved', { path: r.path }) })
+      toast({ level: 'success', text: r.conflict ? t('artifact.savedConflict', { path: place(r.path) }) : t('artifact.saved', { path: place(r.path) }) })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {

@@ -18,6 +18,7 @@ import { PRODUCT_NAMED_AFTER_AI, type AiAllowance, type CardAllowance, type Room
 import { api, API, errorText } from '../../lib/api'
 import { browserSettingsBridge, type BrowserSettingsBridge, type DesktopBrowserSettings } from '../../lib/desktop'
 import { formatMonthDay } from '../../lib/format'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../ui'
@@ -31,6 +32,8 @@ export function deviceSiteRows(s: DesktopBrowserSettings | null): { host: string
 
 export function AiAllowances({ folded = false, bridge = browserSettingsBridge() }: { folded?: boolean; bridge?: BrowserSettingsBridge | null }) {
   const t = useT()
+  // a room's folder in words ("My files › 공문"), never the disk path (QA TC-8922)
+  const folderPlace = useTeamPlace()
   const phone = useMediaQuery('(max-width: 767.98px)')
   const locale = useLocale()
   const title = useRoomTitle()
@@ -105,7 +108,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
         // phones: plain rows under the section, like Security's devices (no frame around them)
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line" data-testid="allowance-list">
           {items.map((a) => {
-            const place = a.kind === 'picture' ? a.picture : a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${a.folder}`
+            const place = a.kind === 'picture' ? a.picture : a.kind === 'card' ? cardName(a) : a.kind === 'person_alias' ? `${a.ref} → ${a.person.name}` : a.kind === 'connector_tool' ? `${a.connection} · ${a.all ? t('allowances.connectorAll') : a.warned !== undefined ? warnedLabel(a.warned) : a.shared ? t('allowances.connectorShared') : a.tool}` : a.kind === 'site' ? `${a.site} · ${siteWhat(a)}` : a.kind === 'connector_send' ? `${a.connection} · ${t('allowances.connectorSend')}` : `${roomName(a)} → ${folderPlace(a.folder)}`
             return (
               <li key={a.id} className={clsx('flex items-center gap-3 py-3 md:px-4', busy === a.id && 'opacity-60')} data-testid="allowance-row">
                 <div className="min-w-0 flex-1">
@@ -152,7 +155,7 @@ export function AiAllowances({ folded = false, bridge = browserSettingsBridge() 
                     <p className="text-sm [overflow-wrap:anywhere]">
                       <span className="font-medium">{roomName(a)}</span>
                       <span className="px-1.5 text-faint" aria-hidden>→</span>
-                      <span>{a.folder}</span>
+                      <span>{folderPlace(a.folder)}</span>
                     </p>
                   )}
                   <p className="mt-0.5 text-xs text-muted">
