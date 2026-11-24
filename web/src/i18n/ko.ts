@@ -3635,6 +3635,7 @@ export const ko = {
   'integrations.account': '계정 {account}',
   'integrations.neverUsed': '아직 쓰지 않음',
   'integrations.noTools': '이 서비스가 알려 준 도구가 없어요. 다시 확인해 보세요.',
+  'integrations.toolsTooLarge': '이 서비스의 도구가 너무 커서 불러오지 못했어요. AI가 이 도구를 쓸 수 없어요.',
   'integrations.toolsCapped': '이 서비스는 도구 {total}개를 제공하는데, AI는 앞의 {n}개만 쓸 수 있어요.',
   'integrations.toolsStale': '이 서비스는 도구 {total}개를 제공하는데, 지난번 확인 때 {n}개만 저장됐어요. 다시 확인하면 전부 저장돼요.',
   'integrations.toolsCappedMore': '이 서비스는 도구를 {total}개 넘게 제공하는데, AI는 앞의 {n}개만 쓸 수 있어요.',
