@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 16:05
 - Branch: `fix/files-referenced-place-names`
-- Status: in progress
+- Status: done
 - Where: shared/src/step-labels.ts (the place-name helper), web/src (the screens that print a path). Why: one helper
   says a team path in words for every screen (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a display fix with no new feature or API change
@@ -48,8 +48,12 @@ path names another person.
 ## Tests
 
 `bun run typecheck`, `bun run check:prepush`, tests/unit/step-labels-*.test.ts, web/test/unit/answer-sources.test.tsx
-and the new web/test/unit/team-place.test.ts.
+and the new web/test/unit/team-place.test.tsx, tests/unit/place-name-viewer.test.ts.
 
 ## Result
 
-(at the end)
+Built as planned. Besides the screens listed, the sweep found and fixed: search rows (a file's, a skill's and a
+project's folder), the AI allowance rows (a room's folder), the conflict lines in a chat's file summary, the admin
+skill change log and the team-link skill picker (two skills of one name told apart). Left as paths: admin/FolderLists
+and admin/System connected folders (admin tools), FolderUploads (paths on the person's computer), the AI prompts.
+PR: see the pull request that links this plan.

@@ -106,8 +106,9 @@ describe('the team link on a phone: one primary action, no boxes', () => {
   test('two skills that read the same are told apart in the picker', () => {
     const twin: SkillInfo = { path: 'skills/광고-문구.md', name: '광고 문구', description: '' }
     const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" team="Acme" groups={[]} skills={[AD, twin]} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(html).toContain(`>광고 문구 · ${AD.path}</option>`)
-    expect(html).toContain(`>광고 문구 · ${twin.path}</option>`)
+    // by where each is, in place words (QA TC-8922)
+    expect(html).toContain('>광고 문구 · Team skills › marketing › ad-copy › SKILL.md</option>')
+    expect(html).toContain('>광고 문구 · Team skills › 광고-문구.md</option>')
   })
 
   test('the invite step\'s "다 했어요" is not a second primary; the link waits folded under "링크 관리"', async () => {
