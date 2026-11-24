@@ -5,7 +5,8 @@
 import { describe, expect, test } from 'bun:test'
 import { findPageKeys, keyish, revealsKey, scanPageText } from '@mycel/shared/page-keys'
 import type { BrowserResult } from '@mycel/shared/api'
-import { guardedBrowserCall, keyScreenNote, maskBrowserResult, pageCheckOf, type BrowserCall } from '../../server/src/chat/browser-keys'
+import { guardedBrowserCall, keyScreenNote, maskBrowserResult, pageCheckOf, scanBrowserText, type BrowserCall } from '../../server/src/chat/browser-keys'
+import { redactorOf, WITHHOLDING } from '../../server/src/integrations/connections/redact'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
 import { CONNECT_RULE } from '../../server/src/chat/prompt'
 import { CANARIES, keyPageOutline, middleOf } from '../lib/page-key-canaries'
@@ -215,6 +216,19 @@ describe('the server guard around one browser call', () => {
     expect(m.result.content.map((c) => c.type)).toEqual(['text'])
     const plain = maskBrowserResult(ok('hello', true))
     expect(plain).toEqual({ result: ok('hello', true), hidden: 0, keyScreen: false })
+  })
+
+  test('the person\'s stored keys are hidden in every form the turn\'s redactor knows (base64 too), and make a key screen', () => {
+    // a stored value of no known shape, written on the page in base64 (a service echoing a Basic header)
+    const stored = 'plain-stored-value-QAcanary'
+    const page = `Request headers\nAuthorization: Basic ${Buffer.from('me:' + stored).toString('base64')}\nX-Note: ${stored}`
+    const s1 = scanBrowserText(page, redactorOf([stored]))
+    expect(s1.keyScreen).toBe(true)
+    expect(s1.text).not.toContain(stored)
+    expect(s1.text).not.toContain(Buffer.from('me:' + stored).toString('base64').slice(4, 20))
+    // stored keys that cannot be read now: not used here (the browser keeps working), the shape layer still runs
+    const s2 = scanBrowserText('Hello, world', WITHHOLDING)
+    expect(s2).toEqual({ text: 'Hello, world', hidden: 0, keyScreen: false })
   })
 
   test('the hand-over sentence in every app language, and the connect rule for the web and the phone', () => {

@@ -24,9 +24,12 @@
      `browserKeyHandOver`: "여기서부터는 직접 해 주세요. 키를 복사해서 연결 카드에 붙여 넣으면 돼요." and the other five
      languages). Outside the desktop app (the web, the phone) connect_service's rule says to give the steps and the link
      to the service's key page instead.
-  2. **The server hides.** Every text of every browser result, and its error, goes through
-     `shared/src/page-keys.ts` (`scanPageText`) in `chat/browser-keys.ts` before anything else sees it; the key becomes
-     `[hidden key]` (the marker stored keys already use, `integrations/connections/hide.ts` HIDDEN). Found: the shapes
+  2. **The server hides.** Every text of every browser result, and its error, goes through `chat/browser-keys.ts`
+     `scanBrowserText` before anything else sees it: first the person's own stored connection keys in every form the
+     turn's redactor knows (`integrations/connections/redact.ts`, the one the answer and the audit use: as written,
+     escaped, base64; a redactor that cannot read the keys now is skipped here, so the browser keeps working), then
+     key-like text of any service (`shared/src/page-keys.ts` `scanPageText`); each becomes `[hidden key]` (HIDDEN,
+     `integrations/connections/hide.ts`). A stored key on the page makes a key screen. Found by shape: the shapes
      `secrets.ts` already knows (sk-, sk-ant-, sk-proj-, sk_live_/rk_live_, gh*_ and github_pat_, glpat-, xox*-, AKIA/ASIA,
      AIza, npm_, hf_, ntn_/secret_, lin_api_, gsk_, JWTs, Bearer and Basic values, private key blocks, a value after
      "password:" / "API_KEY=" / "비밀번호:"), more provider prefixes (Google OAuth ya29./GOCSPX-, SendGrid, Shopify, Toss
@@ -62,7 +65,10 @@
     screenshot check does not see it either.
   - A screenshot whose page changes between the server's read and the picture (the page's own timer) is not caught.
   - The AI typing a key it got from the chat into a page is not refused here (the step record keeps typed text only as
-    its length; the prompt says never to type a key).
+    its length; the prompt says never to type a key). The other direction for stored keys, a stored key in what a
+    browser call sends out (an address, typed text, a form value, a script), is open PR #23 (TC-3097), which refuses
+    such a call; PR #22 (TC-3096) teaches the stored-key redactor base64 split by line breaks, which this guard then
+    uses as it is.
   - Known false positives, accepted for safety: a documentation page that shows sample keys in real shapes (Stripe's
     docs show the signed-in person's test keys) or quotes "you won't be able to see it again", a page with a
     generated-looking value right after a key word (a commit hash right after "key" is not one: "commit", "SHA", "ID"

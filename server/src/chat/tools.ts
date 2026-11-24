@@ -1902,10 +1902,10 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
           if (refusal) return { ...text(`The script was not run: it contains the address ${href.slice(0, 200)}, and ${refusal}.`, true), summary: `${name} -> script address ${href.slice(0, 300)} not allowed (address check)` }
         }
       }
-      // key-like text is hidden before anything sees the result; a page that shows a key gets no screenshot or script,
-      // and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
+      // the stored keys and key-like text are hidden before anything sees the result; a page that shows a key gets no
+      // screenshot or script, and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
       const call: BrowserCall = (tool, a) => rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal })
-      const g = await guardedBrowserCall(name, args, call, spec.locale)
+      const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
       const r = g.result
       const content: McpContent[] = []

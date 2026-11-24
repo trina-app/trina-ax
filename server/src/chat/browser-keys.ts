@@ -2,7 +2,9 @@
 // person to a service's sign-up or API key page; a key that page shows must not reach the AI or any record. Two layers:
 // 1. The AI stops at a key screen and hands over (prompt.ts BROWSER_RULES, and keyScreenNote on the result that found
 //    one, with the sentence for the person in the chat's language).
-// 2. The server hides key-like text in every browser result (shared/src/page-keys.ts) before the model, tool_events,
+// 2. The server hides the person's stored connection keys in every form (integrations/connections/redact.ts, the same
+//    redactor as the answer and the audit) and key-like text of any service (shared/src/page-keys.ts) in every browser
+//    result before the model, tool_events,
 //    the step record, the logs or the audit see it, and keeps pictures and script output of a key screen away: a
 //    screenshot cannot be text-masked, and a script can return a key in a form the masking does not know (reversed,
 //    spaced). Before a call that takes a picture or runs a script, the tab is read (read_page) and the call is refused
@@ -11,6 +13,7 @@
 import type { BrowserResult, BrowserToolName, Locale } from '@mycel/shared/api'
 import { scanPageText } from '@mycel/shared/page-keys'
 import { HIDDEN } from '../integrations/connections/hide'
+import { nothingToHide, type Redactor } from '../integrations/connections/redact'
 import { tr } from './i18n'
 
 export type BrowserCall = (tool: BrowserToolName, args: Record<string, unknown>) => Promise<BrowserResult>
@@ -26,21 +29,31 @@ export interface MaskedResult {
   keyScreen: boolean
 }
 
-/** The result with every key-like value in its texts and its error replaced by HIDDEN; on a key screen without its
- * pictures. */
-export function maskBrowserResult(r: BrowserResult): MaskedResult {
+/** A text with the person's stored keys (every form: escaped, base64; redact.ts) and then every key-like value
+ * (page-keys.ts) replaced by HIDDEN. A stored key on the page makes it a key screen. A withholding redactor (stored
+ * keys that cannot be read now) is not used here: the browser keeps working and the shape layer still runs. */
+export function scanBrowserText(text: string, stored?: Redactor): { text: string; hidden: number; keyScreen: boolean } {
+  const known = stored && !stored.withheld && !nothingToHide(stored) ? stored.hide(text) : text
+  const storedHits = known === text ? 0 : Math.max(1, known.split(HIDDEN).length - text.split(HIDDEN).length)
+  const s = scanPageText(known, HIDDEN)
+  return { text: s.text, hidden: s.hidden + storedHits, keyScreen: s.keyScreen || storedHits > 0 }
+}
+
+/** The result with the stored keys and every key-like value in its texts and its error replaced by HIDDEN; on a key
+ * screen without its pictures. */
+export function maskBrowserResult(r: BrowserResult, stored?: Redactor): MaskedResult {
   let hidden = 0
   let keyScreen = false
   const content: BrowserResult['content'] = []
   for (const c of r.content) {
     if (c.type !== 'text') { content.push(c); continue }
-    const s = scanPageText(c.text, HIDDEN)
+    const s = scanBrowserText(c.text, stored)
     hidden += s.hidden
     keyScreen ||= s.keyScreen
     content.push(s.hidden ? { type: 'text', text: s.text } : c)
   }
   // the error repeats the text (desktop common/browser-result.ts): not counted twice
-  const error = r.error === undefined ? undefined : scanPageText(r.error, HIDDEN)
+  const error = r.error === undefined ? undefined : scanBrowserText(r.error, stored)
   if (error?.keyScreen) keyScreen = true
   return {
     result: { ...r, content: keyScreen ? content.filter((c) => c.type === 'text') : content, ...(error ? { error: error.text } : {}) },
@@ -81,15 +94,15 @@ export interface KeyRead {
 }
 
 /** Read each tab's outline and say whether any shows a key. */
-export async function readForKeys(call: BrowserCall, tabs: readonly (string | undefined)[]): Promise<KeyRead> {
+export async function readForKeys(call: BrowserCall, tabs: readonly (string | undefined)[], stored?: Redactor): Promise<KeyRead> {
   let failed: string | null = null
   for (const tab of tabs) {
     const r = await call('read_page', { ...(tab !== undefined ? { tabId: tab } : {}), ...KEY_CHECK_READ })
     if (!r.ok) {
-      failed ??= scanPageText((r.error ?? r.content.find((c) => c.type === 'text')?.text ?? 'the page could not be read').slice(0, 300), HIDDEN).text
+      failed ??= scanBrowserText((r.error ?? r.content.find((c) => c.type === 'text')?.text ?? 'the page could not be read').slice(0, 300), stored).text
       continue
     }
-    if (r.content.some((c) => c.type === 'text' && scanPageText(c.text, HIDDEN).keyScreen)) return { keyScreen: true, failed: null }
+    if (r.content.some((c) => c.type === 'text' && scanBrowserText(c.text, stored).keyScreen)) return { keyScreen: true, failed: null }
   }
   return { keyScreen: false, failed }
 }
@@ -105,21 +118,22 @@ export type Guarded =
 
 /**
  * One browser call with the key guard around it (see the top of this file). `call` runs a browser tool on the
- * person's window. A single picture or script whose page cannot be read first is not run (fails closed); a batch is
- * (it may open the pane or the page first), and is checked after.
+ * person's window; `stored`: the person's stored keys (the turn's redactor). A single picture or script whose page
+ * cannot be read first is not run (fails closed); a batch is (it may open the pane or the page first), and is checked
+ * after.
  */
-export async function guardedBrowserCall(tool: BrowserToolName, args: Record<string, unknown>, call: BrowserCall, locale: Locale): Promise<Guarded> {
+export async function guardedBrowserCall(tool: BrowserToolName, args: Record<string, unknown>, call: BrowserCall, locale: Locale, stored?: Redactor): Promise<Guarded> {
   const check = pageCheckOf(tool, args)
   const what = check?.script ? 'a script' : 'a screenshot'
   if (check) {
-    const before = await readForKeys(call, check.tabs)
+    const before = await readForKeys(call, check.tabs, stored)
     if (before.keyScreen) return { refused: true, text: `Not run: the page shows a key, token or other secret, and ${what} would give it to you. ${keyScreenNote(locale)}`, summary: `${tool} -> refused: the page shows a key (handed over)` }
     if (before.failed && tool !== 'browser_batch') {
       return { refused: true, text: `Not run: before ${what} the page is read to check that it shows no key, and that read failed (${before.failed}).`, summary: `${tool} -> refused: the page could not be checked for keys` }
     }
   }
   const raw = await call(tool, args)
-  const m = maskBrowserResult(raw)
+  const m = maskBrowserResult(raw, stored)
   const notes: string[] = []
   if (m.keyScreen) {
     notes.push(keyScreenNote(locale))
@@ -127,7 +141,7 @@ export async function guardedBrowserCall(tool: BrowserToolName, args: Record<str
   }
   const pictures = raw.content.some((c) => c.type === 'image')
   if (check?.after && (pictures || check.script)) {
-    const after = await readForKeys(call, check.tabs)
+    const after = await readForKeys(call, check.tabs, stored)
     if (after.keyScreen || after.failed) {
       // the pictures and the script's output (one text with the batch's other results) are left out
       const why = after.keyScreen
