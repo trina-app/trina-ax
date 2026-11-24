@@ -44,7 +44,7 @@ const roomText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 /** What an admin did to the team's AI (or to a member's own connection): the page knows these actions; one it does not
  * (a newer server) is a generic line rather than a missing text. */
-const CREDENTIAL_ACTIONS = ['added', 'replaced', 'removed', 'disabled', 'reassigned', 'zero_limit', 'shared_on', 'engine', 'personal_disabled', 'personal_removed', 'personal_login_stopped'] as const
+const CREDENTIAL_ACTIONS = ['added', 'replaced', 'removed', 'disabled', 'reassigned', 'zero_limit', 'shared_on', 'engine', 'personal_disabled', 'personal_removed', 'personal_login_stopped', 'signin_google_connected', 'signin_google_replaced', 'signin_google_disconnected', 'signin_password_set'] as const
 export const credentialChangeText = (c: NonNullable<InboxNotification['credentialChange']>, t: ReturnType<typeof useT>) =>
   (CREDENTIAL_ACTIONS as readonly string[]).includes(c.action)
     ? t(`notifications.credentialChange.${c.action as typeof CREDENTIAL_ACTIONS[number]}`, { who: c.who, subject: c.subject })

@@ -1,12 +1,15 @@
 // Re-checks (docs/decisions/20261122-google-reauth.md): every place that asks a signed-in person to prove it is them
 // again, the owner-reauth and admin-reauth endpoints (http/route.ts) and the direct checks (an admin removing a member,
-// one's own deletion request, the voice key, the office update, connecting Google, setting a first password), takes
+// one's own deletion request, the voice key, the office update, setting a first password), takes
 // the password as before or, for an account WITHOUT a password (made with Google), `reauthFlow`: the id of a Google
 // check this session finished in the last 5 minutes (auth/google-login.ts intent 'reauth'). Exactly one of them.
 // People with a password keep typing it: the Google check is only the way of those who have none.
 //
-// What a Google check proves: the person's connected Google account is signed in in this browser now (Google's account
-// picker, `prompt=select_account`). Google does not tell when its own password was last typed.
+// What a Google check proves: the person signed in to their connected Google account at Google just now. The flow asks
+// Google for a new sign-in (`max_age=0`, the `auth_time` claim) and the return needs an id_token issued in the last
+// minute and, when Google sends `auth_time`, a sign-in of the last 5 minutes (google-login.ts freshEnough;
+// docs/decisions/20261124-google-signin-security.md), so a Google session left open in an unlocked browser is not
+// enough where Google honours it.
 //
 // The check: Google's return marks the flow row 'confirmed' with `confirmed_at` and the Google account's `sub`
 // (migration 131). The request spends it once, atomically, for the person and the session that started it, within
@@ -26,9 +29,6 @@ import { msg } from './messages'
 
 /** a confirmed Google check is good for this long after Google's return */
 export const REAUTH_CONFIRMED_MS = 5 * 60_000
-/** a person without a password may ask for their account's deletion without a check from a session this young (the
- * apps, where the Google check cannot run: auth/deletion-requests.ts) */
-export const RECENT_SIGN_IN_MS = 10 * 60_000
 const FLOW_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** What a re-check got: the password, or the id of a Google check. */

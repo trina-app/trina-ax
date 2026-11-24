@@ -428,6 +428,14 @@ export class Notifications {
   googleConnected(userId: string, linkedAt: string) {
     this.record(userId, 'account.google_connected', linkedAt, linkedAt, true)
   }
+  /** A way to sign in as someone changed (notifySignInChange): one credential.change row (action `signin_*`, who did
+   * it, whose account) in this person's Activity. Shown always, like the AI-connection changes. */
+  signInChange(userId: string, who: string, action: SignInChangeAction, subject: string, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    this.ctx.db.query("INSERT INTO credential_change_notices(id,user_id,event_type,source_id,actor_name,action,subject,created_at,suppressed) VALUES(?,?,'credential.change',?,?,?,?,?,0)")
+      .run(newId(), userId, newId(), who.slice(0, 200), action, subject.slice(0, 200), at)
+    this.signal(userId)
+  }
   /** The hosting service copied the team's AI connections' key or took a full export (system/cli.ts; source: the audit
    * row), or the relay stopped taking this server's key because the team address moved to another key
    * (relay-client/index.ts; source: the relay event). Shown always: only the owners and admins know whether they asked
@@ -919,7 +927,8 @@ export class Notifications {
     // text is the page's); the owners' open Admin › AI providers
     if (row.event_type === 'credential.change') {
       const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
-      const own = !!n && n.action.startsWith('personal_')
+      // a sign-in change (notifySignInChange) is not about the AI: no link to AI providers
+      const own = !!n && (n.action.startsWith('personal_') || n.action.startsWith('signin_'))
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: n && !own ? 'admin_credentials' : null, outcome: null,
         ...(n ? { credentialChange: { who: n.actor_name, action: n.action, subject: n.subject } } : {}) }
     }
@@ -1219,6 +1228,25 @@ export function notifyResetLink(ctx: AppContext, userId: string, resetId: string
   catch { ctx.log.warn('reset link notification recording failed') }
 }
 /** Never throws: the Google account is connected whether or not the notice could be recorded. */
+/** How a way to sign in changed (credential_change_notices.action; web Notifications.tsx has the words) */
+export type SignInChangeAction = 'signin_google_connected' | 'signin_google_replaced' | 'signin_google_disconnected' | 'signin_password_set'
+/**
+ * A way to sign in as `targetId` changed (docs/decisions/20261124-google-signin-security.md): a Google account was
+ * connected, replaced or disconnected, or a first password set. Every active owner and admin is told in Activity, who
+ * did it and whose account (never the Google account or its address), so a takeover at someone's unlocked browser does
+ * not go unseen when only the victim would be told. `alsoTarget`: the person too (the Google connect tells them with
+ * its own row already). `actorId` null: the server. Never throws.
+ */
+export function notifySignInChange(ctx: AppContext, targetId: string, actorId: string | null, action: SignInChangeAction, o: { alsoTarget?: boolean } = {}) {
+  try {
+    const name = (id: string) => (ctx.db.query('SELECT name FROM users WHERE id = ?').get(id) as { name: string } | null)?.name ?? ''
+    const subject = name(targetId), who = actorId ? name(actorId) : ''
+    const to = new Set(admins(ctx.db))
+    if (o.alsoTarget) to.add(targetId)
+    const at = new Date().toISOString()
+    for (const id of to) notificationsOf(ctx).signInChange(id, who, action, subject, at)
+  } catch { ctx.log.warn('sign-in change notification recording failed') }
+}
 export function notifyGoogleConnected(ctx: AppContext, userId: string, linkedAt: string) {
   try { notificationsOf(ctx).googleConnected(userId, linkedAt) }
   catch { ctx.log.warn('google connect notification recording failed') }

@@ -23,11 +23,15 @@ const jwt = (claims: Record<string, unknown>) => `${b64({ alg: 'RS256', typ: 'JW
 
 /** the Google account the fake Google answers for next */
 let nextSub = '100'
+/** what the fake Google's id_token says about time, in seconds before now (iat: when it was issued; authTime: when
+ * the person last signed in at Google, left out when null) */
+let tokenAge = { iat: 0, authTime: null as number | null }
 const nonces = new Map<string, string>()
 const fakeFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
   const body = new URLSearchParams(String(init?.body ?? ''))
   const nonce = nonces.get(body.get('code') ?? '') ?? ''
-  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce, sub: nextSub, email: `${nextSub}@acme.test`, email_verified: true })
+  const now = Math.floor(Date.now() / 1000)
+  const id_token = jwt({ iss: 'https://accounts.google.com', aud: CLIENT_ID, azp: CLIENT_ID, exp: now + 600, iat: now - tokenAge.iat, ...(tokenAge.authTime === null ? {} : { auth_time: now - tokenAge.authTime }), nonce, sub: nextSub, email: `${nextSub}@acme.test`, email_verified: true })
   return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer', id_token }), { status: 200, headers: { 'content-type': 'application/json' } })
 }) as unknown as typeof fetch
 
@@ -84,6 +88,9 @@ describe('Re-check with Google for accounts without a password', () => {
     const body = await res.json() as { url: string; flow: string }
     const s = started(res, body)
     expect(s.u.searchParams.get('prompt')).toBe('select_account')
+    // a new sign-in at Google, not the browser's open Google session
+    expect(s.u.searchParams.get('max_age')).toBe('0')
+    expect(JSON.parse(s.u.searchParams.get('claims')!)).toEqual({ id_token: { auth_time: { essential: true } } })
     expect(await state(c, body.flow)).toBe('waiting')
     nextSub = sub
     const page = await back(s.state, `${c.cookie}; ${s.gsi}`, o)
@@ -158,10 +165,72 @@ describe('Re-check with Google for accounts without a password', () => {
     expect(del.body.state).toBe('pending')
     accepted(del, flow)
     await pia.client.call('DELETE', '/api/me/deletion-request')
-    flow = await confirmed(pia, '201')
+  })
+
+  test('attack: at an unlocked browser, a passwordless account\'s Google cannot be swapped for another one', async () => {
+    const before = h.ctx.db.query("SELECT subject FROM login_identities WHERE user_id = ?").get(pia.id) as { subject: string }
+    // the attacker passes the re-check with the victim's open Google session, then asks to connect their own Google
+    const flow = await confirmed(pia, '201')
     const con = await pia.client.try('POST', '/api/me/google/connect', { reauthFlow: flow })
-    expect(con.status).toBe(200)
-    accepted(con, flow)
+    expect(con.status).toBe(409)
+    expect(con.body.error.params.reason).toBe('no_password')
+    // refused before the check is spent, and nothing changed
+    expect(flowStatus(flow)).toBe('confirmed')
+    expect(h.ctx.db.query("SELECT subject FROM login_identities WHERE user_id = ?").get(pia.id)).toEqual(before)
+  })
+
+  test('a connect started with a password finds the password gone at Google\'s return: refused, the link stays', async () => {
+    const m = await addMember(h, owner, { username: 'rita' })
+    const res = await m.client.raw('POST', '/api/me/google/connect', { password: m.password })
+    expect(res.status).toBe(200)
+    const s = started(res, await res.json() as { url: string })
+    h.ctx.db.query('UPDATE users SET password_hash = NULL WHERE id = ?').run(m.id)
+    nextSub = '666'
+    expect((await back(s.state, `${m.client.cookie}; ${s.gsi}`)).headers.get('location')).toBe('/settings/security?google=failed')
+    expect(h.ctx.db.query("SELECT 1 FROM login_identities WHERE subject = '666'").get()).toBeNull()
+    expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'auth.google_connect_refused' AND target = ?").get(m.id)).toBeTruthy()
+    h.ctx.db.query("UPDATE users SET password_hash = 'x' WHERE id = ?").run(m.id)
+  })
+
+  test('a re-check needs a sign-in at Google now: an old id_token or an old Google sign-in is not confirmed', async () => {
+    try {
+      for (const age of [{ iat: 120, authTime: null }, { iat: 0, authTime: 20 * 60 }]) {
+        tokenAge = age
+        const r = await check(pia.client, '201')
+        expect(r.page.status).toBe(400)
+        expect(await state(pia.client, r.flow)).toBe('failed')
+        refusedCheck(await pia.client.try('POST', '/api/me/password', { newPassword: 'quiet harbor 99 lamp', reauthFlow: r.flow }))
+      }
+      const n = h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'auth.reauth_failed' AND target = ? AND detail = ?").get(pia.id, JSON.stringify({ method: 'google', reason: 'not_fresh' })) as { n: number }
+      expect(n.n).toBe(2)
+      // a Google sign-in a few seconds ago is fine
+      tokenAge = { iat: 1, authTime: 20 }
+      await confirmed(pia, '201')
+    } finally {
+      tokenAge = { iat: 0, authTime: null }
+      h.auth.limiter.clear(reauthKey(pia.id))
+    }
+    expect((await pia.client.call('GET', '/api/me')).user.hasPassword).toBe(false)
+  })
+
+  test('re-checks are never stopped by a flood of sign-in starts; sign-in starts count per address', async () => {
+    const now = Date.now()
+    const ins = h.ctx.db.query("INSERT INTO google_signin_flows (id, state_hash, binding_hash, intent, config_key, created_at, expires_at, ip_hash) VALUES (?, ?, 'x', 'signin', 'k', ?, ?, ?)")
+    h.ctx.db.transaction(() => {
+      for (let i = 0; i < 500; i++) ins.run(crypto.randomUUID(), `flood-${i}`, new Date(now).toISOString(), new Date(now + 600_000).toISOString(), `ip-${i % 17}`)
+    })()
+    try {
+      // the server-wide cap: a new sign-in waits
+      expect((await h.client({ ip: '10.9.9.9' }).try('POST', '/api/auth/google/start', {})).status).toBe(429)
+      // a signed-in person's re-check does not
+      await confirmed(pia, '201')
+    } finally { h.ctx.db.query("DELETE FROM google_signin_flows WHERE state_hash LIKE 'flood-%'").run() }
+    // one address holds at most 10 open sign-ins; another address goes on
+    const one = h.client({ ip: '10.8.8.8' })
+    for (let i = 0; i < 10; i++) expect((await one.try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    expect((await one.try('POST', '/api/auth/google/start', {})).status).toBe(429)
+    expect((await h.client({ ip: '10.8.8.9' }).try('POST', '/api/auth/google/start', {})).status).toBe(200)
+    h.ctx.db.query("DELETE FROM google_signin_flows WHERE intent = 'signin' AND status = 'pending'").run()
   })
 
   test('a check works once, in its session, for its person, within 5 minutes', async () => {
@@ -276,6 +345,43 @@ describe('Re-check with Google for accounts without a password', () => {
     expect((await owner.call('GET', '/api/me')).user.role).toBe('owner')
   })
 
+  test('a made-up state on the Google return gets the sign-in page\'s words, not Drive\'s', async () => {
+    const fake = 'A'.repeat(43)
+    // a browser on its way back from a sign-in (its binding cookie), and one not signed in here: the sign-in page
+    for (const cookie of [`${GSI}=${'B'.repeat(43)}`, '']) {
+      const r = await h.fetch(`${CALLBACK}?state=${fake}&code=x`, { headers: cookie ? { cookie } : {}, ip: '10.7.7.7' })
+      expect(r.status).toBe(302)
+      expect(r.headers.get('location')).toBe('/login?google=expired')
+    }
+    // a signed-in person without a sign-in cookie: still Drive's page (a Drive connect of theirs)
+    const r = await h.fetch(`${CALLBACK}?state=${fake}&code=x`, { headers: { cookie: owner.cookie! }, ip: '10.7.7.7' })
+    expect(r.status).not.toBe(302)
+  })
+
+  test('every Google link change is told to the owners and admins; an admin\'s disconnect ends the person\'s sessions', async () => {
+    const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+    // pia and quinn connected theirs (beforeAll): the owner was told for each, by name, never the Google address
+    const rows = h.ctx.db.query("SELECT actor_name, subject FROM credential_change_notices WHERE user_id = ? AND action = 'signin_google_connected'").all(ownerId) as { actor_name: string; subject: string }[]
+    expect(rows.length).toBeGreaterThanOrEqual(2)
+    expect(JSON.stringify(rows)).not.toContain('@acme.test')
+    const sam = await addMember(h, owner, { username: 'sam' })
+    const res = await sam.client.raw('POST', '/api/me/google/connect', { password: sam.password })
+    const s1 = started(res, await res.json() as { url: string })
+    nextSub = '301'
+    await back(s1.state, `${sam.client.cookie}; ${s1.gsi}`)
+    // replaced with another Google account (with the password): told as a replacement
+    const res2 = await sam.client.raw('POST', '/api/me/google/connect', { password: sam.password })
+    const s2 = started(res2, await res2.json() as { url: string })
+    nextSub = '302'
+    expect((await back(s2.state, `${sam.client.cookie}; ${s2.gsi}`)).headers.get('location')).toBe('/settings/security?google=connected')
+    expect(h.ctx.db.query("SELECT 1 FROM credential_change_notices WHERE user_id = ? AND action = 'signin_google_replaced'").get(ownerId)).toBeTruthy()
+    const other = sessionFor(sam.id)
+    expect((await owner.try('DELETE', `/api/admin/users/${sam.id}/google`)).status).toBe(204)
+    expect((await other.c.try('GET', '/api/me')).status).toBe(401)
+    expect((await sam.client.try('GET', '/api/me')).status).toBe(401)
+    expect(h.ctx.db.query("SELECT 1 FROM credential_change_notices WHERE user_id = ? AND action = 'signin_google_disconnected'").get(sam.id)).toBeTruthy()
+  })
+
   test('Google cannot be disconnected from an account without a password, by the person or an admin', async () => {
     const own = await quinn.client.try('DELETE', '/api/me/google')
     expect(own.status).toBe(409)
@@ -318,17 +424,13 @@ describe('Re-check with Google for accounts without a password', () => {
     expect((err as HttpError).extra.params).toEqual({ reason: 'passwordless_accounts', count: n })
   })
 
-  test('in the apps, a person without a password asks for deletion from a sign-in of the last 10 minutes', async () => {
-    const old = sessionFor(quinn.id)
-    h.ctx.db.query('UPDATE sessions SET created_at = ? WHERE id = ?').run(new Date(Date.now() - 11 * 60_000).toISOString(), old.id)
-    const refused = await old.c.try('POST', '/api/me/deletion-request', { confirm: true })
-    expect(refused.status).toBe(403)
-    expect(refused.body.error.params.reason).toBe('sign_in_again')
+  test('attack: a person without a password asks for deletion only with a Google check, a fresh sign-in is not enough', async () => {
+    // signing in again with the browser's open Google session makes a new session: it proves nothing
     const fresh = sessionFor(quinn.id)
-    const ok = await fresh.c.try('POST', '/api/me/deletion-request', { confirm: true })
-    expect(ok.status).toBe(200)
-    expect(ok.body.state).toBe('pending')
-    await fresh.c.call('DELETE', '/api/me/deletion-request')
+    const refused = await fresh.c.try('POST', '/api/me/deletion-request', { confirm: true })
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.params.reason).toBe('google_check')
+    expect((await quinn.client.call('GET', '/api/me/deletion-request')).state).toBe('none')
     // someone with a password still types it
     expect((await owner.try('POST', '/api/me/deletion-request', { confirm: true })).status).not.toBe(200)
   })
@@ -346,12 +448,24 @@ describe('Re-check with Google for accounts without a password', () => {
     expect((await quinn.client.call('GET', '/api/me')).user.hasPassword).toBe(true)
     expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'auth.password_set' AND target = ?").get(quinn.id)).toBeTruthy()
     expect(JSON.stringify(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'auth.password_set'").all())).not.toContain('harbor')
+    // the person, the owner and the admins learn of it (Activity), not only the person
+    const told = (h.ctx.db.query("SELECT user_id, subject FROM credential_change_notices WHERE action = 'signin_password_set'").all() as { user_id: string; subject: string }[])
+    const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+    expect(told.map((r) => r.user_id)).toEqual(expect.arrayContaining([quinn.id, ownerId]))
+    const shown = (await owner.call('GET', '/api/notifications')).items.find((n: any) => n.credentialChange?.action === 'signin_password_set')
+    expect(shown?.link).toBeNull()
     await h.client().login('quinn', 'quiet harbor 99 lamp')
     // once: now a password exists
     expect((await quinn.client.try('POST', '/api/me/password', { newPassword: 'another one 12345', reauthFlow: NOT_A_FLOW })).status).toBe(409)
     // and no more Google checks for this account: the password
     expect((await quinn.client.try('POST', '/api/me/google/reauth')).status).toBe(409)
+    const other = sessionFor(quinn.id)
+    expect((await other.c.try('GET', '/api/me')).status).toBe(200)
     expect((await quinn.client.try('DELETE', '/api/me/google')).status).toBe(204)
+    // the person's other sessions end, this one stays; the owner is told
+    expect((await other.c.try('GET', '/api/me')).status).toBe(401)
+    expect((await quinn.client.try('GET', '/api/me')).status).toBe(200)
+    expect(h.ctx.db.query("SELECT 1 FROM credential_change_notices WHERE action = 'signin_google_disconnected'").get()).toBeTruthy()
   })
 
   test('an admin\'s temporary password works for an account without one, and disconnects Google', async () => {

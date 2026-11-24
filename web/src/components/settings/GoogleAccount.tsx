@@ -4,8 +4,8 @@
 // server has a Google client and Google returns to this address (GET /api/me/google `available`), in a browser (Google
 // refuses to sign in inside the apps' own windows). A connected account always shows, with Disconnect. Right after a
 // connect, one line offers Google Drive and Gmail with the same Google account (AlsoConnect; part A2). An account made
-// with Google has no password: its connect confirms with Google instead (ReauthDialog), and it has no Disconnect until
-// a password is set (docs/decisions/20261122-google-reauth.md).
+// with Google has no password: it has no Disconnect and cannot connect another Google account until a password is set
+// (docs/decisions/20261122-google-reauth.md, 20261124-google-signin-security.md).
 import { LogIn } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
