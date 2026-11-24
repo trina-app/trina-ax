@@ -83,21 +83,23 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
     for (const d of dirs) rank.set(d.rel, grade(d.rel.slice(d.rel.lastIndexOf('/') + 1)) ?? 2)
   }
   // every listed file passes visiblePath (same rules and principal); the checks run in chunks so one broad search
-  // never holds the server
+  // never holds the server. All candidates are checked and sorted before the best HIT_CAP are kept: ripgrep's order is
+  // not fixed, so the newest files must not depend on being listed among the first
   const hits: { rel: string; st: fs.Stats }[] = []
-  for (let i = 0; i < names.length && hits.length < HIT_CAP; i += CHECK_CHUNK) {
+  for (let i = 0; i < names.length; i += CHECK_CHUNK) {
     if (i) await new Promise((res) => setImmediate(res))
     for (const rel of names.slice(i, i + CHECK_CHUNK)) {
       const st = isRunPlaceholder(path.join(files.root, rel)) ? null : visiblePath(files.fx, rules, user, rel)
       if (st) hits.push({ rel, st })
-      if (hits.length >= HIT_CAP) break
     }
   }
   const byTime = (x: { rel: string; st: fs.Stats }, y: { rel: string; st: fs.Stats }) => (rank.get(x.rel) ?? 0) - (rank.get(y.rel) ?? 0) || y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel)
   hits.sort(byTime)
+  const cut = hits.length > HIT_CAP
+  hits.length = Math.min(hits.length, HIT_CAP)
   dirs.sort(byTime)
   const all = [...dirs, ...hits]
-  return { items: all.slice(0, limit).map((h) => files.entry(user, rules, h.rel.split('/'), h.st)), truncated: all.length > limit || r.killed !== null || !!dirs.scanCut }
+  return { items: all.slice(0, limit).map((h) => files.entry(user, rules, h.rel.split('/'), h.st)), truncated: all.length > limit || cut || r.killed !== null || !!dirs.scanCut }
 }
 
 type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean; near?: FolderHits }
