@@ -908,7 +908,7 @@ export const es: Record<MessageKey, string> = {
   'connect.headerKey': "La clave va en el encabezado {header}",
   'connect.hostCaution': "Esta dirección no está en el sitio propio de {name}. Revísela antes de conectar.",
   'connect.official': "Dirección oficial de {name}",
-  'connect.unlisted': "Esta aplicación no conoce esta dirección, así que no puede comprobarla. Conecte solo si la conoce y confía en ella.",
+  'connect.unlisted': "Esta dirección no está en la lista de apps de Trina. Compruebe que coincide con la de la documentación oficial del servicio.",
   'connect.notOfficial': "Esta no es la dirección oficial de {name}. La dirección oficial de {name} es {official}. Conecte solo si conoce esta y confía en ella.",
   'connect.reconnectTitle': "Volver a iniciar sesión en {name}",
   'connect.reconnectKeyTitle': "Nueva clave para {name}",

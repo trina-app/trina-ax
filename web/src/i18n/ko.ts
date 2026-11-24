@@ -926,7 +926,7 @@ export const ko = {
   'connect.headerKey': "키는 {header} 헤더로 보내요",
   'connect.hostCaution': "이 주소는 {name}의 사이트 주소가 아니에요. 연결하기 전에 확인해 주세요.",
   'connect.official': "{name} 공식 주소",
-  'connect.unlisted': "앱이 모르는 주소라서 맞는지 확인해 줄 수 없어요. 알고 믿을 수 있는 주소일 때만 연결해 주세요.",
+  'connect.unlisted': "트리나 앱 목록에 없는 주소예요. 이 서비스의 공식 문서에 나온 주소와 같은지 확인해 주세요.",
   'connect.notOfficial': "{name}의 공식 주소가 아니에요. {name}의 공식 주소는 {official}이에요. 이 주소를 알고 믿을 수 있을 때만 연결해 주세요.",
   'connect.reconnectTitle': "{name} 다시 로그인",
   'connect.reconnectKeyTitle': "{name} 새 키 넣기",

@@ -908,7 +908,7 @@ export const ja: Record<MessageKey, string> = {
   'connect.headerKey': "キーは{header}ヘッダーで送られます",
   'connect.hostCaution': "このアドレスは{name}のサイトのものではありません。接続する前に確認してください。",
   'connect.official': "{name}の公式アドレス",
-  'connect.unlisted': "このアプリが知らないアドレスのため、確認できません。知っていて信頼できる場合にだけ接続してください。",
+  'connect.unlisted': "トリナのアプリ一覧にないアドレスです。このサービスの公式ドキュメントにあるアドレスと同じか確認してください。",
   'connect.notOfficial': "これは{name}の公式アドレスではありません。{name}の公式アドレスは{official}です。このアドレスを知っていて信頼できる場合にだけ接続してください。",
   'connect.reconnectTitle': "{name}にもう一度ログイン",
   'connect.reconnectKeyTitle': "{name}の新しいキー",
