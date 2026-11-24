@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 12:00
 - Branch: `feat/connect-card-unlisted`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src` (the chat's connect card and its words) and the docs that describe it. Why: the card is
   shared chat code, not edition code (docs/REPOSITORY-RULES.md).
 - Version impact: patch: the same warning on the same card, in the owner's words; no API, no migration.
@@ -59,4 +59,8 @@ line has no "you"). Phone and desktop use the same web card.
 
 ## Result
 
-Filled in at the end.
+Built as planned in https://github.com/trina-app/trina-ax/pull/527. The existing `connect-unlisted` box carries the
+owner's line in six languages (no new line, no new key); the card's comments say when it shows. Tests in
+`web/test/unit/connect-card.test.tsx` cover an unknown MCP server (key and sign-in), an HTTP API with a header key and a
+listed host at another path (the line, the host in bold, Connect stays), and a listed official address, three other
+official addresses (Canva, Atlassian v1, Netlify), templates and reconnect cards (no line). Docs as in Scope.
