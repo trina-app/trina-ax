@@ -49,6 +49,8 @@ export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user', 'todo_write',
+  // the app's own docs (docs-help/tool.ts): public pages, nothing about anyone here
+  'trina_docs',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
@@ -222,6 +224,8 @@ export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'room_file',
   // the chat's promo video versions (promo-video/tool.ts): reads them only
   'promo_video_versions',
+  // the app's own docs on this server (docs-help/tool.ts): reads them only
+  'trina_docs',
 ])
 
 /**
@@ -298,6 +302,8 @@ export const NO_OUTSIDE_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
   'set_title', 'remember', 'forget', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'rename_files', 'save_work_file',
+  // the app's own docs, read on this server (docs-help/tool.ts)
+  'trina_docs',
 ])
 
 /**
@@ -317,4 +323,7 @@ export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
   'rename_files',
   // a finished work-folder file put into the team folder (chat/work-file-tool.ts): it only writes
   'save_work_file',
+  // the app's own docs, shipped with this server's version (docs-help/tool.ts): nobody here or outside wrote them for
+  // this chat, as with the app's own instructions
+  'trina_docs',
 ])

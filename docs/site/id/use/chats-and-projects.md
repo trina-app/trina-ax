@@ -40,6 +40,7 @@ Buka **N langkah** di bawah jawaban untuk melihat setiap alat yang dipakai AI da
 | **Agen bantu** | Untuk permintaan besar, AI bisa membagi pekerjaan menjadi subtugas, sampai 4 sekaligus. Setiap agen bantu bekerja atas nama Anda. |
 | **Panjang** | Satu jawaban boleh memakai alat sampai 500 kali secara bawaan (admin bisa memilih 10 sampai 2.000; tugas terjadwal, pertanyaan dari Slack, dan tamu sampai 150). Saat batas tercapai, **Lanjutkan** meneruskannya. |
 | **Web** | AI bisa membuka halaman web. Server memeriksa setiap alamat, dan menanyakan Anda dulu sebelum membuka alamat yang berisiko. |
+| **Bantuan** | Tanyakan cara memakai, menyiapkan, atau memperbaiki Trina AX: AI mencarinya di dokumentasi ini, yang ada di server Anda sesuai versinya, lalu menutup jawaban dengan tautan ke halamannya. |
 
 :::note
 Konteks yang dipilih dikirim ke penyedia AI yang Anda hubungkan. Self-hosting bukan berarti pemrosesan offline. [Baca alur datanya](../../operate/security.md) (bahasa Inggris).

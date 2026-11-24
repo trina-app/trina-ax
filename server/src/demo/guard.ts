@@ -216,6 +216,8 @@ export const FREE_ROAM_TOOLS: ReadonlySet<string> = new Set([
   'room_read', 'rooms', 'save_connector_file', 'save_room_file', 'set_title', 'share_file', 'share_folder',
   'share_with_person', 'shared_with_me', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'stop_sharing', 'todo_write',
   'unzip_file', 'who_can_open', 'write',
+  // the app's own docs on the demo's server (docs-help/tool.ts): public pages, nothing fetched
+  'trina_docs',
   // offered only in some chats, or with the demo's fakes or a plugin
   'answer_comments', 'chat_file', 'save_chat_file', 'restore_chat_file', 'change_banner_text', 'drive_list', 'drive_read',
   'drive_search', 'edit_hwp', 'hwp_render',

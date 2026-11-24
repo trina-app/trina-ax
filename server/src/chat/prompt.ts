@@ -24,6 +24,7 @@ import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboardin
 import { getTeamSettings } from '../admin/settings'
 import { serverWhere, situationSection, type Situation } from './situation'
 import { appLabel, appMapSection, type AppMapInput } from './app-map'
+import { DOCS_TOOL, docsRule } from '../docs-help/tool'
 import { WHOLE_TEAM_PATH } from './search-path'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
@@ -1615,6 +1616,9 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('shared_with_me') ? SHARED_WITH_ME_RULE : '',
     tools.has('looking_at') ? LOOKING_AT_RULE : '',
     tools.has('my_folders') ? MY_FOLDERS_RULE : '',
+    // the app's own docs (docs-help/tool.ts, docs/decisions/20261124-trina-docs-tool.md): how to use, set up or fix it, with
+    // the page's link; the app map below keeps saying where a screen is
+    tools.has(DOCS_TOOL) ? docsRule(PRODUCT.displayName) : '',
     tools.has('change_project_members') ? PROJECT_MEMBERS_RULE : '',
     tools.has('change_folder_access') ? FOLDER_ACCESS_RULE : '',
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer. To change a page of this chat ("make the text bigger"), also one made for someone else here, read it with the artifact tool and save the change with the same key (update or rewrite): a new key makes a second, separate card. To show an earlier version ("show the version before Junho\'s change"), read it with its version number, say what differs, and tell the person it opens in the page\'s panel with the version arrows; restore it only when they ask to go back to it. A web page is opened in a browser after each save: fix the errors the result names before you say it is done. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',

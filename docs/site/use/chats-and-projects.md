@@ -41,6 +41,7 @@ Open **N steps** under an answer to see each tool the AI used and each file it r
 | **Helpers** | For big requests the AI can split work into sub-tasks, up to 4 at a time. Each helper works as you. |
 | **Length** | One answer may use tools up to 500 times by default (admins choose 10 to 2,000; scheduled tasks, questions from Slack and guests up to 150). At the limit, **Continue** picks it up. |
 | **Web** | The AI can open web pages. The server checks each address, and asks you before risky ones. |
+| **Help** | Ask how to use, set up or fix Trina AX: the AI looks it up in these docs, kept on your server with its version, and ends with a link to the page. |
 
 :::note
 Selected context goes to the AI provider you connected. Self-hosting is not offline processing. [Read the data flows](../operate/security.md).
