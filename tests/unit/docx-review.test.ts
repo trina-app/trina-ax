@@ -23,7 +23,7 @@ const TRACKED = docx({
 })
 /** the package with one part changed (or removed with null) */
 function withPart(b: Uint8Array, name: string, f: ((x: string) => string) | null): Uint8Array {
-  return writeZip(readZip(b).flatMap((e) => e.name !== name ? [e] : f === null ? [] : [{ name: e.name, data: enc.encode(f(dec.decode(e.data))) }]))
+  return writeZip(readZip(b).filter((e) => e.name !== name || f !== null).map((e) => e.name !== name || !f ? e : { name: e.name, data: enc.encode(f(dec.decode(e.data))) }))
 }
 const part = (b: Uint8Array, name: string) => { const e = readZip(b).find((x) => x.name === name); return e ? dec.decode(e.data) : null }
 
