@@ -311,6 +311,6 @@ describe('the server: a program that is not there needs attention, with where to
     for (const L of ['id', 'ja', 'es', 'zh'] as const) expect(reasonText('local_missing', L, undefined, 'Aside')).toContain('Aside')
     expect(presetOf(ASIDE)?.download).toBe('https://aside.com/download')
     expect(presetOf(EGO)?.download).toBe('https://lite.ego.app/download')
-    expect(presetOf({ ...ASIDE, args: ['mcp', '--x'] })).toBeNull()
+    expect(presetOf({ adapter: 'mcp', command: 'aside', args: ['mcp', '--x'], env: [] })).toBeNull()
   })
 })
