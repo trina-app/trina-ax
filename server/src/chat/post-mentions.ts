@@ -96,7 +96,7 @@ export function sentForm(text: string): string {
 }
 /** What in the person's own message can be the words they dictated, each whole, never a part of them: everything after the
  * first dictating colon (to the end of the message), all the lines after the first together, and a quote only when it is
- * the one quote of its line, on the line that asks to post it (or alone on its line), no other such line, and with a
+ * the one quote of its line, on the line that asks to post it with no "not", no other such line, and with a
  * colon it is that whole stretch. No reading of what the sentence means. */
 export function dictatedPieces(said: string): string[] {
   const out = new Set<string>()
@@ -109,10 +109,10 @@ export function dictatedPieces(said: string): string[] {
   if (afterColon) out.add(afterColon)
   if (lines.length > 1) out.add(sentForm(lines.slice(1).join('\n')))
   const quoteOf = (m: RegExpMatchArray) => sentForm(m.slice(1).find((x) => x !== undefined) ?? '')
-  // (a lone quote on its line, that line the one asking to post it or nothing but the quote: on a later line after other
-  // words it may be a part of what the person says there, "\"회의 취소\" 는 아니고 연기")
+  // (a lone quote on its line, that line the one asking to post it with no "not" in it: elsewhere it may be a part of
+  // what the person says, "\"회의 취소\" 는 아니고 연기"; a quote that is all the later lines is that piece already)
   const lone = lines.map((l) => ({ l, q: [...l.matchAll(QUOTE_SPANS)] })).filter(({ q }) => q.length === 1)
-    .filter(({ l, q }) => POST_ASK.test(l.replace(q[0]![0], ' ')) || l.replace(q[0]![0], '').trim() === '').map(({ q }) => quoteOf(q[0]!))
+    .filter(({ l, q }) => { const rest = l.replace(q[0]![0], ' '); return POST_ASK.test(rest) && !NOT_A_PLAIN_ASK.test(rest) }).map(({ q }) => quoteOf(q[0]!))
   if (lone.length === 1 && (afterColon === null || afterColon === lone[0])) out.add(lone[0]!)
   out.delete('')
   return [...out]

@@ -285,6 +285,8 @@ describe('a send without a card carries exactly the person\'s words', () => {
     expect(isPersonsText('방에 올려줘: 3:00 회의', '3:00 회의')).toBe(true)
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 는 아니고 연기', '회의 취소')).toBe(false)
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소"', '회의 취소')).toBe(true)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소"\n안 함', '회의 취소')).toBe(false)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 라고 올리면 안 되고 연기라고 올려줘', '회의 취소')).toBe(false)
     expect(isPersonsText('방에 올려줘', '/files/view?path=users/alice/a.md&note=취소')).toBe(false)
     expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3\uFF1A00 전에는 올리지 마'))).toBe(false)
     expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3:00 전에는 올리지 마'))).toBe(false)
