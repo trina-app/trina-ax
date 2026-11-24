@@ -6,7 +6,7 @@
 // never a setting's value; the desktop app asks once on the computer before it runs a command, and again when the
 // command changes.
 import type { Database } from 'bun:sqlite'
-import { LocalAppSpec, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { LocalAppSpec, presetOf, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { getTeamSettings } from '../../admin/settings'
 import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
@@ -62,9 +62,11 @@ export function turnAway(db: Database, turnId: string): LocalAway {
  * connection (text.ts: local_offline, local_declined, local_failed). */
 export class LocalError extends Error {
   name = 'LocalError'
-  constructor(readonly failure: LocalFailure | 'offline', message: string) { super(message) }
-  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' {
-    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm' : 'local_failed'
+  constructor(readonly failure: LocalFailure | 'offline', message: string, readonly cause?: LocalResult['cause']) { super(message) }
+  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' {
+    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm'
+      // the program is not on the computer: the connection "needs attention" with words to install it (text.ts)
+      : this.failure === 'start_failed' && this.cause === 'not_found' ? 'local_missing' : 'local_failed'
   }
 }
 
@@ -87,8 +89,13 @@ export const offlineWords = (name: string, away: LocalAway = 'other') =>
 export const awayWords = (away: LocalAway) =>
   `it runs only when the user writes from ${desktop} on the computer where they added it, and ${AWAY[away]}. When they ask for it, ${SAY_ONLY.charAt(0).toLowerCase()}${SAY_ONLY.slice(1)}`
 
-function errorOf(name: string, r: LocalResult): LocalError {
+function errorOf(name: string, r: LocalResult, spec: LocalAppSpec): LocalError {
   const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
+  if (r.failure === 'start_failed' && r.cause === 'not_found') {
+    // a listed app (Aside, ego lite): its own download page; a program the person typed: install it or fix the command
+    const download = presetOf(spec)?.download
+    return new LocalError('start_failed', `Nothing ran: ${name} is not installed on the user's computer (the program "${spec.command.slice(0, 200)}" was not found there). Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can get it at ${download}` : 'need to install it or fix the command'}, then press Check again in Settings › Connectors › ${name}.`, 'not_found')
+  }
   switch (r.failure) {
     case 'not_desktop': return new LocalError('not_desktop', offlineWords(name, 'no_local_apps'))
     case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)
@@ -122,7 +129,7 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
       if (r.signal?.aborted) throw new NetError('timeout')
       if (!res.failure && /did not answer in time$/.test(res.error ?? '')) throw new NetError(r.long?.reason ?? 'timeout')
       if (!res.failure && /^local_unavailable/.test(res.error ?? '')) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
-      throw errorOf(o.row.name, res)
+      throw errorOf(o.row.name, res, o.spec)
     }
     const body = res.message ? Buffer.from(JSON.stringify(res.message)) : Buffer.alloc(0)
     if (r.maxBytes && body.length > r.maxBytes) return { status: 200, headers: { 'content-type': 'application/json' }, body: body.subarray(0, r.maxBytes), truncated: true }
