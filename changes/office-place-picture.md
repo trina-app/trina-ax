@@ -1,1 +1,0 @@
-- The AI can now add a picture to an existing PowerPoint deck (on a slide, at a position or centred) or Excel workbook (at a cell), and move or resize a picture already in the file. In a deck it can look at the slide and adjust; a workbook has no drawn view here, and the AI says so.
