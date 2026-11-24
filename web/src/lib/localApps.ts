@@ -28,6 +28,8 @@ export const LISTED_LOCAL_APPS: readonly LocalAppEntry[] = [
 export const localAppLogo = (a: LocalAppEntry) => `/icons/connectors/${a.logo}`
 export const localAppById = (id: string) => LISTED_LOCAL_APPS.find((a) => a.id === id) ?? null
 export const localAppSpec = (a: LocalAppEntry): LocalAppSpec => LOCAL_APP_PRESETS.find((p) => p.id === a.id)!.spec
+/** the app's own download page (macOS and Windows builds) */
+export const localAppDownload = (a: LocalAppEntry): string => LOCAL_APP_PRESETS.find((p) => p.id === a.id)!.download
 
 /** Two commands run the same program the same way: the part the computer's confirm covers (its settings' names aside:
  * those are the person's own). */

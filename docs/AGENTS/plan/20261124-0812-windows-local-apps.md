@@ -50,7 +50,7 @@ Out: Linux opener for ego lite; PowerShell `.ps1` programs (refused with words);
 
 ## Decisions
 
-`docs/decisions/20261124-local-apps-windows.md`: why npm shims are resolved to node and other batch files go through
+`docs/decisions/20261124-windows-local-apps.md`: why npm shims are resolved to node and other batch files go through
 cmd.exe only with refused (never escaped) metacharacters. Changes nothing in
 [20261118-local-app-connectors](../decisions/20261118-local-app-connectors.md)'s rules (the person adds the command,
 no shell for arbitrary text, personal only, one-time confirm).

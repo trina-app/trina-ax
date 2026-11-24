@@ -120,7 +120,8 @@
   windows are touched), waits up to 15 s, and runs the call once more (nothing ran the first time). Otherwise the AI gets
   plain words for the person: "ego lite isn't open. Open ego lite, then ask again.", "ego lite isn't installed on this
   computer. Install it from lite.ego.app, then ask again." or "ego lite is open but isn't answering. Quit ego lite, open
-  it again, then ask again." (the app's language). Windows: the words only.
+  it again, then ask again." (the app's language). Windows: the words only (since 2026-11-24 opened from its Start Menu
+  shortcut: [20261124-windows-local-apps](20261124-windows-local-apps.md)).
 - **Aside closed.** Aside starts its own app; when it cannot ("Aside isn't running on this machine"), the AI gets "Aside
   isn't open. Open Aside, then ask again."
 - **The confirm left open.** A check from Settings waits 90 s. If "Connect this program?" is still open then, the desktop
