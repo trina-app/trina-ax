@@ -7452,6 +7452,7 @@ export const ko = {
   "postedCard.undo": "취소",
   "postedCard.delete": "지우기",
   "postedCard.undone": "보낸 글을 지웠어요. 이제 아무도 볼 수 없어요",
+  "postedCard.undoneNotified": "보낸 글을 지웠어요. 이제 아무도 볼 수 없어요. 알림은 이미 갔어요.",
   "postedCard.undoFailed": "지우지 못했어요. 다시 해 주세요.",
   "shareCard.takenBack": "공유를 취소했어요",
   "shareCard.madeFolder": "\"{file}\" 폴더를 만들고 공유했어요",

@@ -128,6 +128,34 @@ describe('"share this folder" with the files only in the chat', () => {
     expect(canOpen('carol', 'alice', rel)).toBe(true)
   })
 
+  test('an older private attachment never goes along: this message\'s file only; several earlier ones: asked', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const old = await upload(c.id, 'salary-private.txt', 'private')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c.id, [old.id])
+    const now = await upload(c.id, 'agenda.txt', 'agenda')
+    const before = folders()
+    const r = await turn(`share this folder with Bob Lee\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id, [now.id])
+    expect(r.steps.find((s) => s.tool === 'share_folder')!.shared!.outcome).toBe('done')
+    const made = folders().filter((x) => !before.includes(x))
+    expect(fs.readdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', made[0]!))).toEqual(['agenda.txt'])
+    const d = await h.api('alice').call(API.createChat, { body: {} })
+    for (const n of ['one.txt', 'two.txt']) { const a = await upload(d.id, n, n); await turn(`받아줘\n${fake({ say: 'ok' })}`, d.id, [a.id]) }
+    const b2 = folders()
+    const r2 = await turn(`share this folder with Bob Lee\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, d.id)
+    expect(r2.content).toContain('did not say which folder')
+    expect(folders()).toEqual(b2)
+  })
+
+  test('in a private chat a source attached earlier never goes as "this": nothing is made', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const src = await upload(c.id, 'salary-real.txt', 'private')
+    await turn(`받아줘\n${fake({ say: 'ok' })}`, c.id, [src.id])
+    const before = folders()
+    const r = await turn(`이 견적서 Bob Lee한테 공유해줘\n${fake({ tool: 'share_folder', args: { add: ['Bob Lee'] }, sayResult: true })}`, c.id)
+    expect(r.content).toContain('did not say which folder')
+    expect(folders()).toEqual(before)
+  })
+
   test('a recipient the message does not name: nothing is made, the old answer', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const a = await upload(c.id, 'memo.txt', 'memo')

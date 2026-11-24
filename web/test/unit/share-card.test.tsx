@@ -271,6 +271,13 @@ test('a post just sent: Undo deletes the message, then the card says it was take
   } finally { await m.unmount() }
   const old = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 60_000).toISOString()} />)
   try { expect(old.get('posted-card-delete').textContent).toBe('Delete') } finally { await old.unmount() }
+  // a post that notified everyone: taking it back says the notices already went
+  const all = await mount(<PostedCard posted={{ ...posted, mentionsAll: true }} endedAt={new Date().toISOString()} />)
+  try {
+    await all.click('posted-card-undo')
+    expect(all.get('action-card-title').textContent).toBe(t('postedCard.undoneNotified'))
+    expect(t('postedCard.undoneNotified')).toContain('notices already went out')
+  } finally { await all.unmount() }
 })
 
 test('a share just done: Undo takes back what it added by the server\'s record (never earlier access)', async () => {
