@@ -34,11 +34,17 @@
   | Docker default image, `--minimal` | No | Not installed (always groups only) | make_file, says so |
   | Office Mac, Mac team server | No | Not used | make_file, says so |
 
-- **Exit check.** Every Office file that leaves a run is scanned like make_file's output (office-links-check.ts):
-  save_work_file, copy_files, chat attachments, chat-file versions, and files a command or a job writes straight into a
-  project or the person's own folder (devenv/track.ts: refused files are undone). An edit keeps the risky items its
-  earlier version, the file it replaces or a file this answer read already held, so a company template keeps working.
-  A file saved through the file layer between commands is a person's and is not undone.
+- **Exit check (after the security review of 3e71c8c69).** One check, `assertSafeTeamFile` in files/office-exit.ts,
+  where every AI file lands: placeProduced (every tool that saves into a team folder, the work folder's exits
+  included), chat files and their versions, the AI's copies inside the team folder, renames that change how a file
+  opens, a command's direct writes, and what jobs and dev servers write (checked when they end and every 30 s while
+  they run). It decides by content: Office Open XML under any name is scanned; legacy OLE2 Office, RTF, MHT, ODF and
+  .xlsb pass only as the replaced file's own unchanged bytes; .url, .library-ms, .searchConnector-ms and .scf files (or
+  their content) are refused. Each risky item has an exact identity (relationship type and target, a field's full
+  code, an embedded object's part and hash, a macro project's hash, an Excel DDE/OLE link or data connection, a VML
+  src/href). Only the file being replaced, in the bytes this answer read, vouches, and only for those exact items. A
+  run's file is undone or written back only while the disk still holds the run's bytes; a person's save through the
+  file layer is never undone. People's own uploads on the Files screen are not checked here.
 - **Excel values.** A workbook leaving the work folder is recalculated by LibreOffice in the converters' isolation (a
   throwaway profile with macros off and recalculate-on-load), and only each formula's result is copied into the
   original (files/xlsx-values.ts). Where that cannot run, the save result tells the AI to say so.
