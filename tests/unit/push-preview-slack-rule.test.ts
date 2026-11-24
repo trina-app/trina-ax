@@ -159,7 +159,7 @@ test('a message in a chat shared with people: sent as a room code; who, the chat
   expect(w.ask(key).body).toBe(TEXT['chat.message'].en)
   // a chat whose title holds a secret is not named; a confidential chat (a safe workflow ran there) has no text
   h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run('wifi password: Tr1na-guest!77', c.chat.id)
-  expect(w.ask(id).title).toBe('MIA')
+  expect(w.ask(id).title).toBe('MIA · Shared chat')
   h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run('Launch plan', c.chat.id)
   h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(c.chat.id)
   expect(w.ask(id).body).toBe(TEXT['chat.message'].en)
@@ -167,8 +167,25 @@ test('a message in a chat shared with people: sent as a room code; who, the chat
   // previews off: who and where, never the text
   savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
   const off = w.ask(id)
-  expect(off).toEqual({ title: 'MIA · Launch plan', body: TEXT['chat.message'].en, roomId: c.chat.id })
+  // the place too: a chat's title may be its first message's text, so previews off never show it
+  expect(off).toEqual({ title: 'MIA · Shared chat', body: TEXT['chat.message'].en, roomId: c.chat.id })
   expect(JSON.stringify(off)).not.toContain('카피')
+  expect(JSON.stringify(off)).not.toContain('Launch')
+})
+
+test('a chat still named after a message: the generic place, with previews on and off (equal, cut, or longer than the text)', async () => {
+  const w = await world()
+  const c = await sharedChat(w, 'Launch plan')
+  const id = await c.say('카피 시안 두 개 올렸어요\n확인 부탁해요')
+  for (const title of ['카피 시안 두 개 올렸어요 확인 부탁해요', '카피 시안 두 개 올렸어…', '카피 시안 두 개 올렸어요 확인 부탁해요 (초안)']) {
+    h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, c.chat.id)
+    expect(w.ask(id)).toEqual({ title: 'MIA · 공유 채팅', body: '카피 시안 두 개 올렸어요 확인 부탁해요', roomId: c.chat.id })
+  }
+  // a generated title that is not a message's text: the title
+  h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run('카피 시안 검토', c.chat.id)
+  expect(w.ask(id).title).toBe('MIA · 카피 시안 검토')
+  savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
+  expect(w.ask(id)).toEqual({ title: 'MIA · 공유 채팅', body: TEXT['chat.message'].ko, roomId: c.chat.id })
 })
 
 test('a chat message: the same {} for another key, another person\'s notice, a muted or read chat', async () => {
@@ -205,6 +222,12 @@ test('a reply in a chat thread: sent as a room code; who, the chat › Thread an
   expect(w.ask(n!.id)).toEqual({ title: 'MIA · Launch plan › 스레드', body: '좋아요, B로 갈게요 오늘 안에 정리할게요', roomId: c.chat.id, threadId: answer })
   savePreferences(h.ctx.db, w.nora.id, { messagePreview: false })
   const off = w.ask(n!.id)
-  expect(off).toEqual({ title: 'MIA · Launch plan › 스레드', body: TEXT['chat.thread_reply'].ko, roomId: c.chat.id, threadId: answer })
+  expect(off).toEqual({ title: 'MIA · 공유 채팅 › 스레드', body: TEXT['chat.thread_reply'].ko, roomId: c.chat.id, threadId: answer })
   expect(JSON.stringify(off)).not.toContain('정리')
+})
+
+test('the line without the message is the same words for a room, a chat and the push gateway', () => {
+  for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(TEXT['room.dm'][l]).toBe(TEXT['chat.message'][l])
+  expect(TEXT['room.dm'].ko).toBe('새 메시지가 있어요')
+  expect(TEXT['room.dm'].en).toBe('You have a new message')
 })

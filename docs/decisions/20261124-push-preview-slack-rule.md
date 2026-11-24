@@ -43,3 +43,9 @@
 - Tests: `tests/unit/push-preview-slack-rule.test.ts`, `tests/security/push-preview.test.ts`, the wire code in
   `tests/unit/b-shared-chat-message-push.test.ts` and `b-shared-chat-main-mention.test.ts`.
 - Version impact: **minor** (what phone notifications show; no migration, no new API field).
+- **Follow-up (2026-11-24, check before 0.18.0):** a chat is named after its first message until a title is made, so
+  the place could repeat the message even with previews off. The place in a chat's title is now its own title only
+  with previews on and only when it is not a message's text (equal to, starting, or started by the text of one of the
+  chat's first 20 messages); else the project's name, else "Shared chat" / "공유 채팅". The line without the message is
+  one set of words for rooms, chats and the gateway ("You have a new message" / "새 메시지가 있어요", no period).
+
