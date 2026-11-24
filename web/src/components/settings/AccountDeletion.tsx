@@ -173,8 +173,6 @@ export function AccountDeletion() {
           title={t('accountDeletion.confirmTitle')}
           body={t('accountDeletion.confirmBody', { date: formatDate(new Date(Date.now() + ACCOUNT_DELETION_GRACE_DAYS * 86_400_000).toISOString(), locale) })}
           confirm={t('accountDeletion.request')}
-          // an account without a password in the apps: a sign-in of the last 10 minutes stands for the Google check
-          recentSignIn
           onClose={() => setAsking(false)}
           onConfirm={async (proof) => {
             try {

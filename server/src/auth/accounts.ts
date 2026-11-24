@@ -37,7 +37,7 @@ import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type NewUser, type UserRow } from './users'
-import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { notifyResetLink, notifySignInChange, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
 import { startWelcomeAtSetup } from '../onboarding/welcome'
@@ -327,7 +327,7 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
  * after a Google check this session finished (auth/reauth.ts). Its own endpoint, not changePassword, where a missing
  * current password means the forced temporary-password path. Refused (409) once the account has a password. The rule
  * is checked before the Google check is spent; open reset links stop; the other sessions stay (nothing that worked
- * stopped working); audited without the password.
+ * stopped working); audited without the password; the person, the owners and the admins are told (Activity).
  */
 export async function setPassword(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetPasswordBody>): Promise<void> {
   const auth = c.get('auth')!
@@ -348,6 +348,9 @@ export async function setPassword(c: Context<AppEnv>, ctx: AppContext, b: In<typ
     return true
   }).immediate()
   if (!set) has()
+  // a new way in that outlives the Google account: the person and every owner and admin learn of it, so one set by
+  // someone at the person's unlocked browser does not go unseen
+  notifySignInChange(ctx, auth.user.id, auth.user.id, 'signin_password_set', { alsoTarget: true })
 }
 
 // ---------------- invites ----------------

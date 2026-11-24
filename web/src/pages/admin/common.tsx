@@ -360,21 +360,19 @@ export function passwordRefusal(e: unknown, locale: Locale): string | null {
 }
 
 /** What a re-check sends, spread into the request's body (shared ReauthFields): the password again, or, for an account
- * without one, the id of a Google check (lib/googleCheck.ts). Empty: an account without a password in the desktop or
- * phone app, where only a recent sign-in stands for it (one's own account deletion, `recentSignIn`). */
-export type ReauthProof = { password: string } | { reauthFlow: string } | Record<string, never>
+ * without one, the id of a Google check (lib/googleCheck.ts). */
+export type ReauthProof = { password: string } | { reauthFlow: string }
 
 /**
  * The re-check of the signed-in person, for a dialog or a form (ReauthInput shows it): the password field, or for an
  * account without a password the Google line. `proof()` gives what to send, or null when there is none (its words are
  * in `error`); call it in the press itself, before anything is awaited: it may open the Google window.
  */
-export function useReauth(o: { recentSignIn?: boolean } = {}) {
+export function useReauth() {
   const t = useT()
   const locale = useLocale()
   const google = needsGoogleCheck(useMe())
   const inApp = google && !canGoogleCheck()
-  const recentSignIn = !!o.recentSignIn
   const [pw, setPw] = useState('')
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -385,7 +383,7 @@ export function useReauth(o: { recentSignIn?: boolean } = {}) {
   const proof = (): Promise<ReauthProof | null> => {
     setError(null)
     if (!google) return Promise.resolve({ password: pw })
-    if (inApp) return Promise.resolve(recentSignIn ? {} : null)
+    if (inApp) return Promise.resolve(null)
     const a = new AbortController()
     abort.current = a
     const run = googleCheck(a.signal)
@@ -396,9 +394,9 @@ export function useReauth(o: { recentSignIn?: boolean } = {}) {
     }).finally(() => setWaiting(false))
   }
   return {
-    google, inApp, recentSignIn, pw, setPw, waiting, error, setError, proof,
+    google, inApp, pw, setPw, waiting, error, setError, proof,
     /** something can be sent: a password typed, or a Google check that can run here */
-    ready: google ? !inApp || recentSignIn : !!pw,
+    ready: google ? !inApp : !!pw,
     cancel: () => abort.current?.abort(),
   }
 }
@@ -409,7 +407,7 @@ export type Reauth = ReturnType<typeof useReauth>
 export function ReauthInput({ r, inputRef, testId = 'reauth-password', autoFocus = true, onEnter }: { r: Reauth; inputRef?: Ref<HTMLInputElement>; testId?: string; autoFocus?: boolean; onEnter?: () => void }) {
   const t = useT()
   if (r.google) {
-    const line = r.inApp ? (r.recentSignIn ? 'reauth.google.recent' : 'reauth.google.inBrowser') : r.waiting ? 'reauth.google.waiting' : 'reauth.google.body'
+    const line = r.inApp ? 'reauth.google.inBrowser' : r.waiting ? 'reauth.google.waiting' : 'reauth.google.body'
     return (
       <div className="flex items-start gap-2 rounded-lg border border-line bg-subtle px-3 py-2 text-sm" data-testid="reauth-google">
         <LogIn size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
@@ -452,13 +450,13 @@ export function useReauthCall() {
  * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
  * selected for another try (QA TC-221: restore closed the dialog and the owner started over). An account without a
  * password (made with Google) confirms with Google instead: the press opens Google in a new window, and the request
- * goes once Google confirmed (docs/decisions/20261122-google-reauth.md); in the apps it needs a browser, except where
- * `recentSignIn` lets a recent sign-in stand for it (one's own account deletion).
+ * goes once Google confirmed (docs/decisions/20261122-google-reauth.md); in the apps it needs a browser (one's own
+ * account deletion too: docs/decisions/20261124-google-signin-security.md).
  */
 /** `alt`: a second way to go on with the same password (the update's "Update now anyway" beside "Wait, then update") */
-export function ReauthDialog({ title, body, confirm, danger, alt, recentSignIn, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }; recentSignIn?: boolean; onClose: () => void; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }) {
+export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }; onClose: () => void; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }) {
   const t = useT()
-  const r = useReauth({ recentSignIn })
+  const r = useReauth()
   const [busy, setBusy] = useState<'main' | 'alt' | null>(null)
   const input = useRef<HTMLInputElement>(null)
   // called in the press: proof() may open the Google window there
