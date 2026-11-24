@@ -11,8 +11,9 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { floorFree, inOwnFolder } from '../../server/src/chat/explicit-send'
+import { everyoneAsked, instructionPart, isPersonsText, isTheirQuote } from '../../server/src/chat/post-mentions'
 import { createTool } from '../../server/src/integrations/connections/tools'
-import { asksFor, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
+import { asksFor, POST_ASK, SCHEDULE_ASK } from '../../server/src/chat/shared-actions'
 import { NO_OUTSIDE_TOOLS, OWN_WORDS_TOOLS } from '../../server/src/rooms/ai-tools'
 import type { CountedSource } from '../../server/src/chat/answer-share'
 
@@ -114,10 +115,14 @@ beforeAll(async () => {
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
 type Card = { question: string; options?: { label: string; value: string }[] }
-type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[] }; scheduled?: { id: string; title: string; quiet?: true } }
+type StepOut = { tool?: string; label: string; posted?: { roomId: string; messageId: string; files?: string[]; mentionsAll?: true; to?: string; toPerson?: true }; scheduled?: { id: string; title: string; quiet?: true } }
 /** One turn: whether a card showed (answered with `answer`), what the AI said and the steps. A card is waited for only a
  * short while when none is expected. */
 async function turn(user: string, content: string, o: { chat?: string; answer?: string } = {}) {
+  // the fake engine's lines go first, so the person's words are their message as they would type it: what follows a
+  // colon runs to the end of the message (post-mentions.ts dictatedPieces)
+  const lines = content.split('\n')
+  content = [...lines.filter((l) => l.startsWith('@fake ')), ...lines.filter((l) => !l.startsWith('@fake '))].join('\n')
   const chatId = o.chat ?? (await h.api(user).call(API.createChat, { body: {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
@@ -137,7 +142,8 @@ const put = (rel: string, body: string) => { const abs = path.join(h.ctx.files.f
 describe('a post the person named: no card, then undo', () => {
   test('my own file to a room I named goes with its copy and no card; Undo (delete) takes it back for everyone', async () => {
     put('users/alice/quote-a.md', '# Quote A\n1,200,000')
-    const text = 'Quote: [quote-a.md](/files/view?path=users/alice/quote-a.md)'
+    // (a file with no words of the person's goes as its link alone: docs/decisions/20261124-sends-verbatim.md)
+    const text = '[quote-a.md](/files/view?path=users/alice/quote-a.md)'
     const r = await turn('alice', `quote-a.md Marketing 방에 올려줘\n${post({ room: rooms.marketing, text })}`)
     expect(r.card).toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent' })
@@ -146,6 +152,7 @@ describe('a post the person named: no card, then undo', () => {
     expect(m.files.map((f) => f.name)).toEqual(['quote-a.md'])
     const step = r.steps.find((s) => s.tool === 'post_to_room')!
     expect(step.posted).toMatchObject({ roomId: rooms.marketing, messageId: m.id })
+    expect(step.posted!.toPerson).toBeUndefined()
     // the step's Undo is the room's own delete: the text and the file go for erin too
     await h.api('alice').call(API.deleteRoomMessage, { params: { id: rooms.marketing, messageId: m.id } })
     const gone = (await messagesAs('erin', rooms.marketing)).find((x) => x.id === m.id)!
@@ -161,7 +168,7 @@ describe('a post the person named: no card, then undo', () => {
     // cannot see finance
     const asked = await turn('bob', `요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight' })].join('\n')}`, { answer: 'no' })
     expect(asked.card).not.toBeNull()
-    const named = await turn('bob', `budget-q4.md 요약해서 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: 'Q4 summary: tight (2)' })].join('\n')}`)
+    const named = await turn('bob', `budget-q4.md 전체 방에 올려줘\n${[read, post({ room: rooms.all, text: '[budget-q4.md](/files/view?path=groups/finance/budget-q4.md)' })].join('\n')}`)
     expect(named.card).toBeNull()
     expect(JSON.parse(named.content)).toMatchObject({ status: 'sent' })
   })
@@ -185,9 +192,115 @@ describe('a post the person named: no card, then undo', () => {
   })
 
   test('@everyone in my own words, with the room named: no card, everyone mentioned', async () => {
-    const r = await turn('alice', `Marketing 방에 @전체 로 회의 10시라고 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
+    const r = await turn('alice', `Marketing 방에 @전체 로 올려줘: 회의 10시\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
     expect(r.card).toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+  })
+})
+
+// The owner's design for @everyone (docs/decisions/20261123-do-then-undo.md): the person's own message names the room and
+// says @everyone or 전체: no card, Undo. The AI deciding on its own, or the word only in someone else's quoted words: the card.
+describe('@everyone the person asked for', () => {
+  test('their whole quote with @everyone after it: no card; the step says everyone was notified', async () => {
+    const r = await turn('alice', `Marketing 방에 @everyone 으로 올려줘: 내일 10시 회의, 전원 참석\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 전원 참석' })}`)
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+    expect(r.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ mentionsAll: true })
+  })
+  test('"전체에게" in their words: no card', async () => {
+    const r = await turn('alice', `전체에게 Marketing 방에 올려줘: 회의 10시\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
+    expect(r.card).toBeNull()
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+  })
+  test('the card: @everyone only inside someone else\'s quoted words, a fragment of the instruction as their words, a take-back', async () => {
+    for (const [words, args] of [
+      [`민수가 쓴 "@전체 자료 확인" 메모 요약해서 Marketing 방에 올려줘`, { room: rooms.marketing, text: '자료 확인 부탁', mention: ['everyone'] }],
+      [`Marketing 방에 "자료 확인" 이라고 @everyone 으로 올려줘`, { room: rooms.marketing, own_words: true, text: '@everyone 으로 올려줘' }],
+      [`Marketing 방에 @전체 말고 그냥 올려줘`, { room: rooms.marketing, text: '회의 10시', mention: ['everyone'] }],
+      [`Marketing 방에 회의 10시라고 올려줘`, { room: rooms.marketing, text: '회의 10시', mention: ['everyone'] }],
+    ] as const) {
+      const r = await turn('alice', `${words}\n${post(args)}`, { answer: 'no' }).catch(() => null)
+      expect([words, r === null || r.card !== null]).toEqual([words, true])
+    }
+  })
+  test('the helpers', () => {
+    expect(everyoneAsked('Marketing 방에 "회의" 라고 @everyone 으로 올려줘')).toBe(true)
+    expect(everyoneAsked('전체에게 알려줘')).toBe(true)
+    for (const w of ['@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '"@전체 확인" 메모 올려줘', '전체 자료 올려줘', "민수가 '공지 @전체 확인 바랍니다' 라고 썼던데 정리해서 올려줘", '민수가 ‘@전체 확인’ 이라던데 올려줘', '『@전체 확인』 메모 올려줘', '민수 메모 "공지\n@everyone 확인" 올려줘', '전체공지 방에 회의록 올려줘', '전체 공지 채널에 회의록 올려줘', '팀 전체에게 보이게 올려줘']) expect([w, everyoneAsked(w)]).toEqual([w, false])
+    expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소')).toBe(false)
+  })
+})
+
+// QA of #502 (dev 2bfa9126): "운영공지 방에 @전체 공지 올려줘: 내일 회의 10시" went out as "@전체 공지: 내일(11월 25일) 회의는
+// 오전 10시입니다." with no card. A send without a card carries the person's words exactly (docs/decisions/20261124-sends-verbatim.md)
+describe('a send without a card carries exactly the person\'s words', () => {
+  const asked = (words: string, text: string, more: Record<string, unknown> = {}) => turn('alice', `${words}\n${post({ room: rooms.marketing, text, ...more })}`, { answer: 'no' }).catch(() => null)
+  test('verbatim: no card, also with their typo and informal spelling, and with the mention filled in', async () => {
+    for (const [words, text, more] of [
+      ['Marketing 방에 @전체 공지 올려줘: 내일 회의 10시', '내일 회의 10시', { mention: ['everyone'] }],
+      ['Marketing 방에 @전체 올려줘: 내일 회의 10시에 해요 늦지마셈', '@전체 내일 회의 10시에 해요 늦지마셈', { own_words: true }],
+      ['Marketing 방에 올려줘: 회의실 바꼈어요 3층으로ㅎㅎ', '회의실 바꼈어요 3층으로ㅎㅎ', {}],
+      ['Marketing 방에 올려줘: 점심 같이 드실분~', '점심 같이 드실분~', { own_words: true }],
+    ] as const) {
+      const r = await turn('alice', `${words}\n${post({ room: rooms.marketing, text, ...more })}`)
+      expect([words, r.card]).toEqual([words, null])
+      expect([words, r.content.startsWith('{') ? JSON.parse(r.content).status : r.content.slice(0, 300)]).toEqual([words, 'sent'])
+    }
+  })
+  test('anything added or changed goes on the card: a date, a time word, an emoji, a fixed typo, a rewording', async () => {
+    for (const [words, text, more] of [
+      ['Marketing 방에 @전체 공지 올려줘: 내일 회의 10시', '@전체 공지: 내일(11월 25일) 회의는 오전 10시입니다.', { own_words: true }],
+      ['Marketing 방에 @전체 공지 올려줘: 내일 회의 10시', '내일 회의 오전 10시', { mention: ['everyone'] }],
+      ['Marketing 방에 @전체 공지 올려줘: 내일 회의 10시', '📢 내일 회의 10시', { mention: ['everyone'] }],
+      ['Marketing 방에 올려줘: 내일 회의 10시에 해요 늦지마셈', '내일 회의 10시에 해요. 늦지 마세요', {}],
+      ['Marketing 방에 올려줘: 내일 회의 10시', '내일 회의는 10시입니다', {}],
+      ['Marketing 방에 이 내용 정리해서 올려줘', '정리한 내용', {}],
+    ] as const) {
+      const r = await asked(words, text, more)
+      expect([words, text, r === null || r.card !== null]).toEqual([words, text, true])
+    }
+  })
+  test('a 1:1 send follows the same rule, and the step names where it went', async () => {
+    const ok = await turn('alice', `Carol Park한테 보내줘: 내일 회의 10시\n${post({ room: 'Carol Park', text: '내일 회의 10시', own_words: true })}`)
+    expect(ok.card).toBeNull()
+    // a 1:1 chat names its person, marked so the card says "Carol Park님에게", not "…에" (a room keeps no mark)
+    expect(ok.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ to: 'Carol Park', toPerson: true })
+    const changed = await turn('alice', `Carol Park한테 보내줘: 내일 회의 10시\n${post({ room: 'Carol Park', text: '내일 오전 10시 회의입니다', own_words: true })}`, { answer: 'no' }).catch(() => null)
+    // the 1:1 chat is there now: a send into it by its room id is to the person too; a team room is not
+    const dmId = ok.steps.find((s) => s.tool === 'post_to_room')!.posted!.roomId
+    const again = await turn('alice', `Carol Park한테 보내줘: 모레 회의 9시\n${post({ room: dmId, text: '모레 회의 9시', own_words: true })}`)
+    expect(again.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ roomId: dmId, to: 'Carol Park', toPerson: true })
+    expect(changed === null || changed.card !== null).toBe(true)
+  })
+  test('the helper', () => {
+    expect(isPersonsText('방에 올려줘: 내일 회의 10시', '내일 회의 10시')).toBe(true)
+    expect(isPersonsText('방에 올려줘: 내일 회의 10시', '  내일  회의 10시 ')).toBe(true)
+    expect(isPersonsText('방에 올려줘', '[a.md](/files/view?path=users/alice/a.md)')).toBe(true)
+    expect(isPersonsText('방에 올려줘: 내일 회의 10시', '내일 회의 10시!')).toBe(false)
+    expect(isPersonsText('"회의 취소 안 함" 이라고 올려줘', '회의 취소')).toBe(false)
+    // (fresh review of this branch: a web link's words, a part of the dictated words, a time's colon)
+    const a = '운영공지 방에 @전체 공지 올려줘: 내일 회의 10시'
+    expect(isPersonsText(a, '[내일 회의 취소, 다들 퇴근](https://evil.example)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [오전, 11월 25일 확정](https://x.y)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [확정본](/files/view?path=users/alice/a.md)')).toBe(false)
+    expect(isPersonsText(a, '내일 회의 10시 [a.md](/files/view?path=users/alice/a.md)')).toBe(true)
+    expect(isPersonsText('ops 방에 올려줘\n회의 취소\n안 함', '회의 취소')).toBe(false)
+    expect(isPersonsText('ops 방에 올려줘\n회의 취소\n안 함', '회의 취소 안 함')).toBe(true)
+    expect(isPersonsText("ops 방에 올려줘: '회의 취소' 는 아니고 연기", '회의 취소')).toBe(false)
+    expect(isPersonsText("post it's for Bob's team: hi", 's for Bob')).toBe(false)
+    expect(isPersonsText('방에 올려줘: 3:00 회의', '3:00 회의')).toBe(true)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 는 아니고 연기', '회의 취소')).toBe(false)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소"', '회의 취소')).toBe(true)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소"\n안 함', '회의 취소')).toBe(false)
+    // (a quote is their words in a message of one line: the fake engine's lines make every message here longer, so the
+    // turns above dictate after a colon)
+    expect(isPersonsText('Marketing 방에 "점심 같이 드실분~" 이라고 올려줘', '점심 같이 드실분~')).toBe(true)
+    expect(isPersonsText('Marketing 방에 "내일 10시 회의, 전원 참석" 이라고 @everyone 으로 올려줘', '@everyone 내일 10시 회의, 전원 참석')).toBe(true)
+    expect(isPersonsText('ops 방에 "회의 취소" 올려줘\n아 근데 안 함도 붙여', '회의 취소')).toBe(false)
+    expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 라고 올리면 안 되고 연기라고 올려줘', '회의 취소')).toBe(false)
+    expect(isPersonsText('방에 올려줘', '/files/view?path=users/alice/a.md&note=취소')).toBe(false)
+    expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3\uFF1A00 전에는 올리지 마'))).toBe(false)
+    expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3:00 전에는 올리지 마'))).toBe(false)
   })
 })
 
@@ -226,11 +339,11 @@ describe('the AI\'s work in my own chat is mine (the owner, 2026-11-23)', () => 
     const att = (h.ctx.db.query("SELECT id FROM chat_files WHERE chat_id = ? AND name = 'proposal-dtu.docx'").get(c) as { id: string } | null)?.id
     expect(att).toBeTruthy()
     const link = `/c/${c}?file=${att}`
-    const dm = await turn('alice', `이거 Carol Park한테 보내줘\n${post({ room: 'Carol Park', text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    const dm = await turn('alice', `이거 Carol Park한테 보내줘\n${post({ room: 'Carol Park', text: `[proposal-dtu.docx](${link})` })}`, { chat: c })
     expect(dm.card).toBeNull()
     expect(dm.content).toContain('"status":"sent"')
     expect(dm.content).toContain('"files_attached":1')
-    const room = await turn('alice', `이거 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: `Proposal: [proposal-dtu.docx](${link})` })}`, { chat: c })
+    const room = await turn('alice', `이거 Marketing 방에 올려줘\n${post({ room: rooms.marketing, text: `[proposal-dtu.docx](${link})` })}`, { chat: c })
     expect(room.card).toBeNull()
     expect(room.content).toContain('"status":"sent"')
     // the same again (QA F5 shared1-sh2): still no card, and the chat is not marked as having read anything from outside
@@ -280,7 +393,7 @@ describe('a title names one person (chat/person-aliases.ts)', () => {
   test('"팀장님한테 보내줘" with one 팀장 in the directory: sent to them with no card and no question', async () => {
     title('carol', '팀장')
     try {
-      const r = await turn('alice', `팀장님한테 회의 10시라고 보내줘\n${post({ room: '팀장님', text: '회의 10시' })}`)
+      const r = await turn('alice', `팀장님한테 보내줘: 회의 10시\n${post({ room: '팀장님', text: '회의 10시' })}`)
       expect(r.card).toBeNull()
       const out = JSON.parse(r.content)
       expect(out).toMatchObject({ status: 'sent' })
@@ -292,7 +405,7 @@ describe('a title names one person (chat/person-aliases.ts)', () => {
   test('"팀장님한테 보내줘" again, the AI giving the name it learned: still the person the title names, no card; another name asks', async () => {
     title('carol', '팀장')
     try {
-      const r = await turn('alice', `이거 팀장님한테 보내줘\n${post({ room: 'Carol Park', text: '회의 10시 (다시)' })}`)
+      const r = await turn('alice', `팀장님한테 보내줘: 회의 10시 (다시)\n${post({ room: 'Carol Park', text: '회의 10시 (다시)' })}`)
       expect(r.card).toBeNull()
       expect(r.content).toContain('"status":"sent"')
       // the title names carol, not erin: a post to erin on "팀장님" asks

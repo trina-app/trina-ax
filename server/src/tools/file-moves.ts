@@ -16,6 +16,8 @@
 // target folder"); the card says it is new.
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
+import path from 'node:path'
+import { renameProblem } from '../files/office-exit'
 import { readThisAnswer } from '../files/service'
 import { placeWords } from '../chat/place-words'
 import { CopyFilesInput, MoveFilesInput, RENAME_FILES_MAX, RenameFileInput, RenameFilesInput } from '@mycel/shared'
@@ -352,6 +354,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     if (bad) throw new ToolError(`invalid name: ${bad}`)
     // the new name counts too: groups/<g>/drafts renamed "skills" would become that group's skills folder
     if (inSkills(p) || inSkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
+    // a rename that changes how the file opens (files/office-exit.ts): the one check of the AI's files
+    const risk = renameProblem(nameOf(p), name, path.join(ctx.files.fx.root, ...p.split('/')))
+    if (risk) throw new ToolError(`'${nameOf(p)}' is not renamed to '${name}': ${risk}`, 'office_unsafe')
     return svc.move(tc.user.id, p, join(parentOf(p), name), 'fail', { turnId: tc.turnId, tool }).entry.path
   }
 

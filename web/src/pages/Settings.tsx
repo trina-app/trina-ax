@@ -63,6 +63,8 @@ import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settin
 import { MemoryForm } from '../components/settings/MemoryForm'
 import { AutoMemoryRow } from '../components/settings/AutoMemoryRow'
 import { MyExport } from '../components/settings/MyExport'
+import { GoogleAccount } from '../components/settings/GoogleAccount'
+import { needsGoogleCheck } from '../lib/googleCheck'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
@@ -636,7 +638,10 @@ function Security({ all = false }: { all?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   // tab 5: a reset by an admin (or the owner's recovery on the server Mac) stays visible here, so the person learns of it
-  const reset = useMeStrict().passwordReset
+  const me = useMeStrict()
+  const reset = me.passwordReset
+  // an account made with Google has no password yet: "Set a password" (after a Google check) instead of a change
+  const firstPassword = needsGoogleCheck(me)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const name = (s: Session) => deviceLabel(s.client, s.userAgent, t)
   const signOut = async (s: Session) => {
@@ -699,8 +704,10 @@ function Security({ all = false }: { all?: boolean }) {
         {resetLine}
         <PhoneSection className="-mt-4" testId="security-phone">
           <PhoneListGroup testId="security-password">
-            <PhoneListRow icon={<KeyRound size={16} />} title={t('auth.changePassword')} to="/settings/security/password" testId="password-open" />
+            <PhoneListRow icon={<KeyRound size={16} />} title={t(firstPassword ? 'settings.password.setTitle' : 'auth.changePassword')} to="/settings/security/password" testId="password-open" />
           </PhoneListGroup>
+          {/* Sign in with Google: shown where it can work, or while one is connected */}
+          <GoogleAccount phone />
           <PhoneListGroup title={t('settings.devices')} labelId="security-devices-title" footer={t('settings.devicesHint')} testId="security-devices">
             {current.map((s) => deviceRow(s))}
             {others.length > 0 && (
@@ -716,11 +723,12 @@ function Security({ all = false }: { all?: boolean }) {
     <>
       {resetLine}
       {!all && (
-        <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
+        <Section title={t(firstPassword ? 'settings.password.setTitle' : 'auth.changePassword')} desc={t(firstPassword ? 'settings.password.setNote' : 'settings.passwordNote')}>
           {/* a password change signs out every other device: the list below is read again so it shows only this one */}
-          <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); void load() }} />
+          <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t(firstPassword ? 'settings.password.setDone' : 'settings.passwordChanged') }); void load() }} />
         </Section>
       )}
+      {!all && <GoogleAccount phone={false} frame={(row) => <Section title={t('settings.google.title')} desc={t('settings.google.desc')}>{row}</Section>} />}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>
         {loading}
         <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
@@ -755,9 +763,11 @@ function Security({ all = false }: { all?: boolean }) {
 function PasswordPage() {
   const t = useT()
   const back = useGoBack('/settings/security')
+  // no password yet (made with Google): "Set a password"
+  const firstPassword = needsGoogleCheck(useMeStrict())
   return (
-    <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')} page>
-      <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t('settings.passwordChanged') }); back() }} />
+    <Section title={t(firstPassword ? 'settings.password.setTitle' : 'auth.changePassword')} desc={t(firstPassword ? 'settings.password.setNote' : 'settings.passwordNote')} page>
+      <ChangePasswordForm onDone={() => { toast({ level: 'success', text: t(firstPassword ? 'settings.password.setDone' : 'settings.passwordChanged') }); back() }} />
     </Section>
   )
 }

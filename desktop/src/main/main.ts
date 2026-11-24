@@ -40,7 +40,7 @@ import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
-import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
+import { GOOGLE_SIGNIN_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
 import { openExternal } from './security'
@@ -373,7 +373,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version() } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version(), googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION } : null
   })
   // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
   // words go back to that page alone, and a reload or another page ends its recording
@@ -624,6 +624,8 @@ async function createWindow() {
     onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
     // Connect pressed after the check stopped waiting: the open team's page checks the connection again
     onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
+    // the confirm opened or closed: the open team's page says so while it waits (it can sit behind other windows)
+    onAsking: (team, s) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-asking', s) },
   })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))

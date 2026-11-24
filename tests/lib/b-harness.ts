@@ -74,6 +74,7 @@ export const testSessions: SessionService = {
     return a
   },
   async verifyPassword() { return false },
+  async verifyReauth() { return false },
 }
 /** Each test session is also a stored session row, as a real sign-in makes one: routes that read the caller's own
  * session (GET /api/me, and PATCH /api/me answering with it; Drive's flows bound to a session) see it exist. Without
@@ -92,6 +93,7 @@ const sessionModule: RouteModule = {
         return a
       },
       verifyPassword: testSessions.verifyPassword,
+      verifyReauth: testSessions.verifyReauth,
     }
   },
   register() {},

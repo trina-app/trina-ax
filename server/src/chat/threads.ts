@@ -30,7 +30,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
 import { roomsOf } from '../rooms/service'
-import { getPreferences } from '../notifications/preferences'
+import { getPreferences, pushEventEnabled } from '../notifications/preferences'
 import { NOTIFICATION_RETENTION_MS, notificationsOf } from '../notifications/service'
 import { getChatRuntime, type ChatRuntime } from './runtime'
 import { Audiences, chatFor, isProjectSharedRow, isSharedRow, messageFor, messageView, type ChatAccess } from './shared'
@@ -38,6 +38,8 @@ import { AnswerSight, chatNodes, withheldAmong, type Node } from './shared-answe
 import { decodeCursor, encodeCursor, type ChatRow, type MessageRow, type MessageView } from './store'
 import { mayEditProject } from './projects'
 import { tr } from './i18n'
+import { ROOM_WORDS } from '../notifications/text'
+import { activeName, chatPlace, pushPreview } from '../notifications/push-preview'
 
 /** how long a reply's notice waits before it is pushed: someone with the thread on screen reads it meanwhile */
 export const CHAT_THREAD_PUSH_DELAY_MS = 10_000
@@ -458,3 +460,19 @@ export function chatThreadNoticeOut(ctx: AppContext, row: { id: string; user_id:
 /** The people who follow a thread, for a test or a check: the asker and the repliers. */
 export const followersOf = (db: Database, rootId: string): string[] =>
   (db.query('SELECT user_id FROM chat_thread_follows WHERE root_id = ? ORDER BY user_id').all(rootId) as { user_id: string }[]).map((r) => r.user_id)
+
+/** The words a phone shows for this push (push-service.ts label; docs/decisions/20261124-push-preview-slack-rule.md):
+ * who wrote the notice's newest reply and where ("민준 · <chat title> › 스레드") as the title, and that reply
+ * (notifications/push-preview.ts) as the line while the reader's preview is on. Only while the push would still go
+ * (chatThreadWanted: unread, the reply there, the thread still the reader's to see). null: the generic words stay. */
+export function chatThreadLabel(ctx: AppContext, notificationId: string, locale: Locale, preview: boolean): { title: string; body: string | null; roomId: string; threadId: string } | null {
+  const n = noticeOf(ctx.db, notificationId)
+  if (!n || !chatThreadWanted(ctx, notificationId) || !pushEventEnabled(getPreferences(ctx.db, n.user_id), 'chat.thread_reply')) return null
+  const r = ctx.db.query('SELECT author_id, content FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.reply_id, n.source_id) as { author_id: string | null; content: string } | null
+  if (!r) return null
+  const who = r.author_id ? activeName(ctx.db, r.author_id) : null
+  const where = [chatPlace(ctx, n.chat_id, n.user_id, { preview, locale }), ROOM_WORDS[locale].thread].filter(Boolean).join(' › ')
+  const title = plainLabel(who ? `${who} · ${where}` : where, 120)
+  const body = pushPreview(ctx, { preview, text: r.content, writer: r.author_id, reader: n.user_id, locale, chatId: n.chat_id })
+  return { title, body, roomId: n.chat_id, threadId: n.source_id }
+}

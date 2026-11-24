@@ -54,6 +54,7 @@ const people: Record<string, AuthInfo> = {
 const sessions: SessionService = {
   async resolve(req) { return people[req.headers.get('x-test-user') ?? ''] ?? null },
   async verifyPassword(_u, pw) { return pw === 'owner-pass' },
+  async verifyReauth(_u, _s, p) { return 'password' in p && p.password === 'owner-pass' },
 }
 const sessionModule: RouteModule = { name: 'po-test-sessions', owner: 'A', init(ctx) { ctx.services.sessions = sessions }, register() {} }
 

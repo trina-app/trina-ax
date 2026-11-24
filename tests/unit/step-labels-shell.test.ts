@@ -300,3 +300,16 @@ describe('QA b4s S4-E: one curl in a side chat', () => {
     expect(roomCardInput('write', w)).toBe(w)
   })
 })
+
+describe('a command that builds a document', () => {
+  test('one plain line in every language, whatever the AI described', async () => {
+    const { stepLabel, STEP_TEXT } = await import('../../shared/src/step-labels')
+    for (const l of ['ko', 'en', 'ja'] as const) {
+      const line = stepLabel('box_shell', { command: 'cat "$TRINA_DOC_SKILLS/docx/SKILL.md"', description: 'Read the skill' }, l, new Set())
+      expect(line.startsWith(`${STEP_TEXT.makingDocument[l]} · `)).toBe(true)
+      expect(stepLabel('box_shell', { command: 'node build.js && ls out/report.docx' }, l, new Set()).startsWith(STEP_TEXT.makingDocument[l])).toBe(true)
+    }
+    expect(stepLabel('box_shell', { command: 'npm run build', description: 'Build the app' }, 'en', new Set()).startsWith('Build the app')).toBe(true)
+  })
+})
+

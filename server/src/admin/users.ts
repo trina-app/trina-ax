@@ -13,6 +13,7 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { linkBase, revokeResetLinksFor, tempPasswordExpiry } from '../auth/accounts'
 import { msg, weakPasswordMessage } from '../auth/messages'
+import { requireReauth } from '../auth/reauth'
 import { hashPassword, passwordProblem, temporaryPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { assertSeatFree } from '../system/limits'
@@ -32,7 +33,7 @@ import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { cancelDeletion, closeDeletionRequest } from '../auth/deletion-requests'
-import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { notificationsOf, notifySignInChange, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 import { recordJoin } from '../onboarding/member-welcome'
 import { noteRemovedSignIns, runAccountCleanups } from '../auth/account-removal'
 import { purgePrivateChatsOf } from '../auth/sweeper'
@@ -44,6 +45,7 @@ import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
 import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, emailUsedByOther, isGuest, placeOut, seenBy } from '../auth/guests'
+import { forgetLoginIdentities } from '../auth/login-identities'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -312,19 +314,18 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   return rel(name)
 }
 
-export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', password?: string): Promise<void> {
+export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', proof: { password?: string; reauthFlow?: string } = {}): Promise<void> {
   const auth = c.get('auth')!
   const locale = c.get('locale')
   // the owner deletes anyone but themselves; an admin deletes a plain member only (never the owner, another admin or
-  // themselves: guard), and types their password again first. The contract says so too: this is the second check
+  // themselves: guard), and types their password again first (or, without one, confirms with Google: auth/reauth.ts).
+  // The contract says so too: this is the second check
   if (auth.user.role !== 'owner' && auth.user.role !== 'admin') fail('forbidden')
   const first = liveUser(ctx, id)
   guard(c, first)
   let passwordChecked = false
   if (auth.user.role === 'admin') {
-    if (typeof password !== 'string' || !(await ctx.services.sessions.verifyPassword(auth.user.id, password, c.get('info')))) {
-      fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
-    }
+    await requireReauth(c, ctx, proof, { missing: 'forbidden' })
     passwordChecked = true
   }
   // the password check above waited: read the person again, and once more inside the transaction below, so what
@@ -547,18 +548,49 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
   const nowMs = authOf(ctx).now()
   const now = new Date(nowMs).toISOString()
   const expiresAt = tempPasswordExpiry(nowMs)
-  ctx.db.transaction(() => {
+  const googleGone = ctx.db.transaction(() => {
     // read again after the (slow) hash: a target who became the owner or an admin meanwhile (a transfer committing now),
     // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
     guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
-    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead
+    // a reset link sent earlier (maybe to the wrong place) stops working: the admin chose a temporary password instead.
+    // A connected Google account too: a reset after a suspected break-in locks every old way in out
+    // (docs/decisions/20261122-google-login-identity.md)
     revokeResetLinksFor(ctx.db, id, nowMs)
-    audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
+    const google = forgetLoginIdentities(ctx.db, id) > 0
+    audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id, ...(google ? { detail: { googleDisconnected: true } } : {}) })
+    return google
   }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
+  // every change to how someone signs in with Google is told to the owners and admins
+  if (googleGone) notifySignInChange(ctx, id, auth.user.id, 'signin_google_disconnected')
   authOf(ctx).limiter.clearAccount(target.username)
   return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
+}
+
+/** DELETE /api/admin/users/:id/google (Sign in with Google, docs/AGENTS/plan/20261122-0616-google-login-admin.md): the
+ * person's Google account no longer signs them in. The rules of the other actions on people (guard): never the owner or
+ * yourself (your own is in Settings › Security & devices), only the owner acts on admins; checked again inside the
+ * write. Their sessions end (one made with that Google account must not outlive it); the person, the owners and the
+ * admins are told (Activity). Audited without the Google account or its
+ * address; nothing removed, nothing audited. Refused (409) for a person without a password: Google is their only way
+ * in, and an admin must not leave anyone without one. The way out is a temporary password, which disconnects Google too
+ * (docs/decisions/20261122-google-reauth.md). */
+export function disconnectUserGoogle(c: Context<AppEnv>, ctx: AppContext, id: string): void {
+  const auth = c.get('auth')!
+  guard(c, liveUser(ctx, id))
+  const gone = ctx.db.transaction(() => {
+    const target = liveUser(ctx, id)
+    guard(c, target, { actor: actorNow(ctx, auth.user.id) })
+    if (!target.password_hash) fail('conflict', msg('googleOnlyMember', c.get('locale')), { params: { reason: 'no_password' } })
+    if (!forgetLoginIdentities(ctx.db, id)) return false
+    audit(ctx.db, { actor: auth.user.id, action: 'user.google_disconnected', target: id })
+    return true
+  }).immediate()
+  if (!gone) return
+  // a session made with that Google account must not outlive it
+  authOf(ctx).endUserSessions(id, 'revoked')
+  notifySignInChange(ctx, id, auth.user.id, 'signin_google_disconnected', { alsoTarget: true })
 }
 
 /** Guard for reset links (the link itself is made in auth/accounts.ts). */

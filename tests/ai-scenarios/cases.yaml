@@ -2383,6 +2383,24 @@ cases:
       # called it invented
       expect: { outcome: explain, good: "An owner's or admin's setting, not available on this team's app (true: the AI is told so); what it would change, in plain words; no other invented status.", checks: [] }
 
+# admin.google-sign-in (docs/AGENTS/plan/20261122-0616-google-login-admin.md): someone who leaves keeps signing in
+# with Google until they are turned off in Trina AX; suspending them in Google Workspace does not sign them out.
+- id: ADM-08
+  title: Someone leaves who signs in with Google
+  features: [admin.google-sign-in]
+  lang: ko
+  context: personal
+  as: minho
+  prompt: 구글로 로그인하던 직원이 퇴사해서 구글 워크스페이스 계정을 정지했어. 트리나에서도 따로 해야 할 게 있어?
+  expect:
+    outcome: explain
+    good: Yes. Suspending the Google Workspace account does not sign them out here and their password still works, so disable them in Admin › Members & invites (signs them out on every device). Optionally the person's ⋯ › Disconnect Google removes only the Google sign-in; the Team settings switch turns Sign in with Google off for everyone. Plain words; the AI does not do it itself.
+    checks: []
+  variants:
+    - key: member
+      as: hana
+      expect: { outcome: explain, good: The owner or an admin does this in Admin › Members & invites; tells her to ask them; plain words., checks: [] }
+
 # ================================================================ system (explains)
 - id: SYS-01
   title: Storage, updates, health
@@ -2785,6 +2803,48 @@ cases:
   expect:
     outcome: explain
     good: Install the app (the page has a Download the app link), then press the button again; each press makes a fresh sign-in that works once and only for a few minutes, so pressing again is fine; no password to type. Plain words.
+    checks: []
+
+# auth.google (docs/AGENTS/plan/20261122-0454-google-login.md): Sign in with Google works only for a Google account the
+# person connected in Settings › Security & devices with their password; never by e-mail alone.
+- id: ACC-07
+  title: Sign in with Google
+  features: [auth.google]
+  lang: ko
+  context: personal
+  as: hana
+  prompt: 매번 비밀번호 치기 귀찮은데 구글 계정으로 로그인할 수 있어?
+  expect:
+    outcome: explain
+    good: Yes where the team offers it, in a browser. First connect the Google account once in Settings › Security & devices (it asks for the current password), then press Sign in with Google on the sign-in page. Her password keeps working. The desktop app and the phone app have the same button once they are up to date. Google opens in the browser (on the phone, a sign-in sheet), then she is signed in to the app; connecting the Google account still happens once in a browser. If the button is not there, the team, this address or this app version does not offer it; ask an admin. Plain words.
+    checks: []
+
+# auth.google-signup (docs/AGENTS/plan/20261122-0756-google-signup.md): invited people can make their account with Google
+# on the invite or team link page, in a browser, without a password; guests make a password.
+- id: ACC-08
+  title: Invite a colleague who joins with Google
+  features: [auth.google-signup]
+  lang: ko
+  context: personal
+  as: minho
+  prompt: 새로 오는 직원한테 초대 링크 보낼 건데, 비밀번호 안 만들고 구글 계정으로 가입하게 할 수 있어?
+  expect:
+    outcome: explain
+    good: Yes where the team offers Google, in a web browser. He sends the invite or the team link as usual; on that page the new person types a name and a username and presses Join with Google instead of making a password, then signs in with Google from then on. A guest invite still asks for a password. In the phone or desktop app the page keeps the password form, so the person opens the link in a browser. If the button is not there, the team or this address does not offer Google. Plain words, no invented settings.
+    checks: []
+
+# auth.google-reauth (docs/decisions/20261122-google-reauth.md): an account made with Google has no password; where
+# others type their password again, it confirms with Google in a browser, and it can set a first password.
+- id: ACC-09
+  title: No password to type again
+  features: [auth.google-reauth]
+  lang: ko
+  context: personal
+  as: minho
+  prompt: 구글로 가입해서 비밀번호가 없는데, 팀장 넘기기 하려니까 비밀번호를 다시 넣으래. 어떻게 해?
+  expect:
+    outcome: explain
+    good: An account made with Google confirms with Google instead; the same dialog shows Confirm with Google, a Google window opens, he picks his own Google account, and the action goes on. It works in a web browser, not inside the phone or desktop app. He can also set a password in Settings › Security & devices (it asks for a Google check first). Plain words, no invented steps.
     checks: []
 
 - id: CHT-13

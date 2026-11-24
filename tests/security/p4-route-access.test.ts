@@ -38,9 +38,19 @@ for (const key of Object.keys(P4_SPECS)) {
 test('raw OAuth callback is explicitly covered: no state/code reflection and no-cache response', async () => {
   const marker = 'synthetic-secret-marker-DO-NOT-REFLECT'
   const response = await h.fetch(`${CALLBACK_PATH}?state=${marker}&code=${marker}`)
-  expect(response.status).toBe(400)
+  // a browser not signed in here with a state nobody knows: the Sign in with Google return (its sign-in page and words,
+  // docs/decisions/20261124-google-signin-security.md), a bare redirect that carries neither value
+  expect(response.status).toBe(302)
+  expect(response.headers.get('location')).toBe('/login?google=expired')
   expect(await response.text()).not.toContain(marker)
   expect(response.headers.get('cache-control')).toBe('no-store')
   expect(response.headers.get('referrer-policy')).toBe('no-referrer')
-  expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
+
+  // a signed-in browser: Drive's own page, as before
+  const drive = await h.fetch(`${CALLBACK_PATH}?state=${marker}&code=${marker}`, { headers: { cookie: owner.cookie! } })
+  expect(drive.status).toBe(400)
+  expect(await drive.text()).not.toContain(marker)
+  expect(drive.headers.get('cache-control')).toBe('no-store')
+  expect(drive.headers.get('referrer-policy')).toBe('no-referrer')
+  expect(drive.headers.get('content-security-policy')).toContain("default-src 'none'")
 })

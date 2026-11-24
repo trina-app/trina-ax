@@ -61,12 +61,16 @@ describe('tools made per person', () => {
     expect(a.tools.get('my_tasks__create_task')!.description).toStartWith('[Tasks, personal connection] Create a task: Create a task')
     expect(a.tools.get('my_tasks__create_task')!.description).toContain('Changes something')
     expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
-    // the step shows a short look at the arguments, like Claude Code's tool inputs
-    // the step: the connection and the tool's title, never the arguments (docs/DECISIONS.md "Plain words in errors, cards and steps")
-    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · Create a task')
+    // the step: the connection, the tool's title and the call's key input, like Claude Code (docs/decisions/
+    // 20261124-step-key-input.md); a card's question (bare) the title alone
+    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · Create a task · "x"')
+    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko', { bare: true })).toBe('Tasks · Create a task')
     expect(a.tools.get('my_tasks__create_task')!.label!({}, 'ko')).toBe('Tasks · Create a task')
-    // what the method does, never the AI's path or query
-    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · Send')
+    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x', token: 'tok-1' }, 'ko')).not.toContain('tok-1')
+    // what the method does and the path without its query; an id in the path as "…"
+    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · Send · /tasks')
+    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'get', path: '/tasks/0b3a1f2e-5c4d-4e6f-8a7b-9c0d1e2f3a4b/notes?api_key=abc' }, 'en')).toBe('AI PM · Get · /tasks/…/notes')
+    expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en', { bare: true })).toBe('AI PM · Send')
     // the room card after a room read (QA TC-233): what it does at the service by its name, where it goes, the body's
     // values as lines and the exact request one click away; never the connection's key name
     const card = a.tools.get('api_request')!.card!

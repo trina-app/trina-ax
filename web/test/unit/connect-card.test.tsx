@@ -438,6 +438,66 @@ describe('what the card shows', () => {
     expect(out).toContain('data-testid="connect-sign-in"')
     expect(out).not.toContain('data-testid="connect-unlisted"')
   })
+  // owner decision 2026-11-24 (docs/decisions/20261124-connect-card-unlisted.md): an address the AI filled in that is not
+  // a listed service's official one gets one line in the owner's words, the host in bold beside it, and Connect stays
+  test('an address not in the app\'s list: one line with the host in bold, in the owner\'s words, and Connect stays', () => {
+    const api = card({ name: 'Acme Billing', notes: 'GET /invoices lists invoices.', service: { kind: 'http', url: 'https://api.acme-billing.example/v2', host: 'api.acme-billing.example', auth: 'header', authHeader: 'X-API-Key' } })
+    const wiki = card({ name: 'Acme Wiki', service: { kind: 'mcp', url: 'https://wiki.acme.example/mcp', host: 'wiki.acme.example', auth: 'oauth', authHeader: null } })
+    // a listed service's official host, but another path: not its official address either
+    const path = card({ name: 'Docs search', service: { kind: 'mcp', url: 'https://mcp.notion.com/other', host: 'mcp.notion.com', auth: 'oauth', authHeader: null } })
+    const cases = [[card(), 'mcp.higgsfield.example', 'connect-submit'], [api, 'api.acme-billing.example', 'connect-submit'], [wiki, 'wiki.acme.example', 'connect-sign-in'], [path, 'mcp.notion.com', 'connect-sign-in']] as const
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      setLocale(locale)
+      for (const [r, host, button] of cases) {
+        expect(cardTrust(r).kind).toBe('unlisted')
+        const out = html(r)
+        expect(out.split('data-testid="connect-unlisted"').length - 1, host).toBe(1)
+        expect(out).not.toContain('data-testid="connect-not-official"')
+        expect(out).not.toContain('data-testid="connect-official"')
+        const box = part(out, 'p', 'connect-unlisted')!
+        expect(box[0]).toContain('role="note"')
+        expect(box[1]).toContain(`<strong class="font-semibold">${host}</strong>`)
+        expect(box[1]).toContain(esc(translate(locale, 'connect.unlisted')))
+        // the warning says to check it; connecting stays possible
+        expect(out).toContain(`data-testid="${button}"`)
+      }
+    }
+    expect(translate('ko', 'connect.unlisted')).toBe('트리나 앱 목록에 없는 주소예요. 이 서비스의 공식 문서에 나온 주소와 같은지 확인해 주세요.')
+    expect(translate('en', 'connect.unlisted')).toBe("This address is not in Trina's list of apps. Check that it matches the address in the service's official docs.")
+  })
+  test('no "not in the app\'s list" line for a listed service\'s official address (any of them), an admin\'s template or a reconnect', () => {
+    const at = (name: string, url: string, o: Partial<ConnectServiceRequest> = {}) => card({ name, why: undefined, service: { kind: 'mcp', url, host: new URL(url).host, auth: 'oauth', authHeader: null }, ...o })
+    const official: [string, ConnectServiceRequest][] = [
+      ['Notion', at('Notion', 'https://mcp.notion.com/mcp')],
+      ['Vercel, its trailing slash', at('Vercel', 'https://mcp.vercel.com/')],
+      // a listed service's other official addresses (shared/src/service-catalog.ts otherUrls), under any name the AI gave
+      ['Canva, its documented address', at('Canva', 'https://api.canva.com/connect/v1/mcp')],
+      ['Atlassian v1, named Jira', at('Jira', 'https://mcp.atlassian.com/v1/mcp')],
+      ['Netlify, the earlier address', at('My deploys', 'https://netlify-mcp.netlify.app/mcp')],
+    ]
+    const others: [string, ConnectServiceRequest][] = [
+      ['a template', at('Team wiki', 'https://wiki.acme.example/mcp', { template: { id: 't1', version: 1 } })],
+      ['a template with a key', card({ template: { id: 't2', version: 3 } })],
+      ['a reconnect', at('Team wiki', 'https://wiki.acme.example/mcp', { reconnect: true })],
+      ['a reconnect with a key', card({ reconnect: true })],
+    ]
+    for (const [what, r] of official) expect({ what, kind: cardTrust(r).kind }).toEqual({ what, kind: 'official' })
+    for (const [what, r] of others) expect({ what, kind: cardTrust(r).kind }).toEqual({ what, kind: 'template' })
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+      setLocale(locale)
+      for (const [what, r] of [...official, ...others]) {
+        const out = html(r)
+        expect({ what, line: out.includes('data-testid="connect-unlisted"'), text: out.includes(esc(translate(locale, 'connect.unlisted'))) }).toEqual({ what, line: false, text: false })
+      }
+      for (const [what, r] of official) {
+        const name = (cardTrust(r) as { service: { name: string } }).service.name
+        expect({ what, official: officialLine(r) }).toEqual({ what, official: esc(translate(locale, 'connect.official', { name })) })
+      }
+    }
+    function officialLine(r: ConnectServiceRequest) {
+      return part(html(r), 'p', 'connect-official')?.[1].replace(/^.*<span[^>]*>|<\/span>$/g, '')
+    }
+  })
   test('a reconnect card for a connection saved under a listed name before #582: titled by its host unless its address is official', () => {
     const old = (name: string, url: string) => card({ name, reconnect: true, service: { kind: 'mcp', url, host: new URL(url).host, auth: 'oauth', authHeader: null } })
     expect(cardTrust(old('Notion', 'https://notion-mcp.example.com/mcp'))).toEqual({ kind: 'template', display: 'notion-mcp.example.com' })

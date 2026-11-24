@@ -9,6 +9,7 @@ import { cleanUpDeletedAccounts } from './account-removal'
 import { deleteDueAccounts, markSweepStart } from './deletion-requests'
 import { finishRemovals } from '../admin/users'
 import { sweepAppSignInCodes } from './app-signin'
+import { sweepGoogleCodes } from './google-login-apps'
 
 export interface SweepResult { sessions: number; attempts: number; resets: number; audit: number; purgedUsers: number }
 
@@ -22,6 +23,8 @@ export function sweep(ctx: AppContext): SweepResult {
   const resets = db.query('DELETE FROM password_resets WHERE expires_at < ?').run(new Date(now - 7 * 86_400_000).toISOString()).changes
   // the desktop app's one-time sign-in codes: spent or past their 3 minutes
   sweepAppSignInCodes(db, now)
+  // the apps' one-time Google sign-in codes: spent or past their 5 minutes (auth/google-login-apps.ts)
+  sweepGoogleCodes(ctx, now)
   const audit = purgeAudit(db, s.auditRetentionDays, now)
   // deleted accounts: chats (messages / artifacts cascade), memories and engine session stashes go after the chat
   // retention period; the users row stays as a tombstone so usage and audit keep their names

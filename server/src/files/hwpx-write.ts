@@ -2,10 +2,15 @@
 // .hwpx in pure TypeScript. Runs ONLY in the office worker (files/office-worker.ts, isolated like the other
 // converters), never in the server process: the template is an untrusted zip and the tree comes from the AI.
 //
-// Supported (stage 1): headings (# to ######) as outline levels 개요 1-6, paragraphs (with hard line breaks), bold,
-// italic, bullet and numbered lists (6 levels), simple tables (no merged cells; plain text in cells, the header row
-// bold) and page breaks (a line `\newpage` or `\pagebreak`). Everything else is refused with one ToolError that names
-// all of it; nothing is written, so a file never holds half the document.
+// Supported: headings (# to ######) as outline levels 개요 1-6, paragraphs (with hard line breaks), bold, italic,
+// underline ([..]{.underline}) and strikethrough, bullet and numbered lists (6 levels), tables (a pipe table with an
+// empty header row has none; grid tables merge cells; text and lists in cells; column widths from the Markdown or, when
+// it gives none, from what each column holds), a line (---), page breaks (a line `\newpage` or `\pagebreak`) and
+// fenced divs that align (.center .right .left .justify), size ({size=14}, points), box (.box: one cell around the
+// div's paragraphs) or take the lines off a table (.noborder). A paragraph that starts with a Korean outline label
+// (1. 가. 1) 가) (1) (가) ① ㉮, or □ ○ - · of a 개조식 report; hwpx-check.ts) is indented by its level with a hanging
+// indent. Everything else is refused with one ToolError that names all of it; nothing is written, so a file never holds
+// half the document.
 //
 // Styles and the page come from a template: the built-in one (files/hwpx-template.ts) or a team's .hwpx under
 // skills/, like pandoc's reference document. A template is untrusted input: size and zip limits, no scripts
@@ -27,7 +32,7 @@ import { ToolError } from '../policy/errors'
 import { checkZip, isZip } from './zip-guard'
 import { writeZip, type ZipEntry } from './zip-write'
 import { COL_PR, NO_CHAR_SHAPE, NS_ATTRS, OWPML_NS, XML_DECL, defaultTemplate, paraHeadXml, paraPrXml, type ParaShape } from './hwpx-template'
-import { cleanText, decodeHwpxRequest, HWPX_TEMPLATE_MAX, HWPX_TEXT_MAX } from './hwpx-check'
+import { cleanText, decodeHwpxRequest, HWPX_TEMPLATE_MAX, HWPX_TEXT_MAX, normalizeHwpxTree, paragraphLabel } from './hwpx-check'
 // the product module alone: the shared index brings zod into the office worker's bundle, and a second Bun.build of zod
 // in the same process (tests) then fails with EISDIR on Linux
 import { PRODUCT } from '@mycel/shared/product'
@@ -45,17 +50,34 @@ export const HWPX_LIMITS = {
   tableCells: 10_000,
   /** ordered lists (each has its own numbering, so each starts again) */
   numberedLists: 1000,
+  /** fenced divs inside each other */
+  divDepth: 16,
 }
 
 const NS = Object.fromEntries(OWPML_NS) as Record<(typeof OWPML_NS)[number][0], string>
 
 // ---------------------------------------------------------------- the document model
-interface Run { text: string; bold: boolean; italic: boolean }
+interface Run { text: string; bold: boolean; italic: boolean; underline: boolean; strike: boolean }
 type Align = 'LEFT' | 'RIGHT' | 'CENTER'
+type ParaAlign = Align | 'JUSTIFY'
 interface ListPos { kind: 'bullet' | 'number'; depth: number; numbering?: number; continued?: boolean }
-interface Para { k: 'p'; heading: number; list?: ListPos; runs: Run[]; pageBreak: boolean }
-interface Cell { align: Align; paras: Run[][] }
-interface Table { k: 'table'; widths: number[]; rows: { head: boolean; cells: Cell[] }[]; pageBreak: boolean }
+/** what a fenced div sets for what is inside it */
+interface Fmt { align?: ParaAlign; size?: number; noborder?: boolean }
+interface Para {
+  k: 'p'; heading: number; list?: ListPos; runs: Run[]; pageBreak: boolean
+  align?: ParaAlign
+  /** character height in HWPUNIT (1000 = 10 pt), from a div's size */
+  size?: number
+  /** a horizontal line (---): an empty paragraph with a line under it */
+  rule?: boolean
+}
+interface Cell { align: Align; paras: Para[]; col: number; colSpan: number; rowSpan: number }
+interface Table {
+  k: 'table'; widths: number[]; rows: { head: boolean; cells: Cell[] }[]; pageBreak: boolean
+  align?: ParaAlign; noborder?: boolean
+  /** a box (::: {.box}): one cell around the div's paragraphs */
+  box?: boolean
+}
 type Block = Para | Table
 interface Numbering { start: number; format: string; label: string }
 
@@ -65,15 +87,19 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 
 /** what the person reads in the refusal, by pandoc node */
 const NAMES: Record<string, string> = {
-  CodeBlock: 'code blocks', BlockQuote: 'block quotes (>)', HorizontalRule: 'horizontal rules (---)', DefinitionList: 'definition lists',
-  LineBlock: 'line blocks (| ...)', Div: 'divs (::: or <div>)', Figure: 'images', Image: 'images', Note: 'footnotes', Link: 'links',
-  Code: 'inline code (`...`)', Math: 'math', Strikeout: 'strikethrough (~~)', Underline: 'underline', Superscript: 'superscript',
-  Subscript: 'subscript', SmallCaps: 'small caps', Cite: 'citations', Span: 'bracketed spans ([...]{...})',
+  CodeBlock: 'code blocks', BlockQuote: 'block quotes (>)', DefinitionList: 'definition lists',
+  LineBlock: 'line blocks (| ...)', Figure: 'images', Image: 'images', Note: 'footnotes', Link: 'links',
+  Code: 'inline code (`...`)', Math: 'math', Superscript: 'superscript',
+  Subscript: 'subscript', SmallCaps: 'small caps', Cite: 'citations', Span: 'bracketed spans ([...]{...}) other than {.underline}',
 }
 const QUOTES: Record<string, [string, string]> = { DoubleQuote: ['“', '”'], SingleQuote: ['‘', '’'] }
 const PAGE_BREAK = /^\\(?:newpage|pagebreak|clearpage)\s*$/
 const FORMATS: Record<string, string> = { LowerAlpha: 'LATIN_SMALL', UpperAlpha: 'LATIN_CAPITAL', LowerRoman: 'ROMAN_SMALL', UpperRoman: 'ROMAN_CAPITAL' }
 const DELIMS: Record<string, string> = { OneParen: '^1)', TwoParens: '(^1)' }
+/** what a fenced div may say: alignment, a text size in points, a box, a table without lines */
+const DIV_CLASSES = new Set(['center', 'right', 'left', 'justify', 'box', 'noborder'])
+const SIZE_PT = { min: 6, max: 48 }
+const DIV_HELP = 'divs take {.center}, {.right}, {.left}, {.justify}, {.box}, {.noborder} and {size=<6-48 pt>}'
 
 class Converter {
   readonly blocks: Block[] = []
@@ -81,13 +107,16 @@ class Converter {
   private problems = new Map<string, number>()
   private pendingBreak = false
   private chars = 0
+  private divDepth = 0
 
   problem(what: string) { this.problems.set(what, (this.problems.get(what) ?? 0) + 1) }
   refusal(): string | null {
     if (!this.problems.size) return null
     const list = [...this.problems].map(([w, n]) => (n > 1 ? `${w} (${n})` : w)).join(', ')
     return `a .hwpx cannot hold this document yet: ${list}. Nothing was saved. Supported: headings (# to ######), paragraphs, **bold**, *italic*, ` +
-      'bullet and numbered lists (up to 6 levels), simple tables (no merged cells, plain text in cells) and page breaks (a line \\newpage). ' +
+      '[underline]{.underline}, ~~strikethrough~~, bullet and numbered lists (up to 6 levels), tables (pipe tables, an empty header row for none; ' +
+      'grid tables for merged cells; plain text and lists in cells), a line (---), page breaks (a line \\newpage) and fenced divs ' +
+      '(::: {.center}, {.right}, {.box}, {.noborder} around a table, {size=14}). ' +
       'Leave the rest out or write it as plain text (a link as "text (address)"), then try again.'
   }
 
@@ -95,7 +124,7 @@ class Converter {
     if (!isNode(ast) || !Array.isArray((ast as { blocks?: unknown }).blocks)) throw new ToolError('the converter produced an unexpected document tree')
     const meta = (ast as { meta?: unknown }).meta
     if (isNode(meta) && Object.keys(meta).length) this.problem(`YAML metadata (${Object.keys(meta).slice(0, 5).join(', ')}): write the title as a # heading`)
-    this.top((ast as { blocks: unknown[] }).blocks)
+    this.top((ast as { blocks: unknown[] }).blocks, {})
     if (this.chars > HWPX_TEXT_MAX) throw new ToolError(`the document is too long for a .hwpx (more than ${HWPX_TEXT_MAX.toLocaleString('en')} characters)`)
   }
 
@@ -104,19 +133,53 @@ class Converter {
     this.blocks.push(b)
   }
 
-  private top(blocks: unknown[]) {
+  private para(runs: Run[], fmt: Fmt, extra: Partial<Para> = {}): Para {
+    return { k: 'p', heading: 0, runs, pageBreak: false, ...(fmt.align ? { align: fmt.align } : {}), ...(fmt.size ? { size: fmt.size } : {}), ...extra }
+  }
+
+  /** a fenced div's attributes on top of the outer ones; unknown ones are named in the refusal */
+  private divFmt(attr: unknown, outer: Fmt): { fmt: Fmt; box: boolean } | null {
+    const [, classes, kvs] = arr(attr) as [unknown, unknown[], unknown[]]
+    const fmt: Fmt = { ...outer }
+    let box = false, ok = true
+    for (const c of arr(classes).map(String)) {
+      if (!DIV_CLASSES.has(c)) { this.problem(`a div {.${c.slice(0, 30)}}: ${DIV_HELP}`); ok = false; continue }
+      if (c === 'box') box = true
+      else if (c === 'noborder') fmt.noborder = true
+      else fmt.align = c.toUpperCase() as ParaAlign
+    }
+    for (const kv of arr(kvs)) {
+      const [k, v] = arr(kv).map(String) as [string, string]
+      const pt = Number(v)
+      if (k === 'size' && Number.isFinite(pt) && pt >= SIZE_PT.min && pt <= SIZE_PT.max) fmt.size = Math.round(pt * 10) * 10
+      else { this.problem(`a div {${String(k).slice(0, 20)}=${String(v).slice(0, 20)}}: ${DIV_HELP}`); ok = false }
+    }
+    return ok ? { fmt, box } : null
+  }
+
+  private top(blocks: unknown[], fmt: Fmt) {
     for (const b of blocks) {
       if (!isNode(b)) continue
       const c = b.c as any
       switch (b.t) {
         case 'Header': {
           const level = Number(c?.[0])
-          this.emit({ k: 'p', heading: Number.isInteger(level) && level >= 1 ? Math.min(level, 6) : 1, runs: this.inlines(c?.[2], true), pageBreak: false })
+          this.emit(this.para(this.inlines(c?.[2], true), fmt, { heading: Number.isInteger(level) && level >= 1 ? Math.min(level, 6) : 1 }))
           break
         }
-        case 'Para': case 'Plain': this.emit({ k: 'p', heading: 0, runs: this.inlines(c, false), pageBreak: false }); break
-        case 'BulletList': case 'OrderedList': this.list(b, 0); break
-        case 'Table': { const t = this.table(c); if (t) this.emit(t); break }
+        case 'Para': case 'Plain': this.emit(this.para(this.inlines(c, false), fmt)); break
+        case 'BulletList': case 'OrderedList': this.list(b, 0, fmt, (p) => this.emit(p)); break
+        case 'Table': { const t = this.table(c, fmt); if (t) this.emit(t); break }
+        case 'HorizontalRule': this.emit(this.para([], fmt, { rule: true })); break
+        case 'Div': {
+          if (this.divDepth >= HWPX_LIMITS.divDepth) { this.problem(`divs nested more than ${HWPX_LIMITS.divDepth} levels`); break }
+          const d = this.divFmt(c?.[0], fmt)
+          if (!d) break
+          this.divDepth++
+          if (d.box) { const t = this.box(arr(c?.[1]), d.fmt); if (t) this.emit(t) } else this.top(arr(c?.[1]), d.fmt)
+          this.divDepth--
+          break
+        }
         case 'RawBlock': {
           const [format, text] = arr(c) as [unknown, unknown]
           if (/^(tex|latex)$/.test(String(format)) && PAGE_BREAK.test(String(text).trim())) {
@@ -132,7 +195,35 @@ class Converter {
     }
   }
 
-  private list(b: Node, depth: number) {
+  /** The paragraphs of a cell or a box: paragraphs, lists, lines and divs (alignment, size); no tables or headings. */
+  private cellParas(blocks: unknown[], fmt: Fmt, bold: boolean, where: string, out: Para[] = []): Para[] {
+    for (const x of blocks) {
+      if (!isNode(x)) continue
+      const c = x.c as any
+      if (x.t === 'Para' || x.t === 'Plain') out.push(this.para(this.inlines(c, false, bold), fmt))
+      else if (x.t === 'BulletList' || x.t === 'OrderedList') this.list(x, 0, fmt, (p) => out.push(p), bold)
+      else if (x.t === 'HorizontalRule') out.push(this.para([], fmt, { rule: true }))
+      else if (x.t === 'Div') {
+        if (this.divDepth >= HWPX_LIMITS.divDepth) { this.problem(`divs nested more than ${HWPX_LIMITS.divDepth} levels`); continue }
+        const d = this.divFmt(c?.[0], fmt)
+        if (!d) continue
+        if (d.box) { this.problem(`boxes inside ${where}`); continue }
+        this.divDepth++
+        this.cellParas(arr(c?.[1]), d.fmt, bold, where, out)
+        this.divDepth--
+      } else this.problem(x.t === 'Table' ? `tables inside ${where}` : x.t === 'Header' ? `headings inside ${where}` : `${NAMES[String(x.t)] ?? String(x.t)} inside ${where}`)
+    }
+    return out
+  }
+
+  /** a box: a one-cell table around the div's paragraphs, as wide as the text */
+  private box(blocks: unknown[], fmt: Fmt): Table | null {
+    const paras = this.cellParas(blocks, { ...fmt, align: fmt.align }, false, 'boxes')
+    if (!paras.length) return null
+    return { k: 'table', widths: [1], rows: [{ head: false, cells: [{ align: 'LEFT', paras, col: 0, colSpan: 1, rowSpan: 1 }] }], pageBreak: false, box: true }
+  }
+
+  private list(b: Node, depth: number, fmt: Fmt, sink: (p: Para) => void, bold = false) {
     if (depth >= HWPX_LIMITS.listDepth) { this.problem(`lists nested more than ${HWPX_LIMITS.listDepth} levels`); return }
     let items: unknown[]
     let pos: ListPos
@@ -155,20 +246,20 @@ class Converter {
       for (const x of arr(item)) {
         if (!isNode(x)) continue
         if (x.t === 'Para' || x.t === 'Plain') {
-          this.emit({ k: 'p', heading: 0, list: first ? pos : { ...pos, continued: true }, runs: this.inlines(x.c, false), pageBreak: false })
+          sink(this.para(this.inlines(x.c, false, bold), fmt, { list: first ? pos : { ...pos, continued: true } }))
           first = false
         } else if (x.t === 'BulletList' || x.t === 'OrderedList') {
           // an item that starts with a list: its own (empty) line first, as a word processor shows it
-          if (first) { this.emit({ k: 'p', heading: 0, list: pos, runs: [], pageBreak: false }); first = false }
-          this.list(x, depth + 1)
+          if (first) { sink(this.para([], fmt, { list: pos })); first = false }
+          this.list(x, depth + 1, fmt, sink, bold)
         } else this.problem(x.t === 'Table' ? 'tables inside list items' : x.t === 'Header' ? 'headings inside list items' : `${NAMES[String(x.t)] ?? String(x.t)} inside list items`)
       }
       // an empty item keeps its place (and its number: "1. a / 2. / 3. c" stays 1, 2, 3)
-      if (first) this.emit({ k: 'p', heading: 0, list: pos, runs: [], pageBreak: false })
+      if (first) sink(this.para([], fmt, { list: pos }))
     }
   }
 
-  private table(c: any): Table | null {
+  private table(c: any, fmt: Fmt): Table | null {
     const [, caption, colspecs, thead, tbodies, tfoot] = arr(c) as any[]
     if (arr(arr(caption)[1]).length) this.problem('table captions')
     const specs = arr(colspecs) as [Node, Node][]
@@ -186,63 +277,66 @@ class Converter {
     if (!rows.length) return null
     if (rows.length * cols > HWPX_LIMITS.tableCells) { this.problem(`tables with more than ${HWPX_LIMITS.tableCells.toLocaleString('en')} cells`); return null }
     const colAlign = specs.map((s) => align(arr(s)[0]))
-    const given = specs.map((s) => { const w = arr(s)[1] as Node; return w?.t === 'ColWidth' && Number(w.c) > 0 ? Number(w.c) : 0 })
-    const sum = given.reduce((a, b) => a + b, 0)
-    const unset = given.filter((w) => !w).length
-    const rest = unset ? Math.max(0.02, (1 - Math.min(sum, 1)) / unset) : 0
-    const widths = given.map((w) => w || rest || 1)
-    const out: Table = { k: 'table', widths, rows: [], pageBreak: false }
-    for (const { head, row } of rows) {
+    const out: Table = { k: 'table', widths: [], rows: [], pageBreak: false, ...(fmt.align ? { align: fmt.align } : {}), ...(fmt.noborder ? { noborder: true } : {}) }
+    // which places of the grid a merged cell above already covers
+    const taken: Set<number>[] = rows.map(() => new Set<number>())
+    let bad = false
+    for (const [r, { head, row }] of rows.entries()) {
       const cells: Cell[] = []
+      let col = 0
       for (const cell of arr(arr(row)[1])) {
-        const [, a, rowspan, colspan, blocks] = arr(cell) as [unknown, Node, unknown, unknown, unknown[]]
-        if (Number(rowspan) !== 1 || Number(colspan) !== 1) this.problem('merged table cells')
-        const paras: Run[][] = []
-        for (const x of arr(blocks)) {
-          if (!isNode(x)) continue
-          if (x.t === 'Para' || x.t === 'Plain') paras.push(this.inlines(x.c, false, head))
-          else this.problem(x.t === 'Table' ? 'nested tables' : x.t === 'BulletList' || x.t === 'OrderedList' ? 'lists inside table cells' : x.t === 'Header' ? 'headings inside table cells' : `${NAMES[String(x.t)] ?? String(x.t)} inside table cells`)
+        const [, a, rs, cs, blocks] = arr(cell) as [unknown, Node, unknown, unknown, unknown[]]
+        while (taken[r]!.has(col)) col++
+        const rowSpan = Number(rs), colSpan = Number(cs)
+        if (!(Number.isInteger(rowSpan) && rowSpan >= 1 && Number.isInteger(colSpan) && colSpan >= 1) || col + colSpan > cols || r + rowSpan > rows.length) { bad = true; break }
+        for (let y = r; y < r + rowSpan; y++) for (let x = col; x < col + colSpan; x++) {
+          if (taken[y]!.has(x)) bad = true
+          taken[y]!.add(x)
         }
-        const own = align(a)
-        cells.push({ align: own ?? colAlign[cells.length] ?? 'LEFT', paras })
+        cells.push({ align: align(a) ?? colAlign[col] ?? 'LEFT', paras: this.cellParas(arr(blocks), { ...fmt, align: undefined }, head, 'table cells'), col, colSpan, rowSpan })
+        col += colSpan
       }
-      if (cells.length > cols) this.problem('table rows with more cells than the table has columns')
-      while (cells.length < cols) cells.push({ align: colAlign[cells.length] ?? 'LEFT', paras: [] })
-      out.rows.push({ head, cells: cells.slice(0, cols) })
+      // what the row leaves free gets an empty cell (a row with fewer cells than the table has columns)
+      for (let x = 0; x < cols; x++) if (!taken[r]!.has(x)) { taken[r]!.add(x); cells.push({ align: colAlign[x] ?? 'LEFT', paras: [], col: x, colSpan: 1, rowSpan: 1 }) }
+      cells.sort((p, q) => p.col - q.col)
+      out.rows.push({ head, cells })
     }
+    if (bad) { this.problem('table rows with more cells than the table has columns, or merged cells that overlap'); return null }
+    out.widths = columnWidths(specs, out.rows, cols)
     return out
   }
 
   /** Runs of formatted text; Space and SoftBreak are spaces, LineBreak a line break inside the paragraph ("\n"). */
   private inlines(inlines: unknown, heading: boolean, bold = false): Run[] {
     const runs: Run[] = []
-    const add = (text: string, b: boolean, i: boolean) => {
+    type Style = Omit<Run, 'text'>
+    const add = (text: string, s: Style) => {
       text = cleanText(text)
       if (!text) return
       this.chars += text.length
       const last = runs[runs.length - 1]
-      if (last && last.bold === b && last.italic === i) last.text += text
-      else runs.push({ text, bold: b, italic: i })
+      if (last && last.bold === s.bold && last.italic === s.italic && last.underline === s.underline && last.strike === s.strike) last.text += text
+      else runs.push({ text, ...s })
     }
-    type Frame = { list: unknown[]; i: number; bold: boolean; italic: boolean; close?: string }
-    const stack: Frame[] = [{ list: arr(inlines), i: 0, bold, italic: false }]
+    type Frame = { list: unknown[]; i: number; s: Style; close?: string }
+    const stack: Frame[] = [{ list: arr(inlines), i: 0, s: { bold, italic: false, underline: false, strike: false } }]
     while (stack.length) {
       const f = stack[stack.length - 1]!
-      if (f.i >= f.list.length) { stack.pop(); if (f.close) add(f.close, f.bold, f.italic); continue }
+      if (f.i >= f.list.length) { stack.pop(); if (f.close) add(f.close, f.s); continue }
       const v = f.list[f.i++]
       if (!isNode(v)) continue
       switch (v.t) {
-        case 'Str': add(String(v.c ?? ''), f.bold, f.italic); break
-        case 'Space': case 'SoftBreak': add(' ', f.bold, f.italic); break
-        case 'LineBreak': add(heading ? ' ' : '\n', f.bold, f.italic); break
-        case 'Strong': case 'Emph': case 'Quoted': {
+        case 'Str': add(String(v.c ?? ''), f.s); break
+        case 'Space': case 'SoftBreak': add(' ', f.s); break
+        case 'LineBreak': add(heading ? ' ' : '\n', f.s); break
+        case 'Strong': case 'Emph': case 'Underline': case 'Strikeout': case 'Quoted': {
           if (stack.length >= HWPX_LIMITS.inlineDepth) { this.problem('formatting nested too deeply'); break }
           if (v.t === 'Quoted') {
             const [kind, inner] = arr(v.c) as [Node, unknown]
             const q = QUOTES[String(kind?.t)] ?? ['"', '"']
-            add(q[0], f.bold, f.italic)
-            stack.push({ list: arr(inner), i: 0, bold: f.bold, italic: f.italic, close: q[1] })
-          } else stack.push({ list: arr(v.c), i: 0, bold: f.bold || v.t === 'Strong', italic: f.italic || v.t === 'Emph' })
+            add(q[0], f.s)
+            stack.push({ list: arr(inner), i: 0, s: f.s, close: q[1] })
+          } else stack.push({ list: arr(v.c), i: 0, s: { bold: f.s.bold || v.t === 'Strong', italic: f.s.italic || v.t === 'Emph', underline: f.s.underline || v.t === 'Underline', strike: f.s.strike || v.t === 'Strikeout' } })
           break
         }
         case 'RawInline': {
@@ -260,6 +354,37 @@ class Converter {
 function align(a: unknown): Align | undefined {
   const t = isNode(a) ? a.t : undefined
   return t === 'AlignRight' ? 'RIGHT' : t === 'AlignCenter' ? 'CENTER' : t === 'AlignLeft' ? 'LEFT' : undefined
+}
+
+/** How wide a text looks, in half-width units: Hangul, CJK and other wide characters count 2. */
+export function textUnits(s: string): number {
+  let n = 0
+  for (const ch of s) n += /[\u1100-\u11ff\u2460-\u24ff\u2500-\u27bf\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
+  return n
+}
+
+/**
+ * Column shares: the Markdown's own (a pipe table with a long line, a grid table) when it gives them; otherwise from
+ * what the columns hold, as a word processor fits a table to its contents: a column of short labels stays narrow, one
+ * of sentences takes the rest. A cell that spans columns counts for none of them.
+ */
+function columnWidths(specs: [Node, Node][], rows: { cells: Cell[] }[], cols: number): number[] {
+  const given = specs.map((s) => { const w = arr(s)[1] as Node; return w?.t === 'ColWidth' && Number(w.c) > 0 ? Number(w.c) : 0 })
+  if (given.every((w) => w > 0)) return given
+  const need = new Array<number>(cols).fill(0)
+  for (const r of rows) for (const c of r.cells) {
+    if (c.colSpan !== 1) continue
+    // the longest line of the cell, a long one counted up to 60 units (it wraps)
+    const longest = Math.max(0, ...c.paras.flatMap((p) => p.runs.map((x) => x.text).join('').split('\n').map(textUnits)))
+    need[c.col] = Math.max(need[c.col]!, Math.min(60, longest))
+  }
+  const auto = need.map((n) => Math.max(4, n + 2))
+  const sum = given.reduce((a, b) => a + b, 0)
+  if (!sum) return auto
+  // some given, some not: the rest of the width goes to the others by what they hold
+  const rest = Math.max(0.02 * cols, 1 - Math.min(sum, 1))
+  const autoSum = given.reduce((a, w, i) => a + (w ? 0 : auto[i]!), 0)
+  return given.map((w, i) => w || (rest * auto[i]!) / autoSum)
 }
 
 // ---------------------------------------------------------------- XML helpers
@@ -668,27 +793,46 @@ class Header {
   /** a paragraph shape of the template, for the values ours take from it */
   private paraPr(id: number): El { return this.items.get('paraProperties')![id]! }
 
-  /** `base` with bold and / or italic (the template's own shape when it already is) */
-  charPr(base: number, bold: boolean, italic: boolean): number {
-    const key = `${base}:${bold}:${italic}`
+  /** the height (HWPUNIT) of a character shape of the template */
+  charHeight(id: number): number {
+    const v = Number(this.items.get('charProperties')![id]?.attrs.get('height'))
+    return Number.isFinite(v) && v >= 100 && v <= 409_600 ? v : 1000
+  }
+
+  /** `base` with bold, italic, underline, strikethrough and / or another height (the template's own shape when it
+   * already is that) */
+  charPr(base: number, bold: boolean, italic: boolean, more: { underline?: boolean; strike?: boolean; height?: number } = {}): number {
+    const key = `${base}:${bold}:${italic}:${!!more.underline}:${!!more.strike}:${more.height ?? ''}`
     const hit = this.charCache.get(key)
     if (hit !== undefined) return hit
     const el = this.items.get('charProperties')![base]!
     const has = (n: string) => elements(el.xml, `hh:${n}`).length > 0
+    const attrOf = (n: string, a: string) => elements(el.xml, `hh:${n}`)[0]?.attrs.get(a)
     const needItalic = italic && !has('italic'), needBold = bold && !has('bold')
+    const needUnder = !!more.underline && (attrOf('underline', 'type') ?? 'NONE') === 'NONE'
+    const needStrike = !!more.strike && (attrOf('strikeout', 'shape') ?? 'NONE') === 'NONE'
+    const needHeight = more.height !== undefined && el.attrs.get('height') !== String(more.height)
     let id = base
-    if (needItalic || needBold) {
+    if (needItalic || needBold || needUnder || needStrike || needHeight) {
       id = this.add('charProperties', (newId) => {
-        const open = withAttr(el.self ? el.open.replace(/\s*\/>$/, '>') : el.open, 'id', String(newId))
+        let open = withAttr(el.self ? el.open.replace(/\s*\/>$/, '>') : el.open, 'id', String(newId))
+        if (needHeight) open = withAttr(open, 'height', String(more.height))
         let inner = el.self ? '' : el.xml.slice(el.open.length, el.xml.length - '</hh:charPr>'.length)
-        // Hangul's order: fontRef, ratio, spacing, relSz, offset, italic, bold, underline, ...
+        // Hangul's order: fontRef, ratio, spacing, relSz, offset, italic, bold, underline, strikeout, outline, shadow
         const put = (mark: string, after: string[]) => {
           const at = after.map((n) => elements(inner, `hh:${n}`)[0]).find((e) => e)
           const i = at ? at.end : 0
           inner = inner.slice(0, i) + mark + inner.slice(i)
         }
+        const replace = (n: string, mark: string, after: string[]) => {
+          const e = elements(inner, `hh:${n}`)[0]
+          if (e) inner = inner.slice(0, e.start) + mark + inner.slice(e.end)
+          else put(mark, after)
+        }
         if (needItalic) put('<hh:italic/>', ['offset', 'relSz', 'spacing', 'ratio', 'fontRef'])
         if (needBold) put('<hh:bold/>', ['italic', 'offset', 'relSz', 'spacing', 'ratio', 'fontRef'])
+        if (needUnder) replace('underline', '<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>', ['bold', 'italic', 'offset', 'relSz', 'spacing', 'ratio', 'fontRef'])
+        if (needStrike) replace('strikeout', '<hh:strikeout shape="SOLID" color="#000000"/>', ['underline', 'bold', 'italic', 'offset', 'relSz', 'spacing', 'ratio', 'fontRef'])
         return open + inner + '</hh:charPr>'
       })
     }
@@ -715,7 +859,7 @@ class Header {
       this.baseCache.set(from, base)
     }
     const shape: ParaShape = {
-      align: s.align ?? base.align, lineSpacing: s.lineSpacing ?? base.lineSpacing, tabPr: base.tabPr, borderFill: base.borderFill,
+      align: s.align ?? base.align, lineSpacing: s.lineSpacing ?? base.lineSpacing, tabPr: base.tabPr, borderFill: s.borderFill ?? base.borderFill,
       heading: s.heading, left: s.left, indent: s.indent, prev: s.prev, next: s.next, keepWithNext: s.keepWithNext,
     }
     const key = JSON.stringify(shape)
@@ -739,17 +883,32 @@ class Header {
       Array.from({ length: 9 }, (_, i) => paraHeadXml(i + 2, 'DIGIT', '')).join('') + '</hh:numbering>')
   }
 
+  /** a border fill: the given sides solid (thin), the rest none, and an optional shade */
+  private fill(sides: string[], shade: string | null, width = '0.12 mm'): (id: number) => string {
+    return (id) => `<hh:borderFill id="${id}" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">` +
+      '<hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>' +
+      ['left', 'right', 'top', 'bottom'].map((s) => `<hh:${s}Border type="${sides.includes(s) ? 'SOLID' : 'NONE'}" width="${width}" color="#000000"/>`).join('') +
+      '<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/>' +
+      (shade ? `<hc:fillBrush><hc:winBrush faceColor="${shade}" hatchColor="#999999" alpha="0"/></hc:fillBrush>` : '') + '</hh:borderFill>'
+  }
+  private fills = new Map<string, number>()
+  private fillId(key: string, make: (id: number) => string): number {
+    let id = this.fills.get(key)
+    if (id === undefined) { id = this.add('borderFills', make); this.fills.set(key, id) }
+    return id
+  }
+
   /** [body cell, header cell] border fills: thin solid lines, the header row shaded */
   tableBorders(): [number, number] {
     if (this.tableBorder) return this.tableBorder
-    const fill = (shade: string | null) => (id: number) => `<hh:borderFill id="${id}" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">` +
-      '<hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>' +
-      ['left', 'right', 'top', 'bottom'].map((s) => `<hh:${s}Border type="SOLID" width="0.12 mm" color="#000000"/>`).join('') +
-      '<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/>' +
-      (shade ? `<hc:fillBrush><hc:winBrush faceColor="${shade}" hatchColor="#999999" alpha="0"/></hc:fillBrush>` : '') + '</hh:borderFill>'
-    this.tableBorder = [this.add('borderFills', fill(null)), this.add('borderFills', fill('#E8E8E8'))]
+    const all = ['left', 'right', 'top', 'bottom']
+    this.tableBorder = [this.fillId('cell', this.fill(all, null)), this.fillId('head', this.fill(all, '#E8E8E8'))]
     return this.tableBorder
   }
+  /** no lines at all (a table without borders, ::: {.noborder}) */
+  noBorder(): number { return this.fillId('none', this.fill([], null)) }
+  /** a line under a paragraph (---) */
+  ruleBorder(): number { return this.fillId('rule', this.fill(['bottom'], null, '0.4 mm')) }
 
   /** header.xml with our items after the template's, each container's itemCnt counted again, one section */
   toXml(): string {
@@ -795,59 +954,111 @@ const LIST_INDENT = 2000, CONTINUED = 1600
 /** a cell's minimum height, as Hangul makes a new table (each row grows to its text), and the margins it uses */
 const CELL_HEIGHT = 282
 const CELL_MARGIN = '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'
+/** a box's inner margins: room around its text */
+const BOX_MARGIN = { lr: 1700, tb: 850 }
+
+/** The width of an outline label and the space after it, in em of the paragraph's size: wide characters 1, digits
+ * and Latin letters about half, brackets and dots less (Hangul's 바탕 and 돋움 faces; a few hundredths do not matter). */
+function labelEm(label: string): number {
+  let w = 0
+  for (const ch of label) w += textUnits(ch) === 2 ? 1 : /[.)(·,]/.test(ch) ? 0.32 : /[-―–]/.test(ch) ? (ch === '―' ? 1 : 0.5) : 0.55
+  return w + 0.5
+}
+
+/**
+ * The indent of a paragraph that starts with an outline label (hwpx-check.ts outlineLevel): each level one character
+ * further in than the one above (two half-width spaces, as Korean official documents indent), and the lines after the
+ * first under the text after the label: Hangul's 내어쓰기, a negative indent, which keeps the first line at the left
+ * margin and moves the others in. `size`: the paragraph's character height.
+ */
+function outlineIndent(text: string, size: number): { left: number; indent: number } | null {
+  const l = paragraphLabel(text)
+  if (!l) return null
+  return { left: l.level * size, indent: -Math.round(labelEm(l.label) * size) }
+}
 
 function sectionXml(t: Template, h: Header, blocks: Block[], numberingIds: number[]): string {
   const body = h.body
+  const bodyHeight = h.charHeight(body.charPr)
   let first = true
   let tables = 0
-  const runsXml = (runs: Run[], baseChar: number) => {
-    if (!runs.length) return `<hp:run charPrIDRef="${baseChar}"><hp:t/></hp:run>`
-    return runs.map((r) => `<hp:run charPrIDRef="${h.charPr(baseChar, r.bold, r.italic)}"><hp:t>${r.text.split('\n').map(escText).join('<hp:lineBreak/>')}</hp:t></hp:run>`).join('')
+  const runsXml = (runs: Run[], baseChar: number, height?: number) => {
+    const more = (r?: Run) => ({ underline: r?.underline, strike: r?.strike, ...(height !== undefined ? { height } : {}) })
+    if (!runs.length) return `<hp:run charPrIDRef="${h.charPr(baseChar, false, false, more())}"><hp:t/></hp:run>`
+    return runs.map((r) => `<hp:run charPrIDRef="${h.charPr(baseChar, r.bold, r.italic, more(r))}"><hp:t>${r.text.split('\n').map(escText).join('<hp:lineBreak/>')}</hp:t></hp:run>`).join('')
   }
   const p = (paraPr: number, style: number, pageBreak: boolean, inner: string) => {
     const sec = first ? `<hp:run charPrIDRef="${body.charPr}">${t.secPr}${t.colPr}</hp:run>` : ''
     first = false
     return `<hp:p id="0" paraPrIDRef="${paraPr}" styleIDRef="${style}" pageBreak="${pageBreak ? 1 : 0}" columnBreak="0" merged="0">${sec}${inner}</hp:p>`
   }
+  /** a paragraph that is not a heading: a list item, a line, an outlined or a plain one; `cell`: inside a table */
+  const plain = (b: Para, cell?: { align: Align }): { paraPr: number; inner: string } => {
+    const size = b.size ?? bodyHeight
+    const next = cell ? 0 : undefined
+    if (b.rule) return { paraPr: h.para({ borderFill: h.ruleBorder(), align: b.align, next: cell ? 0 : 300, lineSpacing: { type: 'PERCENT', value: 100 } }), inner: runsXml([], body.charPr, b.size) }
+    if (b.list) {
+      const l = b.list
+      const heading = l.continued ? undefined : l.kind === 'bullet'
+        ? { type: 'BULLET' as const, idRef: h.bullet(BULLETS[l.depth % BULLETS.length]!), level: 0 }
+        : { type: 'NUMBER' as const, idRef: numberingIds[l.numbering! - 1]!, level: 0 }
+      const text = b.runs.map((r) => r.text).join('')
+      const o = l.continued ? outlineIndent(text, size) : null
+      // an outlined paragraph inside an item stands by its label's level (a 가. under "1." one character in)
+      const left = o ? l.depth * LIST_INDENT + o.left : l.depth * LIST_INDENT + (l.continued ? CONTINUED : 0)
+      return { paraPr: h.para({ heading, left, indent: o?.indent, next: cell ? 0 : 200, align: b.align ?? (cell ? cell.align : undefined) }), inner: runsXml(b.runs, body.charPr, b.size) }
+    }
+    const o = outlineIndent(b.runs.map((r) => r.text).join(''), size)
+    const alignTo = b.align ?? (cell ? cell.align : undefined)
+    // text set larger than the body (a letterhead, a sender's name, a title) gets room above and below it
+    const big = !cell && size > bodyHeight * 1.2 ? { prev: Math.round(size * 0.9), next: Math.round(size * 0.6) } : {}
+    const paraPr = o || alignTo || cell || big.prev ? h.para({ align: alignTo, left: o?.left, indent: o?.indent, next, ...big }) : body.paraPr
+    return { paraPr, inner: runsXml(b.runs, body.charPr, b.size) }
+  }
   const out: string[] = []
   for (const b of blocks) {
     if (b.k === 'p') {
       if (b.heading) {
         const s = h.outline[b.heading - 1]
-        const paraPr = s ? s.paraPr : h.para({ heading: { type: 'OUTLINE', idRef: 0, level: b.heading - 1 }, align: 'LEFT', keepWithNext: true, prev: 800, next: 300 })
+        const own = !s || b.align
+        const paraPr = own ? h.para({ from: s?.paraPr, heading: { type: 'OUTLINE', idRef: 0, level: b.heading - 1 }, align: b.align ?? 'LEFT', keepWithNext: true, prev: 800, next: 300 }) : s.paraPr
         const charPr = s ? s.charPr : h.charPr(body.charPr, true, false)
-        out.push(p(paraPr, s ? s.id : body.id, b.pageBreak, runsXml(b.runs, charPr)))
-      } else if (b.list) {
-        const l = b.list
-        const heading = l.continued ? undefined : l.kind === 'bullet'
-          ? { type: 'BULLET' as const, idRef: h.bullet(BULLETS[l.depth % BULLETS.length]!), level: 0 }
-          : { type: 'NUMBER' as const, idRef: numberingIds[l.numbering! - 1]!, level: 0 }
-        const paraPr = h.para({ heading, left: l.depth * LIST_INDENT + (l.continued ? CONTINUED : 0), next: 200 })
-        out.push(p(paraPr, body.id, b.pageBreak, runsXml(b.runs, body.charPr)))
-      } else out.push(p(body.paraPr, body.id, b.pageBreak, runsXml(b.runs, body.charPr)))
+        out.push(p(paraPr, s ? s.id : body.id, b.pageBreak, runsXml(b.runs, charPr, b.size)))
+      } else {
+        const x = plain(b)
+        out.push(p(x.paraPr, body.id, b.pageBreak, x.inner))
+      }
       continue
     }
     // a table, as character in its own paragraph (as Hangul makes one): the columns share the text width
-    const [border, headBorder] = h.tableBorders()
+    const [border, headBorder] = b.noborder ? [h.noBorder(), h.noBorder()] : h.tableBorders()
     const cols = b.widths.length
     const total = Math.max(cols * 600, t.textWidth - 568)
     const sum = b.widths.reduce((a, w) => a + w, 0)
     const widths = b.widths.map((w) => Math.max(600, Math.floor((total * w) / sum)))
     widths[cols - 1] = Math.max(600, total - widths.slice(0, -1).reduce((a, w) => a + w, 0))
     const width = widths.reduce((a, w) => a + w, 0)
-    const rows = b.rows.map((row, r) => '<hp:tr>' + row.cells.map((cell, ci) => {
-      const paraPr = h.para({ align: cell.align, next: 0, lineSpacing: undefined })
-      const paras = (cell.paras.length ? cell.paras : [[]]).map((runs) => `<hp:p id="0" paraPrIDRef="${paraPr}" styleIDRef="${body.id}" pageBreak="0" columnBreak="0" merged="0">${runsXml(runs, body.charPr)}</hp:p>`).join('')
-      return `<hp:tc name="" header="${row.head ? 1 : 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="${row.head ? headBorder : border}">` +
+    const margin = b.box ? `<hp:cellMargin left="${BOX_MARGIN.lr}" right="${BOX_MARGIN.lr}" top="${BOX_MARGIN.tb}" bottom="${BOX_MARGIN.tb}"/>` : CELL_MARGIN
+    const rows = b.rows.map((row, r) => '<hp:tr>' + row.cells.map((cell) => {
+      const paras = (cell.paras.length ? cell.paras : [{ k: 'p', heading: 0, runs: [], pageBreak: false } as Para]).map((para) => {
+        const x = plain(para, { align: cell.align })
+        return `<hp:p id="0" paraPrIDRef="${x.paraPr}" styleIDRef="${body.id}" pageBreak="0" columnBreak="0" merged="0">${x.inner}</hp:p>`
+      }).join('')
+      const w = widths.slice(cell.col, cell.col + cell.colSpan).reduce((a, x) => a + x, 0)
+      // a header row is shaded; in a table without lines it is only bold
+      const fill = row.head && !b.noborder ? headBorder : border
+      return `<hp:tc name="" header="${row.head ? 1 : 0}" hasMargin="${b.box ? 1 : 0}" protect="0" editable="0" dirty="0" borderFillIDRef="${fill}">` +
         `<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${paras}</hp:subList>` +
-        `<hp:cellAddr colAddr="${ci}" rowAddr="${r}"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="${widths[ci]}" height="${CELL_HEIGHT}"/>${CELL_MARGIN}</hp:tc>`
+        `<hp:cellAddr colAddr="${cell.col}" rowAddr="${r}"/><hp:cellSpan colSpan="${cell.colSpan}" rowSpan="${cell.rowSpan}"/><hp:cellSz width="${w}" height="${CELL_HEIGHT * cell.rowSpan}"/>${margin}</hp:tc>`
     }).join('') + '</hp:tr>').join('')
     const id = 1_000_000_000 + ++tables
+    const inMargin = b.box ? `<hp:inMargin left="${BOX_MARGIN.lr}" right="${BOX_MARGIN.lr}" top="${BOX_MARGIN.tb}" bottom="${BOX_MARGIN.tb}"/>` : '<hp:inMargin left="510" right="510" top="141" bottom="141"/>'
     const tbl = `<hp:tbl id="${id}" zOrder="${tables - 1}" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${b.rows.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="${border}" noAdjust="0">` +
       `<hp:sz width="${width}" widthRelTo="ABSOLUTE" height="${b.rows.length * CELL_HEIGHT}" heightRelTo="ABSOLUTE" protect="0"/>` +
       '<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>' +
-      '<hp:outMargin left="283" right="283" top="283" bottom="283"/><hp:inMargin left="510" right="510" top="141" bottom="141"/>' + rows + '</hp:tbl>'
-    out.push(p(body.paraPr, body.id, b.pageBreak, `<hp:run charPrIDRef="${body.charPr}">${tbl}<hp:t/></hp:run>`))
+      '<hp:outMargin left="283" right="283" top="283" bottom="283"/>' + inMargin + rows + '</hp:tbl>'
+    const holder = b.align ? h.para({ align: b.align }) : body.paraPr
+    out.push(p(holder, body.id, b.pageBreak, `<hp:run charPrIDRef="${body.charPr}">${tbl}<hp:t/></hp:run>`))
   }
   return XML_DECL + `<hs:sec ${NS_ATTRS}>${out.join('')}</hs:sec>`
 }
@@ -857,7 +1068,7 @@ function plainText(blocks: Block[], max: number): string {
   const lines: string[] = []
   let n = 0
   for (const b of blocks) {
-    const texts = b.k === 'p' ? [b.runs.map((r) => r.text).join('')] : b.rows.flatMap((r) => r.cells.flatMap((c) => c.paras.map((p) => p.map((x) => x.text).join(''))))
+    const texts = b.k === 'p' ? [b.runs.map((r) => r.text).join('')] : b.rows.flatMap((r) => r.cells.flatMap((c) => c.paras.map((p) => p.runs.map((x) => x.text).join(''))))
     for (const s of texts) { lines.push(s.replace(/\n/g, ' ')); n += s.length + 2; if (n > max) return lines.join('\r\n').slice(0, max) }
   }
   return lines.join('\r\n')
@@ -910,7 +1121,7 @@ function assertWellFormed(entries: ZipEntry[]) {
 /** A .hwpx file of pandoc's JSON tree, styled by `template` (a .hwpx) or the built-in template. */
 export function writeHwpx(ast: unknown, template?: Uint8Array | null): Uint8Array {
   const conv = new Converter()
-  conv.document(ast)
+  conv.document(normalizeHwpxTree(ast))
   const refusal = conv.refusal()
   if (refusal) throw new ToolError(refusal)
   if (!conv.blocks.length) throw new ToolError('the document is empty; nothing was saved')

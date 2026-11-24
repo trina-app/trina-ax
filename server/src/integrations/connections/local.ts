@@ -6,10 +6,11 @@
 // never a setting's value; the desktop app asks once on the computer before it runs a command, and again when the
 // command changes.
 import type { Database } from 'bun:sqlite'
-import { LocalAppSpec, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { LocalAppSpec, presetOf, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { getTeamSettings } from '../../admin/settings'
 import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
+import { MCP_LIST_TIMEOUT_MS } from './mcp'
 import type { LocalRelay } from '../../realtime/local-relay'
 import type { Row } from './store'
 
@@ -17,6 +18,10 @@ import type { Row } from './store'
  * from the screen for a while. A check from Settings keeps its own 90 s: the confirm stays open after it, and a Connect
  * pressed later checks again by itself (the desktop app tells the page). */
 export const CONFIRM_WAIT_MS = 5 * 60_000
+
+/** a Settings check's initialize (no turn): the check's own deadline (mcp.ts MCP_LIST_TIMEOUT_MS), less a moment so
+ * the desktop app's 'late' answer (unconfirmed) reaches the check before it stops waiting */
+export const CHECK_CONFIRM_WAIT_MS = MCP_LIST_TIMEOUT_MS - 2000
 
 /** a local connection's `url`: a placeholder under the reserved .invalid name (RFC 6761), never used to connect */
 export const LOCAL_URL_ORIGIN = 'https://local-app.invalid'
@@ -57,9 +62,11 @@ export function turnAway(db: Database, turnId: string): LocalAway {
  * connection (text.ts: local_offline, local_declined, local_failed). */
 export class LocalError extends Error {
   name = 'LocalError'
-  constructor(readonly failure: LocalFailure | 'offline', message: string) { super(message) }
-  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' {
-    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm' : 'local_failed'
+  constructor(readonly failure: LocalFailure | 'offline', message: string, readonly cause?: LocalResult['cause']) { super(message) }
+  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' {
+    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm'
+      // the program is not on the computer: the connection "needs attention" with words to install it (text.ts)
+      : this.failure === 'start_failed' && this.cause === 'not_found' ? 'local_missing' : 'local_failed'
   }
 }
 
@@ -82,8 +89,16 @@ export const offlineWords = (name: string, away: LocalAway = 'other') =>
 export const awayWords = (away: LocalAway) =>
   `it runs only when the user writes from ${desktop} on the computer where they added it, and ${AWAY[away]}. When they ask for it, ${SAY_ONLY.charAt(0).toLowerCase()}${SAY_ONLY.slice(1)}`
 
-function errorOf(name: string, r: LocalResult): LocalError {
+/** A program's file name without its folder (C:\\Users\\…\\tool.exe → tool.exe): the AI's words never carry the saved path. */
+export const programName = (command: string) => (command.split(/[\\/]/).filter(Boolean).pop() ?? command).slice(0, 100)
+
+function errorOf(name: string, r: LocalResult, spec: LocalAppSpec): LocalError {
   const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
+  if (r.failure === 'start_failed' && r.cause === 'not_found') {
+    // a listed app (Aside, ego lite): its own download page; a program the person typed: install it or fix the command
+    const download = presetOf(spec)?.download
+    return new LocalError('start_failed', `Nothing ran: ${name} is not installed on the user's computer (the program "${programName(spec.command)}" was not found there). Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can get it at ${download}` : 'need to install it or fix the command'}, then press Check again in Settings › Connectors › ${name}.`, 'not_found')
+  }
   switch (r.failure) {
     case 'not_desktop': return new LocalError('not_desktop', offlineWords(name, 'no_local_apps'))
     case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)
@@ -103,8 +118,13 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
     let message: Record<string, unknown>
     try { message = JSON.parse(r.body?.toString('utf8') ?? '') } catch { throw new LocalError('failed', `${o.row.name}: the message could not be read`) }
     // the first message of a client (initialize) is the one the desktop app may hold while it asks the person on the
-    // computer (the one-time confirm): it waits as long as a person reads that window, not a network's 30 s
-    const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? CONFIRM_WAIT_MS : TIMEOUT_MS)
+    // computer (the one-time confirm): a turn's waits as long as a person reads that window, not a network's 30 s. A
+    // Settings check (no turn) stops at its own deadline (MCP_LIST_TIMEOUT_MS), so its initialize ends there too: the
+    // desktop app then hears that the confirm came late, and a Connect pressed after it makes the page check again
+    // (DesktopBridge.localApps.onConfirmed). With five minutes here, a Connect between 90 s and five minutes left the
+    // check at list_timeout and the page never checked again (QA 2026-11-24, Aside on Windows).
+    const confirmWait = o.via.turnId === null ? CHECK_CONFIRM_WAIT_MS : CONFIRM_WAIT_MS
+    const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? confirmWait : TIMEOUT_MS)
     const timeoutMs = Math.max(1000, deadline - Date.now())
     if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
     const res = await o.relay.call({ userId: o.userId, windowId: o.via.windowId, turnId: o.via.turnId, connectionId: o.row.id, name: o.row.name, spec: o.spec, message, timeoutMs, signal: r.signal })
@@ -112,7 +132,7 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
       if (r.signal?.aborted) throw new NetError('timeout')
       if (!res.failure && /did not answer in time$/.test(res.error ?? '')) throw new NetError(r.long?.reason ?? 'timeout')
       if (!res.failure && /^local_unavailable/.test(res.error ?? '')) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
-      throw errorOf(o.row.name, res)
+      throw errorOf(o.row.name, res, o.spec)
     }
     const body = res.message ? Buffer.from(JSON.stringify(res.message)) : Buffer.alloc(0)
     if (r.maxBytes && body.length > r.maxBytes) return { status: 200, headers: { 'content-type': 'application/json' }, body: body.subarray(0, r.maxBytes), truncated: true }

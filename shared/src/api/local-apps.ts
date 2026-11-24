@@ -76,21 +76,47 @@ export function localCommandKey(s: LocalAppSpec): string {
     : JSON.stringify(['cli', s.command, s.tools.map((t) => [t.name, t.args, t.stdin ?? null, t.slots.map((x) => [x.name, x.type])])])
 }
 
-/** One argument as people read it (display only: the program never gets a shell line). */
-export function quoteArg(a: string): string {
+/** How a command line is read and written: a POSIX shell's way, or Windows' (backslashes are part of a path there). */
+export type CommandStyle = 'posix' | 'windows'
+/** The style for a system (process.platform, DesktopBridge.platform): 'windows' on win32. */
+export const commandStyleFor = (platform: string | null | undefined): CommandStyle => (platform === 'win32' ? 'windows' : 'posix')
+/** A program that only Windows names this way (a drive, a network share, a backslash): its line is written Windows' way
+ * even where the system is not known (the web page). */
+const looksWindows = (program: string) => /^[A-Za-z]:[\\/]|^\\\\|\\/.test(program)
+
+/** One argument as people read it (display only: the program never gets a shell line). Windows: "…" around what has a
+ * space or a special character, a " in it written twice. */
+export function quoteArg(a: string, style: CommandStyle = 'posix'): string {
+  if (style === 'windows') return /^[A-Za-z0-9_@%+=:,./\\~()-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`
 }
-/** The command line as the confirm and Settings show it: "aside mcp"; a CLI: one line per tool ("ego-browser nodejs < script"). */
-export function localCommandLines(s: LocalAppSpec): string[] {
-  if (s.adapter === 'mcp') return [[s.command, ...s.args].map(quoteArg).join(' ')]
-  return s.tools.map((t) => [s.command, ...t.args.map((a) => (typeof a === 'string' ? quoteArg(a) : `<${a.slot}>`))].map((x, i) => (i === 0 ? quoteArg(x) : x)).join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
+/** The command line as the confirm and Settings show it: "aside mcp"; a CLI: one line per tool ("ego-browser nodejs <
+ * script"). `style`: the computer's (the desktop app passes its own); left out, a Windows path is written Windows' way. */
+export function localCommandLines(s: LocalAppSpec, style: CommandStyle = looksWindows(s.command) ? 'windows' : 'posix'): string[] {
+  const q = (a: string) => quoteArg(a, style)
+  if (s.adapter === 'mcp') return [[s.command, ...s.args].map(q).join(' ')]
+  return s.tools.map((t) => [q(s.command), ...t.args.map((a) => (typeof a === 'string' ? q(a) : `<${a.slot}>`))].join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
 }
 
+/** A Windows program file's ending that starts it (an unquoted path with spaces ends at the first one) */
+const WIN_RUNNABLE_END = /\.(exe|cmd|bat|com)(?=\s|$)/i
+
 /** A command line a person typed (Settings › Connectors › An app on your computer › Another program) as the program and
- * its arguments: split on spaces, '…' and "…" keep spaces, \ escapes the next character outside '…'. Nothing here is
- * a shell: the program gets these arguments as they are. A line with what only a shell would read (| & ; < > ` $( ) or
- * an unclosed quote is refused (null), so it never runs as something else than it reads. */
-export function splitCommand(line: string): string[] | null {
+ * its arguments. Nothing here is a shell: the program gets these arguments as they are. A line with what only a shell
+ * would read is refused (null), so it never runs as something else than it reads.
+ *
+ * 'posix' (macOS, Linux): split on spaces, '…' and "…" keep spaces, \ escapes the next character outside '…'; refused:
+ * | & ; < > ` $( ) and an unclosed quote.
+ *
+ * 'windows': a backslash is part of a path (`C:\Tools\x.exe` stays as it is); "…" keeps spaces ("" inside is one ");
+ * ' is an ordinary character (C:\Users\O'Brien); an unquoted program path with spaces that starts with a drive or a
+ * share and ends in .exe, .cmd, .bat or .com is one program (`C:\Program Files\X\x.exe --flag`); ( ) are ordinary
+ * (`Program Files (x86)`). Refused outside "…": | & ; < > ^ and a %NAME% (cmd would read them), and an unclosed ". */
+export function splitCommand(line: string, style: CommandStyle = 'posix'): string[] | null {
+  return style === 'windows' ? splitWindows(line) : splitPosix(line)
+}
+
+function splitPosix(line: string): string[] | null {
   const out: string[] = []
   let cur = '', has = false, q: '"' | "'" | null = null
   for (let i = 0; i < line.length; i++) {
@@ -114,16 +140,57 @@ export function splitCommand(line: string): string[] | null {
   return out.length ? out : null
 }
 
+/** what cmd.exe would read outside "…" (never passed on as it reads) */
+const WIN_SHELL_ONLY = /[|&;<>^]|%[^%\s]+%/
+
+function splitWindows(line: string): string[] | null {
+  const out: string[] = []
+  let rest = line.replace(/^\s+/, '')
+  // an unquoted path with spaces: the program runs to its first .exe/.cmd/.bat/.com
+  if (/^([A-Za-z]:[\\/]|\\\\)/.test(rest)) {
+    const first = rest.split(/\s/, 1)[0]!
+    const m = WIN_RUNNABLE_END.exec(rest)
+    const program = m ? rest.slice(0, m.index + m[0].length) : ''
+    // not when what comes before it reads as arguments (a flag, another drive's path) or holds a quote
+    if (m && program.length > first.length && !/"|\s[-/]|.:[\\/]/.test(program.slice(first.length))) {
+      if (WIN_SHELL_ONLY.test(program)) return null
+      out.push(program)
+      rest = rest.slice(program.length)
+    }
+  }
+  let cur = '', has = false, quoted = false
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i]!
+    if (quoted) {
+      if (ch === '"') {
+        if (rest[i + 1] === '"') { cur += '"'; i++ } else quoted = false
+      } else cur += ch
+      continue
+    }
+    if (ch === '"') { quoted = true; has = true; continue }
+    if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
+    if ('|&;<>^'.includes(ch)) return null
+    cur += ch; has = true
+  }
+  if (quoted) return null
+  if (has) out.push(cur)
+  // a %NAME% outside quotes (cmd would put a value there; nothing here does): read only on the unquoted text
+  if (WIN_SHELL_ONLY.test(rest.replace(/"(?:[^"]|"")*"/g, ''))) return null
+  return out.length ? out : null
+}
+
 /** Known tools, picked in Settings › Connectors › Add › An app on your computer (or the person types a command).
  * `reads`: an MCP preset's tools that only read, Trina's own list for a program that marks none of its tools
  * (MCP readOnlyHint): Aside 1.26 gives no annotations, so without it listing profiles asked on the "send" card
  * (docs/decisions/20261118-local-app-connectors.md "Aside's reads"). Only for the exact listed command (presetReads). */
-export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[] }[] = [
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[]; download?: string }[] = [
   // browser_profiles lists profile ids, labels and whether each is connected; memory_search searches the person's own
   // Aside notes. repl (JavaScript in the logged-in browser) and exec (Aside's browser agent) are not here: they ask.
-  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'] },
+  // download: the app's own download page (macOS and Windows), said when its program is not on the computer (the npx
+  // presets below have none: their install line names Node.js)
+  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'], download: 'https://aside.com/download' },
   {
-    id: 'ego-lite', name: 'ego lite', spec: {
+    id: 'ego-lite', name: 'ego lite', download: 'https://lite.ego.app/download', spec: {
       adapter: 'cli', command: 'ego-browser', env: [], tools: [
         { name: 'read_guide', title: 'Read the guide', description: 'How to write ego-browser scripts (its helpers, pages, waits and the rules for starting and ending a reply). Read it before the first run_script of a chat.', args: ['skill'], slots: [], readOnly: true },
         {
@@ -133,6 +200,14 @@ export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: Local
       ],
     },
   },
+  // The two most downloaded MCP servers people run on their own computer (npm, 2026-11-16..22): Microsoft's Playwright
+  // MCP and Google's Chrome DevTools MCP (research 2026-11-24, recommendation #6). npx runs a pinned version: the
+  // computer's one-time confirm covers the command, so a new version asks again (never @latest); -y so npx never stops
+  // at its install prompt, which would read the JSON-RPC as the answer. Both mark their read tools (readOnlyHint, checked
+  // 2026-11-24 with tools/list: 25 and 33 tools), so no `reads` here. `notOn` win32: npx is npx.cmd there, and a .cmd
+  // does not start with shell: false (Node's EINVAL, QA 2026-11-24 on Windows 11 with Node 24).
+  { id: 'playwright', name: 'Playwright', spec: { adapter: 'mcp', command: 'npx', args: ['-y', '@playwright/mcp@0.0.86'], env: [] }, notOn: ['win32'] },
+  { id: 'chrome-devtools', name: 'Chrome DevTools', spec: { adapter: 'mcp', command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.13.0'], env: [] }, notOn: ['win32'] },
 ]
 
 /** The tools Trina takes as reads for this spec: a listed preset's `reads` when the spec is exactly that preset's
@@ -144,6 +219,13 @@ export function presetReads(spec: LocalAppSpec | null): ReadonlySet<string> {
   return p?.reads ? new Set(p.reads) : NO_READS
 }
 const NO_READS: ReadonlySet<string> = new Set()
+
+/** The listed app whose command this spec is exactly (localCommandKey), else null: a command the person typed. */
+export function presetOf(spec: LocalAppSpec | null): (typeof LOCAL_APP_PRESETS)[number] | null {
+  if (!spec) return null
+  const key = localCommandKey(spec)
+  return LOCAL_APP_PRESETS.find((x) => localCommandKey(x.spec) === key) ?? null
+}
 
 /** why a call did not reach the program (the server turns each into words for the person and the AI) */
 export const LocalFailure = z.enum([
@@ -192,6 +274,10 @@ export const LocalResult = z.object({
   failure: LocalFailure.optional(),
   /** what went wrong, for the log and the AI (never a setting's value: the desktop app hides them) */
   error: z.string().max(4000).optional(),
+  /** start_failed, more exactly: not_found, no program by that name on this computer (the person installs it);
+   * unsupported, a kind of file this system does not start (a .ps1 on Windows); unsafe_arg, a value cmd.exe would read
+   * (a batch file on Windows). Optional: older desktop apps do not send it, and an older server drops it. */
+  cause: z.enum(['not_found', 'unsupported', 'unsafe_arg']).optional(),
 })
 export type LocalResult = z.infer<typeof LocalResult>
 

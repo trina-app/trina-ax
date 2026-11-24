@@ -83,7 +83,7 @@ export type AccessRequestEvent = Extract<NotificationEventType, 'access.requeste
 const isAccessRequestEvent = (e: NotificationEventType): e is AccessRequestEvent => e === 'access.requested' || e === 'access.answered'
 /** A re-share within this long of a share still unread updates that notice in place (chatShared): no second push. */
 const SHARE_AGAIN_QUIET_MS = 10 * 60_000
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : e === 'chat.lost' ? 'chat_lost_notices' : e === 'chat.left' ? 'chat_left_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : e === 'account.google_connected' ? 'google_connect_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : e === 'chat.lost' ? 'chat_lost_notices' : e === 'chat.left' ? 'chat_left_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -93,11 +93,12 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
+ * and a Google account connected to the person's account to sign in with (migration 132)
  * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), the AI
  * that could not start on this server (migration 127), the team's disk filling up (migration 702), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'chat_left_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'chat_left_notices', 'google_connect_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 /** A person's message in a chat shared with people or a project's shared chat (chat_message_notices, migration 436;
  * chat/message-notices.ts): read by id (what a push opens) like every notice, never listed, counted or marked read in
@@ -420,6 +421,20 @@ export class Notifications {
    * link signs its holder in as them, and only they know whether they asked for it (QA TC-202). */
   resetLinkMade(userId: string, resetId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'account.reset_link', resetId, createdAt, true)
+  }
+  /** A Google account was connected to this person's account to sign in with (auth/google-login.ts). The source is the
+   * connection's linked_at, never the Google account or its address. Shown always: it signs its holder in as them, and
+   * only they know whether they did it. */
+  googleConnected(userId: string, linkedAt: string) {
+    this.record(userId, 'account.google_connected', linkedAt, linkedAt, true)
+  }
+  /** A way to sign in as someone changed (notifySignInChange): one credential.change row (action `signin_*`, who did
+   * it, whose account) in this person's Activity. Shown always, like the AI-connection changes. */
+  signInChange(userId: string, who: string, action: SignInChangeAction, subject: string, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    this.ctx.db.query("INSERT INTO credential_change_notices(id,user_id,event_type,source_id,actor_name,action,subject,created_at,suppressed) VALUES(?,?,'credential.change',?,?,?,?,?,0)")
+      .run(newId(), userId, newId(), who.slice(0, 200), action, subject.slice(0, 200), at)
+    this.signal(userId)
   }
   /** The hosting service copied the team's AI connections' key or took a full export (system/cli.ts; source: the audit
    * row), or the relay stopped taking this server's key because the team address moved to another key
@@ -912,7 +927,8 @@ export class Notifications {
     // text is the page's); the owners' open Admin › AI providers
     if (row.event_type === 'credential.change') {
       const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
-      const own = !!n && n.action.startsWith('personal_')
+      // a sign-in change (notifySignInChange) is not about the AI: no link to AI providers
+      const own = !!n && (n.action.startsWith('personal_') || n.action.startsWith('signin_'))
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: n && !own ? 'admin_credentials' : null, outcome: null,
         ...(n ? { credentialChange: { who: n.actor_name, action: n.action, subject: n.subject } } : {}) }
     }
@@ -954,6 +970,12 @@ export class Notifications {
       const by = r?.created_by ? getUser(this.ctx.db, r.created_by) : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(r ? { resetLink: { server: r.created_by === null, by: by ? plainLabel(by.name, 80) : null, open: !r.used_at && Date.parse(r.expires_at) > Date.now() } } : {}) }
+    }
+    // a Google account connected to my account: whether that same connection is still there (read now, so the advice to
+    // disconnect it goes once it is gone); never the account or its address
+    if (row.event_type === 'account.google_connected') {
+      const connected = !!this.ctx.db.query("SELECT 1 FROM login_identities WHERE user_id=? AND provider='google' AND linked_at=?").get(row.user_id, row.source_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, googleConnected: { connected } }
     }
     // the skills to merge after the welcome steps: how many, and the merge chat while it is the owner's and not deleted
     if (row.event_type === 'skills.merge_waiting') {
@@ -1204,6 +1226,30 @@ export function notifyIntegrationRequest(ctx: AppContext, userId: string, reques
 export function notifyResetLink(ctx: AppContext, userId: string, resetId: string) {
   try { notificationsOf(ctx).resetLinkMade(userId, resetId) }
   catch { ctx.log.warn('reset link notification recording failed') }
+}
+/** Never throws: the Google account is connected whether or not the notice could be recorded. */
+/** How a way to sign in changed (credential_change_notices.action; web Notifications.tsx has the words) */
+export type SignInChangeAction = 'signin_google_connected' | 'signin_google_replaced' | 'signin_google_disconnected' | 'signin_password_set'
+/**
+ * A way to sign in as `targetId` changed (docs/decisions/20261124-google-signin-security.md): a Google account was
+ * connected, replaced or disconnected, or a first password set. Every active owner and admin is told in Activity, who
+ * did it and whose account (never the Google account or its address), so a takeover at someone's unlocked browser does
+ * not go unseen when only the victim would be told. `alsoTarget`: the person too (the Google connect tells them with
+ * its own row already). `actorId` null: the server. Never throws.
+ */
+export function notifySignInChange(ctx: AppContext, targetId: string, actorId: string | null, action: SignInChangeAction, o: { alsoTarget?: boolean } = {}) {
+  try {
+    const name = (id: string) => (ctx.db.query('SELECT name FROM users WHERE id = ?').get(id) as { name: string } | null)?.name ?? ''
+    const subject = name(targetId), who = actorId ? name(actorId) : ''
+    const to = new Set(admins(ctx.db))
+    if (o.alsoTarget) to.add(targetId)
+    const at = new Date().toISOString()
+    for (const id of to) notificationsOf(ctx).signInChange(id, who, action, subject, at)
+  } catch { ctx.log.warn('sign-in change notification recording failed') }
+}
+export function notifyGoogleConnected(ctx: AppContext, userId: string, linkedAt: string) {
+  try { notificationsOf(ctx).googleConnected(userId, linkedAt) }
+  catch { ctx.log.warn('google connect notification recording failed') }
 }
 /** One hosting notice to each active owner (`admins: false`) or owner and admin. Never throws: the copy or the move
  * happened whether or not the notice could be recorded. */

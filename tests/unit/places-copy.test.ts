@@ -18,16 +18,19 @@ import { API, DEV_ENV_DEFAULT_LIMITS, type Attachment, type PutChatAudienceResul
 import { chatFilePath } from '@mycel/shared/places'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { _active, setSrtSystem } from '../../server/src/devenv/srt/runner'
-import { chatWork, devenvPaths } from '../../server/src/devenv/srt/config'
+import { chatWork, devenvPaths, unitName } from '../../server/src/devenv/srt/config'
 import type { SrtSystem } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { copiedInOf } from '../../server/src/devenv/work-write'
+import { pollSrt } from '../../server/src/devenv/jobs'
+import { newRunId } from '../../server/src/devenv/srt/runner'
 import { answerRecord, setAnswerReads } from '../../server/src/chat/shared-answers'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 
 import { expectNoRawPlace } from '../lib/card-places'
+import { docx, UNC } from '../lib/office-fixture'
 setDefaultTimeout(120_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 // a fake system: every command runs with sh in the run's cwd (the copy-in script starts at "set -u")
@@ -35,6 +38,7 @@ const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memo
 // as a command that needs it would
 const nets: { allowedDomains: string[]; strictAllowlist: boolean }[] = []
 let offlineFails = false
+const liveUnits = new Set<string>()
 const sys: SrtSystem = {
   spawn(spec) {
     const copyIn = spec.command.includes('set -u')
@@ -46,7 +50,9 @@ const sys: SrtSystem = {
     fs.writeFileSync(spec.exitFile, `${p.exitCode}\n`)
     return { pid: 999_997, exited: Promise.resolve({ code: p.exitCode, signal: null }) }
   },
-  async stop() {}, async unit() { return { state: '', result: '', memoryBytes: null } }, async units() { return [] }, async forget() {},
+  // a run the test put in dev_env_runs as running is live here as on a real system (`liveUnits`): the server's tracker
+  // checks every running row's unit and ends one that is gone
+  async stop() {}, async unit(runId) { return liveUnits.has(runId) ? { state: 'active', result: '', memoryBytes: null } : { state: '', result: '', memoryBytes: null } }, async units() { return [...liveUnits].map((id) => unitName(id, false)) }, async forget() {},
   oomKills() { return null }, cpuUsec() { return null }, procs() { return [] }, async selfTest() { return '' },
 }
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -246,6 +252,50 @@ describe('out of chat:work/', () => {
     const old = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/proposal.html', save_as: 'shared/pc/' }, sayResult: true }), () => 'skip')
     expect(old.cards.length).toBe(1)
     expect(fs.existsSync(team('shared/pc/proposal.html'))).toBe(false)
+  })
+
+  test('a Word file with a share link is not copied out of the work folder: save_work_file, copy_files and a chat attachment', async () => {
+    const chat = await personal()
+    const p = path.join(chatWork(base, chat), 'out', 'risky.docx'); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, docx({ link: UNC }))
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/risky.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Not saved')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(false)
+    const copied = await run('alice', chat, copy(['chat:work/out/risky.docx'], 'users/alice/'))
+    expect(copied.content).toContain('files.example')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(false)
+    // a shared chat: not attached to the answer either
+    const s = await shared()
+    await run('alice', s, copy(['groups/marketing/brief.csv'], 'chat:work/'))
+    fs.writeFileSync(path.join(sharedWork(s), 'risky.docx'), docx({ link: UNC }))
+    const att = await run('alice', s, fake({ tool: 'save_work_file', args: { path: '$TRINA_WORK/risky.docx' }, sayResult: true }))
+    expect(att.content).toContain('Not attached')
+    expect(att.attachments.find((x) => x.name === 'risky.docx')).toBeUndefined()
+    // a clean Word file passes
+    fs.writeFileSync(p, docx())
+    const ok = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/risky.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(ok.content).toContain('Saved')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(true)
+  })
+
+  test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
+    const chat = await personal()
+    const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
+    const intranet = '\\\\\\\\intranet\\\\logo.png'
+    w('users/alice/tpl/letter.docx', docx({ body: 'Template', extra: field(intranet) }))
+    const p = path.join(chatWork(base, chat), 'out', 'filled.docx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) }))
+    const ok = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/tpl/letter.docx' } }, { tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(ok.content).toContain('Saved')
+    expect(fs.existsSync(team('users/alice/filled.docx'))).toBe(true)
+    // the same filled file with one more picture from another share: refused, also after reading the template
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) + field('\\\\\\\\attacker.example\\\\a.png') }))
+    const bad = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/tpl/letter.docx' } }, { tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/filled2.docx' }, sayResult: true }))
+    expect(bad.content).toContain('Not saved')
+    expect(fs.existsSync(team('users/alice/filled2.docx'))).toBe(false)
+    // without reading the template in this answer, its items vouch for nothing
+    fs.writeFileSync(p, docx({ body: 'Filled for Raon', extra: field(intranet) }))
+    const unread = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/filled.docx', save_as: 'users/alice/filled3.docx' }, sayResult: true }))
+    expect(unread.content).toContain('Not saved')
   })
 
   test('a work-folder folder is not copied out (zip it first); a work file into chat:work/ is a box_shell cp', async () => {
@@ -511,22 +561,36 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
   // review of #401: a job or dev server of this chat has the network, and a command could change the code it runs (a hot
   // reload): while one runs, commands keep the card
   test('while a job of this chat runs, or one of mine waits elsewhere, a command keeps the room card', async () => {
+    /** a running row as the runner leaves it (with its unit, live on the system) or a waiting one; the tracker polls
+     * right after, as its timer may at any moment: what the test set up must survive that */
+    const row = async (user: string, chat: string, kind: 'server' | 'job', state: 'running' | 'waiting') => {
+      const id = crypto.randomUUID(), runId = newRunId()
+      if (state === 'running') liveUnits.add(runId)
+      h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, run_at, unit) VALUES (?, ?, ?, NULL, 't0', ?, ?, 'npm run dev', ?, '', ?, ?, ?, ?)")
+        .run(id, user, chat, kind, `n-${id.slice(0, 6)}`, chatWork(base, chat), state, new Date().toISOString(), state === 'running' ? new Date().toISOString() : null, state === 'running' ? unitName(runId, false) : '')
+      return { id, runId }
+    }
+    const drop = (rows: { id: string; runId: string }[]) => { for (const r of rows) { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(r.id); liveUnits.delete(r.runId) } }
     const chat = await side()
-    const id = crypto.randomUUID()
-    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'server', 'dev', 'npm run dev', ?, '', 'running', ?)")
-      .run(id, chat, chatWork(base, chat), new Date().toISOString())
+    const server = [await row('alice', chat, 'server', 'running')]
+    await pollSrt(h.ctx)
+    expect(h.ctx.db.query('SELECT ended_at, state FROM dev_env_runs WHERE id = ?').get(server[0]!.id)).toEqual({ ended_at: null, state: 'running' })
     try {
       const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
       expect(r.cards).toHaveLength(1)
-    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
-    // a job of hers waiting to start in another chat (it may run code in her own folder): the card too
+    } finally { drop(server) }
+    // a job of hers waiting to start in another chat (it may run code in her own folder): the card too. It waits because
+    // the team's slots are full (erin's jobs elsewhere), so the tracker does not start it
     const other = await personal()
-    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'job', 'later', 'node watch.js', ?, '', 'waiting', ?)")
-      .run(id, other, chatWork(base, other), new Date().toISOString())
+    const full: { id: string; runId: string }[] = []
+    for (let i = 0; i < PLAN.maxRunning; i++) full.push(await row('erin', await personal(), 'job', 'running'))
+    full.push(await row('alice', other, 'job', 'waiting'))
+    await pollSrt(h.ctx)
     try {
+      expect((h.ctx.db.query("SELECT state FROM dev_env_runs WHERE id = ?").get(full.at(-1)!.id) as { state: string }).state).toBe('waiting')
       const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
       expect(r.cards).toHaveLength(1)
-    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
+    } finally { drop(full) }
     // none: no card
     expect((await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')).cards).toHaveLength(0)
   })

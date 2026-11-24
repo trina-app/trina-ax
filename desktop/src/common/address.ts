@@ -5,6 +5,7 @@
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { classifyHostStatic } from './netaddr'
+import { GOOGLE_APP_RETURN_PATH } from '@mycel/shared/api'
 import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
@@ -115,6 +116,28 @@ export function signInCode(raw: string, shownOrigin: string | null | undefined):
   if (i < 0) return null
   const m = /^code=([A-Za-z0-9_-]{43})$/.exec(raw.slice(i + 1))
   return m && isShownTeamStart(raw.slice(0, i), shownOrigin) ? m[1]! : null
+}
+
+/**
+ * The one-time code of a Google sign-in that the system browser hands back (server auth/google-login-apps.ts):
+ * `trina-ax://open?url=<team>/login/google#code=<code>`, the code only in the fragment, the page exactly
+ * `/login/google` (no query, nothing else). Only for the team on screen: `shown` is its address and the address the
+ * window shows (an office LAN address); the link names the team address Google returned to. null otherwise (the link
+ * then goes the usual way and never loads a team).
+ */
+export function googleSignInCode(raw: string, shown: readonly (string | null | undefined)[]): string | null {
+  const i = typeof raw === 'string' ? raw.indexOf('#') : -1
+  if (i < 0) return null
+  const m = /^code=([A-Za-z0-9_-]{43})$/.exec(raw.slice(i + 1))
+  const p = m ? readDesktopLink(raw.slice(0, i)) : null
+  if (!m || !p?.ok || !shown.some((o) => !!o && o === p.origin)) return null
+  try {
+    const text = new URL(raw.slice(0, i)).searchParams.get('url') ?? ''
+    const inner = new URL(text)
+    return inner.origin === p.origin && text === `${p.origin}${GOOGLE_APP_RETURN_PATH}` ? m[1]! : null
+  } catch {
+    return null
+  }
 }
 
 /**

@@ -105,6 +105,7 @@ describe('server and relay texts', () => {
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/chat/person-aliases.ts': { why: 'title and team words the server matches in the person\'s own message (팀장, 팀원들 …) and Korean particles after them, in every language: data, not screen text (docs/decisions/20261123-do-then-undo.md)', also: /./ },
+  'server/src/files/office-profile.ts': { why: 'the Korean names of Office fonts (맑은 고딕, 바탕 …) the page render replaces with the kit\'s fonts: data a file holds, not screen text', also: /^\s*\.\.\.\['[^']*'(, '[^']*')*\]/ },
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
   'server/src/tools/edit-office.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a Word document (ko next to en/id/ja/es)' },
@@ -138,6 +139,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
   'server/src/files/hwp-edit.ts': { why: 'the HWP terms 배포용, 개인 정보 보안, 변경 추적 and 문서 연결 in notes to the AI about a document it will not change (not screen text)', also: /\((배포용|개인 정보 보안|변경 추적|문서 연결)\)/ },
   'server/src/files/hwpx-template.ts': { why: 'the style and font names Hangul documents use (바탕글, 개요 1, 함초롬바탕) in the built-in .hwpx template (document content, not screen text)', also: /^\s*(const FACES = |style\(\d+, '(PARA|CHAR)', '|\.\.\.OUTLINE\.map\(\(_, i\) => style\()/ },
+  'server/src/files/hwpx-check.ts': { why: 'the Hangul syllables (가나다 …) that Korean documents number their items with, recognised as outline labels in a document (document content, not screen text)', also: /^const GANADA = / },
   'server/src/files/hwpx-write.ts': { why: 'the name of Hangul\'s outline styles (개요 N) looked for in a template (document content, not screen text)', also: /s\.name === `개요 \$\{l \+ 1\}`/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
@@ -154,6 +156,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
   'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en/id/ja/es)' },
+  'server/src/chat/hwpx-guide.ts': { why: 'the Korean document terms (공문, 수신, 붙임, 가. …) of the Hangul writing guide in the AI\'s instructions (not screen text)', also: /./ },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
   'server/src/files/store.ts': { why: 'conflict copy names (ko next to en/id/ja/es)', also: /동시에 고친 사본/ },
   'server/src/jobs/service.ts': { why: 'job texts (ko next to en/id/ja/es)' },

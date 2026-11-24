@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, googleSignInCode, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { resumePage } from '../../desktop/src/common/update-guard'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
@@ -326,7 +326,8 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(opener).toContain('this.teams.teams.find((x) => x.origin === page.origin)')
     expect(opener).toContain('if (!page || !known) return false')
     expect(opener).not.toMatch(/addTeam|fetch|loadURL/)
-    expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n\s*const p = readDesktopLink\(raw\)/)
+    // (then a Google sign-in's code for the team on screen, which loads only that window: docs/decisions/20261122-google-login-apps.md)
+    expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n(?:\s*\/\/.*\n)*\s*const google = this\.app \? googleSignInCode\(raw, \[this\.team\?\.origin, this\.currentOrigin\]\) : null\n\s*if \(google\) return void this\.openGoogleReturn\(google\)\n\s*const p = readDesktopLink\(raw\)/)
   })
   test('the one-time sign-in link (web "Continue in the Mac app") opens its page; only in a link from outside', () => {
     const code = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
@@ -431,6 +432,52 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
   test('④ strings name the host and never the page', () => {
     expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
     expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
+  })
+})
+
+describe('Sign in with Google: the code comes back for the team on screen (docs/decisions/20261122-google-login-apps.md)', () => {
+  const code = 'Abc_def-0123456789abcdefghijklmnopqrstuvwxy'
+  const team = `https://acme.${TEAM_DOMAIN}`
+  const lan = 'https://192.168.1.20:8443'
+  const link = (inner: string, fragment = `#code=${code}`) => `${LINK_SCHEME}://open?${new URLSearchParams({ url: inner })}${fragment}`
+  test('the team page /login/google with the code only in the fragment, for the team on screen', () => {
+    expect(code).toHaveLength(43)
+    expect(googleSignInCode(link(`${team}/login/google`), [team, team])).toBe(code)
+    // the window shows the office address: the link still names the team address Google returned to
+    expect(googleSignInCode(link(`${team}/login/google`), [team, lan])).toBe(code)
+    // another team, or no team on screen
+    expect(googleSignInCode(link(`https://other.${TEAM_DOMAIN}/login/google`), [team, team])).toBeNull()
+    expect(googleSignInCode(link(`${team}/login/google`), [null, undefined])).toBeNull()
+  })
+  test('nothing else: another page, a query, the code in the query, a short code, a second key, plain http', () => {
+    for (const raw of [
+      link(`${team}/`), link(`${team}/login`), link(`${team}/login/google/`), link(`${team}/login/google?x=1`),
+      link(`${team}/login/google#code=${code}`, ''), link(`${team}/login/google`, '#code=short'),
+      link(`${team}/login/google`, `#code=${code}&next=/x`), link(`${team}/LOGIN/GOOGLE`),
+      link(`http://acme.${TEAM_DOMAIN}/login/google`), link('https://127.0.0.1:8443/login/google'),
+      `${LINK_SCHEME}://open?url=${encodeURIComponent(`${team}/login/google`)}&x=1#code=${code}`,
+      `other://open?${new URLSearchParams({ url: `${team}/login/google` })}#code=${code}`,
+    ]) expect(googleSignInCode(raw, [team, team])).toBeNull()
+  })
+  test('the link goes the usual way otherwise; an update restart never reopens the page; the bridge says it can', () => {
+    // read as a link it is a bad one (a fragment on the app link): never a team load through screen ④
+    expect(readDesktopLink(link(`${team}/login/google`))).toBeNull()
+    expect(resumePage('t1', `${team}/login/google`, [team])).toBeNull()
+    expect(resumePage('t1', `${team}/login`, [team])).toEqual({ teamId: 't1', path: '/login' })
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    expect(main.slice(main.indexOf("ipcMain.on('bridge:info'"), main.indexOf("ipcMain.handle('bridge:browser-run'"))).toContain('googleSignIn: GOOGLE_SIGNIN_BRIDGE_VERSION')
+    const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
+    expect(preload).toContain('...(info?.googleSignIn ? { googleSignIn: info.googleSignIn } : {})')
+    // the window opens the page itself, at the address it shows, before any other reading of the link; never logs the code
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  /** ④ is on screen for this offer'))
+    expect(offer.indexOf('googleSignInCode(raw, [this.team?.origin, this.currentOrigin])')).toBeGreaterThan(0)
+    expect(offer.indexOf('googleSignInCode(')).toBeLessThan(offer.indexOf('readDesktopLink(raw)'))
+    const open = win.slice(win.indexOf('  private openGoogleReturn(code: string) {'), win.indexOf("  /** The host strip's state:"))
+    expect(open).toContain('const app = this.app, origin = this.currentOrigin || this.team?.origin')
+    expect(open).toContain('loadURL(`${origin}${GOOGLE_APP_RETURN_PATH}#code=${code}`)')
+    expect(open).not.toMatch(/handoffLog\([^)]*\$\{code\}/)
+    expect(open).not.toMatch(/fetch|addTeam|openTeam/)
   })
 })
 

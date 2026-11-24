@@ -211,6 +211,9 @@ kuncinya sendiri, atau menolak. Admin tidak pernah melihat kuncinya.
 Anda juga bisa meminta di chat: "Hubungkan Linear." AI mengisi alamat resmi aplikasi itu dan menampilkan kartu. Anda
 hanya perlu masuk atau menempelkan kunci ke kartu itu. Kuncinya tidak pernah sampai ke AI.
 
+Jika alamatnya tidak ada di daftar aplikasi Trina AX, kartu itu menyebutkannya di samping alamat. Sebelum menghubungkan,
+pastikan alamatnya sama dengan yang ada di dokumentasi resmi aplikasi itu.
+
 ## Masalah
 
 | Yang Anda lihat | Yang perlu dilakukan |

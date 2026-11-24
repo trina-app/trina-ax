@@ -23,9 +23,9 @@ describe('account deletion: the owner, or an admin for members', () => {
   afterAll(() => h.close())
 
   const asAdmin = (id: string) => {
-    const vars: Record<string, unknown> = { auth: { user: { id: admin.id, role: 'admin' } }, locale: 'en', log: h.ctx.log }
+    const vars: Record<string, unknown> = { auth: { user: { id: admin.id, role: 'admin' }, session: { id: 'test-session' } }, locale: 'en', log: h.ctx.log }
     vars.info = { ip: '10.0.0.7', userAgent: 'test' }
-    return () => deleteUser({ get: (k: string) => vars[k] } as any, h.ctx, id, 'delete', admin.password)
+    return () => deleteUser({ get: (k: string) => vars[k] } as any, h.ctx, id, 'delete', { password: admin.password })
   }
   const refused = async (fn: () => Promise<void>) => {
     let err: unknown

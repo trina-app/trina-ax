@@ -9,6 +9,7 @@ import { toast } from './ui'
 import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
+import { googleSignUpDone } from '../lib/googleSignUp'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -20,12 +21,15 @@ import { freeRoamNow, useDemo } from './demo'
 
 export type AuthStatus =
   | { kind: 'loading' }
-  | { kind: 'setup'; teamName: string | null }
+  // googleSignUp: the setup page may offer Start with Google (GET /api/setup, server/src/auth/google-signup.ts)
+  | { kind: 'setup'; teamName: string | null; googleSignUp?: true }
   // 'removed': an account taken out of the team. A guest turned off while signed in carries the team's name for the
   // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
   // ownerRecoveryUrl: a hosted team's console page where its owner resets a forgotten password (GET /api/setup; the
-  // sign-in page adds ?team=<its own host>); left out when the server sent none
-  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string }
+  // sign-in page adds ?team=<its own host>); left out when the server sent none. googleSignIn: the page may offer "Sign in
+  // with Google" (GET /api/setup, server/src/auth/google-login.ts); googleAppSignIn: the desktop and phone apps may
+  // (server/src/auth/google-login-apps.ts, lib/googleSignIn.ts)
+  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string; googleSignIn?: true; googleAppSignIn?: true }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -123,8 +127,12 @@ let lastTeamDefault: Locale | null = null
 export const teamDefaultLocale = (): Locale | null => lastTeamDefault
 /** GET /api/setup's ownerRecoveryUrl as last seen (null: none, or not asked yet), kept for the sign-in screen */
 let lastOwnerRecovery: string | null = null
-/** a signed-out status with the hosted team's owner-recovery page, when the server named one */
-const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => (lastOwnerRecovery ? { ...st, ownerRecoveryUrl: lastOwnerRecovery } : st)
+/** GET /api/setup's googleSignIn and googleAppSignIn as last seen */
+let lastGoogleSignIn = false
+let lastGoogleAppSignIn = false
+/** a signed-out status with the hosted team's owner-recovery page, when the server named one, and Sign in with Google
+ * when the server offers it */
+const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => ({ ...st, ...(lastOwnerRecovery ? { ownerRecoveryUrl: lastOwnerRecovery } : {}), ...(lastGoogleSignIn ? { googleSignIn: true as const } : {}), ...(lastGoogleAppSignIn ? { googleAppSignIn: true as const } : {}) })
 /** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
 let themePick: { back: Theme } | null = null
 
@@ -410,6 +418,8 @@ async function readMe(get: Get, set: Set): Promise<void> {
   try {
     const me = await api.call(API.me)
     await wordsFor(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
+    // back from Google signed in after a sign-up started in this tab: the tokens it kept for a retry go (lib/googleSignUp.ts)
+    googleSignUpDone()
     get().signedIn(me)
   } catch (e) {
     if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
@@ -430,13 +440,15 @@ async function readMe(get: Get, set: Set): Promise<void> {
         if (!s.needed) forgetSetupToken()
         lastTeamDefault = s.defaultLocale ?? null
         lastOwnerRecovery = s.ownerRecoveryUrl ?? null
+        lastGoogleSignIn = !!s.googleSignIn
+        lastGoogleAppSignIn = !!s.googleAppSignIn
         // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
         // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
         const g = guestRemoval(e)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : accountRemoved(e) ? memberRemoved() : { kind: 'signed-out' }) })
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName, ...(s.googleSignUp ? { googleSignUp: true as const } : {}) } : withRecovery(g ? guestSignedOut(g) : accountRemoved(e) ? memberRemoved() : { kind: 'signed-out' }) })
       } catch {
         // a free-roam demo's gate denies GET /api/setup (demo-gate DENY_PATHS): the instance's language comes from
         // GET /api/demo, which the gate lets through (QA TC-6790: a ja instance's sign-in page was English only)

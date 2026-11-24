@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_SYNC_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken, PUSH_SYNC_CAPABILITY } from '../../../mobile/src/protocol'
 import type { DesktopBridge, DesktopDictationEvent } from '@mycel/shared'
 import { currentTheme } from './theme'
 
@@ -160,6 +160,24 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
   if (options.purpose !== 'google-oauth' || !googleOAuthUrl(url)) throw new Error('mobile_external_refused')
   const config = mobileApp(); if (!config) throw new Error('mobile_unavailable')
   await request({ ...envelope(config), type: 'external-open', url, purpose: options.purpose }, config)
+}
+/** This phone app opens Sign in with Google in its own auth session (google-signin-v1). Store builds before it: no. */
+export const phoneGoogleSignIn = (config: MobileConfig | null = mobileApp()): boolean => !!config?.capabilities.includes(GOOGLE_SIGNIN_CAPABILITY)
+/** Sign in with Google in the phone's auth session (google-signin-v1; docs/decisions/20261122-google-login-apps.md):
+ * the one-time code its return address carried, the team server's reason, or null when the person closed it. The
+ * person may take minutes at Google: allowed 15. The caller redeems the code (lib/googleSignIn.ts). */
+export async function googleSignInInApp(url: string): Promise<{ code: string } | { error: GoogleSignInError } | null> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config || !phoneGoogleSignIn(config)) throw new Error('mobile_unavailable')
+  if (!googleOAuthUrl(url)) throw new Error('mobile_external_refused')
+  const reply = await request({ ...envelope(config), type: 'google-signin', url }, config, 15 * 60_000)
+  if (turn !== epoch) throw cancelled()
+  if (googleSignInCode(reply.googleCode)) return { code: reply.googleCode }
+  if (googleSignInError(reply.googleError)) return { error: reply.googleError }
+  return null
 }
 /** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
  * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. labelHash:

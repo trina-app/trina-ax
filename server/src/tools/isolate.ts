@@ -32,6 +32,9 @@ export interface IsolatedRun {
   workDir?: string
   /** extra files/folders the converter may read (e.g. a whisper model) */
   readPaths?: string[]
+  /** Linux: files the converter reads at another path (read-only; `from` is the server's file, `to` the path inside the
+   * isolation). The promo video's render reads its cgroup limits this way (promo-video/render.ts). */
+  bindFiles?: { from: string; to: string }[]
   /** server-private folders whose contents must stay unreadable even if they are not under the default list */
   denyRead?: string[]
   /** Metal GPU (whisper.cpp): the per-user Metal shader cache must be readable / writable, otherwise every run
@@ -45,9 +48,16 @@ export interface IsolatedRun {
   helpersIn?: string
   /** macOS: more programs the converter may exec, each by its exact path (a shell's real binary behind /bin/sh) */
   execAlso?: string[]
+  /** Linux: the product's seccomp filter (native/internal/seccomp, the engine's) on the converter too, through the
+   * root-owned sandbox helper (MYCEL_SANDBOX_HELPER) inside bwrap; 'listen' keeps listen() (LibreOffice's own pipe).
+   * Where the server has no helper (dev, an install without the unit) the converter runs with bwrap alone, as others. */
+  seccomp?: 'listen'
   /** macOS: the headless browser's tighter profile (no Mach services but the ones it needs, no LaunchServices, no
    * opening apps or URLs, no Apple events; browserProfileRules) */
   browserProfile?: boolean
+  /** macOS: LibreOffice (files/office-view.ts) may make its single-instance pipe (officePipeRules); it may not connect
+   * to any pipe, so never to another LibreOffice of this Mac */
+  officePipe?: boolean
   /** Linux production: run in this cgroup leaf with this OOM score instead of the converters' shared one (the print's
    * own leaf, system/cgroups.ts makePrintLeaf) */
   cgroupLeaf?: { dir: string; oomScoreAdj: number }
@@ -147,7 +157,30 @@ export function setDemoDenyRead(dirs: readonly string[]): void {
 }
 export const demoDenyReadDirs = (): readonly string[] => demoDenyRead
 
-export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean }): string {
+/** LibreOffice's rules on top of a converter profile (officePipe; files/office-view.ts on an office Mac). Last rule wins
+ * in a sandbox profile, so these go after the general ones (security review of #509):
+ * - its single-instance pipe: LibreOffice checks that /private/var/tmp is writable and makes its pipe there
+ *   (OSL_PIPE_<uid>_SingleOfficeIPC_<hash>, a Unix socket; /tmp is not writable in the profile). Only that name, only to
+ *   listen on (network-bind): no connect to any socket, so a file cannot drive another LibreOffice of this Mac;
+ * - Mach services: none but the two a page render cannot start without (found by drawing with every lookup denied and
+ *   allowing back what it stopped on, 2026-11-24): the user database (getpwuid) and LaunchServices' read side. No
+ *   pasteboard, keychain (securityd), window server, notifications, TCC, location or analytics;
+ * - no app, document or URL opened, no Apple event.
+ * office-view.ts gives it no helper folder, so it may not fork and may exec only soffice itself. */
+export const OFFICE_PIPE_RE = '^/private/var/tmp/OSL_PIPE_[0-9]+_SingleOfficeIPC_[0-9a-f]+$'
+export const OFFICE_MACH_SERVICES: readonly string[] = ['com.apple.system.opendirectoryd.libinfo', 'com.apple.coreservices.launchservicesd']
+export function officePipeRules(services: readonly string[] = OFFICE_MACH_SERVICES): string[] {
+  return [
+    `(allow file-write* (literal "/private/var/tmp") (regex #"${OFFICE_PIPE_RE}"))`,
+    `(allow network-bind (local unix-socket (regex #"${OFFICE_PIPE_RE}")))`,
+    '(deny mach-lookup)',
+    ...(services.length ? [`(allow mach-lookup ${services.map((s) => `(global-name ${sq(s)})`).join(' ')})`] : []),
+    '(deny lsopen)',
+    '(deny appleevent-send)',
+  ]
+}
+
+export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean; officePipe?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
@@ -182,6 +215,7 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     // (mycel-ocr's Vision request fails without it when the helper sits under a denied folder such as the home)
     `(allow file-read-data (literal ${sq(path.dirname(real(o.cmd)))}))`,
     ...(o.browserProfile ? browserProfileRules() : []),
+    ...(o.officePipe ? officePipeRules() : []),
   ].join('\n')
 }
 
@@ -195,7 +229,7 @@ function bwrapIsModern(bin: string): boolean {
   return bwrapModern
 }
 
-function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; modern?: boolean; curatedFonts?: boolean }): string[] {
+function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; bindFiles?: { from: string; to: string }[]; modern?: boolean; curatedFonts?: boolean }): string[] {
   const a = ['--die-with-parent', '--unshare-all', '--new-session', '--clearenv']
   // linux-runtime spec 3.8.2: no NESTED user namespaces, no capabilities. bwrap 0.12 wants --unshare-user spelled
   // out next to --disable-userns (--unshare-all alone is not enough for that check).
@@ -204,6 +238,7 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
     if (fs.existsSync(d)) a.push('--ro-bind', d, d)
   a.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--bind', o.workDir, o.workDir)
   for (const p of o.readPaths) a.push('--ro-bind', p, p)
+  for (const b of o.bindFiles ?? []) a.push('--ro-bind', b.from, b.to)
   const dir = path.dirname(o.cmd)
   if (!['/usr', '/bin'].some((d) => dir === d || dir.startsWith(d + '/'))) a.push('--ro-bind', dir, dir)
   if (o.curatedFonts) for (const d of ['/usr/share/fonts', '/usr/local/share/fonts', '/etc/fonts']) if (fs.existsSync(d)) a.push('--tmpfs', d)
@@ -259,6 +294,14 @@ export function backgroundPrefix(platform: NodeJS.Platform = process.platform): 
   return p
 }
 
+/** where the sandbox helper is bound inside bwrap (the launcher's place for it too: native/cmd/mycel-sandbox) */
+const SANDBOX_IN_BWRAP = '/.sbx/mycel-sandbox'
+/** the root-owned sandbox helper the server unit names (MYCEL_SANDBOX_HELPER), or null */
+export function sandboxHelper(env: Record<string, string | undefined> = process.env): string | null {
+  const h = env.MYCEL_SANDBOX_HELPER ?? ''
+  return path.isAbsolute(h) && fs.existsSync(h) ? real(h) : null
+}
+
 /**
  * The command line and environment that run `o.cmd` isolated in `o.workDir` (a plain folder the server made, already
  * resolved): sandbox-exec on macOS, bwrap on Linux (inside the converter cgroup in production), else the converter
@@ -273,12 +316,16 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   const low = o.background ? backgroundPrefix() : []
   let argv: string[]
   if (kind === 'sandbox-exec') {
-    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso, browserProfile: o.browserProfile }), cmd, ...o.args]
+    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso, browserProfile: o.browserProfile, officePipe: o.officePipe }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
-      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
+    // the seccomp step (o.seccomp): bwrap starts the helper, which loads the filter and execs the converter in place
+    const helper = o.seccomp ? sandboxHelper() : null
+    const inner = helper ? [SANDBOX_IN_BWRAP, 'exec', '--landlock', 'off', ...(o.seccomp === 'listen' ? ['--allow-listen'] : []), '--', cmd] : [cmd]
+    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], bindFiles: o.bindFiles, modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+      ...(helper ? ['--ro-bind', helper, SANDBOX_IN_BWRAP] : []),
+      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), ...inner, ...o.args]
   } else {
     argv = [...low, cmd, ...o.args]
   }

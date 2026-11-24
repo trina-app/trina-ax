@@ -283,11 +283,72 @@ describe('external-service connections in a turn', () => {
       expect(result).toContain('created task "Quarterly plan"')
       expect(result).toContain('<external_data source="Tasks">')
       expect(services.calls.at(-1)).toMatchObject({ name: 'create_task', args: { title: 'Quarterly plan' } })
-      // the step names the service and the tool's title, never the arguments
-      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · Create a task')
+      // the step names the service, the tool's title and its key input (docs/decisions/20261124-step-key-input.md)
+      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · Create a task · "Quarterly plan"')
       const audit = h.ctx.db.query('SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = ?').get(sent.turnId, 'my_tasks__create_task') as { summary: string; ok: number }
       expect(audit).toEqual({ summary: 'my_tasks__create_task -> ok (29 chars) (confirmed by the user)', ok: 1 })
       expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)
+      await h.api('alice').call(API.deleteIntegration, { params: { id: c.id } })
+    } finally { services.stop() }
+  })
+
+  // owner 2026-11-24: about 50 rows of "Bright Data · Search Engine" with no query or result. Each call's step names its
+  // key input and says what came back, like Claude Code (docs/decisions/20261124-step-key-input.md)
+  test('a connection\'s step names its key input and what came back; never a key', async () => {
+    const services = new FakeServices()
+    try {
+      integrationsOf(h.ctx, { net: services.net() })
+      const c = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Tasks', url: `${services.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY, writePolicy: 'ask' } })
+      services.results.search_tasks = { content: [{ type: 'text', text: JSON.stringify({ results: [{ t: 'a' }, { t: 'b' }, { t: 'c' }], next: null }) }] }
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'my_tasks__search_tasks', args: { q: 'YC Korea founders 2025', api_key: 'CANARY-step-key-77' } }, { tool: 'my_tasks__rpc_fail', args: {} }, { say: 'done' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+      const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
+      const steps = done.data.message.steps
+      const search = steps.find((s) => s.tool === 'my_tasks__search_tasks')!
+      expect(search.label).toBe('Tasks · Search tasks · "YC Korea founders 2025"')
+      expect(search.outcome).toEqual({ count: 3 })
+      // its end that is the key input, for a narrow screen's second line
+      expect(search.key).toBe(' · "YC Korea founders 2025"')
+      const failed = steps.find((s) => s.tool === 'my_tasks__rpc_fail')!
+      expect(failed.status).toBe('error')
+      expect(failed.outcome?.end).toBe('failed')
+      expect(JSON.stringify(done.data.message)).not.toContain('CANARY-step-key-77')
+      expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)
+      // as stored, too
+      const stored = (await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === sent.assistantMessage.id)!.steps
+      expect(stored.find((s) => s.tool === 'my_tasks__search_tasks')).toMatchObject({ label: search.label, outcome: { count: 3 } })
+      await h.api('alice').call(API.deleteIntegration, { params: { id: c.id } })
+    } finally { services.stop() }
+  })
+
+  // the same everywhere a step comes from: Codex, a sub-task's own calls, a scheduled run (the owner, 2026-11-24)
+  test('the key input and what came back: Codex, a sub-task and a scheduled run too', async () => {
+    const services = new FakeServices()
+    try {
+      integrationsOf(h.ctx, { net: services.net() })
+      const c = await h.api('alice').call(API.createIntegration, { body: { kind: 'mcp', name: 'Tasks', url: `${services.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY, writePolicy: 'ask' } })
+      services.results.search_tasks = { content: [{ type: 'text', text: JSON.stringify([{ t: 'a' }, { t: 'b' }]) }] }
+      const call = (q: string) => ({ tool: 'my_tasks__search_tasks', args: { q } })
+      const run = async (chat: { id: string }, content: string) => {
+        const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+        return (await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 30_000)).data.message.steps
+      }
+      // Codex (its MCP calls come as mcp_tool_call items)
+      const codex = await run(await h.api('alice').call(API.createChat, { body: { engine: 'codex' } }), fake(call('codex founders'), { say: 'ok' }))
+      expect(codex.find((s) => s.tool === 'my_tasks__search_tasks')).toMatchObject({ label: 'Tasks · Search tasks · "codex founders"', outcome: { count: 2 } })
+      // a sub-task's own calls, under it, each result on its own call's step by the call's id (the second call's stream
+      // line comes after its result: kept until the step is there)
+      const sub = await run(await h.api('alice').call(API.createChat, { body: {} }), fake({ agents: [{ id: 'a1', type: 'general-purpose', description: 'look up', steps: [call('sub one'), { ...call('sub two'), lateLine: 500 }] }] }, { say: 'ok' }))
+      const kids = sub.filter((s) => s.parentId && s.tool === 'my_tasks__search_tasks')
+      expect(kids.map((s) => s.label).sort()).toEqual(['Tasks · Search tasks · "sub one"', 'Tasks · Search tasks · "sub two"'])
+      for (const k of kids) expect(k.outcome).toEqual({ count: 2 })
+      // a scheduled run
+      const sch = h.rt().schedules.create('alice', { title: 'Founders check', prompt: fake(call('scheduled founders'), { say: 'ok' }), repeat: 'daily', time: '09:00' }, undefined,
+        { allowedUrls: [], writeConnections: [], save: null, sources: [], personalSends: [] })
+      const { chatId } = h.rt().schedules.runNow('alice', sch.id)
+      await waitFor(() => { const t = h.ctx.db.query('SELECT status FROM turns WHERE chat_id = ?').get(chatId) as { status: string } | null; return !!t && ['done', 'error', 'stopped', 'interrupted'].includes(t.status) }, { timeoutMs: 60_000 })
+      const m = h.ctx.db.query("SELECT steps FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { steps: string }
+      expect(JSON.parse(m.steps).find((s: { tool?: string }) => s.tool === 'my_tasks__search_tasks')).toMatchObject({ label: 'Tasks · Search tasks · "scheduled founders"', outcome: { count: 2 } })
       await h.api('alice').call(API.deleteIntegration, { params: { id: c.id } })
     } finally { services.stop() }
   })

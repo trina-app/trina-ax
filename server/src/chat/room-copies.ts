@@ -2,7 +2,7 @@
 // room stayed at 30, and the AI told him the room's file "may show the change". The room keeps the copy, as Slack does;
 // what was wrong is the AI's claim. After a tool call changes a team file that a room message I can see carries as a
 // copy ("대화방에 보내기" / post_to_room attaching it, a phone's team pick), the AI is told so in the tool result: the room
-// still shows the copy from when it was sent, and it offers to post the new version. A project room's file kept in the
+// still shows the copy from when it was sent, and the AI says so. A project room's file kept in the
 // team folder (room_file_refs) is the file itself, not a copy: it is not named here.
 import type { Database } from 'bun:sqlite'
 import type { Locale } from '@mycel/shared/api'
@@ -40,5 +40,5 @@ export function roomCopiesOf(db: Database, userId: string, paths: readonly strin
 export function roomCopyNote(copies: readonly RoomCopy[], shared: boolean): string {
   if (!copies.length) return ''
   const parts = copies.map((c) => `${c.path} (${shared ? `${c.rooms.length} room${c.rooms.length === 1 ? '' : 's'}` : c.rooms.map((r) => `${r.title}, sent ${r.at.slice(0, 16).replace('T', ' ')} UTC`).join('; ')})`)
-  return `Posted earlier as a copy: ${parts.join('; ')}. A room post carries a copy made when it was sent: the room still shows that old version, and this change does not reach it. Tell the user so in one plain sentence (never say the room's copy updates or may show the change), and ask whether to post the new version there; if they say yes, call post_to_room with a link to the file, which goes as a new copy.`
+  return `Posted earlier as a copy: ${parts.join('; ')}. A room post carries a copy made when it was sent: the room still shows that old version, and this change does not reach it. Tell the user so in one plain sentence (never say the room's copy updates or may show the change), as a statement, not a question. If they ask to post the new version, call post_to_room with a link to the file, which goes as a new copy.`
 }

@@ -10,6 +10,7 @@ import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
 import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
+import { keyInputSuffix } from './step-key-input'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -178,6 +179,8 @@ export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', 
 
 /** Whole-label templates ({x} = what the AI touched, never translated). */
 export const STEP_TEXT = {
+  /** a dev-environment command that builds a Word, PowerPoint, Excel or PDF file (the document skills): one plain line */
+  makingDocument: t('문서 만드는 중', 'Making the document', 'Membuat dokumen', "ドキュメントを作成中", "Creando el documento", "正在制作文档"),
   asked: t('질문: {q}', 'Question: {q}', 'Pertanyaan: {q}', "質問：{q}", "Pregunta: {q}", "提问：{q}"),
   remembered: t('기억함: {text}', 'Remembered: {text}', 'Diingat: {text}', "記憶しました：{text}", "Recordado: {text}", "已记住：{text}"),
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
@@ -483,7 +486,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
     // "<the AI's plain description, else the verb> · <command>": the web app shows the words alone and the command when
     // the step is opened (localizeStep); an app that does not shows the whole line
-    case 'box_shell': return `${shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
+    // a command that builds a document with the document skills: the same plain words whatever the AI described
+    case 'box_shell': return `${(makesDocument(String(a.command ?? '')) ? STEP_TEXT.makingDocument[locale] : '') || shellDescription(a.description) || verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -500,10 +504,15 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const name = a.target === 'google_drive' ? 'Google Drive' : shown ? clip(maskSecrets(shown.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
     }
-    default: return verb ?? knownPrefixVerb(tool, locale) ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
+    // a tool without words of its own (an engine's, an outside one's): its name and its key input, like Claude Code
+    // (step-key-input.ts: a query, an address, a path or a command, secrets never)
+    default: return verb ?? knownPrefixVerb(tool, locale) ?? `${readableToolName(tool) || STEP_WORDS_OTHER[locale]}${keyInputSuffix(a)}`
   }
 }
 
+
+/** Does a dev-environment command build a document (it uses the document skills, or names an Office file)? */
+export const makesDocument = (command: string): boolean => /\bTRINA_DOC_SKILLS\b|\.(?:docx|pptx|xlsx)\b/i.test(command)
 
 /** Plain words for a dev-environment command without a description of its own, by what the command does (the steps
  * of answers from before box_shell had `description` too). People are not developers: never the command itself. */
@@ -734,7 +743,7 @@ export function shellWorkWords(command: string, locale: Locale): string {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files', 'save_connector_file', 'save_promo_video', 'comment_docx'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
@@ -746,7 +755,20 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
   // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
   // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
   // words of a question, a memory or a sub-task, which are someone's own
-  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(r.label, locale) }
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale), locale) }
+}
+
+/** A line's "<what> → <where>" with <where> in words when it is a team path ("… → users/qa-member/보고서/" reads
+ * "… → 내 파일 › 보고서"): the save tools end their line this way (QA step list "작업 결과 저장"). A target that is no path
+ * (a new name, a group) stays as it is. */
+function arrowPlace(label: string, locale: Locale): string {
+  const at = label.lastIndexOf(' → ')
+  if (at < 0) return label
+  const cover = coverWhy(label)?.end ?? ''
+  const tail = label.slice(at + 3, cover ? label.length - cover.length : undefined)
+  const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
+  const named = placeName(path, locale)
+  return named ? `${label.slice(0, at + 3)}${named}${suffix}${cover}` : label
 }
 
 /** chat:files/<id>/, chat:work/ and $TRINA_WORK inside a step line, in words. ($TRINA_TEAM is not: a file tool takes it as

@@ -21,11 +21,11 @@ export const TEXT = {
     en: 'A connection needs you to sign in again.',
     id: 'Koneksi perlu login ulang.', ja: "接続のために再ログインが必要です。", es: "Una conexión requiere que vuelva a iniciar sesión.", zh: "有一个连接需要你重新登录。",
   },
-  // rooms: who wrote what stays in the app; the lock screen only says that something came
+  // rooms: the line when the message itself is not shown (preview off, a secret, the phone could not ask): the same
+  // words as a chat's message and the push gateway's own line (push-gateway/src/text.ts MESSAGE_TEXT), so a phone says
+  // one thing everywhere
   'room.dm': {
-    ko: '새 메시지가 왔어요.',
-    en: 'You have a new message.',
-    id: 'Ada pesan baru untuk Anda.', ja: "新しいメッセージが届きました。", es: "Tiene un mensaje nuevo.", zh: "你有一条新消息。",
+    ko: '새 메시지가 있어요', en: 'You have a new message', id: 'Ada pesan baru', ja: '新しいメッセージがあります', es: 'Tienes un mensaje nuevo', zh: '你有一条新消息',
   },
   'room.mention': {
     ko: '대화에서 나를 언급한 메시지가 있어요.',
@@ -102,6 +102,31 @@ export const TEXT = {
  * (notifications/chat-shares.ts chatShareLabel). Never the chat's title. */
 export const CHAT_SHARED_BY: Record<Locale, string> = {
   ko: '채팅을 공유했어요.', en: 'Shared a chat with you.', id: 'Membagikan obrolan dengan Anda.', ja: 'チャットを共有しました。', es: 'Compartió un chat con usted.', zh: '与你共享了一个对话。',
+}
+/** A phone notification's line for a message with files and no text (notifications/push-preview.ts): what was sent,
+ * never what is in it. A file's name only when the reader may open it (never a team-folder file's: each person sees
+ * those by their own access). */
+export const PUSH_FILE_WORDS = {
+  photo: {
+    ko: '사진을 보냈어요', en: 'Sent a photo', id: 'Mengirim foto', ja: '写真を送信しました', es: 'Envió una foto', zh: '发送了一张照片',
+  },
+  photos: {
+    ko: '사진 {n}장을 보냈어요', en: 'Sent {n} photos', id: 'Mengirim {n} foto', ja: '写真を{n}枚送信しました', es: 'Envió {n} fotos', zh: '发送了{n}张照片',
+  },
+  file: {
+    ko: '파일을 보냈어요', en: 'Sent a file', id: 'Mengirim file', ja: 'ファイルを送信しました', es: 'Envió un archivo', zh: '发送了一个文件',
+  },
+  fileNamed: {
+    ko: '파일을 보냈어요: {name}', en: 'Sent a file: {name}', id: 'Mengirim file: {name}', ja: 'ファイルを送信しました: {name}', es: 'Envió un archivo: {name}', zh: '发送了文件：{name}',
+  },
+  files: {
+    ko: '파일 {n}개를 보냈어요', en: 'Sent {n} files', id: 'Mengirim {n} file', ja: 'ファイルを{n}件送信しました', es: 'Envió {n} archivos', zh: '发送了{n}个文件',
+  },
+} satisfies Record<string, Record<Locale, string>>
+/** A chat's place in a phone notification's title when its own title may not be shown (notifications/push-preview.ts
+ * chatPlace): previews off, or a title that is still a message's text. */
+export const SHARED_CHAT: Record<Locale, string> = {
+  ko: '공유 채팅', en: 'Shared chat', id: 'Obrolan bersama', ja: '共有チャット', es: 'Chat compartido', zh: '共享对话',
 }
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído', zh: '标为已读' }

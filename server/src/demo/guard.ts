@@ -80,8 +80,9 @@ const mb = (n: number) => `${Math.round(n / (1024 * 1024))} MB`
  * admins or the owner) and whole groups (FENCED_GROUPS) come on top. The decision record lists them with the reason. */
 const NAMED: Record<FenceArea, readonly (keyof typeof API)[]> = {
   account: ['setup', 'login', 'changePassword', 'passwordResetInfo', 'completePasswordReset', 'appSignIn', 'redeemAppSignIn',
+    'startGoogleSignIn', 'redeemGoogleSignIn', 'connectGoogle', 'disconnectGoogle', 'startGoogleSetup', 'startGoogleReauth', 'googleReauthState', 'setPassword',
     'requestAccountDeletion', 'cancelAccountDeletion'],
-  invite: ['inviteInfo', 'acceptInvite', 'createGuestInvite', 'guestInviteLimit'],
+  invite: ['inviteInfo', 'acceptInvite', 'startGoogleInvite', 'createGuestInvite', 'guestInviteLimit'],
   admin: [],
   connect: [
     'requestAiAccess', 'tellAiNotReady', 'sealingKey', 'myCredentials', 'createMyCredential', 'deleteMyCredential', 'startMyCredentialLogin',

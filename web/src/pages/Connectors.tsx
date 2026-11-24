@@ -55,7 +55,8 @@ import { reserveSignInWindow, useIntegrationActions } from '../components/integr
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { LocalProgramsHere } from '../components/integrations/LocalProgramsHere'
-import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
+import { desktop } from '../lib/desktop'
+import { localAppById, localAppDownload, localAppLogo, localAppOf, localAppSpec, localAppsFor, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -319,7 +320,7 @@ function ConnectorsHome() {
   // connections; + connects at once in the desktop app (the app asks once in its own window); elsewhere (the web, the
   // phone) the card says it works in the desktop app, in the same grey words as its connection's row
   const desk = !!localAppsBridge()
-  const localCards: Card[] = list.data?.localAllowed && personalAllowed ? LISTED_LOCAL_APPS.filter((a) => !mine.some((i) => localAppOf(i)?.id === a.id)).map((a) => ({
+  const localCards: Card[] = list.data?.localAllowed && personalAllowed ? localAppsFor(desktop()?.platform).filter((a) => !mine.some((i) => localAppOf(i)?.id === a.id)).map((a) => ({
     id: a.id, name: a.name, line: t(a.line), logo: localAppLogo(a), state: desk ? 'available' as const : 'off' as const,
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
@@ -611,7 +612,7 @@ function LocalListedPage({ a }: { a: LocalAppEntry }) {
           <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(allowed ? 'localApps.status.desktopOnly' : 'appConnectors.off')}</span>
         )}
         status={<>
-          <Note testId="local-app-install">{t(a.install)}</Note>
+          <LocalAppInstall a={a} />
           {error && <Note tone="warn" testId="local-app-error">{error}</Note>}
           {help}
         </>}
@@ -627,10 +628,24 @@ function LocalAppHelp({ a }: { a: LocalAppEntry }) {
   return a.help ? <Note testId="local-app-help">{t(a.help)}</Note> : null
 }
 
-/** A connected Aside or ego lite: its connection's page, with its own About and help. */
+/** What to install first, with the app's download page (macOS and Windows). `missing`: its check found no program on
+ * this computer, so it is said as the thing to fix. */
+function LocalAppInstall({ a, missing }: { a: LocalAppEntry; missing?: boolean }) {
+  const t = useT()
+  const href = localAppDownload(a)
+  return (
+    <Note testId="local-app-install" tone={missing ? 'warn' : undefined} reason={missing ? 'local_missing' : undefined}>
+      {t(a.install)}
+      {href && <>{' '}<a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline" data-testid="local-app-download">{href.replace(/^https:\/\//, '')}</a></>}
+    </Note>
+  )
+}
+
+/** A connected Aside or ego lite: its connection's page, with its own About and help (and, when its check found no
+ * program on this computer, where to get it). */
 function LocalMinePage({ i, a }: { i: Integration; a: LocalAppEntry }) {
   const t = useT()
-  return <McpShell privacy={false}><MinePage i={i} about={t('localApps.about')}><LocalAppHelp a={a} /></MinePage></McpShell>
+  return <McpShell privacy={false}><MinePage i={i} about={t('localApps.about')}>{i.lastErrorReason === 'local_missing' && <LocalAppInstall a={a} missing />}<LocalAppHelp a={a} /></MinePage></McpShell>
 }
 
 /** /settings/connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or

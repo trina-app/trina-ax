@@ -1,11 +1,12 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
-import { Building2, Search } from 'lucide-react'
+import { Building2, LogIn, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import type { Locale } from '@mycel/shared/api'
 import { ApiError, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
+import { useMe, useMeStrict } from '../../store/session'
+import { canGoogleCheck, googleCheck, GoogleCheckError, needsGoogleCheck } from '../../lib/googleCheck'
 import { toast } from '../../store/ui'
 import { Button, Field, Modal, Skeleton, StickyHeader, inputCls, useMediaQuery } from '../../components/ui'
 import { LoadError } from '../../components/LoadError'
@@ -350,11 +351,79 @@ export function SecretBox({ label, value, note, testId = 'secret-value', large }
 }
 
 /**
- * The words for a password the server refused (owner-reauth / admin-reauth: 403 with fields['body.password']), to show
- * under the dialog's password field; null for any other error (that one is a toast).
+ * The words for a password (or a Google check) the server refused (owner-reauth / admin-reauth: 403 with
+ * fields['body.password'] or fields['body.reauthFlow']), to show in the dialog; null for any other error (that one is
+ * a toast).
  */
 export function passwordRefusal(e: unknown, locale: Locale): string | null {
-  return e instanceof ApiError && e.body.fields?.['body.password'] ? errorText(e, locale, '') : null
+  return e instanceof ApiError && (e.body.fields?.['body.password'] || e.body.fields?.['body.reauthFlow']) ? errorText(e, locale, '') : null
+}
+
+/** What a re-check sends, spread into the request's body (shared ReauthFields): the password again, or, for an account
+ * without one, the id of a Google check (lib/googleCheck.ts). */
+export type ReauthProof = { password: string } | { reauthFlow: string }
+
+/**
+ * The re-check of the signed-in person, for a dialog or a form (ReauthInput shows it): the password field, or for an
+ * account without a password the Google line. `proof()` gives what to send, or null when there is none (its words are
+ * in `error`); call it in the press itself, before anything is awaited: it may open the Google window.
+ */
+export function useReauth() {
+  const t = useT()
+  const locale = useLocale()
+  const google = needsGoogleCheck(useMe())
+  const inApp = google && !canGoogleCheck()
+  const [pw, setPw] = useState('')
+  const [waiting, setWaiting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const abort = useRef<AbortController | null>(null)
+  // a dialog closed while Google waits: stop asking (and close the Google window)
+  useEffect(() => () => abort.current?.abort(), [])
+  const words = (e: unknown) => e instanceof GoogleCheckError ? t(e.reason === 'blocked' ? 'reauth.google.blocked' : 'reauth.google.failed') : errorText(e, locale, t('error.network'))
+  const proof = (): Promise<ReauthProof | null> => {
+    setError(null)
+    if (!google) return Promise.resolve({ password: pw })
+    if (inApp) return Promise.resolve(null)
+    const a = new AbortController()
+    abort.current = a
+    const run = googleCheck(a.signal)
+    setWaiting(true)
+    return run.then((reauthFlow) => ({ reauthFlow }), (e: unknown) => {
+      if (!(e instanceof GoogleCheckError && e.reason === 'cancelled')) setError(words(e))
+      return null
+    }).finally(() => setWaiting(false))
+  }
+  return {
+    google, inApp, pw, setPw, waiting, error, setError, proof,
+    /** something can be sent: a password typed, or a Google check that can run here */
+    ready: google ? !inApp : !!pw,
+    cancel: () => abort.current?.abort(),
+  }
+}
+export type Reauth = ReturnType<typeof useReauth>
+
+/** The re-check in a dialog or a form: "Enter your password again", or for an account without one what the Google
+ * check does (or, in the apps, that it needs a browser). */
+export function ReauthInput({ r, inputRef, testId = 'reauth-password', autoFocus = true, onEnter }: { r: Reauth; inputRef?: Ref<HTMLInputElement>; testId?: string; autoFocus?: boolean; onEnter?: () => void }) {
+  const t = useT()
+  if (r.google) {
+    const line = r.inApp ? 'reauth.google.inBrowser' : r.waiting ? 'reauth.google.waiting' : 'reauth.google.body'
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-line bg-subtle px-3 py-2 text-sm" data-testid="reauth-google">
+        <LogIn size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+        <div className="min-w-0">
+          <p className="font-medium">{t('reauth.google.title')}</p>
+          <p className="text-muted" aria-live="polite">{t(line)}</p>
+          {r.error && <p role="alert" className="mt-1 text-danger" data-testid="reauth-google-error">{r.error}</p>}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <Field label={t('system.passwordAgain')} error={r.error ?? undefined}>
+      <input ref={inputRef} data-autofocus={autoFocus ? true : undefined} data-testid={testId} className={inputCls} type="password" autoComplete="current-password" value={r.pw} onChange={(e) => { r.setPw(e.target.value); r.setError(null) }} onKeyDown={onEnter ? (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) onEnter() } : undefined} />
+    </Field>
+  )
 }
 
 /**
@@ -377,49 +446,57 @@ export function useReauthCall() {
 }
 
 /**
- * Ask for the owner's password again (update / restore / connection / owner transfer). `onConfirm` may give back the
+ * Ask for the person's password again (update / restore / connection / owner transfer). `onConfirm` may give back the
  * words for a refused password (passwordRefusal): they show under the field, the dialog stays open and the field is
- * selected for another try (QA TC-221: restore closed the dialog and the owner started over).
+ * selected for another try (QA TC-221: restore closed the dialog and the owner started over). An account without a
+ * password (made with Google) confirms with Google instead: the press opens Google in a new window, and the request
+ * goes once Google confirmed (docs/decisions/20261122-google-reauth.md); in the apps it needs a browser (one's own
+ * account deletion too: docs/decisions/20261124-google-signin-security.md).
  */
 /** `alt`: a second way to go on with the same password (the update's "Update now anyway" beside "Wait, then update") */
-export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (password: string) => Promise<string | null | void> }; onClose: () => void; onConfirm: (password: string) => Promise<string | null | void> }) {
+export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onConfirm }: { title: string; body: React.ReactNode; confirm: string; danger?: boolean; alt?: { label: string; testId: string; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }; onClose: () => void; onConfirm: (proof: ReauthProof) => Promise<string | null | void> }) {
   const t = useT()
-  const [pw, setPw] = useState('')
+  const r = useReauth()
   const [busy, setBusy] = useState<'main' | 'alt' | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
-  const go = async (confirmWith: (password: string) => Promise<string | null | void>, which: 'main' | 'alt') => {
+  // called in the press: proof() may open the Google window there
+  const go = (confirmWith: (proof: ReauthProof) => Promise<string | null | void>, which: 'main' | 'alt') => {
+    const proof = r.proof()
     setBusy(which)
-    setError(null)
-    const refused = await confirmWith(pw)
-    setBusy(null)
-    if (refused) {
-      setError(refused)
-      input.current?.focus()
-      input.current?.select()
-    }
+    void (async () => {
+      const p = await proof
+      if (!p) { setBusy(null); return }
+      const refused = await confirmWith(p)
+      setBusy(null)
+      if (refused) {
+        r.setError(refused)
+        input.current?.focus()
+        input.current?.select()
+      }
+    })()
   }
+  const close = () => { r.cancel(); onClose() }
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={close}
       title={title}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('common.cancel')}
           </Button>
           {alt && (
-            <Button variant="secondary" busy={busy === 'alt'} disabled={!pw || !!busy} data-testid={alt.testId} onClick={() => void go(alt.onConfirm, 'alt')}>
+            <Button variant="secondary" busy={busy === 'alt'} disabled={!r.ready || !!busy} data-testid={alt.testId} onClick={() => go(alt.onConfirm, 'alt')}>
               {alt.label}
             </Button>
           )}
           <Button
             variant={danger ? 'danger' : 'primary'}
             busy={busy === 'main'}
-            disabled={!pw || !!busy}
+            disabled={!r.ready || !!busy}
             data-testid="reauth-confirm"
-            onClick={() => void go(onConfirm, 'main')}
+            onClick={() => go(onConfirm, 'main')}
           >
             {confirm}
           </Button>
@@ -427,9 +504,7 @@ export function ReauthDialog({ title, body, confirm, danger, alt, onClose, onCon
       }
     >
       <div className="mb-3 text-sm text-muted">{body}</div>
-      <Field label={t('system.passwordAgain')} error={error ?? undefined}>
-        <input ref={input} data-autofocus data-testid="reauth-password" className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => { setPw(e.target.value); setError(null) }} />
-      </Field>
+      <ReauthInput r={r} inputRef={input} />
     </Modal>
   )
 }

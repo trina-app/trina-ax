@@ -33,6 +33,9 @@ export interface SessionService {
   resolve(req: Request, info: RequestInfo): Promise<AuthInfo | null>
   /** owner-reauth endpoints: check the re-entered password (rate-limited like login) */
   verifyPassword(userId: string, password: string, info: RequestInfo): Promise<boolean>
+  /** every re-check (auth/reauth.ts): the password, or, for an account without one, the id of a Google check this
+   * session finished; wrong tries of either kind count on the person's re-check limit */
+  verifyReauth(userId: string, sessionId: string, proof: { password: string } | { reauthFlow: string }, info: RequestInfo): Promise<boolean>
 }
 
 /**
@@ -139,6 +142,9 @@ export interface TurnToolResult {
   stepImages?: { path: string; alt?: string; label?: string }[]
   /** a scheduled task the call made, shown on its step with Pause and Delete (tools/registry.ts ToolResult.stepScheduled) */
   stepScheduled?: { id: string; title: string; nextRunAt: string | null; quiet?: true }
+  /** what the call came back with, beside its step's line (Step.outcome), and a service's error in its own words (the
+   * step's detail, its secrets hidden): the person whose turn it is sees them, nobody else (ChatStore.viewSteps) */
+  stepOutcome?: import('@mycel/shared/api').StepOutcome & { detail?: string }
 }
 /**
  * A tool the engine can call besides the six file tools (as mcp__team__<name>). C registers make_file,
@@ -156,8 +162,9 @@ export interface TurnTool {
   /** offered to this turn? (default: always) */
   available?(t: { userId: string; chatId: string; browser: boolean }): boolean
   call(args: unknown, t: TurnToolContext): Promise<TurnToolResult>
-  /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name */
-  label?(args: unknown, locale: Locale): string
+  /** the step label under the answer ("AI PM · create_task"); default: shared/src/step-labels.ts by the tool name.
+   * `bare`: the tool's words without the call's key input (a card's question, which lists every value itself) */
+  label?(args: unknown, locale: Locale, o?: { bare?: boolean }): string
   /** the room card's words for a call (chat/turn.ts confirmRoomChange, after a room read), where the shared ones would
    * show its raw arguments (QA TC-233): what it does, for the card's question, and its details in words with the exact
    * call one click away (ConfirmDetail.exact). null: the shared words. Words only: it decides nothing */
@@ -254,6 +261,7 @@ export interface Services {
 export const noSessions: SessionService = {
   async resolve() { return null },
   async verifyPassword() { return false },
+  async verifyReauth() { return false },
 }
 export const nullRealtime: RealtimeHub = {
   publish() {}, publishEach() {}, disconnectUser() {}, disconnectSession() {}, forgetReplay() {},

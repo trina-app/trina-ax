@@ -271,6 +271,77 @@ test('a post just sent: Undo deletes the message, then the card says it was take
   } finally { await m.unmount() }
   const old = await mount(<PostedCard posted={posted} endedAt={new Date(Date.now() - 60_000).toISOString()} />)
   try { expect(old.get('posted-card-delete').textContent).toBe('Delete') } finally { await old.unmount() }
+  // where it went, named in the Undo text (a 1:1 chat the viewer's list does not have yet too)
+  const dm = await mount(<PostedCard posted={{ ...posted, to: '박준호' }} endedAt={new Date().toISOString()} />)
+  try {
+    await dm.click('posted-card-undo')
+    expect(dm.get('action-card-title').textContent).toBe(t('postedCard.undoneTo', { to: '박준호' }))
+    expect(dm.get('action-card-title').textContent).toContain('박준호')
+  } finally { await dm.unmount() }
+  // a post that notified everyone: taking it back says the notices already went
+  const all = await mount(<PostedCard posted={{ ...posted, mentionsAll: true }} endedAt={new Date().toISOString()} />)
+  try {
+    await all.click('posted-card-undo')
+    expect(all.get('action-card-title').textContent).toBe(t('postedCard.undoneNotified'))
+    expect(t('postedCard.undoneNotified')).toContain('notices already went out')
+  } finally { await all.unmount() }
+})
+
+// The Undo line names where it went with the right words: a person (a 1:1 chat) "박준호님에게", a room or a group chat
+// "#영업팀에" (QA: "박준호에 보낸 글을 지웠어요"). Every send kind, in Korean, and the person keys in all six languages.
+test('Undo names a 1:1 chat\'s person and a room each with their own words', async () => {
+  const { default: PostedCard } = await import('../../src/components/chat/PostedCard')
+  const { useRooms } = await import('../../src/store/rooms')
+  const roomsBefore = useRooms.getState().rooms
+  const base = { roomId: '019a5f00-0000-7000-8000-00000000b011', messageId: '019a5f00-0000-7000-8000-00000000b012' }
+  const room = (kind: string, extra: Record<string, unknown> = {}) => ({ id: base.roomId, kind, name: null, peers: [], ...extra })
+  const title = async (posted: Record<string, unknown>, rooms: unknown[] = []) => {
+    useRooms.setState({ rooms: rooms as never })
+    const m = await mount(<PostedCard posted={{ ...base, ...posted } as never} endedAt={new Date().toISOString()} />)
+    try {
+      const sent = m.get('action-card-title').textContent
+      await m.click('posted-card-undo')
+      return [sent, m.get('action-card-title').textContent]
+    } finally { await m.unmount() }
+  }
+  useLocaleStore.setState({ locale: 'ko' })
+  try {
+    // a 1:1 chat in the viewer's list: the person, with 님에게 (the room's title is the person's name)
+    expect(await title({ to: '박준호', toPerson: true }, [room('dm', { peers: [{ id: 'u-park', name: '박준호' }] })])).toEqual(['박준호님에게 보냈어요', '박준호님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요'])
+    // a 1:1 chat made by this send, not in the list yet: the server's mark
+    expect(await title({ to: '박준호', toPerson: true })).toEqual(['박준호님에게 보냈어요', '박준호님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요'])
+    // a name that carries its own honorific gets no second one
+    expect((await title({ to: '김대표님', toPerson: true }))[1]).toBe('김대표님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // a team room and a named group chat: the place, with 에
+    expect(await title({ to: '#영업팀' }, [room('team', { name: '영업팀' })])).toEqual(['#영업팀에 올렸어요', '#영업팀에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요'])
+    expect((await title({ to: '주간회의' }, [room('group', { name: '주간회의' })]))[1]).toBe('주간회의에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // an older record (no mark) whose 1:1 chat is in the list: the list says it is a person
+    expect((await title({ to: '박준호' }, [room('dm', { peers: [{ id: 'u-park', name: '박준호' }] })]))[1]).toBe('박준호님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // a 1:1 chat whose person is gone: named as the list names it, with the room words
+    expect((await title({ to: '박준호', toPerson: true }, [room('dm')]))[1]).not.toContain('님에게')
+    // an unnamed group chat, its people listed: the place words
+    expect((await title({ to: '박준호, 이서연' }, [room('group', { peers: [{ id: 'u-park', name: '박준호' }, { id: 'u-lee', name: '이서연' }] })]))[1]).not.toContain('님에게')
+    // a room not in the list (no mark): the place
+    expect((await title({ to: '#전체' }))[1]).toBe('#전체에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // with @everyone in a room: the notices already went
+    expect((await title({ to: '#전체', mentionsAll: true }))[1]).toBe('#전체에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요. 알림은 이미 갔어요.')
+    // a thread reply in a 1:1 chat is still to the person
+    expect((await title({ to: '박준호', toPerson: true, threadRootId: '019a5f00-0000-7000-8000-00000000b013' }))[1]).toBe('박준호님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+  } finally {
+    useLocaleStore.setState({ locale: 'en' })
+    useRooms.setState({ rooms: roomsBefore })
+  }
+  // every language has the person wording, with the name in it and no Korean particle outside Korean
+  for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+    for (const k of ['shareCard.postedToPerson', 'postedCard.undoneToPerson', 'postedCard.undoneToPersonNotified'] as const) {
+      const s = translate(l, k, { to: 'Mina' })
+      expect(s).toContain('Mina')
+      expect(s).not.toBe(k)
+      if (l !== 'ko') expect(s).not.toMatch(/님|에게/)
+    }
+  }
+  expect(translate('ja', 'postedCard.undoneToPerson', { to: '田中' })).toStartWith('田中さんへ')
+  expect(translate('zh', 'postedCard.undoneToPerson', { to: '王伟' })).toContain('发给王伟')
 })
 
 test('a share just done: Undo takes back what it added by the server\'s record (never earlier access)', async () => {

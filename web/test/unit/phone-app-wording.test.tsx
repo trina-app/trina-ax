@@ -96,7 +96,7 @@ describe('"Show message preview" under Notifications', () => {
     expect(messagePreviewDescKey({ platform: 'android', capabilities: ['push-label-v1'] })).toBe('notifications.messagePreviewDesc')
     expect(messagePreviewDescKey({ platform: 'ios', capabilities: [] })).toBe('notifications.messagePreviewDesc')
     expect(messagePreviewDescKey(null)).toBe('notifications.messagePreviewDesc')
-    expect(translate('en', 'notifications.messagePreviewDescAndroid')).toContain("Android phones don't show it yet")
+    expect(translate('en', 'notifications.messagePreviewDescAndroid')).toContain('update the app')
     for (const l of LOCALES) expect(translate(l, 'notifications.messagePreviewDescAndroid')).toMatch(/Android/)
   })
 })

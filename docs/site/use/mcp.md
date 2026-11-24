@@ -205,6 +205,9 @@ never sees the key.
 You can also ask in a chat: "Connect Linear." The AI fills in the app's official address and shows a card. You only
 sign in or paste the key into the card. The key never reaches the AI.
 
+If the address is not in Trina AX's list of apps, the card says so beside the address. Check that it matches the address
+in the app's official docs before you connect.
+
 ## Problems
 
 | What you see | What to do |

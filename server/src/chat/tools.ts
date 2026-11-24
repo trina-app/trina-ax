@@ -22,7 +22,7 @@ import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTI
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
-import type { ToolCard, TurnTool, TurnToolContext } from '../services'
+import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
@@ -65,7 +65,7 @@ import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
-import { mayUseDevEnv } from '../devenv/setting'
+import { mayRunCommands } from '../devenv/setting'
 import { inOldWorkFolder, noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt, workFolderChange } from '../devenv/srt/runner'
 import { NO_WORK_WORDS, workUnavailableText } from '../devenv/work-files'
 import { saveWorkFileTool } from './work-file-tool'
@@ -124,7 +124,7 @@ export interface Tool {
    * read a room skips the room card for it only when its task's card allowed both (chat/schedule-cover.ts) */
   sendsTo?(args: unknown): string | null
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
-  call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string; beforeDelivery?: () => void }>
+  call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string; beforeDelivery?: () => void; stepOutcome?: TurnToolResult['stepOutcome'] }>
 }
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -164,8 +164,8 @@ export interface ChatToolSet extends TurnToolSet {
   seen: ReadSource[]
   /** the same for a resumed session's turn context (shorter where a provider says so) */
   context: string[]
-  /** the step label a per-person tool gives its call, or null for the shared labels */
-  stepLabel(name: string, input: unknown, locale: Locale): string | null
+  /** the step label a per-person tool gives its call, or null for the shared labels (`bare`: without its key input) */
+  stepLabel(name: string, input: unknown, locale: Locale, o?: { bare?: boolean }): string | null
   /** a connection's tool (the integrations provider's, saying whether a call reads: TurnTool.readOnly); any other is not */
   connection(name: string): boolean
   /** a connection tool's call that only reads; false for a write and for any tool that is not a connection's */
@@ -212,7 +212,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const guest = isGuestUser(exec.rt.db, exec.spec.userId)
   const guestInRoom = guest && ([guestPlace(exec.rt.db, exec.spec.userId)].flat() as (GuestPlace | null)[]).some((p) => p?.kind === 'room')
   const tools = new Map<string, Tool>()
-  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
+  const labels = new Map<string, (args: unknown, locale: Locale, o?: { bare?: boolean }) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
@@ -253,7 +253,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     return true
   }
   for (const t of bTools(exec)) add(t)
-  for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL))) add(t)
+  for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL) && !exec.devEnv?.documents)) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
   // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files
   // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
@@ -336,6 +336,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       ...(exec.devEnv.shared ? { shared: exec.devEnv.shared } : {}),
+      ...(exec.devEnv.documents ? { documents: true } : {}),
       // a sub-agent's call comes with its own turn state (files/service.ts forAgent), the main AI's with the turn's
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
@@ -381,7 +382,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.devEnv && tools.has(BOX_SHELL_TOOL)) {
     const d = exec.devEnv
     const where = () => {
-      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return null
+      if (!mayRunCommands(exec.rt.db, exec.rt.files, exec.spec.userId)) return null
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
@@ -389,7 +390,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const at0 = { userId: exec.spec.userId, chatId: exec.spec.chatId, ...(d.shared ? { shared: d.shared } : {}) }
     const change = () => { try { return workFolderChange(exec.rt.ctx, at0) } catch { return null } }
     exec.files.workWhy = () => {
-      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
+      if (!mayRunCommands(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
       let here = false
       try { here = runsInWorkFolder(exec.rt.ctx, { ...at0, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null }) } catch { here = false }
       if (!here) return 'elsewhere'
@@ -572,6 +573,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
     if (again) return { ...text(again, true), summary: `${name} -> ${roomShort(again)} (room)` }
     const out = await t.call(args, files)
+    // what it came back with ("10 results", "Declined") and a service's error in its words, beside its step's line
+    // (Step.outcome; docs/decisions/20261124-step-key-input.md): on the step of this very call, by its id
+    if (out.stepOutcome) {
+      const { detail, ...outcome } = out.stepOutcome
+      exec.patchStepOf({ id: caller?.toolUseId ?? null, tool: name, agent: callerOf(files, exec.files) }, { ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) })
+    }
     // what it brought back, for auto memory's copy check (chat/auto-memory.ts; never kept on disk)
     exec.noteOutside(name, resultText(out.content), out.content.filter((c) => c.type === 'image').length)
     // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
@@ -604,7 +611,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     prompt,
     seen,
     context,
-    stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    stepLabel(name, input, locale, o) { try { return labels.get(name)?.(input, locale, o) ?? null } catch { return null } },
     card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
@@ -1267,7 +1274,8 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
       }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }
-      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
+      // what it came back with goes to its step by the call's id (callTool below)
+      return { content: extra ? [...r.content, { type: 'text' as const, text: extra }] : r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}), ...(r.stepOutcome ? { stepOutcome: r.stepOutcome } : {}) }
     },
   }
 }

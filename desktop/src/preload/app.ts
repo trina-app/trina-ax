@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number; googleSignIn?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -112,6 +112,7 @@ const bridge: DesktopBridge = {
           running: () => ipcRenderer.invoke('bridge:local-running'),
           onRunning: on('bridge:local-running'),
           onConfirmed: on('bridge:local-confirmed'),
+          onAsking: on('bridge:local-asking'),
           setSettings: (id, values) => ipcRenderer.invoke('bridge:local-settings', String(id), values && typeof values === 'object' ? { ...values } : {}),
           settingNames: (id) => ipcRenderer.invoke('bridge:local-setting-names', String(id)),
           connected: () => ipcRenderer.invoke('bridge:local-connected'),
@@ -139,6 +140,9 @@ const bridge: DesktopBridge = {
         },
       }
     : {}),
+  // Sign in with Google: the app takes the code back for the team on screen (main/app-window.ts offerLink); the page
+  // only learns that it may offer the button
+  ...(info?.googleSignIn ? { googleSignIn: info.googleSignIn } : {}),
   // a connector sign-in's one-time return address on 127.0.0.1 (common/sign-in-return.ts): its port, never its requests
   signInReturn: {
     open: () => ipcRenderer.invoke('bridge:sign-in-return-open'),

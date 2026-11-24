@@ -17,7 +17,9 @@ import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
 /** issuer: null when the addresses were given with an own app instead of found (an answer's "iss" is then checked
  * against the sign-in address's server, issuerMatches) */
 export interface OAuthServer { issuer: string | null; authorizationEndpoint: string; tokenEndpoint: string; registrationEndpoint: string | null; revocationEndpoint: string | null }
-export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string }
+/** `registeredScope`: the scope sent with its registration (RFC 7591 `scope`); absent on an app registered without one
+ * (before 2026-11-24) and on an own app or a metadata document */
+export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string; registeredScope?: string | null }
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
@@ -52,6 +54,9 @@ export function canonicalResource(url: string): string {
   return `${u.protocol}//${u.host}${u.pathname === '/' ? '' : u.pathname}`
 }
 
+/** the longest scope list a sign-in asks for (characters, space separated); past it none is sent (discover) */
+export const MAX_SCOPE_CHARS = 2000
+
 /** `Bearer resource_metadata="…", scope="…"` -> its parameters */
 export function wwwAuthenticate(h: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -79,7 +84,10 @@ export class NoSignInFound extends NetError {
 
 /** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
  * `authMethods`: how the token endpoint takes a client secret (token_endpoint_auth_methods_supported), when it says. */
-export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null; metadataClients: boolean }> {
+export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null; metadataClients: boolean
+  /** the scopes the server advertises were too many to ask for (MAX_SCOPE_CHARS): `scope` is null, and the sign-in
+   * gets the server's default grant (the caller logs it) */
+  scopeOmitted?: { count: number; chars: number } }> {
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
@@ -114,10 +122,16 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   if (Array.isArray(meta.response_types_supported) && !meta.response_types_supported.includes('code')) throw new NetError('oauth_unsupported')
   const authorizationEndpoint = httpsUrl(meta.authorization_endpoint), tokenEndpoint = httpsUrl(meta.token_endpoint)
   if (!authorizationEndpoint || !tokenEndpoint) throw new NetError('oauth_unsupported')
-  const scopes = h.scope || (Array.isArray(prm?.scopes_supported) ? prm!.scopes_supported.filter((s: unknown) => typeof s === 'string').join(' ') : '')
+  // the 401's scope hint, else every scope the server advertises; too many to ask for in one sign-in address: none, so
+  // the server's default grant (what a server that advertises none gets). A cut list could leave out the one scope a
+  // tool needs; a longer address can be refused as too long
+  const advertised = Array.isArray(prm?.scopes_supported) ? (prm!.scopes_supported as unknown[]).filter((s): s is string => typeof s === 'string' && !!s) : []
+  const scopes = h.scope || advertised.join(' ')
+  const tooMany = scopes.length > MAX_SCOPE_CHARS
   return {
     server: { issuer: trimSlash(issuer), authorizationEndpoint, tokenEndpoint, registrationEndpoint: httpsUrl(meta.registration_endpoint), revocationEndpoint: httpsUrl(meta.revocation_endpoint) },
-    resource, scope: scopes && scopes.length <= 2000 ? scopes : null, authMethods,
+    resource, scope: scopes && !tooMany ? scopes : null, authMethods,
+    ...(tooMany ? { scopeOmitted: { count: h.scope ? h.scope.split(/\s+/).filter(Boolean).length : advertised.length, chars: scopes.length } } : {}),
     // the server takes a client ID that is the address of a client metadata document (metadataClient)
     metadataClients: meta.client_id_metadata_document_supported === true,
   }
@@ -158,9 +172,12 @@ function extraParams(authorizationEndpoint: string): Record<string, string> {
  * Vercel's and Square's 400 for a callback not on their list, Railway's 403 "registration is disabled"; or any 4xx
  * whose error is invalid_redirect_uri or invalid_client_metadata) is `oauth_approved_apps_only`; 429 (too many
  * registrations now) is `oauth_busy`; anything else stays `oauth_unsupported`. */
-export async function register(server: OAuthServer, redirectUri: string, net: NetOptions): Promise<OAuthClient> {
+export async function register(server: OAuthServer, redirectUri: string, net: NetOptions, scope: string | null = null): Promise<OAuthClient> {
   if (!server.registrationEndpoint) throw new NetError('oauth_no_registration')
-  const body = { client_name: PRODUCT.displayName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }
+  // the scope the sign-in will ask for (RFC 7591 section 2): Calendly gives an app registered without one only its default
+  // scopes, then refuses a sign-in that asks for the scopes its MCP server lists ("The requested scope is invalid",
+  // QA 2026-11-24: mcp:notetaker:read)
+  const body = { client_name: PRODUCT.displayName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', ...(scope ? { scope } : {}) }
   const r = await jsonRequest(server.registrationEndpoint, { method: 'POST', headers: [['Content-Type', 'application/json'], ['Accept', 'application/json']], body: Buffer.from(JSON.stringify(body)) }, net)
   const j = r.json
   if (r.status === 429) throw new NetError('oauth_busy', r.status)
@@ -168,7 +185,7 @@ export async function register(server: OAuthServer, redirectUri: string, net: Ne
   if ((r.status !== 200 && r.status !== 201) || !j || typeof j.client_id !== 'string' || !j.client_id || j.client_id.length > 1000) throw new NetError('oauth_unsupported')
   const secret = typeof j.client_secret === 'string' && j.client_secret && j.client_secret.length <= 4000 ? j.client_secret : null
   const method = secret ? (j.token_endpoint_auth_method === 'client_secret_post' ? 'client_secret_post' : 'client_secret_basic') : 'none'
-  return { clientId: j.client_id, clientSecret: secret, authMethod: method, redirectUri }
+  return { clientId: j.client_id, clientSecret: secret, authMethod: method, redirectUri, ...(scope ? { registeredScope: scope } : {}) }
 }
 
 /** registration errors that refuse this app itself (RFC 7591 section 3.2.2) */
@@ -266,7 +283,7 @@ const FALLBACK = new Set(['oauth_approved_apps_only', 'oauth_no_registration'])
  * document, only a clear refusal stops the sign-in: a plain 400 lets
  * it go on. Throws NetError: `oauth_approved_apps_only` when the service refused every client it was offered, or the
  * registration's own reason (`oauth_no_registration`, `oauth_busy`, `oauth_unsupported`). */
-export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
+export async function chooseClient(setup: { server: OAuthServer; metadataClients?: boolean; scope?: string | null }, origin: string, redirectUri: string, net: NetOptions, urlFor: (c: OAuthClient) => string, again: OAuthClient | null = null, servedAt: readonly string[] = []): Promise<OAuthClient> {
   const at = documentOriginAt(servedAt, new URL(origin).host)
   const served = !!at && new URL(at).origin === new URL(origin).origin
   const metadata = !!setup.metadataClients && served && publicOrigin(origin) && new URL(CALLBACK_PATH, origin).href === redirectUri
@@ -275,7 +292,7 @@ export async function chooseClient(setup: { server: OAuthServer; metadataClients
     let c: OAuthClient
     if (stored) c = again!
     else {
-      try { c = await register(setup.server, redirectUri, net) } catch (e) {
+      try { c = await register(setup.server, redirectUri, net, setup.scope ?? null) } catch (e) {
         if (!metadata || !(e instanceof NetError) || !FALLBACK.has(e.reason)) throw e
         break
       }
@@ -302,9 +319,9 @@ export const loopbackPortOk = (p: unknown): p is number => typeof p === 'number'
  * Intercom and Square take it; Figma refuses it as well. Throws NetError: `oauth_approved_apps_only` when the service
  * refuses this one too (its registration's 400 or 403, or the sign-in page clearly), else the registration's own
  * reason. A plain 400 page lets it through: there is no other client to offer. */
-export async function loopbackClient(server: OAuthServer, port: number, net: NetOptions, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+export async function loopbackClient(server: OAuthServer, port: number, net: NetOptions, urlFor: (c: OAuthClient) => string, scope: string | null = null): Promise<OAuthClient> {
   if (!loopbackPortOk(port)) throw new NetError('oauth_approved_apps_only')
-  const c = await register(server, loopbackRedirect(port), net)
+  const c = await register(server, loopbackRedirect(port), net, scope)
   if ((await preflight(urlFor(c), net)) === 'refused') throw new NetError('oauth_approved_apps_only')
   return c
 }

@@ -183,6 +183,29 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       </div>
     )
   }
+  // a server notice with one choice (the one notice before a connection's first use in a shared chat): one press, never a
+  // radio to pick and then a second button to send
+  if (fromServer && !allowText && !r.multiple && options.length === 1) {
+    const only = options[0]!
+    return (
+      <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="notice">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+          <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
+        </p>
+        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+          <QuestionText r={r} />
+        </p>
+        {r.details?.length ? <Details items={r.details} plain full={full} /> : null}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
+          <Button size="sm" variant="primary" disabled={busy} busy={busy} onClick={() => { setPicked([only.value]); void run({ kind: 'ask_user', answer: only.value }) }} data-testid="ask-yes">
+            {only.label}
+          </Button>
+        </div>
+        {r.note && <p className="mt-2 text-right text-xs text-muted" data-testid="ask-note">{r.note}</p>}
+      </div>
+    )
+  }
   // a server card whose three choices are buttons (a room's change card): once, always here, no (the server's order:
   // the first the main one, the last the quiet "no"); a connector card's four: once, always (this tool), always for
   // the whole connector, no (docs/decisions/20261123-one-always-allow.md). The same compact card, the buttons shown in

@@ -127,8 +127,8 @@ export function learnAlias(db: Database, userId: string, target: { id: string; n
 /** an ask to send or share in a message (then it is a new request, not an answer to "who is that?") */
 const SENDS = /보내|올려|전달|공유|send|post|share|forward|kirim|bagikan|送って|共有|发给|分享|env[ií]a|compart/iu
 
-/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the project's
- * people, the one group, or the shared chat's people: chat/share-folder.ts teamPeople). */
+/** "팀원들", "team members", "우리 팀": everyone on the person's team here, resolved by the caller (the shared
+ * chat's people, the project's, or the one group: chat/share-folder.ts teamPeople), always on a card. */
 // (plural or "my team" forms only: a bare "team" is a topic as often, "팀 회의록 폴더 민수한테 공유해줘": security review)
 const TEAM_WORDS = new Set(['팀원', '팀원들', '팀원분들', '우리팀', '팀사람들', '팀전체', '동료들', 'teammates', 'teammembers', 'myteam', 'ourteam', 'everyoneontheteam',
   'チームメンバー', 'チームのみんな', '团队成员', 'compañeros', 'miequipo', 'anggotatim', 'timsaya'].map((w) => w.normalize('NFC').toLowerCase()))
@@ -161,18 +161,6 @@ export function keepPick(db: Database, userId: string, ref: string, pickedId: st
   setAlias(db, userId, key, pickedId)
   pending.delete(userId)
   return key
-}
-
-/** The person's own words say "팀원들", "my team" …: a word of TEAM_WORDS as a word of the text (a Korean particle after
- * it left out), never a part of another word ("팀" in "팀장"). */
-export function saysTeam(said: string): boolean {
-  const own = said.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n').normalize('NFC').toLowerCase()
-  const words = own.split(/[\s,.!?;:·()"'“”‘’「」]+/u).filter(Boolean)
-  for (let i = 0; i < words.length; i++) {
-    if (isTeamRef(words[i]!) || isTeamRef(words[i]!.replace(/(한테|에게|께|들한테|들에게|이랑|하고|과|와|을|를|은|는|이|가)$/u, ''))) return true
-    if (i + 1 < words.length && isTeamRef(`${words[i]}${words[i + 1]}`)) return true
-  }
-  return false
 }
 
 /** The person's own words call exactly this teammate by a title (QA F5 shared1-sh2: "이거 팀장님한테 보내줘" again, and

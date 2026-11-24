@@ -1,5 +1,6 @@
 import { API, type Locale } from '@mycel/shared/api'
 import { msg } from '../auth/messages'
+import { refuseClientInUse } from '../auth/google-login-admin'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
@@ -16,6 +17,9 @@ import { afterServiceSetup } from '../integrations/service-requests'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
 import { slackOf } from '../integrations/slack/service'
 import { integrationsOf } from '../integrations/connections/service'
+import { finishGoogle, ownsGoogleState } from '../auth/google-login'
+import type { Context } from 'hono'
+import type { AppEnv } from '../http/env'
 
 async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
@@ -61,7 +65,8 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
   kit.handle(API.driveAdminStatus, () => safe(() => driveAdminStatus(ctx)))
   // a member's ask for Google Drive closes once members can connect it (integrations/service-requests.ts)
-  kit.handle(API.setDriveClient, ({ auth, body }) => safe(() => { const st = setDriveClient(ctx, auth.user.id, body); afterServiceSetup(ctx, 'google-drive'); return st }))
+  // another client in place of the one people without a password sign in with: refused (auth/google-login-admin.ts)
+  kit.handle(API.setDriveClient, ({ c, auth, body }) => safe(() => refuseClientInUse(c.get('locale'), () => { const st = setDriveClient(ctx, auth.user.id, body); afterServiceSetup(ctx, 'google-drive'); return st })))
   // the members' switch and Drives shared with the team (integrations/google-drive/shares.ts); admins only, and the
   // service checks the caller is an active admin again
   kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); afterServiceSetup(ctx, 'google-drive'); return driveAdminStatus(ctx) }))
@@ -86,6 +91,9 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {
+    // Sign in with Google comes back to the address this server's Google client registered for Drive, so a company that
+    // set up its Google app registers nothing new (auth/google-login.ts): its states first, Drive's as before
+    if (ownsGoogleState(ctx, c.req.query('state'), c as unknown as Context<AppEnv>)) return finishGoogle(c as unknown as Context<AppEnv>, ctx)
     let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
     const cc = c as unknown as AppContextC
     const auth = cc.get('auth')

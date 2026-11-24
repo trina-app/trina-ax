@@ -11,9 +11,16 @@ import { audit } from '../admin/audit'
 import { profileChangedFor } from '../auth/profiles'
 import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
-import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
+import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setPassword, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
+import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleReauthStatus, googleSignInPageAvailable, myGoogle, startGoogleConnect, startGoogleReauth, startGoogleSignIn } from '../auth/google-login'
+import { redeemGoogleApp } from '../auth/google-login-apps'
+import { startGoogleInvite, startGoogleSetup, withInviteGoogle, withSetupGoogle } from '../auth/google-signup'
+import { googleSigninBrokerOf } from '../auth/google-login-broker'
+import { GOOGLE_SIGNIN_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protocol'
+import type { Context } from 'hono'
+import type { AppEnv } from '../http/env'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
@@ -52,8 +59,18 @@ export const authRoutes: RouteModule = {
     // the relay only to a visitor with the setup token (accounts.ts setupStatusFor). The default language still
     // changes when the owner picks another one at setup: accepted, it is the sign-in page's language
     // (docs/DECISIONS.md "보안 4차").
-    kit.handle(API.setupStatus, ({ c }) => setupStatusFor(c, ctx))
+    kit.handle(API.setupStatus, ({ c }) => {
+      const s = setupStatusFor(c, ctx)
+      // Sign in with Google (auth/google-login.ts): only on a team that is set up, in a browser at the address Google
+      // returns to; in the desktop and phone apps at any address (auth/google-login-apps.ts). Before setup, Start with
+      // Google (auth/google-signup.ts) only to a visitor told that setup is needed, in a browser at that address
+      if (s.needed) return withSetupGoogle(c, ctx, s)
+      if (!googleAppLoginAvailable(ctx)) return s
+      return { ...s, googleAppSignIn: true as const, ...(googleSignInPageAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
+    })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
+    // Sign up with Google (auth/google-signup.ts): the setup token checked as POST /api/setup does, then Google
+    kit.handle(API.startGoogleSetup, ({ c, body }) => startGoogleSetup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 
     kit.handle(API.logout, ({ c, auth }) => {
@@ -69,6 +86,28 @@ export const authRoutes: RouteModule = {
     // "Continue in the Mac app" (web /open-app): a one-time code for the desktop app, and its redeem there
     kit.handle(API.appSignIn, ({ c }) => mintAppSignIn(c, ctx))
     kit.handle(API.redeemAppSignIn, ({ c, body }) => redeemAppSignIn(c, ctx, body))
+
+    // Sign in with Google (auth/google-login.ts): connect in Settings › Security with the current password, then sign in
+    // with it. Google's return comes to the Drive callback address (routes/drive.ts)
+    kit.handle(API.startGoogleSignIn, ({ c, body }) => startGoogleSignIn(c, ctx, body))
+    // the desktop and phone apps: Google's return gave the app a one-time code, spent here with the app's secret
+    kit.handle(API.redeemGoogleSignIn, ({ c, body }) => redeemGoogleApp(c, ctx, body))
+    kit.handle(API.myGoogle, ({ c, auth }) => myGoogle(c, ctx, auth.user.id))
+    kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body))
+    kit.handle(API.disconnectGoogle, ({ c, auth }) => disconnectGoogle(c, ctx, auth.user.id))
+    // a re-check without a password (auth/reauth.ts): Google in a new window, the tab asks how it went, then sends its
+    // request with the check's id; and a first password for an account made with Google, after such a check
+    kit.handle(API.startGoogleReauth, ({ c }) => startGoogleReauth(c, ctx))
+    kit.handle(API.googleReauthState, ({ c, params }) => googleReauthStatus(c, ctx, params.id))
+    kit.handle(API.setPassword, async ({ c, body }) => {
+      await setPassword(c, ctx, body)
+      return { ok: true as const }
+    })
+    // Sign in with Google through the hosting service (hosted teams without a Google client of their own,
+    // auth/google-login-broker.ts): the console sends the browser back here with a one-time handoff. Asked once at
+    // start whether the console serves this team, so the sign-in page knows soon
+    kit.raw('GET', GOOGLE_SIGNIN_TEAM_RETURN_PATH, (c) => finishGoogleBroker(c as unknown as Context<AppEnv>, ctx))
+    googleSigninBrokerOf(ctx)
 
     kit.handle(API.changePassword, async ({ c, body }) => {
       await changePassword(c, ctx, body)
@@ -150,8 +189,10 @@ export const authRoutes: RouteModule = {
       if (params.id === auth.session.id && auth.via === 'cookie') a().clearCookie(c)
     })
 
-    kit.handle(API.inviteInfo, ({ c, params }) => inviteInfo(c, ctx, params.token))
+    kit.handle(API.inviteInfo, ({ c, params }) => withInviteGoogle(c, ctx, inviteInfo(c, ctx, params.token)))
     kit.handle(API.acceptInvite, ({ c, params, body }) => acceptInvite(c, ctx, params.token, body))
+    // Join with Google (auth/google-signup.ts): the token in the body, checked as an accept checks it, then Google
+    kit.handle(API.startGoogleInvite, ({ c, body }) => startGoogleInvite(c, ctx, body))
     kit.handle(API.passwordResetInfo, ({ c, params }) => resetInfo(c, ctx, params.token))
     kit.handle(API.completePasswordReset, ({ c, params, body }) => completeReset(c, ctx, params.token, body))
     registerAccountDeletionRoutes(kit, ctx)

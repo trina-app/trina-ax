@@ -43,6 +43,10 @@ afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?
 
 type Card = { question: string; details?: { label: string; text: string }[] }
 async function turn(user: string, content: string, answer?: string) {
+  // the fake engine's lines go first, so the person's words are their message as they would type it: what follows a
+  // colon runs to the end of the message (post-mentions.ts dictatedPieces)
+  const lines = content.split('\n')
+  content = [...lines.filter((l) => l.startsWith('@fake ')), ...lines.filter((l) => !l.startsWith('@fake '))].join('\n')
   const chatId = (await h.api(user).call(API.createChat, { body: {} })).id
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
@@ -160,7 +164,7 @@ describe('the AI\'s post mentions people of the room for real', () => {
   })
 
   test('the asker\'s own words name the person (in full, or by the name the AI found exactly one member by): no card after the explicit ask; a name inside another member\'s name they wrote: the card', async () => {
-    const named = await turn('alice', `post this to the Marketing room and tag Erin\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`)
+    const named = await turn('alice', `post to the Marketing room and tag Erin: budget is approved\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`)
     expect(named.card).toBeNull()
     expect(JSON.parse(named.content)).toMatchObject({ status: 'sent', mentioned: ['Erin Yoo'] })
     const other = await turn('alice', `post this to the Marketing room\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`, 'no')

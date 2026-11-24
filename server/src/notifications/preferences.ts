@@ -115,6 +115,8 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'access.requested': case 'access.answered': return true
     // a password reset link was made for the person (shown always, Notifications.resetLinkMade)
     case 'account.reset_link': return true
+    // a Google account was connected to the person's account to sign in with (shown always, Notifications.googleConnected)
+    case 'account.google_connected': return true
     // the hosting service copied the team's key or data, or the team address moved to another server (shown always,
     // Notifications.hostingNotice): only the owners and admins can tell whether they asked for it
     case 'hosting.key_copied': case 'hosting.exported': case 'relay.address_moved': return true

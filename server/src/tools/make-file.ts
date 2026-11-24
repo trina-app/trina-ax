@@ -34,6 +34,7 @@
 //   worker), then printed like an HTML page; nothing else here converts a deck (no LibreOffice). Its pictures come
 //   from the deck itself, never from the team folder; the deck is the PDF's only source.
 import { movedFact } from '../files/moved'
+import { assertSafeTeamPath, readVouchers, replacedAsRead } from '../files/office-exit'
 import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -53,7 +54,7 @@ import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/off
 import { DOCX_LINK_CHECK_MODE, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from '../files/office-links-check'
 import { deckPdf, type DrawnDeck } from '../files/deck-pdf'
 import type { SlidesHtml } from '../files/pptx-html'
-import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
+import { encodeHwpxRequest, firstDifference, HWPX_MARKDOWN, hwpxMarkdown, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
@@ -798,8 +799,8 @@ export class MakeFile {
     const tpl = a.template ? this.hwpxTemplate(c, a.template) : null
     if (tpl) sources.push(tpl.rel)
     const input = kind === 'markdown' ? 'in.md' : 'in.csv'
-    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
-    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? 'markdown' : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
+    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : kind === 'markdown' ? hwpxMarkdown(text) : text)
+    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? HWPX_MARKDOWN : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
     if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
     const got = readOutput(work, 'ast.json', MAX_AST)
     if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
@@ -1044,11 +1045,15 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
  * replaced only when this answer read it (a read in an earlier message keeps both, as before); make_file and the
  * tools that change a named file count the chat's earlier reads too (files/service.ts ReadHashes) */
 /** `movedCheck`: a new file where a file was moved away from is said first (make_file, copies out of the work folder) */
-export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean; movedCheck?: boolean }
+/** `fetched`: the bytes are a file from outside saved exactly as it came (a web download, a connector's or a mail's
+ * attachment, a file a person sent in a room, an entry of a zip or an email), not something the AI built or changed:
+ * like a person saving a download, it keeps the earlier behaviour and skips the Office exit check (files/office-exit.ts),
+ * which is for what the AI produces. */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean; movedCheck?: boolean; fetched?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   // `chat:files/<name>` (files/place-output.ts authorizeOutput): attached to this answer, never a team file
-  if (isChatTarget(segs)) { guard?.(); return attachProduced(ctx, c, segs, produced, { turnBytes: po.turnBytes, turnFiles: po.turnFiles }) }
+  if (isChatTarget(segs)) { guard?.(); return attachProduced(ctx, c, segs, produced, { turnBytes: po.turnBytes, turnFiles: po.turnFiles, ...(po.fetched ? { fetched: true } : {}) }) }
   // a guest has the smaller pair (files/turn-write-limits.ts)
   const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
@@ -1057,6 +1062,9 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (counted && c.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
+  // the one check of an AI's file going into a team folder, by its content (files/office-exit.ts): only the file it
+  // replaces, in the bytes this answer read, vouches for what that file already held
+  if (!po.fetched) await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, () => replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal, { read: () => readVouchers(fx.root, c.files.readHashes) })
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
   // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
   const sha = await hashFile(produced)
@@ -1113,7 +1121,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
-  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(po.fetched ? { fetched: true } : {}), ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
   // All office consumers already run in workers; PPTX was validated before this
   // publication. Never add an in-process document parser here.
   files.extractText(rel)

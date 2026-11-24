@@ -107,7 +107,9 @@ describe('server → relay → page → desktop manager → stdio MCP server', (
     const [guide, ran] = r.done.content.split(' | ')
     expect(guide).toContain('# fake guide')
     expect(ran).toContain('ran 47 chars: "await page.goto(\\"https://example.com\\") // $(id)"')
-    expect(r.done.steps.map((s: { label: string }) => s.label)).toEqual(['Ego · Read the guide', 'Ego · Run a browser script'])
+    // the script is code: never on the step (people are not developers), only the address it opens
+    // (docs/decisions/20261124-step-key-input.md)
+    expect(r.done.steps.map((s: { label: string }) => s.label)).toEqual(['Ego · Read the guide', 'Ego · Run a browser script · example.com'])
   })
 
   test('a script that changes something asks first: the card shows it as a code block, byte for byte, and the answer says what the program printed on stderr', async () => {

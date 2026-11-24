@@ -49,14 +49,14 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
   const rows = (): ChatFileRow[] => store.visibleTo(me, chatId).map((v) => v.head)
   return {
     ctx,
-    async attach(name, src, sha256): Promise<Attachment & { sha256: string }> {
+    async attach(name, src, sha256, o): Promise<Attachment & { sha256: string }> {
       // right before the hand-off: still no hidden part in the answer, still a person who sees the chat
       if (exec.hiddenFromLater) throw new ToolError(PLACE_WORDS.hiddenTurn, 'hidden_turn')
       exec.livePrincipal()
       if (!seesChatFiles(rt.db, me, chatId)) throw new ToolError(PLACE_WORDS.notSeen, 'not_here')
       // the chat itself joins the read scope, as save_work_file's attach does (who may see the answer and its file)
       addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
-      const att = await store.createFromAi(me, chatId, name, src, sha256)
+      const att = await store.createFromAi(me, chatId, name, src, sha256, exec.files.readHashes, o?.fetched)
       exec.attachToAnswer(att)
       const kept = (store.row(att.id)?.sha256) ?? sha256
       return { ...att, sha256: kept }

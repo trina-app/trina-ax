@@ -9,7 +9,7 @@ import type { MessageKey } from '../i18n'
 
 export interface LocalAppEntry {
   /** the preset's id (LOCAL_APP_PRESETS), also its card's id and its page's address (/settings/connectors/<id>) */
-  id: 'aside' | 'ego-lite'
+  id: 'aside' | 'ego-lite' | 'playwright' | 'chrome-devtools'
   name: string
   /** a file in web/public/icons/connectors */
   logo: string
@@ -23,11 +23,21 @@ export interface LocalAppEntry {
 export const LISTED_LOCAL_APPS: readonly LocalAppEntry[] = [
   { id: 'aside', name: 'Aside', logo: 'aside.png', line: 'localApps.aside.line', install: 'localApps.aside.install', help: 'localApps.aside.noProfiles' },
   { id: 'ego-lite', name: 'ego lite', logo: 'ego-lite.svg', line: 'localApps.egoLite.line', install: 'localApps.egoLite.install' },
+  { id: 'playwright', name: 'Playwright', logo: 'playwright.svg', line: 'localApps.playwright.line', install: 'localApps.playwright.install' },
+  { id: 'chrome-devtools', name: 'Chrome DevTools', logo: 'chrome-devtools.png', line: 'localApps.chromeDevtools.line', install: 'localApps.chromeDevtools.install' },
 ]
+
+/** The listed apps this computer can run: a preset's `notOn` leaves it out there (Playwright and Chrome DevTools run
+ * through npx, which is npx.cmd on Windows). `platform`: the desktop app's (undefined on the web and the phone, where
+ * every card shows and says it works in the desktop app). */
+export const localAppsFor = (platform: string | undefined): readonly LocalAppEntry[] =>
+  LISTED_LOCAL_APPS.filter((a) => !(platform && LOCAL_APP_PRESETS.find((p) => p.id === a.id)?.notOn?.includes(platform)))
 
 export const localAppLogo = (a: LocalAppEntry) => `/icons/connectors/${a.logo}`
 export const localAppById = (id: string) => LISTED_LOCAL_APPS.find((a) => a.id === id) ?? null
 export const localAppSpec = (a: LocalAppEntry): LocalAppSpec => LOCAL_APP_PRESETS.find((p) => p.id === a.id)!.spec
+/** the app's own download page (macOS and Windows builds); none for the npx presets (their install line names Node.js) */
+export const localAppDownload = (a: LocalAppEntry): string | null => LOCAL_APP_PRESETS.find((p) => p.id === a.id)?.download ?? null
 
 /** Two commands run the same program the same way: the part the computer's confirm covers (its settings' names aside:
  * those are the person's own). */

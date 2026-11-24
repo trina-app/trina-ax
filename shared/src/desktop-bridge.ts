@@ -104,6 +104,10 @@ export type WorkPlaceKind = 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'
 export const WORK_FILES_WIDE_VERSION = 1
 /** DesktopBridge.dictation: voice input transcribed on this Mac (0: not offered) */
 export const DICTATION_BRIDGE_VERSION = 1
+/** DesktopBridge.googleSignIn: the app takes the one-time code of a Google sign-in done in the system browser
+ * (docs/decisions/20261122-google-login-apps.md). 0 or absent: an older app, whose sign-in page offers the password
+ * only. */
+export const GOOGLE_SIGNIN_BRIDGE_VERSION = 1
 /** A Mac's Full Disk Access for the app: granted, not granted, or the app cannot tell (an older macOS, no probe). */
 export type FullDiskState = 'granted' | 'denied' | 'unknown'
 
@@ -368,6 +372,13 @@ export interface DesktopBridge {
     close(port: number): void
   }
   /**
+   * Sign in with Google (GOOGLE_SIGNIN_BRIDGE_VERSION; docs/decisions/20261122-google-login-apps.md): this app opens
+   * Google's page in the system browser (the page's window.open) and takes `<scheme>://open?url=<team>/login/google#code=…`
+   * for the team on screen, without screen ④: it opens that page in the team's window, which redeems the code with the
+   * secret it kept. Absent: an app from before, whose sign-in page shows the password only.
+   */
+  googleSignIn?: number
+  /**
    * Settings > Browser: the same setting as the pane's ⚙ panel, and nothing else. The page can read it, go back to
    * asking, remove an always-allowed site and clear them all. setAccess('all') only asks: the desktop app shows its
    * own confirmation dialog and changes the setting only when the person confirms there; it is refused while the
@@ -393,6 +404,9 @@ export interface DesktopBridge {
     /** Connect was pressed in the confirm after the call that asked stopped waiting (the page checks the connection
      * again by itself). Optional: desktop apps before this addition do not have it. */
     onConfirmed?(cb: (s: { id: string }) => void): () => void
+    /** The app's own "Connect a program" window opened (asking: true) or was answered or closed (false), for this
+     * connection (the page says so while it waits). Optional: desktop apps before this addition do not have it. */
+    onAsking?(cb: (s: { id: string; name: string; asking: boolean }) => void): () => void
     setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
     settingNames(connectionId: string): Promise<string[]>
     /** The connections confirmed (Connect pressed) for this window's team on this computer, by id. Optional: desktop

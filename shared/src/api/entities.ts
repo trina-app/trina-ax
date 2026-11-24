@@ -515,6 +515,13 @@ export type RunStepFixResult = z.infer<typeof RunStepFixResult>
 /** Folders a my_folders step keeps for its card (Step.folders); the rest is a count (Step.moreFolders). */
 export const MY_FOLDERS_MAX = 30
 
+/** Step.outcome */
+export const StepOutcome = z.object({
+  count: z.number().int().min(0).max(1_000_000).optional(),
+  end: z.enum(['declined', 'unanswered', 'skipped', 'refused', 'failed']).optional(),
+})
+export type StepOutcome = z.infer<typeof StepOutcome>
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -538,14 +545,29 @@ export const Step = z.object({
   detail: z.string().max(4000).optional(),
   /** web search cards */
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
+  /** what a call came back with, in a few words beside its line (docs/decisions/20261124-step-key-input.md): how many
+   * items a service's answer listed (`count`), or why it did not run (`end`: the person said no, nobody answered the
+   * card, the person chose not to share it here, it was not allowed, it failed). Only for the person whose turn it was
+   * (ChatStore.viewSteps); absent on every other step */
+  outcome: StepOutcome.optional(),
+  /** the end of `label` that is the call's key input (" · \"YC Korea founders\"", " · example.com/a"; docs/decisions/
+   * 20261124-step-key-input.md): a narrow screen shows it on its own line under the tool's words. Only for the person
+   * whose turn it was (ChatStore.viewSteps), as the label's details are */
+  key: z.string().max(200).optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({
     roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
+    /** where it went, as the person sees it (a room's title, or the person of a 1:1 chat): the card and its Undo name it */
+    to: z.string().max(80).optional(),
+    /** `to` is a person (a 1:1 chat), not a room: the card says "to 박준호" (박준호님에게), not "in #Sales" (#Sales에) */
+    toPerson: z.literal(true).optional(),
     /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
      * read from the posted message itself (never the AI's words about it) */
     preview: z.string().max(120).optional(),
     files: z.array(z.string().max(255)).max(10).optional(),
+    /** it mentioned everyone there: their notices went out, and taking the post back does not take them back */
+    mentionsAll: z.literal(true).optional(),
   }).optional(),
   /** a schedule_create step that made a task (server/src/tools/schedules.ts): its card says it was made, when it first
    * runs, with Pause and Delete (docs/decisions/20261123-do-then-undo.md). `quiet`: made without its card, because the
@@ -1016,13 +1038,14 @@ export type AuditEntry = z.infer<typeof AuditEntry>
  * whisper.cpp on this server (private, slow on small servers). docs/DECISIONS.md "Voice input through OpenRouter". */
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
-/** whisper large-v3 turbo on OpenRouter (DeepInfra, Groq): the default, $0.012 an hour of sound */
+/** whisper large-v3 turbo on OpenRouter (DeepInfra, Groq): $0.012 an hour of sound; weak when one sentence mixes two
+ * languages (it names one language per piece) */
 export const WHISPER_TURBO_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** ElevenLabs Scribe v2 on OpenRouter (ElevenLabs, zero data retention): a team with its own key can pick it in Team
- * settings (docs/decisions/20261123-speech-scribe-v2.md), $0.22 an hour of sound. It becomes the default only after the
- * hosting key's guardrail at OpenRouter allows it (the owner, 2026-11-23). */
+/** ElevenLabs Scribe v2 on OpenRouter (ElevenLabs, a zero data retention endpoint): the default since 2026-11-24
+ * (docs/decisions/20261124-speech-default-scribe-v2.md), $0.22 an hour of sound. The hosting key's guardrail at
+ * OpenRouter must allow it before a release with this default reaches hosted teams. */
 export const SCRIBE_V2_SPEECH_MODEL = 'elevenlabs/scribe-v2'
-export const DEFAULT_SPEECH_MODEL = WHISPER_TURBO_SPEECH_MODEL
+export const DEFAULT_SPEECH_MODEL = SCRIBE_V2_SPEECH_MODEL
 /** the models Admin › Team settings › Voice input suggests for the team's own key (any OpenRouter STT model may be typed) */
 export const SPEECH_MODEL_SUGGESTIONS: readonly string[] = [SCRIBE_V2_SPEECH_MODEL, WHISPER_TURBO_SPEECH_MODEL]
 /** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and
@@ -1160,5 +1183,10 @@ export const TeamSettings = z.object({
    * quick ≈ 3 min, standard ≈ 5 min (the default, DEFAULT_DECK_TIER: more of the site, sourced web facts), deep ≈ 10 min
    * (more again, the strongest model, two reviews). Owners and admins choose it. */
   introDeckTier: z.enum(['quick', 'standard', 'deep']),
+  /** "Sign in with Google" (default on; server/src/auth/google-login.ts, docs/AGENTS/plan/20261122-0616-google-login-admin.md):
+   * people may sign in with the Google account they connected in Settings › Security & devices, where this server has
+   * a Google client. Off: no button, no connect, and a Google return already on its way neither signs in nor connects;
+   * the connected accounts stay and work again when it is turned back on. Older servers omit it. */
+  googleSignIn: z.boolean().optional(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>

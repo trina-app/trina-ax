@@ -94,7 +94,7 @@ export function roomRowOf(db: Database, userId: string, noticeId: string, cutoff
 }
 
 type RoomInfo = { kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; last_read_seq: number; visible_from_seq: number; history_from_seq: number | null }
-type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number; app_id: string | null; app_card: string | null }
+export type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number; app_id: string | null; app_card: string | null }
 const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at, m.deleted_at, m.event, m.answer_at, m.answer_cut, m.app_id, m.app_card'
 /** A row counts at most this many messages (the pill says 99+ past 99), so a long run costs no more than that. */
 export const COUNT_MAX = 100
@@ -136,6 +136,19 @@ function messageLine(m: Msg): string {
   }
   return previewLine(m.author_kind === 'ai' ? plainMarkdown(m.body) : m.body)
 }
+/** The whole text of a message as a phone notification shows it (push-service.ts label): what messageLine reads, every
+ * line of it (not just the first), without Markdown's marks for an AI answer or an app's card. One plain line comes of
+ * it later (notifications/push-preview.ts). */
+export function messageText(m: Msg): string {
+  if (m.app_card) return unescapeMarkdown(m.body)
+  const shared = sharedAnswerOf(m)
+  if (shared) {
+    const note = m.body.slice(0, shared.at)
+    return note.trim() ? note : plainMarkdown(m.body.slice(shared.at))
+  }
+  return m.author_kind === 'ai' ? plainMarkdown(m.body) : m.body
+}
+
 /** Markdown's marks off each line (headings, quotes, list marks, emphasis, code ticks, link targets): what the app's
  * rooms list does for an AI answer (web lib/rooms.ts plainLine), enough for one line. */
 export function plainMarkdown(md: string): string {
@@ -198,7 +211,7 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
  * title on a device in the person's language ("민준 · #마케팅 › 스레드", a DM "민준"). `preview`, the message's first line
  * (the notification's body), only with `o.preview` (the person's messagePreview) and only for a message the whole room
  * sees; never for one with only files (''). null while the person may not read its message. */
-export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale, o: { preview?: boolean } = {}): NonNullable<InboxNotification['room']> | null {
+export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale, o: { preview?: boolean; text?: (m: Msg) => void } = {}): NonNullable<InboxNotification['room']> | null {
   const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.mentions, m.mentions_all FROM room_messages m WHERE m.id = ?`)
     .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; mentions: string; mentions_all: number }) | null
   const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq, rm.history_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
@@ -208,6 +221,8 @@ export function roomNoticeOut(db: Database, notice: { id: string; user_id: strin
   const who = writer(db, s), name = roomName(db, room)
   const reason = parseMentions(s.mentions).includes(notice.user_id) ? 'mention' as const : s.mentions_all && s.author_id !== notice.user_id ? 'everyone' as const : s.thread_root_id ? 'reply' as const : 'message' as const
   const line = o.preview && s.visibility === 'room' ? messageLine(s) : ''
+  // a phone notification's words (push-service.ts label) read the same message, under the same checks
+  if (o.preview && s.visibility === 'room') o.text?.(s)
   return {
     id: s.room_id, ...who, ...(s.thread_root_id ? { thread: s.thread_root_id } : {}), kind: room.kind, name, reason, message: s.id, count: 1, people: 1, at: s.created_at,
     ...(line ? { preview: line } : {}), seq: s.seq,

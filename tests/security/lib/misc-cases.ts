@@ -167,6 +167,10 @@ export const MISC_SPECS: Record<string, Spec> = {
   // joining with the token: refused for a weak password, after the token was found (nobody gets an account here)
   joinTeamLink: { skipPositive: true, build: async (c, w) => c.post('/api/team-link/join', { token: await linkToken(w), username: 'matrixjoin', name: 'Matrix Join', password: 'aaaaaaaa' }), scope: 'nobody',
     check: (r, _w, who) => { if (!(r.status === 400 && err(r)?.fields?.['body.password'])) throw new Error(`${who}: a join with a weak password answered ${r.status} ${r.text.slice(0, 160)}`) } },
+  // Join with Google from the link (server/src/auth/google-signup.ts): the token in the body; the test team has no Google
+  // client, so nothing starts, no use is taken and the start's count on the link's limit is given back
+  startGoogleJoin: { skipPositive: true, build: async (c, w) => c.post('/api/team-link/google', { token: await linkToken(w), username: 'matrixgjoin', name: 'Matrix Join' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a join with Google started without a Google client: ${r.text}`) } },
   revokeTeamLink: { build: (c) => c.del('/api/admin/team-link'), scope: 'byLevel',
     check: (r, _w, who) => { if (!admin(who) && r.status < 400) throw new Error(`${who} revoked the team link`) } },
 

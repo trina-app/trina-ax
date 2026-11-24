@@ -21,6 +21,8 @@ services:
       TRINA_AX_ENGINES: ${TRINA_AX_ENGINES:-claude}
       TRINA_AX_PUBLIC_HOST: ${TRINA_AX_PUBLIC_HOST:-}
       TRINA_AX_TIMEZONE: ${TRINA_AX_TIMEZONE:-}
+      # 0: no AI commands on this server, not even document builds (docs/INSTALL-DOCKER.md "Documents")
+      TRINA_AX_DEV_ENV: ${TRINA_AX_DEV_ENV:-1}
       # the host port, for the setup link only
       TRINA_AX_PORT: ${TRINA_AX_PORT:-47820}
     ports:
