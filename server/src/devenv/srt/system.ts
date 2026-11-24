@@ -355,6 +355,14 @@ export const DIRECT_HEADROOM_MIB = 768
  * OOM) takes the command first and srt lives to report it; both above the server's */
 export const SRT_OOM_SCORE = 700, PAYLOAD_OOM_SCORE = 1000
 
+/** The command a direct run's sandboxed shell gets: it raises its own oom_score_adj to PAYLOAD_OOM_SCORE first (a
+ * builtin redirect, no process; raising needs no privilege), so everything the command starts is above srt's node and
+ * run-wrap (SRT_OOM_SCORE) from its first instruction, before the watch's first poll. On its own line, so a heredoc or a
+ * comment in the command is untouched. */
+export function directCommand(command: string): string {
+  return `echo ${PAYLOAD_OOM_SCORE} > /proc/self/oom_score_adj 2>/dev/null\n${command}`
+}
+
 /** The argv of a direct run: its own session, the lowest CPU priority (nice 19, and SCHED_IDLE where chrt can set it),
  * a hard cap on processes (RLIMIT_NPROC counts the whole account, so the account's tasks now plus the run's pids), then
  * run-wrap and srt as with systemd. Programs that are missing are left out, never the run. */
@@ -408,13 +416,13 @@ export function directSystem(o: { watchMs?: number; base?: string; memory?: { di
       const out = openOut(s.stdoutFile), err = s.stderrFile === s.stdoutFile ? out : openOut(s.stderrFile)
       try {
         const before = memDir ? containerMemory(memDir) : null
-        const p = Bun.spawn(directArgv(s, accountTasks(process.getuid?.() ?? -1, procDir)), { cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err })
+        const p = Bun.spawn(directArgv({ ...s, command: directCommand(s.command) }, accountTasks(process.getuid?.() ?? -1, procDir)), { cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err })
         live.set(s.runId, p.pid)
         oomed.delete(s.runId)
         const maxKiB = s.limits.memoryMiB * 1024, maxPids = s.limits.pids
         const seen = new Map<number, string>()
         const raised = new Set<number>()
-        const watch = setInterval(() => {
+        const tick = () => {
           const table = procTable(procDir)
           const t = runTree(p.pid, procDir, table)
           for (const q of t.pids) { const e = table.get(q); if (e) seen.set(q, e.start) }
@@ -426,7 +434,10 @@ export function directSystem(o: { watchMs?: number; base?: string; memory?: { di
           }
           const cm = memDir ? containerMemory(memDir) : null
           if (t.rssKiB > maxKiB || t.pids.length > maxPids || (cm && cm.current > cm.max - headroom)) { oomed.add(s.runId); try { process.kill(-p.pid, 'SIGKILL') } catch {}; killAll(t.pids) }
-        }, o.watchMs ?? DIRECT_WATCH_MS)
+        }
+        // the first poll at once: run-wrap, srt and bwrap are remembered from the start (finish kills what is left of them)
+        tick()
+        const watch = setInterval(tick, o.watchMs ?? DIRECT_WATCH_MS)
         const exited = p.exited.then(async (code) => {
           clearInterval(watch)
           seen.set(p.pid, procTable(procDir).get(p.pid)?.start ?? '')
