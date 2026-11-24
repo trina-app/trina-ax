@@ -102,6 +102,12 @@ export const PromoVideoInfo = z.object({
     /** seconds the last render took */
     seconds: z.number().nullable(),
     bytes: z.number().nullable(),
+    /** rendering, but not started yet: it waits for another render or another large job on the server (a LibreOffice
+     * conversion, a print) to finish (server/src/system/heavy-jobs.ts) */
+    waiting: z.boolean().optional(),
+    /** why the last render failed (state failed): too_long = past the time limit on this server, memory = out of the
+     * render's memory, other */
+    failure: z.enum(['too_long', 'memory', 'other']).nullable().optional(),
   }),
 })
 export type PromoVideoInfo = z.infer<typeof PromoVideoInfo>

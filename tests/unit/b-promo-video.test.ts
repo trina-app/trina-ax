@@ -20,6 +20,7 @@ import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../serve
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
 import { AUDIO_DIR, PROMO_AUDIO_SOURCES, PROMO_RENDER_FILES, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
 import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
+import { heavyJobs, setHeavyMemoryForTests } from '../../server/src/system/heavy-jobs'
 import { killTree, mp4Available, noFileReason, PROMO_FONT_PATH, RENDER_PICTURE_PIXELS, RENDER_PICTURE_SHORT, leafOom, renderCpus, renderFactor, renderTools, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 import { rawRgba, shrinkPicture } from '../../server/src/onboarding/brand-assets'
 import { imageSize } from '../../server/src/uploads/image'
@@ -607,22 +608,37 @@ setInterval(() => {}, 1000)
     }
   })
 
-  test.if(process.platform === 'darwin' && !!Bun.which('node'))('the time limit ends the render and the browser it started in a group of its own; the row says failed', async () => {
+  test.if(process.platform === 'darwin' && !!Bun.which('node'))('it waits while a conversion runs on a 4 GiB box (the panel says so), then the time limit ends the render and its browser; the row says failed, too long', async () => {
     const root = hanging('slow')
     process.env.MYCEL_HYPERFRAMES_DIR = root
     setRenderTimeoutForTests(1500)
+    setHeavyMemoryForTests(3922)
+    let office: (() => void) | null = await heavyJobs.acquire('office')
     try {
       const chat = await h.api('dana').call(API.createChat, { body: {} })
       await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
       const id = (h.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id
-      expect((await h.api('dana').call(API.renderPromoVideo, { params: { id } })).mp4.state).toBe('rendering')
+      const asked = await h.api('dana').call(API.renderPromoVideo, { params: { id } })
+      expect(asked.mp4).toMatchObject({ state: 'rendering', waiting: true })
+      // nothing starts while the conversion holds the budget
+      await Bun.sleep(400)
+      expect(fs.existsSync(path.join(root, 'pids.json'))).toBe(false)
+      expect((await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4.waiting).toBe(true)
+      expect(heavyJobs.state().waiting).toEqual(['video'])
+      office(); office = null
       const p = await pidsOf(root)
+      expect((await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4).toMatchObject({ state: 'rendering', waiting: false })
       expect(await waitFor(async () => (await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4.state === 'failed', { timeoutMs: 20_000 })).toBe(true)
+      expect((await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4.failure).toBe('too_long')
       expect(await waitFor(() => !alive(p.cli) && !alive(p.browser), { timeoutMs: 10_000 })).toBe(true)
       expect(fs.existsSync(path.join(h.dataDir, 'promo-videos', `${id}.mp4`))).toBe(false)
+      // the budget is free again once the render's processes ended
+      expect(await waitFor(() => heavyJobs.state().running.length === 0, { timeoutMs: 5_000 })).toBe(true)
     } finally {
+      office?.()
       stop(root)
       setRenderTimeoutForTests(null)
+      setHeavyMemoryForTests(null)
       process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
     }
   })
