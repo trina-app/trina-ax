@@ -10,6 +10,7 @@ import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
 import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
+import { keyInputSuffix } from './step-key-input'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -500,7 +501,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const name = a.target === 'google_drive' ? 'Google Drive' : shown ? clip(maskSecrets(shown.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
     }
-    default: return verb ?? knownPrefixVerb(tool, locale) ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
+    // a tool without words of its own (an engine's, an outside one's): its name and its key input, like Claude Code
+    // (step-key-input.ts: a query, an address, a path or a command, secrets never)
+    default: return verb ?? knownPrefixVerb(tool, locale) ?? `${readableToolName(tool) || STEP_WORDS_OTHER[locale]}${keyInputSuffix(a)}`
   }
 }
 

@@ -515,6 +515,13 @@ export type RunStepFixResult = z.infer<typeof RunStepFixResult>
 /** Folders a my_folders step keeps for its card (Step.folders); the rest is a count (Step.moreFolders). */
 export const MY_FOLDERS_MAX = 30
 
+/** Step.outcome */
+export const StepOutcome = z.object({
+  count: z.number().int().min(0).max(1_000_000).optional(),
+  end: z.enum(['declined', 'unanswered', 'skipped', 'refused', 'failed']).optional(),
+})
+export type StepOutcome = z.infer<typeof StepOutcome>
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -538,6 +545,11 @@ export const Step = z.object({
   detail: z.string().max(4000).optional(),
   /** web search cards */
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
+  /** what a call came back with, in a few words beside its line (docs/decisions/20261124-step-key-input.md): how many
+   * items a service's answer listed (`count`), or why it did not run (`end`: the person said no, nobody answered the
+   * card, the person chose not to share it here, it was not allowed, it failed). Only for the person whose turn it was
+   * (ChatStore.viewSteps); absent on every other step */
+  outcome: StepOutcome.optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
   posted: z.object({

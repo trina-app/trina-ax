@@ -164,8 +164,8 @@ export interface ChatToolSet extends TurnToolSet {
   seen: ReadSource[]
   /** the same for a resumed session's turn context (shorter where a provider says so) */
   context: string[]
-  /** the step label a per-person tool gives its call, or null for the shared labels */
-  stepLabel(name: string, input: unknown, locale: Locale): string | null
+  /** the step label a per-person tool gives its call, or null for the shared labels (`bare`: without its key input) */
+  stepLabel(name: string, input: unknown, locale: Locale, o?: { bare?: boolean }): string | null
   /** a connection's tool (the integrations provider's, saying whether a call reads: TurnTool.readOnly); any other is not */
   connection(name: string): boolean
   /** a connection tool's call that only reads; false for a write and for any tool that is not a connection's */
@@ -212,7 +212,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const guest = isGuestUser(exec.rt.db, exec.spec.userId)
   const guestInRoom = guest && ([guestPlace(exec.rt.db, exec.spec.userId)].flat() as (GuestPlace | null)[]).some((p) => p?.kind === 'room')
   const tools = new Map<string, Tool>()
-  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
+  const labels = new Map<string, (args: unknown, locale: Locale, o?: { bare?: boolean }) => string>()
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
@@ -604,7 +604,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     prompt,
     seen,
     context,
-    stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    stepLabel(name, input, locale, o) { try { return labels.get(name)?.(input, locale, o) ?? null } catch { return null } },
     card(name, input, locale) { try { return cards.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly: (name, input) => readsOnly(name, input),
@@ -1264,6 +1264,12 @@ function wrapRegistered(exec: TurnExec, t: TurnTool, note?: (name: string, isErr
       if (r.stepScheduled && !r.isError && !callerOf(files, exec.files).helper) {
         const scheduled = r.stepScheduled
         exec.patchToolStep(t.name, () => ({ scheduled }))
+      }
+      // what it came back with ("10 results", "Declined") and a service's error in its words, beside its step's line
+      // (Step.outcome; docs/decisions/20261124-step-key-input.md). The main AI's call only, as above
+      if (r.stepOutcome && !callerOf(files, exec.files).helper) {
+        const { detail, ...outcome } = r.stepOutcome
+        exec.patchToolStep(t.name, () => ({ ...(Object.keys(outcome).length ? { outcome } : {}), ...(detail ? { detail: exec.redact(detail) } : {}) }))
       }
       let extra: string | null = null
       try { extra = note?.(t.name, !!r.isError, args, files) ?? null } catch { extra = null }

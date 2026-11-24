@@ -20,6 +20,10 @@
 // (docs/DECISIONS.md "Dev environment on srt: preview") and opens it in a new tab.
 // A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
 // or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
+// Like Claude Code, each call says what it did: its line names the key input (a query, an address, a path: the server
+// writes it, step-key-input.ts) and a few words beside it say what came back ("10 results", "Declined", "Didn't work";
+// Step.outcome), never only an icon. Three or more calls in a row of the same tool fold into one row ("Bright Data ·
+// Search Engine · 12 calls") that opens to each call's input (docs/decisions/20261124-step-key-input.md).
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
@@ -234,14 +238,34 @@ function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
   )
 }
 
-function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
+/** The words beside a step's line for what it came back with (Step.outcome), or for a mark that is no success. */
+export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
+  const end = step.outcome?.end
+  if (end) return t(END_KEY[end])
+  if (mark === 'retried') return t('steps.retriedShort')
+  if (mark === 'failed') return t('steps.failed')
+  if (step.outcome?.count !== undefined && mark === 'done') return t('steps.results', { n: step.outcome.count })
+  return ''
+}
+const END_KEY = { declined: 'steps.endDeclined', unanswered: 'steps.endUnanswered', skipped: 'steps.endSkipped', refused: 'steps.endRefused', failed: 'steps.failed' } as const
+
+/** A call's line inside a folded run: what is left after the run's shared start ("Bright Data · Search Engine"), the
+ * whole line when nothing is. */
+export function runRest(label: string, head: string): string {
+  if (!head || !label.startsWith(head)) return label
+  const rest = label.slice(head.length).replace(/^\s*·\s*/, '').trim()
+  return rest || label
+}
+
+function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[]; head?: string }) {
   const t = useT()
   const locale = useLocale()
   const viewPost = useContext(StepPostView)
   // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
   // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
   const words = localizeStep(step, locale)
-  const place = stepPlace(step, words.label, locale)
+  const placed = stepPlace(step, words.label, locale)
+  const place = runHead ? { ...placed, label: runRest(placed.label, runHead) } : placed
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
   // the AI's thinking text (QA AP-033): closed until the person opens it, like claude.ai
@@ -267,6 +291,9 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
   // cut off by the time limit or by Stop: said in words, not only by the icon
   const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : ''
+  // what came back, in words beside the line ("10 results", "Declined", "Didn't work"): never only an icon. A sub-task
+  // says its mark in its own name; a web search counts its results below
+  const came = cut || running || subtask || step.sources?.length ? '' : outcomeWords(step, mark, t)
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   // a row that opens is a button; one with nothing to open is not a control (a disabled button would also swallow the
@@ -299,6 +326,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
           className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="step-memory-open">{place.label}</button>
       ) : <span className="min-w-0 flex-1 truncate" title={place.path}>{place.label}</span>}
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
+      {came ? <span className={clsx('shrink-0 text-xs', mark === 'failed' ? 'text-danger' : 'text-faint')} data-testid="step-outcome">{came}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
       {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
       {step.posted && !expandable ? (
@@ -404,6 +432,71 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
   return { top, kids }
 }
 
+/** Steps that fold into a run when three or more come in a row: plain tool calls, by their tool (or, where the tool's
+ * name is not shown, as for a teammate's view of a connection's call, by their line). A step with something of its own
+ * to show (a sub-task, a memory, a post, pictures, a dev environment run, a card's record) stays a row. */
+const RUN_MIN = 3
+const runKey = (s: Step): string | null => {
+  if (s.kind !== 'tool' || s.tool === 'agent' || s.tool === 'attachment' || s.memory || s.posted || s.images?.length || s.devEnvRun || s.shared || s.scheduled || s.folders || s.fixes?.length || s.todos) return null
+  return s.tool ? `tool:${s.tool}` : `label:${s.label}`
+}
+export type StepItem = { step: Step } | { run: Step[] }
+/** The top steps with runs of the same tool folded (RUN_MIN or more in a row). */
+export function foldRuns(top: Step[]): StepItem[] {
+  const out: StepItem[] = []
+  for (let i = 0; i < top.length;) {
+    const key = runKey(top[i]!)
+    let j = i + 1
+    if (key) while (j < top.length && runKey(top[j]!) === key) j++
+    if (key && j - i >= RUN_MIN) out.push({ run: top.slice(i, j) })
+    else for (let k = i; k < j; k++) out.push({ step: top[k]! })
+    i = j
+  }
+  return out
+}
+/** The start every line of a run shares, cut back to where a part of the line ends (" · ", ' "'): its tool's words. */
+export function runHead(labels: string[]): string {
+  let p = labels[0] ?? ''
+  for (const l of labels.slice(1)) { let n = 0; while (n < p.length && n < l.length && p[n] === l[n]) n++; p = p.slice(0, n) }
+  if (labels.every((l) => l === p)) return p
+  const cut = Math.max(p.lastIndexOf(' · '), p.lastIndexOf(' "'))
+  return cut > 0 ? p.slice(0, cut).replace(/\s*·\s*$/, '') : ''
+}
+
+/** One row for a run of calls of the same tool: its words, how many calls, how many did not work; opens to each call. */
+function RunRow({ run, live, marks }: { run: Step[]; live: boolean; marks: Omit<MarkContext, 'live'> }) {
+  const t = useT()
+  const locale = useLocale()
+  const [open, setOpen] = useState(false)
+  const labels = run.map((s) => stepPlace(s, localizeStep(s, locale).label, locale).label)
+  const head = runHead(labels) || labels[0]!
+  const ms = run.map((s) => stepMark(s, { live, ...marks }))
+  const running = ms.includes('running')
+  const failed = ms.includes('failed')
+  const notDone = ms.filter((m) => m === 'failed' || m === 'retried').length
+  const first = run[0]!
+  const Icon = first.tool && FILE_TOOLS.has(first.tool) ? FileSearch : ICON[first.kind] ?? Wrench
+  const calls = t('steps.calls', { n: run.length })
+  return (
+    <li className="text-label text-muted" data-testid="step-run">
+      <button type="button" aria-expanded={open} aria-label={`${head} · ${calls}${notDone ? ` · ${t('steps.runNotDone', { n: notDone })}` : ''} · ${t('steps.runShow')}`}
+        onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-hover">
+        {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-hidden /> : failed ? <CircleAlert size={13} className="shrink-0 text-danger" aria-hidden /> : notDone ? <CircleMinus size={13} className="shrink-0 text-faint" aria-hidden /> : <Check size={13} className="shrink-0 text-ok" aria-hidden />}
+        <Icon size={13} className="shrink-0 text-faint" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{head}</span>
+        <span className="shrink-0 text-xs text-faint tabular-nums" data-testid="step-run-count">{calls}</span>
+        {notDone ? <span className={clsx('shrink-0 text-xs tabular-nums', failed ? 'text-danger' : 'text-faint')} data-testid="step-run-notdone">{t('steps.runNotDone', { n: notDone })}</span> : null}
+        {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
+      </button>
+      {open && (
+        <ul className="mt-1 mb-2 ml-6 space-y-0.5 border-l border-line pl-3" data-testid="step-run-calls">
+          {run.map((s) => <StepRow key={s.id} step={s} live={live} marks={marks} head={head} />)}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 /** A demo server's replayed answer (server/src/demo/replay.ts) carries this step: not a step of the work, but one small
  * line in the opened list ("데모용으로 미리 준비한 결과예요"), never counted, never in the live tail. */
 export const DEMO_REPLAY_STEP = 'demo_replay'
@@ -449,9 +542,9 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>
           {note && <li className="px-1 text-xs text-faint" data-testid="demo-replay-note">{localizeStep(note, locale).label}</li>}
-          {top.map((s) => (
-            <StepRow key={s.id} step={s} live={false} marks={marks} kids={kids.get(s.id)} />
-          ))}
+          {foldRuns(top).map((it) => ('run' in it
+            ? <RunRow key={it.run[0]!.id} run={it.run} live={false} marks={marks} />
+            : <StepRow key={it.step.id} step={it.step} live={false} marks={marks} kids={kids.get(it.step.id)} />))}
         </ul>
       )}
       {/* what the AI kept, changed or forgot about the person stays in view, with its 되돌리기, while the list is folded

@@ -3407,7 +3407,7 @@ export class TurnExec {
     const L = this.spec.locale
     // a tool's own words (TurnTool.card: a connection's HTTP API call), else the shared ones
     const words = this.toolCard(tool, input)
-    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L) ?? roomCardWhat(tool, tool === 'artifact' ? this.artifactTitled(this.cardInput(tool, input)) : this.cardInput(tool, input), L))
+    const what = this.redact(words?.what ?? this.toolSet?.stepLabel(tool, input, L, { bare: true }) ?? roomCardWhat(tool, tool === 'artifact' ? this.artifactTitled(this.cardInput(tool, input)) : this.cardInput(tool, input), L))
     // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
     const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const details = this.roomCardDetails(tool, input, words)
