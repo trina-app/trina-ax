@@ -116,6 +116,26 @@ describe('the second review\'s repros: what a package is comes from its parts, r
     expect(() => officeExitRequest(frame('pptx', d))).toThrow(/INCLUDEPICTURE/i)
     await expect(assertSafeTeamFile('r.docx', d, null)).rejects.toThrow(/INCLUDEPICTURE/i)
   })
+  test('G: an entry count lowered to hide the last directory entry is refused; H: an end record hidden in the comment too', async () => {
+    const evil = () => writeZip([
+      { name: 'a.txt', data: enc.encode('x') },
+      { name: '_rels/.rels', data: enc.encode(`<Relationships xmlns="${RELS}"><Relationship Id="rId1" Type="${OD}/officeDocument" Target="word/document.xml"/></Relationships>`) },
+      { name: 'word/document.xml', data: enc.encode(body) },
+      { name: '[Content_Types].xml', data: enc.encode(CT) },
+    ])
+    const eocdAt = (b: Uint8Array) => { for (let i = b.length - 22; i >= 0; i--) if (b[i] === 0x50 && b[i + 1] === 0x4b && b[i + 2] === 5 && b[i + 3] === 6) return i; return -1 }
+    const g = new Uint8Array(evil()); const e = eocdAt(g); const v = new DataView(g.buffer)
+    v.setUint16(e + 8, v.getUint16(e + 8, true) - 1, true); v.setUint16(e + 10, v.getUint16(e + 10, true) - 1, true)
+    expect(contentKind('r.docx', g.length, bytesReader(g))).toMatchObject({ opaque: expect.stringMatching(/could not be listed/) })
+    await expect(assertSafeTeamFile('r.docx', g, null)).rejects.toThrow()
+    const b0 = evil(); const e0 = eocdAt(b0); const rv = new DataView(b0.buffer, b0.byteOffset)
+    const cdOff = rv.getUint32(e0 + 16, true)
+    const first = 46 + rv.getUint16(cdOff + 28, true) + rv.getUint16(cdOff + 30, true) + rv.getUint16(cdOff + 32, true)
+    const fake = new Uint8Array(22); const fv = new DataView(fake.buffer)
+    fv.setUint32(0, 0x06054b50, true); fv.setUint16(8, 1, true); fv.setUint16(10, 1, true); fv.setUint32(12, first, true); fv.setUint32(16, cdOff, true)
+    const h = new Uint8Array(b0.length + 22); h.set(b0); new DataView(h.buffer).setUint16(e0 + 20, 22, true); h.set(fake, b0.length)
+    expect(contentKind('r.docx', h.length, bytesReader(h))).toMatchObject({ opaque: expect.stringMatching(/could not be listed/) })
+  })
   test('F: a directory larger than any tail, and bytes before the zip, still list every part', async () => {
     const pad = Array.from({ length: 50000 }, (_, i) => ({ name: `customXml/p${String(i).padStart(6, '0')}${'x'.repeat(60)}.bin`, data: new Uint8Array(0) }))
     const d = writeZip([

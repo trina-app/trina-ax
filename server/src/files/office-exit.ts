@@ -45,6 +45,8 @@ export function zipNames(size: number, readAt: ReadAt): string[] | 'unreadable' 
   let at = -1
   for (let i = tail.length - 22; i >= 0; i--) if (tv.getUint32(i, true) === 0x06054b50) { at = i; break }
   if (at < 0) return startsWith(readAt(0, 4), [0x50, 0x4b, 0x03, 0x04]) ? 'unreadable' : null
+  // two end records that each reach the end of the file (one hidden in the other's comment): ambiguous, refused
+  for (let i = at - 1; i >= 0; i--) if (tv.getUint32(i, true) === 0x06054b50 && i + 22 + tv.getUint16(i + 20, true) === tail.length) return 'unreadable'
   const eocd = size - tailLen + at
   let entries = tv.getUint16(at + 10, true), cdSize = tv.getUint32(at + 12, true), cdOff = tv.getUint32(at + 16, true), end = eocd
   if (entries === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) {
@@ -74,6 +76,8 @@ export function zipNames(size: number, readAt: ReadAt): string[] | 'unreadable' 
     names.push(Buffer.from(cd.subarray(p + 46, p + 46 + nlen)).toString('utf8'))
     p += 46 + nlen + xlen + clen
   }
+  // the entries must fill the directory exactly: a count lowered to hide the last entries is not a readable zip
+  if (p !== cd.length) return 'unreadable'
   return names
 }
 
