@@ -34,7 +34,10 @@
 - **Self-test.** With no systemd the runner checks that one command runs in srt here (offline, `<base>` hidden). Where
   it cannot (a host missing the guide's security settings, an Ubuntu host's AppArmor), box_shell is not offered and
   the AI uses make_file, as on any server without runs.
-- **Existing teams.** A Docker team with no dev environment row (every team made after 2026-11-06) gets the offline run
-  at its next image, as the owner decided for documents (decision 2). Admins turn it off in the team settings.
+- **Which teams.** The same rules as every install with `MYCEL_DEV_ENV=1`: a team with no saved setting gets the dev
+  environment's default (on), an older team that never chose gets documents mode
+  (docs/decisions/20261124-documents-mode.md: work folder only), and a team whose admin saved it off gets neither. In
+  Docker every one of them is offline, by the root plan file. Admins turn it off in the team settings; the operator
+  with `MYCEL_DOCUMENTS_MODE=0` for documents mode.
 - **Not changed.** The engine (as `axagent`, behind the firewall), the converters, the Office safety check (#499).
 - **Version impact.** minor. A root update (the package list).
