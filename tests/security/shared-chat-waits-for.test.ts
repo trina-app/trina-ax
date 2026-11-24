@@ -78,6 +78,19 @@ test("a step line that repeats a card (question, address, service) is the asker'
   expect(JSON.stringify(await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} }))).toContain(SECRET)
 })
 
+test("our own step kinds keep their tool name for grouping and lose their words; a look-alike connector does not", async () => {
+  const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
+  const kinds = ['agent', 'todo_write', 'attachment', 'engine', 'refusal', 'context', 'history_summary', 'demo_replay']
+  const steps = [...kinds.map((tool) => ({ id: `i-${tool}`, kind: 'tool', tool, label: `Line ${SECRET}`, ...stamp() })), { id: 'x', kind: 'tool', tool: 'my_agent__agent', label: `Line ${SECRET}`, ...stamp() }]
+  h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
+  const got = (await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === r.assistantMessage.id)!.steps
+  expect(JSON.stringify(got)).not.toContain(SECRET)
+  for (const tool of kinds) expect(got.find((s) => s.id === `i-${tool}`)?.tool).toBe(tool)
+  expect(got.find((s) => s.id === 'x')?.tool).toBeUndefined()
+})
+
 test('what stays for the others: a command (20261118-devenv-shared-chats) and a save_url path they may see', async () => {
   const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
