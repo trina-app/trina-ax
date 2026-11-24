@@ -86,3 +86,17 @@ test('a server card with more choices keeps its radios and [답하기]: a pick a
     await m.unmount()
   }
 })
+
+test('a server notice with one button (a connection first used in a shared chat): one press answers it', async () => {
+  const answers: unknown[] = []
+  const request: Ask = { kind: 'ask_user', origin: 'server', requestId: 'n1', question: 'Other people in this chat can also see what the AI gets from Bright Data.', multiple: false, allowText: false, buttons: true, options: [{ label: 'Continue', value: 'once' }] }
+  const m = await mount(<AskCard req={{ request }} onAnswer={async (_id, body) => void answers.push(body)} />)
+  try {
+    expect(m.html()).not.toContain('type="radio"')
+    expect(m.find('ask-send')).toBeFalsy()
+    await m.click('ask-yes')
+    expect(answers).toEqual([{ kind: 'ask_user', answer: 'once' }])
+  } finally {
+    await m.unmount()
+  }
+})
