@@ -24,17 +24,30 @@
 - **Office Mac and Mac team servers.** LibreOffice is never installed on a Mac. An existing install is not used either:
   it does not start in the converter sandbox unless its network, exec and file rules are loosened, and the sandbox is not
   loosened for a preview. Quick Look (`qlmanage`) does not start in that sandbox. The AI says it did not see the pages.
-- **Install types.**
+- **Install types (phase 1 of docs/AGENTS/plan/20261124-0314-doc-quality-all-situations.md, owner OK 2026-11-24).**
 
-  | Install | Skills | Libraries | Korean fonts | LibreOffice | When something is missing |
-  |---|---|---|---|---|---|
-  | Hosted (Linux image) | With the dev environment on | One list | Noto CJK | apt, about 420 MiB | make_file, still views pages |
-  | Debian 13, Ubuntu 24.04 | With the dev environment on | One list | Noto CJK | apt, 419-441 MiB | make_file, still views pages |
-  | Debian 12 | No (no srt run) | Not used | Noto CJK | apt, about 403 MiB | make_file, still views pages |
-  | Docker | No (no run) | Not used | Noto CJK | apt, about 600 MiB with fonts | make_file, still views pages |
-  | Office Mac | No (no run) | Not used | macOS fonts | Not used | make_file, says pages were not seen |
-  | Mac team server | No (no Python libraries) | Not used | macOS fonts | Not used | make_file, says pages were not seen |
+  | Install | Skills | LibreOffice (page view, Excel values) | When something is missing |
+  |---|---|---|---|
+  | Hosted, Debian 13 | With the dev environment on | apt, `office-view` default group, floor `4:25.2.3-2+deb13u12` | make_file; still views pages |
+  | Ubuntu 24.04 | With the dev environment on | Not installed until its CVE-2026-63277 fix | Says pages and formula results were not checked |
+  | Debian 12 | No (no srt run) | Not installed | make_file, says so |
+  | Docker default image, `--minimal` | No | Not installed (always groups only) | make_file, says so |
+  | Office Mac, Mac team server | No | Not used | make_file, says so |
 
+- **Exit check.** Every Office file that leaves a run is scanned like make_file's output (office-links-check.ts):
+  save_work_file, copy_files, chat attachments, chat-file versions, and files a command or a job writes straight into a
+  project or the person's own folder (devenv/track.ts: refused files are undone). An edit keeps the risky items its
+  earlier version, the file it replaces or a file this answer read already held, so a company template keeps working.
+  A file saved through the file layer between commands is a person's and is not undone.
+- **Excel values.** A workbook leaving the work folder is recalculated by LibreOffice in the converters' isolation (a
+  throwaway profile with macros off and recalculate-on-load), and only each formula's result is copied into the
+  original (files/xlsx-values.ts). Where that cannot run, the save result tells the AI to say so.
+- **Decks** are drawn through LibreOffice where the server has it; elsewhere by the server's own slide renderer.
+- **Cost (Debian 13, 4 GiB and 2 CPUs, arm64).** About 0.8 s per page render and 0.9 s per Excel recalculation. Peak
+  memory 200-300 MiB for a 5-page Word file, under 200 MiB for a workbook or deck. LibreOffice's libraries take
+  280 MiB on amd64; the install is about 440 MiB with its dependencies. User namespaces do not work under amd64
+  emulation, so the isolated render was measured on arm64.
 - **Security.** AI-written code builds documents, only inside the srt run. LibreOffice opens files in bwrap with no
-  network. Vendored files are copied by sha256 and are read-only in a run.
+  network, a throwaway profile, macros off, and time, memory and disk limits. Vendored files are copied by sha256 and
+  are read-only in a run.
 - **Version impact.** minor. A root update, because the package list changes.
