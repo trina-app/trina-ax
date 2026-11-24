@@ -3,6 +3,7 @@
 import { expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 
@@ -10,7 +11,7 @@ test('every relay module (and the shared files it loads) loads in Node without a
   if (!Bun.which('node')) return
   const files = fs.readdirSync(path.join(ROOT, 'relay/src')).filter((f) => f.endsWith('.ts') && f !== 'main.ts').map((f) => path.join(ROOT, 'relay/src', f))
   files.push(path.join(ROOT, 'shared/src/cloud-protocol/relay-ops.ts'), path.join(ROOT, 'shared/src/relay-protocol/index.ts'), path.join(ROOT, 'shared/src/sentry-report.ts'))
-  const script = `Promise.all(${JSON.stringify(files)}.map((f) => import(f))).then(() => console.log('loaded'), (e) => { console.error(e.code ?? '', e.message); process.exit(1) })`
+  const script = `Promise.all(${JSON.stringify(files.map((f) => pathToFileURL(f).href))}.map((f) => import(f))).then(() => console.log('loaded'), (e) => { console.error(e.code ?? '', e.message); process.exit(1) })`
   const p = Bun.spawnSync(['node', '--disable-warning=ExperimentalWarning', '-e', script], { cwd: ROOT })
   expect({ out: p.stdout.toString().trim(), err: p.stderr.toString().trim().split('\n')[0] }).toEqual({ out: 'loaded', err: '' })
 })
