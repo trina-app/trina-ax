@@ -10,6 +10,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Database } from 'bun:sqlite'
 import { OFFICE_WRITE_MAX, officeWorkerWrite } from './extract'
 import { OFFICE_EXIT_MODE } from './office-links-check'
 import { ToolError } from '../policy/errors'
@@ -264,4 +265,19 @@ export function readVouchers(root: string, readHashes: Iterable<[string, string]
     } catch { /* gone or unreadable: vouches for nothing */ }
   }
   return out
+}
+
+/**
+ * Are these exact bytes of a team file outside bytes saved as they came? The newest record of the file at `rel` with
+ * this hash says so when a person saved it (no AI turn, not a run's write) or a tool saved it as fetched (a download, an
+ * attachment). A file the AI built, copied out of its work folder or changed, or one with no record, is not: what is
+ * derived from it (an unzipped entry, an email's attachment) gets the exit check.
+ */
+export function cameFromOutside(db: Database, rel: string, sha256: string): boolean {
+  const row = db.query("SELECT turn_id, detail FROM file_events WHERE path = ? AND sha256 = ? AND action IN ('create', 'update', 'restore') ORDER BY id DESC LIMIT 1").get(rel, sha256) as { turn_id: string | null; detail: string | null } | null
+  if (!row) return false
+  let d: { via?: unknown; fetched?: unknown } = {}
+  try { d = row.detail ? JSON.parse(row.detail) : {} } catch { d = {} }
+  if (d.via === 'dev_env') return false
+  return row.turn_id === null || d.fetched === true
 }

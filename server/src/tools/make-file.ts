@@ -1121,7 +1121,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
-  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(po.fetched ? { fetched: true } : {}), ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
   // All office consumers already run in workers; PPTX was validated before this
   // publication. Never add an in-process document parser here.
   files.extractText(rel)
