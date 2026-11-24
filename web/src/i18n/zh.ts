@@ -7379,6 +7379,7 @@ export const zh: Record<MessageKey, string> = {
   "postedCard.undo": "撤销",
   "postedCard.delete": "删除",
   "postedCard.undone": "已撤回，其他人看不到了",
+  "postedCard.undoneNotified": "已撤回，其他人看不到了。通知已经发出。",
   "postedCard.undoFailed": "无法撤回，请重试。",
   "shareCard.takenBack": "已取消共享",
   "shareCard.madeFolder": "已创建文件夹\"{file}\"并已共享",

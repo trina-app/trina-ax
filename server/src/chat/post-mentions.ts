@@ -45,6 +45,33 @@ export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 /** Does a text hold "@everyone" in any language, "@channel" or "@here" where a mention may start? */
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
 
+/** Quoted stretches, as the person put them */
+const QUOTED = /"[^"\n]*"|“[^”\n]*”|「[^」\n]*」/gu
+/** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
+ * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
+const NOT_A_PLAIN_ASK = /말고|빼고|제외|없이|(?:^|\s)안(?:\s|$)|안\s?돼|하지|지\s?마|마세요|[?？]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|不要|别|以外|ではなく/iu
+/** The asker's own words, outside anything they quote, write "@everyone" (each language's word) as a whole word in a plain
+ * request (the room named, docs/decisions/20261123-do-then-undo.md). "@전체회의", "@everyone-sync", "@전체 말고", or "@전체" only inside
+ * quoted words (someone else's, or the text) are no ask to notify everyone: the card shows. */
+export function everyoneAsked(said: string): boolean {
+  const outside = said.replace(QUOTED, ' ')
+  if (NOT_A_PLAIN_ASK.test(outside)) return false
+  const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  // (the Korean word on its own counts as what it says: "전체에게", "전체 공지로", "전체 알림")
+  return new RegExp(`(?:^|[\\s(\\[])@(?:${words})(?=$|[\\s.,!)\\]])`, 'iu').test(outside)
+    || /(?:^|\s)\uC804\uCCB4(?:\uC5D0\uAC8C|\uD55C\uD14C|\s?\uACF5\uC9C0|\s?\uC54C\uB9BC|\s?\uBA58\uC158)/u.test(outside)
+}
+/** The text of a post in the person's own words, without its "@everyone", is exactly one stretch they put in quotes: where
+ * they put the mention in their sentence is not part of their text (QA b5 F6: "<text>" 이라고 @everyone 으로 올려줘). A part
+ * of a quote can change its meaning ("회의 취소 안 함" -> "회의 취소"), so only the whole quote counts. */
+export function isTheirQuote(said: string, posted: string): boolean {
+  const words = [...ROOM_MENTION_ALL_WORDS].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const body = fold(posted.replace(new RegExp(`(^|\\s)@(?:${words})(?=$|\\s)`, 'giu'), '$1'))
+  if (!body) return false
+  for (const m of said.matchAll(/"([^"\n]+)"|“([^”\n]+)”|「([^」\n]+)」/gu)) if (fold(m[1] ?? m[2] ?? m[3] ?? '') === body) return true
+  return false
+}
+
 export type PickedMentions =
   | { ok: true; ids: string[]; all: boolean; byName: { ref: string; id: string }[] }
   | { ok: false; unknown: string[]; many: { ref: string; people: Mentionable[] }[]; broadcast: boolean; tooMany: boolean }
