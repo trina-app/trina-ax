@@ -199,7 +199,7 @@ export function chatMessageLabel(ctx: AppContext, notificationId: string, locale
   // it read that they no longer may): asked again now, as the chat does when it shows it
   if (m.role === 'assistant' && answerHiddenFrom(ctx.db, ctx.files, n.chat_id, n.source_id, [n.user_id]).has(n.user_id)) return null
   const who = n.by_user ? activeName(ctx.db, n.by_user) : m.role === 'assistant' ? ROOM_WORDS[locale].ai : null
-  const place = chatPlace(ctx, n.chat_id, n.user_id)
+  const place = chatPlace(ctx, n.chat_id, n.user_id, { preview, locale })
   const title = plainLabel(who && place ? `${who} · ${place}` : who || place, 120)
   if (!title) return null
   const text = m.role === 'assistant' ? plainMarkdown(m.content) : m.content

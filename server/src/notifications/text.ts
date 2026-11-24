@@ -21,11 +21,11 @@ export const TEXT = {
     en: 'A connection needs you to sign in again.',
     id: 'Koneksi perlu login ulang.', ja: "接続のために再ログインが必要です。", es: "Una conexión requiere que vuelva a iniciar sesión.", zh: "有一个连接需要你重新登录。",
   },
-  // rooms: who wrote what stays in the app; the lock screen only says that something came
+  // rooms: the line when the message itself is not shown (preview off, a secret, the phone could not ask): the same
+  // words as a chat's message and the push gateway's own line (push-gateway/src/text.ts MESSAGE_TEXT), so a phone says
+  // one thing everywhere
   'room.dm': {
-    ko: '새 메시지가 왔어요.',
-    en: 'You have a new message.',
-    id: 'Ada pesan baru untuk Anda.', ja: "新しいメッセージが届きました。", es: "Tiene un mensaje nuevo.", zh: "你有一条新消息。",
+    ko: '새 메시지가 있어요', en: 'You have a new message', id: 'Ada pesan baru', ja: '新しいメッセージがあります', es: 'Tienes un mensaje nuevo', zh: '你有一条新消息',
   },
   'room.mention': {
     ko: '대화에서 나를 언급한 메시지가 있어요.',
@@ -123,6 +123,11 @@ export const PUSH_FILE_WORDS = {
     ko: '파일 {n}개를 보냈어요', en: 'Sent {n} files', id: 'Mengirim {n} file', ja: 'ファイルを{n}件送信しました', es: 'Envió {n} archivos', zh: '发送了{n}个文件',
   },
 } satisfies Record<string, Record<Locale, string>>
+/** A chat's place in a phone notification's title when its own title may not be shown (notifications/push-preview.ts
+ * chatPlace): previews off, or a title that is still a message's text. */
+export const SHARED_CHAT: Record<Locale, string> = {
+  ko: '공유 채팅', en: 'Shared chat', id: 'Obrolan bersama', ja: '共有チャット', es: 'Chat compartido', zh: '共享对话',
+}
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído', zh: '标为已读' }
 /** a phone whose notifications another person's live session gets (push-service.ts registerDevice): never says who */

@@ -93,7 +93,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.raw('GET', CALLBACK_PATH, async c => {
     // Sign in with Google comes back to the address this server's Google client registered for Drive, so a company that
     // set up its Google app registers nothing new (auth/google-login.ts): its states first, Drive's as before
-    if (ownsGoogleState(ctx, c.req.query('state'))) return finishGoogle(c as unknown as Context<AppEnv>, ctx)
+    if (ownsGoogleState(ctx, c.req.query('state'), c as unknown as Context<AppEnv>)) return finishGoogle(c as unknown as Context<AppEnv>, ctx)
     let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
     const cc = c as unknown as AppContextC
     const auth = cc.get('auth')

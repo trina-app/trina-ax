@@ -31,8 +31,7 @@ export const AccountDeletionRequest = z.object({
 export type AccountDeletionRequest = z.infer<typeof AccountDeletionRequest>
 
 /** the person confirmed on the page that explains what happens, with their password or, without one, a Google check
- * (common.ts ReauthFields). A person without a password may send neither from a sign-in of the last 10 minutes (the
- * desktop and phone apps, where the Google check cannot run). */
+ * (common.ts ReauthFields), always (docs/decisions/20261124-google-signin-security.md). */
 export const RequestAccountDeletionBody = z.object({ confirm: z.literal(true), ...ReauthFields }).strict()
 export type RequestAccountDeletionBody = z.infer<typeof RequestAccountDeletionBody>
 
