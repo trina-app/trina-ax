@@ -27,6 +27,9 @@ export interface Row {
   tools_total?: number | null
   /** 1: the check stopped reading the server's list with pages left, so it offers more than tools_total */
   tools_total_more?: number
+  /** how many tools the last check left out because their input schema was too large even shortened (mcp.ts
+   * shrinkSchema; migration 365) */
+  tools_dropped?: number
   last_used_at: string | null; version: number; created_at: string; updated_at: string
   /** JSON list of the service's tool names turned off (migration 328); every other tool is on */
   disabled_tools: string
@@ -333,6 +336,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     lastErrorReason: row.last_error ? row.last_error.split(':')[0] || null : null,
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
     ...toolsTotalOf(db, row),
+    ...(row.tools_dropped ? { toolsTooLarge: row.tools_dropped } : {}),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
     templateId: row.template_id ?? null,

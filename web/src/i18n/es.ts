@@ -3592,6 +3592,7 @@ export const es: Record<MessageKey, string> = {
   'integrations.account': "Cuenta {account}",
   'integrations.neverUsed': "Aún sin usar",
   'integrations.noTools': "El servicio no indicó ninguna herramienta. Vuelva a comprobar.",
+  'integrations.toolsTooLarge': "Las herramientas del servicio son demasiado grandes para cargarlas, así que la IA no puede usarlas.",
   'integrations.toolsCapped': "El servicio ofrece {total} herramientas; la IA puede usar las primeras {n}.",
   'integrations.toolsStale': "El servicio ofrece {total} herramientas; en la última comprobación se guardaron {n}. Vuelva a comprobarla para guardarlas todas.",
   'integrations.toolsCappedMore': "El servicio ofrece más de {total} herramientas; la IA puede usar las primeras {n}.",

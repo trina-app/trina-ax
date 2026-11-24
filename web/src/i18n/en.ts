@@ -3638,6 +3638,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.account': 'Account {account}',
   'integrations.neverUsed': 'Not used yet',
   'integrations.noTools': 'The service listed no tools. Try checking again.',
+  'integrations.toolsTooLarge': "The service's tools are too large to load, so the AI can't use them.",
   'integrations.toolsCapped': 'The service offers {total} tools; the AI can use the first {n}.',
   'integrations.toolsStale': 'The service offers {total} tools; {n} were saved when it was last checked. Check again to save all of them.',
   'integrations.toolsCappedMore': 'The service offers more than {total} tools; the AI can use the first {n}.',
