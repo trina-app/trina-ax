@@ -58,7 +58,7 @@ import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, attachedPaths, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesFileLoose, namesRecipient as namesPlace, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
 import { approvedSources, floorFree, inOwnFolder, ownWorkChat } from './explicit-send'
 import { guessedTitle, keepPick, saysTitle, titleNames } from './person-aliases'
-import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
+import { broadcastIn, everyoneAsked, isTheirQuote, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { quotesOnBranch, readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -67,7 +67,7 @@ export { namedByAsker, namesRecipient } from './shared-actions'
 import { isUuid7, labeledPath, listWords, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step, StepFix } from '@mycel/shared/api'
 import { carriesAddress, opaqueParts } from '../tools/url-gate'
-import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllIn, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
+import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
 import { z } from 'zod'
 import { HttpError } from '../http/errors'
 import { redactorFor } from '../integrations/connections/redact'
@@ -393,7 +393,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // stays plain text). "@everyone" only when the asker's own message of this turn wrote it, and in the room for
         // everyone only for an owner or admin (Rooms.send's rule, asked here before any card)
         const canMention = pendingTo ? mentionableUser(db, pendingTo.id) : mentionablesOf(db, roomId, spec.userId)
-        const allowAll = broadcastIn(ownWords(askerText(db, askerMessageId(exec))))
+        const allowAll = ((w: string) => broadcastIn(w) || everyoneAsked(w))(ownWords(askerText(db, askerMessageId(exec))))
         const picked = pickMentions(canMention, a.data.mention ?? [], { allowAll, personRef: PERSON_REF })
         if (!picked.ok) {
           const refs = (xs: readonly string[]) => xs.map((x) => `"${neutralizeTags(oneLine(x, 80))}"`).join(', ')
@@ -500,7 +500,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const sentFiles = (r.message.files ?? []).slice(0, 10).map((f) => oneLine(f.name, 255))
           // the files that went, by name (a shared chat: how many only, everyone there reads the result)
           const fileNames = exec.shared ? `${fileCount}` : sentFiles.map((f) => `"${neutralizeTags(f)}"`).join(', ')
-          posted = { roomId, messageId: r.message.id, ...(threadRootId ? { threadRootId } : {}), ...(firstWords ? { preview: firstWords } : {}), ...(sentFiles.length ? { files: sentFiles } : {}) }
+          posted = { roomId, messageId: r.message.id, ...(threadRootId ? { threadRootId } : {}), ...(r.message.mentionsAll ? { mentionsAll: true as const } : {}), ...(firstWords ? { preview: firstWords } : {}), ...(sentFiles.length ? { files: sentFiles } : {}) }
           return {
             ...text(JSON.stringify({
               status: 'sent', room: titleAi, room_id: roomId, ...(threadRootId ? { thread_id: threadRootId } : {}), message_id: r.message.id,
@@ -513,7 +513,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...(chatCopies.length ? { chat_files_copied: `${chatCopies.map((c) => `"${neutralizeTags(oneLine(c.name, 120))}"`).join(', ')} ${chatCopies.length === 1 ? 'is a file' : 'are files'} of this chat, which only its people open: a copy of each was kept in the user's own downloads folder and the post links that copy${fileCount ? '' : ' (it did not go as a file: see cannot_open)'}` } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${r.videoAsPage ? ' The video\'s MP4 file was not ready, so the video went as its web page (it plays in the room): say so plainly.' : ''}${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}${byWords && !again ? ' It went without a confirmation card because the user\'s own message named where to send it and asked to send it; the card under your answer shows Undo for a few seconds and Delete after. Say it was sent, to whom, in one short sentence.' : ''}${byTitle && !again ? ` The user called this person "${neutralizeTags(oneLine(byTitle.ref, 40))}": name them with that word in brackets after their name, so the user sees who it went to.` : ''}`,
+                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (after a later change, say so in one plain line; post the new version only when the user asks)` : ''}.${r.videoAsPage ? ' The video\'s MP4 file was not ready, so the video went as its web page (it plays in the room): say so plainly.' : ''}${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}${byWords && !again ? ' It went without a confirmation card because the user\'s own message named where to send it and asked to send it; the card under your answer shows Undo for a few seconds and Delete after. Say it was sent, to whom, in one short sentence.' : ''}${byTitle && !again ? ` The user called this person "${neutralizeTags(oneLine(byTitle.ref, 40))}": name them with that word in brackets after their name, so the user sees who it went to.` : ''}`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -670,14 +670,16 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // a note goes as the person's own words: only one they wrote; after a room read only the side chat's own room
         // with no thread the AI chose (a room message must not pick where the person's post goes); never a thread the AI
         // picked elsewhere either
-        const theirText = plain && fold(said).includes(fold(shown))
+        // (a post that mentions everyone in the person's own words: exactly their whole quote, wherever they put the mention;
+        // a fragment of their instruction is no text of theirs, security review of #502)
+        const theirText = plain && (mentionAll ? isTheirQuote(said, shown) : fold(said).includes(fold(shown)))
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
         // (each person: the asker's words name them in full, or say the name the AI found exactly that one member by, when
         // that word is not part of another member's name the asker also wrote: "tell Erin Yoo" is no ask to tag Erin)
         // (everyone there only when the asker's own words hold the room's "@everyone" word, never with a guest in the chat)
-        const everyoneSaid = !mentionAll || (!strict && roomMentionAllIn(said))
+        const everyoneSaid = !mentionAll || (!strict && everyoneAsked(said))
         const mentionsSaid = everyoneSaid && mentionIds.every((id) => {
           const p = canMention.find((x) => x.id === id)
           if (!p) return false

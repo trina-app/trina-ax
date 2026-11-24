@@ -46,7 +46,7 @@ export default function PostedCard({ posted, endedAt }: { posted: NonNullable<St
   const titleOf = useRoomTitle()
   // a team room and the everyone room with "#", as the offer under the answer and the AI's answer name them
   const where = room ? (room.kind === 'team' || room.kind === 'all' ? `#${titleOf(room)}` : titleOf(room)) : ''
-  const title = gone ? t('postedCard.undone') : room ? t('shareCard.posted', { room: where }) : t('shareCard.postedPlain')
+  const title = gone ? t(posted.mentionsAll ? 'postedCard.undoneNotified' : 'postedCard.undone') : room ? t('shareCard.posted', { room: where }) : t('shareCard.postedPlain')
   const footer = gone ? undefined : (
     <>
       {error && <span role="alert" className="mr-auto text-xs break-keep text-danger" data-testid="posted-card-error">{error}</span>}

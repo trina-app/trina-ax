@@ -1,0 +1,5 @@
+- The one-time notice before a connection's first use in a shared chat now takes one press.
+- After a file that was posted to a room changes, Trina says the room still has the old copy instead of asking whether to post it again.
+- "팀원들" or "my team" now means the people of this shared chat or project, otherwise your one group. A card always shows who that is before anything is shared.
+- "Share this folder" with only chat files uses what you attached to that message, never an older attachment.
+- A room post your own message asked for with @everyone (or 전체) goes without a card and shows Undo. Taking it back says the notices already went out. When the AI adds @everyone on its own, it still asks first.

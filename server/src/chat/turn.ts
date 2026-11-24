@@ -6014,7 +6014,7 @@ export class TurnExec {
 
   /**
    * After a tool call (chat/tools.ts): the team files it changed that a room carries as a copy sent earlier (chat/
-   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI offers to post the new one; or ''.
+   * room-copies.ts, QA TC-r2u-21): the room keeps the old version, and the AI says so; or ''.
    * `say` false (a sub-agent's call, a guest): dropped without a line.
    */
   roomCopies(say = true): string {
