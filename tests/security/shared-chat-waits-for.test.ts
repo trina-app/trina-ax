@@ -61,14 +61,17 @@ test("a step line that repeats a card (question, address, service) is the asker'
     { id: 's3', kind: 'tool', tool: 'web_fetch', label: `Fetch · https://${SECRET}.example.com`, ...stamp() },
     { id: 's4', kind: 'tool', tool: 'connect_service', label: `Connect · ${SECRET}`, ...stamp() },
     { id: 's5', kind: 'tool', tool: 'remember', label: `Remembered: ${SECRET}`, ...stamp() },
-    { id: 's6', kind: 'tool', tool: `mcp__conn__gmail__send_${SECRET}`, label: `Send ${SECRET}`, ...stamp() },
+    { id: 's6', kind: 'tool', tool: `my_gmail__send_${SECRET}`, label: `Send ${SECRET}`, ...stamp() },
+    { id: 's6b', kind: 'tool', tool: `team_linear__create_${SECRET}`, label: `Create ${SECRET}`, ...stamp() },
+    { id: 's6c', kind: 'tool', tool: 'call_tool', label: `Call ${SECRET}`, ...stamp() },
+    { id: 's6d', kind: 'tool', tool: 'api_request', label: `POST ${SECRET}`, ...stamp() },
     { id: 's7', kind: 'tool', tool: 'save_url', label: `Save · https://${SECRET}.example.com`, ...stamp() },
     { id: 's8', kind: 'browser', tool: 'navigate', label: `Open ${SECRET}`, images: [image], ...stamp() },
   ]
   h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
   const forBob = await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })
   expect(JSON.stringify(forBob)).not.toContain(SECRET)
-  expect(JSON.stringify(forBob)).not.toContain('mcp__conn')
+  for (const name of ['my_gmail__', 'team_linear__', 'call_tool', 'api_request']) expect(JSON.stringify(forBob)).not.toContain(name)
   const bobSteps = forBob.items.find((m) => m.id === r.assistantMessage.id)!.steps
   // a screenshot the AI shared to the chat stays
   expect(bobSteps.find((s) => s.id === 's8')?.images).toEqual([image] as never)
