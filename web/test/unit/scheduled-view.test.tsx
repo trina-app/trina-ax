@@ -124,8 +124,10 @@ describe('scheduled task page', () => {
   test('no runs yet says so; a template shows its folders, never its prompt', () => {
     expect(decode(render(base))).toContain(t('scheduled.noRuns'))
     const html = decode(render({ ...base, templateId: 'weekly-summary', prompt: 'internal template prompt', sourcePath: 'shared/notes', outputPath: 'users/olga/reports' }))
-    expect(html).toContain('shared/notes')
-    expect(html).toContain('users/olga/reports')
+    // in place words, never the disk path (QA TC-8922)
+    expect(html).toContain('Company-wide › notes')
+    expect(html).toMatch(/My (folder|files) › reports/)
+    expect(html).not.toContain('users/olga')
     expect(html).not.toContain('internal template prompt')
   })
 
