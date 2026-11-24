@@ -57,7 +57,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // this call's own context: read-only calls of one answer run at the same time (mcp/socket.ts), so each keeps the
     // person as loaded for it, as when calls ran one at a time, and its agent's state
     const callCtx: ToolCtx = { ...ctx, user, files: call.files }
-    const caller = { files: call.files }
+    const caller = { files: call.files, ...(typeof toolUseId === 'string' && toolUseId ? { toolUseId } : {}) }
     // a chat turn: the person's stored connection keys in what this tool saves or sends to a connected service are
     // hidden before any check, card, write or call (integrations/connections/hide-args.ts, QA TC-3041, TC-3081); the
     // AI is told after the call

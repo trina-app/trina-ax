@@ -1,7 +1,8 @@
 // Native app push (iOS/Android) through the push gateway (push-gateway/, contract in
 // shared/src/cloud-protocol/push-gateway.ts). The team server never holds Apple or Google keys: it signs a small
 // request with its team key and the gateway talks to APNs/FCM. The request carries ids, an event code and a locale,
-// never text; the gateway picks generic words.
+// never text; the gateway picks generic words. The phone app asks this server for the real words of a message push
+// (push-service.ts label), so the text never passes through the gateway, Apple or Google.
 import crypto, { type KeyObject } from 'node:crypto'
 import dns from 'node:dns/promises'
 import http from 'node:http'
@@ -21,13 +22,23 @@ export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
 /** badge: the recipient's count for the app icon (push-badge.ts), a number only. label: an Android app that names who and
  * where builds this push itself (room codes and chat.shared only; the contract's "Label") */
-export interface NativePayload { notificationId: string; code: PushEventType | typeof PUSH_SYNC_CODE; locale: PushLocale; tag?: string; path?: string; badge?: number; label?: true }
+export interface NativePayload { notificationId: string; code: PushEventType | NativeRoomCode | typeof PUSH_SYNC_CODE; locale: PushLocale; tag?: string; path?: string; badge?: number; label?: true }
 /** A silent sync (push-service.ts syncPhones; the contract's "Sync"): the notice ids this phone may take off and, for an
  * iPhone, its icon number now. Ids and a number only. */
 export interface NativeSyncPayload { notificationId: string; locale: PushLocale; tag?: string; badge?: number; clear: string[] }
 
 /** The codes the phone app may name (who and where): room notices and a chat shared by name. */
 export const labelCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
+/** What a phone gets as the code of a person's message outside a room (docs/decisions/20261124-push-preview-slack-rule.md):
+ * a message in a chat shared with people or a project chat, and a reply in a chat thread. The gateway and the phone
+ * apps already treat every `room.*` code as a message whose words the phone asks its team for (the iPhone's
+ * notification extension, Android's label service: push-service.ts label), so these words reach phones that are out
+ * there now, with no gateway deploy or store release. The gateway's own line for them is its generic message line. */
+export const NATIVE_ROOM_CODES = { 'chat.message': 'room.chat_message', 'chat.thread_reply': 'room.chat_thread' } as const
+export type NativeRoomCode = (typeof NATIVE_ROOM_CODES)[keyof typeof NATIVE_ROOM_CODES]
+/** The code a phone push carries for an event (the event's own code, or its room code above). */
+export const nativeCode = (event: PushEventType): PushEventType | NativeRoomCode =>
+  Object.hasOwn(NATIVE_ROOM_CODES, event) ? NATIVE_ROOM_CODES[event as keyof typeof NATIVE_ROOM_CODES] : event
 /** sync: a silent sync; `payload` then only names it (code PUSH_SYNC_CODE) and is not sent as it is */
 export interface NativeSend { device: NativeDevice; payload: NativePayload; sync?: NativeSyncPayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 /** error: the gateway's error code of a 400 answer (its answers carry nothing else) */

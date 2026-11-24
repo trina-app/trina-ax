@@ -72,6 +72,6 @@ test('a main message naming someone with "@": the plain notice for everyone, no 
   for (const e of rings) expect(e.data.data.notice).toEqual({ messageId: msgId })
   // the phone push of the plain notice still goes (main messages notify like a channel's)
   await p.tick()
-  expect(sent.some((s) => s.payload.code === 'chat.message')).toBe(true)
+  expect(sent.some((s) => s.payload.code === 'room.chat_message')).toBe(true)
 
 })

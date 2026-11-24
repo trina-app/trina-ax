@@ -18,7 +18,7 @@ import { steerableRun } from '../../chat/shared-run'
 import { isConfidentialChat } from '../../safe-ops/confidential'
 import crypto from 'node:crypto'
 import { z } from 'zod'
-import { STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
+import { keyInputSuffix, opaqueValue, stepValue, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
@@ -44,6 +44,7 @@ import { withDemoChat } from '../../demo/fakes/scope'
 import { argsReachOthers, namedAsChange, nameWords, plainName, readKind, readsHere, takesRecipient } from './read-mark'
 import { keepConnectorAllow, keepToolAllow, sharedBind, toolAllowed } from './tool-allow'
 import type { RemoteTool } from './mcp'
+import { answerCount, endOfKind, errorLine } from './step-outcome'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
 import { answerUrls, recordSent, rememberConnectionUrls } from '../../tools/connection-urls'
@@ -196,8 +197,11 @@ function hiding(ctx: AppContext, start: Row[], run: (args: unknown, tc: TurnTool
   }
 }
 
-const fail = (name: string, e: CallError, confirmed = false): TurnToolResult =>
-  ({ content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true, summary: `${name} -> ${e.kind}${confirmed ? ' (confirmed by the user)' : ''}` })
+const fail = (name: string, e: CallError, confirmed = false): TurnToolResult => {
+  // why it did not run, beside its step's line ("Declined", "Failed"; step-outcome.ts)
+  const end = endOfKind(e.kind)
+  return { content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true, summary: `${name} -> ${e.kind}${confirmed ? ' (confirmed by the user)' : ''}`, ...(end ? { stepOutcome: { end } } : {}) }
+}
 
 /** The chat of a running turn of this person (tools are for chat turns only): their own chat, or (`shared`, a shared
  * chat's turn: BuildCtx.shared) a shared chat they run a turn in, whoever made it. */
@@ -1198,9 +1202,12 @@ function toolDescription(row: Row, tool: RemoteTool): string {
 }
 
 /** A connection tool's step: the connection and the tool by its title ("Notion · Create page"; a Google library tool in
- * the turn's language, "Gmail · 메일 찾기"), never its id or the AI's arguments (docs/DECISIONS.md "Plain words in errors,
- * cards and steps"; the card before a write shows every value). */
-const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>, L?: Locale) => `${row.name} · ${toolTitle(tool, L, kindOf(row))}`
+ * the turn's language, "Gmail · 메일 찾기"), never its id, then the call's key input as Claude Code shows it ("Bright
+ * Data · Search Engine · "YC Korea founders""; docs/decisions/20261124-step-key-input.md): one argument chosen by its
+ * name and the tool's schema, secrets and ids never. Only the person whose turn it is sees it: everyone else in a shared
+ * chat gets the generic word (chat/open-questions.ts stepRepeatsCard). The card before a write shows every value. */
+const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'> & { inputSchema?: unknown }, L?: Locale, args?: unknown) =>
+  `${row.name} · ${toolTitle(tool, L, kindOf(row))}${args === undefined ? '' : keyInputSuffix(args, tool.inputSchema)}`
 
 /** An app on the person's computer (local.ts): its calls go only to the desktop window this turn was sent from, and
  * only from the main AI (a sub-agent never drives the person's computer, like the in-app browser). */
@@ -1216,7 +1223,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
     name,
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
-    label: (_args, locale) => stepOf(row, tool, locale),
+    label: (args, locale, o) => stepOf(row, tool, locale, o?.bare ? undefined : args),
     // a write of this connection (a tool not marked read-only, as saved now and as this chat takes the mark: read-mark.ts;
     // a tool that is gone: none)
     sendsTo: () => ((x) => (x && readKind(!!b.shared, row, x) === 'change' ? row.id : null))(savedTools(ctx.db, row).find((x) => x.name === tool.name)),
@@ -1339,7 +1346,11 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // the addresses the answer names (as the AI sees them) may be saved with save_url without a card
         rememberConnectionUrls(ctx.db, chat, answerUrls(text, links.map(h.hide)), { integrationId: current.id, userId: tc.userId, turnId: tc.turnId })
         const images = [...(attachment?.images ?? []), ...await modelImages(ctx, tc, kept)]
+        // beside the step's line: how many items the answer listed, or the service's error in its own first line
+        const count = isError ? undefined : answerCount(r.structuredContent, answered)
+        const stepOutcome = isError ? { end: 'failed' as const, ...(errorLine(text) ? { detail: errorLine(text) } : {}) } : count !== undefined ? { count } : undefined
         return {
+          ...(stepOutcome ? { stepOutcome } : {}),
           content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.${images.length ? ` ${images.length === 1 ? 'Its image is' : 'Its images are'} shown below.` : ''}`, text, { turn: b, tool: t.name }) }, ...images],
           ...(isError ? { isError: true } : {}),
           summary: `${name} -> ${isError ? 'error answer' : 'ok'} (${text.length} chars${kept.length ? `, ${kept.length} file${kept.length === 1 ? '' : 's'} kept: ${kept.map((k) => `${MEDIA_PREFIX}${k.meta.id} ${k.meta.kind ?? 'unknown'} ${k.meta.size} B sha256 ${k.meta.sha256.slice(0, 16)}`).join(', ')}` : ''})${files.length ? ` (team file${files.length === 1 ? '' : 's'} attached: ${attachedSummary(files)})` : ''}${confirmed ? ' (confirmed by the user)' : ''}`,
@@ -1473,11 +1484,14 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const m = typeof a.method === 'string' ? a.method.toUpperCase() : ''
       return m && m !== 'GET' && m !== 'HEAD' && typeof a.connection === 'string' ? resolve(a.connection)?.id ?? null : null
     },
-    // the connection and what the method does ("Tasks · 보내기"), never the AI's path or query
-    label(args, locale) {
+    // the connection, what the method does and the path without its query ("Tasks · 보내기 · /tasks/…"): an id in the
+    // path as "…", a query (where keys go) never (step-key-input.ts)
+    label(args, locale, o) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const r = typeof a.connection === 'string' ? resolve(a.connection) : undefined
-      return `${r?.name ?? STEP_WORDS_OTHER[locale]} · ${methodWord(String(a.method ?? ''), locale)}`
+      const p = !o?.bare && typeof a.path === 'string' ? a.path.split(/[?#]/)[0]!.split('/').filter(Boolean).map((x) => (opaqueValue(x) ? '…' : x)).join('/') : ''
+      const shown = p ? stepValue(p, 'path') : null
+      return `${r?.name ?? STEP_WORDS_OTHER[locale]} · ${methodWord(String(a.method ?? ''), locale)}${shown ? ` · /${shown.text}` : ''}`
     },
     // the room card after a room read (chat/turn.ts confirmRoomChange): what it does at which service in words ("Read from
     // Tasks"), the address it calls and the body's values, the exact request one click away (QA TC-233); never the
@@ -1691,10 +1705,10 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
     },
     // the tool it names, as its own step says it; a name not found (the AI's own text, the call fails): the word for a
     // step, never that text
-    label(args, locale) {
+    label(args, locale, o) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
-      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool, locale) : STEP_WORDS_OTHER[locale]
+      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool, locale, o?.bare ? undefined : a.arguments ?? {}) : STEP_WORDS_OTHER[locale]
     },
     // the tool it names, as it was when the turn began (mcpTool asks for a write either way); an unknown or ambiguous
     // name is no read

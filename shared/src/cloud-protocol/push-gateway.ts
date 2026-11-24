@@ -18,7 +18,9 @@
 //           name. For a room code (`room.*`) and `chat.shared` (a chat shared with the person by name) the APNs payload
 //           is mutable (`mutable-content: 1`): the iPhone app's notification service extension may ask its own team
 //           server for who (and where) and replace the title; the generic text stays in the payload as the fallback. A
-//           gateway from before a code shows its fallback line for it (`chat.*`: "You have a new message").
+//           gateway from before a code shows its fallback line for it (`chat.*`: "You have a new message"). A team
+//           server sends a person's message in a chat (`room.chat_message`) and a chat thread reply (`room.chat_thread`)
+//           as room codes too, so the phone asks for their words the same way; the words never pass through here.
 // Data:     the app reads { notificationId, code, path?, tag? }: on iOS from the APNs payload's top-level `body` object
 //           (expo-notifications reads remote data from userInfo["body"]), on Android from FCM `data` (flat strings,
 //           never a key named "body").

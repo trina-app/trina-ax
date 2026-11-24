@@ -103,6 +103,26 @@ export const TEXT = {
 export const CHAT_SHARED_BY: Record<Locale, string> = {
   ko: '채팅을 공유했어요.', en: 'Shared a chat with you.', id: 'Membagikan obrolan dengan Anda.', ja: 'チャットを共有しました。', es: 'Compartió un chat con usted.', zh: '与你共享了一个对话。',
 }
+/** A phone notification's line for a message with files and no text (notifications/push-preview.ts): what was sent,
+ * never what is in it. A file's name only when the reader may open it (never a team-folder file's: each person sees
+ * those by their own access). */
+export const PUSH_FILE_WORDS = {
+  photo: {
+    ko: '사진을 보냈어요', en: 'Sent a photo', id: 'Mengirim foto', ja: '写真を送信しました', es: 'Envió una foto', zh: '发送了一张照片',
+  },
+  photos: {
+    ko: '사진 {n}장을 보냈어요', en: 'Sent {n} photos', id: 'Mengirim {n} foto', ja: '写真を{n}枚送信しました', es: 'Envió {n} fotos', zh: '发送了{n}张照片',
+  },
+  file: {
+    ko: '파일을 보냈어요', en: 'Sent a file', id: 'Mengirim file', ja: 'ファイルを送信しました', es: 'Envió un archivo', zh: '发送了一个文件',
+  },
+  fileNamed: {
+    ko: '파일을 보냈어요: {name}', en: 'Sent a file: {name}', id: 'Mengirim file: {name}', ja: 'ファイルを送信しました: {name}', es: 'Envió un archivo: {name}', zh: '发送了文件：{name}',
+  },
+  files: {
+    ko: '파일 {n}개를 보냈어요', en: 'Sent {n} files', id: 'Mengirim {n} file', ja: 'ファイルを{n}件送信しました', es: 'Envió {n} archivos', zh: '发送了{n}个文件',
+  },
+} satisfies Record<string, Record<Locale, string>>
 /** the button on a room notification that marks the room (or the thread) read without opening the app */
 export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído', zh: '标为已读' }
 /** a phone whose notifications another person's live session gets (push-service.ts registerDevice): never says who */

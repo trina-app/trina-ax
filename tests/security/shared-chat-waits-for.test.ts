@@ -80,6 +80,33 @@ test("a step line that repeats a card (question, address, service) is the asker'
   expect(JSON.stringify(await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} }))).toContain(SECRET)
 })
 
+// docs/decisions/20261124-step-key-input.md: a connection's step names its key input and what came back, for the asker
+// alone; the others keep the generic word, with no outcome and no error words
+test("a connection step's key input, outcome and error words are the asker's", async () => {
+  const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
+  const steps = [
+    { id: 'k1', kind: 'tool', tool: 'my_bright__search_engine', label: `Bright Data · Search Engine · "${SECRET} founders"`, key: ` · "${SECRET} founders"`, outcome: { count: 10 }, ...stamp() },
+    { id: 'k2', kind: 'tool', tool: 'my_bright__scrape_as_markdown', label: `Bright Data · Scrape as Markdown · ${SECRET}.example.com/in/x`, outcome: { end: 'failed' }, detail: `rate limited for ${SECRET}`, ...stamp(), status: 'error' },
+    { id: 'k3', kind: 'tool', tool: 'call_tool', label: `Bright Data · Search Dataset · "${SECRET}"`, outcome: { end: 'declined' }, ...stamp(), status: 'error' },
+    { id: 'k4', kind: 'tool', tool: 'api_request', label: `AI PM · Read · /tasks/${SECRET}`, outcome: { count: 2 }, ...stamp() },
+  ]
+  h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
+  const forBob = (await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === r.assistantMessage.id)!.steps
+  expect(JSON.stringify(forBob)).not.toContain(SECRET)
+  for (const s of forBob) {
+    expect(s.outcome).toBeUndefined()
+    expect(s.key).toBeUndefined()
+    expect(s.detail).toBeUndefined()
+    expect(s.tool).toBeUndefined()
+    expect(['Step', '작업']).toContain(s.label)
+  }
+  const forAlice = (await h.api('alice').call(API.listMessages, { params: { id: chat.id }, query: {} })).items.find((m) => m.id === r.assistantMessage.id)!.steps
+  expect(forAlice.find((s) => s.id === 'k1')).toMatchObject({ label: steps[0]!.label, outcome: { count: 10 } })
+  expect(forAlice.find((s) => s.id === 'k2')).toMatchObject({ outcome: { end: 'failed' }, detail: `rate limited for ${SECRET}` })
+})
+
 test("our own step kinds keep their tool name for grouping and lose their words; a look-alike connector does not", async () => {
   const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
