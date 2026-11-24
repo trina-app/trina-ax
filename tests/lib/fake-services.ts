@@ -72,6 +72,8 @@ export class FakeServices {
   calls: { name: string; args: any; auth: string }[] = []
   // OAuth
   clients = new Map<string, { redirectUris: string[] }>()
+  /** the bodies POSTed to /as/register, in order */
+  registrations: Record<string, unknown>[] = []
   /** client secrets of own apps (made in the service's console): the token address refuses their client without it */
   secrets = new Map<string, string>()
   /** how the last token request carried its client: 'post' (client_id in the body), 'basic' or 'none' */
@@ -379,6 +381,7 @@ export class FakeServices {
     })
     if (p === '/as/register' && req.method === 'POST') {
       const j = JSON.parse(body)
+      this.registrations.push(j)
       if (!Array.isArray(j.redirect_uris) || !j.redirect_uris.length) return Response.json({ error: 'invalid_redirect_uri' }, { status: 400 })
       const id = 'client-' + crypto.randomBytes(4).toString('hex')
       this.clients.set(id, { redirectUris: j.redirect_uris })

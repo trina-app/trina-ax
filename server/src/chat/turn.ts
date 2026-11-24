@@ -103,7 +103,7 @@ import { projectRoomOfChat } from './room-tools'
 import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
-import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
+import { commandMode, devEnvFlag, devEnvUi } from '../devenv/setting'
 import { chatRunsLive, devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
@@ -448,7 +448,7 @@ export class TurnExec {
   desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
-  devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
+  devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun; documents?: boolean } | null = null
   /** the dev environment is on for this person but does not work now: no box_shell, the AI is told (prompt.ts devEnvDownRule) */
   devEnvDown: 'staff' | 'member' | null = null
   principal: Principal | null = null
@@ -950,6 +950,7 @@ export class TurnExec {
     // (docs/decisions/20261118-devenv-shared-chats.md): there a run sees only what everyone who sees the chat now may
     // read (read again for every command), in the project folder of a project chat, never a personal folder; what it
     // may read joins the answer's record as a file read does
+    // The documents profile (an office Mac, devenv/setting.ts) builds in a chat's work folder only: not in a project chat
     if (devEnvFlag() && !this.templateScope && !this.restricted && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
@@ -961,9 +962,12 @@ export class TurnExec {
         noteCopied: (groups) => groups.every((g) => this.noteSharedReads(g.s, g.c, true)),
       } : undefined
       // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
-      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {
+      // documents mode (docs/decisions/20261124-documents-mode.md): the dev environment off for this person, commands
+      // still build documents, offline and in the chat's work folder only (no project folder)
+      const mode = commandMode(rt.db, rt.files, spec.userId)
+      if (mode) {
         if (await devEnvDownReason(rt.log)) this.devEnvDown = this.shared || !(this.principal.role === 'owner' || this.principal.role === 'admin') ? 'member' : 'staff'
-        else this.devEnv = { project, ...(shared ? { shared } : {}) }
+        else this.devEnv = mode === 'documents' ? { project: null, documents: true, ...(shared ? { shared } : {}) } : { project, ...(shared ? { shared } : {}) }
       }
     }
     // other people's messages in this chat: set before the tool set, which reads it (otherAuthors) to leave out the
@@ -1160,7 +1164,7 @@ export class TurnExec {
     // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
     // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
-      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office,
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvUi(), office: !!rt.ctx.config.office,
           // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
           ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }),
           // a free-roam demo: no page the demo fences or hides (QA TC-5570)
@@ -1262,6 +1266,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
+      documentsOnly: !!this.devEnv?.documents,
       demo: freeRoam ? demoPrompt() : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
@@ -1360,7 +1365,7 @@ export class TurnExec {
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
-    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') && !this.devEnv?.documents }) : ''
     // a skill someone else may have written, or an own skill an AI turn wrote after reading outside content: auto memory's copy and address checks read its words as tool output
     // (chat/auto-memory.ts), as they read the skill tool's load (batch 11-22c)
     if (invoked && (!ownPersonalSkill(invoked.skill.path, spec.userId) || this.fileOutsideLevel(invoked.skill.path) >= 1)) this.noteOutside('skill_command', invokedBlock)

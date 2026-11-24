@@ -51,6 +51,9 @@ COPY --from=kit /kit /opt/trina-ax/kit
 # HTML to PDF is not in the default image (a smaller image, less to attack; most Docker teams do not need it). It comes
 # with --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser": the CJK fonts, the browser's libraries and the pinned
 # chrome-headless-shell in /opt/trina/chrome-headless-shell (root's; the server finds it there by itself).
+# Word, PowerPoint and Excel pages for the AI are in the default image (docs/decisions/20261124-doc-kit-docker.md): the
+# office-view group (LibreOffice, Carlito, Caladea) and the fonts group (Noto CJK, Liberation), which the page render
+# finds through fontconfig. A kit before that group has none.
 # Gmail, Google Calendar, Docs and Sheets are in the default image: the google-apps group (python3 and its venv module)
 # and the list's Python program in /opt/trina/python/workspace-mcp (root's; the server finds it there). A kit from
 # before that group has none.
@@ -76,6 +79,7 @@ RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
     case " $groups " in *" video "*) case " $groups " in *" browser "*) ;; *) echo "TRINA_AX_PACKAGE_GROUPS: video needs browser (the MP4 is drawn by the headless browser)" >&2; exit 1 ;; esac ;; esac; \
     . "$root/packages.sh"; pk_load "$root/packages.json"; \
     if pk_groups google-apps >/dev/null 2>&1; then groups="$groups google-apps"; fi; \
+    if pk_groups office-view >/dev/null 2>&1; then groups="$groups office-view"; case " $groups " in *" fonts "*) ;; *) groups="$groups fonts" ;; esac; fi; \
     pk_apt_install -- $(pk_packages "$(pk_distro)" "$(pk_arch)" $groups); \
     if pk_artifacts $groups | grep -qx chrome-headless-shell; then \
       pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)" >/dev/null; \
@@ -86,6 +90,17 @@ RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
     fi; \
     for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done; \
     rm -rf /var/lib/apt/lists/*
+# Documents (docs/decisions/20261124-doc-kit-docker.md): the AI builds Word, PowerPoint, Excel and PDF files with the
+# document skills in a run, as on a hosted server. The kit's install-srt.sh --image-mode --documents puts the run kit in
+# /opt/trina (root's): node, srt, run-wrap, the run's Python libraries (the docrun group and the python-pptx venv), the
+# node libraries and the CJK and metric fonts; LibreOffice for the page views came with the office-view group above. The
+# entrypoint then starts the runs with no systemd, offline, one at a time. An older kit (no --documents there):
+# no runs, make_file as before.
+RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); srt="$root/dev-env-srt/install-srt.sh"; \
+    if [ -f "$srt" ] && grep -q -- '--documents) DOCUMENTS=1' "$srt"; then \
+      bash "$srt" --image-mode --documents; \
+      rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache; \
+    else echo "this kit has no documents run kit: the AI makes documents with make_file" >&2; fi
 # Fixed ids: the files in the volume belong to these numbers, so every image version must use the same ones (the same
 # numbers as the hosted tenant image). System range, no login shell, locked password: install-linux.sh checks all three.
 RUN groupadd --system --gid 980 axserver \

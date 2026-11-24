@@ -11,7 +11,7 @@ import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
 import { runIdOfUnit } from '../devenv/srt/config'
-import { devEnvFlag, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
+import { devEnvFlag, devEnvUi, documentsModeFlag, documentsOnlyServer, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
 import { findRun, fullAvailable, networkNow, planState, previewAllowed, previewPortProblem, previewSupported, runsOf, setSharedResolver, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
@@ -23,7 +23,8 @@ import { devEnvMsg, siteProblemMessage } from '../devenv/messages'
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
 async function availability(): Promise<DevEnvAvailability> {
-  if (!devEnvFlag()) return { available: false, reason: 'flag' }
+  // the documents profile (an office Mac) is no dev environment to show: Settings has nothing to turn on there
+  if (!devEnvUi()) return { available: false, reason: 'flag' }
   const why = await srtProblem().catch((e) => String(e))
   return why ? { available: false, reason: 'platform', detail: why.slice(0, 500) } : { available: true }
 }
@@ -43,7 +44,7 @@ export const devEnvRoutes: RouteModule = {
     // a shared chat's jobs and dev servers: the tracker reads who sees the chat from the chat (devenv/shared-chat.ts)
     setSharedResolver(sharedChatResolver)
     const project = (id: string, userId: string) => {
-      if (!devEnvFlag()) fail('not_found')
+      if (!devEnvUi()) fail('not_found')
       let p: Principal
       try { p = ctx.files.principal(userId) } catch { return fail('forbidden') }
       const r = ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(id) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null
@@ -97,7 +98,7 @@ export const devEnvRoutes: RouteModule = {
 
     // the runs of one person, from every chat (a chat with no project has no project page)
     const mine = (userId: string) => {
-      if (!devEnvFlag()) fail('not_found')
+      if (!devEnvUi()) fail('not_found')
       try { ctx.files.principal(userId) } catch { fail('forbidden') }
       return runsOf(ctx, { userId })
     }
@@ -130,7 +131,7 @@ export const devEnvRoutes: RouteModule = {
     // the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
     // person allows"). Only her own: no admin sees or changes them here, and nobody else's runs get them.
     const mySites = (userId: string): DevEnvMySites => {
-      if (!devEnvFlag()) fail('not_found')
+      if (!devEnvUi()) fail('not_found')
       const base = { sites: [], fullInternet: false, fullAvailable: false, fullWarningVersion: DEV_ENV_FULL_WARNING_VERSION, teamSites: [], maxSites: DEV_ENV_MAX_USER_SITES }
       if (!mayUseDevEnv(ctx.db, ctx.files, userId)) return { state: 'off', ...base }
       if (networkNow(ctx) === 'offline') return { state: 'no_network', ...base }
@@ -174,13 +175,15 @@ export const devEnvRoutes: RouteModule = {
         warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(), offer: oldTeamOffer(ctx.db),
       }
     }
-    kit.handle(API.devEnvTeam, () => {
-      if (!devEnvFlag()) fail('not_found')
+    kit.handle(API.devEnvTeam, async () => {
+      // an office Mac: documents mode only, nothing to change here (one line in Settings)
+      if (documentsOnlyServer()) return { ...await teamView(), documentsOnly: { on: documentsModeFlag() } }
+      if (!devEnvUi()) fail('not_found')
       return teamView()
     })
     kit.handle(API.updateDevEnvTeam, async ({ c, body, auth }) => {
       const locale = c.get('locale')
-      if (!devEnvFlag()) fail('not_found')
+      if (!devEnvUi()) fail('not_found')
       const before = teamSetting(ctx.db)
       const after = { ...before, limits: { ...before.limits, ...(body.limits ?? {}) } }
       if (body.extraDomains) {

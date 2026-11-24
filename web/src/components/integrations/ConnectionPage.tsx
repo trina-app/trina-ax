@@ -210,7 +210,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
   const toolsNote = i.kind === 'http' ? null : (
     <>
-      {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
+      {!i.tools.length && <span className="block">{t(i.status === 'connected' ? (i.toolsTooLarge ? 'integrations.toolsTooLarge' : 'integrations.noTools') : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
       {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
       {i.tools.length > 0 && (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">

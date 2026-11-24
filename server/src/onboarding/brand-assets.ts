@@ -472,12 +472,12 @@ export function acceptImage(b: Buffer, kind: Candidate['kind']): { ext: 'png' | 
 }
 
 /** Run the isolated ffmpeg on `bytes` and return what it writes to stdout (null without ffmpeg or on failure). */
-async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout: number, ffmpeg = which('ffmpeg')): Promise<Buffer | null> {
+async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout: number, ffmpeg = which('ffmpeg'), input: string[] = []): Promise<Buffer | null> {
   if (!ffmpeg) return null
   const work = makeWorkDir()
   try {
     fs.writeFileSync(path.join(work, `in.${ext}`), bytes, { mode: 0o600 })
-    const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, maxRssMiB: FFMPEG_RSS_MIB, args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', `in.${ext}`, ...args] })
+    const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, maxRssMiB: FFMPEG_RSS_MIB, args: ['-nostdin', '-hide_banner', '-loglevel', 'error', ...input, '-i', `in.${ext}`, ...args] })
     return r.code === 0 ? r.stdout : null
   } catch { return null } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
@@ -488,6 +488,23 @@ export async function downsize(img: { bytes: Buffer; ext: string; width: number;
   if (!jpeg || imageKind(jpeg) !== 'jpg') return null
   const size = imageSize(jpeg)
   return size ? { bytes: jpeg, ext: 'jpg', ...size } : null
+}
+
+/** The ffmpeg filter that stands a picture upright by its EXIF orientation (2–8), as a browser shows it: "" for 1. */
+const UPRIGHT: Record<number, string> = { 2: 'hflip', 3: 'hflip,vflip', 4: 'vflip', 5: 'transpose=0', 6: 'transpose=1', 7: 'transpose=3', 8: 'transpose=2' }
+
+/** A picture made `factor` (0 < factor < 1) of its size by the isolated ffmpeg: a JPEG stays a JPEG, a PNG or WebP
+ * becomes a PNG with its transparency kept (a logo on the promo video's end card). The copy carries no metadata, so the
+ * EXIF orientation (exifOrientation; 5–8 swap width and height) is applied to its pixels here, never by ffmpeg's own
+ * guess (-noautorotate: versions differ). Null without ffmpeg or on failure. */
+export async function shrinkPicture(bytes: Buffer, ext: 'png' | 'jpg' | 'webp', width: number, height: number, factor: number, orientation = 1): Promise<{ bytes: Buffer; ext: 'png' | 'jpg'; width: number; height: number } | null> {
+  const w = Math.max(2, Math.round(width * factor)), h = Math.max(2, Math.round(height * factor))
+  const jpg = ext === 'jpg'
+  const out = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', [`scale=${w}:${h}:flags=lanczos`, UPRIGHT[orientation]].filter(Boolean).join(','),
+    ...(jpg ? ['-q:v', '2', '-f', 'image2pipe', '-c:v', 'mjpeg'] : ['-pix_fmt', 'rgba', '-f', 'image2pipe', '-c:v', 'png']), 'pipe:1'], 48 * 1024 * 1024, undefined, ['-noautorotate'])
+  if (!out || imageKind(out) !== (jpg ? 'jpg' : 'png')) return null
+  const size = imageSize(out)
+  return size ? { bytes: out, ext: jpg ? 'jpg' : 'png', ...size } : null
 }
 
 /** A picture as size×size RGBA pixels (stretched, point-sampled like logoColors so thin strokes keep their colour and

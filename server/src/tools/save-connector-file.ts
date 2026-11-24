@@ -167,7 +167,7 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
   try {
     const tmp = path.join(work, 'file')
     fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' })
-    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_connector_file', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type } })
+    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_connector_file', undefined, { turnBytes: false, fetched: true, detail: { url: from.slice(0, 4000), type } })
     const note = made.conflictCopyOf ? `\n${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
     const picture = SHOWN_PICTURE.test(made.path) && type.startsWith('image/')
     return {

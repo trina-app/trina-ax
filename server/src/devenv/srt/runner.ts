@@ -37,7 +37,9 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
-import { mayUseDevEnv, teamSetting } from '../setting'
+import { commandMode, documentsOnlyServer, mayRunCommands, mayUseDevEnv, teamSetting } from '../setting'
+import { docKit } from '../kit'
+import { officeSystem } from './system-office'
 import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
@@ -46,8 +48,9 @@ import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { writeBoxBrowser } from './box-browser'
+import { writeDocSkills } from '../doc-skills'
 import { sweepAfterRun } from './browser-profiles'
-import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, BOX_MATPLOTLIBRC_MAC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
@@ -120,11 +123,25 @@ export function setSrtSystem(s: SrtSystem | null, c: (Partial<SrtConfig> & { pla
 /** the platform of the runs: this machine's, or the tests' */
 export const runPlatform = (): DevPlatform => configOverride?.platform ?? (systemOverride ? 'linux' : devPlatform())
 
+/** One direct system per base for this process: it holds the live runs, what each has started and why it ended (a new
+ * one per srtConfig() call would lose them). It watches the container's memory too (system.ts directSystem). */
+let direct: { base: string; system: SrtSystem } | null = null
+function directOf(base: string): SrtSystem {
+  if (direct?.base !== base) direct = { base, system: directSystem({ base, memory: {} }) }
+  return direct.system
+}
+
 export function srtConfig(env: Record<string, string | undefined> = process.env): SrtConfig {
   const id = configOverride?.id ?? env.MYCEL_LABEL ?? 'mycel'
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
   const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
-  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directOf(base), planFile }
+  // an office Mac (no sudo, no slot accounts): the documents profile, with the kit's srt as the signed-in user
+  // (system-office.ts). Without its kit there is no run (srtProblem says why)
+  if (devPlatform() === 'darwin' && documentsOnlyServer(env)) {
+    const kit = docKit(env)
+    return kit ? { id, base, system: officeSystem(kit, base), planFile } : { id, base, system: directOf(base), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
+  }
   // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
   if (devPlatform() === 'darwin') {
     const m = macConfig(base, env)
@@ -209,7 +226,9 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
   const p = planState(c)
   if (!p.ok) return p.reason
   if (c.problem) return c.problem
-  if (!systemOverride && devPlatform() === 'darwin') {
+  if (!systemOverride && devPlatform() === 'darwin' && documentsOnlyServer()) {
+    // the office kit's files are checked by docKit (srtConfig); the self-test below starts its srt
+  } else if (!systemOverride && devPlatform() === 'darwin') {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.cliMac, SRT_PATHS.cliFull, SRT_PATHS.runWrapMac, SRT_PATHS.sudo, '/usr/bin/sandbox-exec']) if (!fs.existsSync(f)) return `${f} is missing: run scripts/install-macos.sh again (the dev environment step)`
   } else if (!systemOverride) {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
@@ -254,6 +273,8 @@ export async function devEnvDownReason(log?: { warn(m: string, d?: object): void
 export function personView(ctx: AppContext, userId: string, run?: RunWrites, shared?: SharedRun, scope?: SharedScopeNow | null, o: { hideSkills?: boolean } = {}): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
+  // documents mode (setting.ts commandMode): no team folder at all, only the chat's work folder (settingsFor adds it)
+  if (isDocumentsMode(ctx, userId)) return { read: [], write: [], denyRead: [], denyWrite: [] }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
   // every run hides the group and project skills folders (QA TC-4932). The hash a run is checked against is made
@@ -276,6 +297,9 @@ export function personView(ctx: AppContext, userId: string, run?: RunWrites, sha
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }
 }
+
+/** Does this person's command run in documents mode now (offline, work folder only)? */
+export const isDocumentsMode = (ctx: Pick<AppContext, 'db' | 'files'>, userId: string) => commandMode(ctx.db, ctx.files, userId) === 'documents'
 
 /** Who sees a shared chat now, as principals. Null when anyone of them cannot be loaded (fail closed). */
 type SharedScopeNow = { audience: Principal[]; within: string | null }
@@ -380,7 +404,7 @@ const runHash = (view: FolderView, run: RunWrites, scope?: SharedScopeNow | null
 /** The hash a running job or dev server is checked against: the view of a run in this space, and whether the person
  * may still use the dev environment. */
 export function accessHash(ctx: AppContext, space: Space): string {
-  if (!mayUseDevEnv(ctx.db, ctx.files, space.userId)) return 'off'
+  if (!mayRunCommands(ctx.db, ctx.files, space.userId)) return 'off'
   let run: RunWrites
   try { run = runWrites(ctx, srtConfig(), space) } catch { return 'off' }
   const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
@@ -540,12 +564,14 @@ function spaceAt(ctx: AppContext, o: { userId: string; chatId: string | null; pr
   if (!view) return null
   const shared = o.shared ? { shared: o.shared } : {}
   if (o.shared && !o.chatId) return null
-  const within = o.shared ? o.shared.within : o.project?.folderPath ?? null
+  // documents mode: always the chat's work folder, never a project folder (a shared project chat's too)
+  const docs = isDocumentsMode(ctx, o.userId)
+  const within = docs ? null : o.shared ? o.shared.within : o.project?.folderPath ?? null
   if (within !== null && within !== '' && (!o.shared || o.project?.folderPath === within)) {
     const root = path.join(ctx.files.fx.root, within)
     if (viewAccess(view, within) !== 'none' && fs.existsSync(root)) return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root, ...shared }
   }
-  if (o.shared && o.shared.within !== null) return null
+  if (!docs && o.shared && o.shared.within !== null) return null
   if (!o.chatId) return null
   // a shared chat: a work folder of its own for the people who see it now (never the private one, sharedWork)
   let root: string
@@ -587,9 +613,10 @@ function writeGitWrapper(c: SrtConfig, platform: ReturnType<typeof runPlatform>)
 /** The box's default fonts (config.ts BOX_FONTS_CONF, BOX_MATPLOTLIBRC) at <base>/devenv/bin/fonts/, written when
  * missing or different; Linux only (a Mac's tools find Apple's fonts). Server-owned and read-only in a run. */
 function writeBoxFonts(c: SrtConfig, platform: ReturnType<typeof runPlatform>) {
-  if (platform === 'darwin') return
+  // an office Mac: matplotlib's Korean font only (fontconfig is not used there)
+  if (platform === 'darwin' && !runKit()) return
   const dir = boxFontsDir(c.base)
-  for (const [name, src] of [['fonts.conf', BOX_FONTS_CONF], ['matplotlibrc', BOX_MATPLOTLIBRC]] as const) {
+  for (const [name, src] of (platform === 'darwin' ? [['matplotlibrc', BOX_MATPLOTLIBRC_MAC]] as const : [['fonts.conf', BOX_FONTS_CONF], ['matplotlibrc', BOX_MATPLOTLIBRC]] as const)) {
     const file = path.join(dir, name)
     try { if (fs.readFileSync(file, 'utf8') === src) continue } catch {}
     fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
@@ -622,6 +649,8 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   writeGitWrapper(c, runPlatform())
   // `chromium` and the names people expect start the pinned browser (box-browser.ts); a failure leaves the system's
   try { writeBoxBrowser(p.bin, boxBrowser(runPlatform()), SRT_PATHS.node) } catch (e) { void e }
+  // the document skills, read-only in a run; a failure leaves the AI on make_file's path
+  try { if (runPlatform() === 'linux' || runKit()) writeDocSkills(p.bin) } catch (e) { void e }
   // a font preference never stops a command (runEnv leaves the fonts out when fonts.conf is missing)
   try { writeBoxFonts(c, runPlatform()) } catch { /* the system's fonts */ }
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
@@ -680,6 +709,9 @@ const snapshotNow = (ctx: AppContext, userId: string): NetSnapshot => netSnapsho
 /** The settings of a run, checked; throws with the reason when the run must not start. `once`: the sites allowed once
  * for this run (the turn's, or the row's). */
 async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: string, network: 'open' | 'offline', once: readonly string[] = [], stage?: string) {
+  // documents mode: never a network, whatever the call or the team's sites say
+  const docs = isDocumentsMode(ctx, space.userId)
+  if (docs) { network = 'offline'; once = [] }
   const run = runWrites(ctx, c, space)
   // a shared chat: what the run may read joins the answer's record first, with who sees the chat now
   // (the view below is made for the same people as the record)
@@ -694,18 +726,18 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const work = run.start === null ? space.root : scratchOf(ctx, c, space, scope, true)
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
-  const person = personNetNow(ctx, space.userId)
+  const person = docs ? { ...personNetNow(ctx, space.userId), sites: [] as string[], full: false } : personNetNow(ctx, space.userId)
   // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
   // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
   // command checks them first inside the sandbox (entryGuard)
-  const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
+  const given = docs ? { read: [], write: [], denyRead: [], denyWrite: [] } : space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
   const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
     view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder, logKey: runOwner(space).logKey,
     extraDomains: teamSetting(ctx.db).extraDomains,
-    userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
-    full: person.full,
+    userDomains: docs ? [] : [...person.sites, ...parseOnce(formatOnce(once), hosts)],
+    full: docs ? false : person.full,
     denyHosts: hosts,
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
@@ -714,6 +746,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     // a copy's stage folder: only for a run that starts in the work folder (a copy never goes into a team folder this
     // way, nor into a project chat's scratch folder)
     stage: stage && run.start === null ? stage : null,
+    kit: runKit()?.root ?? null,
   }
   if (stage && run.start !== null) throw new Error('a copy goes only into a chat\'s work folder')
   const settings = srtSettings(input)
@@ -732,6 +765,10 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   if (!forHash) throw new Error('the person cannot use the dev environment now')
   return { settings, work, pins, places, hash: runHash(forHash, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
+
+/** an office Mac's document kit, for the runs of this server (null on every other install, and in the tests' fake
+ * systems unless they say darwin) */
+const runKit = () => (runPlatform() === 'darwin' && documentsOnlyServer() ? docKit() : null)
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
   const p = prepare(c, s.space, s.runId, ctx.files.fx.root)
@@ -786,7 +823,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey, kit: runKit() }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${command}` : command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite, ...(s.stage ? { readable: [s.stage] } : {}),
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
@@ -1210,6 +1247,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   const c = srtConfig()
   // the person must still be allowed at the start (the setting or the folder rules can change while a job waits);
   // spawnRun builds the folder access again and checks the root
+  // jobs and dev servers are the dev environment's alone (documents mode runs foreground commands only)
   if (!mayUseDevEnv(ctx.db, ctx.files, row.user_id)) {
     takeCommand(c, row.id)
     endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
@@ -1261,7 +1299,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   } finally { started() }
 }
 /** the hash of the view the run started with (accessHash's format) */
-const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
+const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayRunCommands(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
 
 /** Give free slots to waiting jobs and commands (queue.ts: one queue, fair share). Expired jobs end; tickets with no
  * waiting call end (lost). */

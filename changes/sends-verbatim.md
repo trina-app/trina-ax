@@ -1,0 +1,2 @@
+- A post or message Trina sends without asking now carries exactly the words you gave it, typos included. If Trina writes or changes anything, such as a date, an emoji or a rewording, you see it on a card first.
+- After you take a post back, the notice says where it was sent, a 1:1 chat's person too.

@@ -162,7 +162,8 @@ describe('post_to_room with "Always allow" on, in my own chat', () => {
     dropAlways(h.ctx.db, 'bob', 'card:post_to_room')
     try {
       // (docs/decisions/20261123-do-then-undo.md: the floor is content the recipient could not see, and tess sees shared/)
-      const r = await turn('bob', `send this one to tess\n${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}`)
+      // (the text is the person's dictated words: a text the AI wrote goes on a card, docs/decisions/20261124-sends-verbatim.md)
+      const r = await turn('bob', `${read('shared/alice-notes.md')}\n${post({ room: 'Tess Yoon', text: 'hello three' })}\nsend this one to tess: hello three`)
       expect(r.cards).toHaveLength(0)
       expect(r.content).toContain('"status":"sent"')
     } finally { keepAlways(h.ctx.db, 'bob', 'post_to_room', null) }

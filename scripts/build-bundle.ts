@@ -294,6 +294,13 @@ export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-c
 /** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
 /** `web`: the web app is in the bundle (web/dist was built; a strict bundle always has it), and with it the fonts that
  * come only with the web app (BUNDLED_FONTS `withWeb`), whose notices are then required too. */
+/** resources/doc-skills as SOURCE.json lists it */
+export function docSkillBundleFiles(): string[] {
+  const dir = path.join(REPO, 'resources', 'doc-skills')
+  const { files } = JSON.parse(fs.readFileSync(path.join(dir, 'SOURCE.json'), 'utf8')) as { files: Record<string, string> }
+  return ['SOURCE.json', 'README.md', ...Object.keys(files)].map((f) => `resources/doc-skills/${f}`)
+}
+
 export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[]; web?: boolean }): string[] {
   return [
     ...RELEASE_NOTICE_FILES,
@@ -306,6 +313,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
+    // the document skills a run uses (server/src/devenv/doc-skills.ts), with their licence, source and our changes
+    ...docSkillBundleFiles(),
     // what the promo video's MP4 reads from the version folder (promo-video/render.ts offers it only with all of them)
     ...PROMO_RENDER_FILES, PROMO_AUDIO_SOURCES,
     // every entry point built (main.js and the workers)
@@ -399,6 +408,13 @@ export async function buildLinuxBundle(o: {
   for (const f of PRETENDARD_STATIC) {
     fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
+
+  // the document skills (docSkillBundleFiles)
+  for (const f of docSkillBundleFiles()) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true })
+    fs.copyFileSync(path.join(REPO, f), path.join(dir, f))
+    fs.chmodSync(path.join(dir, f), 0o644)
   }
 
   // the promo video's font and sounds, with the sounds' sources and licences: the MP4 render reads them from here

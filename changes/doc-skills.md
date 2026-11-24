@@ -1,0 +1,1 @@
+- Word, PowerPoint, Excel and PDF files now come out designed on servers with the dev environment: Trina builds them with real document libraries, looks at the pages and fixes them before answering. Where it cannot see the pages, it says so.

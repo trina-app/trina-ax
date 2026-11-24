@@ -236,6 +236,46 @@ const own = tool({ chatId: crypto.randomUUID() })
   console.log(`     note: both took ${ms} ms (each sleeps 3 s): ${ms >= 6000 ? 'one after the other (one command at a time per folder)' : 'at the same time'}; temp folders ${self(oa)} and ${self(ob)}`)
 }
 
+// ---- 5. no unit cgroup (the Docker image's direct runs, docs/decisions/20261124-doc-kit-docker.md): the runner
+// watches a run's memory and processes and kills the whole tree over the plan's 1024 MiB or 256 processes ----
+{
+  const mem = tool({ project: null, chatId: crypto.randomUUID() })
+  const t0 = Date.now()
+  // 3 GiB in a child of a child (the watch counts the whole tree), touched page by page so it is resident
+  const o = textOf(await mem.call({ command: 'python3 -c "import subprocess,sys; subprocess.run([sys.executable,\'-c\',\'import time; b=bytearray(3<<30); [b.__setitem__(i,1) for i in range(0,len(b),4096)]; time.sleep(30); print(\\"MEM-SURVIVED\\")\'])"; echo RAN-AFTER' }, MAIN))
+  const ms = Date.now() - t0
+  report('DM1', 'a command over the plan\'s memory (3 GiB in a grandchild, cap 1024 MiB) is stopped as out of memory, the whole tree', hasNot('MEM-SURVIVED', 'the allocation lived')(o) ?? hasNot('RAN-AFTER', 'the shell went on after the kill')(o) ?? has('ran out of memory')(o) ?? (ms > 25_000 ? `stopped only after ${ms} ms` : null))
+  const fork = textOf(await mem.call({ command: 'for i in $(seq 1 400); do sleep 30 & done; wait; echo FORK-SURVIVED' }, MAIN))
+  // the hard cap (RLIMIT_NPROC) refuses the forks first; the watch stops the run if it gets past 256 anyway
+  report('DM2', 'a command with more processes than the plan allows (400 > 256): its forks are refused or it is stopped, no process left', // (bash retries a refused fork, so with the cap the loop may still end and print FORK-SURVIVED: it never had more)
+    (/fork: (retry: )?Resource temporarily unavailable/.test(fork) ? null : fork.includes('ran out of memory') && !fork.includes('FORK-SURVIVED') ? null : `neither refused nor stopped: ${fork.slice(0, 200)}`)
+    ?? (fs.readdirSync('/proc').some((n) => { try { return /^[0-9]+$/.test(n) && fs.readFileSync(`/proc/${n}/cmdline`, 'utf8') === 'sleep\u000030\u0000' } catch { return false } }) ? 'sleep processes are left after the kill' : null))
+  const ok = textOf(await mem.call({ command: 'python3 -c "b=bytearray(200<<20); print(\'SMALL-OK\', len(b)>>20)"' }, MAIN))
+  report('DM3', 'a command under the caps (200 MiB) runs as before after a killed one', has('SMALL-OK 200')(ok))
+  // security review of #511: the container's OOM killer took srt's node, run-wrap ended 137, and the sandboxed shell
+  // went on unwatched. Here srt's node is killed in the middle of a command: nothing of the command may be left after
+  const cmdlines = () => fs.readdirSync('/proc').filter((n) => /^[0-9]+$/.test(n)).map((n) => { try { return [Number(n), fs.readFileSync(`/proc/${n}/cmdline`, 'utf8')] as const } catch { return [0, ''] as const } })
+  const killer = (async () => {
+    for (let i = 0; i < 100; i++) {
+      await Bun.sleep(100)
+      const node = cmdlines().find(([, c]) => c.includes('/srt/') && c.includes('DM4MARK') && c.startsWith('/opt/trina/node/bin/node'))
+      if (node && cmdlines().some(([, c]) => c.startsWith('sleep\u0000') )) { process.kill(node[0], 'SIGKILL'); return true }
+    }
+    return false
+  })()
+  await mem.call({ command: 'echo DM4MARK; (while true; do sleep 1; done) & sleep 60 & wait' }, MAIN)
+  const hit = await killer
+  await Bun.sleep(300)
+  const left = cmdlines().filter(([, c]) => c.includes('DM4MARK') || c === 'sleep\u000060\u0000' || c === 'sleep\u00001\u0000')
+  report('DM4', 'srt\'s node killed in the middle of a command (as an OOM kill of it): the run ends and nothing it started is left', !hit ? 'the command\'s srt process was not found' : left.length ? `left running: ${left.map(([p, c]) => `${p} ${c.replace(/\0/g, ' ').slice(0, 60)}`).join('; ')}` : null)
+  // CPU: the run's commands have the lowest priority (nice 19)
+  const pri = textOf(await mem.call({ command: 'echo NICE=$(nice)' }, MAIN))
+  report('DM5', 'a run\'s commands run at nice 19', has('NICE=19')(pri))
+  // the command is above srt's node in the OOM order from its first instruction (no wait for the watch's poll)
+  const oomCmd = textOf(await mem.call({ command: 'echo SCORE=$(cat /proc/self/oom_score_adj)' }, MAIN))
+  report('DM6', 'a run\'s command starts at oom_score_adj 1000, above srt\'s 700', has('SCORE=1000')(oomCmd))
+}
+
 console.log(failed ? `\n${failed} of ${count} sub-agent and skill cases failed` : `\nall ${count} sub-agent and skill cases held`)
 await ctx.close()
 process.exit(failed ? 1 : 0)

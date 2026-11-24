@@ -48,6 +48,13 @@ export function bundledFontDir(): string | null {
   try { return fs.statSync(dir).isDirectory() ? fs.realpathSync(dir) : null } catch { return null }
 }
 
+/** The document skills a Linux bundle ships (resources/doc-skills, Apache-2.0: its README and SOURCE.json), or
+ * MYCEL_DOC_SKILLS_DIR (tests). Its real path, or null. */
+export function bundledDocSkillsDir(): string | null {
+  const dir = process.env.MYCEL_DOC_SKILLS_DIR || path.resolve(import.meta.dir, '..', '..', 'resources', 'doc-skills')
+  try { return fs.statSync(path.join(dir, 'SOURCE.json')).isFile() ? fs.realpathSync(dir) : null } catch { return null }
+}
+
 export function which(name: string, extra: string[] = []): string | null {
   const dirs = [BUNDLE_BIN, ...extra, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(process.env.PATH ?? '').split(':')]
   for (const d of dirs) {

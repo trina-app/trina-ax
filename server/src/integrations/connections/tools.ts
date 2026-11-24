@@ -1901,12 +1901,20 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // in a scheduled run, which attaches nothing
         ...(index.size && !b.scheduled ? [ATTACH_HOW] : []),
       ].join('\n')
-      const prompt = head && lookup ? `${head}\n\n${lookup.full}` : head
+      // the fallback rule goes with the instructions once, never in the context sent with every message (its budget)
+      const prompt = `${head}\n${FALLBACK_TO_CONNECTION}${lookup ? `\n\n${lookup.full}` : ''}`
       const context = head && lookup ? `${head}\n\n${lookup.short}` : head
       return { tools, prompt, context }
     },
   }
 }
+
+/** When one of the AI's own tools fails and a connected tool does the same job and only reads, the AI uses it without
+ * asking (F1 measurement, 2026-11-24: web_fetch got a 403, the AI asked whether to try a connected scraper, and the
+ * person had to repeat the request three times). "Only reads" is the read tiers' mark (read-mark.ts: the description of
+ * a change tool says so, find_tools says "reads only"); a tool that changes something still asks on its card, and in a
+ * shared chat the one-time connection notice is the only guard. General words only: no service is named. */
+export const FALLBACK_TO_CONNECTION = 'If one of your own tools fails or finds nothing usable (a page blocked, 403, a sign-in wall) and a tool listed here does that job and only reads, use it at once without asking; pick by what the request is about, try the next fitting one before asking, and say in one plain line which service you used. Tools that change something still ask on their card. Never after a no on a card or for a refused private address.'
 
 /** Installed by the files route module (component C) at start. */
 export function registerIntegrations(ctx: AppContext): void {

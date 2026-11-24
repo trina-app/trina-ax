@@ -14,7 +14,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, MAX_PERSONAL, personalCounts } from '../../server/src/integrations/connections/service'
 import { connectRows } from '../../server/src/chat/connect-service'
 import { getRow } from '../../server/src/integrations/connections/store'
-import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, documentOriginAt, documentOrigins, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
+import { authorizationUrl, chooseClient, register, CLIENT_METADATA_PATH, discover, documentOriginAt, documentOrigins, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
 import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
 
@@ -614,3 +614,25 @@ describe('the listed services, from their recorded metadata', () => {
     })
   }
 })
+
+describe('registration names the scope the sign-in asks for (Calendly, QA 2026-11-24)', () => {
+  test('the scope goes with the registration and is kept on the client; without one, nothing is sent', async () => {
+    const server = { issuer: `${fake.base}/as`, authorizationEndpoint: `${fake.base}/as/authorize`, tokenEndpoint: `${fake.base}/as/token`, registrationEndpoint: `${fake.base}/as/register`, revocationEndpoint: null }
+    const n = fake.registrations.length
+    const c = await register(server, 'https://team.example/api/integrations/oauth/callback', fake.net(), 'mcp:notetaker:read mcp:scheduling:read')
+    expect(fake.registrations[n]).toMatchObject({ scope: 'mcp:notetaker:read mcp:scheduling:read' })
+    expect(c.registeredScope).toBe('mcp:notetaker:read mcp:scheduling:read')
+    const plain = await register(server, 'https://team.example/api/integrations/oauth/callback', fake.net())
+    expect(fake.registrations[n + 1]).not.toHaveProperty('scope')
+    expect(plain.registeredScope).toBeUndefined()
+  })
+
+  test('chooseClient registers with the setup scope', async () => {
+    const found = { server: { issuer: `${fake.base}/as`, authorizationEndpoint: `${fake.base}/as/authorize`, tokenEndpoint: `${fake.base}/as/token`, registrationEndpoint: `${fake.base}/as/register`, revocationEndpoint: null } }
+    const n = fake.registrations.length
+    const c = await chooseClient({ server: found.server, scope: 'read write' }, 'https://team.example', 'https://team.example/api/integrations/oauth/callback', fake.net(), (x) => authorizationUrl({ server: found.server, client: x, resource: null, scope: 'read write' }, 's', 'c'))
+    expect(fake.registrations[n]).toMatchObject({ scope: 'read write' })
+    expect(c.registeredScope).toBe('read write')
+  })
+})
+

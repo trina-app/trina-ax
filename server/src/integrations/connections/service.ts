@@ -16,10 +16,10 @@ import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { errorForLog, secretHider, SecretTooLarge } from './hide'
-import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
+import { MCP_CALL_IDLE_MS, MCP_CALL_TIMEOUT_MS, MAX_SCHEMA_CHARS, MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { codeParts, refusalCode, refusalOf, refusalReason, refusesToken } from './refusal'
-import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, manualServer, MAX_SCOPE_CHARS, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
@@ -30,7 +30,7 @@ import { refreshGoogleApp } from '../google-apps/tokens'
 import { serverAppAt } from '@mycel/shared'
 import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
-import { APP_NAMES, appTools } from '../google-apps/catalog'
+import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { demoFakesOf } from '../../demo/fakes'
 import { workspaceLibraryOf } from '../google-apps/library'
@@ -405,9 +405,9 @@ export class Integrations {
       // the oldest waiting one makes room in the write's transaction: a write that fails (conflict) removes nothing
       if (startsWaiting) replaced = this.makeRoom(row.owner_user_id!, L)
       const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
-        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
+        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_dropped=CASE WHEN ? THEN 0 ELSE tools_dropped END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
         version=version+1, updated_at=? WHERE id=? AND version=?`)
-        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0,
+        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0, moved ? 1 : 0,
           next.tools_updated_at, next.status, next.last_error, next.oauth_client ?? null, next.oauth_client_enc ?? null, next.oauth_client_key_version ?? 1, now, id, row.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setAccess(this.db, id, patch.access)
@@ -651,7 +651,7 @@ export class Integrations {
     const json = JSON.stringify(spec)
     if (json === row.local_app) return view(this.db, row, viewer, L)
     const now = iso(this.now())
-    const r = this.db.query(`UPDATE integrations SET local_app=?, tools_json='[]', tools_total=NULL, tools_total_more=0, tools_updated_at=NULL, status='error', last_error='local_offline',
+    const r = this.db.query(`UPDATE integrations SET local_app=?, tools_json='[]', tools_total=NULL, tools_total_more=0, tools_dropped=0, tools_updated_at=NULL, status='error', last_error='local_offline',
       version=version+1, updated_at=? WHERE id=? AND version=?`).run(json, now, id, row.version)
     if (!r.changes) fail('conflict')
     this.dropClient(id)
@@ -948,12 +948,12 @@ export class Integrations {
   // ---------------- checking ----------------
   /** `total`: how many tools the server offers when it keeps fewer (null: all of them); `totalMore`: the service offers
    * more than `total` (the check stopped with pages of its list unread) */
-  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean } = {}) {
+  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean; dropped?: number } = {}) {
     const now = iso(this.now())
     const was = status === 'needs_auth' ? this.db.query('SELECT status FROM integrations WHERE id=? AND version=?').get(row.id, row.version) as { status: Row['status'] } | null : null
     const r = extra.tools !== undefined
-      ? this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
-        .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, now, now, row.id, row.version)
+      ? this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_dropped=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
+        .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, extra.dropped ?? 0, now, now, row.id, row.version)
       : this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
     if (was?.status === 'connected' && r.changes) this.tellSignInAgain(row, now)
   }
@@ -1002,9 +1002,19 @@ export class Integrations {
         const listed = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline, via)
         // a Google app: only its own app's tools of the library's four (google-apps/catalog.ts)
         const { tools, more, total, unread } = row.google_app ? { ...listed, tools: appTools(row.google_app, listed.tools), more: false, unread: false } : listed
+        // a tool whose input schema was too large: kept shortened, or left out; never without a line in the log (names
+        // and sizes only: a name that carries a secret was refused before, mcp.ts toolOf)
+        // a Google app: only its own app's tools count (the library lists all four apps')
+        const mine = (l: { name: string; chars: number }[]) => row.google_app ? l.filter((x) => isAppTool(row.google_app!, x.name)) : l
+        const shortened = mine(listed.shortened), dropped = mine(listed.dropped)
+        if (shortened.length || dropped.length) {
+          const few = (l: { name: string; chars: number }[]) => l.slice(0, 20).map((x) => `${x.name} (${x.chars})`)
+          this.ctx.log.warn('connection tools over the schema size limit', { id: row.id, name: row.name, limit: MAX_SCHEMA_CHARS, shortened: shortened.length, dropped: dropped.length, shortenedTools: few(shortened), droppedTools: few(dropped) })
+        }
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
-        // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
-        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
+        // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools);
+        // how many were left out as too large, so an empty list says why (ConnectionPage.tsx)
+        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: dropped.length })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) {
@@ -1229,6 +1239,8 @@ export class Integrations {
         }
         // an own app asks for its scopes when it names them (Google's servers list every scope they know)
         setup = app?.scope ? { ...found, scope: app.scope } : found
+        // too many advertised scopes to ask for: the sign-in asks for none (the server's default grant), never silently
+        if (!app?.scope && found.scopeOmitted) this.ctx.log.warn('connection sign-in asks for no scope: the server advertises too many', { id: row.id, name: row.name, scopes: found.scopeOmitted.count, chars: found.scopeOmitted.chars, limit: MAX_SCOPE_CHARS })
       }
       // the client secret goes to this token address: the one a sign-in that worked found before, or none
       if (app) this.checkPin(row, app, setup.server.tokenEndpoint, L)
@@ -1296,11 +1308,14 @@ export class Integrations {
    * address) is remembered for LOOPBACK_VERDICT_MS (loopbackSeen): it only spares the web's probe, and a desktop try at a
    * server that clearly refused 127.0.0.1 too, so at most one 127.0.0.1 registration happens per sign-in. A desktop app
    * from before the return port gets the old reason (it cannot do what the desktop sentence asks). */
-  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
+  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean; scope?: string | null }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
     const port = from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
     const probe = from.client !== 'desktop'
     const old = row.secret_enc ? this.tryOpen(row) : null
-    const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
+    // an app registered for another scope (or, before 2026-11-24, without one) is not offered again when this sign-in asks
+    // for a scope: a fresh registration names it (register)
+    const sameScope = (c: OAuthClient) => !setup.scope || (c.registeredScope ?? null) === setup.scope
+    const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri && sameScope(old.client) ? old.client : null
     try {
       return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
     } catch (e) {
@@ -1316,7 +1331,7 @@ export class Integrations {
       if (known === 'none') throw e
       if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
       try {
-        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor)
+        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor, setup.scope ?? null)
         remember('desktop')
         if (port) return c
       } catch (p) {

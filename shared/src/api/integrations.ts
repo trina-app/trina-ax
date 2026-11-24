@@ -127,6 +127,9 @@ export const Integration = z.object({
   /** true: the service offers more than `toolsTotal` (the server stopped reading its list with pages left: the list it
    * keeps was full, or it read 20 pages or 16 MiB), how many more is not known: "1,000 of more than 1,000 tools" */
   toolsTotalMore: z.literal(true).optional(),
+  /** how many tools the service listed that the last check left out because their input schema was too large to keep
+   * even with its descriptions shortened; absent when none. An empty `tools` with this set is not "listed no tools" */
+  toolsTooLarge: z.number().int().positive().optional(),
   toolsUpdatedAt: IsoTime.nullable(),
   /** team connections only (null for personal ones, and for people who may use but not manage it) */
   access: IntegrationAccess.nullable(),
