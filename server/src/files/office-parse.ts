@@ -25,7 +25,7 @@ import './docx-edit'
 import './xlsx-edit'
 import './pptx-edit'
 import { DOCX_TEMPLATE_CHECK_MODE, docxTemplateCheckRequest, PPTX_TEMPLATE_CHECK_MODE, pptxTemplateCheckRequest } from './office-template'
-import { DOCX_LINK_CHECK_MODE, linkCheckRequest, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from './office-links-check'
+import { DOCX_LINK_CHECK_MODE, linkCheckRequest, OFFICE_EXIT_MODE, officeExitRequest, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from './office-links-check'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
@@ -314,6 +314,7 @@ WRITE_MODES.add(PPTX_TEMPLATE_CHECK_MODE)
 WRITE_MODES.add(DOCX_LINK_CHECK_MODE)
 WRITE_MODES.add(PPTX_LINK_CHECK_MODE)
 WRITE_MODES.add(XLSX_LINK_CHECK_MODE)
+WRITE_MODES.add(OFFICE_EXIT_MODE)
 
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read.
  * `ask`: one sheet and range of a spreadsheet (read's `sheet` / `range`). */
@@ -342,6 +343,7 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === DOCX_LINK_CHECK_MODE) return linkCheckRequest('docx')(input)
   if (mode === PPTX_LINK_CHECK_MODE) return linkCheckRequest('pptx')(input)
   if (mode === XLSX_LINK_CHECK_MODE) return linkCheckRequest('xlsx')(input)
+  if (mode === OFFICE_EXIT_MODE) return officeExitRequest(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)

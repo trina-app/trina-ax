@@ -18,6 +18,7 @@
 //                     placeProduced (write access again, storage, versions, events).
 // A chat file carried only by answers hidden from people who may join (k) is never copied. A project chat's place is
 // its project folder: chat:files/ is read-only there and it has no work folder.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { CopyFilesInput } from '@mycel/shared'
@@ -27,7 +28,8 @@ import { chatFilePath, isReservedPlace, parsePlace, workPlacePath, type Place } 
 import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
-import { openToRead } from '../files/store'
+import { openToRead, readRegular } from '../files/store'
+import { OFFICE_EXIT_EARLIER_MAX, officeExitCheck, officeKind } from '../files/office-exit'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
@@ -160,6 +162,24 @@ function noteWorkRead(exec: TurnExec): boolean {
   return true
 }
 
+/** A Word, PowerPoint or Excel file leaving the work folder (files/office-exit.ts): checked in place at `tmp` (an
+ * attached template taken out, so its hash may change) against what this answer read, the file it replaces (`also`,
+ * team paths) and `given` earlier bytes. Throws a ToolError when it holds a risky item the earlier versions did not. */
+async function officeOut(exec: TurnExec, files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, also: string[] = [], given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string }> {
+  if (!officeKind(got.name)) return got
+  const root = exec.rt.ctx.files.fx.root
+  const earlier: Uint8Array[] = [...given]
+  for (const p of [...also, ...files.readHashes.keys()]) {
+    if (!p || p.includes(':') || officeKind(p) !== officeKind(got.name)) continue
+    try { earlier.push(new Uint8Array(readRegular(path.join(root, ...p.split('/')), OFFICE_EXIT_EARLIER_MAX).bytes)) } catch { /* gone or unreadable: vouches for nothing */ }
+  }
+  const bytes = new Uint8Array(fs.readFileSync(tmp))
+  const out = await officeExitCheck(got.name, bytes, earlier, exec.abort.signal)
+  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return got
+  fs.writeFileSync(tmp, out)
+  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex') }
+}
+
 /** A work-folder file into the team folder at `to` (save_work_file's route): the wider-audience card with the work
  * folder's sources, then a copy from one checked descriptor and placeProduced. `shown`: how the result names the file. */
 export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: string; target: string; where: () => WorkFolder | null; tool: string; args: unknown; shown: string }): Promise<Routed> {
@@ -180,10 +200,11 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
     const left = Math.max(0, max.bytes - files.bytesWritten)
     const tmp = path.join(work, 'file')
     // the team disk near full: refused before the copy is made (placeProduced checks again)
-    const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
+    let got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
       if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what one answer may still save (${(left / 1024 ** 2).toFixed(0)} MB left of ${(max.bytes / 1024 ** 2).toFixed(0)} MB). Make it smaller (a lower bitrate or a shorter cut), or save it in the next answer.`, 'too_large')
       throw e
     })
+    got = await officeOut(exec, files, tmp, got, [to])
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, movedCheck: true, detail: { from: 'work folder' } })
@@ -216,10 +237,11 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
     if (files.filesWritten.size >= max.files) throw new ToolError(`this answer saved its most files already (${max.files}); attach it in the next answer`, 'too_many')
     const tmp = path.join(work, 'file')
     // the team disk near full: refused before the copy is made (createFromAi checks again)
-    const got = await copyWorkFile(first, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
+    let got = await copyWorkFile(first, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
       if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what can be attached now (at most ${(left / 1024 ** 2).toFixed(0)} MB in this answer; a file attached to an answer is at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB). Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
       throw e
     })
+    got = await officeOut(exec, files, tmp, got)
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not attached: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     // right before the hand-off: still the work folder of the chat's people now, and still no hidden part in the answer
     const now = o.where()
@@ -255,11 +277,15 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, spec.userId)
     const left = Math.min(CHAT_FILE_AI_MAX, Math.max(0, max.bytes - files.bytesWritten))
     const tmp = path.join(work, 'file')
-    const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
+    let got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const places = chatPlaces(exec, files)
     const dest = parsePlace(o.to)
     const head = places.head(dest?.kind === 'chatFiles' ? dest.id ?? null : null, '')
+    // the version it replaces vouches for what it already held (an edited company template keeps its links)
+    let headBytes: Uint8Array[] = []
+    try { const h = head.id ? places.open(head.id, head.name) : null; if (h) headBytes = [new Uint8Array(readRegular(h.abs, OFFICE_EXIT_EARLIER_MAX).bytes)] } catch { headBytes = [] }
+    got = await officeOut(exec, files, tmp, got, [], headBytes)
     // the same format: a .mov is never saved as a version of a .mp4
     const ext = (n: string) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : '' }
     if (ext(got.name) !== ext(head.name)) return { ok: false, text: `Not saved: ${shown} is a .${ext(got.name) || '(no extension)'} file and '${head.name}' is a .${ext(head.name) || '(no extension)'} file; a new version keeps the file's format. Make it in the same format, or attach it as a separate file (to_folder "chat:files/").`, summary: `${tool} -> refused: other format` }

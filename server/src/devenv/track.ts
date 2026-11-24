@@ -23,6 +23,8 @@ import { sharesTrashed } from '../files/shares'
 import { ownSharedFolders } from '../files/share-readers'
 import { diffSnapshots, keepable, PROJECT_CAPS, readInside, SnapshotStore, takeSnapshot, type Change, type Manifest, type StoreCaps } from './snapshot'
 import crypto from 'node:crypto'
+import { OFFICE_WRITE_MAX } from '../files/extract'
+import { officeExitCheck, officeKind } from '../files/office-exit'
 
 export interface Actor { userId: string; turnId: string | null }
 
@@ -136,7 +138,7 @@ function conflictCopies(ctx: AppContext, s: ProjectState, changes: Change[], out
 }
 
 /** `lost`: the changes (the command's and the background's) whose previous content was not kept: no version, no trash */
-export interface WindowResult<T> { value: T; changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[] }
+export interface WindowResult<T> { value: T; changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; blocked?: BlockedOffice[] }
 
 /**
  * Run `fn` (one box command) inside a change window of the project folder. Commands of one project wait for each
@@ -151,8 +153,18 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
   const run = async (): Promise<WindowResult<T>> => {
     const root = ctx.files.fx.root
     const prev = s.store.load()
-    const start = takeSnapshot(root, project.folderPath, prev, s.store)
-    const background = prev ? diffSnapshots(prev, start) : []
+    let start = takeSnapshot(root, project.folderPath, prev, s.store)
+    let background = prev ? diffSnapshots(prev, start) : []
+    // what a job or dev server wrote since the last command is checked too (no run's file skips the Office check)
+    const blocked: BlockedOffice[] = []
+    if (prev && background.length) {
+      // a save through the file layer (a person on the Files screen, a tool) is not a run's: its content is on record
+      const saved = ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND sha256 = ? AND (detail IS NULL OR json_extract(detail, '$.via') IS NOT 'dev_env') LIMIT 1")
+      const runs = background.filter((c) => !c.after || !saved.get(c.path, c.after))
+      const g = await guardOffice(ctx, s, runs, s.lastActor ?? by)
+      blocked.push(...g.blocked)
+      if (g.touched) { start = takeSnapshot(root, project.folderPath, start, s.store); background = diffSnapshots(prev, start) }
+    }
     // after a server restart the person of the last command is not known: the change is shown as the box's
     const lost: Change[] = []
     if (background.length) lost.push(...record(ctx, s, background, s.lastActor ?? by, { background: true, ...(s.lastActor ? {} : { actorUnknown: true }) }))
@@ -182,17 +194,58 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
         end = fresh
       }
     }
+    {
+      const g = await guardOffice(ctx, s, changes, by)
+      blocked.push(...g.blocked)
+      if (g.touched) { end = takeSnapshot(root, project.folderPath, end, s.store); changes = diffSnapshots(start, end).filter(notOutside) }
+    }
     s.outside = null
     s.store.save(end)
     s.lastActor = by
     const conflicts = conflictCopies(ctx, s, changes, outside)
     lost.push(...record(ctx, s, changes, by, extra))
     if (meanwhile.length) lost.push(...record(ctx, s, meanwhile, by, { background: true }))
-    return { value, changes, background: [...background, ...meanwhile], conflicts, lost }
+    return { value, changes, background: [...background, ...meanwhile], conflicts, lost, ...(blocked.length ? { blocked } : {}) }
   }
   const p = s.queue.then(run, run)
   s.queue = p.catch(() => {})
   return p
+}
+
+// ---------------- Office files a run wrote straight into a team folder (files/office-exit.ts) ----------------
+/** A Word, PowerPoint or Excel file a run wrote that the exit check refused: put back (`restored`) or moved to the trash. */
+export interface BlockedOffice { path: string; why: string; restored: boolean }
+
+/** Every Office file the command created or changed in this window, checked like a file copied out of the work folder:
+ * the version before vouches for what it already held. A refused file is undone (the earlier content back, or the new
+ * file to the trash); an attached template is taken out in place. Returns what was refused and whether the disk changed. */
+async function guardOffice(ctx: AppContext, s: ProjectState, changes: Change[], by: Actor): Promise<{ blocked: BlockedOffice[]; touched: boolean }> {
+  const root = ctx.files.fx.root
+  const within = path.join(root, ...s.folder.split('/'))
+  const blocked: BlockedOffice[] = []
+  let touched = false
+  for (const c of changes) {
+    if (c.action === 'delete' || !officeKind(c.path)) continue
+    const segs = c.path.split('/')
+    const got = readInside(path.join(root, ...segs), within, OFFICE_WRITE_MAX)
+    const earlier = c.before ? s.store.blob(c.before) : null
+    let why: string | null = null
+    if (!got) why = 'it could not be read for the safety check (too large or replaced while it was read)'
+    else {
+      try {
+        const out = await officeExitCheck(c.path, new Uint8Array(got.bytes), earlier ? [new Uint8Array(earlier)] : [])
+        if (Buffer.compare(Buffer.from(out), got.bytes) !== 0) { atomicWrite(root, segs, out, {}); touched = true }
+      } catch (e) { why = e instanceof Error ? e.message : 'the safety check failed' }
+    }
+    if (why === null) continue
+    let restored = false
+    try { restored = revert(ctx, s, { path: c.path, action: c.action, before: c.before }, by) } catch (e) { ctx.log.warn('dev env: an unsafe Office file was not put back', { err: e, path: c.path }) }
+    // the earlier content is not kept (too large for the store): the command's file goes to the trash all the same
+    if (!restored) { try { revert(ctx, s, { path: c.path, action: 'create', before: null }, by) } catch (e) { ctx.log.warn('dev env: an unsafe Office file stayed', { err: e, path: c.path }) } }
+    touched = true
+    blocked.push({ path: c.path, why: why.slice(0, 400), restored })
+  }
+  return { blocked, touched }
 }
 
 // ---------------- "changed by someone else since your last command" (hole 2) ----------------
@@ -296,7 +349,7 @@ export class OwnNotUndoable extends Error {
 
 /** `reverted`: changes undone right after the command (OwnWindowOptions.mustUndo: an instruction file or a hidden file);
  * `unreverted`: such changes that could not be undone (kept as versions or in the trash where they could) */
-export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[]; unreverted: Change[] }
+export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[]; unreverted: Change[]; blocked?: BlockedOffice[] }
 /** `mustUndo`: the command went without the room card on the promise that its changes can be undone (chat/turn.ts
  * ownBoxRun). `exclude`: team paths inside the own folder another window records (a personal project's folder). */
 export interface OwnWindowOptions { mustUndo?: boolean; exclude?: readonly string[] }
@@ -396,6 +449,9 @@ export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Acto
       // after any attempt: what is on the disk now decides what is recorded (a half-done undo is a change like any other)
       if (tries.length) { end = takeSnapshot(root, s.folder, end, s.store); changes = diff(end) }
     }
+    // Office files the command wrote into the person's own folder: the same check as at the work folder's exit
+    const g = await guardOffice(ctx, s, changes, by)
+    if (g.touched) { end = takeSnapshot(root, s.folder, end, s.store); changes = diff(end) }
     let conflicts: string[] = [], lost: Change[] = []
     try {
       // the versions first: a failed conflict copy must not cost them
@@ -408,7 +464,7 @@ export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Acto
       try { s.store.prune(hashesOf(end)) } catch {}
     }
     if (threw) throw failed
-    return { value: value as T, changes, lost, conflicts, reverted, unreverted }
+    return { value: value as T, changes, lost, conflicts, reverted, unreverted, ...(g.blocked.length ? { blocked: g.blocked } : {}) }
   }
   const p = s.queue.then(run, run)
   s.queue = p.catch(() => {})

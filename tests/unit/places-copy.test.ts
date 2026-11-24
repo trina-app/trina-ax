@@ -30,6 +30,7 @@ import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 
 import { expectNoRawPlace } from '../lib/card-places'
+import { docx, UNC } from '../lib/office-fixture'
 setDefaultTimeout(120_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 // a fake system: every command runs with sh in the run's cwd (the copy-in script starts at "set -u")
@@ -251,6 +252,29 @@ describe('out of chat:work/', () => {
     const old = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/proposal.html', save_as: 'shared/pc/' }, sayResult: true }), () => 'skip')
     expect(old.cards.length).toBe(1)
     expect(fs.existsSync(team('shared/pc/proposal.html'))).toBe(false)
+  })
+
+  test('a Word file with a share link is not copied out of the work folder: save_work_file, copy_files and a chat attachment', async () => {
+    const chat = await personal()
+    const p = path.join(chatWork(base, chat), 'out', 'risky.docx'); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, docx({ link: UNC }))
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/risky.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Not saved')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(false)
+    const copied = await run('alice', chat, copy(['chat:work/out/risky.docx'], 'users/alice/'))
+    expect(copied.content).toContain('files.example')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(false)
+    // a shared chat: not attached to the answer either
+    const s = await shared()
+    await run('alice', s, copy(['groups/marketing/brief.csv'], 'chat:work/'))
+    fs.writeFileSync(path.join(sharedWork(s), 'risky.docx'), docx({ link: UNC }))
+    const att = await run('alice', s, fake({ tool: 'save_work_file', args: { path: '$TRINA_WORK/risky.docx' }, sayResult: true }))
+    expect(att.content).toContain('Not attached')
+    expect(att.attachments.find((x) => x.name === 'risky.docx')).toBeUndefined()
+    // a clean Word file passes
+    fs.writeFileSync(p, docx())
+    const ok = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/risky.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(ok.content).toContain('Saved')
+    expect(fs.existsSync(team('users/alice/risky.docx'))).toBe(true)
   })
 
   test('a work-folder folder is not copied out (zip it first); a work file into chat:work/ is a box_shell cp', async () => {
