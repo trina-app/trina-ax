@@ -6,6 +6,9 @@
 //   Chinese). So a page breaks where it breaks in Office, and an Asian font the server does not have never leaves the
 //   text blank. Where the kit's fonts are not system fonts (a Mac), the profile's user/fonts links to them (LibreOffice
 //   loads that folder on every platform); the render must be allowed to read kitFontsDir() then.
+// - Text with no language of its own (an untagged Korean workbook) is Chinese, Japanese and Korean alike to LibreOffice:
+//   its Asian default language decides which Noto CJK face draws it (Hanja and punctuation differ between KR, JP, SC and
+//   TC). It follows the team's language; Korean where the team's language is not an Asian one.
 // - Macros never run, whatever the file asks (the highest security level and macro execution off).
 // - A workbook's formulas are calculated when it is opened, so a page and the stored values show real results.
 //
@@ -38,9 +41,15 @@ export const FONT_REPLACEMENTS: ReadonlyArray<readonly [string, string]> = [
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const prop = (name: string, value: string | boolean | number) => `<prop oor:name="${name}" oor:op="fuse"><value>${xml(String(value))}</value></prop>`
 
+/** the Asian default language of the render, from the team's language (Locale: ko en id ja es zh) */
+export function cjkLocale(team: string | null | undefined): string {
+  return team === 'ja' ? 'ja-JP' : team === 'zh' ? 'zh-CN' : 'ko-KR'
+}
+
 /** registrymodifications.xcu of the render's profile */
-export function profileXcu(): string {
+export function profileXcu(cjk: string = cjkLocale(null)): string {
   const items = [
+    `<item oor:path="/org.openoffice.Office.Linguistic/General">${prop('DefaultLocale_CJK', cjk)}</item>`,
     `<item oor:path="/org.openoffice.Office.Common/Security/Scripting">${prop('MacroSecurityLevel', 3)}${prop('DisableMacrosExecution', true)}</item>`,
     `<item oor:path="/org.openoffice.Office.Calc/Formula/Load">${prop('OOXMLRecalcMode', 0)}${prop('ODFRecalcMode', 0)}</item>`,
     `<item oor:path="/org.openoffice.Office.Common/Font/Substitution">${prop('Replacement', true)}</item>`,
@@ -59,10 +68,10 @@ export function kitFontsDir(env: Record<string, string | undefined> = process.en
 const FONT_FILE = /\.(ttf|otf|ttc|otc)$/i
 
 /** Makes the profile folder (`dir`, inside the render's work folder) and returns its file: URL for -env:UserInstallation. */
-export function writeOfficeProfile(dir: string, fonts: string | null = kitFontsDir()): string {
+export function writeOfficeProfile(dir: string, fonts: string | null = kitFontsDir(), cjk: string = cjkLocale(null)): string {
   const user = path.join(dir, 'user')
   fs.mkdirSync(user, { recursive: true, mode: 0o700 })
-  fs.writeFileSync(path.join(user, 'registrymodifications.xcu'), profileXcu(), { mode: 0o600 })
+  fs.writeFileSync(path.join(user, 'registrymodifications.xcu'), profileXcu(cjk), { mode: 0o600 })
   if (fonts) {
     const into = path.join(user, 'fonts')
     fs.mkdirSync(into, { mode: 0o700 })

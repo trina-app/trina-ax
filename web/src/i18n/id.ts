@@ -80,7 +80,7 @@ export const id: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "Nyalakan",
   "devEnvSites.fullOn": "Internet penuh menyala. AI dapat mengirim file yang dapat Anda baca ke situs mana pun.",
   "devEnvTeam.accept": "Saya memahami risikonya dan menyalakannya untuk tim",
-  "devEnvTeam.offer": "Mati karena tim Anda dibuat sebelum fitur ini ada.",
+  "devEnvTeam.offer": "Mati karena tim Anda dibuat sebelum fitur ini ada. Sampai Anda menyimpan pilihan, file Word, PowerPoint, dan Excel tetap dibuat di sini, tanpa internet dan hanya di folder kerja tiap chat.",
   "devEnvOffer.body": "Jika dinyalakan, AI menjalankan perintah di server tim: mengisi file Excel dan Word, menjalankan skrip bawaan skill, dan memakai Python atau Node. Perintah hanya melihat folder yang boleh dibuka orang yang meminta, dan hanya menjangkau situs yang diizinkan. Tidak ada yang berubah sampai Anda menyalakannya.",
 
   'common.cancel': 'Batal',

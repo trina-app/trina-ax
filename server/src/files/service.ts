@@ -1319,7 +1319,7 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
     const src = this.boundSource(ctx, r, readMaxBytes())
     let pdf: Uint8Array
-    try { pdf = await officePdf(src.bytes, e, { user: ctx.user.id, workBase: this.cfg.dataDir, signal: ctx.signal }) } catch (err) {
+    try { pdf = await officePdf(src.bytes, e, { user: ctx.user.id, workBase: this.cfg.dataDir, signal: ctx.signal, teamLocale: teamDefaultLocale(this.db) }) } catch (err) {
       ctx.signal?.throwIfAborted()
       throw new ToolError(`the pages of '${src.rel}' could not be drawn (${err instanceof Error ? err.message.slice(0, 200) : 'failed'}). Read it without pages and as_images for its text, and tell the user you did not see its pages.`, 'pages_failed')
     }

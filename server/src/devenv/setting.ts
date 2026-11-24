@@ -78,11 +78,13 @@ export function newConsent(by: { id: string; name: string }): DevEnvConsent {
 
 // ---------------- documents mode ----------------
 // docs/decisions/20261124-documents-mode.md (owner, 2026-11-24): Word, PowerPoint and Excel files are built with the
-// document skills on every install, so where the dev environment is installed (the flag) but off for a person (the team
-// turned it off, an older team never turned it on, the person is out of scope) box_shell still runs in documents mode:
+// document skills on every install, so where the dev environment is installed (the flag) and the team never chose it
+// (no saved setting, or the row an older team got from migration 236: oldTeamOffer) box_shell still runs in documents mode:
 // no network, no team folders, only the chat's work folder (the AI copies a file in with copy_files, which checks the
-// person's access). This one capability turns on without an admin step; it reverses "nothing turns on by itself" for it
-// alone. Not for guests (deferred). MYCEL_DOCUMENTS_MODE=0 turns it off on a server.
+// person's access). This one capability turns on without an admin step for teams that never chose; it reverses
+// "nothing turns on by itself" for it alone. An admin's explicit choice is respected (security review of #508): a team
+// whose admin saved the dev environment off, or a person left out of its scope, gets no documents mode either. Not for
+// guests (deferred). MYCEL_DOCUMENTS_MODE=0 turns it off on a server.
 
 /** documents mode on this server (on unless MYCEL_DOCUMENTS_MODE=0) */
 export const documentsModeFlag = (env: Record<string, string | undefined> = process.env) => env.MYCEL_DOCUMENTS_MODE !== '0'
@@ -91,10 +93,16 @@ export const documentsModeFlag = (env: Record<string, string | undefined> = proc
 export type CommandMode = 'full' | 'documents'
 export function commandMode(db: Database, files: FileService, userId: string, flag = devEnvFlag()): CommandMode | null {
   if (mayUseDevEnv(db, files, userId, flag)) return 'full'
-  if (!flag || !documentsModeFlag()) return null
+  if (!flag || !documentsModeFlag() || !teamNeverChose(db)) return null
   try { const p = files.principal(userId); if (!p || p.role === 'guest' || isGuestUser(db, userId)) return null } catch { return null }
   return 'documents'
 }
 
 /** may this person run commands now, in either mode? */
 export const mayRunCommands = (db: Database, files: FileService, userId: string, flag = devEnvFlag()) => commandMode(db, files, userId, flag) !== null
+
+/** The team never chose the dev environment: no saved setting, or still the row migration 236 wrote for an older team.
+ * An admin's save (on or off, any scope) is a choice. */
+export function teamNeverChose(db: Database): boolean {
+  return !db.query('SELECT 1 FROM settings WHERE key = ?').get(TEAM_SETTING_KEY) || oldTeamOffer(db)
+}

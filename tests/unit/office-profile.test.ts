@@ -5,7 +5,10 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { FONT_REPLACEMENTS, kitFontsDir, profileXcu, writeOfficeProfile } from '../../server/src/files/office-profile'
+import { cjkLocale, FONT_REPLACEMENTS, kitFontsDir, profileXcu, writeOfficeProfile } from '../../server/src/files/office-profile'
+import { officePdf, officeViewer } from '../../server/src/files/office-view'
+import { which } from '../../server/src/config'
+import ExcelJS from '../../server/node_modules/exceljs'
 import { isolatedCommand, sandboxHelper } from '../../server/src/tools/isolate'
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'office-profile-')))
@@ -68,4 +71,32 @@ describe('sandboxHelper', () => {
     expect(sandboxHelper({ MYCEL_SANDBOX_HELPER: '/nonexistent/mycel-sandbox' })).toBeNull()
     expect(sandboxHelper({})).toBeNull()
   })
+})
+
+describe('the Asian face of text with no language (an untagged Korean workbook)', () => {
+  test('the team\'s language picks it; Korean unless the team writes Japanese or Chinese', () => {
+    expect(cjkLocale('ko')).toBe('ko-KR')
+    expect(cjkLocale('en')).toBe('ko-KR')
+    expect(cjkLocale(null)).toBe('ko-KR')
+    expect(cjkLocale('ja')).toBe('ja-JP')
+    expect(cjkLocale('zh')).toBe('zh-CN')
+    expect(profileXcu()).toContain('<prop oor:name="DefaultLocale_CJK" oor:op="fuse"><value>ko-KR</value></prop>')
+    expect(profileXcu('ja-JP')).toContain('<value>ja-JP</value>')
+  })
+
+  // a real render where the server has LibreOffice (Linux with bwrap): the Korean text of a workbook that names no
+  // language and no Asian font is drawn with Noto Sans CJK KR, not SC or JP
+  const pdffonts = which('pdffonts')
+  test.if(!!officeViewer() && !!pdffonts)('a real render draws it with the KR face', async () => {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('예산')
+    ws.addRow(['항목', '금액']); ws.addRow(['사무용품 구입', 120000]); ws.addRow(['합계', { formula: 'SUM(B2:B2)' }])
+    const bytes = new Uint8Array(await wb.xlsx.writeBuffer())
+    const base = tmp()
+    const pdf = await officePdf(bytes, 'xlsx', { user: 'u', workBase: base, teamLocale: 'ko' })
+    const f = path.join(base, 'out.pdf'); fs.writeFileSync(f, pdf)
+    const fonts = Bun.spawnSync([pdffonts!, f]).stdout.toString()
+    expect(fonts).toMatch(/NotoSansCJKkr/)
+    expect(fonts).not.toMatch(/NotoSansCJK(sc|tc|jp|hk)/)
+  }, 120_000)
 })

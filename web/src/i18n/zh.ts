@@ -80,7 +80,7 @@ export const zh: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "开启",
   "devEnvSites.fullOn": "完整互联网已开启。AI 可以把你能读取的文件发送到任何网站。",
   "devEnvTeam.accept": "我了解风险，为团队开启",
-  "devEnvTeam.offer": "你的团队创建于此功能推出之前，所以它是关闭的。",
+  "devEnvTeam.offer": "你的团队创建于此功能推出之前，所以它是关闭的。在你保存选择之前，Word、PowerPoint 和 Excel 文件仍会在这里制作，不联网，只在每个聊天自己的文件夹中。",
   "devEnvOffer.body": "开启后，AI 可以在团队服务器上运行命令：填写 Excel 和 Word 文件、运行技能自带的脚本、使用 Python 或 Node。命令只能看到提出请求的人可以打开的文件夹，也只能访问允许的网站。在你开启之前，什么都不会改变。",
   "common.cancel": "取消",
   "common.choose": "选择",
