@@ -34,6 +34,7 @@
 //   worker), then printed like an HTML page; nothing else here converts a deck (no LibreOffice). Its pictures come
 //   from the deck itself, never from the team folder; the deck is the PDF's only source.
 import { movedFact } from '../files/moved'
+import { assertSafeTeamPath, replacedAsRead } from '../files/office-exit'
 import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -1057,6 +1058,9 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   if (counted && c.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
+  // the one check of an AI's file going into a team folder, by its content (files/office-exit.ts): only the file it
+  // replaces, in the bytes this answer read, vouches for what that file already held
+  await assertSafeTeamPath(segs[segs.length - 1] ?? '', produced, replacedAsRead(path.join(fx.root, ...segs), c.files.readHashes.get(segs.join('/'))), c.signal)
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
   // check-to-install section is synchronous, so server saves and policy mutations cannot interleave.
   const sha = await hashFile(produced)

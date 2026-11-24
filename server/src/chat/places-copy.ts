@@ -28,8 +28,8 @@ import { chatFilePath, isReservedPlace, parsePlace, workPlacePath, type Place } 
 import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
-import { openToRead, readRegular } from '../files/store'
-import { OFFICE_EXIT_EARLIER_MAX, officeExitCheck, officeKind } from '../files/office-exit'
+import { openToRead } from '../files/store'
+import { contentKind, HEAD_BYTES, TAIL_BYTES } from '../files/office-exit'
 import { officeRecalc, officeViewer } from '../files/office-view'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
@@ -163,33 +163,24 @@ function noteWorkRead(exec: TurnExec): boolean {
   return true
 }
 
-/** A Word, PowerPoint or Excel file leaving the work folder (files/office-exit.ts): checked in place at `tmp` (an
- * attached template taken out, so its hash may change) against what this answer read, the file it replaces (`also`,
- * team paths) and `given` earlier bytes. Throws a ToolError when it holds a risky item the earlier versions did not. */
-async function officeOut(exec: TurnExec, files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, also: string[] = [], given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
-  if (!officeKind(got.name)) return got
-  const root = exec.rt.ctx.files.fx.root
-  const earlier: Uint8Array[] = [...given]
-  for (const p of [...also, ...files.readHashes.keys()]) {
-    if (!p || p.includes(':') || officeKind(p) !== officeKind(got.name)) continue
-    try { earlier.push(new Uint8Array(readRegular(path.join(root, ...p.split('/')), OFFICE_EXIT_EARLIER_MAX).bytes)) } catch { /* gone or unreadable: vouches for nothing */ }
-  }
+/** A workbook leaving the work folder gets every formula's result stored (files/xlsx-values.ts), so a preview shows
+ * numbers. The safety check itself is where the file lands (placeProduced, chat files: files/office-exit.ts). */
+async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
+  const head = Buffer.alloc(HEAD_BYTES)
+  const fd = fs.openSync(tmp, 'r'); let n = 0
+  try { n = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
+  const k = contentKind(got.name, head.subarray(0, n), fs.statSync(tmp).size <= TAIL_BYTES ? new Uint8Array(fs.readFileSync(tmp)) : head.subarray(0, n))
+  if (!k || !('office' in k) || k.office !== 'xlsx') return got
+  if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
-  let out = await officeExitCheck(got.name, bytes, earlier, exec.abort.signal)
-  // a workbook: every formula's result stored in the file (files/xlsx-values.ts), so a preview shows numbers
-  let note = ''
-  if (officeKind(got.name) === 'xlsx') {
-    if (!officeViewer()) note = ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.'
-    else {
-      try { out = await officeRecalc(out, { user: exec.spec.userId, workBase: exec.rt.ctx.engineConfig.dataDir, signal: exec.abort.signal }) } catch (e) {
-        exec.abort.signal.throwIfAborted()
-        note = ` Its formula results could not be calculated (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}), so a preview may show empty formula cells: say so.`
-      }
-    }
+  let out: Uint8Array
+  try { out = await officeRecalc(bytes, { user: exec.spec.userId, workBase: exec.rt.ctx.engineConfig.dataDir, signal: exec.abort.signal }) } catch (e) {
+    exec.abort.signal.throwIfAborted()
+    return { ...got, note: ` Its formula results could not be calculated (${e instanceof Error ? e.message.slice(0, 120) : 'failed'}), so a preview may show empty formula cells: say so.` }
   }
-  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return { ...got, note }
+  if (Buffer.compare(Buffer.from(out), Buffer.from(bytes)) === 0) return got
   fs.writeFileSync(tmp, out)
-  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex'), note }
+  return { name: got.name, size: out.length, sha256: crypto.createHash('sha256').update(out).digest('hex') }
 }
 
 /** A work-folder file into the team folder at `to` (save_work_file's route): the wider-audience card with the work
@@ -295,10 +286,8 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const places = chatPlaces(exec, files)
     const dest = parsePlace(o.to)
     const head = places.head(dest?.kind === 'chatFiles' ? dest.id ?? null : null, '')
-    // the version it replaces vouches for what it already held (an edited company template keeps its links)
-    let headBytes: Uint8Array[] = []
-    try { const h = head.id ? places.open(head.id, head.name) : null; if (h) headBytes = [new Uint8Array(readRegular(h.abs, OFFICE_EXIT_EARLIER_MAX).bytes)] } catch { headBytes = [] }
-    got = await officeOut(exec, files, tmp, got, [], headBytes)
+    // a workbook gets its formula results (the safety check is where it lands: chat-files.ts putVersion)
+    got = await officeOut(exec, files, tmp, got)
     // the same format: a .mov is never saved as a version of a .mp4
     const ext = (n: string) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : '' }
     if (ext(got.name) !== ext(head.name)) return { ok: false, text: `Not saved: ${shown} is a .${ext(got.name) || '(no extension)'} file and '${head.name}' is a .${ext(head.name) || '(no extension)'} file; a new version keeps the file's format. Make it in the same format, or attach it as a separate file (to_folder "chat:files/").`, summary: `${tool} -> refused: other format` }

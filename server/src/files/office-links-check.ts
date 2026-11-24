@@ -10,9 +10,10 @@
 // refused, so the team's templates keep working.
 // Every .rels and every XML part is read with saxes (namespaces resolved); a part that is not well-formed is refused.
 // This runs only in the office worker (office-worker.ts), never in the server process, because the bytes are untrusted.
+import crypto from 'node:crypto'
 import { ToolError } from '../policy/errors'
 import { allowedLinkTarget } from './office-rules'
-import { attrNS, dropElements, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
+import { attrNS, dropElements, looksXml, parseXml, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
@@ -37,10 +38,11 @@ export function checkOfficeLinks(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Arr
  * officeExitCheck): `risks` gets one entry per item, named by what it is and where it points, not by the part it is in,
  * so the same link moved to another part of an edited file is the same item. A damaged package still throws.
  */
-export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, risks: Set<string> | null): Uint8Array {
+export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, risks: Map<string, string> | null): Uint8Array {
   const what = `the ${kind === 'docx' ? 'Word' : kind === 'pptx' ? 'PowerPoint' : 'Excel'} file would contain`
   const stop = (part: string, why: string): never => { throw new ToolError(`${what}: ${part} ${why}; links may only go to web pages (http, https), mail addresses (mailto) or places inside the document; nothing was saved`) }
-  const fail = (part: string, why: string): never => { if (!risks) return stop(part, why); risks.add(why); return undefined as never }
+  /** one risky item: refused at once (make_file), or collected by its exact identity `id` (the exit check) */
+  const fail = (part: string, why: string, id: string = why): never => { if (!risks) return stop(part, why); if (!risks.has(id)) risks.set(id, why); return undefined as never }
   if (!isZip(bytes)) throw new ToolError(`${what} is not a valid ${kind} file; nothing was saved`)
   try { checkZip(bytes) } catch (e) { throw new ToolError(`${what} could not be checked (${String((e as Error).message).slice(0, 120)}); nothing was saved`) }
   let entries: ZipEntry[]
@@ -49,6 +51,17 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
   /** .rels parts that hold an attached-template relationship, and the owner parts (word/settings.xml) that hold the element */
   const stripRels = new Set<string>()
   const stripOwners = new Set<string>()
+
+  const partBytes = new Map(entries.map((e) => [e.name, e.data]))
+  /** an item's identity: what it is and exactly where it points (normalized), or for an embedded part its bytes' hash */
+  const norm = (t: string) => t.trim().replace(/\\/g, '/').toLowerCase()
+  const resolve = (relsName: string, target: string) => {
+    const base = ownerOf(relsName).split('/').slice(0, -1)
+    const out = target.startsWith('/') ? [] : [...base]
+    for (const seg of target.replace(/^\//, '').split('/')) { if (seg === '..') out.pop(); else if (seg && seg !== '.') out.push(seg) }
+    return out.join('/')
+  }
+  const hashOf = (b: Uint8Array | undefined) => (b ? crypto.createHash('sha256').update(b).digest('hex') : 'missing')
 
   for (const e of entries) {
     if (!/\.rels$/i.test(e.name)) continue
@@ -61,18 +74,49 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
         stripOwners.add(owner)
         continue
       }
-      if (OBJECT_RELS.has(r.type)) fail(e.name, `refers to ${r.external ? 'a link to ' : ''}an embedded object, a frame or a subdocument (${r.type})`)
+      if (OBJECT_RELS.has(r.type)) {
+        const id = r.external ? `rel|${r.type}|ext|${norm(r.target)}` : `obj|${r.type}|${norm(resolve(e.name, r.target))}|${hashOf(partBytes.get(resolve(e.name, r.target)))}`
+        fail(e.name, `refers to ${r.external ? 'a link to ' : ''}an embedded object, a frame or a subdocument (${r.type})`, id)
+      }
       if (r.external) {
-        if (r.type !== 'hyperlink') fail(e.name, `refers to "${clip(r.target)}" outside the file (${r.type || 'a relationship'})`)
-        if (!allowedLinkTarget(r.target) || r.target.startsWith('#')) fail(e.name, `has a link to "${clip(r.target)}"`)
+        if (r.type !== 'hyperlink') fail(e.name, `refers to "${clip(r.target)}" outside the file (${r.type || 'a relationship'})`, `rel|${r.type}|ext|${norm(r.target)}`)
+        else if (!allowedLinkTarget(r.target) || r.target.startsWith('#')) fail(e.name, `has a link to "${clip(r.target)}"`, `rel|hyperlink|ext|${norm(r.target)}`)
       } else if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/i.test(r.target)) {
-        fail(e.name, `refers to "${clip(r.target)}" outside the file`)
+        fail(e.name, `refers to "${clip(r.target)}" outside the file`, `rel|${r.type}|int|${norm(r.target)}`)
       }
     }
   }
 
+  // every XML part: a macro project, Excel's external links (DDE, OLE links), data connections and query tables, and any
+  // src / href attribute (VML v:imagedata, v:fill, o:href ...) that points outside the document
+  for (const e of entries) {
+    const lower = e.name.toLowerCase()
+    if (/(^|\/)vbaproject\.bin$|(^|\/)vbadata\.xml$/.test(lower)) fail(e.name, 'holds a macro project', `vba|${hashOf(e.data)}`)
+    if (/\.rels$/i.test(e.name) || !looksXml(e.data)) continue
+    const xml = dec.decode(e.data)
+    const isConn = /(^|\/)connections\.xml$/.test(lower), isQuery = /(^|\/)querytables\//.test(lower), isExt = /(^|\/)externallinks\/[^/]+\.xml$/.test(lower)
+    if (isQuery) fail(e.name, 'holds a query table that fetches data from outside the file', `query|${hashOf(e.data)}`)
+    parseXml(xml, e.name, stop, {
+      open: (t) => {
+        if (isExt && (t.local === 'ddeLink' || t.local === 'oleLink')) {
+          const a = (n: string) => attrNS(t, '', n) ?? ''
+          fail(e.name, `holds an external ${t.local === 'ddeLink' ? 'DDE' : 'OLE'} link (${clip(a('ddeService') || a('progId'))})`, `${t.local}|${norm(a('ddeService'))}|${norm(a('ddeTopic'))}|${norm(a('progId'))}`)
+        }
+        if (isConn && t.local === 'connection') fail(e.name, 'holds a data connection that fetches data from outside the file', `conn|${Object.values(t.attributes).filter((x) => !['id'].includes(x.local)).map((x) => `${x.local}=${norm(x.value)}`).sort().join('|')}`)
+        if (isConn && (t.local === 'webPr' || t.local === 'textPr' || t.local === 'dbPr' || t.local === 'olapPr')) fail(e.name, 'holds a data connection that fetches data from outside the file', `conn-${t.local}|${Object.values(t.attributes).map((x) => `${x.local}=${norm(x.value)}`).sort().join('|')}`)
+        for (const at of Object.values(t.attributes)) {
+          if (at.local !== 'src' && at.local !== 'href') continue
+          const v = at.value.trim()
+          if (!v || v.startsWith('#') || allowedLinkTarget(v)) continue
+          // an absolute place outside the document: a share, a drive, a file: or other scheme, a rooted path
+          if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|^[a-z]:[\\/]|^[\\/]/i.test(v)) fail(e.name, `refers to "${clip(v)}" outside the file`, `attr|${at.local}|${norm(v)}`)
+        }
+      },
+    })
+  }
+
   // Word fields in every XML part of a .docx, wherever it is, UTF-16 refused: the same scan as the template check
-  if (kind === 'docx') scanWordFields(entries, stop, fail)
+  if (kind === 'docx') scanWordFields(entries, stop, (part, why, code) => fail(part, why, `field|${code.trim().replace(/\s+/g, ' ').toLowerCase()}`))
 
   if (!stripOwners.size) return bytes
   // take the attached template out: its relationship(s) in the .rels, and the w:attachedTemplate element in the owner
@@ -114,11 +158,11 @@ export function officeExitRequest(input: Uint8Array): Uint8Array {
   let at = 4 + n
   for (const size of head.sizes) { if (at + size > input.length) throw new ToolError('the exit check got a bad request'); parts.push(input.subarray(at, at + size)); at += size }
   const [file, ...earlier] = parts as [Uint8Array, ...Uint8Array[]]
-  const had = new Set<string>()
+  const had = new Map<string, string>()
   for (const e of earlier) { try { scanOffice(kind, e, had) } catch { /* a damaged earlier version vouches for nothing */ } }
-  const found = new Set<string>()
+  const found = new Map<string, string>()
   const cleaned = scanOffice(kind, file, found)
-  const fresh = [...found].filter((r) => !had.has(r))
-  if (fresh.length) throw new ToolError(`the ${kind === 'docx' ? 'Word' : kind === 'pptx' ? 'PowerPoint' : 'Excel'} file contains ${fresh[0]}${fresh.length > 1 ? ` (and ${fresh.length - 1} more)` : ''}; links may only go to web pages (http, https), mail addresses (mailto) or places inside the document, and embedded objects, linked pictures and fields that run something are not allowed. Remove it and save again`, 'office_unsafe')
+  const fresh = [...found].filter(([id]) => !had.has(id)).map(([, why]) => why)
+  if (fresh.length) throw new ToolError(`the ${kind === 'docx' ? 'Word' : kind === 'pptx' ? 'PowerPoint' : 'Excel'} file ${fresh[0]}${fresh.length > 1 ? ` (and ${fresh.length - 1} more)` : ''}; links may only go to web pages (http, https), mail addresses (mailto) or places inside the document, and embedded objects, linked pictures and fields that run something are not allowed. Remove it and save again`, 'office_unsafe')
   return cleaned
 }
