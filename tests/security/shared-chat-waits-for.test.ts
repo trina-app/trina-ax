@@ -5,6 +5,8 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB } from '@mycel/shared'
+import { OPEN_LABEL_TOOLS, PATH_LABEL_TOOLS, stepRepeatsCard } from '../../server/src/chat/open-questions'
 
 setDefaultTimeout(60_000)
 const SECRET = 'S3CRET-card-detail'
@@ -105,4 +107,29 @@ test('what stays for the others: a command (20261118-devenv-shared-chats) and a 
   expect(bobSteps.find((s) => s.id === 'c1')?.label).toBe('Run · npm test')
   expect(bobSteps.find((s) => s.id === 'u1')?.label).toBe('Save · projects/falcon/report.pdf')
   expect(bobSteps.find((s) => s.id === 'u2')?.label).toBe('Save')
+})
+
+test('every known step tool is on the short list or shows its verb alone', () => {
+  const known = [...Object.keys(FILE_STEP_VERB), ...Object.keys(BROWSER_STEP_VERB)]
+  expect(known.length).toBeGreaterThan(50)
+  for (const tool of known) {
+    const step = { kind: 'tool', tool }
+    expect([tool, stepRepeatsCard(step, false)]).toEqual([tool, !OPEN_LABEL_TOOLS.has(tool)])
+    expect([tool, stepRepeatsCard(step, true)]).toEqual([tool, !OPEN_LABEL_TOOLS.has(tool) && !PATH_LABEL_TOOLS.has(tool)])
+  }
+  for (const tool of ['find_tools', 'find_skills', 'search', 'artifact', 'skill', 'query_data']) expect([tool, stepRepeatsCard({ kind: 'tool', tool }, true)]).toEqual([tool, true])
+})
+
+test('find_tools and find_skills with a select: query reach the others and their AI as the verb alone', async () => {
+  const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'go', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 15_000 })
+  const steps = ['find_tools', 'find_skills'].map((tool) => ({ id: tool, kind: 'tool', tool, label: 'Find features "select:my_gmail__send_payroll"', ...stamp() }))
+  h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), r.assistantMessage.id)
+  expect(JSON.stringify(await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} }))).not.toContain('send_payroll')
+  const b = await h.api('bob').call(API.sendMessage, { params: { id: chat.id }, body: { content: '@fake ' + JSON.stringify({ echo: 'system' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  const done = await bob.next('message.done', (f) => f.data.messageId === b.assistantMessage.id, 30_000)
+  const record = [...String(done.data.message.content).matchAll(/<steps_record>\n([\s\S]*?)\n<\/steps_record>/g)].map((m) => m[1]).join('\n')
+  expect(record).toContain('find_tools')
+  expect(record).not.toContain('send_payroll')
 })

@@ -16,7 +16,6 @@
 // replayCalls), every check made again at that moment.
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
-import { knownStepTool } from '@mycel/shared'
 import { ALWAYS_VALUE } from './always-allow'
 import type { CardAlwaysKind } from '@mycel/shared/api'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
@@ -66,20 +65,17 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
   'write', 'edit', 'make_file'])
 
-/** The tools whose step line repeats what their card covers (the question, an address, a service, a text): anyone but
- * the person whose turn it is reads their verb alone (ChatStore.viewSteps), and so does another person's AI
- * (chat/step-record.ts). docs/decisions/20261124-shared-chat-card-steps.md. Not here: the file tools, whose line names a
- * path only to a viewer who may see it (StoredStep.sv); save_url when it kept its path aside the same way (`pathKept`);
- * and box_shell, whose command and output the others see (20261118-devenv-shared-chats.md). */
-const PATH_GUARDED_CARD_TOOLS: ReadonlySet<string> = new Set(['delete_files', 'write', 'edit', 'make_file'])
+/** The only tools whose detailed step line reaches anyone but the person whose turn it is, and their AI
+ * (docs/decisions/20261124-shared-chat-card-steps.md). A file tool's line only with its paths kept aside
+ * (StoredStep.sv: shown to a viewer who may list them all); a command's always (20261118-devenv-shared-chats.md). */
+export const PATH_LABEL_TOOLS: ReadonlySet<string> = new Set(['read', 'list', 'glob', 'grep', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'comment_docx', 'hwp_render',
+  'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'delete_files', 'save_url'])
+export const OPEN_LABEL_TOOLS: ReadonlySet<string> = new Set(['box_shell'])
+/** Fails closed: every step but those above shows the generic verb to the others, stored rows too. */
 export const stepRepeatsCard = (step: { kind: string; tool?: string }, pathKept = false): boolean => {
   const tool = step.tool
   if (!tool) return step.kind === 'tool'
-  // fails closed, stored rows too: only a tool on the built-in list may show its name and line. Every connector
-  // (my_gmail__…, team_linear__…), call_tool, api_request and anything unknown is the generic verb
-  if (!knownStepTool(tool)) return true
-  if (tool === 'save_url') return !pathKept
-  return tool === 'ask_user' || tool === 'connect_service' || (CARD_LATER_TOOLS.has(tool) && !PATH_GUARDED_CARD_TOOLS.has(tool))
+  return !(OPEN_LABEL_TOOLS.has(tool) || (pathKept && PATH_LABEL_TOOLS.has(tool)))
 }
 
 /** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
