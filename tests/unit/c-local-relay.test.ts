@@ -8,7 +8,7 @@ import { LocalRelay, LOCAL_NO_WINDOW, LOCAL_WINDOW_GONE } from '../../server/src
 import { BrowserRelay } from '../../server/src/realtime/browser-relay'
 import type { Hub } from '../../server/src/realtime/hub'
 import { silentLogger } from '../../server/src/log'
-import { CONFIRM_WAIT_MS, localTransport } from '../../server/src/integrations/connections/local'
+import { CHECK_CONFIRM_WAIT_MS, CONFIRM_WAIT_MS, localTransport } from '../../server/src/integrations/connections/local'
 import { TIMEOUT_MS } from '../../server/src/integrations/connections/net'
 
 const TURN = '019a0000-0000-7000-8000-000000000001'
@@ -142,6 +142,20 @@ describe('local relay', () => {
     const left = (c: { deadline: number }) => c.deadline - Date.now()
     expect(left(init!)).toBeGreaterThan(CONFIRM_WAIT_MS - 5000)
     expect(left(list!)).toBeLessThanOrEqual(TIMEOUT_MS)
+    relay.close()
+  })
+
+  test('a Settings check (no turn): its initialize ends with the check, so a late Connect is told and checked again', async () => {
+    const f = fakeHub()
+    const relay = new LocalRelay(f.hub, log, { sweepMs: 50 })
+    f.open('alice', 'win-desk-0001')
+    const send = localTransport({ relay, userId: 'alice', via: { windowId: 'win-desk-0001', turnId: null }, row: { id: 'c1', name: 'Aside' }, spec: SPEC })
+    void send('https://local-app.invalid/c1', { method: 'POST', headers: [], body: Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 'i1', method: 'initialize', params: {} })) }).catch(() => null)
+    const [init] = calls(f.sent)
+    const left = init!.deadline - Date.now()
+    expect(left).toBeLessThanOrEqual(CHECK_CONFIRM_WAIT_MS)
+    expect(left).toBeGreaterThan(CHECK_CONFIRM_WAIT_MS - 5000)
+    expect(CHECK_CONFIRM_WAIT_MS).toBeLessThan(90_000)
     relay.close()
   })
 })
