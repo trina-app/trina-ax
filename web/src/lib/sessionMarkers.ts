@@ -36,7 +36,8 @@ export function markedChats<C extends MarkedChat & Pick<Chat, 'id' | 'updatedAt'
 /** The 트리나 기록 filter "답변 중이거나 내 답을 기다림": spinner and "?" rows (failed and paused included), not new ones. */
 export const waitingOrRunning = (c: MarkedChat, v: MarkerView = {}) => {
   const m = markerOf(c, v)
-  return m?.kind === 'ask' || m?.kind === 'running'
+  // (someone else's card waits for them, not for me, and nothing is being answered)
+  return m?.kind === 'ask' || (m?.kind === 'running' && m.reason !== 'someone')
 }
 
 /** How long a notification or a toast waits for the chat to be seen (or its card answered) before it shows. */

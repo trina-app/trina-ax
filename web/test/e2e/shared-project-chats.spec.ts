@@ -631,6 +631,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(hold).toHaveText('Olga님의 확인을 기다리는 중이에요.')
       await expect(b.getByTestId('ask-card')).toHaveCount(0)
       await audit(b, 'card waiting')
+      // only who it waits for: nothing of the card's words on the other person's screen
+      await expect(b.locator('body')).not.toContainText('읽고 공유하기')
       await card.getByTestId('ask-yes').click()
       await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('assistant-message').last()).toContainText('3분기 금액은 100이에요')

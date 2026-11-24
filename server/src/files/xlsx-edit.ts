@@ -5,6 +5,10 @@
 //   string, so xl/sharedStrings.xml is not rewritten (Excel and LibreOffice turn it into a shared string when they save).
 // - { append_rows: { sheet, rows } }: rows after the last row, starting in the column where the last row starts, each
 //   cell styled like the cell above it; a table (ListObject) that ends at the last row grows to take them.
+// - { insert_picture: { image, sheet?, cell, offset_x_mm?, offset_y_mm?, width_mm?, height_mm? } }: a new picture whose
+//   top-left corner is tied to the cell (it moves with the cell, keeps its size). { move_picture: { sheet?, picture, cell?,
+//   offset_x_mm?, offset_y_mm?, width_mm?, height_mm? } }: moves or resizes a picture of the sheet as read. Only the
+//   sheet's drawing, its relationships and the content types change; a call with only pictures calculates nothing again.
 // Rows are never inserted in the middle (every reference below would have to move). Refused: a cell inside a merged
 // area (not its top-left cell), an array formula's range, a shared formula's first cell when others use it, a table's
 // header row, a cell holding a picture or a rich value. Every change sets fullCalcOnLoad in xl/workbook.xml (the app
@@ -12,15 +16,20 @@
 // does when it rebuilds the chain. The sheets' XML outside the edited rows, every other sheet, styles, charts, pivot
 // tables, named ranges and every other part are kept byte for byte.
 import {
-  applySplices, attrOf, escAttr, escText, find, kid, kidsNamed, mainPart, readRels, refuse, registerEditor, relId, relsPartOf,
-  slice, withAttr, xmlTree, type CellWrite, type EditNote, type Pkg, type Splice, type XNode,
+  addRel, applySplices, attrOf, ensureContentType, escAttr, escText, find, kid, kidsNamed, mainPart, readRels, refuse, registerEditor, relId,
+  relsPartOf, slice, withAttr, xmlTree, type CellWrite, type EditNote, type Pkg, type Splice, type XNode,
 } from './office-edit'
+import type { PlacedPicture } from './office-edit-check'
+import { emuToMm, fitPicture, freePictureName, mmToEmu, NS_A, NS_R, pickPicture, pictureList, shapeIds, shapeNames } from './office-picture'
+import { imageInfo } from './pptx-edit'
 import { unescapeXml } from './ooxml'
 
 export type XlsxValue = string | number | boolean | null
 export type XlsxChange =
   | { cell: { sheet?: string; ref: string; value: XlsxValue } }
   | { append_rows: { sheet?: string; rows: XlsxValue[][] } }
+  | { insert_picture: { image: number; sheet?: string; cell: string; offset_x_mm?: number; offset_y_mm?: number; width_mm?: number; height_mm?: number } }
+  | { move_picture: { sheet?: string; picture: string | number; cell?: string; offset_x_mm?: number; offset_y_mm?: number; width_mm?: number; height_mm?: number } }
 
 const MAX_ROW = 1_048_576, MAX_COL = 16_384
 /** formulas whose stored result is kept: they cannot be calculated again when the file opens (another workbook,
@@ -74,7 +83,15 @@ function shown(xml: string, c: XNode | undefined, shared: (i: number) => string)
   return attrOf(c.head, 't') === 's' ? shared(Number(raw)) : raw
 }
 
-export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cells: CellWrite[]; recalc: boolean } {
+const REL_DRAWING = `${NS_R}/drawing`, REL_IMAGE = `${NS_R}/image`
+const DRAWING_TYPE = 'application/vnd.openxmlformats-officedocument.drawing+xml'
+const NS_XDR = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing'
+/** what comes after <drawing> among a worksheet's children */
+const AFTER_DRAWING = new Set(['legacyDrawing', 'legacyDrawingHF', 'drawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems', 'tableParts', 'extLst', 'mc:AlternateContent'])
+interface Drawing { part: string; xml: string; tree: XNode; root: XNode; p: string; splices: Splice[]; next: number; names: Set<string>; rids: Map<number, string> }
+const localName = (n: string) => n.slice(n.indexOf(':') + 1)
+
+export function editXlsx(pkg: Pkg, changes: unknown[], images: Uint8Array[] = []): { notes: EditNote[]; cells: CellWrite[]; recalc: boolean; placed: PlacedPicture[] } {
   const wbPart = mainPart(pkg, 'xl/workbook.xml')
   const wbXml = pkg.need(wbPart)
   const wbTree = xmlTree(wbXml, wbPart)
@@ -203,8 +220,89 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
     return refuse(`change ${i + 1}: a value is text, a number, true/false or null`)
   }
 
+  // pictures: each sheet's drawing part (made when the sheet has none), one image part per image of the call
+  const drawings = new Map<Sheet, Drawing>()
+  const placed: PlacedPicture[] = []
+  const newDrawingTag = new Map<Sheet, string>()
+  const mediaOf = new Map<number, { media: string; w: number; h: number }>()
+  const drawingOf = (i: number, s: Sheet, make: boolean): Drawing | null => {
+    const got = drawings.get(s)
+    if (got) return got
+    const el = kid(kid(s.tree, 'worksheet')!, 'drawing')
+    let part: string
+    if (el) {
+      const rel = readRels(pkg, s.part)?.rels.find((r) => r.id === relId(el.head))
+      if (!rel || rel.external || rel.type !== 'drawing') return refuse(`change ${i + 1}: the drawing of ${JSON.stringify(s.name)} cannot be read`)
+      part = rel.target
+    } else {
+      if (!make) return null
+      part = pkg.free('xl/drawings/drawing', '.xml', 1)
+      pkg.add(part, new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="${NS_XDR}" xmlns:a="${NS_A}"></xdr:wsDr>`))
+      ensureContentType(pkg, { part, type: DRAWING_TYPE })
+      newDrawingTag.set(s, addRel(pkg, s.part, REL_DRAWING, `../drawings/${part.split('/').pop()}`))
+    }
+    const xml = pkg.need(part), tree = xmlTree(xml, part)
+    const root = tree.kids.find((k) => localName(k.name) === 'wsDr') ?? refuse(`this file cannot be changed (${part} is not a drawing)`)
+    if (root.self) refuse(`this file cannot be changed (${part} is empty)`)
+    const p = root.name.includes(':') ? root.name.slice(0, root.name.indexOf(':') + 1) : ''
+    const d: Drawing = { part, xml, tree, root, p, splices: [], next: Math.max(1, ...shapeIds(xml)) + 1, names: shapeNames(xml), rids: new Map() }
+    drawings.set(s, d)
+    return d
+  }
+  const anchorCell = (i: number, ref: unknown) => parseRef(String(ref ?? '')) ?? refuse(`change ${i + 1}: ${JSON.stringify(ref)} is not a cell address (give one such as B7)`)
+  const fromXml = (p: string, col: number, row: number, dx: number, dy: number) =>
+    `<${p}from><${p}col>${col - 1}</${p}col><${p}colOff>${dx}</${p}colOff><${p}row>${row - 1}</${p}row><${p}rowOff>${dy}</${p}rowOff></${p}from>`
+  const insertPicture = (i: number, x: Extract<XlsxChange, { insert_picture: unknown }>['insert_picture']) => {
+    const s = sheetOf(i, x.sheet), at = anchorCell(i, x.cell), d = drawingOf(i, s, true)!
+    const img = images[Number(x.image)] ?? refuse(`change ${i + 1}: the image could not be read`)
+    let m = mediaOf.get(Number(x.image))
+    if (!m) {
+      const info = imageInfo(img) ?? refuse(`change ${i + 1}: the new image is not a PNG, JPEG or GIF`)
+      if (!info.w || !info.h) refuse(`change ${i + 1}: the new image has no size`)
+      const media = pkg.free('xl/media/image', `.${info.ext}`, 1)
+      pkg.add(media, img)
+      ensureContentType(pkg, { ext: info.ext, type: info.type })
+      m = { media, w: info.w, h: info.h }
+      mediaOf.set(Number(x.image), m)
+    }
+    const rid = d.rids.get(Number(x.image)) ?? addRel(pkg, d.part, REL_IMAGE, `../media/${m.media.split('/').pop()}`)
+    d.rids.set(Number(x.image), rid)
+    const id = d.next++, name = freePictureName(d.names, id), b = fitPicture(m.w, m.h, x.width_mm, x.height_mm), { p } = d
+    const text = `<${p}oneCellAnchor>${fromXml(p, at.col, at.row, mmToEmu(x.offset_x_mm ?? 0), mmToEmu(x.offset_y_mm ?? 0))}<${p}ext cx="${b.cx}" cy="${b.cy}"/>` +
+      `<${p}pic xmlns:a="${NS_A}" xmlns:r="${NS_R}"><${p}nvPicPr><${p}cNvPr id="${id}" name="${name}" descr=""/><${p}cNvPicPr><a:picLocks noChangeAspect="1"/></${p}cNvPicPr></${p}nvPicPr>` +
+      `<${p}blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></${p}blipFill><${p}spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${b.cx}" cy="${b.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></${p}spPr></${p}pic>` +
+      `<${p}clientData/></${p}oneCellAnchor>`
+    d.splices.push({ from: d.root.closeStart, to: d.root.closeStart, text, change: i })
+    placed.push({ part: d.part, id, rid })
+    notes.push({ change: i, where: `${s.name}!${colName(at.col)}${at.row}, new picture ${JSON.stringify(name)}, ${emuToMm(b.cx)} x ${emuToMm(b.cy)} mm` })
+  }
+  const movePicture = (i: number, x: Extract<XlsxChange, { move_picture: unknown }>['move_picture']) => {
+    const s = sheetOf(i, x.sheet), d = drawingOf(i, s, false)
+    const pics = (d?.root.kids ?? []).filter((k) => /^(oneCell|twoCell|absolute)Anchor$/.test(localName(k.name)) && k.kids.some((c) => localName(c.name) === 'pic'))
+    const pOf = (a: XNode) => a.kids.find((c) => localName(c.name) === 'pic')!
+    const nameOf = (a: XNode) => { const n = pOf(a).kids[0]?.kids.find((c) => localName(c.name) === 'cNvPr'); return n ? attrOf(n.head, 'name') ?? '' : '' }
+    const a = pickPicture(pics, nameOf, x.picture) ?? refuse(`change ${i + 1}: no picture ${JSON.stringify(x.picture)} on ${JSON.stringify(s.name)} (its pictures: ${pictureList(pics, nameOf)})`)
+    const { p, xml } = d!, pic = pOf(a)
+    const from = a.kids.find((c) => localName(c.name) === 'from')
+    const num = (n: string) => { const e = from?.kids.find((c) => localName(c.name) === n); return e ? Number(xml.slice(e.openEnd, e.closeStart)) || 0 : 0 }
+    if (!from && !x.cell) refuse(`change ${i + 1}: that picture is not tied to a cell; give cell`)
+    const at = x.cell ? anchorCell(i, x.cell) : { col: num('col') + 1, row: num('row') + 1 }
+    const dx = x.offset_x_mm !== undefined ? mmToEmu(x.offset_x_mm) : x.cell ? 0 : num('colOff'), dy = x.offset_y_mm !== undefined ? mmToEmu(x.offset_y_mm) : x.cell ? 0 : num('rowOff')
+    const size = (e: XNode | null | undefined) => (e ? { cx: Number(attrOf(e.head, 'cx')), cy: Number(attrOf(e.head, 'cy')) } : null)
+    const spPr = pic.kids.find((c) => localName(c.name) === 'spPr'), xf = spPr ? kid(spPr, 'a:xfrm') : null, picExt = xf ? kid(xf, 'a:ext') : null
+    const seen = [size(a.kids.find((c) => localName(c.name) === 'ext')), size(picExt)].find((b) => b && b.cx > 0 && b.cy > 0)
+    if (!seen && (x.width_mm === undefined || x.height_mm === undefined)) refuse(`change ${i + 1}: the size of that picture is not stored; give width_mm and height_mm`)
+    const b = seen ? fitPicture(seen.cx, seen.cy, x.width_mm, x.height_mm, seen) : { cx: mmToEmu(x.width_mm!), cy: mmToEmu(x.height_mm!) }
+    const picXml = picExt ? xml.slice(pic.start, picExt.start) + `<a:ext${withAttr(withAttr(picExt.head.replace(/\/$/, ''), 'cx', String(b.cx)), 'cy', String(b.cy))}/>` + xml.slice(picExt.end, pic.end) : slice(xml, pic)
+    const client = a.kids.find((c) => localName(c.name) === 'clientData')
+    d!.splices.push({ from: a.start, to: a.end, change: i, text: `<${p}oneCellAnchor>${fromXml(p, at.col, at.row, dx, dy)}<${p}ext cx="${b.cx}" cy="${b.cy}"/>${picXml}${client ? slice(xml, client) : `<${p}clientData/>`}</${p}oneCellAnchor>` })
+    notes.push({ change: i, where: `${s.name}!${colName(at.col)}${at.row}, moved picture ${JSON.stringify(nameOf(a))}, ${emuToMm(b.cx)} x ${emuToMm(b.cy)} mm` })
+  }
+
   changes.forEach((raw, i) => {
     const c = raw as Record<string, any>
+    if (c.insert_picture) { insertPicture(i, c.insert_picture); return }
+    if (c.move_picture) { movePicture(i, c.move_picture); return }
     if (c.cell) {
       const s = sheetOf(i, c.cell.sheet)
       const p = parseRef(String(c.cell.ref ?? '')) ?? refuse(`change ${i + 1}: ${JSON.stringify(c.cell.ref)} is not a cell address such as B7`)
@@ -251,7 +349,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
       appended.set(s, { rows: made, first, last: first + rows.length - 1, c1, c2, change: i })
       return
     }
-    refuse(`change ${i + 1} is not a change edit_office makes in a workbook (cell, append_rows)`)
+    refuse(`change ${i + 1} is not a change edit_office makes in a workbook (cell, append_rows, insert_picture, move_picture)`)
   })
 
   // the sheets: each changed row rebuilt from its own cells (untouched ones copied as they are), new rows in order
@@ -322,6 +420,16 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
     }
   }
 
+  for (const d of drawings.values()) if (d.splices.length) pkg.set(d.part, applySplices(d.xml, d.splices, d.part))
+  // a sheet's first picture: its <drawing> goes where the schema wants it (Excel repairs a file that has it elsewhere)
+  for (const [s, rid] of newDrawingTag) {
+    const x = pkg.need(s.part), ws = kid(xmlTree(x, s.part), 'worksheet')!
+    const at = ws.kids.find((k) => AFTER_DRAWING.has(k.name))?.start ?? ws.closeStart
+    pkg.set(s.part, `${x.slice(0, at)}<drawing xmlns:r="${NS_R}" r:id="${rid}"/>${x.slice(at)}`)
+  }
+  // only pictures: no cell reads differently, so the workbook is not touched
+  if (changes.every((c) => (c as Record<string, unknown>).insert_picture || (c as Record<string, unknown>).move_picture)) return { notes, cells, recalc: false, placed }
+
   // stored results of formulas would be the old ones (LibreOffice does not calculate a file from Excel again on open,
   // and previews show the stored results): every formula cell of the workbook's sheets loses its stored result, so the
   // app calculates it when it opens the file. The formulas themselves are not touched.
@@ -377,7 +485,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
     pkg.set('[Content_Types].xml', types.replace(new RegExp(`<Override\\b[^>]*PartName="/${chain.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*/>`), ''))
   }
   if (cleared) notes.push({ change: 0, where: `${cleared} formula result${cleared === 1 ? '' : 's'} cleared, so Excel and LibreOffice calculate them when they open the file` })
-  return { notes, cells, recalc: cleared > 0 }
+  return { notes, cells, recalc: cleared > 0, placed }
 }
 
-registerEditor('xlsx', (pkg, changes) => editXlsx(pkg, changes))
+registerEditor('xlsx', (pkg, changes, images) => editXlsx(pkg, changes, images))

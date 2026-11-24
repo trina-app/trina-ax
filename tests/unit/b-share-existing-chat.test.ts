@@ -406,7 +406,8 @@ describe('after sharing', () => {
     const later = dbAnswer(id, 'alice', early.answerId, 'after', { steps: [step('Fetch page · https://example.com', 'web_fetch')], checked: 1 })
     const forBob = await messages('bob', id)
     expect(forBob.find((m) => m.id === early.answerId)!.steps[0]!.label).toBe('파일 읽기')
-    expect(forBob.find((m) => m.id === later.answerId)!.steps[0]!.label).toBe('Fetch page · https://example.com')
+    // (a web address is what a site card asks about: its verb alone for anyone but the asker, ChatStore.viewSteps)
+    expect(forBob.find((m) => m.id === later.answerId)!.steps[0]!.label).toBe('웹 페이지 가져오기')
   })
 
   test('answers that ran dev environment commands are not all known', async () => {

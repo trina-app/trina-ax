@@ -1,11 +1,11 @@
 // Word forms stamped by the real editor (server/src/files/docx-edit.ts), for the preview test: bun tests/lib/stamped-docx.ts <dir>
-// writes stamp-over.docx, stamp-after.docx and stamp-next_to.docx. Fake names, a generated red seal.
+// writes stamp-over.docx, stamp-after.docx, stamp-next_to.docx and stamp-from-paragraph.docx. Fake names, a generated red seal.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import '../../server/src/files/docx-edit' // registers the Word editor
 import { frame, officeEditRequest, officeVerifyRequest, unframe, type EditReport } from '../../server/src/files/office-edit'
-import { writeZip } from '../../server/src/files/zip-write'
+import { readZip, writeZip } from '../../server/src/files/zip-write'
 
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
 const crc = (b: Uint8Array) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 255]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
@@ -46,4 +46,9 @@ for (const [name, change] of Object.entries({
   const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ insert_picture: { image: 0, ...change } }] }, [form, image])))
   officeVerifyRequest(frame({ kind: 'docx', changed: out.json.changed, added: out.json.added, notes: out.json.notes }, [form, out.blobs[0]!]))
   fs.writeFileSync(path.join(dir, `stamp-${name}.docx`), out.blobs[0]!)
+  // the same seal placed from its paragraph: an ordinary floating picture, which the preview leaves where it is
+  if (name === 'over') fs.writeFileSync(path.join(dir, 'stamp-from-paragraph.docx'), writeZip(readZip(out.blobs[0]!).map((e) => ({
+    name: e.name,
+    data: e.name === 'word/document.xml' ? new TextEncoder().encode(new TextDecoder().decode(e.data).replace('<wp:positionV relativeFrom="line">', '<wp:positionV relativeFrom="paragraph">')) : e.data,
+  }))))
 }

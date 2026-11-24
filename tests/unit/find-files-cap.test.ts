@@ -8,6 +8,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { componentC } from '../../server/src/team-files/component'
 import { CHECK_CHUNK, HIT_CAP, findFiles } from '../../server/src/team-files/find'
 import * as authorize from '../../server/src/policy/authorize'
+import * as search from '../../server/src/files/search'
 const { visiblePath } = authorize
 
 setDefaultTimeout(60_000)
@@ -46,6 +47,30 @@ test('a broad name search on a big folder: newest readable first, truncated, not
   for (const p of paths) expect(visiblePath(files.fx, rules, user, p), p).toBeTruthy()
   // bob sees his own file, the same search
   expect((await findFiles(files, userId('bob'), 'bulkname-bob', '', 10)).items.map((i) => i.path)).toEqual(['users/bob/bulkname-bob.md'])
+})
+
+test('the newest readable file wins even when ripgrep lists it after the first HIT_CAP names', async () => {
+  const files = componentC(h.ctx).files
+  const origRg = search.runRg
+  // list the names in a fixed order with the newest file last (ripgrep's own order is not fixed)
+  const spy = spyOn(search, 'runRg').mockImplementation(async (rg, args, cwd, sep, onRecord, timeoutMs, o) => {
+    const recs: string[] = []
+    const r = await origRg(rg, args, cwd, sep, (rec) => { recs.push(rec) }, timeoutMs, o)
+    const last = (x: string) => x.includes('bulkname-mine') ? 1 : 0
+    for (const rec of recs.sort((a, b) => last(a) - last(b) || a.localeCompare(b))) if (onRecord(rec) === false) break
+    return r
+  })
+  try {
+    const r = await findFiles(files, userId('alice'), 'bulkname', '', 100)
+    expect(r.items[0]!.path).toBe('users/alice/bulkname-mine.md')
+    expect(r.items).toHaveLength(100)
+    expect(r.truncated).toBe(true)
+    // all of them fit under the limit: nothing is cut and the newest is still first
+    const all = await findFiles(files, userId('alice'), 'bulkname', '', HIT_CAP + 100)
+    expect(all.items).toHaveLength(HIT_CAP)
+    expect(all.items[0]!.path).toBe('users/alice/bulkname-mine.md')
+    expect(all.truncated).toBe(true)
+  } finally { spy.mockRestore() }
 })
 
 test('the checks run in chunks: at most CHECK_CHUNK permission checks between two turns of the event loop', async () => {

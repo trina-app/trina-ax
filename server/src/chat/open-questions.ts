@@ -65,6 +65,19 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
   'write', 'edit', 'make_file'])
 
+/** The only tools whose detailed step line reaches anyone but the person whose turn it is, and their AI
+ * (docs/decisions/20261124-shared-chat-card-steps.md). A file tool's line only with its paths kept aside
+ * (StoredStep.sv: shown to a viewer who may list them all); a command's always (20261118-devenv-shared-chats.md). */
+export const PATH_LABEL_TOOLS: ReadonlySet<string> = new Set(['read', 'list', 'glob', 'grep', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'comment_docx', 'hwp_render',
+  'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'delete_files', 'save_url'])
+export const OPEN_LABEL_TOOLS: ReadonlySet<string> = new Set(['box_shell'])
+/** Fails closed: every step but those above shows the generic verb to the others, stored rows too. */
+export const stepRepeatsCard = (step: { kind: string; tool?: string }, pathKept = false): boolean => {
+  const tool = step.tool
+  if (!tool) return step.kind === 'tool'
+  return !(OPEN_LABEL_TOOLS.has(tool) || (pathKept && PATH_LABEL_TOOLS.has(tool)))
+}
+
 /** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
  * its card inside the call, with its time limit, as before */
 export const CARD_LATER_ARGS_MAX = 1024 * 1024
@@ -133,6 +146,27 @@ export function hasOpenQuestion(db: Database, chatId: string, userId?: string): 
   return !!(userId === undefined
     ? db.query('SELECT 1 FROM open_questions WHERE chat_id = ? AND answer IS NULL AND window_id IS NULL LIMIT 1').get(chatId)
     : db.query('SELECT 1 FROM open_questions WHERE chat_id = ? AND user_id = ? AND answer IS NULL AND window_id IS NULL LIMIT 1').get(chatId, userId))
+}
+
+/** The cards still open in this chat, the longest waiting first: whose, of which turn, for which desktop window (null:
+ * every window). Never what they say: that stays with their person. */
+export function openCardsIn(db: Database, chatId: string): { userId: string; turnId: string; window: string | null }[] {
+  return (db.query('SELECT user_id, turn_id, window_id FROM open_questions WHERE chat_id = ? AND answer IS NULL ORDER BY created_at, request_id').all(chatId) as { user_id: string; turn_id: string; window_id: string | null }[])
+    .map((r) => ({ userId: r.user_id, turnId: r.turn_id, window: r.window_id }))
+}
+
+/** The chats where a card waits for this person, for one desktop window of theirs when given. */
+export function chatsWithCardsOf(db: Database, userId: string, window?: string): string[] {
+  const rows = (window === undefined
+    ? db.query('SELECT DISTINCT chat_id FROM open_questions WHERE user_id = ? AND answer IS NULL').all(userId)
+    : db.query('SELECT DISTINCT chat_id FROM open_questions WHERE user_id = ? AND window_id = ? AND answer IS NULL').all(userId, window)) as { chat_id: string }[]
+  return rows.map((r) => r.chat_id)
+}
+
+/** Every open card's person and chat: read before an access change, whose cascade may delete the rows
+ * (admin/folders.ts afterAccessChange tells the others in those chats). */
+export function everyOpenCard(db: Database): { userId: string; chatId: string }[] {
+  return (db.query('SELECT DISTINCT user_id, chat_id FROM open_questions WHERE answer IS NULL').all() as { user_id: string; chat_id: string }[]).map((r) => ({ userId: r.user_id, chatId: r.chat_id }))
 }
 
 /** A question of this turn still waits for `userId` (the push of a waiting card is still wanted). */
@@ -264,12 +298,11 @@ export function waitingCardsNote(db: Database, chatId: string, userId: string, t
 /** The questions of other people's answers a person's message closed unanswered in a shared chat (QA S-125): the next
  * turn's engine message names them, so another person's request is not dropped without a word (prompt.ts sharedSection
  * "opposite requests"). `name`: the asker's label name (chat/shared.ts labelName). '' when there are none. */
-export function closedQuestionNote(closed: readonly { name: string; question?: string }[]): string {
+export function closedQuestionNote(closed: readonly { name: string }[]): string {
   if (!closed.length) return ''
-  // the words inside the block, never a tag of their own (as answeredNote). A question without its words: its answer is
-  // kept from some who see the chat (runtime.ts closedOthers), so only who asked
-  const json = JSON.stringify(closed.map((c) => (c.question === undefined ? { person: c.name } : { person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-  const hidden = closed.some((c) => c.question === undefined) ? ' A question without its words is private to its asker: never guess or repeat what it was about; only say that their question is still open.' : ''
+  // who asked, never what: a card's words are its asker's alone (docs/decisions/20261124-shared-chat-card-steps.md)
+  const json = JSON.stringify(closed.map((c) => ({ person: c.name }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  const hidden = ' What they were asked is private to its asker: never guess or repeat what it was about; only say that their question is still open.'
   return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}.${hidden} Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
 }
 

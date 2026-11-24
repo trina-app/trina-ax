@@ -14,6 +14,7 @@ import { SaxesParser } from 'saxes'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { xmlSafe } from './docx-comment'
+import { shapeIds } from './office-picture'
 import { tags, unescapeXml } from './ooxml'
 import { checkZip, isZip, ZIP_TOTAL_MAX } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
@@ -602,6 +603,24 @@ function assertNewPictures(oldPkg: Pkg, neu: Pkg, r: VerifyRequest): void {
   }
 }
 
+/** The pictures this call added to a deck or workbook, and only those (what the call copied from the file is not
+ * judged): each new shape id is there once, its relationship is an internal image whose part is there with a content
+ * type, and a drawing part made here has its content type and a sheet that points at it. */
+function assertPlacedPictures(neu: Pkg, r: VerifyRequest): void {
+  const bad = (why: string): never => refuse(`the changed file did not pass the checks (${why})`)
+  const ct = neu.need('[Content_Types].xml')
+  for (const p of r.placed ?? []) {
+    if (shapeIds(neu.need(p.part)).filter((id) => id === p.id).length !== 1) bad(`the picture id ${p.id} is not used exactly once in ${p.part}`)
+    const e = readRels(neu, p.part)?.rels.find((x) => x.id === p.rid)
+    if (!e || e.external || e.type !== 'image' || !neu.has(e.target)) bad(`a new picture in ${p.part} points at nothing`)
+    if (!new RegExp(`Extension="${e!.target.split('.').pop()}"`, 'i').test(ct)) bad(`${e!.target} has no content type`)
+    if (!r.added.includes(p.part) || !p.part.startsWith('xl/drawings/')) continue
+    if (!ct.includes(`PartName="/${p.part}"`)) bad(`${p.part} has no content type`)
+    const sheets = neu.names().filter((n) => /^xl\/worksheets\/_rels\/[^/]+\.rels$/.test(n)).map((n) => n.replace('_rels/', '').replace(/\.rels$/, ''))
+    if (!sheets.some((n) => readRels(neu, n)?.rels.some((x) => x.type === 'drawing' && !x.external && x.target === p.part))) bad(`no sheet points at ${p.part}`)
+  }
+}
+
 export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newBytes: Uint8Array): void {
   const neu = new Pkg(newBytes, r.kind)
   for (const name of [...r.changed, ...r.added]) {
@@ -609,6 +628,7 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     assertWellFormed(neu.need(name), name)
   }
   assertUniqueRelIds(neu, [...r.changed, ...r.added])
+  assertPlacedPictures(neu, r)
   if (r.kind === 'xlsx') {
     const before = cellsOf(oldBytes), after = cellsOf(newBytes)
     const written = new Map((r.cells ?? []).map((w) => [`${w.sheet}!${w.ref}`, w]))

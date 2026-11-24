@@ -10,6 +10,7 @@ import { uuidv7, type Chat, type Me, type ServerEvent, type TurnRequest } from '
 import { useLocaleStore } from '../../src/i18n'
 import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
 import { attentionCount, iconBadge, markedChats, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
+import { sharedNote } from '../../src/lib/sharedNote'
 import { useChats } from '../../src/store/chats'
 import { useChatMentions } from '../../src/store/chatMentions'
 import { dispatch } from '../../src/store/live'
@@ -63,6 +64,35 @@ describe('one marker per row', () => {
     expect(waitingOrRunning(chat({ unseen: true, lastOutcome: 'paused' }))).toBe(true)
     expect(waitingOrRunning(chat({ unseen: true }))).toBe(false)
     expect(waitingOrRunning(chat())).toBe(false)
+  })
+})
+
+describe("the AI waits on someone else's card (Chat.waitsFor)", () => {
+  const base = { runState: 'idle', waitsFor: 'Alice' } as const
+  test('a still ring that needs nothing of me, in no count and not in the waiting filter', () => {
+    expect(markerOf(base)).toEqual({ kind: 'running', reason: 'someone' })
+    expect(markerOf({ ...base, runState: 'running' })).toEqual({ kind: 'running', reason: 'someone' })
+    expect(waitingOrRunning(base)).toBe(false)
+    expect(attentionCount([{ ...base, id: 'c1' }], []).n).toBe(0)
+  })
+  test('an unseen answer of mine still needs me: its marker, the count and the notice stay', () => {
+    const unseen = { ...base, id: 'c1', unseen: true as const }
+    expect(markerOf(unseen)).toEqual({ kind: 'new', reason: 'new' })
+    expect(markerOf({ ...unseen, lastOutcome: 'error' })).toEqual({ kind: 'ask', reason: 'error' })
+    expect(attentionCount([unseen], []).n).toBe(1)
+    expect(stillWorthTelling(unseen, { notify: 'answer', here: false })).toBe(true)
+    // on screen it is seen: the wait shows again
+    expect(markerOf(unseen, { here: true })).toEqual({ kind: 'running', reason: 'someone' })
+  })
+  test('the line says what Send does: it waits while their answer runs, and goes at once on a kept card', () => {
+    const shared = (answering: { name: string; waiting?: true } | null) => ({ shared: { answering } }) as never
+    expect(sharedNote({ ...(shared({ name: 'Alice', waiting: true }) as object), waitsFor: 'Alice' } as never)).toEqual({ key: 'chat.sharedWaiting', name: 'Alice' })
+    expect(sharedNote(shared({ name: 'Alice' }))).toEqual({ key: 'chat.sharedBusy', name: 'Alice' })
+    expect(sharedNote({ ...(shared(null) as object), waitsFor: 'Alice' } as never)).toEqual({ key: 'chat.sharedWaitingCanSend', name: 'Alice' })
+    expect(sharedNote(shared(null))).toBeNull()
+  })
+  test('my own card comes first', () => {
+    expect(markerOf({ ...base, waiting: true })).toEqual({ kind: 'ask', reason: 'card' })
   })
 })
 
