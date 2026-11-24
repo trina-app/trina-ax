@@ -2,7 +2,7 @@
 // hwp_render and schedule_create showed as "hwp_render" / "schedule_create"). The web app redraws a stored label in the
 // language on screen (localizeStep), so an answer run in Korean reads in English after a switch.
 import { describe, expect, test } from 'bun:test'
-import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, STEP_TEXT, stepLabel, stepPlace, unansweredStep } from '@mycel/shared'
+import { COVER_STEP_KEYS, FILE_TOOLS, FILE_STEP_VERB, localizeStep, ownFolderLabel, placeName, STEP_TEXT, stepLabel, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
@@ -233,4 +233,22 @@ describe('a made-up name of one of our tools (QA TC-v2f-A2)', () => {
     expect(stepLabel('mcp__github__list_issues', {}, 'en', new Set())).toBe('List issues')
     expect(stepLabel('write_todos', {}, 'en', new Set())).toBe('Write todos')
   })
+
+describe('a save line names where the file went in words', () => {
+  test('"→ users/<id>/보고서/" reads as the file screen says it, in every language', () => {
+    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      for (const tool of ['save_work_file', 'save_chat_file', 'save_room_file', 'save_url']) {
+        const out = stepPlace({ tool }, `Save · a.docx → users/qa-member/보고서/`, L).label
+        expect(out).not.toContain('users/')
+      }
+      const r = stepPlace({ tool: 'save_work_file' }, 'Save · a.docx → users/qa-member/보고서/', L).label
+      expect(r).toBe(`Save · a.docx → ${ownFolderLabel(L)} › 보고서`)
+    }
+  })
+  test('a target that is no team path stays, and a number after it too', () => {
+    expect(stepPlace({ tool: 'skill_files' }, 'Edit · a.md → new-name.md', 'en').label).toBe('Edit · a.md → new-name.md')
+    expect(stepPlace({ tool: 'move_skill' }, 'Move · x → group', 'en').label).toBe('Move · x → group')
+  })
+})
+
 })
