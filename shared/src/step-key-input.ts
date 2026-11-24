@@ -72,6 +72,8 @@ export function stepValue(value: string, kind: KeyKind): { text: string; quoted:
     if (u) return { text: u, quoted: false }
     if (kind === 'url') return null
   }
+  // one long run without a space, a dot or a slash is no words a person wrote (a key, a token, an encoded blob)
+  if (kind !== 'path' && kind !== 'command' && !/[\s./]/.test(v) && v.length >= 40) return null
   let text: string
   if (kind === 'path') text = clipStart(v, 60)
   else if (kind === 'command') text = clipEnd(value.trim().split('\n')[0]!.trim(), 60)
