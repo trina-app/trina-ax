@@ -315,6 +315,12 @@ test('Undo names a 1:1 chat\'s person and a room each with their own words', asy
     // a team room and a named group chat: the place, with 에
     expect(await title({ to: '#영업팀' }, [room('team', { name: '영업팀' })])).toEqual(['#영업팀에 올렸어요', '#영업팀에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요'])
     expect((await title({ to: '주간회의' }, [room('group', { name: '주간회의' })]))[1]).toBe('주간회의에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // an older record (no mark) whose 1:1 chat is in the list: the list says it is a person
+    expect((await title({ to: '박준호' }, [room('dm', { peers: [{ id: 'u-park', name: '박준호' }] })]))[1]).toBe('박준호님에게 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
+    // a 1:1 chat whose person is gone: named as the list names it, with the room words
+    expect((await title({ to: '박준호', toPerson: true }, [room('dm')]))[1]).not.toContain('님에게')
+    // an unnamed group chat, its people listed: the place words
+    expect((await title({ to: '박준호, 이서연' }, [room('group', { peers: [{ id: 'u-park', name: '박준호' }, { id: 'u-lee', name: '이서연' }] })]))[1]).not.toContain('님에게')
     // a room not in the list (no mark): the place
     expect((await title({ to: '#전체' }))[1]).toBe('#전체에 보낸 글을 지웠어요. 이제 아무도 볼 수 없어요')
     // with @everyone in a room: the notices already went

@@ -266,6 +266,10 @@ describe('a send without a card carries exactly the person\'s words', () => {
     // a 1:1 chat names its person, marked so the card says "Carol Park님에게", not "…에" (a room keeps no mark)
     expect(ok.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ to: 'Carol Park', toPerson: true })
     const changed = await turn('alice', `Carol Park한테 보내줘: 내일 회의 10시\n${post({ room: 'Carol Park', text: '내일 오전 10시 회의입니다', own_words: true })}`, { answer: 'no' }).catch(() => null)
+    // the 1:1 chat is there now: a send into it by its room id is to the person too; a team room is not
+    const dmId = ok.steps.find((s) => s.tool === 'post_to_room')!.posted!.roomId
+    const again = await turn('alice', `Carol Park한테 보내줘: 모레 회의 9시\n${post({ room: dmId, text: '모레 회의 9시', own_words: true })}`)
+    expect(again.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ roomId: dmId, to: 'Carol Park', toPerson: true })
     expect(changed === null || changed.card !== null).toBe(true)
   })
   test('the helper', () => {

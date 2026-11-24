@@ -13,7 +13,7 @@ import { warnedIn } from '../lib/shared-warned'
 import { FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { FALLBACK_TO_CONNECTION, integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { FETCH_FALLBACK_HINT, FETCH_FALLBACK_LINE } from '../../server/src/tools'
+import { FETCH_FALLBACK_HINT, FETCH_FALLBACK_LINE, SITE_REFUSED } from '../../server/src/tools'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -29,7 +29,7 @@ const ws: Record<string, TestSocket> = {}
 let projectId: string
 beforeAll(async () => {
   // a site that refuses the server's fetch, as the F1 page did
-  site = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (req) => new URL(req.url).pathname === '/blocked' ? new Response('Forbidden', { status: 403 }) : new Response('<html><body><p>open page</p></body></html>', { headers: { 'content-type': 'text/html' } }) })
+  site = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (req) => new URL(req.url).pathname === '/blocked' ? new Response('Forbidden', { status: 403 }) : new URL(req.url).pathname.startsWith('/missing') ? new Response('Not here', { status: 404 }) : new Response('<html><body><p>open page</p></body></html>', { headers: { 'content-type': 'text/html' } }) })
   h = await startHarness({ name: 'b-connector-fallback', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000, fetch: { testAllow: (ip) => ip === '127.0.0.1', lookup: async () => [{ address: '127.0.0.1', family: 4 }], timeoutMs: 3000 } })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
   projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
@@ -79,6 +79,11 @@ describe('what the AI is told', () => {
     expect(FETCH_FALLBACK_HINT).toContain('instead of asking the user whether to try it')
     for (const s of [FETCH_FALLBACK_LINE, FETCH_FALLBACK_HINT, FALLBACK_TO_CONNECTION]) expect(s).not.toMatch(NAMES)
   })
+  test('the hint goes only with a site that refused the server: not a missing page, an unknown name, a refused address or a no', () => {
+    for (const m of ['the site answered HTTP 403', 'the site answered HTTP 401', 'the site answered HTTP 429', 'the site answered HTTP 503', 'the site sent no valid HTTP response']) expect([m, SITE_REFUSED.test(m)]).toEqual([m, true])
+    for (const m of ['the site answered HTTP 404', 'the site answered HTTP 500', 'could not resolve intranet.corp', 'intranet.corp points to a private, local or reserved address', 'the user did not allow following the redirect, so the page was not opened', 'not a valid URL']) expect([m, SITE_REFUSED.test(m)]).toEqual([m, false])
+    expect(FALLBACK_TO_CONNECTION).toContain('Never after the user said no on a card')
+  })
   test('"Connected services" carries the rule when something is connected; a change tool still names its card', () => {
     const b = integrationToolProvider(h.ctx).build({ userId: 'alice', chatId: 'none', turnId: 'none', browser: false, scheduled: false })
     expect(b.prompt).toContain(FALLBACK_TO_CONNECTION)
@@ -121,6 +126,14 @@ describe('a page that will not open, then the connected reader', () => {
     const w = await turn('alice', chat.id, fake({ tool: CHANGE, args: { title: 'from the page' }, sayResult: true }))
     expect(w.cards.length).toBe(1)
     expect(creates()).toBe(c)
+  })
+
+  test('a page that is not there (404): no hint, the AI is not sent elsewhere', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const gone = `http://blocked.example:${site.port}/missing-404`
+    const r = await turn('alice', chat.id, `${gone}\n` + fake({ tool: 'web_fetch', args: { url: gone }, sayResult: true }))
+    expect(r.done.content).toContain('the site answered HTTP 404')
+    expect(r.done.content).not.toContain(FETCH_FALLBACK_HINT)
   })
 
   test('a private chat: a change tool after a failed fetch still asks on its card', async () => {

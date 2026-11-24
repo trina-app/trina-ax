@@ -48,7 +48,7 @@ export default function PostedCard({ posted, endedAt }: { posted: NonNullable<St
   const where = room ? (room.kind === 'team' || room.kind === 'all' ? `#${titleOf(room)}` : titleOf(room)) : ''
   const place = where || posted.to || ''
   // a 1:1 chat names its person ("박준호님에게 보낸 글"), a room or a group chat the place ("#영업팀에 보낸 글")
-  const person = room ? room.kind === 'dm' : !!posted.toPerson
+  const person = room ? room.kind === 'dm' && room.peers.length > 0 : !!posted.toPerson
   const title = gone
     ? (place
       ? (person

@@ -57,8 +57,9 @@ import { chatLinksInText, PLACE_PRODUCE_TOOLS } from '../files/place-output'
  * without asking. General words only: no service is named here or in the prompt ("Connected services",
  * integrations/connections/tools.ts FALLBACK_TO_CONNECTION). */
 export const FETCH_FALLBACK_LINE = 'If the site refuses (blocked, 403, a sign-in or bot wall) or the page comes back empty, and a connected service has a tool that reads web pages and only reads, use that tool for the same address at once, without asking whether to try it.'
-/** web_fetch failures where the site itself would not give the page (not a refused address or a declined card) */
-export const SITE_REFUSED = /^(the site answered HTTP|unexpected HTTP status|the site sent no valid HTTP response|could not resolve)/
+/** web_fetch failures where the site itself refused the server (not a page that is not there, a name that does not
+ * resolve, which may be an office-network one, a refused address or a declined card) */
+export const SITE_REFUSED = /^(the site answered HTTP (401|403|429|451|503)\b|the site sent no valid HTTP response)/
 export const FETCH_FALLBACK_HINT = 'Next step: if a connected service has a tool that reads web pages and only reads (its description does not say it changes something), call it now for the same address instead of asking the user whether to try it, and say in one line which one you used. If none does, tell the user plainly that the site would not open.'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
