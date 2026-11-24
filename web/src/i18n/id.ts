@@ -3636,6 +3636,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.account': 'Akun {account}',
   'integrations.neverUsed': 'Belum pernah dipakai',
   'integrations.noTools': 'Layanan ini tidak memberi alat apa pun. Coba periksa lagi.',
+  'integrations.toolsTooLarge': 'Alat layanan ini terlalu besar untuk dimuat, jadi AI tidak bisa memakainya.',
   'integrations.toolsCapped': 'Layanan ini menyediakan {total} alat; AI hanya dapat memakai {n} alat pertama.',
   'integrations.toolsStale': 'Layanan ini menyediakan {total} alat; hanya {n} yang tersimpan saat terakhir diperiksa. Periksa lagi untuk menyimpan semuanya.',
   'integrations.toolsCappedMore': 'Layanan ini menyediakan lebih dari {total} alat; AI hanya dapat memakai {n} alat pertama.',

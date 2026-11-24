@@ -45,12 +45,16 @@ const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-
  * tools: deferred, found and called"). A turn offers what fits its budget as tools and the rest through find_tools /
  * call_tool (tools.ts), so a big catalog no longer goes to the engine whole with every turn. */
 export const MAX_TOOLS = INTEGRATION_TOOLS_MAX
-/** one tool's input schema */
-const MAX_SCHEMA_CHARS = 32_000
+/** one tool's input schema, as kept. A larger one is shortened (its longest descriptions cut, shrinkSchema), and only
+ * left out when its structure alone is larger. 32,000 characters is about 8,000 tokens: a turn offers connection tools
+ * directly up to MAX_TURN_TOOL_CHARS (50,000, tools.ts) in all, so a larger tool would take most of a turn's budget. */
+export const MAX_SCHEMA_CHARS = 32_000
 /** all kept input schemas and descriptions of one connection together (what tools_json holds; Higgsfield's is about
  * 1.07 million characters) */
 export const MAX_SCHEMAS_CHARS = 4_000_000
 const MAX_DESCRIPTION = 1000
+/** the end of a description we cut (a tool's own, or one inside its schema): the AI is told the words go on */
+export const SHORTENED = '… (shortened)'
 
 export class McpError extends Error {
   name = 'McpError'
@@ -75,6 +79,16 @@ export function sseEvents(text: string, complete = false): string[] {
     if (data.length) out.push(data.join('\n'))
   }
   return out
+}
+
+/** a tool over MAX_SCHEMA_CHARS: its name, its schema's size as listed (characters of JSON), and whether it was kept
+ * shortened (true) or left out */
+export type SizeNote = (name: string, chars: number, kept: boolean) => void
+/** listTools' answer. `shortened`, `dropped`: the tools whose input schema was over MAX_SCHEMA_CHARS, kept with their
+ * longest descriptions cut, or left out because even cut they did not fit (chars: the size as listed) */
+export interface ListedTools {
+  tools: RemoteTool[]; more: boolean; total: number; unread: boolean
+  shortened: { name: string; chars: number }[]; dropped: { name: string; chars: number }[]
 }
 
 /** The JSON-RPC response with this id among the messages of a body (one object, a batch, or events). */
@@ -167,7 +181,7 @@ export class McpClient {
    * were left unread, so the service offers more than `total` ("1,000 of more than 1,000"). `deadline` (epoch ms): when
    * the check must be done (MCP_LIST_TIMEOUT_MS; one for a whole check, service.ts check), also while it waits for the
    * session to start. */
-  async listTools(signal?: AbortSignal, deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)): Promise<{ tools: RemoteTool[]; more: boolean; total: number; unread: boolean }> {
+  async listTools(signal?: AbortSignal, deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)): Promise<ListedTools> {
     await byDeadline(this.start(signal), deadline)
     const long = { deadline, idleMs: this.net.listIdleMs ?? MCP_LIST_IDLE_MS, reason: 'list_timeout' as const }
     const tools: RemoteTool[] = []
@@ -176,6 +190,9 @@ export class McpClient {
     let cursor: string | undefined
     let full = false
     let size = 0
+    // tools whose schema was over MAX_SCHEMA_CHARS: kept shortened, or left out (by name, once each)
+    const oversized = { shortened: new Map<string, number>(), dropped: new Map<string, number>() }
+    const note: SizeNote = (name, chars, kept) => { (kept ? oversized.shortened : oversized.dropped).set(name, chars) }
     for (let page = 0; page < MCP_LIST_MAX_PAGES; page++) {
       const room = MCP_LIST_TOTAL_BYTES - read.bytes
       if (room <= 0) break
@@ -190,7 +207,7 @@ export class McpClient {
       if (!list) throw new McpError('not_mcp')
       const hide = this.hider()
       for (const t of list) {
-        const tool = toolOf(t, hide)
+        const tool = toolOf(t, hide, note)
         if (!tool || seen.has(tool.name)) continue
         seen.add(tool.name)
         if (full) continue
@@ -203,7 +220,10 @@ export class McpClient {
       // the list kept is full: the pages after this one would only be counted
       if (!cursor || full || tools.length >= MAX_TOOLS) break
     }
-    return { tools, more: full || !!cursor, total: seen.size, unread: !!cursor }
+    // a name left out on one page and kept on another (a duplicate) was not lost
+    for (const n of seen) oversized.dropped.delete(n)
+    const list = (m: Map<string, number>) => [...m].map(([name, chars]) => ({ name, chars }))
+    return { tools, more: full || !!cursor, total: seen.size, unread: !!cursor, shortened: list(oversized.shortened), dropped: list(oversized.dropped) }
   }
 
   /** One tools/call: MCP_CALL_IDLE_MS without a byte, MCP_CALL_TIMEOUT_MS in all (the session's start keeps its 30 s).
@@ -235,9 +255,55 @@ function byDeadline<T>(p: Promise<T>, deadline: number): Promise<T> {
 
 const clean = (s: unknown, max: number, hide: Hide) => (typeof s === 'string' ? hide(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')
 
+/** `s` cut to `max` characters, ending in SHORTENED when cut (never splitting a surrogate pair) */
+export function cutWords(s: string, max: number): string {
+  if (s.length <= max) return s
+  let end = Math.max(0, max - SHORTENED.length)
+  if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1]!)) end--
+  return s.slice(0, end).trimEnd() + SHORTENED
+}
+
+/** the keys whose value is data, not schema: their strings are never cut (a default or an allowed value must stay as
+ * the service sent it) */
+const VALUE_KEYS = new Set(['default', 'const', 'enum', 'examples', 'example'])
+
+/** A copy of an input schema whose JSON is at most `max` characters, made by cutting its longest `description` strings
+ * (at any depth, never inside a value) to one common length, the largest that fits; null when it cannot fit even with
+ * every description cut (the rest of it is too large). Names, types, required and every other key are never changed. */
+export function shrinkSchema(schema: Record<string, unknown>, max: number): Record<string, unknown> | null {
+  const lengths: number[] = []
+  const walk = (v: unknown, at: number | null): unknown => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, at))
+    if (!v || typeof v !== 'object') return v
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(v)) {
+      if (VALUE_KEYS.has(k)) out[k] = x
+      else if (k === 'description' && typeof x === 'string') { if (at === null) lengths.push(x.length); out[k] = at === null ? x : cutWords(x, at) }
+      else out[k] = walk(x, at)
+    }
+    return out
+  }
+  const size = (at: number) => JSON.stringify(walk(schema, at)).length
+  walk(schema, null)
+  if (!lengths.length) return null
+  // the shortest a cut description may be: the marker alone
+  const floor = SHORTENED.length
+  if (size(floor) > max) return null
+  // the largest common length that fits (size grows with it)
+  let lo = floor, hi = Math.max(...lengths)
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (size(mid) <= max) lo = mid
+    else hi = mid - 1
+  }
+  return walk(schema, lo) as Record<string, unknown>
+}
+
 /** One tools/list entry as we keep it, or null when it cannot be offered. The AI and the connection's users read it:
- * the secrets are hidden in its words and schema, and a tool whose name carries one is left out (the name calls it). */
-export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
+ * the secrets are hidden in its words and schema, and a tool whose name carries one is left out (the name calls it).
+ * A schema over MAX_SCHEMA_CHARS is shortened (shrinkSchema) and `note` told; one that cannot be is left out, and
+ * `note` told too, never silently. */
+export function toolOf(t: unknown, hide: Hide = keep, note?: SizeNote): RemoteTool | null {
   if (!t || typeof t !== 'object') return null
   const x = t as Record<string, any>
   if (typeof x.name !== 'string' || !x.name || x.name.length > 128 || /[\u0000-\u001f]/.test(x.name) || hide(x.name) !== x.name) return null
@@ -245,11 +311,16 @@ export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema) || schema.type !== 'object') return null
   let json: string
   try { json = JSON.stringify(hideDeep(schema, hide)) } catch { return null }
-  if (json.length > MAX_SCHEMA_CHARS) return null
+  if (json.length > MAX_SCHEMA_CHARS) {
+    const small = shrinkSchema(JSON.parse(json), MAX_SCHEMA_CHARS)
+    note?.(x.name, json.length, !!small)
+    if (!small) return null
+    json = JSON.stringify(small)
+  }
   const title = clean(x.title ?? x.annotations?.title, 200, hide) || null
   // readOnly is the remote server's own readOnlyHint (not checked here), never with destructiveHint (a tool that says
   // both is taken as a change; QA TC-4900): it decides the room card and, for a scheduled run's result, whether a failed
   // call is a look-up (chat/schedule-outcome.ts). It never hides a refused change of our own tools. In a shared chat
   // the name must agree too (read-mark.ts)
-  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true && x.annotations?.destructiveHint !== true, inputSchema: JSON.parse(json), ...(x.annotations?.readOnlyHint !== true && x.annotations?.destructiveHint === false ? { nonDestructive: true as const } : {}) }
+  return { name: x.name, title, description: cutWords(clean(x.description, Infinity, hide), MAX_DESCRIPTION), readOnly: x.annotations?.readOnlyHint === true && x.annotations?.destructiveHint !== true, inputSchema: JSON.parse(json), ...(x.annotations?.readOnlyHint !== true && x.annotations?.destructiveHint === false ? { nonDestructive: true as const } : {}) }
 }

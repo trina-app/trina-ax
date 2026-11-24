@@ -3587,6 +3587,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.account": "账号{account}",
   "integrations.neverUsed": "尚未使用",
   "integrations.noTools": "该服务没有列出任何工具。请尝试重新检查。",
+  "integrations.toolsTooLarge": "该服务的工具太大，无法加载，所以 AI 无法使用。",
   "integrations.toolsCapped": "该服务提供{total}个工具；AI可以使用前{n}个。",
   "integrations.toolsStale": "该服务提供{total}个工具；上次检查时保存了{n}个。重新检查即可全部保存。",
   "integrations.toolsCappedMore": "该服务提供超过{total}个工具；AI可以使用前{n}个。",

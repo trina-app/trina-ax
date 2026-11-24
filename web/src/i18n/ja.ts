@@ -3592,6 +3592,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.account': "アカウント {account}",
   'integrations.neverUsed': "未使用",
   'integrations.noTools': "サービスからツールが提示されませんでした。再確認してください。",
+  'integrations.toolsTooLarge': "このサービスのツールは大きすぎて読み込めないため、AIは使えません。",
   'integrations.toolsCapped': "このサービスには{total}個のツールがありますが、AIが使えるのは最初の{n}個だけです。",
   'integrations.toolsStale': "このサービスには{total}個のツールがありますが、前回の確認で保存されたのは{n}個です。再確認するとすべて保存されます。",
   'integrations.toolsCappedMore': "このサービスには{total}個を超えるツールがありますが、AIが使えるのは最初の{n}個だけです。",

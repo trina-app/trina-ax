@@ -452,7 +452,13 @@ idle minutes; a 404 for it starts a new one.
   no token refresh starts that could end after it (a token still valid is used). So 90 s stays under the relay's 100 s
   wait for an answer and the server's 120 s idle limit and "Check again" is answered. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
-  when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
+  when pages were left unread); a tool whose input schema is not an object is left out. A schema over 32,000
+  characters is kept with its longest `description` strings cut to one common length that fits, each ending in
+  "… (shortened)" (never a name, type, `required`, or a value in `enum`, `default`, `const` or `examples`); only one
+  whose structure alone is over 32,000 is left out. Either way the check logs one line (connection, tool names and
+  sizes), and a list empty only because of that is saved with `tools_dropped` (migration 365, API `toolsTooLarge`), so
+  Settings says the tools were too large to load, not "listed no tools". A tool's own description is cut at 1,000
+  characters, with the same marker.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
   connection and `tools_rev` (moved by a trigger whenever `tools_json` changes; at most 64 MiB of saved JSON, the list
   used longest ago first), so a turn reads the connections without their lists and parses only a list that changed;
@@ -496,7 +502,10 @@ idle minutes; a 404 for it starts a new one.
   `/.well-known/oauth-protected-resource[/<path>]` → authorization-server metadata (RFC 8414, OpenID Connect discovery as
   fallback; `issuer` must match, S256 must be offered when methods are listed) → dynamic client registration (RFC 7591,
   public client, our callback) → authorization code with PKCE S256, `state` and the `resource` indicator (RFC 8707);
-  `iss` in the answer is checked when present (RFC 9207). A server without registration cannot be signed in to (use a
+  `iss` in the answer is checked when present (RFC 9207). The scopes asked for are the 401's `scope`, else every scope
+  the protected-resource metadata lists; when those are over 2,000 characters (`MAX_SCOPE_CHARS`) none is asked for (the
+  server's default grant, as for a server that lists none; a cut list could leave out the one a tool needs) and the
+  sign-in logs it. A server without registration cannot be signed in to (use a
   key, or an own app below). Tokens refresh ahead of expiry and after a 401, one refresh at a time per connection; `invalid_grant` means
   "sign in again". Deleting a connection, or a change that drops its sign-in, removes the local tokens first and then
   asks the service to revoke them (RFC 7009, best effort).
@@ -850,7 +859,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
 | Team files attached to one call (`team-file:`) | 10 files, 10 MiB together |
-| MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
+| MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema (longer descriptions in it are shortened to fit); as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
 | Reading `tools/list` (a check) | 8 MiB a page, 20 pages and 16 MiB together; stops once the list kept is full |
 | Sign-in flow | 10 minutes, 20 per person per hour |
 

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 09:23
 - Branch: `fix/mcp-oversized-tool-schema`
-- Status: in progress
+- Status: done
 - Where: server (`server/src/integrations/connections/mcp.ts`, `service.ts`, `store.ts`, `oauth.ts`), one migration
   (component C), web (`ConnectionPage.tsx`, i18n). Why: the server reads and keeps an MCP server's tool list; Settings
   shows it.
@@ -78,4 +78,6 @@ Settings, and raising the cap for one tool.
 
 ## Result
 
-(filled in at the end)
+Built as planned. Settings shows the new line only when the saved list is empty and `toolsTooLarge` is set; a later
+check that keeps tools, a changed address and a moved local app reset the count. `docs/INTEGRATIONS.md` describes the
+shortening and the scope rule. PR: see the branch `fix/mcp-oversized-tool-schema`.
