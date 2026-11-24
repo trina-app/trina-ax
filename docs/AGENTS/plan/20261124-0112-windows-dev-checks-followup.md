@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 01:12
 - Branch: `fix/windows-dev-checks-followup`
-- Status: in progress
+- Status: done
 - Where: tests/unit, shared/src/cloud-protocol. Why: finish what #474 (by @meat-daemon-404, issue #469) started so local checks pass on Windows (see docs/REPOSITORY-RULES.md)
 - Version impact: none (tests and repository settings only)
 
@@ -38,4 +38,4 @@ Existing Windows clones keep a CRLF `vectors.json` after pull; recovery commands
 
 ## Result
 
-(filled in at the end)
+Both import paths use file URLs; the eol rule lives in shared/src/cloud-protocol/.gitattributes. Throwaway-repo proof and checks are in the PR.
