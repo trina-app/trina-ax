@@ -1161,11 +1161,16 @@ describe('updates carry the list', () => {
     // what a Linux server reads is the list's: groups, distros, arches, the linux and "any" downloads
     // (but the Mac groups, name ends in -mac, and the Mac-only artifacts: a Mac team server's Python)
     expect(l.groups).toEqual(Object.fromEntries(Object.entries(LIST.groups).filter(([g]) => !g.endsWith('-mac'))))
-    expect(Object.keys(LIST.groups).filter((g) => g.endsWith('-mac'))).toEqual(['srt-mac'])
+    expect(Object.keys(LIST.groups).filter((g) => g.endsWith('-mac'))).toEqual(['srt-mac', 'doc-kit-mac'])
     expect(l.artifacts.cpython).toBeUndefined()
+    // an office Mac's document kit: its fonts (platform "any") and its Python libraries are not in the Linux copy
+    for (const n of ['libreoffice', 'noto-sans-kr', 'noto-serif-kr']) expect(l.artifacts[n]).toBeUndefined()
+    expect(l.python?.['doc-kit-mac']).toBeUndefined()
+    expect(l.python?.['python-pptx']).toEqual(LIST.python!['python-pptx']!)
     expect(l.distros).toEqual(LIST.distros)
+    const macGroupsOnly = (n: string) => Object.entries(LIST.groups).every(([g, v]) => g.endsWith('-mac') || !v.artifacts?.includes(n))
     for (const [n, a] of Object.entries(LIST.artifacts)) {
-      if (Object.keys(a.platforms).every((p) => p.startsWith('darwin-'))) continue
+      if (Object.keys(a.platforms).every((p) => p.startsWith('darwin-')) || macGroupsOnly(n)) continue
       expect(l.artifacts[n]!.version).toBe(a.version)
       for (const [p, f] of Object.entries(a.platforms)) if (!p.startsWith('darwin-')) expect(l.artifacts[n]!.platforms[p]).toEqual(f)
     }

@@ -197,6 +197,12 @@
       "for": "the dev environment on a Mac team server (install-srt-mac.sh): node, srt and Python 3 in /opt/trina; git comes from the Command Line Tools",
       "artifacts": ["node", "srt", "cpython"]
     },
+    "doc-kit-mac": {
+      "install": "on-request",
+      "for": "the document kit of an office Mac (docs/OFFICE.md, scripts/office/doc-kit.sh): office-install.sh fetches it per user, with no sudo, into <prefix>/kit/<key> with a link current. LibreOffice draws the pages the AI looks at (server/src/files/office-view.ts, in its own sandbox-exec profile); node runs srt, which runs the AI's build commands (Seatbelt, as the signed-in user: server/src/devenv/srt/system-office.ts) with the Node libraries of scripts/dev-env/srt/node-libs.package-lock.json; CPython carries the document libraries (python doc-kit-mac); the Noto CJK fonts draw Korean, Japanese and Chinese (LibreOffice on a Mac has none of its own; it brings Carlito, Caladea and Liberation itself), linked into each render's profile (MYCEL_KIT_FONTS_DIR, server/src/files/office-profile.ts)",
+      "artifacts": ["libreoffice", "node", "srt", "cpython", "noto-sans-cjk", "noto-serif-cjk", "noto-cjk-license"],
+      "python": ["doc-kit-mac"]
+    },
     "docker": {
       "install": "on-request",
       "for": "the Docker image (docker/Dockerfile, with the always groups): ps for mycel-ctl supervise, useradd, python3",
@@ -305,6 +311,57 @@
           "url": "https://registry.npmjs.org/@anthropic-ai/sandbox-runtime/-/sandbox-runtime-0.0.81.tgz",
           "sha256": "0e0b8249062047f7b592c7995f8ec2f251f3bbebdc0402db1ee23af09983953f",
           "size": 4836387
+        }
+      }
+    },
+    "libreoffice": {
+      "version": "26.8.3",
+      "for": "LibreOffice (MPL-2.0) of an office Mac's document kit (group doc-kit-mac): the DMG of The Document Foundation, sha256 from its download page (<file>.sha256) and checked here on 2026-11-24. doc-kit.sh also checks the app's Developer ID signature (team 7P5S3ZLCN7, The Document Foundation) and its notarisation (spctl). A LibreOffice security release is a new pin here: every office Mac gets it with its next automatic update",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/mac/aarch64/LibreOffice_26.8.3_MacOS_aarch64.dmg",
+          "sha256": "de943203795e5057785f65515063e2db5eb60b0bb6d8e2534fec59e5cc5fb988",
+          "size": 299927705,
+          "dir": "LibreOffice.app"
+        },
+        "darwin-amd64": {
+          "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/mac/x86_64/LibreOffice_26.8.3_MacOS_x86-64.dmg",
+          "sha256": "bb3c35d628780510915ad9e759d7ed898094d7985d01b2181bd1d4ecd94fd159",
+          "size": 309939485,
+          "dir": "LibreOffice.app"
+        }
+      }
+    },
+    "noto-sans-cjk": {
+      "version": "2.004",
+      "for": "the document kit's font on an office Mac (group doc-kit-mac): Noto Sans CJK, variable, one collection with the KR, JP, SC, TC and HK families the render's font table names (server/src/files/office-profile.ts); notofonts/noto-cjk at its release tag (Sans2.004, Serif2.003), SIL OFL 1.1. On Linux the same families come from fonts-noto-cjk",
+      "platforms": {
+        "any": {
+          "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/Variable/OTC/NotoSansCJK-VF.otf.ttc",
+          "sha256": "d3d8256cdec8dbcb3552284bc6b20c734dd60c2ee9df83b5758e34807c4bac32",
+          "size": 32682580
+        }
+      }
+    },
+    "noto-serif-cjk": {
+      "version": "2.003",
+      "for": "the document kit's font on an office Mac (group doc-kit-mac): Noto Serif CJK, variable (as noto-sans-cjk)",
+      "platforms": {
+        "any": {
+          "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/Serif2.003/Serif/Variable/OTC/NotoSerifCJK-VF.otf.ttc",
+          "sha256": "24720ea76c8b13e822059d155cefb0f9f6be1cfdee1e2bb67b61c96067de42c9",
+          "size": 57488648
+        }
+      }
+    },
+    "noto-cjk-license": {
+      "version": "2.004",
+      "for": "the licence of noto-sans-cjk and noto-serif-cjk (SIL OFL 1.1; at the Sans2.004 tag), kept next to them in the kit",
+      "platforms": {
+        "any": {
+          "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/LICENSE",
+          "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+          "size": 4301
         }
       }
     }
@@ -427,6 +484,44 @@
         "uvicorn==0.44.0": "ce937c99a2cc70279556967274414c087888e8cec9f9c94644dfca11bd3ced89",
         "watchfiles==1.1.1": "14e0b1fe858430fc0251737ef3824c54027bedb8c37c38114488b8e131cf8219 1db5d7ae38ff20153d542460752ff397fcf5c96090c1230803713cf3147a6803 6e43d39a741e972bab5d8100b5cdacf69db64e34eb19b6e9af162bccf63c5cc6 8526e8f916bb5b9a0a777c8317c23ce65de259422bba5b31325a6fa6029d33af aebfd0861a83e6c3d1110b78ad54704486555246e542be3e2bb94195eabb2606 c755367e51db90e75b19454b680903631d41f9e3607fbd941d296a020c2d752d",
         "websockets==16.0": "08d7af67b64d29823fed316505a89b86705f2b7981c07848fb5e3ea3020c1abe 1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec 7be95cfb0a4dae143eaed2bcba8ac23f4892d8971311f1b06f3c6b78952ee70b 95724e638f0f9c350bb1c2b0a7ad0e83d9cc0c9259f3ea94e40d7b02a2179ae5 9b5aca38b67492ef518a8ab76851862488a478602229112c4b0d58d63a7a4d5c c0204dc62a89dc9d50d682412c10b3542d748260d743500a85c13cd1ee4bde82 e0334872c0a37b606418ac52f6ab9cfd17317ac26365f7f65e203e2d0d0d359f"
+      }
+    },
+    "doc-kit-mac": {
+      "version": "2026.11.24",
+      "for": "the document builds of an office Mac (scripts/office/doc-kit.sh): installed into the kit's own CPython 3.13 (artifact cpython: relocatable, so no venv) with the box Python libraries (server/src/devenv/srt/config.ts BOX_PYTHON_LIBS) and their dependencies, macOS wheels for arm64 and x86_64 (macOS 13+), resolved with pip download --only-binary :all: on 2026-11-24; cryptography is held at 48.0.1, the newest with an x86_64 wheel",
+      "python": ">=3.13",
+      "program": "python",
+      "requirements": {
+        "cffi==2.1.1": "19ee6127ee34de7d83ce3d371ebc5ed91addbdcc39f9ab15ce4eb35a4e534971 9d2055050ea716bd38b7f7f1579c275386646b4894c155a3e2f3cd62ed41b7c6",
+        "charset-normalizer==3.5.3": "499e4bbeb1e79b14756311a1d12cb88112f244423e152d80981d9bcaff3279fa",
+        "contourpy==1.4.0": "196759a3e4db60e1546167e361090ebb6d199aa3aafc9e34ea17a5ac3b23e814 e21d1d4a9db5b3a793649c7ab0ddb4697f2818929eec871a7b9c45fce7b2a1ea",
+        "cryptography==48.0.1": "3e4a1a3232eef2e6c732827d5722db29a0cc8b27af2a4d865b094cf954be9ca1",
+        "cycler==0.12.1": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+        "defusedxml==0.7.1": "a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61",
+        "et-xmlfile==2.0.0": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+        "fonttools==4.68.0": "f15de48b82a816c72f358e772792801bd3788a156caa76e1806cb0aa8148cd61 86d319a1feedfc75c8ff582d947b21fa1854e2829cb8cf9428784d750a05f1d9",
+        "kiwisolver==1.5.1": "77a4c8187a5948d7f8795adb765a3c7b553d07d86d88e43038fc32fc1fb9a3f3 1ed0f5e49d0ceff8b72190824d9e59c062fbbc02c231b853112c78474b3f5ec2",
+        "lxml==6.1.3": "3a48093cdb058a93af842ede9703520e810b05dcd0fc6d7190a06376c3bfb6bd 887c021d9a977cff89cb273047c1352997b772a8908a25c21836861f69b92be1",
+        "matplotlib==3.11.2": "2a8285cea8ef4d92aa041d1c33788bcae82248503300f93f1ca2136b9049452f 7d43ff8cebb50840648cb6429b2228621dbd709010f3117b3740abb20abf21c0",
+        "numpy==2.5.5": "7e71ac4284c700afa654e2d15b1b174166710dca932f24045e5dc92001b5bda0 228e3d90e967495d61ddc79dd64e95267aae3bcf1b1c516a6186429106a0b444",
+        "openpyxl==3.1.5": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+        "packaging==26.4": "81383611a09c1bc0b08b76e0fd5829d7c6824c65b27a6aee339da133f4233ea2",
+        "pandas==3.1.1": "269716b079899a92953837d13ed215ef2d36dbf8dd3787faf617f1160a2f5062 01bd1d4c5fc999324382d55499cef0f9cc7c1b09d91ae6dabe82f0237e43b3a0",
+        "pdf2image==1.17.0": "ecdd58d7afb810dffe21ef2b1bbc057ef434dabbac6c33778a38a3f7744a27e2",
+        "pdfminer-six==20260107": "366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9",
+        "pdfplumber==0.11.11": "81fd7c493ac69a0645a68da49320e4e2cace05d99824439accc7b5b3d955f3bc",
+        "pillow==13.0.0": "f11a3c1358bb3c68012a7b1f41b223c3db9f7bfde90b481df028cfe1c3363313 ef5fe6b7db3f501c56000ba8fe7c7e1a35ca1d45824fbeb95a67daa85cff4dbe",
+        "pycparser==3.12": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "pyparsing==3.3.3": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+        "pypdf==7.1.1": "04c5680d4b4cfa04ab505b09393fc949860c34a4dad6565284d11a2f5c3ce8b1",
+        "pypdfium2==5.15.2": "e71fe832e94421ac3c28d6a6ed4a9e61f22417089652d339f391c4ffc2a44c35 7f296a298074d76fb7c3d1ecb80d7097a96778bf0ad9c5c48a0170e56e2c6821",
+        "python-dateutil==4.0.0": "a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c",
+        "python-docx==1.2.0": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7",
+        "python-pptx==1.0.2": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+        "reportlab==5.1.0": "59fdbaec5efe437095ad1d7292ec9a271c8ca2d3ec75e889c6e61400929b90df",
+        "typing-extensions==4.16.0": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+        "tzdata==2026.6": "0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec",
+        "xlsxwriter==3.3.4": "da62fecb24fdd0f003c874c86109b9e1245ae89533052745ab85a085eb2b04d7"
       }
     }
   }

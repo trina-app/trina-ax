@@ -23,6 +23,7 @@ export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
   'chrome-headless-shell': ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-amd64'],
   node: ['linux-amd64', 'linux-arm64', 'darwin-arm64', 'darwin-amd64'],
   cpython: ['darwin-arm64', 'darwin-amd64'],
+  libreoffice: ['darwin-arm64', 'darwin-amd64'],
   srt: ['any'],
   hyperframes: ['any'],
 }
@@ -36,7 +37,8 @@ export interface Group { install: Install; for: string; packages?: Record<string
 export interface Artifact { version: string; for: string; revoked?: string[]; platforms: Record<string, { url: string; sha256: string; size: number; dir?: string }> }
 /** a Python program in a venv of its own (packages.sh pk_python_install): its version, the Python it needs (">=3.N"),
  * the program in the venv's bin/, and every wheel it installs as "name==version": "sha256 sha256 ..." (one sha256 per
- * wheel a list system can use; scripts/system/python-lock.ts writes them from the project's uv.lock) */
+ * wheel a list system can use; scripts/system/python-lock.ts writes them from the project's uv.lock). A set of libraries
+ * (program "python", e.g. doc-kit-mac) is no package of its own: its version is the date of its lock */
 export interface PythonProgram { version: string; for: string; python: string; program: string; requirements: Record<string, string>
   /** true: the venv sees the system's site-packages (python3 -m venv --system-site-packages), for the dev environment's
    * Python: apt's libraries plus the venv's */
@@ -120,7 +122,9 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
     if (v.python !== undefined && !Array.isArray(v.python)) p.push(`${at}: python must be a list of program names`)
     for (const y of Array.isArray(v.python) ? v.python : []) {
       if (!has(pythons, y)) p.push(`${at}: no python program ${y}`)
-      // a venv needs the interpreter and its venv module from apt, in the same group (a group alone must work)
+      // a venv needs the interpreter and its venv module from apt, in the same group (a group alone must work); a Mac
+      // group (name ends in -mac) has no apt: its Python is the cpython artifact, in the same group
+      else if (g.endsWith('-mac')) { if (!(v.artifacts ?? []).includes('cpython')) p.push(`${at}: python program ${y} needs the artifact cpython in the group`) }
       else for (const need of ['python3', 'python3-venv']) if (!has(v.packages ?? {}, need)) p.push(`${at}: python program ${y} needs the package ${need} in the group`)
     }
     // an always group installs on every system of the list
@@ -175,7 +179,7 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?==[0-9][0-9A-Za-z.!+]*$/.test(r)) p.push(`${at}: ${r}: a requirement is "name==version" (a normalized name)`)
       if (typeof h !== 'string' || !/^[0-9a-f]{64}( [0-9a-f]{64})*$/.test(h)) p.push(`${at}: ${r}: the sha256 of its wheels, separated by one space`)
     }
-    if (!has(reqs, `${n}==${y.version}`)) p.push(`${at}: the requirements do not pin ${n}==${y.version} itself (a version moved without its wheels?)`)
+    if (y.program !== 'python' && !has(reqs, `${n}==${y.version}`)) p.push(`${at}: the requirements do not pin ${n}==${y.version} itself (a version moved without its wheels?)`)
     if (!Object.values(groups).some((g) => g?.python?.includes(n))) p.push(`${at}: no group installs it`)
   }
   return p
@@ -266,10 +270,14 @@ export function linuxList(listText: string): string {
   const l = JSON.parse(listText) as PackageList
   // a Mac-only artifact (no Linux platform, e.g. cpython of a Mac team server) and the Mac groups (name ends in -mac)
   // are not in the Linux copy: a Mac-only change changes no root byte of a Linux server
-  const artifacts = Object.fromEntries(Object.entries(l.artifacts).map(([n, a]) =>
-    [n, { ...a, platforms: Object.fromEntries(Object.entries(a.platforms).filter(([p]) => LINUX_PLATFORM(p))) }] as const).filter(([, a]) => Object.keys(a.platforms).length > 0))
   const groups = Object.fromEntries(Object.entries(l.groups).filter(([g]) => !g.endsWith('-mac')))
-  return `${JSON.stringify({ ...l, _about: LINUX_ABOUT, groups, artifacts }, null, 2)}\n`
+  // an artifact that only Mac groups list (an office Mac's fonts, platform "any") is not in it either
+  const macOnly = (n: string) => Object.values(l.groups).some((g) => g.artifacts?.includes(n)) && !Object.values(groups).some((g) => g.artifacts?.includes(n))
+  const artifacts = Object.fromEntries(Object.entries(l.artifacts).filter(([n]) => !macOnly(n)).map(([n, a]) =>
+    [n, { ...a, platforms: Object.fromEntries(Object.entries(a.platforms).filter(([p]) => LINUX_PLATFORM(p))) }] as const).filter(([, a]) => Object.keys(a.platforms).length > 0))
+  // and no Python program that only Mac groups install (doc-kit-mac)
+  const python = l.python && Object.fromEntries(Object.entries(l.python).filter(([n]) => Object.values(groups).some((g) => g.python?.includes(n))))
+  return `${JSON.stringify({ ...l, _about: LINUX_ABOUT, groups, artifacts, ...(python ? { python } : {}) }, null, 2)}\n`
 }
 
 if (import.meta.main) {
