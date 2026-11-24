@@ -9,7 +9,7 @@ import zlib from 'node:zlib'
 import { which } from '../../server/src/config'
 import { officeWorkerText, officeWorkerWrite } from '../../server/src/files/extract'
 import { hwpxText } from '../../server/src/files/hwp'
-import { encodeHwpxRequest, firstDifference, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../../server/src/files/hwpx-check'
+import { encodeHwpxRequest, firstDifference, HWPX_MARKDOWN, hwpxMarkdown, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines, normalizeHwpxTree } from '../../server/src/files/hwpx-check'
 import { defaultHeaderXml, defaultSecPrXml, defaultTemplate, NS_ATTRS, XML_DECL } from '../../server/src/files/hwpx-template'
 import { HWPX_LIMITS, readTemplate, writeHwpx } from '../../server/src/files/hwpx-write'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
@@ -216,16 +216,109 @@ describe.skipIf(!PANDOC)('supported elements', () => {
   })
 })
 
+/** pandoc as make_file runs it for a .hwpx (no fancy_lists: "1)" and "(1)" stay labels) */
+const hast = (md: string) => JSON.parse(execFileSync(PANDOC!, ['--sandbox', '-f', HWPX_MARKDOWN, '-t', 'json'], { input: hwpxMarkdown(md) }).toString())
+const LETTER = [
+  '::: {.center size=20}', '**가나다오피스**', ':::', '',
+  '::: {.noborder}', '| | |', '|---|---|', '| 수신 | 라마바카페 대표 (참조: 구매 담당자) |', '| 제목 | 원두 납품 단가 조정 안내 |', ':::', '',
+  '---', '',
+  '1. 귀사의 무궁한 발전을 기원합니다.', '2. 아래와 같이 안내드립니다.', '가. 적용 일자: 2027. 1. 1.', '나. 조정 내용', '1) 하우스 블렌드', '(1) 세부', '',
+  '□ 추진 배경', '', '- 원두 시세 상승', '- 물류비 상승', '',
+  '붙임  단가표 1부.  끝.', '',
+  '::: {.right}', '2026. 11. 24.', ':::', '',
+  '::: box', '○ 요약 한 줄', '', '[밑줄]{.underline}과 ~~취소~~', ':::', '',
+  '+------+------+------+', '| 구분 | 1월  | 2월  |', '+======+======+======+', '| 매출 | 100  | 120  |', '+------+------+------+', '| 합계 | 220         |', '+------+-------------+',
+].join('\n')
+
+describe.skipIf(!PANDOC)('layout: divs, tables, lines and Korean outline labels', () => {
+  const tree = hast(LETTER)
+  const b = writeHwpx(tree)
+  const h = header(b)
+  const pp = (text: string) => byId(h, 'paraPr', paraWith(b, text).paraPr)
+  const margin = (xml: string, k: string) => Number(new RegExp(`<hp:case[^>]*>[\\s\\S]*?<hc:${k} value="(-?\\d+)"`).exec(xml)![1])
+
+  test('a div centres, right-aligns and sizes its paragraphs; large text gets room around it', () => {
+    expect(pp('가나다오피스')).toContain('horizontal="CENTER"')
+    expect(margin(pp('가나다오피스'), 'prev')).toBeGreaterThan(0)
+    const run = /charPrIDRef="(\d+)"><hp:t>가나다오피스/.exec(section(b))![1]!
+    expect(byId(h, 'charPr', run)).toContain('height="2000"')
+    expect(byId(h, 'charPr', run)).toContain('<hh:bold/>')
+    expect(pp('2026. 11. 24.')).toContain('horizontal="RIGHT"')
+  })
+
+  test('a pipe table with an empty header row has none; .noborder takes its lines off; widths follow the contents', () => {
+    const tbl = section(b).slice(section(b).indexOf('<hp:tbl '), section(b).indexOf('</hp:tbl>'))
+    expect(tbl).toContain('rowCnt="2" colCnt="2"')
+    expect(tbl).not.toContain('header="1"')
+    const fill = /<hp:tc [^>]*borderFillIDRef="(\d+)"/.exec(tbl)![1]!
+    expect(byId(h, 'borderFill', fill)).not.toContain('type="SOLID" width="0.12')
+    const [w1, w2] = [...tbl.matchAll(/<hp:cellSz width="(\d+)"/g)].map((m) => Number(m[1]))
+    expect(w1! * 3).toBeLessThan(w2!)
+  })
+
+  test('--- is a line under an empty paragraph', () => {
+    const rule = paras(section(b)).find((p) => byId(h, 'borderFill', /borderFillIDRef="(\d+)"/.exec(byId(h, 'paraPr', p.paraPr))![1]!).includes('<hh:bottomBorder type="SOLID"'))
+    expect(rule).toBeTruthy()
+    expect(rule!.body).toContain('<hp:t/>')
+  })
+
+  test('outline labels: each level one character further in, wrapped lines under the text (내어쓰기); lines split at a label', () => {
+    // "가. …" and "나. …" were lines of one paragraph in the Markdown
+    expect(hwpxText(b)).toContain('가. 적용 일자: 2027. 1. 1.\n나. 조정 내용\n1) 하우스 블렌드\n(1) 세부')
+    const left = (t: string) => margin(pp(t), 'left'), indent = (t: string) => margin(pp(t), 'intent')
+    expect(left('가. 적용 일자: 2027. 1. 1.')).toBe(1000)
+    expect(left('1) 하우스 블렌드')).toBe(2000)
+    expect(left('(1) 세부')).toBe(4000)
+    expect(indent('가. 적용 일자: 2027. 1. 1.')).toBeLessThan(0)
+    expect(left('□ 추진 배경')).toBe(0)
+    expect(indent('□ 추진 배경')).toBeLessThan(0)
+  })
+
+  test('a bullet list right under an outlined line continues the outline as dash lines', () => {
+    expect(hwpxText(b)).toContain('- 원두 시세 상승')
+    expect(left2(pp('- 원두 시세 상승'))).toBe(2000)
+    function left2(xml: string) { return margin(xml, 'left') }
+  })
+
+  test('a box is one framed cell with room inside; underline and strikethrough are character shapes', () => {
+    const box = /<hp:tbl [^>]*rowCnt="1" colCnt="1"[\s\S]*?<\/hp:tbl>/.exec(section(b))![0]
+    expect(box).toContain('hasMargin="1"')
+    expect(box).toContain('○ 요약 한 줄')
+    const run = (t: string) => byId(h, 'charPr', new RegExp(`charPrIDRef="(\\d+)"><hp:t>${t}`).exec(box)![1]!)
+    expect(run('밑줄')).toContain('<hh:underline type="BOTTOM"')
+    expect(run('취소')).toContain('<hh:strikeout shape="SOLID"')
+  })
+
+  test('a grid table merges cells: span, address and width of the columns it covers', () => {
+    const tbl = /<hp:tbl [^>]*rowCnt="3" colCnt="3"[\s\S]*?<\/hp:tbl>/.exec(section(b))![0]
+    const merged = /<hp:tc [^>]*>(?:(?!<\/hp:tc>)[\s\S])*?220[\s\S]*?<\/hp:tc>/.exec(tbl)![0]
+    expect(merged).toContain('<hp:cellAddr colAddr="1" rowAddr="2"/><hp:cellSpan colSpan="2" rowSpan="1"/>')
+    const w = [...tbl.matchAll(/<hp:cellSz width="(\d+)"/g)].map((m) => Number(m[1]))
+    expect(Number(/<hp:cellSz width="(\d+)"/.exec(merged)![1])).toBe(w[1]! + w[2]!)
+    expect(tbl.match(/<hp:tc /g)!.length).toBe(8)
+  })
+
+  test('a date at the start of a line is text, not a list that starts at 2026', () => {
+    expect(hwpxMarkdown('2026. 11. 24.\n  2027. 1. 2. 시행\n1. 항목\n')).toBe('2026\\. 11. 24.\n  2027\\. 1. 2. 시행\n1. 항목\n')
+    expect(hwpxText(b)).toContain('2026. 11. 24.')
+  })
+
+  test('the file reads back through hwp.ts as the document; the tree normalizes to itself', () => {
+    expect(roundTrip(tree, b)).toBeNull()
+    expect(normalizeHwpxTree(normalizeHwpxTree(tree))).toEqual(normalizeHwpxTree(tree))
+  })
+})
+
 describe.skipIf(!PANDOC)('refused: nothing is written, every kind is named at once', () => {
   const cases: [string, string][] = [
     ['![그림](a.png)', 'images'], ['본문[^1]\n\n[^1]: 각주', 'footnotes'], ['[링크](https://example.com)', 'links'], ['`코드`', 'inline code'],
-    ['```\ncode\n```', 'code blocks'], ['> 인용', 'block quotes'], ['앞\n\n---\n\n뒤', 'horizontal rules'], ['<div>x</div>', 'divs'], ['<table><tr><td>x</td></tr></table>', 'raw HTML'],
-    ['글 <b>굵게</b>', 'raw HTML'], ['$x^2$', 'math'], ['~~취소~~', 'strikethrough'], ['---\ntitle: 제목\n---\n\n본문', 'YAML metadata'],
-    ['용어\n: 정의', 'definition lists'], ['::: note\n안\n:::', 'divs (::: or <div>)'], ['| 줄\n| 블록', 'line blocks'], ['H~2~O', 'subscript'],
-    ['x^2^', 'superscript'], ['[밑줄]{.underline}', 'underline'], ['\\begin{x}\\end{x}', 'raw tex markup'],
+    ['```\ncode\n```', 'code blocks'], ['> 인용', 'block quotes'], ['<table><tr><td>x</td></tr></table>', 'raw HTML'],
+    ['글 <b>굵게</b>', 'raw HTML'], ['$x^2$', 'math'], ['---\ntitle: 제목\n---\n\n본문', 'YAML metadata'],
+    ['용어\n: 정의', 'definition lists'], ['::: note\n안\n:::', 'a div {.note}'], ['::: {color=red}\n안\n:::', 'a div {color=red}'], ['| 줄\n| 블록', 'line blocks'], ['H~2~O', 'subscript'],
+    ['x^2^', 'superscript'], ['[작게]{.smallcaps}', 'small caps'], ['\\begin{x}\\end{x}', 'raw tex markup'], ['::: {size=100}\n큼\n:::', 'a div {size=100}'],
     ['- 1\n  - 2\n    - 3\n      - 4\n        - 5\n          - 6\n            - 7', 'lists nested more than 6 levels'],
     ['| a |\n|---|\n| b |\n\n: 캡션', 'table captions'], ['0. 영부터', 'numbered lists that start at 0'],
-    ['+-----+-----+\n| a   | b   |\n+=====+=====+\n| - x | y   |\n|     |     |\n+-----+-----+', 'lists inside table cells'],
+    ['::: box\n| a |\n|---|\n| b |\n:::', 'tables inside boxes'], ['::: box\n# 제목\n:::', 'headings inside boxes'],
     ['- 항목\n\n  | a |\n  |---|\n  | b |', 'tables inside list items'],
   ]
   for (const [md, name] of cases) {
@@ -235,12 +328,13 @@ describe.skipIf(!PANDOC)('refused: nothing is written, every kind is named at on
       expect(msg).toContain('Nothing was saved')
     })
   }
-  test('nested tables and merged cells (trees pandoc makes from other inputs)', () => {
+  test('nested tables, and merged cells wider than the table (trees pandoc makes from other inputs)', () => {
     const cell = (blocks: unknown[], span = 1) => [['', [], []], { t: 'AlignDefault' }, span, 1, blocks]
     const table = (cells: unknown[]) => ({ t: 'Table', c: [['', [], []], [null, []], [[{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]], [['', [], []], []], [[['', [], []], 0, [], [[['', [], []], cells]]]], [['', [], []], []]] })
     const inner = table([cell([{ t: 'Plain', c: [{ t: 'Str', c: '안' }] }])])
-    expect(refused(() => writeHwpx({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [table([cell([inner])])] }))).toContain('nested tables')
-    expect(refused(() => writeHwpx({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [table([cell([{ t: 'Plain', c: [{ t: 'Str', c: 'x' }] }], 2)])] }))).toContain('merged table cells')
+    expect(refused(() => writeHwpx({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [table([cell([inner])])] }))).toContain('tables inside table cells')
+    // a cell that spans more columns than the table has
+    expect(refused(() => writeHwpx({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [table([cell([{ t: 'Plain', c: [{ t: 'Str', c: 'x' }] }], 2)])] }))).toContain('merged cells that overlap')
   })
   test('one message lists them all, with counts', () => {
     const msg = refused(() => writeHwpx(ast('![a](a.png) ![b](b.png)\n\n[l](https://example.com)\n\n> q')))

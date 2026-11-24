@@ -18,6 +18,11 @@ export const HWPX_TEXT_MAX = 6_000_000
 /** pandoc's reader for a Hangul document's Markdown: without fancy_lists, so "1)", "(1)" and "가." stay the text of
  * a paragraph that starts with an outline label (Korean numbering, laid out by level) instead of becoming a list */
 export const HWPX_MARKDOWN = 'markdown-fancy_lists'
+/** The Markdown of a Hangul document as pandoc gets it: a line that starts with a date written the Korean way
+ * ("2026. 11. 24.") is text, not a numbered list that starts at 2026. */
+export function hwpxMarkdown(md: string): string {
+  return md.replace(/^([ \t]*)((?:19|20)\d\d)\.(?=[ \t]+\d{1,2}\.)/gm, '$1$2\\.')
+}
 /** a template .hwpx (a team's, under skills/) */
 export const HWPX_TEMPLATE_MAX = 20 * 1024 * 1024
 
