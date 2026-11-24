@@ -201,7 +201,7 @@ describe('a post the person named: no card, then undo', () => {
 // says @everyone or 전체: no card, Undo. The AI deciding on its own, or the word only in someone else's quoted words: the card.
 describe('@everyone the person asked for', () => {
   test('their whole quote with @everyone after it: no card; the step says everyone was notified', async () => {
-    const r = await turn('alice', `Marketing 방에 "내일 10시 회의, 전원 참석" 이라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 전원 참석' })}`)
+    const r = await turn('alice', `Marketing 방에 @everyone 으로 올려줘: 내일 10시 회의, 전원 참석\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 전원 참석' })}`)
     expect(r.card).toBeNull()
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
     expect(r.steps.find((s) => s.tool === 'post_to_room')!.posted).toMatchObject({ mentionsAll: true })
@@ -239,7 +239,7 @@ describe('a send without a card carries exactly the person\'s words', () => {
       ['Marketing 방에 @전체 공지 올려줘: 내일 회의 10시', '내일 회의 10시', { mention: ['everyone'] }],
       ['Marketing 방에 @전체 올려줘: 내일 회의 10시에 해요 늦지마셈', '@전체 내일 회의 10시에 해요 늦지마셈', { own_words: true }],
       ['Marketing 방에 올려줘: 회의실 바꼈어요 3층으로ㅎㅎ', '회의실 바꼈어요 3층으로ㅎㅎ', {}],
-      ['Marketing 방에 "점심 같이 드실분~" 이라고 올려줘', '점심 같이 드실분~', { own_words: true }],
+      ['Marketing 방에 올려줘: 점심 같이 드실분~', '점심 같이 드실분~', { own_words: true }],
     ] as const) {
       const r = await turn('alice', `${words}\n${post({ room: rooms.marketing, text, ...more })}`)
       expect([words, r.card]).toEqual([words, null])
@@ -286,6 +286,11 @@ describe('a send without a card carries exactly the person\'s words', () => {
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 는 아니고 연기', '회의 취소')).toBe(false)
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소"', '회의 취소')).toBe(true)
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소"\n안 함', '회의 취소')).toBe(false)
+    // (a quote is their words in a message of one line: the fake engine's lines make every message here longer, so the
+    // turns above dictate after a colon)
+    expect(isPersonsText('Marketing 방에 "점심 같이 드실분~" 이라고 올려줘', '점심 같이 드실분~')).toBe(true)
+    expect(isPersonsText('Marketing 방에 "내일 10시 회의, 전원 참석" 이라고 @everyone 으로 올려줘', '@everyone 내일 10시 회의, 전원 참석')).toBe(true)
+    expect(isPersonsText('ops 방에 "회의 취소" 올려줘\n아 근데 안 함도 붙여', '회의 취소')).toBe(false)
     expect(isPersonsText('ops 방에 올려줘\n"회의 취소" 라고 올리면 안 되고 연기라고 올려줘', '회의 취소')).toBe(false)
     expect(isPersonsText('방에 올려줘', '/files/view?path=users/alice/a.md&note=취소')).toBe(false)
     expect(asksFor(POST_ASK, instructionPart('운영공지 방에 공지 올려줘, 아 근데 3\uFF1A00 전에는 올리지 마'))).toBe(false)

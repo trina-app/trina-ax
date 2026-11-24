@@ -96,8 +96,8 @@ export function sentForm(text: string): string {
 }
 /** What in the person's own message can be the words they dictated, each whole, never a part of them: everything after the
  * first dictating colon (to the end of the message), all the lines after the first together, and a quote only when it is
- * the one quote of its line, on the line that asks to post it with no "not", no other such line, and with a
- * colon it is that whole stretch. No reading of what the sentence means. */
+ * the one quote of a message of one line that asks to post it with no "not", and with a colon it is that whole
+ * stretch. No reading of what the sentence means. */
 export function dictatedPieces(said: string): string[] {
   const out = new Set<string>()
   const lines = said.split('\n')
@@ -109,9 +109,10 @@ export function dictatedPieces(said: string): string[] {
   if (afterColon) out.add(afterColon)
   if (lines.length > 1) out.add(sentForm(lines.slice(1).join('\n')))
   const quoteOf = (m: RegExpMatchArray) => sentForm(m.slice(1).find((x) => x !== undefined) ?? '')
-  // (a lone quote on its line, that line the one asking to post it with no "not" in it: elsewhere it may be a part of
-  // what the person says, "\"회의 취소\" 는 아니고 연기"; a quote that is all the later lines is that piece already)
-  const lone = lines.map((l) => ({ l, q: [...l.matchAll(QUOTE_SPANS)] })).filter(({ q }) => q.length === 1)
+  // (a quote, in a message of one line that asks to post it with no "not": with more lines, or a "not", the person may be
+  // changing it, "\"회의 취소\" 올려줘\n아 근데 안 함도 붙여"; a quote that is all the later lines is that piece already)
+  const worded = lines.filter((l) => l.trim() !== '')
+  const lone = (worded.length === 1 ? worded : []).map((l) => ({ l, q: [...l.matchAll(QUOTE_SPANS)] })).filter(({ q }) => q.length === 1)
     .filter(({ l, q }) => { const rest = l.replace(q[0]![0], ' '); return POST_ASK.test(rest) && !NOT_A_PLAIN_ASK.test(rest) }).map(({ q }) => quoteOf(q[0]!))
   if (lone.length === 1 && (afterColon === null || afterColon === lone[0])) out.add(lone[0]!)
   out.delete('')
