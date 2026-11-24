@@ -1293,11 +1293,14 @@ export class Integrations {
    * address) is remembered for LOOPBACK_VERDICT_MS (loopbackSeen): it only spares the web's probe, and a desktop try at a
    * server that clearly refused 127.0.0.1 too, so at most one 127.0.0.1 registration happens per sign-in. A desktop app
    * from before the return port gets the old reason (it cannot do what the desktop sentence asks). */
-  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
+  private async clientFor(row: Row, setup: { server: OAuthServer; metadataClients?: boolean; scope?: string | null }, origin: string, redirectUri: string, urlFor: (c: OAuthClient) => string, from: { client: 'web' | 'desktop' | 'mobile'; loopbackPort?: number | null }): Promise<OAuthClient> {
     const port = from.client === 'desktop' && loopbackPortOk(from.loopbackPort) ? from.loopbackPort : null
     const probe = from.client !== 'desktop'
     const old = row.secret_enc ? this.tryOpen(row) : null
-    const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : null
+    // an app registered for another scope (or, before 2026-11-24, without one) is not offered again when this sign-in asks
+    // for a scope: a fresh registration names it (register)
+    const sameScope = (c: OAuthClient) => !setup.scope || (c.registeredScope ?? null) === setup.scope
+    const again = old?.type === 'oauth' && old.server.issuer && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri && sameScope(old.client) ? old.client : null
     try {
       return await chooseClient(setup, origin, redirectUri, this.net, urlFor, again, documentOrigins(this.ctx.config))
     } catch (e) {
@@ -1313,7 +1316,7 @@ export class Integrations {
       if (known === 'none') throw e
       if (!port && known === 'desktop') throw new NetError('oauth_desktop_only')
       try {
-        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor)
+        const c = await loopbackClient(setup.server, port ?? PROBE_PORT, this.net, urlFor, setup.scope ?? null)
         remember('desktop')
         if (port) return c
       } catch (p) {
