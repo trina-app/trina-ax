@@ -51,7 +51,7 @@ COPY --from=kit /kit /opt/trina-ax/kit
 # HTML to PDF is not in the default image (a smaller image, less to attack; most Docker teams do not need it). It comes
 # with --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser": the CJK fonts, the browser's libraries and the pinned
 # chrome-headless-shell in /opt/trina/chrome-headless-shell (root's; the server finds it there by itself).
-# Word, PowerPoint and Excel pages for the AI are in the default image (docs/decisions/20261124-docker-documents.md): the
+# Word, PowerPoint and Excel pages for the AI are in the default image (docs/decisions/20261124-doc-kit-docker.md): the
 # office-view group (LibreOffice, Carlito, Caladea) and the fonts group (Noto CJK, Liberation), which the page render
 # finds through fontconfig. A kit before that group has none.
 # Gmail, Google Calendar, Docs and Sheets are in the default image: the google-apps group (python3 and its venv module)
@@ -90,7 +90,7 @@ RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
     fi; \
     for p in $(pk_pythons $groups); do pk_python_install "/opt/trina/python/$p" "$p" >/dev/null; done; \
     rm -rf /var/lib/apt/lists/*
-# Documents (docs/decisions/20261124-docker-documents.md): the AI builds Word, PowerPoint, Excel and PDF files with the
+# Documents (docs/decisions/20261124-doc-kit-docker.md): the AI builds Word, PowerPoint, Excel and PDF files with the
 # document skills in a run, as on a hosted server. The kit's install-srt.sh --image-mode --documents puts the run kit in
 # /opt/trina (root's): node, srt, run-wrap, the run's Python libraries (the docrun group and the python-pptx venv), the
 # node libraries and the CJK and metric fonts; LibreOffice for the page views came with the office-view group above. The

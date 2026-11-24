@@ -5,7 +5,7 @@
 #  2. Run scripts/install-linux.sh from the image's kit, into the volume on /var/lib/mycel, when the volume is new or
 #     when the kit version or the install settings changed: `install` the first time, `update` after that. The
 #     installer is the same one a Linux server uses, with --no-systemd --skip-apt --no-auto-update.
-#  3. Documents (docs/decisions/20261124-docker-documents.md), when the image has the run kit (docker/Dockerfile): the
+#  3. Documents (docs/decisions/20261124-doc-kit-docker.md), when the image has the run kit (docker/Dockerfile): the
 #     server runs the AI's document builds in srt with no systemd (MYCEL_DEV_ENV_SRT_DIRECT=1), and root writes the
 #     plan file <base>/root/dev-env.json at every start: offline, one run at a time, 1024 MiB per run. The server cannot
 #     change it. Page views and prints go one at a time (MYCEL_RENDER_PARALLEL=1): a container has no cgroup per render.

@@ -1,4 +1,4 @@
-// Documents in the Docker image (docs/decisions/20261124-docker-documents.md): the run kit in the image, srt runs with no
+// Documents in the Docker image (docs/decisions/20261124-doc-kit-docker.md): the run kit in the image, srt runs with no
 // systemd, the root-owned plan file (offline, one run at a time), the runner's memory and process watch, and one
 // render at a time. The real container is checked by docker/test.sh; the watch's kills by tests/linux/srt-subagent.ts.
 import { describe, expect, test } from 'bun:test'

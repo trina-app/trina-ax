@@ -25,7 +25,7 @@
 # installs only what does not depend on the team: the packages, node, srt and run-wrap. No polkit rule, slice or
 # drop-in, no check of the server unit, nothing started. The dev environment stays off. A later run without
 # --image-mode on the team server turns it on, and then has nothing to download.
-# --documents (with --image-mode): the Docker image's run kit (docker/Dockerfile; docs/decisions/20261124-docker-documents.md):
+# --documents (with --image-mode): the Docker image's run kit (docker/Dockerfile; docs/decisions/20261124-doc-kit-docker.md):
 # the groups core, media, fonts and docrun only, so the image has what a run builds documents with and not the build
 # tools, git or the browser of the devenv group. Node, srt, the Python program, the node libraries and run-wrap as usual.
 # --boot: for mycel-devenv-boot (scripts/image/files, a hosted team server made from the image). It downloads nothing

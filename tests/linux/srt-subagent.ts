@@ -236,7 +236,7 @@ const own = tool({ chatId: crypto.randomUUID() })
   console.log(`     note: both took ${ms} ms (each sleeps 3 s): ${ms >= 6000 ? 'one after the other (one command at a time per folder)' : 'at the same time'}; temp folders ${self(oa)} and ${self(ob)}`)
 }
 
-// ---- 5. no unit cgroup (the Docker image's direct runs, docs/decisions/20261124-docker-documents.md): the runner
+// ---- 5. no unit cgroup (the Docker image's direct runs, docs/decisions/20261124-doc-kit-docker.md): the runner
 // watches a run's memory and processes and kills the whole tree over the plan's 1024 MiB or 256 processes ----
 {
   const mem = tool({ project: null, chatId: crypto.randomUUID() })

@@ -63,7 +63,7 @@ export type HtmlPdfLimits = typeof HTML_PDF_LIMITS
 export const RENDER_PARALLEL = 2
 /** In Linux production prints run in their own cgroup (system/cgroups.ts S/print, never the converters'), which holds
  * one or two of them by the machine's memory; elsewhere two. MYCEL_RENDER_PARALLEL (1 or 2; the Docker entrypoint
- * writes 1, docs/decisions/20261124-docker-documents.md) lowers it where nothing else limits a render's memory: a
+ * writes 1, docs/decisions/20261124-doc-kit-docker.md) lowers it where nothing else limits a render's memory: a
  * container has no cgroup per render, so a print and a Word, PowerPoint or Excel page view go one at a time there. */
 export const renderParallel = (env: Record<string, string | undefined> = process.env): number => {
   const p = printCgroup()

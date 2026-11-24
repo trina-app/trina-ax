@@ -119,8 +119,61 @@ PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=')
 code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$TRINA_AX_PORT/api/setup" \
   -H 'Content-Type: application/json' -H 'x-mycel-csrf: 1' -H "Origin: http://127.0.0.1:$TRINA_AX_PORT" \
   --data "{\"setupToken\":\"$TOK\",\"teamName\":\"Docker test\",\"locale\":\"en\",\"owner\":{\"username\":\"owner\",\"name\":\"Test Owner\",\"password\":\"$PW\"}}")
-unset TOK PW LINK
+unset TOK LINK
 [ "$code" = 201 ] || fail "POST /api/setup: HTTP $code"
+
+# documents (docs/decisions/20261124-doc-kit-docker.md): when the image has the run kit, the server runs srt with no
+# systemd under a root-owned offline plan, and says the dev environment works here (its self-test ran srt)
+if X test -x /opt/trina/devenv/run-wrap; then
+  X grep -qx 'MYCEL_DEV_ENV_SRT_DIRECT=1' /etc/default/mycel || fail "documents: no MYCEL_DEV_ENV_SRT_DIRECT=1 in /etc/default/mycel"
+  X grep -qx 'MYCEL_RENDER_PARALLEL=1' /etc/default/mycel || fail "documents: renders are not one at a time"
+  X bash -c 'p=/var/lib/mycel/root/dev-env.json; [ "$(stat -c %u:%a "$p")" = 0:644 ] && grep -q "\"network\":\"offline\"" "$p" && grep -q "\"maxRunning\":1" "$p"' || fail "documents: the plan file is not root's, offline, one run at a time"
+  BT=$(curl -fsS -X POST "http://127.0.0.1:$TRINA_AX_PORT/api/auth/login" -H 'Content-Type: application/json' -H 'x-mycel-csrf: 1' -H "Origin: http://127.0.0.1:$TRINA_AX_PORT" \
+    --data "{\"username\":\"owner\",\"password\":\"$PW\",\"client\":\"web\",\"tokenMode\":\"bearer\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') || fail "documents: owner sign-in"
+  DE=$(curl -fsS "http://127.0.0.1:$TRINA_AX_PORT/api/admin/dev-env" -H "Authorization: Bearer $BT") || fail "documents: GET /api/admin/dev-env"
+  unset BT
+  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); a=d["availability"]; p=d["plan"] or {}
+print("availability=%s plan=%s network=%s maxRunning=%s memoryMiB=%s" % (a, p.get("plan"), p.get("network"), p.get("maxRunning"), p.get("memoryMiB")))
+sys.exit(0 if a.get("available") and p.get("plan")=="docker" and p.get("network")=="offline" and p.get("maxRunning")==1 else 1)' "$DE" || fail "documents: the server says the dev environment is not available here: $DE"
+  pass "documents: srt runs here with no systemd, plan docker (offline, one run at a time)"
+  # what a run does, as the server account through srt (offline settings, the base folder hidden): a Korean Word file
+  # with the run's libraries; no network, no Unix socket, no base folder
+  X bash -c 'rm -rf /tmp/dk && install -d -o axserver -g axserver -m 700 /tmp/dk && cat > /tmp/dk/s.json <<J
+{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":["/var/lib/mycel"],"allowWrite":["/tmp/dk"],"denyWrite":[]}}
+J
+cat > /tmp/dk/build.py <<Y
+import docx, socket
+d = docx.Document(); d.add_heading("복합기 사용 안내", 1); d.add_paragraph("흑백은 월 300장까지 무료입니다. 한글이 그려져야 합니다."); d.save("/tmp/dk/안내.docx")
+print("BUILT")
+for fam, addr in ((socket.AF_INET, ("1.1.1.1", 443)),):
+    try: socket.create_connection(addr, timeout=3); print("NET-OPEN")
+    except OSError: print("NET-REFUSED")
+try: socket.socket(socket.AF_UNIX); print("UNIX-OPEN")
+except OSError: print("UNIX-REFUSED")
+try: open("/var/lib/mycel/data/app.db","rb"); print("BASE-OPEN")
+except OSError: print("BASE-HIDDEN")
+Y
+chown -R axserver:axserver /tmp/dk'
+  srt=$(X bash -c 'ls /opt/trina/srt/*/cli.js | head -1')
+  R=$(X bash -c "cd /tmp/dk && runuser -u axserver -- env -i PATH=/opt/trina/python/python-pptx/current/bin:/usr/bin:/bin HOME=/tmp/dk TMPDIR=/tmp/dk /opt/trina/node/bin/node $srt --settings /tmp/dk/s.json -c 'python3 /tmp/dk/build.py; curl -s -m 5 -o /dev/null https://example.com && echo CURL-OPEN || echo CURL-REFUSED'" 2>&1) || true
+  for w in BUILT NET-REFUSED UNIX-REFUSED BASE-HIDDEN CURL-REFUSED; do grep -qx "$w" <<<"$R" || fail "documents: the srt run did not say $w: $R"; done
+  pass "documents: a Korean Word file built in srt as axserver; network, Unix sockets and the base folder refused"
+  # the page render as the server does it: LibreOffice in bwrap with no network, through the sandbox helper's seccomp
+  # filter (--allow-listen: LibreOffice's own pipe), then the PDF's fonts
+  X bash -c 'cd /tmp/dk && runuser -u axserver -- bwrap --unshare-all --die-with-parent --new-session --cap-drop ALL \
+    --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/bin /bin --symlink usr/sbin /sbin --ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp \
+    --bind /tmp/dk /w --ro-bind /var/lib/mycel/root/mycel-sandbox /tmp/s --chdir /w --setenv HOME /w \
+    /tmp/s exec --landlock off --allow-listen -- /usr/bin/soffice -env:UserInstallation=file:///w/profile --headless --norestore --nolockcheck --convert-to pdf --outdir /w /w/안내.docx >/dev/null 2>&1' \
+    || fail "documents: LibreOffice in bwrap with the seccomp filter made no PDF"
+  F=$(X pdffonts /tmp/dk/안내.pdf) || fail "documents: no PDF"
+  grep -q 'NotoSansCJK\|NotoSerifCJK\|Noto Sans CJK' <<<"$F" || fail "documents: the PDF has no Noto CJK font (Korean not drawn): $F"
+  X pdftotext /tmp/dk/안내.pdf - | grep -q '복합기 사용 안내' || fail "documents: the PDF's text has no Korean"
+  X rm -rf /tmp/dk
+  pass "documents: LibreOffice drew the Korean page with Noto CJK in bwrap and the seccomp filter"
+else
+  echo "test: skip documents (this image has no run kit)"
+fi
+unset PW
 X trina-ax-setup-link >/dev/null 2>&1 && fail "setup link still offered after setup"
 pass "first-run setup through the published port"
 

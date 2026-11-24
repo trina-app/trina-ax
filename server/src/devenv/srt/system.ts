@@ -305,7 +305,7 @@ export function runTree(root: string | number, procDir = '/proc'): { pids: numbe
 /** how often a direct run's memory and processes are counted */
 export const DIRECT_WATCH_MS = 500
 
-/** No systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker image, docs/decisions/20261124-docker-documents.md, and the attack
+/** No systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker image, docs/decisions/20261124-doc-kit-docker.md, and the attack
  * tests): srt in a process group of its own. There is no unit cgroup, so the run's limits are watched here: every
  * DIRECT_WATCH_MS its process tree is counted (runTree), and a run over its memoryMiB or pids is killed, the whole
  * tree, and ends as out of memory (oomKills, unit result oom-kill), as a unit's OOM kill does. CPU has no limit here:
