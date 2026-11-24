@@ -353,9 +353,10 @@ describe('a file read through a grant is other people\'s words', () => {
     const read = fake({ tool: 'read', args: { file_path: `/f/${id}` } })
     const post = (text: string) => fake({ tool: 'post_to_room', args: { room: financeRoom, text }, sayResult: true })
     // control: the explicit ask in his own words posts with no card
-    const control = await turn('bob', `send the note to Finance\n${post('control')}`)
+    // (the text is his dictated words, so only the grant read can bring the card: docs/decisions/20261124-sends-verbatim.md)
+    const control = await turn('bob', `${post('control')}\nsend the note to Finance: control`)
     expect(control.cards).toBe(0)
-    const r = await turn('bob', `send the note to Finance\n${read}\n${post('after a grant read')}`, { answer: 'no' })
+    const r = await turn('bob', `${read}\n${post('after a grant read')}\nsend the note to Finance: after a grant read`, { answer: 'no' })
     expect(r.card!.origin).toBe('server')
     expect(r.card!.question).toContain('Finance')
   })

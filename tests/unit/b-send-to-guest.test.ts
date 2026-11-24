@@ -87,7 +87,8 @@ describe('only the person the message names', () => {
   })
 
   test('the message names the recipient (it goes: the explicit ask), or nobody (the card shows)', async () => {
-    const named = await turn(`김민지님한테도 보내줘\n${post({ room: '김민지', text: '견적서 보내요' })}`)
+    // (the text is the person's dictated words: a text the AI wrote goes on a card, docs/decisions/20261124-sends-verbatim.md)
+    const named = await turn(`${post({ room: '김민지', text: '견적서 보내요' })}\n김민지님한테도 보내줘: 견적서 보내요`)
     expect(named.content).not.toContain('Ask the user who it should go to')
     expect(named.content).toContain('"status":"sent"')
     const nobody = await turn(`이거 보내줘\n${post({ room: '김민지', text: '견적서 보내요' })}`, { answer: 'no' })
