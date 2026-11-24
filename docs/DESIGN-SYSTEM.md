@@ -10,7 +10,7 @@ The web app is React with Tailwind CSS 4. There is no `tailwind.config` file: th
 
 1. **Colour only through tokens.** Use the token utilities (`bg-canvas`, `bg-surface`, `bg-subtle`, `hover:bg-hover`, `border-line`, `border-field-border` (the edge of a text field or a bordered button), `text-ink`, `text-muted`, `text-faint`, `text-accent-text`, `bg-accent text-accent-ink`, `bg-warn-soft text-warn`, …) in markup and `var(--c-…)` in CSS. They switch with the theme by themselves, so a screen needs no `dark:` variants and no hex values. Pick text-on-background pairs from [Contrast](#contrast).
 2. **Start from the shell and the shared blocks.** Add the page as a route inside `<Route element={<Layout />}>` in `web/src/App.tsx`; the layout brings the rail and its list panel, banners, side panel and the phone's tabs. Build the page from `web/src/components/ui.tsx` (`PageHeader`, `Button`, `IconButton`, `Field` with `inputCls`, `Badge`, `Tabs`, `Switch`, `Modal` and `confirmDialog`, `EmptyState`, `ErrorNote`, `Spinner`; `LoadError` from `web/src/components/LoadError.tsx` for a list or section that could not be read; `toast` from `web/src/store/ui.ts`) and `Card` from `web/src/pages/admin/common.tsx`. Do not recolour them with `className` (see Button under [Components](#components)).
-3. **Write every string in five locales.** Add the key to `web/src/i18n/ko.ts` (the key type comes from it) and to `en.ts`, `id.ts`, `ja.ts` and `es.ts`, following [Copy and languages](#copy-and-languages), then run `bun run check:i18n`.
+3. **Write every string in six locales.** Add the key to `web/src/i18n/ko.ts` (the key type comes from it) and to `en.ts`, `id.ts`, `ja.ts`, `es.ts` and `zh.ts`, following [Copy and languages](#copy-and-languages), then run `bun run check:i18n`.
 4. **Check it** in light and dark (Settings > Profile > Theme), at the largest text size (Settings > Profile > 글자 크기, see [Typography](#typography)), below 640px and 768px wide, with the keyboard only, and against [Accessibility](#accessibility).
 
 A settings-style page (the `reports.*` keys are placeholders; add your own first):
@@ -313,7 +313,7 @@ Shared building blocks are in `web/src/components/ui.tsx`; use them rather than 
 - English in sentence case; an ellipsis character "…" for in-progress text; " · " between meta parts; no emoji, no exclamation marks.
 - Never ask for secrets in chat; free-text answers to the AI always carry "Don't give the AI passwords or verification codes."
 - The product name comes from `PRODUCT` (`{product}` in strings).
-- Five locales for every app-owned string (en, ko, id, ja, es): `web/src/i18n/*.ts` and the server's `t(ko, en, id, ja, es)` tables; `bun run check:i18n` must report 0 issues. Plurals: ICU in en, ja and es; a plain `{n}` in ko and id. Korean wraps between words (`:lang(ko) body { word-break: keep-all }`).
+- Six locales for every app-owned string (en, ko, id, ja, es, zh): `web/src/i18n/*.ts` and the server's `t(ko, en, id, ja, es, zh)` tables; `bun run check:i18n` must report 0 issues. Plurals: ICU in en, ja and es; a plain `{n}` in ko, id and zh. Korean wraps between words (`:lang(ko) body { word-break: keep-all }`).
 
 ## Accessibility
 
