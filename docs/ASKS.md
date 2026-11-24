@@ -65,10 +65,10 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
-| Screen confirm dialogs (화면 확인창) | 98 | 4 | 94 | 0 | 0 |
+| Screen confirm dialogs (화면 확인창) | 101 | 4 | 97 | 0 | 0 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
 | System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 215 | 75 | 140 | 0 | 0 |
+| **all** | 218 | 75 | 143 | 0 | 0 |
 
 ## Registry
 
@@ -264,6 +264,8 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.settings.aiApps.disconnect` | `web/src/pages/AiApps.tsx:64` | Settings › AI apps › Disconnect (phone only). | Disconnect {name}? / {name} 연결을 끊을까요? | Disconnect / Cancel | none | n/a | n/a | hidden for guests | other:mistap | OK |
 | `ui.settings.browser.allowAll` | `web/src/pages/BrowserSettings.tsx:173` | Turn on "Allow all websites" (once, unless the desktop window already showed the risk). | Allow all websites? / 모든 웹사이트를 허용할까요? (`settings.browser.confirmTitle`) | Allow all websites / Cancel | sets the person's own switch | the same screen | n/a | hidden for guests | security | OK |
 | `ui.settings.browser.clearSites` | `web/src/pages/BrowserSettings.tsx:300` | Clear all always-allowed sites of the desktop app. | Clear all always allowed sites? / 항상 허용한 사이트를 모두 지울까요? | Clear all / Cancel | n/a (removes Always) | n/a | n/a | hidden for guests | other:revoke | OK |
+| `ui.settings.google.connect` | `web/src/components/settings/GoogleAccount.tsx:90` | Settings › Security & devices › Connect Google: password again (or a Google check without a password), then Google's own account page. | Connect a Google account / Google 계정 연결 (`settings.google.connectTitle`) | Connect / Cancel | none | n/a | n/a | same | security | OK |
+| `ui.settings.google.disconnect` | `web/src/components/settings/GoogleAccount.tsx:79` | Settings › Security & devices › Disconnect Google (only with a password set). | Disconnect Google? / Google 연결을 끊을까요? (`settings.google.disconnectTitle`) | Disconnect / Cancel | none | n/a | n/a | same | security | OK |
 | `ui.settings.security.signOutDevice` | `web/src/pages/Settings.tsx:655` | Sign out another device (phone only). | Sign out on {device}? / {device}에서 로그아웃할까요? | Sign out / Cancel | none | n/a | n/a | same | other:mistap | OK |
 | `ui.settings.memory.clear` | `web/src/pages/Settings.tsx:827` | Settings › Memory › Forget everything. | Forget everything? / 메모리를 모두 지울까요? | Forget everything / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
 | `ui.settings.memory.forget` | `web/src/pages/Settings.tsx:872` | Forget one memory (phone only). | Forget this memory? / 이 메모리를 잊게 할까요? | Forget / Cancel | none | n/a | n/a | hidden for guests | irreversible | OK |
@@ -279,6 +281,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.admin.originKept` | `web/src/pages/admin/originKept.tsx:32` | A group change where people keep folder access by name: the save goes with a notice; its Show opens this list (view, with Remove now). | Some people keep access by name / 이름으로 추가된 사람은 계속 열 수 있습니다 | Save / Cancel | none | n/a | n/a | admin only | other:info | OK |
 | `ui.admin.members.revokeTeamLink` | `web/src/pages/admin/Members.tsx:153` | Turn off the team invite link. | Turn off the invite link? / 초대 링크를 끌까요? | Turn link off / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.members.resetLink` | `web/src/pages/admin/Members.tsx:183` | Create a password reset link for a member. | Create a password reset link for {name}? | Create link / Cancel | none | n/a | n/a | admin only | security | OK |
+| `ui.admin.members.googleDisconnect` | `web/src/pages/admin/Members.tsx:192` | An admin disconnects a member's Google sign-in. | Disconnect {name}'s Google account? / {name}님의 Google 연결을 끊을까요? (`members.googleDisconnectTitle`) | Disconnect / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.members.disable` | `web/src/pages/admin/Members.tsx:191` | Disable an active member. | Disable {name}? / {name}님을 비활성화할까요? | Disable / Cancel | none | n/a | n/a | admin only | security | OK |
 | `ui.admin.members.remove` | `web/src/pages/admin/Members.tsx:218` | The owner removes a member. | Remove {name}? / {name}님을 삭제할까요? | Delete / Cancel | none | n/a | n/a | admin only | irreversible | OK |
 | `ui.admin.members.removeReauth` | `web/src/pages/admin/Members.tsx:641` | An admin removes a member: password again. | Remove {name}? + password | Delete / Cancel | none | n/a | n/a | admin only | irreversible, security | OK |
@@ -520,6 +523,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/settings/AccountDeletion.tsx` | 2 | `ui.settings.accountDelete` |
 | `web/src/components/settings/DevEnvSites.tsx` | 2 | `ui.devEnv.siteRemove`, `ui.devEnv.fullInternet` |
 | `web/src/components/settings/DriveConnection.tsx` | 2 | `ui.drive.disconnect` |
+| `web/src/components/settings/GoogleAccount.tsx` | 2 | `ui.settings.google.connect`, `ui.settings.google.disconnect` |
 | `web/src/components/settings/PushNotifications.tsx` | 1 | `ui.push.offEverywhere` |
 | `web/src/components/settings/SlackAccount.tsx` | 1 | `ui.slack.unlink` |
 | `web/src/components/ui.tsx` | 3 | `definition` |
@@ -539,8 +543,8 @@ lines than the row fails the test; fewer passes.
 | `web/src/pages/admin/FolderSharing.tsx` | 4 | `ui.admin.folderSharing.discard`, `ui.admin.folderSharing.save` |
 | `web/src/pages/admin/Groups.tsx` | 1 | `ui.admin.groups.delete` |
 | `web/src/pages/admin/Guests.tsx` | 1 | `ui.admin.guests.remove` |
-| `web/src/pages/admin/Members.tsx` | 5 | `ui.admin.members.revokeTeamLink`, `ui.admin.members.resetLink`, `ui.admin.members.disable`, `ui.admin.members.remove`, `ui.admin.members.removeReauth` |
-| `web/src/pages/admin/OfficeUpdate.tsx` | 1 | `ui.admin.officeUpdate` |
+| `web/src/pages/admin/Members.tsx` | 6 | `ui.admin.members.revokeTeamLink`, `ui.admin.members.resetLink`, `ui.admin.members.googleDisconnect`, `ui.admin.members.disable`, `ui.admin.members.remove`, `ui.admin.members.removeReauth` |
+| `web/src/pages/admin/OfficeUpdate.tsx` | 2 | `ui.admin.officeUpdate` |
 | `web/src/pages/admin/OldProjectsCard.tsx` | 1 | `ui.admin.home.oldProjects.join` |
 | `web/src/pages/admin/Plugins.tsx` | 1 | `ui.admin.plugins.remove` |
 | `web/src/pages/admin/SkillManagers.tsx` | 1 | `ui.admin.skillManagers.remove` |
