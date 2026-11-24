@@ -177,6 +177,8 @@ export const TEXT = {
   // review of #355): the AI tells the person, the creator too, that their own team file did not change
   copyPathMapped: t('이 경로는 이 채팅의 사본이에요. 원본 파일은 그대로예요.', 'This path is this chat\'s copy. The original file is unchanged.', 'Jalur ini adalah salinan di chat ini. File aslinya tidak berubah.', 'このパスはこのチャットのコピーです。元のファイルはそのままです。', 'Esta ruta es la copia de este chat. El archivo original no cambia.', '此路径是此聊天中的副本。原文件保持不变。'),
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
+  /** the desktop browser reached a page that shows a key (chat/browser-keys.ts): the AI hands over with this sentence */
+  browserKeyHandOver: t('여기서부터는 직접 해 주세요. 키를 복사해서 연결 카드에 붙여 넣으면 돼요.', 'Please take it from here. Copy the key and paste it into the connection card.', 'Silakan lanjutkan sendiri dari sini. Salin kuncinya, lalu tempel di kartu koneksi.', 'ここからはご自身で操作してください。キーをコピーして、接続カードに貼り付けてください。', 'A partir de aquí, siga usted. Copie la clave y péguela en la tarjeta de conexión.', '接下来请你自己操作。把密钥复制下来，粘贴到连接卡片里就行。'),
   /** the wider-audience card (docs/decisions/20261122-widening-card-wording.md; before: 20261117-save-card-plain.md):
    * the question first, with the place as a short name ({file}: the file's name, {area}: its project, group, "My
    * files", someone's folder or a top folder; the full place shows on hover, `placeTip`) and how many people can see it

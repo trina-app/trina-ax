@@ -34,6 +34,7 @@
     "./release-manifest": "./src/release-manifest.ts",
     "./sentry-report": "./src/sentry-report.ts",
     "./speech-pieces": "./src/speech-pieces.ts",
-    "./places": "./src/places.ts"
+    "./places": "./src/places.ts",
+    "./page-keys": "./src/page-keys.ts"
   }
 }
