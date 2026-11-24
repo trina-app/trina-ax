@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { INTEGRATION_TOOLS_MAX } from '@mycel/shared/api'
 import { hideDeep } from './hide'
 import { NetError, serviceRequest, type NetOptions, type NetRequest, type NetResponse } from './net'
+import { refusalOf, type Refusal } from './refusal'
 
 export const MCP_PROTOCOL = '2025-06-18'
 /** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
@@ -55,8 +56,9 @@ const MAX_DESCRIPTION = 1000
 export class McpError extends Error {
   name = 'McpError'
   /** unauthorized: 401 (wwwAuthenticate: its header); forbidden: 403; session_gone: 404 for our session; rpc: a
-   * JSON-RPC error (message: the server's, cut); not_mcp: an answer that is not MCP */
-  constructor(readonly code: 'unauthorized' | 'forbidden' | 'session_gone' | 'rpc' | 'not_mcp' | 'http', readonly status = 0, readonly detail = '') { super(code) }
+   * JSON-RPC error (message: the server's, cut); not_mcp: an answer that is not MCP. `refusal`: a 401's or 403's OAuth
+   * error code and the service's words, sanitized (refusal.ts) */
+  constructor(readonly code: 'unauthorized' | 'forbidden' | 'session_gone' | 'rpc' | 'not_mcp' | 'http', readonly status = 0, readonly detail = '', readonly refusal: Refusal = { error: '', said: '' }) { super(code) }
 }
 
 export interface RemoteTool { name: string; title: string | null; description: string; readOnly: boolean; inputSchema: Record<string, unknown>
@@ -122,8 +124,8 @@ export class McpClient {
     const res = this.send ? await this.send(this.url, req) : await serviceRequest(this.url, req, this.net)
     this.usedAt = Date.now()
     if (read) read.bytes += res.body.length
-    if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '')
-    if (res.status === 403) throw new McpError('forbidden', 403)
+    if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '', refusalOf(res, this.hider()))
+    if (res.status === 403) throw new McpError('forbidden', 403, res.headers['www-authenticate'] ?? '', refusalOf(res, this.hider()))
     if (res.status === 404 && this.sessionId) throw new McpError('session_gone', 404)
     if (res.status >= 300 && res.status < 400) throw new NetError('redirect', res.status)
     if (res.status < 200 || res.status >= 300) throw new McpError('http', res.status)

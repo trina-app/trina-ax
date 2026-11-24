@@ -101,6 +101,12 @@ test('the one next step fits the reader and the reason; a reason the page does n
   expect(line('oauth_no_registration', 'oauth', {})).toBe('Server words.')
   expect(line('oauth_failed', 'oauth', {})).toBe(say('key', 'signIn'))
   expect(line(null, 'bearer', {})).toBe('Server words.')
+  // a 403 insufficient_scope: sign in again and allow the access; any other 403 (no_access): the server's words, which
+  // carry what the service said and that its owner turns it on (signing in again cannot fix it)
+  expect(line('scope', 'oauth', {})).toBe(say('scope', 'signInAllow'))
+  expect(line('scope', 'bearer', {})).toBe(say('scope', 'editKey'))
+  expect(line('scope', 'oauth', { manage: false })).toBe(say('scope', 'askAdmin'))
+  expect(line('no_access', 'oauth', {})).toBe('Server words.')
   // QA TC-3859: a sign-in stopped before it finished (no sign-in saved) is not "the service didn't accept its sign-in";
   // one the service stopped taking (a sign-in is saved) still is
   const waiting = (who: Partial<Parameters<typeof errorLine>[2]>) =>
