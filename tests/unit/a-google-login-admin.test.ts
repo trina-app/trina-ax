@@ -156,16 +156,21 @@ describe('Sign in with Google: the team side', () => {
     expect((await del(admin.client, m.id)).status).toBe(204)
     expect((await del(owner, admin.id)).status).toBe(204)
     expect(h.ctx.db.query('SELECT 1 FROM login_identities WHERE user_id IN (?, ?)').get(m.id, admin.id)).toBeNull()
-    expect((await admin.client.call('GET', '/api/admin/users')).google).not.toContain(m.id)
+    // their sessions ended: one made with that Google account must not outlive it
+    expect((await m.client.try('GET', '/api/me')).status).toBe(401)
+    expect((await admin.client.try('GET', '/api/me')).status).toBe(401)
+    expect((await owner.call('GET', '/api/admin/users')).google).not.toContain(m.id)
+    // the owners and admins are told, and the person (never the Google account)
+    const told = h.ctx.db.query("SELECT user_id, subject FROM credential_change_notices WHERE action = 'signin_google_disconnected'").all() as { user_id: string; subject: string }[]
+    expect(told.map((r) => r.user_id)).toEqual(expect.arrayContaining(['olga', m.id, other.id]))
+    expect(JSON.stringify(told)).not.toContain('acme.test')
     // audited with who did it to whom, never the Google account
     const rows = h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'user.google_disconnected' ORDER BY rowid").all() as { actor_id: string; target: string; detail: string | null }[]
     expect(rows.map((r) => [r.actor_id, r.target])).toEqual([[admin.id, m.id], ['olga', admin.id]])
     expect(JSON.stringify(rows)).not.toContain('acme.test')
     // again: nothing to remove, nothing audited
-    expect((await del(admin.client, m.id)).status).toBe(204)
+    expect((await del(owner, m.id)).status).toBe(204)
     expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'user.google_disconnected'").get() as { n: number }).n).toBe(2)
-    // their session stays: the disconnect only takes Google away
-    expect((await m.client.try('GET', '/api/me')).status).toBe(200)
   })
 
   test("login_hint: the person's own Google Drive picks the Google account they sign in with", async () => {

@@ -15,7 +15,7 @@ import type { Database } from 'bun:sqlite'
 import { holdsKey, redactorFor } from '../integrations/connections/redact'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
-import { PUSH_FILE_WORDS } from './text'
+import { PUSH_FILE_WORDS, SHARED_CHAT } from './text'
 
 /** The longest line sent (a phone shows two to four lines of it). */
 export const PUSH_PREVIEW_MAX = 200
@@ -58,16 +58,31 @@ export const activeName = (db: Database, id: string) => {
   const u = db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id) as { name: string } | null
   return u ? plainLabel(u.name, 80) : null
 }
-/** Where a chat is, as a notification's title says it (also with the preview off, as a room's name is): its title (its
- * creator's stored connection secrets hidden, as the Inbox does), else its project's name; '' when it has neither. A
- * title made from a message can hold a secret: such a title is left out (unsafeForPush, as the line). */
-export function chatPlace(ctx: AppContext, chatId: string, reader: string): string {
+/** Where a chat is, as a notification's title says it: its title (its creator's stored connection secrets hidden, as
+ * the Inbox does), else its project's name, else the generic "Shared chat". The title only while the reader's preview
+ * is on and only when it is not message text: a chat is named after its first message until a title is made for it,
+ * so a title that equals, or starts or is the start of, the text of a message in the chat would repeat the message
+ * (owner's check 2026-11-24). A title that looks like a secret is left out too (unsafeForPush, as the line). */
+export function chatPlace(ctx: AppContext, chatId: string, reader: string, o: { preview: boolean; locale: Locale }): string {
   const c = ctx.db.query('SELECT c.user_id, c.title, p.name project FROM chats c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = ?').get(chatId) as { user_id: string; title: string; project: string | null } | null
-  if (!c) return ''
-  const title = plainLabel(redactorFor(ctx, c.user_id).hide(c.title || ''), 80)
-  if (title && !unsafeForPush(ctx, title, c.user_id, reader)) return title
+  const generic = SHARED_CHAT[o.locale]
+  if (!c) return generic
+  const title = o.preview ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || ''), 80) : ''
+  if (title && !unsafeForPush(ctx, title, c.user_id, reader) && !titleIsMessage(ctx, chatId, title)) return title
   const project = plainLabel(c.project ?? '', 80)
-  return project && !unsafeForPush(ctx, project, null, reader) ? project : ''
+  return project && !unsafeForPush(ctx, project, null, reader) ? project : generic
+}
+/** How many of a chat's first messages a title is compared with (a title is made from the first one or two). */
+const TITLE_MESSAGES = 20
+/** Is this title the text of one of the chat's first messages (equal, or one starts the other; "…" of a cut ignored)? */
+export function titleIsMessage(ctx: AppContext, chatId: string, title: string): boolean {
+  const t = title.replace(/…$/, '').trim().toLowerCase()
+  if (!t) return false
+  const rows = ctx.db.query(`SELECT content FROM messages WHERE chat_id = ? ORDER BY created_at, id LIMIT ${TITLE_MESSAGES}`).all(chatId) as { content: string }[]
+  return rows.some((r) => {
+    const m = previewOf(r.content, 100_000).toLowerCase()
+    return !!m && (m === t || m.startsWith(t) || t.startsWith(m))
+  })
 }
 /** A chat message's files for its push line: pictures, and a name only for a file kept with the chat (never a team
  * folder file's: each person sees those by their own access). */

@@ -204,8 +204,8 @@ describe('Sign in with Google', () => {
     expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE action = 'auth.google_disconnected' AND actor_id = ?").get(m.id)).toBeTruthy()
   })
 
-  test('the Drive callback still answers Drive for a state that is not a sign-in', async () => {
-    const res = await back('B'.repeat(43), '')
+  test('the Drive callback still answers Drive for a state that is not a sign-in (a signed-in browser without a sign-in cookie)', async () => {
+    const res = await back('B'.repeat(43), owner.cookie!)
     expect(res.status).not.toBe(302)
     expect(res.headers.get('content-type')).toContain('text/html')
   })

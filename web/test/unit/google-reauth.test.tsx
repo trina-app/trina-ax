@@ -55,8 +55,8 @@ afterAll(() => {
   useLocaleStore.setState({ locale })
 })
 
-const dialog = (sent: ReauthProof[], o: { recentSignIn?: boolean } = {}) => (
-  <ReauthDialog title="t" body="b" confirm="go" recentSignIn={o.recentSignIn} onClose={() => {}} onConfirm={async (p) => { sent.push(p) }} />
+const dialog = (sent: ReauthProof[]) => (
+  <ReauthDialog title="t" body="b" confirm="go" onClose={() => {}} onConfirm={async (p) => { sent.push(p) }} />
 )
 
 describe('the re-check dialog', () => {
@@ -105,7 +105,7 @@ describe('the re-check dialog', () => {
     } finally { await m.unmount() }
   })
 
-  test('in the desktop app: a browser is needed, except where a recent sign-in stands for it', async () => {
+  test('in the desktop app: a browser is needed, one\'s own account deletion too (no recent-sign-in shortcut)', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: me(false) } })
     ;(globalThis as Record<string, unknown>).mycelDesktop = { bridgeVersion: 1 }
     const sent: ReauthProof[] = []
@@ -114,14 +114,7 @@ describe('the re-check dialog', () => {
       expect(m.get('reauth-google').textContent).toContain(ko('reauth.google.inBrowser'))
       expect(m.get('reauth-confirm').getAttribute('disabled')).not.toBeNull()
     } finally { await m.unmount() }
-    const r = await mount(dialog(sent, { recentSignIn: true }))
-    try {
-      expect(r.get('reauth-google').textContent).toContain(ko('reauth.google.recent'))
-      await r.click('reauth-confirm')
-      await r.until(() => sent.length, 'the request')
-      expect(sent).toEqual([{}])
-      expect(win.opened.length).toBe(0)
-    } finally { await r.unmount() }
+    expect(sent).toEqual([])
   })
 })
 

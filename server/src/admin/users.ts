@@ -33,7 +33,7 @@ import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { cancelDeletion, closeDeletionRequest } from '../auth/deletion-requests'
-import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { notificationsOf, notifySignInChange, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 import { recordJoin } from '../onboarding/member-welcome'
 import { noteRemovedSignIns, runAccountCleanups } from '../auth/account-removal'
 import { purgePrivateChatsOf } from '../auth/sweeper'
@@ -548,7 +548,7 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
   const nowMs = authOf(ctx).now()
   const now = new Date(nowMs).toISOString()
   const expiresAt = tempPasswordExpiry(nowMs)
-  ctx.db.transaction(() => {
+  const googleGone = ctx.db.transaction(() => {
     // read again after the (slow) hash: a target who became the owner or an admin meanwhile (a transfer committing now),
     // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
     guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
@@ -559,8 +559,11 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
     revokeResetLinksFor(ctx.db, id, nowMs)
     const google = forgetLoginIdentities(ctx.db, id) > 0
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id, ...(google ? { detail: { googleDisconnected: true } } : {}) })
+    return google
   }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
+  // every change to how someone signs in with Google is told to the owners and admins
+  if (googleGone) notifySignInChange(ctx, id, auth.user.id, 'signin_google_disconnected')
   authOf(ctx).limiter.clearAccount(target.username)
   return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
 }
@@ -568,19 +571,26 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
 /** DELETE /api/admin/users/:id/google (Sign in with Google, docs/AGENTS/plan/20261122-0616-google-login-admin.md): the
  * person's Google account no longer signs them in. The rules of the other actions on people (guard): never the owner or
  * yourself (your own is in Settings › Security & devices), only the owner acts on admins; checked again inside the
- * write. Their sessions stay (a reset ends them, and disconnects Google too). Audited without the Google account or its
+ * write. Their sessions end (one made with that Google account must not outlive it); the person, the owners and the
+ * admins are told (Activity). Audited without the Google account or its
  * address; nothing removed, nothing audited. Refused (409) for a person without a password: Google is their only way
  * in, and an admin must not leave anyone without one. The way out is a temporary password, which disconnects Google too
  * (docs/decisions/20261122-google-reauth.md). */
 export function disconnectUserGoogle(c: Context<AppEnv>, ctx: AppContext, id: string): void {
   const auth = c.get('auth')!
   guard(c, liveUser(ctx, id))
-  ctx.db.transaction(() => {
+  const gone = ctx.db.transaction(() => {
     const target = liveUser(ctx, id)
     guard(c, target, { actor: actorNow(ctx, auth.user.id) })
     if (!target.password_hash) fail('conflict', msg('googleOnlyMember', c.get('locale')), { params: { reason: 'no_password' } })
-    if (forgetLoginIdentities(ctx.db, id)) audit(ctx.db, { actor: auth.user.id, action: 'user.google_disconnected', target: id })
+    if (!forgetLoginIdentities(ctx.db, id)) return false
+    audit(ctx.db, { actor: auth.user.id, action: 'user.google_disconnected', target: id })
+    return true
   }).immediate()
+  if (!gone) return
+  // a session made with that Google account must not outlive it
+  authOf(ctx).endUserSessions(id, 'revoked')
+  notifySignInChange(ctx, id, auth.user.id, 'signin_google_disconnected', { alsoTarget: true })
 }
 
 /** Guard for reset links (the link itself is made in auth/accounts.ts). */
