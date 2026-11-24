@@ -169,13 +169,19 @@ describe('the waking page shows that it is working', () => {
     }
     let tick: (() => void) | null = null
     let reloads = 0
-    new Function('document', 'sessionStorage', 'setInterval', 'location', code)(
+    const cleared: unknown[] = []
+    const win: { mycelWakeReload?: unknown } = { mycelWakeReload: 'reload-timer' }
+    new Function('document', 'sessionStorage', 'setInterval', 'clearInterval', 'clearTimeout', 'window', 'location', code)(
       { getElementById: (id: string) => els[id] ?? null },
       { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: unknown) => { store[k] = String(v) }, removeItem: (k: string) => { delete store[k] } },
-      (f: () => void) => { tick = f },
+      (f: () => void) => { tick = f; return 'tick-timer' },
+      (id: unknown) => { cleared.push(id); if (id === 'tick-timer') tick = null },
+      (id: unknown) => { cleared.push(id) },
+      win,
       { reload: () => { reloads++ } },
     )
-    return { h, els, store, tick: () => tick!(), reloads: () => reloads }
+    // a stopped timer never fires again; tick() then does nothing, like a browser
+    return { h, els, store, tick: () => tick?.(), stopped: () => tick === null, cleared, reloads: () => reloads }
   }
   test('the inline script runs: counts from the first load, keeps counting over reloads, starts over after 10 minutes or a gap', () => {
     let now = 1_000_000
@@ -229,6 +235,29 @@ describe('the waking page shows that it is working', () => {
       expect(p.store.mycelWakeSince).toBeUndefined()
     } finally { Date.now = realNow }
   })
+  test('Try again stops the old page first: its timer cannot write the old start back while the relay holds the reload (TC-8973)', () => {
+    let now = 3_000_000
+    const realNow = Date.now
+    Date.now = () => now
+    try {
+      const p = runPage()
+      now += 196_000
+      p.tick()
+      expect(p.els.w!.textContent).toBe('Waiting: 196 s')
+      p.els.wr!.onclick!()
+      // the 1-second timer and the #fragment reload timer are stopped before the start time is forgotten
+      expect(p.cleared).toEqual(['tick-timer', 'reload-timer'])
+      expect(p.stopped()).toBe(true)
+      expect(p.reloads()).toBe(1)
+      // the relay holds the next load ~2.5 s; the old page stays and its timer would have fired twice
+      now += 2_500
+      p.tick()
+      p.tick()
+      expect(p.store.mycelWakeSince).toBeUndefined()
+      // the new page counts from 0, not on from 196 s (QA saw 210 s)
+      expect(runPage('en', p.store).els.w!.textContent).toBe('Waiting: 0 s')
+    } finally { Date.now = realNow }
+  })
 })
 
 describe('a page with a #fragment reloads too (the setup link /setup#token=…)', () => {
@@ -238,7 +267,7 @@ describe('a page with a #fragment reloads too (the setup link /setup#token=…)'
   const run = (code: string, hash: string) => {
     const timers: number[] = []
     let reloads = 0
-    new Function('location', 'setTimeout', code)({ hash, reload: () => { reloads++ } }, (f: () => void, ms: number) => { timers.push(ms); f() })
+    new Function('location', 'setTimeout', 'window', code)({ hash, reload: () => { reloads++ } }, (f: () => void, ms: number) => { timers.push(ms); f() }, {})
     return { timers, reloads }
   }
   test('the waking and the no-room page reload a fragment address after their own refresh time; without one the meta tag does it', () => {

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 18:30
 - Branch: `fix/relay-wake-retry-timer`
-- Status: in progress
+- Status: done
 - Where: relay/src/pages.ts. Why: the relay serves the team "waking" page and its inline script (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (relay): a bug fix in a page script, no new feature
 
@@ -30,4 +30,6 @@ None.
 
 ## Result
 
-(filled in at the end)
+Try again now calls clearInterval and clearTimeout(window.mycelWakeReload) before it removes `mycelWakeSince` and
+reloads. New unit test ticks the old page's timer after the click and checks the next page shows 0 s; it fails on the
+old script. f2-relay-wake and tests/relay/f-sleep pass.
