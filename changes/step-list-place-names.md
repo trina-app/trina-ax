@@ -1,1 +1,0 @@
-- A step line that saved a file ("작업 결과 저장 · … → …") now names the folder the way the file screen does ("내 파일 › 보고서") instead of showing `users/<id>/…`, in every language.
