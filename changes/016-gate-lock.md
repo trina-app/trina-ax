@@ -1,1 +1,0 @@
-- A card that appears just as you press a grouped card is no longer approved by that press. It stays open with its own question.

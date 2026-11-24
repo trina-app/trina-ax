@@ -1,1 +1,0 @@
-- Free-roam demo: the AI can use only tools on an approved list, so a tool added later stays closed until it is approved. Sharing an answer to a room no longer starts a video render there.

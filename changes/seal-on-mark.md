@@ -1,2 +1,0 @@
-- A signature or seal in a Word or Hangul file now lands on the printed mark such as (인) or (서명 또는 인), even when the AI names the whole line. When a line has marks for two people, it asks which one.
-- When a Hangul seal cannot be placed reliably, nothing is saved and the AI says why. The result now says what was checked and what was not.
