@@ -31,25 +31,33 @@ In:
    server stores `push_subscriptions.sync_ok = 2` (no migration: the column is an integer; 0 none, 1 takes syncs, 2 an
    iPhone that also takes notices off its list).
 4. Server (`push-service.ts` `syncPhones`, `push-native.ts`):
-   - An iPhone with `sync_ok = 2`: a sync goes when the set of its read notices changed (as Android, whole set, newest
-     first, as many as fit) or its number went down (as today). It carries the ids and, only when lower than the number
-     last sent, `badge`. TTL stays 0 (now or never: Apple keeps one notification per app for an offline phone and a
-     sync must never take a real alert's place). A sync lost while offline is made good by the next read (whole set).
+   - `sync_ok = 2` only for `platform: 'ios'` with `clear: true`; Android's check becomes `sync_ok < 1`. When a
+     device's `sync_ok` changes at registration its recorded set (`digest`) is cleared, so an iPhone that updates the
+     app gets the notices already read on its next sync.
+   - An iPhone with `sync_ok = 2`: a sync goes when the set of its read notices changed (as Android: whole set, newest
+     first, as many as fit next to the token: `(3000 - token length) / 103`, at most 40) or its number went down (as
+     today). It carries the ids and `badge` only when the number is lower than the one last recorded; the number is
+     written back only when it was sent. The race guard (a real push since the round began) stays for every iPhone sync.
+     TTL stays 0 (now or never: Apple keeps one notification per app for an offline phone and a sync must never take a
+     real alert's place).
    - Any other iPhone (`sync_ok` 0/1, apps up to 1.0.13): exactly as today (number only, only when it went down).
    - Transport: an iPhone sync with ids that an older gateway refuses (400 `invalid_body`) goes again at once without
-     `clear` (the number alone, as today) and that gateway gets no iPhone ids for an hour (like `badge`/`label`). If
-     there is no number to send, nothing goes and the transport answers 204 (the server remembers the set so it does
-     not try again every 30 s and use up the day's 100). Android is unchanged.
+     `clear` (the number alone, as today) and that gateway gets no iPhone ids for an hour (`noIosClear`, per address;
+     it never turns Android syncs off). Only when the retry without `clear` is refused too does the gateway get no
+     syncs for an hour (as today). With no number to send, nothing goes: the transport answers `SYNC_UNSUPPORTED` and
+     `syncPhones` records the set and the read mark without counting it in the day's 100 or starting the 30 s gap.
 5. iPhone app:
    - `UIBackgroundModes: remote-notification` (expo-notifications `enableBackgroundRemoteNotifications`), so iOS wakes
      the closed (not force-quit) app for a `content-available` push.
    - A native handler (new Expo module `mobile/modules/push-sync`, iOS only, an `ExpoAppDelegateSubscriber` for
      `didReceiveRemoteNotification`): for `body.code == "phone.sync"` it reads `body.clear`, asks
-     `UNUserNotificationCenter` for the delivered notifications and removes those whose request identifier (the
-     `apns-collapse-id` = the notice id) or `userInfo.body.notificationId` is listed. Never shows anything, never touches
-     the badge (iOS applies `aps.badge` itself), calls the completion handler at once. No JS start-up in the background.
-     It runs the same way while the app is open (iOS calls the same delegate in the foreground), which fixes the
-     "open app keeps the list" case.
+     `UNUserNotificationCenter` for the delivered notifications and removes those whose `userInfo.body.notificationId`
+     is listed (main match; the request identifier, which iOS sets from `apns-collapse-id` for ids up to 64 characters,
+     as a fallback). It calls the completion handler only after the removal (inside the callback), never shows
+     anything, never touches the badge (iOS applies `aps.badge` itself while closed; in the foreground the page sets
+     its own count, `shouldSetBadge: false` as today). No JS start-up and no network in the background. It runs the
+     same way while the app is open (iOS calls the same delegate in the foreground), which fixes the "open app keeps
+     the list" case.
    - The app offers `push-clear-v1` only on iOS when that module is in the build.
 6. Docs and notes: contract comments, `push-gateway/README.md`, `changes/iphone-clear-read-notifications.md`, QA rows.
 
@@ -60,6 +68,18 @@ Out:
   and the list clears on the next sync after the person opens the app again. Opening the app does not clear by itself
   (dropped in the earlier review: stale counts).
 - A store build and the gateway redeploy (release steps below).
+
+## Review
+
+Independent plan review (fresh agent, 2026-11-24), all MUST items taken: an old gateway's refusal of iPhone ids no
+longer stops Android syncs (`noIosClear` per address, `noSync` only when the retry is refused too); an iPhone sync that
+only clears ids goes even when the number did not drop, and the number is recorded only when sent; the iOS completion
+handler is called after the removal; "nothing to send" is `SYNC_UNSUPPORTED` and costs no budget; the iPhone id cap is
+the Android one. SHOULD items taken: match on `body.notificationId` first, reset the set when `sync_ok` changes,
+`sync_ok = 2` only for iOS, the throttling risk, the doc places (contract "Sync", `apns.ts`, `push-native.ts`,
+`syncPhones`, `push-gateway/README.md`, `PushDeviceInput`), the extra tests. NIT not taken: checking `body.device`
+against the registered device in the native handler (the id lives in the JS side's store; notice ids are unique, so a
+sync of a previous team removes nothing of this one).
 
 ## Steps
 
@@ -88,8 +108,9 @@ None new; extends plan 20261123-0705-phone-badge-sync ("Out (later)": iPhone rem
 
 ## Risks
 
-- Background pushes are throttled by iOS (Low Power Mode, many pushes): best effort, as Android's NORMAL priority.
-  At most one sync per phone per 30 s and 100 a day (unchanged).
+- Background pushes are throttled by iOS (a few wakes an hour, fewer in Low Power Mode) while APNs still answers 200:
+  best effort. A dropped or throttled sync is made good only by the next change to the set (the whole set goes again),
+  not by any later read. At most one sync per phone per 30 s and 100 a day (unchanged).
 - Privacy: ids only, as every push already carries a notice id. No text.
 - Battery: the handler does no network and no JS; it finishes in milliseconds.
 - App Review: the background mode is used for its purpose (silent pushes).

@@ -653,10 +653,14 @@ describe('push gateway: FCM badge', () => {
 describe('push gateway: sync', () => {
   const sync = (o: Record<string, unknown> = {}) => body({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, ...o })
   const androidSync = (o: Record<string, unknown> = {}) => android({ notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, ...o })
-  test('the contract: only with its own code, never with a path or a label; a number only for an iPhone, ids only for Android', () => {
+  test('the contract: only with its own code, never with a path or a label; a number only for an iPhone, ids for both', () => {
     const ok = JSON.parse(sync({ badge: 3 }))
     expect(parsePushGatewaySend(ok)).toMatchObject({ sync: true, badge: 3 })
-    for (const bad of [{ sync: false }, { sync: 'yes' }, { code: 'room.dm' }, { path: '/rooms/a' }, { clear: ['n1'] }]) expect(parsePushGatewaySend({ ...ok, ...bad })).toBeNull()
+    for (const bad of [{ sync: false }, { sync: 'yes' }, { code: 'room.dm' }, { path: '/rooms/a' }]) expect(parsePushGatewaySend({ ...ok, ...bad })).toBeNull()
+    // an iPhone sync may list the read notice ids (push-clear-v1), with or without a number; never with a path or label
+    expect(parsePushGatewaySend({ ...ok, clear: ['n1', 'n2'] })).toMatchObject({ platform: 'ios', sync: true, badge: 3, clear: ['n1', 'n2'] })
+    expect(parsePushGatewaySend(JSON.parse(sync({ clear: ['n1'] })))).toMatchObject({ platform: 'ios', clear: ['n1'] })
+    for (const bad of [{ path: '/rooms/a' }, { label: true }, { clear: 'n1' }, { clear: ['bad id'] }, { clear: Array.from({ length: 41 }, (_, i) => `n${i}`) }]) expect(parsePushGatewaySend({ ...ok, clear: ['n1'], ...bad })).toBeNull()
     // its code without sync, or ids without sync: refused (it would show the fallback line)
     const plain = JSON.parse(body())
     expect(parsePushGatewaySend({ ...plain, code: PUSH_SYNC_CODE })).toBeNull()
@@ -678,6 +682,23 @@ describe('push gateway: sync', () => {
     // expiry 0 even when the request asked for a day: a sync never waits at Apple in a real alert's place
     expect(a!.headers.get('apns-expiration')).toBe('0')
     expect(JSON.parse(b!.body).aps).toEqual({ 'content-available': 1 })
+    expect(b!.headers.get('apns-push-type')).toBe('background')
+  })
+
+  test('APNs: an iPhone sync with ids puts them in body.clear ("id,id"), still silent; ids alone go as a background push', async () => {
+    const h = harness()
+    await expectOk(await h.send(sync({ badge: 1, tag: 'dev-1', clear: ['n1', 'n2'] })))
+    await expectOk(await h.send(sync({ notificationId: 's2', clear: ['n3'] })))
+    const [a, b] = h.apnsCalls()
+    expect(JSON.parse(a!.body)).toEqual({ aps: { badge: 1, 'content-available': 1 }, body: { notificationId: 's1', code: PUSH_SYNC_CODE, device: 'dev-1', clear: 'n1,n2' } })
+    expect(a!.headers.get('apns-push-type')).toBe('alert')
+    expect(JSON.parse(b!.body)).toEqual({ aps: { 'content-available': 1 }, body: { notificationId: 's2', code: PUSH_SYNC_CODE, clear: 'n3' } })
+    for (const c of [a!, b!]) {
+      expect(c.headers.get('apns-priority')).toBe('5')
+      expect(c.headers.get('apns-expiration')).toBe('0')
+      expect(c.headers.get('apns-collapse-id')).toBe('phone.sync')
+      expect(c.body).not.toMatch(/alert|sound|mutable/)
+    }
     expect(b!.headers.get('apns-push-type')).toBe('background')
   })
 
@@ -703,6 +724,11 @@ describe('push gateway: sync', () => {
     await expectError(await h.send(android({ token: 'A'.repeat(3000), notificationId: 's1', code: PUSH_SYNC_CODE, sync: true, clear: ids })), 'body_too_large')
     expect(h.calls).toEqual([])
     expect(providerBytes(JSON.parse(androidSync({ clear: ['n1'] })), { title: 't', body: 'b' })).toBeLessThan(PROVIDER_MAX_BYTES)
+    // an iPhone's ids count in the APNs payload: as many as the team server sends next to a 200-character token fit
+    const fit = Math.min(40, Math.floor((3000 - 200) / 103))
+    const iosMsg = JSON.parse(sync({ token: 'a'.repeat(200), badge: 9999, tag: 'd'.repeat(100), notificationId: 'i'.repeat(100), clear: ids.slice(0, fit) }))
+    expect(providerBytes(iosMsg, { title: 't', body: 'b' })).toBeLessThan(PROVIDER_MAX_BYTES)
+    expect(providerBytes(iosMsg, { title: 't', body: 'b' })).toBeGreaterThan(providerBytes({ ...iosMsg, clear: undefined }, { title: 't', body: 'b' }) + 2000)
   })
 })
 

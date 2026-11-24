@@ -8,7 +8,7 @@ import { clearLocalData } from '../../src/lib/localData'
 import { initAppNav, resetAppNavForTest } from '../../src/lib/appNav'
 import { OVERLAY_ENTRY_EVENT } from '../../src/lib/backCloses'
 import { HISTORY_STEPS_EVENT } from '../../src/lib/historySteps'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, PUSH_SYNC_CAPABILITY } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_SHARE_TEXT, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -624,6 +624,25 @@ test('push-label-v1: the page registers the hash of the app\'s label key with th
     setMobilePushSession('user:labels-5')
     await settle(() => messages.some(m => m.type === 'push-registered'))
     expect(bodies.at(-1)).toEqual({ consent: true, ...androidToken, labelHash, sync: true })
+    // push-clear-v1 means nothing on Android (its syncs always carry the ids)
+    messages = []
+    win.mycelMobile = { ...config, platform: 'android', capabilities: [...today, PUSH_LABEL_CAPABILITY, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY] }
+    setMobilePushSession('user:labels-6')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...androidToken, labelHash, sync: true })
+    // an iPhone app with push-clear-v1 (it takes read notices off Notification Center) registers with clear: true
+    messages = []
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'granted' }); else if (m.type === 'push-token') reply(m, { push: iosToken }); else reply(m) }
+    win.mycelMobile = { ...config, capabilities: [...today, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY] }
+    setMobilePushSession('user:labels-7')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken, sync: true, clear: true })
+    // an iPhone app from before it: sync only
+    messages = []
+    win.mycelMobile = { ...config, capabilities: [...today, PUSH_SYNC_CAPABILITY] }
+    setMobilePushSession('user:labels-8')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken, sync: true })
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })
 

@@ -2,7 +2,8 @@
 // `fetch` given here must do HTTP/2 to api.push.apple.com (bun.ts: node:http2).
 //
 // Payload: { aps: { alert, sound, badge?, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
-// (a sync: { aps: { badge?, content-available }, body: { notificationId, code, device? } }, no alert or sound, expiry 0)
+// (a sync: { aps: { badge?, content-available }, body: { notificationId, code, device?, clear? } }, no alert or sound,
+// expiry 0; clear = the read notice ids "id,id", which an app with push-clear-v1 takes off Notification Center)
 // (device = the request's tag, see fcm.ts appData). expo-notifications reads a remote notification's data on iOS from
 // userInfo["body"]. A room notice (code room.*) is mutable: the phone app's notification service extension may replace
 // the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"); so is a
@@ -51,11 +52,12 @@ export const APNS_CREDENTIAL_REASONS = new Set([
  * the person by name (chat.shared): who shared it. Nothing else. */
 export const mutableCode = labelCode
 
-/** The APNs payload. A sync (contract "Sync"): no alert, no sound; the icon's number and content-available (an app
- * built to clean its list in the background may run), never the ids (the iPhone app takes nothing off while closed). */
+/** The APNs payload. A sync (contract "Sync"): no alert, no sound; the icon's number, content-available (an app with
+ * the remote-notification background mode runs, closed or open) and the read notice ids in `body.clear` ("id,id", as
+ * FCM's data.clear), which an app with push-clear-v1 takes off Notification Center (an older app ignores them). */
 export function apnsPayload(msg: PushGatewaySend, alert: { title: string; body: string }): Record<string, unknown> {
   const badge = validPushBadge(msg.badge)
-  if (msg.sync === true) return { aps: { ...(badge ? { badge: msg.badge } : {}), 'content-available': 1 }, body: appData(msg) }
+  if (msg.sync === true) return { aps: { ...(badge ? { badge: msg.badge } : {}), 'content-available': 1 }, body: { ...appData(msg), ...(msg.clear?.length ? { clear: msg.clear.join(',') } : {}) } }
   return { aps: { alert, sound: 'default', ...(badge ? { badge: msg.badge } : {}), ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
 }
 

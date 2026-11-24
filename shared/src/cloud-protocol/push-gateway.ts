@@ -35,16 +35,19 @@
 //           for a device that registered a label key (an app with push-label-v1 on Android). A gateway from before it
 //           refuses the key (invalid_body); the team server then sends the same push without it (the generic line).
 // Sync:     `sync: true` (optional) with code PUSH_SYNC_CODE is a silent push after the person read things on another
-//           device: never an alert, a sound or text. `clear` (Android only) lists the notice ids (sent to this phone
-//           before) to take off the tray; `badge` is the iPhone's new number. APNs: `aps` has only `badge` and
-//           `content-available` (push type alert with a badge, background without), priority 5, expiry 0 (now or
-//           never: never in place of a waiting real alert); FCM: data-only with
+//           device: never an alert, a sound or text. `clear` lists the notice ids (sent to this phone before) to take off
+//           the tray (Android) or Notification Center (an iPhone app that offers push-clear-v1 removes them in the
+//           background or while open; an older one ignores them); `badge` is the iPhone's new number. APNs: `aps`
+//           has only `badge` and `content-available` (push type alert with a badge, background without), `body.clear`
+//           = "id,id", priority 5, expiry 0 (now or never: never in place of a waiting real alert); FCM: data-only with
 //           `clear` as "id,id", priority NORMAL, no title or message (expo-notifications never shows a data-only
 //           message without them, so an app from before sync shows nothing). PUSH_SYNC_CODE without `sync`, and `sync`
 //           with `path` or `label`, are refused, so a sync can never become a visible notification. Syncs count in their
 //           own, smaller (key, token) limit (4 a minute, 120 a day). What the provider gets must fit 4096 bytes
 //           (413 body_too_large). A gateway from before it refuses the key (invalid_body); the team server then sends
-//           no sync there for a while and never sends one without `sync`.
+//           no sync there for a while and never sends one without `sync`. A gateway from before iPhone `clear` (2026-11)
+//           refuses it for iOS (invalid_body); the team server then sends that sync again at once without it (the
+//           number alone) and no iPhone ids there for a while.
 
 export const PUSH_GATEWAY_SEND_PATH = '/v1/send'
 export const PUSH_GATEWAY_HEALTH_PATH = '/health'
@@ -92,7 +95,7 @@ export interface PushGatewaySend {
   label?: true
   /** a silent sync push (Sync above): code is PUSH_SYNC_CODE, no path or label */
   sync?: true
-  /** with `sync`: the notice ids to take off the phone (at most PUSH_SYNC_MAX_CLEAR) */
+  /** with `sync`: the notice ids to take off the phone (at most PUSH_SYNC_MAX_CLEAR), Android and iPhone */
   clear?: string[]
 }
 
@@ -202,8 +205,7 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
     out.sync = true
   } else if (out.code === PUSH_SYNC_CODE || 'clear' in o) return null
   if ('clear' in o) {
-    // Android only: the iPhone app takes nothing off while closed, so an iPhone gets the number alone
-    if (platform !== 'android') return null
+    // both platforms (an iPhone app from before push-clear-v1 ignores the ids; only a sync carries them)
     const c = o.clear
     if (!Array.isArray(c) || c.length > PUSH_SYNC_MAX_CLEAR || !c.every((id) => typeof id === 'string' && NOTIFICATION_ID_RE.test(id))) return null
     out.clear = [...c] as string[]
