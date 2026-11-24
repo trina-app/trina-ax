@@ -68,6 +68,7 @@ describe('the prompt', () => {
     expect(r).toContain('A Hangul (.hwpx) file: write Markdown')
     expect(r).toContain('Never say you checked how a file looks unless you saw it')
     expect(r).toContain('save_work_file')
+    expect(r).toContain('read the saved file with as_images')
   })
   test('without them the rule is what it was', () => {
     expect(makeFileRule(false, true)).toContain('write Markdown or CSV and convert it with make_file')

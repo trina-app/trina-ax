@@ -96,6 +96,7 @@
         "python3-cryptography": "",
         "python3-charset-normalizer": "",
         "qpdf": "",
+        "zip": "",
         "build-essential": "",
         "chromium": { "on": ["debian-12", "debian-13"] }
       },
