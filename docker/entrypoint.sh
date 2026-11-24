@@ -20,6 +20,8 @@
 #   TRINA_AX_TIMEZONE        team time zone for the first run (IANA name, for example Asia/Seoul)
 #   TRINA_AX_ALLOW_UNSIGNED  1: accept an unsigned kit (development builds only)
 #   TRINA_AX_REINSTALL       1: run the installer even when nothing changed (a repair)
+#   TRINA_AX_DEV_ENV         0: no AI commands on this server, not even document builds (default 1 where the image has
+#                            the run kit)
 # Any other command (for example `bash`) runs instead of the server.
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -59,6 +61,11 @@ fi
 DOCS=0
 if [ -x /opt/trina/devenv/run-wrap ] && [ -x /opt/trina/node/bin/node ] && compgen -G "/opt/trina/srt/*/cli.js" >/dev/null \
   && [ -e /opt/trina/python/python-pptx/current ]; then DOCS=1; fi
+case "${TRINA_AX_DEV_ENV:-1}" in
+  0) DOCS=0 ;;
+  1) ;;
+  *) die "TRINA_AX_DEV_ENV: 0 or 1, not ${TRINA_AX_DEV_ENV}" ;;
+esac
 
 # ---- 1) /etc/default/mycel (read by mycel-ctl supervise for the server's environment) ----
 {

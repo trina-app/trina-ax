@@ -26,11 +26,22 @@
   the server account. The walls are srt's: bubblewrap with every namespace, its seccomp filter (no AF_UNIX), the
   network namespace with srt's proxy allowing no host, `<base>` and `/etc/default/<id>` hidden. Running runs as
   `axagent` would need a root helper and a second owner for team files: reopen when the security review asks for it.
-- **No cgroup per run.** The direct runner reads `/proc` every 500 ms, adds up the resident memory of the run's whole
-  process tree (bwrap starts new sessions, so the process group alone misses commands) with no cap on the count, and
-  kills the tree over the plan's memory or processes; the end says "ran out of memory", as a unit's OOM kill does.
-  Renders and prints go one at a time across the server (`MYCEL_RENDER_PARALLEL=1`). The compose limits hold the rest.
-  CPU has no per-run limit.
+- **No cgroup per run** (limits reworked after the security review of #511). The server holds the run's limits:
+  - every 500 ms, the resident memory and count of the run's whole process tree from `/proc` (bwrap starts new
+    sessions, so the process group alone misses commands), against the plan's 1024 MiB and 512 processes;
+  - the container's own `memory.current` against `memory.max` less 768 MiB: it counts what a process's resident memory
+    does not (srt's tmpfs `/tmp` and `/run`, page cache). One run builds at a time, so the growth is that run's;
+  - RLIMIT_NPROC as a hard process cap (per account: the account's tasks at the start plus the plan's 512);
+  - nice 19 and SCHED_IDLE: a run never takes CPU from the server or a turn (the review measured 40-100x slowdowns
+    without);
+  - oom_score_adj: srt's node and run-wrap 700, the run's commands 1000, so the container's OOM killer takes the
+    command and srt lives;
+  - every process the watch has seen is remembered with its start time; when the run ends, however it ends (the review
+    OOM-killed srt's node and run-wrap exited 137 while the sandboxed shell went on), what is left of them and below them
+    is killed until nothing is. At start, a server kills what an earlier one left: processes of its account in another
+    pid namespace, or run-wrap, srt or bwrap, that are not its own or its parents'.
+  A run over a limit, or one the container's OOM killer hit, ends as "ran out of memory". Renders and prints go one at a
+  time (`MYCEL_RENDER_PARALLEL=1`). The compose limits are the backstop.
 - **Self-test.** With no systemd the runner checks that one command runs in srt here (offline, `<base>` hidden). Where
   it cannot (a host missing the guide's security settings, an Ubuntu host's AppArmor), box_shell is not offered and
   the AI uses make_file, as on any server without runs.
@@ -38,6 +49,6 @@
   environment's default (on), an older team that never chose gets documents mode
   (docs/decisions/20261124-documents-mode.md: work folder only), and a team whose admin saved it off gets neither. In
   Docker every one of them is offline, by the root plan file. Admins turn it off in the team settings; the operator
-  with `MYCEL_DOCUMENTS_MODE=0` for documents mode.
+  turns AI commands off for the whole server with `TRINA_AX_DEV_ENV=0` in the compose environment.
 - **Not changed.** The engine (as `axagent`, behind the firewall), the converters, the Office safety check (#499).
 - **Version impact.** minor. A root update (the package list).

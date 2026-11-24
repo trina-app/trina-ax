@@ -250,6 +250,25 @@ const own = tool({ chatId: crypto.randomUUID() })
     ?? (fs.readdirSync('/proc').some((n) => { try { return /^[0-9]+$/.test(n) && fs.readFileSync(`/proc/${n}/cmdline`, 'utf8') === 'sleep\u000030\u0000' } catch { return false } }) ? 'sleep processes are left after the kill' : null))
   const ok = textOf(await mem.call({ command: 'python3 -c "b=bytearray(200<<20); print(\'SMALL-OK\', len(b)>>20)"' }, MAIN))
   report('DM3', 'a command under the caps (200 MiB) runs as before after a killed one', has('SMALL-OK 200')(ok))
+  // security review of #511: the container's OOM killer took srt's node, run-wrap ended 137, and the sandboxed shell
+  // went on unwatched. Here srt's node is killed in the middle of a command: nothing of the command may be left after
+  const cmdlines = () => fs.readdirSync('/proc').filter((n) => /^[0-9]+$/.test(n)).map((n) => { try { return [Number(n), fs.readFileSync(`/proc/${n}/cmdline`, 'utf8')] as const } catch { return [0, ''] as const } })
+  const killer = (async () => {
+    for (let i = 0; i < 100; i++) {
+      await Bun.sleep(100)
+      const node = cmdlines().find(([, c]) => c.includes('/srt/') && c.includes('DM4MARK') && c.startsWith('/opt/trina/node/bin/node'))
+      if (node && cmdlines().some(([, c]) => c.startsWith('sleep\u0000') )) { process.kill(node[0], 'SIGKILL'); return true }
+    }
+    return false
+  })()
+  await mem.call({ command: 'echo DM4MARK; (while true; do sleep 1; done) & sleep 60 & wait' }, MAIN)
+  const hit = await killer
+  await Bun.sleep(300)
+  const left = cmdlines().filter(([, c]) => c.includes('DM4MARK') || c === 'sleep\u000060\u0000' || c === 'sleep\u00001\u0000')
+  report('DM4', 'srt\'s node killed in the middle of a command (as an OOM kill of it): the run ends and nothing it started is left', !hit ? 'the command\'s srt process was not found' : left.length ? `left running: ${left.map(([p, c]) => `${p} ${c.replace(/\0/g, ' ').slice(0, 60)}`).join('; ')}` : null)
+  // CPU: the run's commands have the lowest priority (nice 19)
+  const pri = textOf(await mem.call({ command: 'echo NICE=$(nice)' }, MAIN))
+  report('DM5', 'a run\'s commands run at nice 19', has('NICE=19')(pri))
 }
 
 console.log(failed ? `\n${failed} of ${count} sub-agent and skill cases failed` : `\nall ${count} sub-agent and skill cases held`)

@@ -144,10 +144,13 @@ The container has no writable cgroup tree, so `mycel-ctl supervise` cannot deleg
 - No per-turn limits (memory, tasks, CPU) and no shared converter limit. The log says `no turn cgroups` and `converters run without a cgroup limit`.
 - The compose limits (`mem_limit`, `memswap_limit`, `pids_limit`, `cpus`) hold the whole team. One run-away turn or converter can slow or stop the others, but not the host.
 - Safe PowerPoint (safe operations 1A) is not supported in Docker: it needs the cgroup limits.
-- The AI's document builds (see [Documents](#documents)) have no cgroup either. The server counts each build's memory
-  and processes twice a second and stops a build over 1024 MiB or 512 processes, runs one build at a time, and draws
-  one page view or print at a time. A spike shorter than half a second can still go over; the compose limits are the
-  backstop. CPU has no per-build limit.
+- The AI's builds (see [Documents](#documents)) have no cgroup either, so the server holds their limits itself. One
+  build at a time. Twice a second it counts the build's memory and processes (over 1024 MiB or 512 processes: stopped)
+  and the container's own memory (within 768 MiB of `mem_limit`, tmpfs files included: the build is stopped). The
+  process cap is also a hard limit of the build (RLIMIT_NPROC). Builds run at the lowest CPU priority (nice 19,
+  SCHED_IDLE), so they never slow the team. When a build ends, however it ends, everything it started is killed, and a
+  restarted server kills what an earlier one left. A spike shorter than half a second can still go over; the compose
+  limits are the backstop. One page view or print at a time.
 
 ## Documents
 
@@ -163,6 +166,10 @@ document skills and real libraries, then looks at the pages and fixes what it se
   filter). Korean, Japanese and Chinese draw with Noto CJK; Calibri and Cambria with Carlito and Caladea.
 - **Size:** the image is larger (LibreOffice, the fonts and the build kit: Node, srt, the Python and Node libraries).
 - **Updates:** LibreOffice gets security fixes only with a new image. Pull a new image tag when one is released.
+- **Which teams:** the same as on a hosted server. A new team gets the dev environment (offline here); a team that had
+  people before it came and never chose gets documents mode (only the chat's own folder); a team whose admin turned it
+  off gets nothing. To turn AI commands off for every team on this server, set `TRINA_AX_DEV_ENV=0` in `.env` and run
+  `docker compose up -d`.
 - **Needs** the same [security settings](#security-settings) as the rest of the container. On a host where the sandbox
   cannot start, the server says the dev environment is not available, and the AI makes documents from Markdown
   (`make_file`) instead.
