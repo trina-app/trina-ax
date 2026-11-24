@@ -193,6 +193,13 @@ export const TEXT = {
   blocked_port: t('https 기본 포트(443)만 쓸 수 있어요.', 'Only the standard https port (443) can be used.', 'Hanya port https standar (443) yang bisa dipakai.', "標準のhttpsポート（443）のみ使用できます。", "Solo se puede usar el puerto https estándar (443).", "只能使用标准 https 端口（443）。"),
   tls: t('서비스의 보안 인증서를 확인하지 못했어요.', 'The service’s security certificate could not be verified.', 'Sertifikat keamanan layanan tidak dapat diverifikasi.', "サービスのセキュリティ証明書を確認できませんでした。", "No se pudo verificar el certificado de seguridad del servicio.", "无法验证服务的安全证书。"),
   refused: t('서비스가 키나 로그인을 받아 주지 않았어요(HTTP {status}). 키를 다시 넣거나 다시 로그인해 주세요.', 'The service did not accept the key or sign-in (HTTP {status}). Enter the key again or sign in again.', 'Layanan tidak menerima kunci atau login (HTTP {status}). Masukkan kunci lagi atau login ulang.', "サービスがキーまたはログインを受け付けませんでした（HTTP {status}）。キーを再入力するか、再ログインしてください。", "El servicio no aceptó la clave o el inicio de sesión (HTTP {status}). Introduzca la clave de nuevo o vuelva a iniciar sesión.", "服务没有接受密钥或登录（HTTP {status}）。请重新输入密钥或重新登录。"),
+  // a 403 insufficient_scope (refusal.ts scope): the sign-in works but lacks a permission the service needs
+  scope: t('로그인에 서비스가 필요로 하는 권한이 모두 들어 있지 않아요(HTTP {status}). 다시 로그인하고 요청하는 권한을 허용하거나, 그 권한이 있는 키를 넣어 주세요.', 'The sign-in does not have all the access the service needs (HTTP {status}). Sign in again and allow the access it asks for, or enter a key that has that access.', 'Login ini tidak punya semua akses yang dibutuhkan layanan (HTTP {status}). Login ulang dan izinkan akses yang diminta, atau masukkan kunci yang punya akses itu.', "このログインには、サービスが必要とするアクセス権がすべて含まれていません（HTTP {status}）。再ログインして求められるアクセスを許可するか、そのアクセス権のあるキーを入力してください。", "El inicio de sesión no tiene todo el acceso que necesita el servicio (HTTP {status}). Vuelva a iniciar sesión y permita el acceso que solicita, o introduzca una clave que tenga ese acceso.", "这次登录没有服务需要的全部权限（HTTP {status}）。请重新登录并允许它请求的权限，或输入拥有该权限的密钥。"),
+  // any other 403 (refusal.ts no_access): signed in, but the service does not let this account use it (GitLab's MCP
+  // server for an account without a top-level group). Signing in again cannot fix it, so it never says to; {said} is
+  // the service's words, sanitized and cut (refusal.ts cleanSaid); no_access_bare when it said nothing usable
+  no_access: t('로그인은 됐지만 서비스가 이 계정의 사용을 허용하지 않아요(HTTP {status}). 서비스의 답: “{said}” 계정이나 조직의 소유자에게 켜 달라고 요청해 주세요. 켜면 다시 쓸 수 있어요.', 'Signed in, but the service does not let this account use it (HTTP {status}). The service said: “{said}” Ask the account’s or organization’s owner to turn it on; then it works again.', 'Sudah login, tetapi layanan tidak mengizinkan akun ini memakainya (HTTP {status}). Kata layanan: “{said}” Minta pemilik akun atau organisasi untuk mengaktifkannya; setelah itu bisa dipakai lagi.', "ログインはできていますが、サービスがこのアカウントでの利用を許可していません（HTTP {status}）。サービスからの返答：「{said}」 アカウントまたは組織の所有者に有効にしてもらってください。有効になれば再び使えます。", "La sesión está iniciada, pero el servicio no permite que esta cuenta lo use (HTTP {status}). El servicio dijo: “{said}” Pida al propietario de la cuenta o de la organización que lo active; después volverá a funcionar.", "已登录，但服务不允许这个账号使用它（HTTP {status}）。服务的回复：“{said}” 请让账号或组织的所有者开启它；开启后即可再次使用。"),
+  no_access_bare: t('로그인은 됐지만 서비스가 이 계정의 사용을 허용하지 않아요(HTTP {status}). 계정이나 조직의 소유자에게 켜 달라고 요청해 주세요. 켜면 다시 쓸 수 있어요.', 'Signed in, but the service does not let this account use it (HTTP {status}). Ask the account’s or organization’s owner to turn it on; then it works again.', 'Sudah login, tetapi layanan tidak mengizinkan akun ini memakainya (HTTP {status}). Minta pemilik akun atau organisasi untuk mengaktifkannya; setelah itu bisa dipakai lagi.', "ログインはできていますが、サービスがこのアカウントでの利用を許可していません（HTTP {status}）。アカウントまたは組織の所有者に有効にしてもらってください。有効になれば再び使えます。", "La sesión está iniciada, pero el servicio no permite que esta cuenta lo use (HTTP {status}). Pida al propietario de la cuenta o de la organización que lo active; después volverá a funcionar.", "已登录，但服务不允许这个账号使用它（HTTP {status}）。请让账号或组织的所有者开启它；开启后即可再次使用。"),
   no_secret: t('키가 아직 없어요. 키를 넣어 주세요.', 'There is no key yet. Enter the key.', 'Belum ada kunci. Masukkan kuncinya.', "キーがありません。入力してください。", "Aún no hay clave. Introdúzcala.", "还没有密钥。请输入密钥。"),
   sign_in: t('서비스에 로그인해 주세요.', 'Sign in at the service.', 'Silakan login di layanan.', "サービスにログインしてください。", "Inicie sesión en el servicio.", "请在服务上登录。"),
   redirect: t('서비스가 다른 주소로 넘기려고 했어요(HTTP {status}). 넘어가는 주소를 직접 넣어 주세요.', 'The service tried to send us to another address (HTTP {status}). Enter that address instead.', 'Layanan mencoba mengalihkan ke alamat lain (HTTP {status}). Masukkan alamat itu langsung.', "サービスが別のアドレスに転送しようとしました（HTTP {status}）。そのアドレスを代わりに入力してください。", "El servicio intentó redirigir a otra dirección (HTTP {status}). Introduzca esa dirección en su lugar.", "服务想把我们转到另一个地址（HTTP {status}）。请改为输入那个地址。"),
@@ -313,8 +320,9 @@ export const DEMO_HIGGSFIELD_TOOL_WORDS: Record<string, T> = {
 /** a demo Higgsfield tool's words in `L` (DEMO_HIGGSFIELD_TOOL_WORDS), or null for a tool not listed there */
 export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =>
   Object.hasOwn(DEMO_HIGGSFIELD_TOOL_WORDS, name) ? DEMO_HIGGSFIELD_TOOL_WORDS[name]![L] ?? DEMO_HIGGSFIELD_TOOL_WORDS[name]!.en : null
-/** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
-export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
+/** a reason a connection check failed (integrations.last_error holds "<reason>", "<reason>:<status>" or, for no_access,
+ * "no_access:<status>:<the service's words>": refusal.ts codeParts) */
+export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'scope' | 'no_access' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
@@ -332,7 +340,7 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can
@@ -342,10 +350,13 @@ const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret'
  */
 export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }, name?: string): string | null {
   if (!code) return null
-  const [reason, status] = code.split(':')
+  // as refusal.ts codeParts (not imported: the web app's mock server reads this file, and refusal.ts reaches the chat code)
+  const [reason, status, ...rest] = code.split(':')
+  const said = rest.join(':')
   const known = !!reason && reason in TEXT
   if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
   if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
   if (!known) return say('unreachable', locale)
-  return say(reason as TextKey, locale, { status: status ?? '?', ...(name ? { name } : {}) })
+  const key = reason === 'no_access' && !said ? 'no_access_bare' : reason as TextKey
+  return say(key, locale, { status: status || '?', ...(said ? { said } : {}), ...(name ? { name } : {}) })
 }

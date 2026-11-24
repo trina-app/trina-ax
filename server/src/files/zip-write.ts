@@ -146,8 +146,9 @@ export interface ZipRead extends ZipEntry { raw: { method: 0 | 8; crc: number; b
  * twice (in any case: readers would differ on which one counts), flag bits other than the deflate options, the data
  * descriptor and the UTF-8 name, a name with control characters, a backslash, a leading "/" or a ".." part, and an
  * entry that does not match its checksum. The data descriptor is not needed: the sizes come from the central directory.
+ * `want`: only the entries it keeps are expanded and returned (the others are still listed and their headers checked).
  */
-export function readZip(bytes: Uint8Array): ZipRead[] {
+export function readZip(bytes: Uint8Array, want?: (name: string) => boolean): ZipRead[] {
   const bad = (why: string): never => { throw new Error(why) }
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let eocd = -1
@@ -184,6 +185,7 @@ export function readZip(bytes: Uint8Array): ZipRead[] {
     const start = local + 30 + lnlen + v.getUint16(local + 28, true)
     if (start + csize > bytes.length) bad('entry out of range')
     const body = bytes.subarray(start, start + csize)
+    if (want && !want(name)) continue
     let data: Uint8Array
     if (method === 0) data = body
     else {

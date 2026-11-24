@@ -158,7 +158,7 @@ export const chatsRoutes: RouteModule = {
 - 관리자도 다른 사람의 대화·메모리를 볼 수 없다. "다른 사람으로 로그인" 없음. 비밀번호 초기화는 감사 기록.
 
 ### B — server-chat-realtime (포트 19120–19129)
-- 소유: `server/src/routes/chats.ts`, `routes/ws.ts`, `routes/memories.ts`, `routes/browser.ts`, `server/src/chat/*`, `server/src/realtime/*`, 대기열, 엔진 통합(`server/src/engine/*`의 확장은 B가 맡는다), `shared/src/api/chats.ts`·`memories.ts`·`ws.ts`·`browser.ts`, 마이그레이션 200–299, `tests/unit/b-*.test.ts`.
+- 소유: `server/src/routes/chats.ts`, `routes/ws.ts`, `routes/memories.ts`, `routes/browser.ts`, `server/src/chat/*`, `server/src/realtime/*`, `server/src/docs-help/*`(AI의 앱 문서 도구 trina_docs, 데이터는 G의 `scripts/docs/help-index.ts`가 번들에 넣는다), 대기열, 엔진 통합(`server/src/engine/*`의 확장은 B가 맡는다), `shared/src/api/chats.ts`·`memories.ts`·`ws.ts`·`browser.ts`, 마이그레이션 200–299, `tests/unit/b-*.test.ts`.
 - 구현: 채팅·메시지(트리: `parent_id`, `chats.active_leaf_id`, `branch`), 대기열(동시 실행 수 = 설정 `concurrency`, `queue.position`), 턴 실행(`ctx.core()` + `TurnExec`, `server/src/chat/turn.ts`; stage 1의 `TurnRunner`는 실제 엔진 시험용으로 `tests/lib/stage1-runner.ts`에 있다), 0.3초마다 DB 저장, `message.*` 이벤트, 중지, 다시 생성·수정(팀 폴더 변경은 되돌리지 않음), 답변 아래 파일 요약(`file_events`), `ask_user`(`turn.request` → `POST /api/turns/:id/answer`), 메모리(remember/forget 도구 + REST), 프로젝트, `RealtimeHub`(사용자별 seq·epoch·링 버퍼·resync/reset·20초 프로토콜 핑·느린 클라이언트 4408), 브라우저 중계(`browser.call`을 턴을 보낸 창으로, `callId`로 중복 제거, 끊긴 동안의 호출 재전송, 롱폴링 대체 경로), 엔진에 브라우저 도구 노출(입력 스키마는 E가 `shared/src/browser-tools.ts`에 정의).
 - 아티팩트 도구 호출 처리(저장·`artifact.updated`)는 C의 서비스(`server/src/tools/artifact*`)를 부른다.
 

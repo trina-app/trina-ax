@@ -419,8 +419,15 @@ was shown"; AI scenario CON-02). Code: `server/src/chat/connect-service.ts` (the
 - Ordinary database backups hold ciphertext without its key; restoring them without the key directory needs the keys
   entered or the sign-ins done again. There is no rekey command yet for this directory (Drive has `drive-rekey`).
 - Status: `connected`; `needs_auth` (an OAuth connection without a sign-in, or the service refused the key or token:
-  401/403); `error` (a key connection without a key, or the check failed). `lastError` is a reason code put into the
-  reader's words (`text.ts`), never the service's own body. An MCP server with a saved tool list, connected or in an
+  401, or 403 with `invalid_token` (`refused`), or 403 with `insufficient_scope` (`scope`: sign in again and allow the
+  access it asks for)); `error` (a key connection without a key, or the check failed). `lastError` is a reason code put
+  into the reader's words (`text.ts`), never the service's own body. Any other 403 is `no_access` with status `error`,
+  not `needs_auth`: the key or sign-in works but the service does not let that account use it (GitLab's MCP server for
+  an account without a top-level group), so there is no "sign in again" notice, card or line for the AI; the page shows
+  a short excerpt of what the service said (its JSON `error_description`/`message`/`error`/`denial_reason` or
+  WWW-Authenticate `error_description`: stored secrets and token-like strings hidden, tags and control characters taken
+  out, at most 200 characters, `refusal.ts`) and that the account's or organization's owner turns it on. It clears at
+  the next check or call that goes through. A 403 `invalid_token` gets the same one token refresh as a 401. An MCP server with a saved tool list, connected or in an
   error that was only for now, whose check fails for now too (no answer in time, unreachable, a list over the limits,
   HTTP 408/429/5xx) keeps that list and is `connected` with `lastError` set: Settings says "Last check failed: … The AI
   keeps using the tool list from …" instead of "Error". Any other failure is `error` or `needs_auth`, and a sign-in a

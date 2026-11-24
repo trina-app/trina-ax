@@ -106,6 +106,7 @@ describe('server and relay texts', () => {
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/chat/person-aliases.ts': { why: 'title and team words the server matches in the person\'s own message (팀장, 팀원들 …) and Korean particles after them, in every language: data, not screen text (docs/decisions/20261123-do-then-undo.md)', also: /./ },
   'server/src/files/office-profile.ts': { why: 'the Korean names of Office fonts (맑은 고딕, 바탕 …) the page render replaces with the kit\'s fonts: data a file holds, not screen text', also: /^\s*\.\.\.\['[^']*'(, '[^']*')*\]/ },
+  'server/src/docs-help/search.ts': { why: 'Korean words the docs search leaves out (어떻게, 해요 …), and names and loanwords written in Hangul, katakana or Han that it reads as the English words of the docs (슬랙 → slack, 로그인 → sign): grammar and data, not screen text (docs/decisions/20261124-trina-docs-tool.md)', also: /./ },
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
   'server/src/tools/edit-office.ts': { why: 'the card before a signature or seal that is not the asker\'s own goes into a Word document (ko next to en/id/ja/es)' },
@@ -130,6 +131,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
+  'shared/src/page-keys.ts': { why: 'Korean words that label a key on a web page and say a key is shown only once (patterns the server matches in browser results, not screen text)', also: /^const KO_(KEY_WORD|NAMED_KEY|REVEAL) = \// },
   'shared/src/search-text.ts': { why: 'the Korean particles a room message search leaves off a word ("회의를" is searched as "회의") and the Hangul syllable range (grammar, not screen text)', also: /^const (PARTICLES|HANGUL_WORD)\b/ },
   'shared/src/search-ko.ts': { why: 'the Korean verb endings and syllables a search reads a verb\'s other forms by ("만든" finds "만들었어요"; grammar, not screen text)', also: /./ },
   'server/src/rooms/search.ts': { why: 'from:나 (Korean for from:me) and the Hangul syllable range a search ranks with (not screen text)', also: /v === '나'|^const HANGUL = / },
