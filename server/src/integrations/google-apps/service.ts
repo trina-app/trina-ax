@@ -43,6 +43,7 @@ import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
+import { googleLoginHint } from '../../auth/login-identities'
 import type { AppClient, CallbackOutcome } from '../google-drive/callback-page'
 import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 
@@ -271,6 +272,10 @@ export class GoogleApps {
       client_id: c.clientId, redirect_uri: c.redirectUri, response_type: 'code', scope: GOOGLE_APP_BROKER_SCOPES[app].join(' '),
       access_type: 'offline', prompt: 'consent', state, code_challenge: challengeOf(verifier), code_challenge_method: 'S256',
     })) url.searchParams.set(k, v)
+    // the person's own app with the Google account they sign in with (Sign in with Google): Google skips its account
+    // picker. Not the account shared with the team, which is often another one
+    const hint = scope === 'personal' ? googleLoginHint(this.db, user) : null
+    if (hint) url.searchParams.set('login_hint', hint)
     return { flowId: id, authorizationUrl: url.href, expiresAt }
   }
 

@@ -11,8 +11,8 @@ import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTI
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { API, CSRF_HEADER, Health, Me } from '@mycel/shared/api'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { API, CSRF_HEADER, GOOGLE_APP_RETURN_PATH, Health, Me } from '@mycel/shared/api'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, googleSignInCode, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -480,6 +480,11 @@ export class AppWindow {
    */
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
+    // a Google sign-in's one-time code for the team on screen (its address, or the office address the window shows): that
+    // team's window opens its return page, which redeems it with the secret it kept (web pages/Auth.tsx GoogleReturn).
+    // No screen ④: no new team is connected, and only that window's own page sees the code
+    const google = this.app ? googleSignInCode(raw, [this.team?.origin, this.currentOrigin]) : null
+    if (google) return void this.openGoogleReturn(google)
     const p = readDesktopLink(raw)
     // a Google Drive sign-in's one-time code for the team on screen: this app's own session finishes it (the page's
     // wait then shows the account to confirm); the window comes forward (main.ts onLink)
@@ -545,6 +550,20 @@ export class AppWindow {
   firstRunLink(kind: 'signup' | 'docs'): string | null {
     const links = firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: this.o.locale() === 'ko' })
     return kind === 'signup' ? links.signup : links.docs
+  }
+
+  /** Sign in with Google's return (docs/decisions/20261122-google-login-apps.md): the team's window, at the address it
+   * shows, loads /login/google with the code in the fragment (its partition gets the cookie; sessionStorage there has the
+   * secret). The office address keeps the session as for any sign-in: loadOrigin copies the cookie when the window
+   * switches. Logged without the code. */
+  private openGoogleReturn(code: string) {
+    const app = this.app, origin = this.currentOrigin || this.team?.origin
+    if (!app || app.webContents.isDestroyed() || !origin) return void handoffLog('google sign-in: no team page to finish it in')
+    handoffLog(`google sign-in: link for the team on screen (${hostOf(origin)}, ${this.mode})`)
+    this.linkGate.clear()
+    this.linkError = null
+    if (this.mode !== 'team') this.back()
+    void app.webContents.loadURL(`${origin}${GOOGLE_APP_RETURN_PATH}#code=${code}`).catch(() => {})
   }
 
   /** The host strip's state: the team address the app connected to (punycode), never the office-network address. */

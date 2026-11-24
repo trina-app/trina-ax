@@ -33,6 +33,9 @@ export interface SessionService {
   resolve(req: Request, info: RequestInfo): Promise<AuthInfo | null>
   /** owner-reauth endpoints: check the re-entered password (rate-limited like login) */
   verifyPassword(userId: string, password: string, info: RequestInfo): Promise<boolean>
+  /** every re-check (auth/reauth.ts): the password, or, for an account without one, the id of a Google check this
+   * session finished; wrong tries of either kind count on the person's re-check limit */
+  verifyReauth(userId: string, sessionId: string, proof: { password: string } | { reauthFlow: string }, info: RequestInfo): Promise<boolean>
 }
 
 /**
@@ -254,6 +257,7 @@ export interface Services {
 export const noSessions: SessionService = {
   async resolve() { return null },
   async verifyPassword() { return false },
+  async verifyReauth() { return false },
 }
 export const nullRealtime: RealtimeHub = {
   publish() {}, publishEach() {}, disconnectUser() {}, disconnectSession() {}, forgetReplay() {},

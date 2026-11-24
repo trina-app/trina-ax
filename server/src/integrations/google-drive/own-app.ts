@@ -44,6 +44,7 @@ import { DriveError } from './store'
 import { googleDriveOf } from './oauth'
 import { CALLBACK_PATH as APPS_CALLBACK, clientFromBody, clientSettingKey, setupOf, writeClientFile } from '../google-apps/config'
 import { googleAppsOf } from '../google-apps/service'
+import { guardOwnGoogleClient } from '../../auth/google-login-admin'
 
 interface OwnAppRow { key: string; by: string; at: string; apps?: Partial<Record<GoogleAppId, unknown>> }
 
@@ -163,6 +164,8 @@ function checkOwnApp(ctx: AppContext, body: OwnAppBody, env: Record<string, stri
 function applyOwnApp(ctx: AppContext, actor: string, body: OwnAppBody, env: Record<string, string | undefined>): GoogleOwnAppStatus {
   // checked again: the state may have changed while Google was asked
   const { st, cfg } = checkOwnApp(ctx, body, env)
+  // another client in place of the one people without a password sign in with: refused (auth/google-login-admin.ts)
+  guardOwnGoogleClient(ctx, cfg.clientId)
   const svc = st.svc
   try { svc.store.safeDirectory(true) } catch { throw new GoogleOwnAppError('key_unsafe', 503) }
   const previous = (() => { try { return fs.readFileSync(svc.clientFile) } catch { return null } })()
@@ -203,6 +206,8 @@ export async function removeOwnApp(ctx: AppContext, actor: string, env: Record<s
   // someone wrote another client since (the operator's file, or their environment file): the cards on "same as Drive"
   // follow that client and keep working, so only this setting goes; the client and the cards are left alone
   const replaced = svc.clientFromEnv || (!!onDisk && !ours)
+  // the client people without a password sign in with goes: refused while they are there (auth/google-login-admin.ts)
+  if (ours) guardOwnGoogleClient(ctx, null)
   if (ours) {
     try { fs.rmSync(svc.clientFile, { force: true }) } catch { throw new GoogleOwnAppError('setup_write', 500) }
   }

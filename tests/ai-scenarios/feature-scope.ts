@@ -21,6 +21,9 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'auth.invite': { reach: 'explains' },
   'auth.team-link': { reach: 'explains' },
   'auth.app-signin': { reach: 'explains' },
+  'auth.google': { reach: 'explains' },
+  'auth.google-signup': { reach: 'explains' },
+  'auth.google-reauth': { reach: 'explains' },
   'auth.devices': { reach: 'explains' },
   'account.profile': { reach: 'explains' },
   'account.status': { reach: 'explains' },
@@ -137,6 +140,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   // Admin
   'admin.home': { reach: 'explains' },
   'admin.members': { reach: 'explains' },
+  'admin.google-sign-in': { reach: 'explains' },
   'admin.invites': { reach: 'explains' },
   'admin.guests': { reach: 'explains' },
   'admin.groups': { reach: 'explains' },

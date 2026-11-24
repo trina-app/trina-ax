@@ -446,8 +446,8 @@ describe('the token never travels in a path or query', () => {
   test('no team-link endpoint takes it in a path or a query', async () => {
     const { listEndpoints } = await import('@mycel/shared/api')
     const eps = listEndpoints().filter((x) => /team-link/.test(x.ep.path))
-    // make, show, change (PATCH), revoke, info, join
-    expect(eps.length).toBe(6)
+    // make, show, change (PATCH), revoke, info, join, join with Google (auth/google-signup.ts)
+    expect(eps.length).toBe(7)
     for (const { name, ep } of eps) expect({ name, param: ep.path.includes(':'), query: !!ep.query }).toEqual({ name, param: false, query: false })
   })
 

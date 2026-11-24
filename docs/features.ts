@@ -39,6 +39,9 @@ export const FEATURES: Feature[] = [
   { id: 'auth.signin', name: 'Sign in and sign out', area: 'Sign-in & account', endpoints: ['login', 'logout', 'me', 'health'], screens: ['/login'] },
   { id: 'auth.password', name: 'Change password (also a forced temporary one)', area: 'Sign-in & account', endpoints: ['changePassword'], screens: ['/password', '/settings/security/password'] },
   { id: 'auth.app-signin', name: 'Continue in the desktop app after setup, signed in with a one-time code', area: 'Sign-in & account', endpoints: ['appSignIn', 'redeemAppSignIn'], screens: ['/open-app', '/app-signin'] },
+  { id: 'auth.google', name: 'Sign in with Google: connect a Google account with the password, then sign in with it', area: 'Sign-in & account', endpoints: ['startGoogleSignIn', 'redeemGoogleSignIn', 'myGoogle', 'connectGoogle', 'disconnectGoogle'], screens: ['/login/google'] },
+  { id: 'auth.google-signup', name: 'Sign up with Google: the first owner, invited people and team links make their account with Google, no password', area: 'Sign-in & account', endpoints: ['startGoogleSetup', 'startGoogleInvite', 'startGoogleJoin'], screens: ['/invite'] },
+  { id: 'auth.google-reauth', name: 'Accounts without a password (made with Google): confirm with Google where others type their password again, and set a first password', area: 'Sign-in & account', endpoints: ['startGoogleReauth', 'googleReauthState', 'setPassword'], screens: ['/settings/security', '/settings/security/password'] },
   { id: 'auth.reset', name: 'Password reset link', area: 'Sign-in & account', endpoints: ['passwordResetInfo', 'completePasswordReset'], screens: ['/reset-password/:token'] },
   { id: 'auth.invite', name: 'Accept an invite', area: 'Sign-in & account', endpoints: ['inviteInfo', 'acceptInvite'], screens: ['/invite/:token'] },
   { id: 'auth.team-link', name: 'Join with the team link', area: 'Sign-in & account', endpoints: ['teamLinkInfo', 'joinTeamLink', '*TeamLink'], screens: ['/join'] },
@@ -168,6 +171,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Admin ----------------
   { id: 'admin.home', name: 'Admin home and owner checklist', area: 'Admin', endpoints: ['afterUpdateActions', 'dismissAfterUpdate', 'managedNotices', 'plan'], screens: ['/admin'] },
   { id: 'admin.members', name: 'Members: add, change role, remove, reset password', area: 'Admin', endpoints: ['listUsers', 'createUser', 'updateUser', 'deleteUser', 'resetPassword', 'createResetLink', 'transferOwnership'], screens: ['/admin/members', '/admin/members/:id'] },
+  { id: 'admin.google-sign-in', name: "Sign in with Google for the team: the switch in Team settings, who connected one, disconnecting a member's", area: 'Admin', endpoints: ['googleSignInAdminStatus', 'disconnectUserGoogle'] },
   { id: 'admin.invites', name: 'Invites', area: 'Admin', endpoints: ['listInvites', 'createInvite', 'revokeInvite'] },
   { id: 'admin.guests', name: 'Guests', area: 'Admin', endpoints: ['createGuestInvite', 'guestInviteLimit', 'convertGuest', 'updateGuestAi'] },
   { id: 'admin.groups', name: 'Groups', area: 'Admin', endpoints: ['listGroups', 'createGroup', 'updateGroup', 'deleteGroup', 'originCheck'], screens: ['/admin/groups', '/admin/groups/:id'] },

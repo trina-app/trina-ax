@@ -62,7 +62,7 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         const pw = ((await (o.stdin ?? readStdin)()) ?? '').replace(/\r?\n$/, '')
         const problem = passwordProblem(pw, { username: username.data })
         if (problem) throw new CliError(`password: ${problem}`)
-        const id = await bootstrapOwner(ctx, { username: username.data, name: name.data, password: pw, teamName: team, locale: locale.data })
+        const id = await bootstrapOwner(ctx, { username: username.data, name: name.data, credential: { password: pw }, teamName: team, locale: locale.data })
         return `owner "${username.data}" created (id ${id}); team "${team}"`
       }
       case 'reset-link': {

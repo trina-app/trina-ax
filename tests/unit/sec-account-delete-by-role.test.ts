@@ -172,7 +172,7 @@ describe('account deletion by role', () => {
   test('the check inside the delete itself: a promotion that lands after the first checks, before the delete runs', async () => {
     const sam = await addMember(h, owner, { username: 'sam' })
     const ctxFor = (userId: string, role: string) => {
-      const vars: Record<string, unknown> = { auth: { user: { id: userId, role } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' }, log: { warn() {}, error() {} } }
+      const vars: Record<string, unknown> = { auth: { user: { id: userId, role }, session: { id: 'test-session' } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' }, log: { warn() {}, error() {} } }
       return { get: (k: string) => vars[k] } as any
     }
     // the owner has no password step; the only thing between the first guard and the transaction is this read of the
@@ -181,7 +181,7 @@ describe('account deletion by role', () => {
     const real = integ.signInsToRevoke.bind(integ)
     integ.signInsToRevoke = (id: string) => { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ?").run(id); return real(id) }
     let err: unknown
-    try { await deleteUser(ctxFor(admin.id, 'admin'), h.ctx, sam.id, 'delete', admin.password) } catch (e) { err = e }
+    try { await deleteUser(ctxFor(admin.id, 'admin'), h.ctx, sam.id, 'delete', { password: admin.password }) } catch (e) { err = e }
     finally { integ.signInsToRevoke = real }
     expect(err).toBeInstanceOf(HttpError)
     expect((err as HttpError).code).toBe('forbidden')
@@ -191,7 +191,7 @@ describe('account deletion by role', () => {
   test('the server function itself refuses a plain member, and an admin without the password', async () => {
     const kim = await addMember(h, owner, { username: 'kim' })
     const ctxFor = (userId: string, role: string) => {
-      const vars: Record<string, unknown> = { auth: { user: { id: userId, role } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' } }
+      const vars: Record<string, unknown> = { auth: { user: { id: userId, role }, session: { id: 'test-session' } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' } }
       return { get: (k: string) => vars[k] } as any
     }
     const lou = await addMember(h, owner, { username: 'lou' })

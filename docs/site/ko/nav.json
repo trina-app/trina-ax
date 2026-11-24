@@ -12,7 +12,7 @@
       { "title": "AI와 일하기", "pages": ["use/chats-and-projects", "use/team-skills", "use/room-apps", "use/scheduled-tasks"] },
       { "title": "앱 연결", "pages": ["use/connect-apps", "use/ai-accounts", "use/google-apps", "use/google-own-app", "use/slack", "use/mcp", "use/api-connections"] },
       { "title": "파일과 사람", "pages": ["use/files-and-permissions", "use/find-work-files", "use/usage-and-limits", "use/admin", "use/guests"] },
-      { "title": "내 계정", "pages": ["use/settings-and-search"] }
+      { "title": "내 계정", "pages": ["use/settings-and-search", "use/sign-in-with-google"] }
     ] },
     { "title": "설치와 운영", "groups": [
       { "title": "설치", "pages": ["operate/install", "operate/configuration"] },

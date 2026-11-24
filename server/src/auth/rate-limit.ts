@@ -20,11 +20,13 @@ export interface Limits {
   perLink: number
   /** one-time desktop sign-in codes a signed-in person makes ("Continue in the Mac app", auth/app-signin.ts) */
   perAppCode: number
+  /** Google sign-ins started per client IP, right or wrong (auth/google-login.ts): each one is a row and a page at Google */
+  perGoogleStart: number
 }
 
-export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30, perLink: 30, perAppCode: 10 }
+export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30, perLink: 30, perAppCode: 10, perGoogleStart: 30 }
 
-export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip' | 'link' | 'app-code'
+export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip' | 'link' | 'app-code' | 'google-start'
 export interface LimitKey { kind: LimitKind; id: string }
 
 /**
@@ -71,6 +73,7 @@ export const reauthKey = (userId: string): LimitKey => ({ kind: 'reauth', id: us
 export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: limitIp(ip) }] : [])
 export const linkKey = (linkId: string): LimitKey => ({ kind: 'link', id: linkId })
 export const appCodeKey = (userId: string): LimitKey => ({ kind: 'app-code', id: userId })
+export const googleStartKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'google-start', id: limitIp(ip) }] : [])
 
 const keyStr = (k: LimitKey) => `${k.kind}:${k.id}`
 
@@ -86,6 +89,7 @@ export class RateLimiter {
       case 'token-ip': return this.limits.perTokenIp
       case 'link': return this.limits.perLink
       case 'app-code': return this.limits.perAppCode
+      case 'google-start': return this.limits.perGoogleStart
     }
   }
 
@@ -137,6 +141,13 @@ export class RateLimiter {
 
   clear(k: LimitKey): void {
     this.db.query('DELETE FROM login_attempts WHERE key = ?').run(keyStr(k))
+  }
+
+  /** Take back the newest counted attempt of this key: what hold().release() does inside one request, for an attempt
+   * whose end comes in a later one (a Google join counted at its start, its account made at Google's return:
+   * auth/google-signup.ts). */
+  forgive(k: LimitKey): void {
+    this.db.query('DELETE FROM login_attempts WHERE id = (SELECT id FROM login_attempts WHERE key = ? ORDER BY at DESC, id DESC LIMIT 1)').run(keyStr(k))
   }
 
   /** Clear every counter of an account, in every scope (password reset by an admin or a reset link). */

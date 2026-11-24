@@ -11,7 +11,7 @@
 // nothing. The owner cannot ask: their account is deleted only after they made someone else the owner, and becoming the
 // owner cancels an open request.
 import { z } from 'zod'
-import { IsoTime } from './common'
+import { IsoTime, ReauthFields } from './common'
 import { endpoint } from './endpoint'
 
 /** days between asking and the automatic deletion */
@@ -30,8 +30,10 @@ export const AccountDeletionRequest = z.object({
 })
 export type AccountDeletionRequest = z.infer<typeof AccountDeletionRequest>
 
-/** the person confirmed on the page that explains what happens, with their password */
-export const RequestAccountDeletionBody = z.object({ confirm: z.literal(true), password: z.string().min(1).max(256) }).strict()
+/** the person confirmed on the page that explains what happens, with their password or, without one, a Google check
+ * (common.ts ReauthFields). A person without a password may send neither from a sign-in of the last 10 minutes (the
+ * desktop and phone apps, where the Google check cannot run). */
+export const RequestAccountDeletionBody = z.object({ confirm: z.literal(true), ...ReauthFields }).strict()
 export type RequestAccountDeletionBody = z.infer<typeof RequestAccountDeletionBody>
 
 export const ACCOUNT_DELETION = {

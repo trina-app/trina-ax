@@ -4,6 +4,7 @@
 // server/src/integrations/service-requests.ts): an admin's setup closes the asks it answers.
 import { API } from '@mycel/shared/api'
 import type { GoogleAppId } from '@mycel/shared/api'
+import { refuseClientInUse } from '../auth/google-login-admin'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
@@ -51,13 +52,14 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
   }))
   // the company's own Google app for all five Google apps (integrations/google-drive/own-app.ts); owners and admins
   kit.handle(API.googleOwnApp, () => safe(() => ownAppStatusFresh(ctx)))
-  kit.handle(API.setGoogleOwnApp, ({ auth, body }) => safe(async () => {
+  kit.handle(API.setGoogleOwnApp, ({ c, auth, body }) => safe(() => refuseClientInUse(c.get('locale'), async () => {
     // awaited: Google is asked first, and members' asks close only once the app is saved (never on a refusal)
     const st = await setOwnApp(ctx, auth.user.id, body)
     for (const s of ['google-drive', 'gmail', 'calendar', 'docs', 'sheets'] as const) afterServiceSetup(ctx, s)
     return st
-  }))
-  kit.handle(API.removeGoogleOwnApp, ({ auth }) => safe(() => removeOwnApp(ctx, auth.user.id)))
+  })))
+  // refused while people without a password sign in with it (auth/google-login-admin.ts guardOwnGoogleClient)
+  kit.handle(API.removeGoogleOwnApp, ({ c, auth }) => safe(() => refuseClientInUse(c.get('locale'), () => removeOwnApp(ctx, auth.user.id))))
   // the account shared with the team: owners and admins only (the route checks the role; the service checks it again)
   kit.handle(API.authorizeGoogleAppTeam, ({ auth, params }) => safe(() => svc().authorize(auth.user.id, auth.session.id, appOf(params.app), 'team')))
   kit.handle(API.googleAppTeamFlow, ({ auth, params }) => safe(() => svc().flow(auth.user.id, auth.session.id, appOf(params.app), params.id, 'team')))

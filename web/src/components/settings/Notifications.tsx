@@ -180,6 +180,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
   if (item.code === 'account.reset_link' && item.resetLink) return resetLinkText(item.resetLink, t)
+  // a Google account connected to my account (Sign in with Google): while it is still there, what to do if it wasn't me
+  if (item.code === 'account.google_connected' && item.googleConnected?.connected) return t('notifications.googleConnected.connected')
   // an app in a room paused for the day (docs/DECISIONS.md "Apps posting in rooms")
   if (item.code === 'room_app.paused' && item.roomApp) return pausedNoticeText(item.roomApp, t, locale)
   if (item.code === 'room_app.leaver' && item.roomAppLeaver) return leaverNoticeText(item.roomAppLeaver, t)
@@ -314,6 +316,8 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
     if (place && place.id !== undefined) return place.id ? { to: place.kind === 'room' ? `/rooms/${encodeURIComponent(place.id)}` : `/projects/${encodeURIComponent(place.id)}`, testId: 'notification-joined-link' } : null
     return { to: '/admin/members', testId: 'notification-joined-link' }
   }
+  // a Google account connected to my account, still there: Settings › 보안·기기, where it is disconnected
+  if (item.code === 'account.google_connected' && item.googleConnected?.connected) return { to: '/settings/security', testId: 'notification-google-connected-link' }
   // a reset link made for me that still works: Settings › 보안·기기, where changing the password ends it
   if (item.code === 'account.reset_link' && item.resetLink?.open) return { to: '/settings/security', testId: 'notification-reset-link-link' }
   // my own account's deletion date while the request is open: the page where I can keep the account

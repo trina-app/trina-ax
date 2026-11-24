@@ -9,12 +9,12 @@ import type { OfficeUpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { Button, Field, Modal, inputCls } from '../../components/ui'
+import { Button } from '../../components/ui'
 import { cardZone, finishedRun, officeTurn, shareOfficeStatus, turnDate, windowZone } from '../../lib/officeUpdate'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Card, useAction } from './common'
+import { Card, ReauthDialog, useAction } from './common'
 
 export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateStatus; reload: () => Promise<void> }) {
   const t = useT()
@@ -23,7 +23,6 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
   const act = useAction()
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [pw, setPw] = useState('')
   const u = status
   // every time on this card is in one zone, the team's (update audit O2), and says which
   const zone = cardZone(u, me?.server.timeZone)
@@ -120,39 +119,19 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         )}
       </div>
       {ask && (
-        <Modal
-          open
-          onClose={() => setAsk(false)}
+        // my password again, or without one a Google check (common.tsx ReauthDialog): this restarts the office server
+        <ReauthDialog
           title={t('officeUpdate.confirmTitle')}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setAsk(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                busy={busy}
-                disabled={!pw}
-                onClick={async () => {
-                  setBusy(true)
-                  const r = await act(() => api.call(API.officeUpdateAction, { body: { action: 'now', password: pw } }))
-                  setBusy(false)
-                  if (!r) return
-                  setAsk(false)
-                  setPw('')
-                  await reload()
-                }}
-              >
-                {t('officeUpdate.now')}
-              </Button>
-            </>
-          }
-        >
-          <p className="mb-3 text-sm text-muted">{t('officeUpdate.confirmBody')}</p>
-          <Field label={t('system.passwordAgain')}>
-            <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
-          </Field>
-        </Modal>
+          body={t('officeUpdate.confirmBody')}
+          confirm={t('officeUpdate.now')}
+          onClose={() => setAsk(false)}
+          onConfirm={async (proof) => {
+            const r = await act(() => api.call(API.officeUpdateAction, { body: { action: 'now', ...proof } }))
+            if (!r) return
+            setAsk(false)
+            await reload()
+          }}
+        />
       )}
     </Card>
   )

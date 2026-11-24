@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
+import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok, ReauthFields, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
@@ -31,6 +31,10 @@ export const Me = z.object({
     /** their own choice; null = follow the team default (changes when an admin changes the team default) */
     localeChoice: Locale.nullable(),
     mustChangePassword: z.boolean(),
+    /** the account has a password. false: it was made with Google (docs/decisions/20261122-google-reauth.md): every
+     * re-check confirms with Google instead (`reauthToken`), and Settings › Security & devices offers "Set a password".
+     * Absent (older server) = true */
+    hasPassword: z.boolean().optional(),
     prefs: UserPrefs,
     /** may pick the engine / model (composer, retry with another model, own default): owner and admins always, others
      * when Admin > AI engines allows them. Absent (older server) = admins only. */
@@ -186,6 +190,10 @@ export const InviteInfo = z.object({
   /** a guest invite: the AI choice the inviter made (none, the team's, or the guest's own sign-in), only while the link works:
    * the page tells a guest who must connect their own account before they open it. Absent from an older server */
   guestAi: z.enum(['none', 'team', 'own']).optional(),
+  /** the page may offer "Join with Google" (startGoogleInvite; server/src/auth/google-signup.ts): the invite works, it
+   * is not a guest invite (guests join with a password), and Google can sign in at this address (the rule of
+   * SetupStatus.googleSignIn). Absent: no button */
+  googleSignUp: z.literal(true).optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({
@@ -208,6 +216,18 @@ export const SetupStatus = z.object({
    * team: never this team's host, slug or id). The sign-in page links the owner there with `?team=<its own host>`.
    * null (or left out by an older server): no such page; the sign-in page keeps the plain "ask an admin" line. */
   ownerRecoveryUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https only').nullable().optional(),
+  /** the sign-in page may offer "Sign in with Google" (server/src/auth/google-login.ts): this server has a Google client
+   * and Google returns to the address this page was opened at. Absent: no button (none, another address, a demo, or an
+   * older server). The apps use googleAppSignIn instead. */
+  googleSignIn: z.literal(true).optional(),
+  /** the desktop and phone apps may offer "Sign in with Google" (docs/decisions/20261122-google-login-apps.md): this
+   * server has a Google client and it is no demo. Any address: an app's flow is bound to a secret the app keeps, not
+   * to a cookie of this address. Each app shows it only when it can open Google outside its window (its bridge flag). */
+  googleAppSignIn: z.literal(true).optional(),
+  /** the setup page may offer "Start with Google" (startGoogleSetup; server/src/auth/google-signup.ts): only while
+   * `needed` is true for this visitor, and Google can sign in at this address (the rule of googleSignIn). Absent: the
+   * password form only */
+  googleSignUp: z.literal(true).optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
@@ -252,6 +272,80 @@ export const RedeemAppSignInBody = z.object({
   client: z.literal('desktop').default('desktop'),
   tokenMode: z.enum(['cookie']).default('cookie'),
 })
+
+/** Sign in with Google (server/src/auth/google-login.ts; docs/AGENTS/plan/20261122-0454-google-login.md). A person
+ * connects their Google account in Settings › Security with their current password, then signs in with it. The answer
+ * is Google's address to open in this window; Google comes back to this server, which signs in and opens `next`. */
+export const GoogleSignInBody = z.object({
+  /** a path of this site to open after signing in (the sign-in page's ?next=); anything else is dropped */
+  next: z.string().max(500).optional(),
+  /** Who starts it (docs/decisions/20261122-google-login-apps.md). Left out or 'web': the browser goes to Google in
+   * this window and comes back signed in (a binding cookie). 'desktop' or 'mobile': the app opens Google in the system
+   * browser, which comes back with a one-time code for the app only (GOOGLE_APP_RETURN_PATH, GOOGLE_PHONE_RETURN); the
+   * app's page redeems it (redeemGoogleSignIn) with the secret whose hash it sends here. */
+  client: ClientKind.optional(),
+  /** the SHA-256 (hex) of a random secret the app's sign-in page keeps; required for 'desktop' and 'mobile', refused
+   * for the web */
+  appSecretHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+})
+export const GoogleStart = z.object({ url: z.string().url() })
+export type GoogleStart = z.infer<typeof GoogleStart>
+/** The page of the team that the desktop app opens with the code from Google's return:
+ * `<linkScheme>://open?url=<team>/login/google#code=<code>`, taken only for the team on screen (desktop/src/common/
+ * address.ts googleSignInCode). */
+export const GOOGLE_APP_RETURN_PATH = '/login/google'
+/** Where Google's return sends a phone app's flow: the address its auth session waits for (expo-web-browser
+ * openAuthSessionAsync), with `#code=<code>` or `#error=<reason>`. The phone app keeps the same in
+ * mobile/src/protocol.ts (GOOGLE_SIGNIN_RETURN_HOST; a test keeps them equal). */
+export const googlePhoneReturn = (scheme: string): string => `${scheme}://google-signin`
+/** The redeem of an app's one-time code (server/src/auth/google-login.ts redeemGoogleApp): the code from the address
+ * and the secret the page kept. Cookie only, like the app sign-in code's: the session lands in the app's own window. */
+export const RedeemGoogleSignInBody = z.object({
+  code: z.string().min(1).max(200),
+  appSecret: z.string().min(1).max(200),
+  client: z.enum(['desktop', 'mobile']),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
+/** Sign up with Google (server/src/auth/google-signup.ts; docs/decisions/20261122-google-signup.md): the first owner
+ * with the setup token, and the team name, language and time zone typed on the setup page. They travel sealed in the
+ * flow; Google's return makes the team and the owner (no password; the username comes from the Google address, the
+ * name from Google) and signs in, then opens `next`. The answer is Google's address to open in this window. */
+export const GoogleSetupBody = SetupBody.pick({ setupToken: true, teamName: true, locale: true, timeZone: true, site: true }).extend({
+  /** the page to open after the team is made (the setup page's welcome steps or "continue in the app"); a path of this
+   * site, anything else is dropped */
+  next: z.string().max(500).optional(),
+})
+/** Join with Google from an invite or the team link (server/src/auth/google-signup.ts): the token in the body (never in
+ * an address), and the username, name and language the person picked. The flow keeps the invite's or link's id, not the
+ * token. Google's return makes the account (no password) or, when this Google account is already someone's here, signs
+ * that person in and leaves the invite unused. Guest invites join with a password only. */
+export const GoogleJoinBody = z.object({
+  token: z.string().min(16).max(200),
+  username: Username,
+  name: PersonName,
+  /** the language the person picked on the page; omitted = follow the team default */
+  locale: Locale.optional(),
+})
+export const ConnectGoogleBody = z.object({ ...ReauthFields })
+/** A Google check instead of the password, for an account without one (docs/decisions/20261122-google-reauth.md):
+ * Google's address to open in a new window, and the check's id. The tab asks GET /api/me/google/reauth/:id until it is
+ * `confirmed`, then sends the request that needed the check with `reauthFlow: <id>` (once, within 5 minutes). */
+export const GoogleReauthStart = z.object({ url: z.string().url(), flow: Uuid7 })
+export type GoogleReauthStart = z.infer<typeof GoogleReauthStart>
+/** waiting: still at Google; confirmed: send the id now; failed: over without a confirmation (expired, cancelled,
+ * another Google account, already used): the Google window said why */
+export const GoogleReauthState = z.object({ state: z.enum(['waiting', 'confirmed', 'failed']) })
+export type GoogleReauthState = z.infer<typeof GoogleReauthState>
+/** "Set a password" for an account without one (made with Google): after a Google check. Refused (409) once the
+ * account has a password: that one is changed with POST /api/auth/password. */
+export const SetPasswordBody = z.object({ newPassword: Password, reauthFlow: Uuid7 })
+export const MyGoogle = z.object({
+  /** this page can connect one now (the same rule as SetupStatus.googleSignIn) */
+  available: z.boolean(),
+  /** the connected Google account; null: none */
+  account: z.object({ email: z.string().nullable(), connectedAt: IsoTime, lastUsedAt: IsoTime.nullable() }).nullable(),
+})
+export type MyGoogle = z.infer<typeof MyGoogle>
 
 export const UpdateMeBody = z.object({
   name: PersonName.optional(),
@@ -321,5 +415,24 @@ export const AUTH = {
   appSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin', auth: 'user', owner: 'A', response: AppSignInCode, summary: 'Make a one-time code (3 minutes) that signs the desktop app in as me. Cookie sessions only; rate-limited; my earlier codes stop working.' }),
   redeemAppSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin/redeem', auth: 'public', owner: 'A', body: RedeemAppSignInBody, response: LoginResponse, summary: 'Sign in with a one-time code from appSignIn (once, within 3 minutes). Sets the session cookie.' }),
   acceptInvite: endpoint({ method: 'POST', path: '/api/invites/:token/accept', auth: 'public', owner: 'A', status: 201, body: AcceptInviteBody, response: LoginResponse, summary: 'Create the account from an invite link and sign in.' }),
+  // Sign in with Google (server/src/auth/google-login.ts): the start sets a short binding cookie; Google returns to the
+  // server's registered address (routes/drive.ts looks the state up here first). Never a GET: each start is a row
+  startGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/start', auth: 'public', owner: 'A', body: GoogleSignInBody, response: GoogleStart, summary: 'Start signing in with a connected Google account: Google\'s address to open. Rate-limited per IP.' }),
+  // the desktop and phone apps (docs/decisions/20261122-google-login-apps.md): the code Google's return gave the app,
+  // with the secret whose hash the start got. Never signs in the system browser that did the Google step
+  redeemGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/redeem', auth: 'public', owner: 'A', body: RedeemGoogleSignInBody, response: LoginResponse, summary: 'Sign the desktop or phone app in with the one-time code from a Google sign-in (once, within 5 minutes, only with the app\'s secret). Sets the session cookie.' }),
+  // Sign up with Google (server/src/auth/google-signup.ts): the setup token and the invite token only in the body; the
+  // start checks them as the password forms do, Google's return makes the account (team links: TEAM_LINKS.startGoogleJoin)
+  startGoogleSetup: endpoint({ method: 'POST', path: '/api/setup/google', auth: 'public', owner: 'A', body: GoogleSetupBody, response: GoogleStart, summary: 'Start making the team and its owner with Google (only while no user exists; needs the setup token): Google\'s address to open.' }),
+  startGoogleInvite: endpoint({ method: 'POST', path: '/api/invites/google', auth: 'public', owner: 'A', body: GoogleJoinBody, response: GoogleStart, summary: 'Start joining with an invite and a Google account instead of a password (not for guest invites): Google\'s address to open.' }),
+  myGoogle: endpoint({ method: 'GET', path: '/api/me/google', auth: 'user', owner: 'A', response: MyGoogle, summary: 'My connected Google account, and whether one can be connected here.' }),
+  // not allowWhilePasswordChange (a temporary-password session cannot connect one), not for guests (GUEST_ENDPOINTS)
+  connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password, or a Google check without one): Google\'s address to open.' }),
+  disconnectGoogle: endpoint({ method: 'DELETE', path: '/api/me/google', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Disconnect my Google account: it no longer signs me in. Refused (409) while I have no password.' }),
+  // a re-check without a password (server/src/auth/reauth.ts): not allowWhilePasswordChange, not for guests; only an
+  // account without a password, with a Google account connected, from a browser's cookie session
+  startGoogleReauth: endpoint({ method: 'POST', path: '/api/me/google/reauth', auth: 'user', owner: 'A', response: GoogleReauthStart, summary: 'Start a Google check instead of the password (an account without one): Google\'s address to open in a new window, and the check\'s id. Refused while my re-check limit is locked.' }),
+  googleReauthState: endpoint({ method: 'GET', path: '/api/me/google/reauth/:id', auth: 'user', owner: 'A', response: GoogleReauthState, summary: 'Whether my Google check came back confirmed (only the session that started it; no-store).' }),
+  setPassword: endpoint({ method: 'POST', path: '/api/me/password', auth: 'user', owner: 'A', body: SetPasswordBody, response: Ok, summary: 'Set a first password for an account made with Google, after a Google check. Refused (409) when the account has a password. Other sessions stay; open reset links stop.' }),
 } as const
 

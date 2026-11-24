@@ -224,6 +224,16 @@ export type Page<T> = { items: T[]; nextCursor: string | null }
 
 export const Ok = z.object({ ok: z.literal(true) })
 export type Ok = z.infer<typeof Ok>
+
+/** A re-check (docs/decisions/20261122-google-reauth.md; server/src/auth/reauth.ts), spread into every body that asks
+ * for it: the caller's own password again, or, only for an account without a password (made with Google),
+ * `reauthFlow`: the id of a Google check this session finished in the last 5 minutes (POST /api/me/google/reauth, then
+ * GET /api/me/google/reauth/:id says `confirmed`). Exactly one: both or neither is a 400. A wrong one of either kind
+ * counts on the person's re-check limit (5 per 15 minutes). */
+export const ReauthFields = {
+  password: z.string().min(1).max(256).optional(),
+  reauthFlow: Uuid7.optional(),
+}
 /** 202 for long-running work: progress over WebSocket job.progress / job.done, result at GET /api/jobs/:id. */
 export const JobAccepted = z.object({ jobId: Uuid7 })
 export type JobAccepted = z.infer<typeof JobAccepted>
