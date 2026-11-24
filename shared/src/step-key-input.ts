@@ -43,7 +43,7 @@ export function opaqueValue(s: string): boolean {
   const v = s.trim()
   if (UUID.test(v) || /^[0-9a-f]{16,}$/i.test(v)) return true
   if (/\s/.test(v) || v.length < 20) return false
-  return looksRandom(v) || (/^[A-Za-z0-9+/=_-]{32,}$/.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v))
+  return looksRandom(v) || (/^[A-Za-z0-9+/=]{32,}$/.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v))
 }
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()

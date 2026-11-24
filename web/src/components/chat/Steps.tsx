@@ -241,7 +241,8 @@ function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
 /** The words beside a step's line for what it came back with (Step.outcome), or for a mark that is no success. */
 export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
   const end = step.outcome?.end
-  if (end) return t(END_KEY[end])
+  // a failure the AI went on past reads as the quiet mark says ("Didn't work"), not as a red "Failed"
+  if (end && !(end === 'failed' && mark === 'retried')) return t(END_KEY[end])
   if (mark === 'retried') return t('steps.retriedShort')
   if (mark === 'failed') return t('steps.failed')
   if (step.outcome?.count !== undefined && mark === 'done') return t('steps.results', { n: step.outcome.count })
@@ -324,7 +325,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         // a memory step: its words open Settings › Memory (docs/decisions/20261122-auto-memory.md)
         <button type="button" onClick={() => navigateTo('/settings/memory')} title={t('steps.memoryOpen')}
           className="min-w-0 flex-1 truncate text-left hover:underline" data-testid="step-memory-open">{place.label}</button>
-      ) : <span className="min-w-0 flex-1 truncate" title={place.path}>{place.label}</span>}
+      ) : <span className="min-w-0 flex-1 truncate" title={place.path ?? place.label}>{place.label}</span>}
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {came ? <span className={clsx('shrink-0 text-xs', mark === 'failed' ? 'text-danger' : 'text-faint')} data-testid="step-outcome">{came}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}

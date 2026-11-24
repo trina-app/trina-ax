@@ -64,6 +64,8 @@ describe('never a secret', () => {
     expect(k?.text).not.toContain('Ab3dE9fG2hJ7kL1mN0pQ')
     expect(stepKeyInput({ command: 'curl -H "Authorization: Bearer abcDEF1234567890xyzXYZ" https://api.example.com' })?.text).not.toContain('abcDEF1234567890xyzXYZ')
     expect(opaqueValue('report-2026-10-28-final')).toBe(false)
+    // a page's slug is words, not an id (real-app check: the second scraped address showed as "example.com/…/1")
+    expect(stepUrl('https://example.com/seoul-ai-startup-founders-seed-2025/1')).toBe('example.com/seoul-ai-startup-founders-seed-2025/1')
     expect(opaqueValue('YC Korea founders 2025')).toBe(false)
   })
 

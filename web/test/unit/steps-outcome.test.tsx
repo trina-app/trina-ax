@@ -19,6 +19,9 @@ describe('what a call came back with, in words', () => {
     expect(outcomeWords(step({ outcome: { count: 10 } }), 'done', t)).toBe('10 results')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'declined' } }), 'retried', t)).toBe('Declined')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'unanswered' } }), 'failed', t)).toBe('No answer')
+    // a service error the AI got past: the quiet words, red "Failed" only for one nothing got past
+    expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'retried', t)).toBe("Didn't work")
+    expect(outcomeWords(step({ status: 'error', outcome: { end: 'failed' } }), 'failed', t)).toBe('Failed')
     expect(outcomeWords(step({ status: 'ok', outcome: { end: 'skipped' } }), 'done', t)).toBe('Skipped')
     expect(outcomeWords(step({ status: 'error', outcome: { end: 'refused' } }), 'failed', t)).toBe('Not allowed')
     // no outcome from the server: the mark itself in words (the minus icon was a tooltip only)
