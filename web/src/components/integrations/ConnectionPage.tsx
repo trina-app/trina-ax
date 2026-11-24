@@ -68,7 +68,9 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
     : who.phone ? 'onComputer'
     : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
     // never signed in: the button there reads "Sign in", not "Sign in again"
-    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : kind === 'scope' ? 'signInAllow' : 'signIn') : 'editKey'
+    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : kind === 'scope' ? 'signInAllow' : 'signIn')
+    // a key without an access the service needs: a key that has it, not the same key again
+    : kind === 'scope' ? 'editKeyAccess' : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
 

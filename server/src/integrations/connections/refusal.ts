@@ -29,16 +29,18 @@ export function authParam(header: string, name: string): string {
   return m ? (m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2] ?? '') : ''
 }
 
-/** The service's words in plain text, safe to show and log: `hide` (the connection's stored secrets) first, then
- * anything that looks like a token or a password field, tags, control and direction characters, runs of space; cut. */
+/** The service's words in plain text, safe to show and log. Its form first (tags, control characters; zero-width and
+ * direction marks taken out without a trace, so a token split by them is whole again), then what it holds: `hide` (the
+ * connection's stored secrets), then anything that looks like a token or a password field; runs of space; cut. */
 export function cleanSaid(text: string, hide: (s: string) => string = (s) => s): string {
-  const plain = scrubSecrets(hide(text))
+  const bare = text
     .replace(/<[^>]*>/g, ' ')
     .replace(/[<>]/g, ' ')
-    // C0/C1 controls, zero-width and bidirectional marks (they can reorder what people read)
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+    // zero-width and bidirectional marks (they can split a token or reorder what people read): removed
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+    // C0/C1 controls and line or paragraph separators: a space
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+  const plain = scrubSecrets(hide(bare)).replace(/\s+/g, ' ').trim()
   return plain.length > REFUSAL_SAID_MAX ? `${plain.slice(0, REFUSAL_SAID_MAX - 1).trimEnd()}…` : plain
 }
 
@@ -81,6 +83,11 @@ export function refusalOf(res: { headers: Record<string, string>; body: Buffer }
   if (!said && /^text\/plain/.test(type)) said = text.slice(0, 1000)
   return { error, said: said ? cleanSaid(said, hide) : '' }
 }
+
+/** An answer that refuses the token itself (401, or 403 invalid_token): worth the one token refresh a 401 gets
+ * (service.ts send for an HTTP API, withMcp for an MCP server). */
+export const refusesToken = (res: { status: number; headers: Record<string, string>; body: Buffer }): boolean =>
+  res.status === 401 || (res.status === 403 && refusalOf(res).error === 'invalid_token')
 
 /** The reason a refused answer is stored under (see the top of this file). */
 export function refusalReason(status: number, error: string): RefusalReason {
