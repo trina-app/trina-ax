@@ -9,6 +9,7 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { floatPin, floatProbe, paragraphTops } from '../../server/src/files/hwpx-float'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
+import { mayFloat } from '../../server/src/files/hwp-preflight'
 import { hwpxDoc, hwpxParts, para } from '../lib/hwpx'
 
 const SEAL = new Uint8Array(fs.readFileSync(path.join(import.meta.dir, '../fixtures/hwp/seal.png')))
@@ -127,6 +128,18 @@ else describe('drawn by the pinned renderer: floating pictures never move the te
     expect(rows.length).toBeGreaterThan(0)
     // the 갑 line is at about y 260 px and the empty last paragraph at 367: every picture here is drawn between 140 and 440
     expect(rows.filter((y) => y < 140 || y > 440)).toEqual([])
+  }, 60_000)
+
+  test('the fix never fails a preview: a file the preview reads but this zip reader refuses is drawn as it is', async () => {
+    // an extra part named with a backslash: preflight and the renderer take it, readZip does not
+    const doc = hwpxDoc([LINES.map((t) => line(t)).join('') + line('갑 (서명): ______  (인)', [pic({ off: -1628 })])], {
+      manifest: ITEM, extra: { 'BinData/image1.png': SEAL, 'Preview\\note.txt': 'x' },
+    })
+    expect(() => floatProbe(doc)).toThrow()
+    const page = await engine.render(Buffer.from(doc), 'hwpx', 1)
+    expect(page.meta.pageCount).toBe(1)
+    expect(mayFloat(doc)).toBe(true)
+    expect(mayFloat(agreement([]))).toBe(false)
   }, 60_000)
 
   test('a document with Hangul\'s stored layout too', async () => {

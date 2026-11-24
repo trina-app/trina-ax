@@ -204,7 +204,11 @@ export class NativeHwpEngine implements HwpEngine {
         const reason = checked.stdout.toString()
         throw new HwpError(['locked','distribution','damaged','unsupported','limit'].includes(reason) ? reason as HwpReason : 'damaged')
       }
-      const drawn = ext === 'hwpx' ? await this.pinFloats(run, work, script, input) : input
+      // the floating-picture fix never fails a preview: anything but a cancel or the time running out draws the file as it is
+      const drawn = ext === 'hwpx' ? await this.pinFloats(run, work, script, input).catch((e: unknown) => {
+        if (e instanceof HwpError && (e.reason === 'cancelled' || e.reason === 'timeout')) throw e
+        return input
+      }) : input
       const info = await run(this.bin, ['info', drawn, '--json'])
       if (info.code !== 0) throw new HwpError('damaged')
       let data: { pageCount: number; warnings?: unknown[] }

@@ -187,12 +187,22 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
       const span = (name: string) => {
         const ws = wb.Sheets[name]!
         const r = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null
-        const reach = picturesReach(pictures.get(name) ?? [])
+        const lastRow = SHEET_PREVIEW_ROWS - 1
+        // a picture anchored far outside the data (past 256 columns from its start, or the rows the preview reads) is
+        // left out, so one anchor at XFD5000 cannot build a huge table
+        const startCol = r?.s.c ?? 0
+        const near = (pictures.get(name) ?? []).filter((p) => {
+          const a = p.anchor
+          const cells = a.kind === 'two' ? [a.from] : a.kind === 'one' ? [a.from] : []
+          return cells.every((c) => c.col <= startCol + 255 && c.row <= lastRow)
+        })
+        pictures.set(name, near)
+        const reach = picturesReach(near)
         const range = r ?? { s: { c: reach?.first.col ?? 0, r: reach?.first.row ?? 0 }, e: { c: reach?.first.col ?? 0, r: reach?.first.row ?? 0 } }
         if (reach) {
-          const lastRow = SHEET_PREVIEW_ROWS - 1
-          range.s = { c: Math.min(range.s.c, reach.first.col), r: Math.min(range.s.r, reach.first.row, lastRow) }
-          range.e = { c: Math.min(Math.max(range.e.c, reach.last.col), range.s.c + 255), r: Math.min(Math.max(range.e.r, reach.last.row), lastRow) }
+          range.s = { c: Math.min(range.s.c, reach.first.col), r: Math.min(range.s.r, reach.first.row) }
+          // only the extra reach the pictures add is capped, never the data's own range
+          range.e = { c: Math.max(range.e.c, Math.min(reach.last.col, range.s.c + 255)), r: Math.max(range.e.r, Math.min(reach.last.row, lastRow)) }
           ws['!ref'] = XLSX.utils.encode_range(range)
         }
         return { first: { col: range.s.c, row: range.s.r }, last: { col: range.e.c, row: range.e.r } }

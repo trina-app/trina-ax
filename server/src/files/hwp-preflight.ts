@@ -111,11 +111,20 @@ export function preflight(bytes: Uint8Array, ext: string) {
 /** The floating-picture fix (hwpx-float.ts), run here because the document is untrusted:
  * `float-probe <input> <probe>` writes the probe and prints "probe", or prints "none";
  * `float-pin <input> <tops.json> <output>` writes the document with its pictures pinned and prints "pinned". */
+/** whether a section of the .hwpx (read as preflight reads it) holds a picture behind or in front of the text */
+export function mayFloat(bytes: Uint8Array): boolean {
+  const c: { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] } = XLSX.CFB.read(Buffer.from(bytes), { type: 'buffer' })
+  return c.FullPaths.some((p, i) => /^(?:Root Entry\/)?Contents\/section\d+\.xml$/i.test(p) &&
+    /textWrap\s*=\s*["'](?:BEHIND_TEXT|IN_FRONT_OF_TEXT)["']/.test(Buffer.from(c.FileIndex[i]?.content ?? []).toString('utf8')))
+}
 function floats(args: string[]) {
   const [mode, input, a, b] = args
   const bytes = new Uint8Array(fs.readFileSync(input!))
   if (mode === 'float-probe') {
-    const probe = floatProbe(bytes)
+    // never fails the preview: a document without a floating picture is not read again, and one this zip reader
+    // refuses (that preflight accepted) is drawn as it is
+    let probe: Uint8Array | null = null
+    try { if (mayFloat(bytes)) probe = floatProbe(bytes) } catch { probe = null }
     if (probe) fs.writeFileSync(a!, probe, { mode: 0o600 })
     process.stdout.write(probe ? 'probe' : 'none')
     return
