@@ -359,7 +359,7 @@ function align(a: unknown): Align | undefined {
 /** How wide a text looks, in half-width units: Hangul, CJK and other wide characters count 2. */
 export function textUnits(s: string): number {
   let n = 0
-  for (const ch of s) n += /[ᄀ-ᇿ①-⓿─-➿⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1
+  for (const ch of s) n += /[\u1100-\u11ff\u2460-\u24ff\u2500-\u27bf\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
   return n
 }
 

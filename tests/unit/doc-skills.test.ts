@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFileRule } from '../../server/src/chat/prompt'
+import { HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
 import { docSkillsReady, writeDocSkills } from '../../server/src/devenv/doc-skills'
 import { officeViewLine } from '../../server/src/files/office-view'
 import { docSkillBundleFiles } from '../../scripts/build-bundle'
@@ -84,5 +85,16 @@ describe('the prompt', () => {
     expect(makeFileRule(false, true, false, true)).not.toContain('TRINA_DOC_SKILLS')
     expect(makeFileRule(false, true, false, true)).toContain('with read as_images')
     expect(makeFileRule(false, true, false, false)).toContain('did not see how its pages look')
+  })
+  test('Hangul: the writing guide and a look with hwp_render, only while Hangul writing is on (docs/decisions/20261124-hwpx-quality.md)', () => {
+    for (const skills of [true, false]) {
+      const on = makeFileRule(true, true, skills, true, true)
+      expect(on).toContain(HWPX_GUIDE)
+      expect(on).toContain('look at every page with hwp_render')
+      expect(makeFileRule(true, true, skills, true, false)).toContain('You cannot see Hangul pages here')
+      expect(makeFileRule(false, true, skills, true, true)).not.toContain('Hangul')
+    }
+    expect(HWPX_GUIDE).toContain('::: {.noborder}')
+    expect(HWPX_GUIDE).toContain('Never leave an item or a section as a placeholder')
   })
 })

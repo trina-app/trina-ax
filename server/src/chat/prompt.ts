@@ -4,6 +4,7 @@
 //  5 team rules from skills/ (+ the list of team skills, skills.ts)
 //  6 project instructions  7 desktop browser
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
+import { HWPX_GUIDE, HWPX_LOOK } from './hwpx-guide'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ARCHIVE_FOLDER, ownFolderLabel, personFolderLabel, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
@@ -1411,23 +1412,6 @@ export function plainWordsRule(stamp: boolean): string {
 /** Word, PowerPoint, Excel and PDF where a run has the document skills (devenv/doc-skills.ts, docs/decisions/
  * 20261124-doc-skills.md): one general rule. Where LibreOffice is missing the AI says what it could not see. */
 export const DOC_SKILLS_RULE = 'To produce a Word, PowerPoint, Excel or PDF file, build it with the document skills in box_shell, not through Markdown. First read the skill for that file: cat "$TRINA_DOC_SKILLS/docx/SKILL.md" (or pptx, xlsx, pdf) and follow it; a path it names, like scripts/x.py, is in that skill\'s folder. Work in $TRINA_WORK and do not install packages for this: what the skill calls preinstalled is here, except pandoc, markitdown, react-icons and sharp, so use the libraries that are. Commands here cannot run LibreOffice, so skip the skill\'s soffice.py, recalc.py and thumbnail.py steps. To look: save the file with save_work_file, read the saved file with as_images (every page), fix what you see in your build and save it again. If read says it cannot show the pages, say in your answer that you did not view them, and for Excel that its formula results were not checked. Never say you checked how a file looks unless you saw it. If box_shell cannot run, use make_file with Markdown or CSV and say the design is simpler.'
-/**
- * How to write a Hangul (.hwpx) document (docs/decisions/20261124-hwpx-quality.md): what make_file's writer can lay
- * out (files/hwpx-write.ts) and the general conventions of Korean business and official documents, so a file can be
- * sent as it is. The Hangul counterpart of the document skills; only while Hangul writing is on.
- */
-export const HWPX_GUIDE = 'Writing a Hangul (.hwpx) document: make it look like a document a Korean office sends as it is, laid out with the same care as a designed Word file. ' +
-  'make_file turns pandoc Markdown into it; besides headings, paragraphs, **bold**, lists and tables it takes: `::: {.center}` … `:::` around paragraphs (also .right, .left) and `{size=20}` in points (together: `::: {.center size=20}`); `::: {.box}` for a framed box of paragraphs; ' +
-  'a table with no header row (a pipe table whose header row has only empty cells); `::: {.noborder}` around a table to take its lines off (label and value lines such as 수신 and 제목); grid tables (+---+) for merged cells; `---` for a line across the page; `[text]{.underline}`. Column widths follow what the columns hold. ' +
-  'A paragraph that starts with an outline label is indented by its level, wrapped lines under its text: 1. → 가. → 1) → 가) → (1) → (가) → ① → ㉮, and for 개조식 □ → ○ → - → ·. Put each item on its own line with its label typed out, never as a nested Markdown list. ' +
-  'Conventions: 공문 and 기안문 (from a company too): the sender\'s organisation (기관명) centred and large; then 수신 (recipient, with 참조 if known), (경유) only when it passes another office, and 제목, as a borderless two-column table; a line; the body numbered 1., 가., 1); 붙임 as "붙임  1. ○○ 1부." with 끝. after the last text (붙임\'s line, or the body\'s); the 발신명의 (e.g. company and 대표이사) centred and large, where the seal (직인) goes; a line; then, small (size 9) and borderless, 기안자/검토자/결재권자 by 직위 for a 기안문, 시행 (처리과-번호, date) and 접수, the postal code and address with 홈페이지, and 전화, 이메일 and 공개 구분. ' +
-  '보고서, 계획서 and 결과보고서: the title centred and large, department and date right-aligned under it, a short summary in a box when it helps, sections marked □ with ○ and - lines in 개조식 (short phrases ending -함, -임), figures in tables with a header row. 회의록: the title, a bordered table of 일시, 장소, 참석자 and 작성자 (no header row), then 안건, 논의 내용, 결정 사항, and the to-dos as a table of 담당, 내용 and 기한. 안내문 and 공지: the title centred, a greeting, the facts (when, where, what changes) in a bordered table or a box, what the reader should do, a contact, then the date and the sender centred at the end. ' +
-  'Dates as 2026. 11. 24., amounts as 금1,800,000원(금일백팔십만원). ' +
-  'Facts: use everything the request, this chat, the company profile and team files give (names, address, people, figures) and write the rest of the content yourself as a complete draft (purpose, details, schedule, procedure). Never leave an item or a section as a placeholder like [기재]. A detail only the person can know that you did not find (a document number, a phone number) is written ○○ (영업팀-○○호, 02-○○○-○○○○), a few at most, and your answer names them; ask first only when a missing fact decides the document (who it goes to, the amount).'
-/** looking at a Hangul file made: hwp_render where the HWP preview is offered */
-export const HWPX_LOOK = (render: boolean) => render
-  ? ' After you make a .hwpx, look at every page with hwp_render, fix what is off (alignment, a cramped or empty table, something left out) and make it again under the same name. The preview draws with a stand-in font and may not show bold, so judge the layout, not the font.'
-  : ' You cannot see Hangul pages here: when you make one, say in one short line of your answer that you did not see how its pages look.'
 /** does this turn build documents with the skills? */
 const usesDocSkills = (has: { has(t: string): boolean }) => has.has('box_shell') && has.has('save_work_file') && docSkillsReady()
 
