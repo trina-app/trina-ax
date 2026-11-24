@@ -57,6 +57,7 @@ import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, model
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
+import { OFFICE_VIEW_EXT, officePdf, officeViewer } from './office-view'
 import { deckPdf, deckPdfUnavailable, pagesOnlyText, SLIDE_IMAGE_EXT, slidesFailedText, slidesHead, slidesNotes, slidesUnavailableText, type DrawnDeck } from './deck-pdf'
 import { listPage, TOOL_TEXT_BUDGET } from './tool-budget'
 import { openChecked } from '../team-files/place'
@@ -991,6 +992,7 @@ export class FileService {
     if (a.raw) return this.readRaw(ctx, a, !!kind || isVisionImage(a.file_path) || e === 'pdf' || isOffice(a.file_path) || SHEET_EXT.has(e) || e === 'hwp' || e === 'hwpx')
     // a PowerPoint deck's slides as pictures (files/deck-pdf.ts); a plain read of a deck stays its text
     if ((a.pages !== undefined || a.as_images) && SLIDE_IMAGE_EXT.has(e)) return this.readDeck(ctx, a)
+    if ((a.pages !== undefined || a.as_images) && OFFICE_VIEW_EXT.has(e) && officeViewer()) return this.readOfficePages(ctx, a, e)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError(pagesOnlyText(e), 'bad_pages')
     if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
     if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')
@@ -1305,6 +1307,31 @@ export class FileService {
     beforeDelivery?.()
     // the pages of a read by pages; a read of the whole (short) file is the file
     record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
+    const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
+    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /** A Word or Excel file's pages as pictures, where this server has LibreOffice (files/office-view.ts). */
+  private async readOfficePages(ctx: ToolCtx, a: ReadArgs, e: string): Promise<ToolOutput> {
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
+    const src = this.boundSource(ctx, r, readMaxBytes())
+    let pdf: Uint8Array
+    try { pdf = await officePdf(src.bytes, e, { user: ctx.user.id, workBase: this.cfg.dataDir, signal: ctx.signal }) } catch (err) {
+      ctx.signal?.throwIfAborted()
+      throw new ToolError(`the pages of '${src.rel}' could not be drawn (${err instanceof Error ? err.message.slice(0, 200) : 'failed'}). Read it without pages and as_images for its text, and tell the user you did not see its pages.`, 'pages_failed')
+    }
+    const layers = await pdfLayer(pdf, this.visionTools(), ctx.signal)
+    const n = layers.length
+    const pages = pagesToRead(a.pages, n, 'page')
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: give pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} per call).`, 'pages_required')
+    const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: pdf, layers }, pages, { asImages: true })
+    for (const t of notes) appendText(content, t)
+    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
+    beforeDelivery?.()
+    ctx.files.readHashes.set(src.rel, src.hash)
+    ctx.files.readPaths.add(src.rel)
+    ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs: pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) })
     const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
     return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
   }

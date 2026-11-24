@@ -27,6 +27,7 @@ import { WHOLE_TEAM_PATH } from './search-path'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { docSkillsReady } from '../devenv/doc-skills'
+import { officeViewer } from '../files/office-view'
 import { textTokens } from '../files/vision'
 import { AI_NAME, notFoundNext, SCREEN } from '../policy/refusal'
 import { CARD_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_RULE, SHARE_FOLDER_RULE, sendNotConnectedRule, answerCommentsLine, WHICH_THREAD_RULE } from './share-words'
@@ -1413,7 +1414,7 @@ const usesDocSkills = (has: { has(t: string): boolean }) => has.has('box_shell')
 /** make_file; Hangul (.hwpx) only while Hangul writing is on, which is exactly while edit_hwp is offered (the HWP
  * plugin installed and on, tools/hwp-writing.ts). Otherwise nothing about Hangul documents: a team without the plugin
  * is not told about a feature it did not add. */
-export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false): string {
+export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false, officeView: boolean = officeViewer() !== null): string {
   // an HTML page becomes a PDF by printing, not through Markdown (files/html-pdf.ts), where this server can print
   const fromHtml = html ? ' An HTML page becomes a PDF with make_file `source` = the .html file and format "pdf": it is printed as a browser prints it; never rewrite HTML as Markdown for that. A PowerPoint deck becomes a PDF with `source` = the .pptx and format "pdf" (a page per slide); never rewrite the slides as a document for that.' : ''
   return (docSkills
@@ -1421,6 +1422,8 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
     : hangul
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
     : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml +
+    // what the AI can honestly say about a Word or Excel file it made (files/office-view.ts)
+    (docSkills ? '' : officeView ? ' Look at a Word or Excel file you made with read as_images before you answer, and fix what you see.' : ' This server cannot show you Word or Excel pages: never say you checked how one looks.') +
     // second limits audit N4: a chart picture is an SVG saved as PNG by make_file (tools/svg-png.ts)
     (docSkills ? '' : ' A chart, Gantt chart or diagram the user wants as a picture: draw it as SVG and save it as PNG with make_file (format "png"); in a Word or PowerPoint file refer to the SVG or the PNG as a Markdown image.') +
     // QA TC-f2-a03: a PDF's .html source stayed in the project folder for every member to see
