@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 12:05
 - Branch: `feat/browser-key-guard`
-- Status: in progress
+- Status: done
 - Where: shared/src (key finder next to secrets.ts), server/src/realtime and server/src/chat (browser tools, prompt,
   i18n). Why: the browser results reach the model and the records through the server, so the server is the one place
   that can hide a key for every desktop app version (see docs/REPOSITORY-RULES.md)
@@ -75,4 +75,16 @@ the secrets and prompt tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+
+- `shared/src/page-keys.ts` (`scanPageText`, `findPageKeys`, `keyish`, `revealsKey`) on top of `secrets.ts`, with 27
+  more provider prefixes, values after key words (English, Korean, Japanese, Chinese, Spanish, Indonesian; at most four
+  page words between, and not after "commit", "SHA", "ID" and the like), secret query values, reveal sentences in six
+  languages. Leading look-behinds are checked by hand (they made each pattern scan every position: 2.6 s → 1 s on 2 MB).
+- `server/src/chat/browser-keys.ts` (`guardedBrowserCall`, `maskBrowserResult`, `pageCheckOf`, `readForKeys`,
+  `keyScreenNote`, `guardSummary`), used by `browserTool` in `server/src/chat/tools.ts`.
+- i18n `browserKeyHandOver` in six languages; one line in BROWSER_RULES, one clause in CONNECT_RULE.
+- Docs: decision file, `changes/browser-key-guard.md`, a paragraph in security-and-permissions (en, ko, zh).
+
+Differs from the plan: the canary test showed that `find` lists a field without its label, so a key screen now also
+hides every generated-looking value and every UUID, labelled or not (not only random-looking runs).

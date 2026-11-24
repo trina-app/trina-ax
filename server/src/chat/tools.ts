@@ -25,6 +25,7 @@ import type { McpContent, TurnToolSet } from '../turns'
 import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
+import { guardedBrowserCall, guardSummary, type BrowserCall } from './browser-keys'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
 import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
@@ -1901,7 +1902,12 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
           if (refusal) return { ...text(`The script was not run: it contains the address ${href.slice(0, 200)}, and ${refusal}.`, true), summary: `${name} -> script address ${href.slice(0, 300)} not allowed (address check)` }
         }
       }
-      const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool: name, args, signal: exec.abort.signal })
+      // key-like text is hidden before anything sees the result; a page that shows a key gets no screenshot or script,
+      // and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
+      const call: BrowserCall = (tool, a) => rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal })
+      const g = await guardedBrowserCall(name, args, call, spec.locale)
+      if (g.refused) return { ...text(g.text, true), summary: g.summary }
+      const r = g.result
       const content: McpContent[] = []
       const shared: { path: string; alt?: string }[] = []
       // a screenshot reaches the model like an image read: the team's "Send images, PDF pages and video frames to the AI" switch, an
@@ -1918,9 +1924,10 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         }
       }
       if (!r.ok) content.push({ type: 'text', text: `Error: ${r.error ?? 'browser tool failed'}` })
+      for (const n of g.notes) content.push({ type: 'text', text: n })
       exec.patchToolStep(name, (s) => (shared.length ? { images: [...(s.images ?? []), ...shared] } : {}))
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
-      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${allSites ? ' (all websites allowed)' : ''}` }
+      return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}` }
     },
   }
 }

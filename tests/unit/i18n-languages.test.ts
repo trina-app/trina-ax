@@ -130,6 +130,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
+  'shared/src/page-keys.ts': { why: 'Korean words that label a key on a web page and say a key is shown only once (patterns the server matches in browser results, not screen text)', also: /^const KO_(KEY_WORD|NAMED_KEY|REVEAL) = \// },
   'shared/src/search-text.ts': { why: 'the Korean particles a room message search leaves off a word ("회의를" is searched as "회의") and the Hangul syllable range (grammar, not screen text)', also: /^const (PARTICLES|HANGUL_WORD)\b/ },
   'shared/src/search-ko.ts': { why: 'the Korean verb endings and syllables a search reads a verb\'s other forms by ("만든" finds "만들었어요"; grammar, not screen text)', also: /./ },
   'server/src/rooms/search.ts': { why: 'from:나 (Korean for from:me) and the Hangul syllable range a search ranks with (not screen text)', also: /v === '나'|^const HANGUL = / },
