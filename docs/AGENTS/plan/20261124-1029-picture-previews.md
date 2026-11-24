@@ -18,36 +18,39 @@ QA after #512 (general picture placement):
 ## Root causes (measured before writing code)
 
 1. rhwp 0.8.7 (the pinned HWP Preview renderer, a third-party binary we do not patch) lays out a body paragraph that
-   has no stored layout (no `hp:linesegarray`, as every writer but Hangul saves) and holds a floating object with
-   `textWrap="BEHIND_TEXT"` and `vertRelTo="PARA"` as zero lines tall: the next paragraph is drawn on top of it.
-   Measured over a matrix: every offset (0, positive, negative, signed or as Hangul writes it), every horizontal
-   reference, alignment, size, z-order and run position does it; `IN_FRONT_OF_TEXT`, `SQUARE`, `PAPER`/`PAGE`, or a
-   paragraph with Hangul's stored layout do not. What placement writes is valid OWPML and what Hangul writes itself.
+   holds a floating picture placed from the paragraph (`vertRelTo="PARA"`) wrongly: behind the text
+   (`textWrap="BEHIND_TEXT"`) the paragraph is zero lines tall and the next one is drawn on top of it; a paragraph that
+   holds only such a picture (behind or in front) is laid out a line lower, so its picture lands a line too low.
+   Measured over a matrix: every offset (0, positive, negative, signed or as Hangul writes it), horizontal reference,
+   alignment, size, z-order and run position does it, with or without Hangul's stored layout; a place from the paper or
+   page, or a wrapping picture (square, top and bottom) do not. What placement writes is valid OWPML and what Hangul
+   writes itself (OWPML: behind/in front never moves text), so the fix is in the preview, not in placement.
 2. SheetJS (community) reads cells only; the preview never read the sheet's drawing part.
 
 ## Scope
 
 In:
 - HWP preview (render and layout, so a second placement measures the right page too): before rhwp draws a .hwpx, the
-  isolated worker finds every behind-text object anchored to an unlaid-out body paragraph; the renderer lays out a
-  probe copy where those objects are in front (same flow, measured equal), reads where each object is drawn, and the
-  worker pins each one to the paper at that spot (still behind the text). Text flow is then as Hangul's, whatever the
-  offset or anchor. Documents without such objects take exactly the path they take today.
+  isolated worker writes a probe without the pictures that float behind or in front of the text placed from their
+  paragraph (they move no text, so the probe has Hangul's flow); the renderer lays the probe out; the worker places
+  each picture from the paper at its paragraph's top plus its own offset, keeping its layer. Documents without such
+  pictures take exactly the path they take today.
 - Sheet preview: pictures of the sheet's drawing part (two-cell, one-cell and absolute anchors, pictures in groups)
   drawn over the cells where they are anchored; external links, hidden pictures and formats a browser cannot draw are
   skipped.
 - Tests: a regression set for each (several anchors and offsets, not only the QA file).
 
-Out: .hwp (binary) files: Hangul always stores line layout there; a placed picture in a cell-anchored paragraph;
-charts and shapes in the sheet (pictures only).
+Out: .hwp (binary) files (placement there writes from the paper: Hangul stores line layout in every .hwp); pictures
+inside tables, text boxes or groups in a Hangul document; charts and shapes in a sheet (pictures only).
 
 ## Steps
 
-1. `server/src/files/hwpx-float.ts`: find the objects (probe file) and pin them (fixed file); run in the preflight
-   worker only.
-2. `hwp-engine.ts` job(): probe → export-render-tree + dump-pages → pin → hand the fixed file to the body.
-3. Tests with the pinned renderer: the QA document, positive/negative/zero offsets, two objects in one paragraph,
-   front + behind together, a cached document untouched; drop the old "uncached is drawn too high" skip.
+1. `server/src/files/hwpx-float.ts`: the probe (pictures left out) and the pin (placed from the paper); run in the
+   preflight worker only.
+2. `hwp-engine.ts` job(): probe → export-render-tree + dump-pages → paragraph tops → pin → the body draws the pinned file.
+3. Tests with the pinned renderer: negative/zero/positive offsets, two pictures in one paragraph, behind + in front,
+   small and large, the page-setup paragraph, a picture alone in an empty paragraph, stored layout; drop the old
+   "uncached is drawn too high" skip in hwp-picture.test.ts.
 4. `web/src/lib/sheetPictures.ts` + SheetView overlay; web unit tests for each anchor kind and the skips.
 5. QA rows TC-8832/TC-8833, typecheck, tests, check:prepush, PR into dev.
 
@@ -57,8 +60,8 @@ none (a renderer workaround inside the existing preview driver; no product decis
 
 ## Risks
 
-- The probe adds one render-tree run only for documents that have such objects (preview time, same limits and
-  isolation). The worker parses the untrusted zip, never the server process.
+- The probe adds one render-tree and one dump-pages run only for documents that have such pictures (preview time,
+  same limits and isolation). The worker parses the untrusted zip, never the server process.
 - Sheet pictures come from the file the person may already read; drawn as `blob:` images (CSP allows `blob:`), never
   fetched from a link.
 

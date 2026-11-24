@@ -13,6 +13,7 @@ import { startDraw } from '../../lib/renderHost'
 import { PreviewLoading } from '../ui'
 import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
 import { fillFormulaResults, type SheetFormula } from '../../lib/sheetFormulas'
+import { gridFromCells, picturesReach, placePicture, readSheetPictures, type DrawnCell, type SheetPicture } from '../../lib/sheetPictures'
 
 /** Links in a drawn document: http(s) only, opened in a new tab without an opener, with no question first
  * (lib/safeLinks.ts; docs/decisions/20261123-ask-registry-findings.md, decision 14). */
@@ -138,7 +139,7 @@ export function PptxView({ blob, width, startSlide }: { blob: Blob; width: numbe
 export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?: string; range?: string }) {
   const t = useT()
   const locale = useLocale()
-  const [sheets, setSheets] = useState<(SheetMeta & { html: string; formulas: SheetFormula[] })[] | null>(null)
+  const [sheets, setSheets] = useState<(SheetMeta & { html: string; formulas: SheetFormula[]; pictures: (SheetPicture & { url: string })[]; first: { col: number; row: number }; last: { col: number; row: number } })[] | null>(null)
   const [active, setActive] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // the formula cell last clicked or tapped: its formula shows under the sheet (a phone has no hover)
@@ -147,11 +148,25 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
   useSafeLinks(tableRef, [sheets])
   useEffect(() => {
     let live = true
+    let made: { pictures: { url: string }[] }[] = []
     setSheets(null)
     setError(null)
     ;(async () => {
       const XLSX = await import('xlsx')
-      const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS, sheetStubs: true, cellNF: true })
+      const data = await blob.arrayBuffer()
+      const wb = XLSX.read(data, { type: 'array', dense: true, sheetRows: SHEET_PREVIEW_ROWS, sheetStubs: true, cellNF: true })
+      // pictures anchored in each sheet (its drawing part): SheetJS reads cells only (lib/sheetPictures.ts)
+      let pictures = new Map<string, SheetPicture[]>()
+      try {
+        const zip = XLSX.CFB.read(new Uint8Array(data), { type: 'array' }) as { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] }
+        const parts = new Map<string, number>()
+        zip.FullPaths.forEach((p, i) => parts.set(p.replace(/^Root Entry\//, '').toLowerCase(), i))
+        pictures = readSheetPictures((p) => {
+          const i = parts.get(p.toLowerCase())
+          const c = i === undefined ? undefined : zip.FileIndex[i]?.content
+          return c && c.length ? (c instanceof Uint8Array ? c : Uint8Array.from(c)) : null
+        })
+      } catch { /* not a zip (.xls, .ods) or no readable drawing: cells only */ }
       // Hidden sheets stay in the tabs with a badge; a sheet cut at the row limit shows a notice (R2-FMT-06/07).
       const meta = sheetMeta(wb, XLSX.utils.decode_range)
       // A formula cell without a stored result (make_file and openpyxl write these) shows the result the preview
@@ -168,17 +183,60 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
           })
         }
       }
-      // sheet_to_html escapes cell text (cell hyperlinks become <a href>: useSafeLinks); the editable flag stays off
-      const out = meta.map((m) => ({ ...m, formulas: formulas.get(m.name) ?? [], html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
-      if (live) {
-        setSheets(out)
-        setActive(startSheetIndex(out, startSheet))
+      // the drawn table reaches the cells the pictures are anchored to (up to the rows the preview reads)
+      const span = (name: string) => {
+        const ws = wb.Sheets[name]!
+        const r = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null
+        const reach = picturesReach(pictures.get(name) ?? [])
+        const range = r ?? { s: { c: reach?.first.col ?? 0, r: reach?.first.row ?? 0 }, e: { c: reach?.first.col ?? 0, r: reach?.first.row ?? 0 } }
+        if (reach) {
+          const lastRow = SHEET_PREVIEW_ROWS - 1
+          range.s = { c: Math.min(range.s.c, reach.first.col), r: Math.min(range.s.r, reach.first.row, lastRow) }
+          range.e = { c: Math.min(Math.max(range.e.c, reach.last.col), range.s.c + 255), r: Math.min(Math.max(range.e.r, reach.last.row), lastRow) }
+          ws['!ref'] = XLSX.utils.encode_range(range)
+        }
+        return { first: { col: range.s.c, row: range.s.r }, last: { col: range.e.c, row: range.e.r } }
       }
+      // sheet_to_html escapes cell text (cell hyperlinks become <a href>: useSafeLinks); the editable flag stays off
+      const out = meta.map((m) => ({ ...m, ...span(m.name), formulas: formulas.get(m.name) ?? [], html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }),
+        pictures: (pictures.get(m.name) ?? []).map((p) => ({ ...p, url: URL.createObjectURL(new Blob([p.bytes as BlobPart], { type: p.type })) })) }))
+      if (!live) { for (const sh of out) for (const p of sh.pictures) URL.revokeObjectURL(p.url); return }
+      made = out
+      setSheets(out)
+      setActive(startSheetIndex(out, startSheet))
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
     return () => {
       live = false
+      for (const sh of made) for (const p of sh.pictures) URL.revokeObjectURL(p.url)
     }
   }, [blob, startSheet])
+  // the pictures over the drawn cells: measured after the table is drawn and again when it changes size
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [boxes, setBoxes] = useState<{ x: number; y: number; w: number; h: number }[]>([])
+  useLayoutEffect(() => {
+    const host = gridRef.current
+    const sheet = sheets?.[active]
+    setBoxes([])
+    if (!host || !sheet?.pictures.length) return
+    const measure = () => {
+      const base = host.getBoundingClientRect()
+      const cells: DrawnCell[] = []
+      for (const td of host.querySelectorAll<HTMLTableCellElement>('td[id^="sjs-"]')) {
+        const m = /^sjs-([A-Z]{1,3})(\d{1,7})$/.exec(td.id)
+        if (!m) continue
+        const col = [...m[1]!].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1
+        const r = td.getBoundingClientRect()
+        cells.push({ col, row: Number(m[2]) - 1, colSpan: td.colSpan || 1, rowSpan: td.rowSpan || 1, x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height })
+      }
+      const grid = gridFromCells(cells, sheet.first.col, sheet.first.row, sheet.last.col, sheet.last.row)
+      setBoxes(sheet.pictures.map((p) => placePicture(p, grid)))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(host)
+    return () => ro.disconnect()
+  }, [sheets, active])
   // formula cells: the formula on hover; one the preview can't work out is greyed
   const notCalculated = t('preview.formulaNotCalculated')
   useEffect(() => {
@@ -226,8 +284,17 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
           const addr = td?.id.replace(/^sjs-/, '')
           setPicked((addr && current?.formulas.find((f) => f.addr === addr)) || null)
         }}
-        dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
-      />
+      >
+        {/* the table and, over it, the sheet's pictures where they are anchored (lib/sheetPictures.ts) */}
+        <div ref={gridRef} className="relative w-max">
+          <div dangerouslySetInnerHTML={{ __html: current?.html ?? '' }} />
+          {current?.pictures.map((p, i) => boxes[i] && (
+            <img key={`${active}-${i}`} src={p.url} alt={p.name} data-testid="sheet-picture" draggable={false}
+              className="pointer-events-none absolute max-w-none object-fill select-none"
+              style={{ left: boxes[i]!.x, top: boxes[i]!.y, width: boxes[i]!.w, height: boxes[i]!.h }} />
+          ))}
+        </div>
+      </div>
       {picked && (
         <p role="status" className="flex shrink-0 flex-wrap gap-x-2 border-t border-line bg-subtle px-3 py-1.5 text-xs" data-testid="sheet-formula">
           <span className="font-semibold text-muted">{picked.addr}</span>

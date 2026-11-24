@@ -1,0 +1,2 @@
+- The Hangul preview no longer draws two lines on top of each other after a seal or picture is placed behind the text: a picture floating behind or in front of the text never moves the text in the preview, as in Hangul. A picture alone on an empty line is drawn at its place too, not a line lower.
+- The Excel preview now shows the pictures in a sheet (a seal, a logo) over the cells they are anchored to, not only the cells.
