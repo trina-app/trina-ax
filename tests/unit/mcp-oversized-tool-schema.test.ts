@@ -68,6 +68,25 @@ describe('shrinkSchema / toolOf', () => {
     expect(out.properties.description.type).toBe('string')
   })
 
+  test('properties named like value keywords (example, default, enum, const, examples) are schemas: walked and cut', () => {
+    const named = (k: string) => ({ [k]: { type: 'string', description: 'p'.repeat(10_000) } })
+    const maps = {
+      type: 'object',
+      properties: { ...named('example'), ...named('default'), ...named('enum') },
+      $defs: named('const'), definitions: named('examples'), patternProperties: { '^x-': { type: 'string', description: 'q'.repeat(10_000) } },
+      dependentSchemas: named('default'),
+    }
+    const out = shrinkSchema(maps, MAX_SCHEMA_CHARS) as any
+    expect(out).not.toBeNull()
+    expect(size(out)).toBeLessThanOrEqual(MAX_SCHEMA_CHARS)
+    for (const d of [out.properties.example, out.properties.default, out.properties.enum, out.$defs.const, out.definitions.examples, out.patternProperties['^x-'], out.dependentSchemas.default])
+      expect(d.description.endsWith(SHORTENED)).toBe(true)
+    // the reported case: one property named "example" with a 40k description is kept, not dropped
+    const t = { name: 'ex', description: '', inputSchema: { type: 'object', properties: named('example') } }
+    ;(t.inputSchema.properties.example as any).description = 'e'.repeat(40_000)
+    expect(toolOf(t)).not.toBeNull()
+  })
+
   test('a schema that cannot fit (its structure alone is too large) is left out, and the note says so', () => {
     const props = Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`field_number_${i}`, { type: 'string', description: 'x'.repeat(50) }]))
     const t = { name: 'huge', description: '', inputSchema: { type: 'object', properties: props } }
@@ -139,6 +158,21 @@ describe('a check of a service with oversized tools', () => {
     } finally { await del('alice', `/api/integrations/${r.body.id}`) }
   })
 
+  test('"shortened" counts only tools kept: not a duplicate, not one past a full list', async () => {
+    logged.length = 0
+    // a small tool first, then the same name oversized (a duplicate, skipped), then a new oversized one (kept)
+    fake.tools = [longTool('dup', 10), longTool('dup', 40_000), longTool('kept', 40_000)]
+    fake.pageSize = 3
+    const r = await post('alice', '/api/integrations', { kind: 'mcp', name: 'Dup', url: `${fake.base}/mcp-open?dup`, auth: 'none' })
+    fake.pageSize = 2
+    try {
+      expect(r.body.tools.map((t: any) => t.name)).toEqual(['dup', 'kept'])
+      const f = logged.find((l) => l.msg.includes('schema size limit'))!.fields!
+      expect(f).toMatchObject({ shortened: 1, dropped: 0 })
+      expect((f.shortenedTools as string[])[0]).toMatch(/^kept \(/)
+    } finally { await del('alice', `/api/integrations/${r.body.id}`) }
+  })
+
   test('the total cap counts the shortened size', async () => {
     logged.length = 0
     // each shortened to about MAX_SCHEMA_CHARS: no more than the 4,000,000 characters in all are kept
@@ -153,6 +187,8 @@ describe('a check of a service with oversized tools', () => {
       expect(r.body.tools.length).toBeLessThan(n)
       expect(r.body.tools.length).toBeGreaterThanOrEqual(Math.floor(MAX_SCHEMAS_CHARS / (MAX_SCHEMA_CHARS + 20)))
       expect(r.body.toolsTotal).toBe(n)
+      // the ones past the full list were not kept, so not counted as shortened
+      expect(logged.find((l) => l.msg.includes('schema size limit'))!.fields).toMatchObject({ shortened: r.body.tools.length, dropped: 0 })
     } finally { await del('alice', `/api/integrations/${r.body.id}`) }
   })
 })

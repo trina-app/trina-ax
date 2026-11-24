@@ -192,7 +192,9 @@ export class McpClient {
     let size = 0
     // tools whose schema was over MAX_SCHEMA_CHARS: kept shortened, or left out (by name, once each)
     const oversized = { shortened: new Map<string, number>(), dropped: new Map<string, number>() }
-    const note: SizeNote = (name, chars, kept) => { (kept ? oversized.shortened : oversized.dropped).set(name, chars) }
+    // a shortened one counts once it is kept (not a duplicate, not past a full list)
+    let cut: { name: string; chars: number } | null = null
+    const note: SizeNote = (name, chars, kept) => { if (kept) cut = { name, chars }; else oversized.dropped.set(name, chars) }
     for (let page = 0; page < MCP_LIST_MAX_PAGES; page++) {
       const room = MCP_LIST_TOTAL_BYTES - read.bytes
       if (room <= 0) break
@@ -207,6 +209,7 @@ export class McpClient {
       if (!list) throw new McpError('not_mcp')
       const hide = this.hider()
       for (const t of list) {
+        cut = null
         const tool = toolOf(t, hide, note)
         if (!tool || seen.has(tool.name)) continue
         seen.add(tool.name)
@@ -215,6 +218,8 @@ export class McpClient {
         if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { full = true; continue }
         size += cost
         tools.push(tool)
+        const c = cut as { name: string; chars: number } | null
+        if (c && c.name === tool.name) oversized.shortened.set(c.name, c.chars)
       }
       cursor = typeof r?.nextCursor === 'string' && r.nextCursor ? r.nextCursor : undefined
       // the list kept is full: the pages after this one would only be counted
@@ -266,20 +271,25 @@ export function cutWords(s: string, max: number): string {
 /** the keys whose value is data, not schema: their strings are never cut (a default or an allowed value must stay as
  * the service sent it) */
 const VALUE_KEYS = new Set(['default', 'const', 'enum', 'examples', 'example'])
+/** the keys whose value maps names to schemas: each name there is a property's (or definition's) own, never a keyword,
+ * so a property called "example" or "description" is still walked as a schema */
+const MAP_KEYS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'])
 
 /** A copy of an input schema whose JSON is at most `max` characters, made by cutting its longest `description` strings
  * (at any depth, never inside a value) to one common length, the largest that fits; null when it cannot fit even with
  * every description cut (the rest of it is too large). Names, types, required and every other key are never changed. */
 export function shrinkSchema(schema: Record<string, unknown>, max: number): Record<string, unknown> | null {
   const lengths: number[] = []
-  const walk = (v: unknown, at: number | null): unknown => {
+  // `map`: v maps names to schemas (MAP_KEYS), so its keys are names, not keywords
+  const walk = (v: unknown, at: number | null, map = false): unknown => {
     if (Array.isArray(v)) return v.map((x) => walk(x, at))
     if (!v || typeof v !== 'object') return v
     const out: Record<string, unknown> = {}
     for (const [k, x] of Object.entries(v)) {
-      if (VALUE_KEYS.has(k)) out[k] = x
+      if (map) out[k] = walk(x, at)
+      else if (VALUE_KEYS.has(k)) out[k] = x
       else if (k === 'description' && typeof x === 'string') { if (at === null) lengths.push(x.length); out[k] = at === null ? x : cutWords(x, at) }
-      else out[k] = walk(x, at)
+      else out[k] = walk(x, at, MAP_KEYS.has(k) && !!x && typeof x === 'object' && !Array.isArray(x))
     }
     return out
   }

@@ -29,7 +29,7 @@ import { refreshGoogleApp } from '../google-apps/tokens'
 import { serverAppAt } from '@mycel/shared'
 import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
-import { APP_NAMES, appTools } from '../google-apps/catalog'
+import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { demoFakesOf } from '../../demo/fakes'
 import { workspaceLibraryOf } from '../google-apps/library'
@@ -1003,14 +1003,17 @@ export class Integrations {
         const { tools, more, total, unread } = row.google_app ? { ...listed, tools: appTools(row.google_app, listed.tools), more: false, unread: false } : listed
         // a tool whose input schema was too large: kept shortened, or left out; never without a line in the log (names
         // and sizes only: a name that carries a secret was refused before, mcp.ts toolOf)
-        if (listed.shortened.length || listed.dropped.length) {
+        // a Google app: only its own app's tools count (the library lists all four apps')
+        const mine = (l: { name: string; chars: number }[]) => row.google_app ? l.filter((x) => isAppTool(row.google_app!, x.name)) : l
+        const shortened = mine(listed.shortened), dropped = mine(listed.dropped)
+        if (shortened.length || dropped.length) {
           const few = (l: { name: string; chars: number }[]) => l.slice(0, 20).map((x) => `${x.name} (${x.chars})`)
-          this.ctx.log.warn('connection tools over the schema size limit', { id: row.id, name: row.name, limit: MAX_SCHEMA_CHARS, shortened: listed.shortened.length, dropped: listed.dropped.length, shortenedTools: few(listed.shortened), droppedTools: few(listed.dropped) })
+          this.ctx.log.warn('connection tools over the schema size limit', { id: row.id, name: row.name, limit: MAX_SCHEMA_CHARS, shortened: shortened.length, dropped: dropped.length, shortenedTools: few(shortened), droppedTools: few(dropped) })
         }
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools);
         // how many were left out as too large, so an empty list says why (ConnectionPage.tsx)
-        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: listed.dropped.length })
+        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: dropped.length })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) this.setStatus(row, 'needs_auth', `refused:${res.status}`)
