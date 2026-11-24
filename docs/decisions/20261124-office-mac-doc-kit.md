@@ -35,12 +35,16 @@
   cannot read the home folder, the keychain item of the Claude login, other processes (ps, signals), cannot submit a
   launchd job, open an app or reach the network or a Unix socket (QA TC-8713). A kernel or Seatbelt bug is not covered.
   A run shares the server's uid, so a process that leaves its process group (setsid) is not reached by a group kill.
-  Bounds (security review of #509): rlimits inherited by every process of the run, escapees too (processes of this uid
-  at most what runs now plus the run's pids limit, so a fork bomb stops there; CPU seconds per process at most the
-  run's time limit); and when a run ends, and when the server starts, this uid's processes that carry the run's tag
-  (`TRINA_RUN_ID`, visible for programs that are not part of macOS), that a quarter-second watchdog saw descend from
-  the run (by parent and by process group), or that work in `devenv/` are ended. What is left: a macOS binary started with no tag that leaves `devenv/`
-  after a double fork between two looks. It keeps the rlimits and the sandbox (no network, only the work folder) and
-  lives until it ends or the Mac restarts; it does not outlive a restart of the server otherwise.
+  Bounds (security review and re-check of #509): rlimits inherited by every process of the run, escapees too (processes
+  of this uid at most what runs now plus the run's pids limit, so a fork bomb stops there; CPU seconds per process at
+  most the run's time limit). The shell that runs the command inside the sandbox reaps when the command ends, and on
+  the server's stop (SIGTERM first, then the kill): `kill -KILL -1`, which Seatbelt lets reach every process of that
+  run's sandbox and nothing outside it, so a survivor that setsids, double-forks and leaves `devenv/` ends with the run
+  (a perl survivor that held 1.6 GB past the run's end and a server restart before this fix now ends with it). After
+  the run, and at every server start, this uid's processes that carry the run's tag (`TRINA_RUN_ID`, visible for
+  programs that are not part of macOS), that a quarter-second watchdog saw descend from the run (by parent and by
+  process group), or that work in `devenv/` are ended too. **What is left:** a process that kills the reaping shell
+  before the command ends. It keeps the rlimits and the sandbox (no network, only the work folder) and lives until it
+  ends or the Mac restarts.
 - **Reopen when.** The security review finds Seatbelt too weak for AI-written code as the server's user, or office
   installs get a privileged helper (then slot accounts, as on a Mac team server).

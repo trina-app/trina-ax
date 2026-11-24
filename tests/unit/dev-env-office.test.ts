@@ -8,14 +8,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { devenvPaths, runEnv, settingsProblems, srtSettings } from '../../server/src/devenv/srt/config'
 import { docKit, kitPaths, resetDocKitCache } from '../../server/src/devenv/kit'
-import { RUN_TAG, descendants, endRunProcesses, officeArgv, officeSystem, parseOwnPs } from '../../server/src/devenv/srt/system-office'
+import { RUN_TAG, descendants, endRunProcesses, officeArgv, officeSystem, parseOwnPs, reaped } from '../../server/src/devenv/srt/system-office'
 import { spawn } from 'node:child_process'
 import { devEnvUi, documentsOnlyServer } from '../../server/src/devenv/setting'
 import { OFFICE_PIPE_RE, sandboxProfile } from '../../server/src/tools/isolate'
 import { officeDocKitEnv } from '../../server/src/office/cli'
 import { linuxList, listProblems, readList } from '../../scripts/system/packages'
 
-setDefaultTimeout(30_000)
+setDefaultTimeout(60_000)
+const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
 const REPO = path.join(import.meta.dir, '..', '..')
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dockit-')))
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
@@ -106,7 +107,12 @@ describe('the office SrtSystem (srt/system-office.ts)', () => {
     const a = officeArgv({ node: '/k/node/bin/node', srtCli: '/k/srt/cli.js' }, { settingsFile: '/s.json', command: 'echo hi', procs: 1100, cpuSec: 150 })
     expect(a.slice(0, 2)).toEqual(['/bin/sh', '-c'])
     for (const l of ['ulimit -u 1100', 'ulimit -t 150', 'ulimit -f 4194304', 'ulimit -c 0']) expect(a[2]).toContain(l)
-    expect(a.slice(4)).toEqual(['/k/node/bin/node', '/k/srt/cli.js', '--settings', '/s.json', '-c', 'echo hi'])
+    expect(a.slice(4)).toEqual(['/k/node/bin/node', '/k/srt/cli.js', '--settings', '/s.json', '-c', reaped('echo hi')])
+    // the command in a subshell, then the reaper, which acts only inside srt's sandbox (SANDBOX_RUNTIME=1)
+    expect(reaped('echo hi')).toBe(`trap '[ "$SANDBOX_RUNTIME" = 1 ] && kill -KILL -1 2>/dev/null; exit 143' TERM\n(\necho hi\n)\nrc=$?\n[ -n "$TRINA_RC_FILE" ] && printf '%s' "$rc" > "$TRINA_RC_FILE" 2>/dev/null\n[ "$SANDBOX_RUNTIME" = 1 ] && kill -KILL -1 2>/dev/null\nexit $rc`)
+    // outside a sandbox it is inert (the tests' fake srt below runs it so): the exit code is the command's
+    const r = Bun.spawnSync(['/bin/sh', '-c', reaped('(exit 7)')], { env: { PATH: '/usr/bin:/bin' } })
+    expect(r.exitCode).toBe(7)
     expect(() => officeArgv({ node: 'n', srtCli: 'c' }, { settingsFile: '/s', command: 'x', procs: 0, cpuSec: 1 })).toThrow()
   })
   test('ps lines: the run tag is read from the environment of this uid\'s processes', () => {
@@ -133,7 +139,6 @@ describe('the office SrtSystem (srt/system-office.ts)', () => {
   const spec = (runId: string, command: string, o: { memoryMiB?: number; pids?: number; sec?: number } = {}) => ({ runId, id: 'mycel', cwd: work, env: { PATH: '/usr/bin:/bin', TRINA_WORK: work },
     limits: { cpus: 1, memoryMiB: o.memoryMiB ?? 512, pids: o.pids ?? 64, runtimeMaxSec: o.sec ?? 30 },
     exitFile: path.join(d, `${runId}.exit`), settingsFile: path.join(d, 's.json'), command, stdoutFile: path.join(d, `${runId}.out`), stderrFile: path.join(d, `${runId}.out`) })
-  const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
   const mac = process.platform === 'darwin'
 
   test('the exit code is the command\'s; a run over its memory ends and is marked oom', async () => {
@@ -185,6 +190,45 @@ describe('the office SrtSystem (srt/system-office.ts)', () => {
     await Bun.sleep(300)
     expect(alive(a.pid!)).toBe(false)
     expect(alive(b.pid!)).toBe(false)
+  })
+})
+
+// with the real srt (TRINA_TEST_SRT_CLI: srt 0.0.81's dist/cli.js; skipped without it): a perl survivor that setsids,
+// double-forks and leaves devenv/ at once (no tag ps can see) ends with the run, through the reaper in its sandbox
+describe('the reaper with the real srt (security re-check of #509)', () => {
+  const srtCli = process.env.TRINA_TEST_SRT_CLI ?? ''
+  const on = process.platform === 'darwin' && !!srtCli && fs.existsSync(srtCli)
+  test('a perl survivor (setsid, double fork, cd /) ends at the end of its run; a process outside the sandbox does not', async () => {
+    if (!on) return
+    const home = fs.realpathSync(os.homedir())
+    const top = fs.mkdtempSync(path.join(home, '.trina-reaper-test-'))
+    try {
+      const base = path.join(top, 'data'), team = path.join(top, 'team'), work = path.join(devenvPaths(base).work, 'u1', 'c1')
+      for (const dd of [work, team, path.join(devenvPaths(base).home, 'u1', 'tmp'), path.join(devenvPaths(base).logs, 'u1')]) fs.mkdirSync(dd, { recursive: true })
+      const input = { base, id: 'mycel', teamRoot: team, userId: 'u1', view: { read: [], write: [], denyRead: [], denyWrite: [] }, start: null, work, network: 'offline' as const,
+        extraDomains: [], denyHosts: [], denyAddrs: [], platform: 'darwin' as const }
+      const st = srtSettings(input)
+      expect(settingsProblems(st, input)).toEqual([])
+      const sf = path.join(top, 's.json'); fs.writeFileSync(sf, JSON.stringify(st), { mode: 0o600 })
+      // a process of this user outside the run: the reaper must not reach it
+      const outside = spawn('/bin/sleep', ['120'], { detached: true, stdio: 'ignore' }); outside.unref()
+      const sys = officeSystem({ ...kitPaths(top), node: process.execPath, srtCli }, base)
+      const cmd = `perl -e 'use POSIX; fork and exit; POSIX::setsid(); fork and exit; open(F,">s.pid"); print F $$; close F; chdir("/"); sleep 600'; sleep 1`
+      const r = await sys.spawn({ runId: 'ffffffffffffffff', id: 'mycel', cwd: work, env: { ...runEnv({ base, userId: 'u1', teamRoot: team, work, platform: 'darwin' }) }, limits: { cpus: 1, memoryMiB: 512, pids: 64, runtimeMaxSec: 30 },
+        exitFile: path.join(top, 'x.exit'), settingsFile: sf, command: cmd, stdoutFile: path.join(top, 'x.out'), stderrFile: path.join(top, 'x.out') })
+      await r.exited
+      const survivor = Number(fs.readFileSync(path.join(work, 's.pid'), 'utf8'))
+      expect(survivor).toBeGreaterThan(1)
+      for (let i = 0; i < 20 && alive(survivor); i++) await Bun.sleep(100)
+      expect(alive(survivor)).toBe(false)
+      expect(alive(outside.pid!)).toBe(true)
+      process.kill(outside.pid!, 'SIGKILL')
+      // the command's own exit code and output come through the reaper
+      const r2 = await sys.spawn({ runId: 'gggggggggggggggg', id: 'mycel', cwd: work, env: { ...runEnv({ base, userId: 'u1', teamRoot: team, work, platform: 'darwin' }) }, limits: { cpus: 1, memoryMiB: 512, pids: 64, runtimeMaxSec: 30 },
+        exitFile: path.join(top, 'y.exit'), settingsFile: sf, command: 'echo built; exit 3', stdoutFile: path.join(top, 'y.out'), stderrFile: path.join(top, 'y.out') })
+      expect((await r2.exited).code).toBe(3)
+      expect(fs.readFileSync(path.join(top, 'y.out'), 'utf8')).toBe('built\n')
+    } finally { fs.rmSync(top, { recursive: true, force: true }) }
   })
 })
 

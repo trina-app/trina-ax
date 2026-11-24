@@ -16,9 +16,11 @@
 //   its parent);
 // - when a run ends, and when the server starts, this uid's processes that carry a run's tag, that the watchdog noted,
 //   or whose working folder is in the dev environment's folders (devenv/), are ended (endRunProcesses).
-// What is left: a macOS binary (or one started with env -i) that leaves devenv/ (cd /) after a double fork between two
-// watchdog looks. It keeps the rlimits (CPU time, process count) and the sandbox (no network, only the work folder),
-// and lives until it ends by itself or the Mac restarts.
+// - inside the sandbox, the shell that runs the command reaps when it ends (reaped: kill -KILL -1, which Seatbelt
+//   lets reach only the processes of that run's sandbox), also when the server stops the run (SIGTERM first). So a
+//   macOS binary that drops its tag, double-forks and leaves devenv/ ends with the run too.
+// What is left: a process that kills the reaping shell before the command ends. It keeps the rlimits (CPU time,
+// process count) and the sandbox (no network, only the work folder), and lives until it ends or the Mac restarts.
 import { spawn as spawnChild } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -35,12 +37,44 @@ const uidMax = () => {
   return Number.isInteger(n) && n > 0 ? n : 2000
 }
 
+/**
+ * The command a run's sandboxed shell runs: the AI's command in a subshell, then the reaper. `kill -KILL -1` from inside
+ * the sandbox reaches every process of that run's sandbox and nothing else (srt's Seatbelt profile allows signals only
+ * to the same sandbox, security re-check of #509), so a process that left the run's group, its folder and its
+ * environment ends with the run too. The server's stop sends SIGTERM to the run's group first; the trap reaps then.
+ * Only inside srt's sandbox (SANDBOX_RUNTIME=1, which srt sets): outside one, kill -1 would end every process of
+ * the user. kill -1 ends this shell too (macOS), so the command's exit code goes first into $TRINA_RC_FILE (in the run's
+ * own temp folder; the command could write it too, which changes only its own exit code), and srt's closing line about
+ * the signal is taken off the output (rcAfterReap). What is left: a process that kills this shell before the command
+ * ends.
+ */
+export function reaped(command: string): string {
+  const reap = '[ "$SANDBOX_RUNTIME" = 1 ] && kill -KILL -1 2>/dev/null'
+  return `trap '${reap}; exit 143' TERM\n(\n${command}\n)\nrc=$?\n[ -n "$TRINA_RC_FILE" ] && printf '%s' "$rc" > "$TRINA_RC_FILE" 2>/dev/null\n${reap}\nexit $rc`
+}
+/** srt's last line when the reaper ended its shell */
+const SRT_KILLED_LINE = 'Process killed by signal: SIGKILL\n'
+/** The exit code a reaped run left in its rc file (and srt's closing line off the output), or null */
+export function rcAfterReap(rcFile: string, outFile: string): number | null {
+  let rc: number | null = null
+  try { const v = fs.readFileSync(rcFile, 'utf8').trim(); if (/^[0-9]{1,3}$/.test(v)) rc = Number(v) } catch { return null } finally { try { fs.rmSync(rcFile, { force: true }) } catch {} }
+  if (rc === null) return null
+  try {
+    const size = fs.statSync(outFile).size, n = Buffer.byteLength(SRT_KILLED_LINE)
+    if (size >= n) {
+      const fd = fs.openSync(outFile, 'r'); const b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, size - n); fs.closeSync(fd)
+      if (b.toString() === SRT_KILLED_LINE) fs.truncateSync(outFile, size - n)
+    }
+  } catch { /* the output stays as it is */ }
+  return rc
+}
+
 /** The argv of one run: a shell sets the limits and execs srt (its CLI with the run's settings) in place. `procs`: the
  * processes this uid may have in all (ulimit -u); `cpuSec`: CPU seconds per process (ulimit -t). */
 export function officeArgv(kit: Pick<DocKit, 'node' | 'srtCli'>, o: { settingsFile: string; command: string; procs: number; cpuSec: number }): string[] {
   if (!Number.isInteger(o.procs) || o.procs < 1 || !Number.isInteger(o.cpuSec) || o.cpuSec < 1) throw new Error('bad limits for a run')
   return ['/bin/sh', '-c', `ulimit -u ${o.procs} && ulimit -t ${o.cpuSec} && ulimit -n 4096 && ulimit -f 4194304 && ulimit -c 0 && exec "$@"`, 'trina-run',
-    kit.node, kit.srtCli, '--settings', o.settingsFile, '-c', o.command]
+    kit.node, kit.srtCli, '--settings', o.settingsFile, '-c', reaped(o.command)]
 }
 
 /** One process of this uid: pid, parent, its environment holds a run tag (and which), its command */
@@ -124,7 +158,7 @@ function rssKiB(pids: number[]): number | null {
   return r.stdout.toString().split('\n').reduce((a, l) => a + (Number(l.trim()) || 0), 0)
 }
 
-interface Live { pid: number; noted: Set<number>; oom: boolean; watch: ReturnType<typeof setInterval>; note: ReturnType<typeof setInterval>; work: string | null }
+interface Live { pid: number; noted: Set<number>; oom: boolean; ending?: boolean; watch: ReturnType<typeof setInterval>; note: ReturnType<typeof setInterval>; work: string | null }
 
 /** what was swept when this server process started (once per base) */
 const startSwept = new Set<string>()
@@ -147,7 +181,10 @@ export function officeSystem(kit: DocKit, base: string): SrtSystem {
         for (const m of ['.oom', '.timeout']) try { fs.rmSync(s.exitFile + m, { force: true }) } catch {}
         const procs = Math.min(ownProcs().length + s.limits.pids, uidMax())
         const argv = officeArgv(kit, { settingsFile: s.settingsFile, command: s.command, procs, cpuSec: Math.max(1, Math.ceil(s.limits.runtimeMaxSec)) })
-        const env = { ...s.env, [RUN_TAG]: s.runId }
+        // the exit code the reaper keeps (reaped): in the run's own temp folder
+        const rcFile = s.env.TMPDIR && path.isAbsolute(s.env.TMPDIR) ? path.join(s.env.TMPDIR, `.trina-exit-${s.runId}`) : ''
+        if (rcFile) try { fs.rmSync(rcFile, { force: true }) } catch {}
+        const env = { ...s.env, [RUN_TAG]: s.runId, ...(rcFile ? { TRINA_RC_FILE: rcFile } : {}) }
         // a process group of its own (detached), so stop reaches the run's group at once; the tag and the noted pids
         // reach a process that left it
         const p = spawnChild(argv[0]!, argv.slice(1), { cwd: s.cwd, env, stdio: ['ignore', out, err], detached: true })
@@ -165,7 +202,14 @@ export function officeSystem(kit: DocKit, base: string): SrtSystem {
             for (const x of all) l.noted.add(x)
           } catch { /* next second */ }
           const kb = rssKiB(all)
-          const end = (marker: string, value: string) => { try { fs.writeFileSync(s.exitFile + marker, value) } catch {} ; endRunProcesses({ runIds: [s.runId], noted: l.noted }) }
+          // SIGTERM to the run's group first: its shell's trap reaps the run's whole sandbox; then whatever is left
+          const end = (marker: string, value: string) => {
+            if (l.ending) return
+            l.ending = true
+            try { fs.writeFileSync(s.exitFile + marker, value) } catch {}
+            try { process.kill(-pid, 'SIGTERM') } catch {}
+            setTimeout(() => endRunProcesses({ runIds: [s.runId], noted: l.noted }), 1000)
+          }
           if (kb !== null && kb > limitKiB) { l.oom = true; end('.oom', String(kb)) }
           else if ((Date.now() - started) / 1000 > s.limits.runtimeMaxSec) end('.timeout', String(Math.round((Date.now() - started) / 1000)))
         }, 1000) }
@@ -177,8 +221,11 @@ export function officeSystem(kit: DocKit, base: string): SrtSystem {
           live.delete(s.runId)
         }
         const exited = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-          p.once('exit', (code, signal) => {
+          p.once('exit', (code0, signal) => {
             finish()
+            // the command's exit code when the reaper ended its shell (srt then exits 1)
+            const kept = rcFile ? rcAfterReap(rcFile, s.stderrFile) : null
+            const code = kept ?? code0
             try { if (code !== null) fs.writeFileSync(s.exitFile, `${code}\n`, { mode: 0o600 }) } catch {}
             resolve({ code, signal })
           })

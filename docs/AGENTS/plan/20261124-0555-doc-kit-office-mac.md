@@ -102,3 +102,8 @@ start. Real srt on this Mac: a setsid double-fork escapee is ended with the run;
 survives with the CPU limit (a busy one died at its 5 s limit); a bounded fork bomb stopped at the limit and left
 nothing. The LibreOffice render now may not fork, execs only soffice and looks up two Mach services (user database,
 LaunchServices); the clipboard, keychain list and search, opening an app and the network are refused under its profile.
+
+**Re-check of #509.** The reviewer found the setsid + `cd /` survivor real but confined; the run's sandboxed shell now
+reaps (`kill -KILL -1` inside the sandbox, on the command's end and on the server's SIGTERM), keeping the command's exit
+code in the run's temp folder. With the real srt a perl survivor ends with its run and a process outside the run does
+not (unit test, run with `TRINA_TEST_SRT_CLI`). Left: a process that kills the reaping shell first.
