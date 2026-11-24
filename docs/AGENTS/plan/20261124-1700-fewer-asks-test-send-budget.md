@@ -24,4 +24,6 @@ The same as tests/unit/b-chat-thread-mentions.test.ts: `beforeEach` clears the r
 
 ## Result
 
-(filled after the runs)
+On the Mac mini, dev 77947ed:
+- 30 runs passed as it is and 30 passed with the fix. That machine is slower than the CI runner, so the bucket refills in time.
+- To show the cause, the refill was turned off for a run (SEND_PER_SECOND = 0, local only). Dev then fails exactly these tests with 429 rate_limited: "a teammate left out by a short name", and "a request that leaves someone out" just before it. With the fix it passes.

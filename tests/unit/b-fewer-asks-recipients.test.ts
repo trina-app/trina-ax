@@ -5,13 +5,14 @@
 // people, never a guest; an add the person's own message asked for goes without the card, and an unnamed recipient
 // still asks.
 // The fixture team (b-harness): alice and erin in marketing, bob in finance, carol admin, dana owner; tess added.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Step } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { fileSharesOf } from '../../server/src/files/shares'
 import { findPeople, resolvedByTitle } from '../../server/src/rooms/reader'
+import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnRequest } from '@mycel/shared/api'
 import { cardPeople } from '../../server/src/chat/share-card'
 import { sameCard } from '../../server/src/chat/open-questions'
@@ -31,6 +32,11 @@ beforeAll(async () => {
   for (const u of ['alice', 'bob', 'carol', 'erin']) { socks[u] = await h.ws(u, { windowId: `win-far-${u}` }); await socks[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
+// every room post and every change of a chat's people takes a send token (rooms SEND_BURST, then 1 a second per person,
+// all rooms together; people-share.ts putChatAudience): bob's tests here together spend more than one burst, which a fast
+// runner does inside a second (429 rate_limited at chatWith, CI run 45427899919), so each test starts with a full budget.
+// The budget itself is tested in b-answer-share.test.ts
+beforeEach(() => (roomsOf(h.ctx) as unknown as { sendBudget: Map<string, unknown> }).sendBudget.clear())
 const put = (rel: string, body = rel) => { const abs = path.join(h.ctx.files.fx.root, ...rel.split('/')); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body) }
 let n = 0
 const folder = (owner: string, name: string) => { const d = `users/${owner}/${name}${++n}`; put(`${d}/a.md`); put(`${d}/b.md`); return d }
