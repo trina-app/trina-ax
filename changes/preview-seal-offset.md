@@ -1,0 +1,1 @@
+- The Word preview in the file panel now draws a seal on its line. It was about 4 mm too low, though the file itself was right.

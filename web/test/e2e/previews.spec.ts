@@ -130,6 +130,17 @@ test.describe('a stamped Word form in the file panel', () => {
   })
   test.afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
 
+  test('a floating picture placed from its paragraph is left where the renderer puts it', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await page.getByTestId('files-input').setInputFiles(path.join(dir, 'stamp-from-paragraph.docx'))
+    const panel = await open(page, 'stamp-from-paragraph.docx')
+    const seal = panel.locator('.docx-wrapper img')
+    await expect(seal).toHaveCount(1, { timeout: 15_000 })
+    expect(await seal.evaluate((i) => (i.parentElement as HTMLElement).style.verticalAlign)).toBe('')
+  })
+
   for (const place of ['over', 'after', 'next_to']) {
     test(`shows the seal placed ${place}`, async ({ page }) => {
       await reset(page, { teamLocale: 'en', usersFollowTeam: true })
@@ -146,6 +157,11 @@ test.describe('a stamped Word form in the file panel', () => {
       const box = (await seal.boundingBox())!
       expect(box.width).toBeGreaterThan(20)
       expect(box.height).toBeGreaterThan(20)
+      // a seal over the mark is centred on its line, not below it (QA TC-8358; 1 mm is about 3.8 px at this zoom or less)
+      if (place === 'over') {
+        const line = (await panel.locator('.docx-wrapper p').filter({ hasText: '김가나테스트' }).boundingBox())!
+        expect(Math.abs(box.y + box.height / 2 - (line.y + line.height / 2))).toBeLessThan(4)
+      }
     })
   }
 })

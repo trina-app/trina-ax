@@ -1,6 +1,7 @@
 // Word / PowerPoint / Excel previews rendered in the page (no server conversion): docx-preview,
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import { fixRenderedBullets } from '../../lib/docxBullets'
+import { alignLineFloats, lineFloats } from '../../lib/docxFloat'
 import { docxFitZoom, docxPageWidth } from '../../lib/docxFit'
 import { defaultDocxPages } from '../../lib/docxPage'
 import clsx from 'clsx'
@@ -64,8 +65,11 @@ export function DocxView({ blob, width }: { blob: Blob; width: number }) {
   const { ref, error, busy } = useRender(async (el) => {
     const { renderAsync } = await import('docx-preview')
     // no external resources: docx-preview renders embedded images from the file itself
-    await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true })
+    // keepOrigin: the file's own XML, for what the renderer does not keep (where a floating picture is measured from)
+    const doc = await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true, keepOrigin: true } as Parameters<typeof renderAsync>[3])
     fixRenderedBullets(el)
+    const xml = (doc.documentPart as unknown as { _xmlDocument?: Document } | undefined)?._xmlDocument
+    if (xml) alignLineFloats([...el.querySelectorAll<HTMLElement>('section > article div[style*="width: 0px"]')], lineFloats(xml))
     // a file with no page of its own (make_file's .docx) gets Word's default page and margins (lib/docxPage.ts),
     // before the page width is measured for the fit zoom
     const wrapper = el.querySelector<HTMLElement>('.docx-wrapper')
