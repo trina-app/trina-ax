@@ -7,6 +7,7 @@ import type { FileChangeSummary } from '@mycel/shared/api'
 import { openTeamFile } from '../../lib/sidePanel'
 import { useT } from '../../i18n'
 import { useFolderWords } from '../../lib/folderLabels'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { Button } from '../ui'
 
 /** the busiest folders of the rest of a long list, shown by name */
@@ -21,6 +22,7 @@ export function summaryCounts(f: FileChangeSummary) {
 export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOpen = false }: { files: FileChangeSummary; onAskOwnFolder: (path: string) => void; disabled?: boolean; defaultOpen?: boolean }) {
   const t = useT()
   const words = useFolderWords()
+  const place = useTeamPlace()
   const [open, setOpen] = useState(defaultOpen)
   const c = summaryCounts(files)
   if (!c.saved && !c.conflicts && !c.rejected) return null
@@ -61,11 +63,11 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
             <li key={x.copyPath} className="text-xs">
               <span className="text-warn">{t('files.summary.conflictLine')}</span>{' '}
               <button type="button" className="text-accent-text hover:underline" title={x.copyPath} onClick={() => openTeamFile(x.copyPath)}>
-                {words.path(x.copyPath, ' › ')}
+                {place(x.copyPath)}
               </button>{' '}
               <span className="text-faint">({t('files.summary.original')}: </span>
               <button type="button" className="text-accent-text hover:underline" title={x.path} onClick={() => openTeamFile(x.path)}>
-                {words.path(x.path, ' › ')}
+                {place(x.path)}
               </button>
               <span className="text-faint">)</span>
             </li>
