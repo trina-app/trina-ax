@@ -950,6 +950,7 @@ export class TurnExec {
     // (docs/decisions/20261118-devenv-shared-chats.md): there a run sees only what everyone who sees the chat now may
     // read (read again for every command), in the project folder of a project chat, never a personal folder; what it
     // may read joins the answer's record as a file read does
+    // The documents profile (an office Mac, devenv/setting.ts) builds in a chat's work folder only: not in a project chat
     if (devEnvFlag() && !this.templateScope && !this.restricted && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
@@ -1163,7 +1164,7 @@ export class TurnExec {
     // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
     // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
-      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office,
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvUi(), office: !!rt.ctx.config.office,
           // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
           ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }),
           // a free-roam demo: no page the demo fences or hides (QA TC-5570)

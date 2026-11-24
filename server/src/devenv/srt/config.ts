@@ -8,6 +8,7 @@ import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
 import type { FolderView } from './access'
 import { BOX_BROWSER_CMD } from './box-browser'
 import { gitEnv } from './git-guard'
+import type { DocKit } from '../kit'
 
 /** The pinned srt version. A new version goes into a new folder (scripts/dev-env/srt/install-srt.sh). */
 export const SRT_VERSION = '0.0.81'
@@ -268,6 +269,8 @@ export interface SettingsInput {
   platform?: DevPlatform
   /** a copy into the work folder (devenv/work-write.ts): its stage folder, readable and never writable in this run */
   stage?: string | null
+  /** an office Mac's document kit (devenv/kit.ts): its real folder, read-only in the run (Python, node, the libraries) */
+  kit?: string | null
 }
 
 const abs = (teamRoot: string, rel: string) => (rel === '' ? teamRoot : path.join(teamRoot, rel))
@@ -297,7 +300,7 @@ export function srtSettings(i: SettingsInput) {
     ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.filter((r) => platform === 'linux' || r !== 'users').map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
   const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
-  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], isStageFolder(i.base, i.stage) ? [i.stage] : [], host.read))
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], isStageFolder(i.base, i.stage) ? [i.stage] : [], host.read, kitOf(i)))
   return {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
@@ -333,6 +336,10 @@ export function hiddenUsers(teamRoot: string, userId: string, platform: DevPlatf
   return names.filter((n) => n !== userId).map((n) => path.join(users, n))
 }
 
+ /** the kit folder a run reads (SettingsInput.kit): an absolute path that is no team, base-wide or host-wide folder */
+const kitOf = (i: Pick<SettingsInput, 'kit' | 'teamRoot' | 'base'>): string[] =>
+  i.kit && path.isAbsolute(i.kit) && i.kit !== '/' && !inside(i.kit, i.teamRoot) && !inside(i.teamRoot, i.kit) && !inside(i.base, i.kit) ? [i.kit] : []
+
 /** Is `child` the same folder as `parent`, or inside it? */
 const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith('/') ? parent : parent + '/')
 
@@ -346,7 +353,7 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId' | 'stage'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId' | 'stage' | 'kit'>): string[] {
   const out: string[] = []
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
@@ -389,7 +396,9 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   // a copy's stage folder (devenv/work-write.ts): only one right in <base>/devenv/stage, only as the input names it
   if (i.stage != null && !isStageFolder(i.base, i.stage)) out.push(`a stage folder outside the base folder's devenv/stage: ${i.stage}`)
   const stage = isStageFolder(i.base, i.stage) ? [i.stage] : []
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...stage, ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...stage, ...host.read, ...kitOf(i)])) out.push(`a path that a run may not read: ${r}`)
+  // the kit is read, never written
+  for (const k of kitOf(i)) for (const w of s.filesystem.allowWrite) if (inside(w, k) || inside(k, w)) out.push(`the document kit is writable: ${w}`)
   // the stage folder is only ever read in a run: the copy goes into the work folder with the run's own rights
   for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).stage) || inside(devenvPaths(i.base).stage, w)) out.push(`a stage folder is writable: ${w}`)
   // the run's first-line files are read-only in it
@@ -476,6 +485,13 @@ font.family: sans-serif
 font.sans-serif: Noto Sans CJK KR, Noto Sans CJK JP, DejaVu Sans
 axes.unicode_minus: False
 `
+/** an office Mac (devenv/kit.ts): matplotlib's fonts there. The Mac's own AppleGothic has Korean; the run can read
+ * /System/Library/Fonts (MAC_SYSTEM_READ_PATHS) */
+export const BOX_MATPLOTLIBRC_MAC = `# Written by the Trina server for the documents profile's commands (server/src/devenv/srt/config.ts)
+font.family: sans-serif
+font.sans-serif: AppleGothic, Apple SD Gothic Neo, Arial Unicode MS, DejaVu Sans
+axes.unicode_minus: False
+`
 const isFile = (p: string) => { try { return fs.statSync(p).isFile() } catch { return false } }
 
 export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string; projectFolder?: string | null; logKey?: string | null
@@ -486,7 +502,9 @@ export interface EnvInput { base: string; userId: string; teamRoot: string; work
   /** the Node libraries folder (default BOX_NODE_LIBS when it is there; null: none) */
   nodeLibs?: string | null
   /** the headless browser of a run (default boxBrowser; null: none) */
-  browser?: string | null }
+  browser?: string | null
+  /** an office Mac's document kit (devenv/kit.ts): its Python and Node libraries, instead of /opt/trina's */
+  kit?: Pick<DocKit, 'pythonBin' | 'nodeLibs' | 'node'> | null }
 
 const there = (p: string) => { try { return fs.statSync(p).isDirectory() } catch { return false } }
 
@@ -506,9 +524,9 @@ export const boxBrowser = (platform: DevPlatform = devPlatform(), file: string =
 export function runEnv(i: EnvInput): Record<string, string> {
   const home = runHome(i.base, i), tmp = runTmp(i.base, i)
   const mac = (i.platform ?? devPlatform()) === 'darwin'
-  const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
-  const boxPython = i.boxPython !== undefined ? i.boxPython : !mac && there(BOX_PYTHON_BIN) ? BOX_PYTHON_BIN : null
-  const nodeLibs = i.nodeLibs !== undefined ? i.nodeLibs : there(BOX_NODE_LIBS) ? BOX_NODE_LIBS : null
+  const node = path.dirname(i.nodeBin ?? i.kit?.node ?? SRT_PATHS.node)
+  const boxPython = i.boxPython !== undefined ? i.boxPython : i.kit ? i.kit.pythonBin : !mac && there(BOX_PYTHON_BIN) ? BOX_PYTHON_BIN : null
+  const nodeLibs = i.nodeLibs !== undefined ? i.nodeLibs : i.kit ? i.kit.nodeLibs : there(BOX_NODE_LIBS) ? BOX_NODE_LIBS : null
   const browser = i.browser !== undefined ? i.browser : boxBrowser(mac ? 'darwin' : 'linux')
   const wrapper = path.join(devenvPaths(i.base).bin, BOX_BROWSER_CMD)
   const browserCmd = browser && isFile(wrapper) ? wrapper : browser
@@ -518,10 +536,12 @@ export function runEnv(i: EnvInput): Record<string, string> {
     // run xcrun, which needs the developer folder that xcode-select names), Homebrew's programs when the Mac has them
     // (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
     // the git wrapper first (git-guard.ts): every git call checks the repository's settings
-    PATH: mac ? `${devenvPaths(i.base).bin}:${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:${boxPython ? `${boxPython}:` : ''}/usr/local/bin:/usr/bin:/bin`,
+    PATH: mac ? `${devenvPaths(i.base).bin}:${node}:${boxPython ?? '/opt/trina/python3/bin'}:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:${boxPython ? `${boxPython}:` : ''}/usr/local/bin:/usr/bin:/bin`,
     ...(nodeLibs ? { NODE_PATH: nodeLibs } : {}),
     // Korean, Japanese and Chinese in what a command draws (ffmpeg drawtext, matplotlib, LibreOffice): QA TC-7043
     ...(fonts ? { FONTCONFIG_FILE: path.join(fonts, 'fonts.conf'), MATPLOTLIBRC: path.join(fonts, 'matplotlibrc') } : {}),
+    // an office Mac: matplotlib draws Korean with the Mac's own AppleGothic (BOX_MATPLOTLIBRC_MAC)
+    ...(mac && i.kit && isFile(path.join(boxFontsDir(i.base), 'matplotlibrc')) ? { MATPLOTLIBRC: path.join(boxFontsDir(i.base), 'matplotlibrc') } : {}),
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke
@@ -550,7 +570,7 @@ export function runEnv(i: EnvInput): Record<string, string> {
     TRINA_TEAM: i.teamRoot,
     ...(i.work ? { TRINA_WORK: i.work } : {}),
     // the document skills, read-only (devenv/doc-skills.ts): only where a run has their Python libraries
-    ...(!mac && boxPython && fs.existsSync(path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR, 'SOURCE.json')) ? { TRINA_DOC_SKILLS: path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR) } : {}),
+    ...((!mac || i.kit) && boxPython && fs.existsSync(path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR, 'SOURCE.json')) ? { TRINA_DOC_SKILLS: path.join(devenvPaths(i.base).bin, DOC_SKILLS_DIR) } : {}),
   }
 }
 

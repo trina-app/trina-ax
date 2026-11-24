@@ -290,6 +290,8 @@ export async function run(home: string): Promise<never> {
   // HTML to PDF: the browser office-install.sh installed (an explicit MYCEL_HTML_PDF_BROWSER of the agent wins)
   const browser = officeBrowserEnv(p, env)
   if (browser) env.MYCEL_HTML_PDF_BROWSER = browser
+  // documents: the kit office-install.sh installed (devenv/kit.ts): builds in the documents profile, the page render
+  Object.assign(env, officeDocKitEnv(p, env))
   const spawnServer = () => {
     startedAt = Date.now()
     child = Bun.spawn([process.execPath, mainScript(), '--config', p.serverJson], { cwd: p.home, env, stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' })
@@ -489,6 +491,18 @@ async function answers(url: string, timeoutMs = 2000): Promise<boolean> {
 export function officeBrowserEnv(p: Pick<OfficePaths, 'browser'>, env: Record<string, string | undefined>): string | null {
   if (env.MYCEL_HTML_PDF_BROWSER) return null
   try { return fs.statSync(p.browser).isFile() ? p.browser : null } catch { return null }
+}
+
+/** The document kit's environment for the office server (docs/decisions/20261124-office-mac-doc-kit.md), when
+ * office-install.sh put the kit in <home>/kit/current: the kit (MYCEL_DOC_KIT), its fonts for every page render
+ * (MYCEL_KIT_FONTS_DIR, files/office-profile.ts), and the documents profile of the dev environment (box_shell builds
+ * files with no network in a chat's work folder; its folders under <home>/data/devenv). Nothing without the kit, or when
+ * the agent's environment sets the dev environment itself. */
+export function officeDocKitEnv(p: Pick<OfficePaths, 'home' | 'data'>, env: Record<string, string | undefined>): Record<string, string> {
+  if (env.MYCEL_DEV_ENV !== undefined || env.MYCEL_DOC_KIT !== undefined) return {}
+  const kit = path.join(p.home, 'kit', 'current')
+  try { if (!fs.statSync(path.join(kit, '.key')).isFile()) return {} } catch { return {} }
+  return { MYCEL_DOC_KIT: kit, MYCEL_KIT_FONTS_DIR: path.join(kit, 'fonts'), MYCEL_DEV_ENV: '1', MYCEL_DEV_ENV_DOCUMENTS_ONLY: '1', MYCEL_INSTALL_BASE: p.data }
 }
 
 function agentPath(s: OfficeSettings): string {

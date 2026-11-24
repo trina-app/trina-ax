@@ -742,6 +742,8 @@ export function callerOf(files: unknown, main: unknown): { helper: boolean; key:
  * and again when a call asks for more */
 export const DOCUMENTS_ONLY = 'Commands here run in documents mode: no network, no team folders, no jobs or dev servers; only this chat\'s work folder. Build documents here: copy the files you need into chat:work/ with copy_files first, then save the finished file with save_work_file.'
 const DOCUMENTS_DESCRIPTION = 'Run a shell command (bash) in this chat\'s work folder ($TRINA_WORK), to build and check documents (Word, PowerPoint, Excel, PDF) with python3 and node and their document libraries. ' + DOCUMENTS_ONLY
+/** an office Mac (srt on macOS): node aborts at start when its stdout or stderr is /dev/null inside the sandbox */
+const DOCUMENTS_MAC = ' node stops at once when its output goes to /dev/null here: send it to a file instead.'
 
 export function boxShellTool(h: BoxShellHost) {
   /** the agents (main AI '', each sub-agent its own key) whose first call came already */
@@ -754,7 +756,7 @@ export function boxShellTool(h: BoxShellHost) {
   const bulk = h.bulk ?? newBulkState()
   return {
     name: BOX_SHELL_TOOL,
-    description: h.documents ? DOCUMENTS_DESCRIPTION : h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
+    description: h.documents ? DOCUMENTS_DESCRIPTION + (runPlatform() === 'darwin' ? DOCUMENTS_MAC : '') : h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
     async call(args: unknown, files?: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)

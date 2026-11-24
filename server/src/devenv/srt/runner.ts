@@ -37,7 +37,9 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
-import { commandMode, mayRunCommands, mayUseDevEnv, teamSetting } from '../setting'
+import { commandMode, documentsOnlyServer, mayRunCommands, mayUseDevEnv, teamSetting } from '../setting'
+import { docKit } from '../kit'
+import { officeSystem } from './system-office'
 import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
@@ -48,7 +50,7 @@ import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, shared
 import { writeBoxBrowser } from './box-browser'
 import { writeDocSkills } from '../doc-skills'
 import { sweepAfterRun } from './browser-profiles'
-import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, boxBrowser, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, BOX_MATPLOTLIBRC_MAC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
@@ -126,6 +128,12 @@ export function srtConfig(env: Record<string, string | undefined> = process.env)
   const base = configOverride?.base ?? env.MYCEL_INSTALL_BASE ?? `/var/lib/${id}`
   const planFile = configOverride?.planFile ?? path.join(base, 'root', 'dev-env.json')
   if (systemOverride || env.MYCEL_DEV_ENV_SRT_DIRECT === '1') return { id, base, system: systemOverride ?? directSystem(), planFile }
+  // an office Mac (no sudo, no slot accounts): the documents profile, with the kit's srt as the signed-in user
+  // (system-office.ts). Without its kit there is no run (srtProblem says why)
+  if (devPlatform() === 'darwin' && documentsOnlyServer(env)) {
+    const kit = docKit(env)
+    return kit ? { id, base, system: officeSystem(kit), planFile } : { id, base, system: directSystem(), planFile, problem: 'the document kit is not installed or not ready (run the office installer again)' }
+  }
   // a Mac team server (install-macos.sh): dev slot accounts through sudo (system-mac.ts)
   if (devPlatform() === 'darwin') {
     const m = macConfig(base, env)
@@ -210,7 +218,9 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
   const p = planState(c)
   if (!p.ok) return p.reason
   if (c.problem) return c.problem
-  if (!systemOverride && devPlatform() === 'darwin') {
+  if (!systemOverride && devPlatform() === 'darwin' && documentsOnlyServer()) {
+    // the office kit's files are checked by docKit (srtConfig); the self-test below starts its srt
+  } else if (!systemOverride && devPlatform() === 'darwin') {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.cliMac, SRT_PATHS.cliFull, SRT_PATHS.runWrapMac, SRT_PATHS.sudo, '/usr/bin/sandbox-exec']) if (!fs.existsSync(f)) return `${f} is missing: run scripts/install-macos.sh again (the dev environment step)`
   } else if (!systemOverride) {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
@@ -595,9 +605,10 @@ function writeGitWrapper(c: SrtConfig, platform: ReturnType<typeof runPlatform>)
 /** The box's default fonts (config.ts BOX_FONTS_CONF, BOX_MATPLOTLIBRC) at <base>/devenv/bin/fonts/, written when
  * missing or different; Linux only (a Mac's tools find Apple's fonts). Server-owned and read-only in a run. */
 function writeBoxFonts(c: SrtConfig, platform: ReturnType<typeof runPlatform>) {
-  if (platform === 'darwin') return
+  // an office Mac: matplotlib's Korean font only (fontconfig is not used there)
+  if (platform === 'darwin' && !runKit()) return
   const dir = boxFontsDir(c.base)
-  for (const [name, src] of [['fonts.conf', BOX_FONTS_CONF], ['matplotlibrc', BOX_MATPLOTLIBRC]] as const) {
+  for (const [name, src] of (platform === 'darwin' ? [['matplotlibrc', BOX_MATPLOTLIBRC_MAC]] as const : [['fonts.conf', BOX_FONTS_CONF], ['matplotlibrc', BOX_MATPLOTLIBRC]] as const)) {
     const file = path.join(dir, name)
     try { if (fs.readFileSync(file, 'utf8') === src) continue } catch {}
     fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
@@ -631,7 +642,7 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   // `chromium` and the names people expect start the pinned browser (box-browser.ts); a failure leaves the system's
   try { writeBoxBrowser(p.bin, boxBrowser(runPlatform()), SRT_PATHS.node) } catch (e) { void e }
   // the document skills, read-only in a run; a failure leaves the AI on make_file's path
-  try { if (runPlatform() === 'linux') writeDocSkills(p.bin) } catch (e) { void e }
+  try { if (runPlatform() === 'linux' || runKit()) writeDocSkills(p.bin) } catch (e) { void e }
   // a font preference never stops a command (runEnv leaves the fonts out when fonts.conf is missing)
   try { writeBoxFonts(c, runPlatform()) } catch { /* the system's fonts */ }
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
@@ -711,14 +722,14 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
   // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
   // command checks them first inside the sandbox (entryGuard)
-  const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
+  const given = docs ? { read: [], write: [], denyRead: [], denyWrite: [] } : space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
   const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
     view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder, logKey: runOwner(space).logKey,
     extraDomains: teamSetting(ctx.db).extraDomains,
-    userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
-    full: person.full,
+    userDomains: docs ? [] : [...person.sites, ...parseOnce(formatOnce(once), hosts)],
+    full: docs ? false : person.full,
     denyHosts: hosts,
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
@@ -727,6 +738,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     // a copy's stage folder: only for a run that starts in the work folder (a copy never goes into a team folder this
     // way, nor into a project chat's scratch folder)
     stage: stage && run.start === null ? stage : null,
+    kit: runKit()?.root ?? null,
   }
   if (stage && run.start !== null) throw new Error('a copy goes only into a chat\'s work folder')
   const settings = srtSettings(input)
@@ -745,6 +757,10 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   if (!forHash) throw new Error('the person cannot use the dev environment now')
   return { settings, work, pins, places, hash: runHash(forHash, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
+
+/** an office Mac's document kit, for the runs of this server (null on every other install, and in the tests' fake
+ * systems unless they say darwin) */
+const runKit = () => (runPlatform() === 'darwin' && documentsOnlyServer() ? docKit() : null)
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
   const p = prepare(c, s.space, s.runId, ctx.files.fx.root)
@@ -799,7 +815,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey, kit: runKit() }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${command}` : command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite, ...(s.stage ? { readable: [s.stage] } : {}),
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),

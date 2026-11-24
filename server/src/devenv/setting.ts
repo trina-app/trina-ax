@@ -10,6 +10,14 @@ import { isGuestUser } from '../credentials/guest-ai'
 /** the feature flag (environment of the server process); off by default */
 export const devEnvFlag = (env: Record<string, string | undefined> = process.env) => env.MYCEL_DEV_ENV === '1'
 
+/** A server that runs only documents mode (docs/decisions/20261124-office-mac-doc-kit.md): an office Mac, whose
+ * supervisor sets MYCEL_DEV_ENV_DOCUMENTS_ONLY=1 when its document kit is there. It has no dev slot accounts, so no full
+ * dev environment, and no admin setting for one: documents mode counts as never chosen there (on), and
+ * MYCEL_DOCUMENTS_MODE=0 turns it off (commandMode). */
+export const documentsOnlyServer = (env: Record<string, string | undefined> = process.env) => devEnvFlag(env) && env.MYCEL_DEV_ENV_DOCUMENTS_ONLY === '1'
+/** the full dev environment's settings and API (not on a documents-only server) */
+export const devEnvUi = (env: Record<string, string | undefined> = process.env) => devEnvFlag(env) && !documentsOnlyServer(env)
+
 function inScope(db: Database, scope: DevEnvScope, userId: string): boolean {
   if (scope.mode === 'writers') return true
   if (scope.userIds.includes(userId)) return true
@@ -64,6 +72,8 @@ export function teamInForce(s: DevEnvTeamSetting, flag = devEnvFlag()): boolean 
 /** may this person run commands now, in any chat? Active account, the team setting in force, in scope. What the
  * person may read and write is decided per run from the folder rules (srt/access.ts), not here. */
 export function mayUseDevEnv(db: Database, files: FileService, userId: string, flag = devEnvFlag()): boolean {
+  // a documents-only server (an office Mac) has no full dev environment
+  if (documentsOnlyServer()) return false
   const s = teamSetting(db)
   if (!teamInForce(s, flag)) return false
   try { if (!files.principal(userId)) return false } catch { return false }
@@ -93,7 +103,8 @@ export const documentsModeFlag = (env: Record<string, string | undefined> = proc
 export type CommandMode = 'full' | 'documents'
 export function commandMode(db: Database, files: FileService, userId: string, flag = devEnvFlag()): CommandMode | null {
   if (mayUseDevEnv(db, files, userId, flag)) return 'full'
-  if (!flag || !documentsModeFlag() || !teamNeverChose(db)) return null
+  // a documents-only server has no dev environment setting: never chosen, so on
+  if (!flag || !documentsModeFlag() || !(documentsOnlyServer() || teamNeverChose(db))) return null
   try { const p = files.principal(userId); if (!p || p.role === 'guest' || isGuestUser(db, userId)) return null } catch { return null }
   return 'documents'
 }
