@@ -147,7 +147,7 @@ export type HwpChange =
  * that numbering cannot shift onto another signer. `tables`: how many tables the document has after those changes. */
 export interface PictureRef {
   tables: number
-  text?: { sec: number; top: number; cell?: { table: number; row: number; col: number; para: number }; at: number; find: string; label: string; mark: { from: number; to: number; aimFrom: number; aimTo: number } | null; expected: string }
+  text?: { sec: number; top: number; cell?: { table: number; row: number; col: number; para: number }; at: number; find: string; expected: string }
   cell?: { label: { table: number; row: number; col: number }; target: { table: number; row: number; col: number } }
 }
 
@@ -157,6 +157,10 @@ export interface HwpImageChange {
   ref?: PictureRef
   image: string; at?: string; place?: 'over' | 'after' | 'before'; cell?: { next_to: string; direction?: 'right' | 'below' }
   occurrence?: number; width_mm?: number; height_mm?: number; layer?: 'behind' | 'front'
+  /** at x/y mm (the picture's top-left) on this 1-based page */
+  page?: number; x_mm?: number; y_mm?: number
+  /** set by the server only (move_picture with dx_mm/dy_mm): moved this far from the place found */
+  shift?: { x_mm: number; y_mm: number }
 }
 export const isImageChange = (c: HwpChange): c is HwpImageChange => 'image' in c
 

@@ -1,7 +1,7 @@
 # A seal goes on the printed mark, and the result says what was checked
 
 - Date: 2026-11-23
-- Status: accepted
+- Status: superseded by [20261124-place-picture.md](20261124-place-picture.md)
 - Supersedes: none
 - Branch: fix/seal-on-mark (the owner: "도장 위치 저것도 루트를 고쳐야한다 그것만 고치지 말고")
 

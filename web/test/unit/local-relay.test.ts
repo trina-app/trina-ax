@@ -46,3 +46,26 @@ describe('local relay (page)', () => {
     expect(cancelled).toEqual(['c'])
   })
 })
+
+describe('the desktop app asks on the computer (watchLocalAsking)', () => {
+  test('a notice stays while its "Connect a program" window waits, and goes when it is answered', async () => {
+    const { watchLocalAsking } = await import('../../src/lib/localRelay')
+    const { useUi } = await import('../../src/store/ui')
+    let emit!: (s: { id: string; name: string; asking: boolean }) => void
+    let offs = 0
+    const bridge = { localApps: { version: 1, onAsking: (cb: typeof emit) => { emit = cb; return () => { offs++ } } } } as unknown as DesktopBridge
+    const stop = watchLocalAsking(() => bridge)
+    emit({ id: 'c1', name: 'Aside', asking: true })
+    const shown = useUi.getState().toasts.filter((x) => x.text.includes('Aside'))
+    expect(shown).toHaveLength(1)
+    expect(shown[0]!.sticky).toBe(true)
+    emit({ id: 'c1', name: 'Aside', asking: false })
+    expect(useUi.getState().toasts.filter((x) => x.text.includes('Aside'))).toHaveLength(0)
+    emit({ id: 'c1', name: 'Aside', asking: true })
+    stop()
+    expect(useUi.getState().toasts.filter((x) => x.text.includes('Aside'))).toHaveLength(0)
+    expect(offs).toBe(1)
+    // an older desktop app without it: nothing to watch
+    expect(() => watchLocalAsking(() => ({ localApps: { version: 1 } }) as unknown as DesktopBridge)()).not.toThrow()
+  })
+})
