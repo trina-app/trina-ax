@@ -20,7 +20,7 @@
   real money; permanent delete with no trash; a schedule that sends to others with nobody watching. Rule A still holds:
   the person's Always skips the first two. Decided once on the server, `server/src/chat/explicit-send.ts floorFree`.
 - **Rule: named sends.** `post_to_room`: the asker's own message asks to post and names the place (a room, a person, a
-  title such as "팀장님" that resolves to one person, `@everyone` in their own words) and nothing is on the floor: it
+  title such as "팀장님" that resolves to one person, `@everyone` written by them outside the quoted text, in a plain request, with the post being exactly their quote) and nothing is on the floor: it
   goes without the card, with copies of the person's own files (or files they named or the AI made in this answer) and
   no view grant (as under Always). Still asks: another person wrote in the chat, a room read (except content the person
   already sent on a card in this chat to everyone the new place holds: one card per source, `post_sources`, never wider), a guest 1:1 or a guest in the room when

@@ -672,14 +672,15 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // picked elsewhere either
         // (the everyone mention apart: the post checks it below, everyoneSaid; where the person put it in their sentence is
         // not part of their text, QA b5 F6 "\"<text>\" 이라고 @everyone 으로 올려줘" went as "@전체 <text>")
-        const theirText = plain && (fold(said).includes(fold(shown)) || (mentionAll && everyoneAsked(said) && isTheirQuote(said, shown)))
+        const everyoneQuote = plain && mentionAll && everyoneAsked(said) && isTheirQuote(said, shown)
+        const theirText = plain && (mentionAll ? everyoneQuote : fold(said).includes(fold(shown)))
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
         // (each person: the asker's words name them in full, or say the name the AI found exactly that one member by, when
         // that word is not part of another member's name the asker also wrote: "tell Erin Yoo" is no ask to tag Erin)
         // (everyone there only when the asker's own words hold the room's "@everyone" word, never with a guest in the chat)
-        const everyoneSaid = !mentionAll || (!strict && everyoneAsked(said))
+        const everyoneSaid = !mentionAll || (!strict && everyoneQuote)
         const mentionsSaid = everyoneSaid && mentionIds.every((id) => {
           const p = canMention.find((x) => x.id === id)
           if (!p) return false

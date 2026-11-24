@@ -185,10 +185,11 @@ describe('a post the person named: no card, then undo', () => {
     expect((await messagesAs('erin', rooms.marketing)).length).toBe(before)
   })
 
-  test('@everyone in my own words, with the room named: no card, everyone mentioned', async () => {
-    const r = await turn('alice', `Marketing 방에 @전체 로 회의 10시라고 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`)
-    expect(r.card).toBeNull()
-    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', mentioned_everyone: true })
+  test('@everyone on text the AI wrote keeps the card: only the person\'s own quoted words go without it', async () => {
+    const before = (await messagesAs('erin', rooms.marketing)).length
+    const r = await turn('alice', `Marketing 방에 @전체 로 회의 10시라고 올려줘\n${post({ room: rooms.marketing, text: '회의 10시', mention: ['everyone'] })}`, { answer: 'no' })
+    expect(r.card).not.toBeNull()
+    expect((await messagesAs('erin', rooms.marketing)).length).toBe(before)
   })
 
   // QA b5 F6: the person wrote the text in quotes and "@everyone" after it; the AI posted their words with "@everyone" in
@@ -204,9 +205,13 @@ describe('a post the person named: no card, then undo', () => {
   test('@everyone only as a whole word they did not take back; only their whole quote', async () => {
     expect(everyoneAsked('Marketing 방에 "회의" 라고 @everyone 으로 올려줘')).toBe(true)
     expect(everyoneAsked('@전체 회의 10시')).toBe(true)
-    for (const w of ['@전체 말고 올려줘', '@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '@everyone not needed']) expect([w, everyoneAsked(w)]).toEqual([w, false])
+    for (const w of ['@전체 말고 올려줘', '@전체회의 안건 올려줘', '@everyone-sync 방에 올려줘', '@everyone not needed', '@everyone 은 말고 올려줘', '@everyone 하면 안 돼', '"@전체 회의" 라고 올려줘', '"회의 취소" 라고 @everyone 으로 올리지 마', '@everyone 으로 올려도 돼?']) expect([w, everyoneAsked(w)]).toEqual([w, false])
     expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소')).toBe(false)
     expect(isTheirQuote('"내일 회의 취소 안 함" 이라고 @everyone 으로 올려줘', '@everyone 내일 회의 취소 안 함')).toBe(true)
+  })
+  test('own words that are the sentence around the quote, not the quote, keep the card', async () => {
+    const r = await turn('alice', `Marketing 방에 "자료 확인" 이라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 으로 올려줘' })}`, { answer: 'no' })
+    expect(r.card).not.toBeNull()
   })
   test('...but other words than mine in own_words, or @everyone nobody wrote, still ask', async () => {
     const other = await turn('alice', `Marketing 방에 "내일 10시 회의" 라고 @everyone 으로 올려줘\n${post({ room: rooms.marketing, own_words: true, text: '@everyone 내일 10시 회의, 늦으면 벌금' })}`, { answer: 'no' })

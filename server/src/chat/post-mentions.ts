@@ -44,12 +44,18 @@ export function mentionableUser(db: Database, userId: string): Mentionable[] {
 export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 /** Does a text hold "@everyone" in any language, "@channel" or "@here" where a mention may start? */
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
-/** The asker's own words write "@everyone" (each language's word) as a whole word, and do not take it back right after it
- * ("@전체 말고", "@전체회의", "@everyone-sync" are no ask to notify everyone). */
+/** Quoted stretches, as the person put them */
+const QUOTED = /"[^"\n]*"|“[^”\n]*”|「[^」\n]*」/gu
+/** Anything outside the quote that takes the request back or only asks: 말고, 빼고, 제외, 없이, 안, 하지, -지 마, a question
+ * mark, not, don't, never, except, without, no, and the other languages' words. A false match only shows the card. */
+const NOT_A_PLAIN_ASK = /말고|빼고|제외|없이|(?:^|\s)안(?:\s|$)|안\s?돼|하지|지\s?마|마세요|[?？]|\b(?:not|don'?t|never|except|without|no|sin|jangan|tanpa|kecuali)\b|不要|别|以外|ではなく/iu
+/** The asker's own words, outside anything they quote, write "@everyone" (each language's word) as a whole word in a plain
+ * request ("@전체회의", "@everyone-sync", "@전체 말고", or "@전체" only inside the quoted text are no ask to notify everyone). */
 export function everyoneAsked(said: string): boolean {
+  const outside = said.replace(QUOTED, ' ')
+  if (NOT_A_PLAIN_ASK.test(outside)) return false
   const words = ROOM_MENTION_ALL_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const at = new RegExp(`(?:^|[\\s(\\["'“‘])@(?:${words})(?=$|[\\s.,!?)\\]"'”’])(?!\\s*(?:\\uB9D0\\uACE0|\\uBE7C\\uACE0|\\uC81C\\uC678|\\uC5C6\\uC774|\\uC548\\b|\\uD558\\uC9C0|not\\b|except\\b|without\\b))`, 'iu')
-  return at.test(said)
+  return new RegExp(`(?:^|[\\s(\\[])@(?:${words})(?=$|[\\s.,!)\\]])`, 'iu').test(outside)
 }
 /** The text of a post in the person's own words, without its "@everyone", is exactly one stretch they put in quotes: where
  * they put the mention in their sentence is not part of their text (QA b5 F6: "<text>" 이라고 @everyone 으로 올려줘). A part
