@@ -175,7 +175,7 @@ describe('packages.sh reads the list', () => {
   test('a floor per distribution holds only there; the bun and jq readers agree', () => {
     const snippet = `pk_load; for d in debian-13 ubuntu-24.04 debian-12; do echo "$d $(pk_floors $d amd64 office-view | tr '\\n' ' ')"; done`
     const want = ['debian-13 libreoffice-writer 4:25.2.3-2+deb13u12 libreoffice-impress 4:25.2.3-2+deb13u12 libreoffice-calc 4:25.2.3-2+deb13u12 ', 'ubuntu-24.04 ', 'debian-12 ']
-    for (const env of [{ PK_BUN: process.execPath }, {}]) {
+    for (const env of [{ PK_BUN: process.execPath }, {}] as Record<string, string>[]) {
       const r = lib(snippet, env)
       expect(r.err).toBe('')
       expect(r.out.trim().split('\n').map((x) => x.trimEnd() + ' ').map((x) => x.replace(/ +$/, ' '))).toEqual(want)
