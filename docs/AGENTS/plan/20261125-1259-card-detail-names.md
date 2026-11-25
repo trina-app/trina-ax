@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 12:59
 - Branch: `fix/card-detail-names`
-- Status: in progress
+- Status: done
 - Where: `server/src/integrations/connections/` (card lines, words, gate) and `server/src/integrations/google-apps/`.
   Why: the connector change card is built there for every connector tool (see docs/REPOSITORY-RULES.md).
 - Version impact: minor — the change card looks different (a new first line with the item's name, words in the
@@ -67,4 +67,6 @@ c-integrations-card-lines, change-card-action, the new names test), web/test/uni
 
 ## Result
 
-(at the end)
+Built as planned in PR #599: `google-apps/names.ts` (the read and its parsing), `Sent.named` read in the gate just before
+the card, the Google tool titles, field words and value words in six languages, and common field words for every
+connector. Docs and other MCP servers keep the id (no cheap read names them).
