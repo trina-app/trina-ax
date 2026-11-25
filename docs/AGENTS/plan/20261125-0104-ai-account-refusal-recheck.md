@@ -32,13 +32,19 @@ In:
 
 1. **Confirm before marking.** A 401, or an account-level 403, on a model request runs one free check of the same
    account before anything is marked: Claude subscription `POST /v1/messages/count_tokens`, an Anthropic or OpenAI API
-   key `GET /models` (validate.ts verifySecret, no tokens spent). One check per account at a time (single-flight; other
-   requests of the same moment wait for it). Check 200 → nothing is marked, the account is skipped for this turn only
-   (turn event `credential/skip`). Check refused → marked with the check's own code. Check unclear (5xx, network,
-   timeout) → the original answer stands and is marked as before (the background re-check below can still bring it
-   back). ChatGPT keeps its own path untouched: its refresh + one retry already is the confirming check
-   (chatgpt-tokens.ts single-flight unchanged). The "two accounts 403 within 5 minutes = this server" rule stays and
-   runs first.
+   key `GET /models` (validate.ts verifySecret, no tokens spent). One check per account at a time (single-flight, shared
+   with "다시 확인" and the background re-check; requests of the same moment wait for it).
+   - Check 200 → nothing is marked and no account event is sent; the engine gets a 529 (Claude) / 503 (Codex), which
+     its SDK retries on the same account. Retrying never runs a tool twice, unlike switching accounts after a tool ran
+     (chat/turn.ts switchCredential refuses a `skip` switch then; plan review finding 2).
+   - A refusal of a request sent after that passed check, within 10 minutes, is marked without another check (a
+     subscription that ended may still pass count_tokens: decisions/20261118 "Re-check and plan_ended"). A request sent
+     before the check finished counts as the same burst (passed).
+   - Check refused → marked with the check's own code and answer. Check unclear (5xx, network, timeout) → the original
+     answer stands and is marked as before (the background re-check can still bring it back).
+   - ChatGPT keeps its own path untouched: its refresh + one retry already is the confirming check (chatgpt-tokens.ts
+     single-flight unchanged); codex-path.ts confirms only `openai-api-key` 401s.
+   - The "two accounts 403 within 5 minutes = this server" rule stays and runs first.
 2. **Separate codes, keep the answer.**
    - confirmed 401 → `upstream_401` (revoked): the row offers "다시 연결하기" (as now).
    - 403 "OAuth authentication/access is (currently) not allowed" → new code `org_oauth_blocked` (API keys keep
@@ -46,22 +52,30 @@ In:
      Trina checks again by itself every few hours, or reconnect another account.
    - other account-level 403s and billing answers keep `plan_ended` / `upstream_403`.
    - The provider's answer is saved in the row's `meta.refusal` = `{ status, type, message, at }`: error type and
-     message only, any token-like text redacted, at most 300 characters. `Credential.providerError` (optional, nullable)
+     message only, any token-like text, e-mail address and UUID redacted, at most 300 characters, never in logs or
+     turn events. `Credential.providerError` (optional, nullable)
      carries it to the screen while the account is refused; the expanded row shows "Claude's answer: 403 permission_error
      · <message>". Cleared when the account works again (check, re-check, new token).
 3. **Background re-check.** Every 6 hours (first round 10–20 minutes after start, each round ± up to 30 minutes of
-   jitter) refused Claude subscription accounts (`status = 'invalid'`, code `upstream_401`, `upstream_403`,
-   `plan_ended` or `org_oauth_blocked`, not switched off, kind allowed, no gateway, not a free-roam demo) are checked
-   with count_tokens: at most 10 per round, one after another, any account checked less than 5 hours ago skipped
-   (`meta.refusal.checkedAt`, so a restart does not check again). 200 → `status = 'ok'`, code and refusal cleared,
-   `checked_at` set, audited `credential.recovered`, the owner and admins told once ("'{label}' works again"), open
-   screens refresh. Refused → the saved answer and `checkedAt` updated, nothing else. Unclear → only `checkedAt`.
+   jitter) refused Claude subscription accounts are checked with count_tokens, one after another, at most 10 per round,
+   skipping any checked less than 5 hours ago (`meta.refusal.checkedAt`, so a restart does not check again). Only rows
+   that `unusable()` calls `invalid` (so not switched off, kind allowed, sharing on), no gateway, not a free-roam demo:
+   - `org_oauth_blocked`: for 30 days after it was marked (team.trina came back after 5 days);
+   - `upstream_401`: for 7 days, then left alone (a revoked token is not checked forever);
+   - `plan_ended` / `upstream_403` marked before this version (no saved answer): checked once, so the potenlab rows
+     stored as `plan_ended` get their real code or come back; after that never (count_tokens may pass for an ended
+     plan).
+   200 → back to ok only if the row did not change meanwhile (`UPDATE … WHERE status = 'invalid' AND updated_at = ?`),
+   code and saved answer cleared, `checked_at` set, audited `credential.recovered`, the owner and admins told at most
+   once a day ("'{label}' works again"), open screens refresh. Refused → the saved answer, code and `checkedAt` updated
+   (no new notice). Unclear → only `checkedAt`.
 4. **"다시 확인" says what it found.**
    - `POST /api/admin/credentials/:id/check` returns the Credential plus `check: { outcome: 'ok' | 'refused' |
      'unclear', reason: string | null }` (optional field; old clients ignore it).
    - A Claude 403 on the check is no longer silent: an account-level 403 marks it (`org_oauth_blocked` /
      `plan_ended`) with the saved answer; any other 403 is outcome `unclear` with the provider's message as reason
-     (nothing marked: a region or IP block).
+     (nothing marked: a region or IP block). Marks go through `store.markInvalid` (saved answer, audit), without the
+     notice the admin's own click needs no telling about; ok and a new token clear the saved answer.
    - ChatGPT: a refresh that works brings an account marked `upstream_401` back to ok (the same rule as Claude's
      check); `usage_not_included` stays (a refresh says nothing about the plan).
    - Web: while the check runs the row's badge shows a spinner and "확인 중…" (not inside the closed menu); the toast
@@ -126,3 +140,12 @@ confirmed by count_tokens before it is marked; the org-not-allowed one has its o
 ## Result
 
 Filled in at the end.
+
+## Plan review (independent subagent, 2026-11-25)
+
+Taken: confirm 401s with a 529 retry instead of a `skip` switch (2), a second refusal after a passed check marks (1, 3),
+shared single-flight (3), conditional recovery UPDATE (4), skip sharing-off rows and stop re-checking revoked tokens
+after 7 days (5), checkCredential through markInvalid and clearing the saved answer (6), gate the Codex confirm on
+`openai-api-key` (7), redact e-mails and UUIDs (8). Not taken as proposed: "mark account-level 403s directly" (1) — the
+owner asked for the confirming check on those too; the 10-minute rule bounds the cost, and `plan_ended` rows are not
+re-checked in the background after their one legacy check.
