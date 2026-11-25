@@ -2756,16 +2756,19 @@ export class TurnExec {
   /**
    * May the AI keep memories on its own in this turn (docs/decisions/20261122-auto-memory.md "Where auto-save runs")?
    * Per turn: the person's own chat in the app, and since 2026-11-25 a shared or project chat of a member, in the asker's
-   * own memory from the asker's own words (docs/decisions/20261125-auto-memory-shared-chats.md), with nothing of rooms
-   * in it; never a guest's turn, a scheduled run, Slack, a template or restricted run, or a confidential chat. The
-   * person's switch is read separately, when the tool is called (autoMemoryOn).
+   * own memory from the asker's own words (docs/decisions/20261125-auto-memory-shared-chats.md); never a guest's turn
+   * in a shared chat, a ✦ side chat, a scheduled run, Slack, a template or restricted run, or a confidential chat. A
+   * chat that read rooms (or a file shared one by one, or holds a quote) keeps auto memory since 2026-11-25: what came
+   * from rooms is tool output and quote lines are other people's words, both checked by remember as tool output is
+   * (before, every save there asked on a card, which the owner's rule forbids). The person's switch is read
+   * separately, when the tool is called (autoMemoryOn).
    */
   get autoMemoryPlace(): boolean {
     if (this.restricted || this.templateRun) return false
     if (this.shared && isGuestUser(this.rt.db, this.spec.userId)) return false
     if (!['web', 'desktop', 'mobile'].includes(this.spec.clientKind ?? '')) return false
     if (confidentialChat(this.rt.db, this.spec.chatId)) return false
-    return !readRooms(this)
+    return !(this.rt.db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
   }
   get tainted(): boolean {
     return !!(this.rt.db.query('SELECT session_tainted FROM chats WHERE id = ?').get(this.spec.chatId) as { session_tainted: number } | null)?.session_tainted

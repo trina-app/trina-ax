@@ -1690,7 +1690,8 @@ function bTools(exec: TurnExec): Tool[] {
           // the owner relaxed it: the lesson itself, in the AI's words, may be kept, as the Daum/Aside case needs)
           if (rt.outside.blind(spec.chatId) && addressesIn(value).some((x) => !own.replace(/[\s().-]/g, '').toLowerCase().includes(x)))
             return skip(`Not kept: this chat saw content the server could not check (a picture or a web result), and the memory names an address, path or channel the user did not write. Keep the lesson without it, or: ${notFromHere}`, 'address after unchecked content')
-          const outside = [rt.outside.of(spec.chatId), sharedChat ? othersWords(rt.db, sharedChat, spec.userId) : ''].filter(Boolean).join('\n')
+          // (in a private chat othersWords holds the quote lines of the person's own messages: someone else's words)
+          const outside = [rt.outside.of(spec.chatId), othersWords(rt.db, spec.chatId, spec.userId)].filter(Boolean).join('\n')
           if (outside) {
             if (copiedFromOutside(value, outside, own)) return skip(`Not kept: its words come from tool output${sharedChat ? ' or another person\'s message' : ''}. ${notFromHere}`, 'copied from tool output')
             const addr = outsideAddress(value, outside, own)
