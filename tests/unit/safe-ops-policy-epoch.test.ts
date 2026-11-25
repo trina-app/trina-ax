@@ -26,7 +26,8 @@ const policy: Record<string, string> = {
   drive_team_shares: 'id folders whole_drive status owner_user_id config_key', drive_team_share_access: 'share_id subject_type subject_id',
 }
 const bookkeeping: Record<string, string> = {
-  users: 'name email locale created_at prefs last_seen_at locale_follows_team password_reset_by password_reset_at temp_password_failures',
+  // auto_mode: the person's auto mode (chat/auto-mode.ts), never used in a confidential chat (always-allow.ts autoHere)
+  users: 'name email locale created_at prefs last_seen_at locale_follows_team password_reset_by password_reset_at temp_password_failures auto_mode',
   groups: 'name description', group_members: '', folders: 'created_at', folder_rules: 'updated_by updated_at',
   // tools_total, tools_total_more, tools_dropped: how many tools the service offers, and how many were too large (counts
   // for Settings and the instructions; tools_json is the policy); tools_rev: moves on with tools_json (the parsed lists in memory, store.ts savedTools)
