@@ -40,6 +40,8 @@ const ASIDE_MISS_MS = 60_000
 /** the most of a listed app's own guide given as its instructions, in characters (the server cuts again: mcp.ts
  * MAX_INSTRUCTIONS) */
 const GUIDE_MAX = 8000
+/** a listed app's guide that could not be read is not read again before this long (each read can take 10 s) */
+const GUIDE_RETRY_MS = 10 * 60_000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
 const HIDE_MIN = 4
 export const HIDDEN_VALUE = '[hidden]'
@@ -199,7 +201,7 @@ export function asideProfilesIn(text: string): { profileId: string; label: strin
 }
 
 /** browser_profiles' description for the AI: Aside's own words say "this MCP server's … account"; here it lists every account's. */
-export const ASIDE_PROFILES_DESCRIPTION = 'List the browser profile IDs, labels, connection status and Aside account of every browser profile in Aside on this computer (all of its accounts; accountSignedIn: whether that Aside account is signed in, which exec needs and repl does not). Each profile is signed in to the user\'s own sites as a different person or organization: when the request is about one account (a company, a mailbox, an address), call this first and pass the matching profileId as profile_id to repl or exec.'
+export const ASIDE_PROFILES_DESCRIPTION = 'List the browser profile IDs, labels, connection status and Aside account of every browser profile in Aside on this computer (all of its accounts; accountSignedIn, when known: whether that Aside account is signed in, which exec needs and repl does not). Each profile is signed in to the user\'s own sites as a different person or organization: when the request is about one account (a company, a mailbox, an address), call this first and pass the matching profileId as profile_id to repl or exec.'
 /** profile_id's words in repl and exec for the AI: Aside's own say only "omit to reuse the default", and the AI then
  * worked in the default profile, signed in to another account (2026-11-25) */
 export const ASIDE_PROFILE_ID_WORDS = 'Choose it with browser_profiles to match the account, organization or mailbox the request is about; without it Aside uses its default profile, which may be signed in to a different account than the one the user means.'
@@ -207,7 +209,11 @@ export const ASIDE_PROFILE_ID_WORDS = 'Choose it with browser_profiles to match 
  * built-in Aside models" (Aside CLI createExecSession), seen 2026-11-25 as a dead end for the AI */
 const ASIDE_EXEC_SIGNED_OUT = /Sign in again before using built-in Aside models|Aside needs sign-in again|Aside requires sign-in/i
 export const ASIDE_EXEC_SIGN_IN = 'Nothing ran: exec runs Aside\'s own browser agent, which needs the Aside account of this profile signed in to Aside, and it is not. The repl tool works in the same profile without that sign-in: do the task with repl and the same profile_id (browser_profiles lists the profiles; accountSignedIn says which accounts exec can use). Only if the user wants Aside\'s own agent, tell them in plain words to sign in to that account in Aside (Settings › Account) and ask again.'
-export const asideExecSignedOut = (answer: Record<string, unknown>) => answerTexts(answer).some((x) => ASIDE_EXEC_SIGNED_OUT.test(x))
+export const asideExecSignedOut = (answer: Record<string, unknown>) => {
+  // only a failed call: a page the agent read may hold the same words
+  const failed = !!answer.error || (answer.result as { isError?: unknown } | undefined)?.isError === true
+  return failed && answerTexts(answer).some((x) => ASIDE_EXEC_SIGNED_OUT.test(x))
+}
 
 /** tools/list from the listed Aside with browser_profiles described as listing every account's profiles. */
 export function asideToolsList(answer: Record<string, unknown>): Record<string, unknown> {
@@ -413,8 +419,10 @@ interface Running {
   /** start the program again before the next request (Aside had no signed-in account with a profile: once the person
    * signs in, a fresh `aside mcp` picks it) */
   restartNext?: boolean
-  /** a listed app's own guide as read for this process (withGuide): '' when it printed none */
+  /** a listed app's own guide as read for this process (withGuide): '' when it has none or the read failed */
   guide?: Promise<string>
+  /** when that read failed ('' answer): it is tried again after GUIDE_RETRY_MS */
+  guideFailedAt?: number
 }
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } })
@@ -725,12 +733,25 @@ export class LocalApps {
     const init = r.init
     const guide = presetOf(call.spec)?.guide
     if (!init || !guide || (typeof init.instructions === 'string' && init.instructions.trim())) return init
-    r.guide ??= this.runProgram(team, call, [...guide.args]).then((out) => {
-      const text = out.trim()
-      return text ? `${guide.note}\n\n${text}`.slice(0, GUIDE_MAX) : ''
-    })
+    // a failed read (no such command, a timeout) is tried again after GUIDE_RETRY_MS, never kept for the process's life;
+    // nothing is sent then, so the server keeps the guide it saved before (mcp.ts: no `instructions`, nothing saved)
+    const now = (this.d.now ?? Date.now)()
+    if (!r.guide || (r.guideFailedAt !== undefined && now - r.guideFailedAt >= GUIDE_RETRY_MS)) {
+      r.guideFailedAt = undefined
+      r.guide = this.readGuide(team, call, guide).then((text) => { if (!text) r.guideFailedAt = (this.d.now ?? Date.now)(); return text })
+    }
     const text = await r.guide
     return text ? { ...init, instructions: text } : init
+  }
+
+  /** A listed app's own guide: only when its help names the guide command (`aside --help` lists `guide`), so an older
+   * version that does not have it never gets the word as anything else (Aside reads an unknown first word as a task for
+   * its agent); '' when it has none or the read failed. */
+  private async readGuide(team: string, call: LocalCall, guide: NonNullable<ReturnType<typeof presetOf>>['guide'] & object): Promise<string> {
+    const help = await this.runProgram(team, call, [...guide.helpArgs])
+    if (!guide.helpHas.test(help)) return ''
+    const text = (await this.runProgram(team, call, [...guide.args])).trim()
+    return text ? `${guide.note}\n\n${text}`.slice(0, GUIDE_MAX) : ''
   }
 
   /** The Aside account a repl or exec call belongs to: its profile_id's, its exec session's, or the last repl's; null:

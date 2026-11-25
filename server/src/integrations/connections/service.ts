@@ -1125,6 +1125,8 @@ export class Integrations {
    * the version of the connection it was read from only (an edit since then reads it again). */
   private keepInstructions(row: Row, text: string) {
     // a local connection's client is made again for every answer: no write while nothing changed
+    // a text the hider could not check (WITHHELD) is no guide; a Google app's library speaks for all four apps
+    if (row.google_app || text === WITHHELD) return
     const key = `${row.id}:${row.version}`
     if (this.instructionsKept.get(key) === text) return
     this.instructionsKept.set(key, text)

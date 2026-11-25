@@ -523,16 +523,20 @@ describe('Aside with several accounts, each with its own profiles', () => {
       expect(ins).toContain('pass its profileId as profile_id')
       const again = await h.init()
       expect((again.message?.result as { instructions?: string }).instructions).toBe(ins)
-      expect(h.spawned.filter((a) => a[0] === 'guide')).toEqual([['guide']])
+      expect(h.spawned.filter((a) => a[0] === 'guide' || a[0] === '--help')).toEqual([['--help'], ['guide']])
     } finally { h.done(); fs.rmSync(path.dirname(file), { recursive: true, force: true }) }
   })
 
-  test('an Aside CLI without `guide`: initialize as Aside gave it, no instructions', async () => {
+  test('an Aside CLI without `guide`: its help is read, `guide` is never run, initialize as Aside gave it', async () => {
     const h = multi()
     try {
       const r = await h.init()
       expect(r.ok).toBe(true)
       expect((r.message?.result as { instructions?: string }).instructions).toBeUndefined()
+      expect(h.spawned.some((a) => a[0] === 'guide')).toBe(false)
+      // not asked again for every client of the same process (tried again only after a while)
+      await h.init()
+      expect(h.spawned.filter((a) => a[0] === '--help')).toHaveLength(1)
     } finally { h.done() }
   })
 

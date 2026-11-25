@@ -46,7 +46,7 @@ export interface Row {
    * local relay to the owner's desktop window, and the team's switches for members' own connections and for apps on
    * the computer decide whether it may be used */
   local_app?: string | null
-  /** the connection's own guide for its tools (migration 452): an MCP server's `instructions`, or a listed app's own
+  /** the connection's own guide for its tools (migration 366): an MCP server's `instructions`, or a listed app's own
    * guide (the desktop app fills it); null: never read yet, '': none */
   instructions?: string | null
 }

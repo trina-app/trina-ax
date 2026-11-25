@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 01:02
 - Branch: `fix/aside-profile-choice`
-- Status: in progress
+- Status: done
 - Where: server (component C, connections), desktop (local apps), shared. Why: the AI used a browser connection in
   the wrong account although the right one was listed (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new saved field per connection (migration, additive) and new AI behaviour for every MCP
@@ -94,4 +94,16 @@ before and after, with this Mac's Claude login; raw per-run values in the PR.
 
 ## Result
 
-(to fill)
+Built as planned, with the plan and code review findings folded in: migration 366 (C range); a resumed session gets
+the account rule in short (only when a tool takes an account/profile/workspace argument) and `service_guide`; a
+server that gives no instructions never wipes a saved guide; WITHHELD text and a Google app's shared library text are
+never saved; the desktop asks Aside for its guide only when `aside --help` lists `guide`, retries a failed read after
+10 minutes; the exec sign-in note only on a failed call.
+
+Eval (Claude Code login, Sonnet, flags as Trina's engine, fake Aside with fake profiles, held-out scenarios written for
+this PR, none about the owner's mailbox): direct tools, 8 scenarios x 2 runs: before 16/16 right profile first, after
+16/16 (ceiling). Deferred shape (Aside among 5 other connectors, tools via find_tools/call_tool, 14 profiles, a
+default profile signed in to the same mail services, transliterated names), 6 scenarios x 2 runs: before 11/12 right
+profile first (1 run searched the default profile first), after 12/12. The live owner failure was not reproduced in
+this harness; the measured gain is small and the main value is parity (the guide, the rule, the actionable exec
+error).

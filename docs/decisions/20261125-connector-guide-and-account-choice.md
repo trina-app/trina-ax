@@ -16,11 +16,16 @@
   characters in all; a guide past that is named, not shown), as Claude Code gives its model "MCP Server Instructions":
   how to use that service's tools, never above the person's request, the rules or the cards. A resumed session keeps
   its first instructions, so every message's context names the services that have a guide, and `service_guide`
-  (reads only, calls no service) gives one again.
+  (reads only, calls no service) gives one again. A server that gives no instructions leaves a saved guide as it is (a guide the desktop app
+  could not read now never wipes one); a text the key check could not clear and a Google app's shared library text are
+  never saved. The short account rule goes with every message only when a tool takes an account, profile, workspace or
+  mailbox argument (about 400 characters).
 - **Rule 2, a listed app's own guide:** a listed app on the computer whose program gives no instructions but prints a
   guide of its own (preset `guide`; Aside: `aside guide`, what Claude Code's Aside skill reads) gets that text as its
   instructions from the desktop app, read once per process, after one line that maps its command-line words to its
-  tools (`aside exec` is exec, `--profile` is profile_id). Only for the exact listed command.
+  tools (`aside exec` is exec, `--profile` is profile_id). Only for the exact listed command, and only when the
+  app's help lists the guide command (an older Aside would take an unknown word as a task for its agent). A read that
+  failed is tried again after 10 minutes, never kept for the process's life.
 - **Rule 3, the account first:** when the request names or implies one of the person's accounts (a company, a mailbox
   or address, a workspace, a person) and a connection works in several accounts or profiles, the AI lists them with
   that connection's own tool, takes the match (also across scripts: a Korean name and its Latin spelling), passes it in
@@ -29,7 +34,7 @@
   match, asks with the short list only when none fits, and remembers the match. General words only: no service or
   phrase is named.
 - **Rule 4, Aside's agent signed out:** Aside's `exec` needs the Aside account of its profile signed in. When Aside
-  answers "Sign in again before using built-in Aside models", the AI is told that nothing ran and that `repl` works in
+  answers a failed call with "Sign in again before using built-in Aside models", the AI is told that nothing ran and that `repl` works in
   the same profile; `browser_profiles` says per profile whether its account is signed in (`accountSignedIn`; with one
   account only when it is not). `repl`/`exec` `profile_id` say how to choose it.
 - **Why:** Claude Code is the floor. The model saw the profile argument but had no rule for choosing it and none of

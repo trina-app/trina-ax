@@ -20,6 +20,11 @@ const CURRENT = process.env.FAKE_ASIDE_CURRENT ?? 'u1'
 const at = process.argv.indexOf('--account')
 const account = at > 0 ? process.argv[at + 1]! : PROFILES ? CURRENT : 'u1'
 const isSignedIn = (u: string) => (process.env.FAKE_ASIDE_SIGNED_IN ? process.env.FAKE_ASIDE_SIGNED_IN.split(',').includes(u) : u === CURRENT)
+if (process.argv[2] === '--help') {
+  // like Aside CLI 1.26.1121: its commands, `guide` among them only when it has one
+  process.stdout.write(`Usage: aside [options] [command]\n\nCommands:\n  exec [task]   Run a task\n${process.env.FAKE_ASIDE_GUIDE_FILE ? '  guide [topic]               Show how to use Aside for browser tasks\n' : ''}`)
+  process.exit(0)
+}
 if (process.argv[2] === 'guide') {
   if (!process.env.FAKE_ASIDE_GUIDE_FILE) { process.stderr.write("error: unknown command 'guide'\n"); process.exit(1) }
   process.stdout.write(readFileSync(process.env.FAKE_ASIDE_GUIDE_FILE, 'utf8') + '\n')

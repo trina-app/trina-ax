@@ -115,8 +115,8 @@ export class McpClient {
   version: string | null = null
   private ready: Promise<void> | null = null
   usedAt = Date.now()
-  /** the server's own instructions from its `initialize` answer (cut, secrets hidden; '' when it gave none), once the
-   * session started; null before */
+  /** the server's own instructions from its `initialize` answer (cut, secrets hidden), once the session started; null
+   * before, or when it gave none */
   instructions: string | null = null
 
   /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated
@@ -177,7 +177,8 @@ export class McpClient {
       const v = typeof r?.protocolVersion === 'string' ? r.protocolVersion : ''
       if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new McpError('not_mcp')
       this.version = KNOWN_VERSIONS.has(v) ? v : MCP_PROTOCOL
-      this.instructions = instructionsOf(r.instructions, this.hider())
+      // none given: unknown, so a guide saved before stays (a listed app's guide the desktop app could not read now)
+      this.instructions = typeof r.instructions === 'string' ? instructionsOf(r.instructions, this.hider()) : null
       await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal })
     })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; this.instructions = null; throw e })
     return this.ready

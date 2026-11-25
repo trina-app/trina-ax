@@ -9,7 +9,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { instructionsOf, MAX_INSTRUCTIONS, SHORTENED } from '../../server/src/integrations/connections/mcp'
-import { ACCOUNT_CHOICE, ACCOUNT_CHOICE_SHORT, guideSection, integrationToolProvider, SERVICE_GUIDE } from '../../server/src/integrations/connections/tools'
+import { ACCOUNT_CHOICE, ACCOUNT_CHOICE_SHORT, guideSection, integrationToolProvider, SERVICE_GUIDE, takesAccount } from '../../server/src/integrations/connections/tools'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnToolContext } from '../../server/src/services'
 
@@ -61,7 +61,15 @@ describe('the words of a guide', () => {
     const over = guideSection([{ name: 'One', instructions: 'a'.repeat(60) }, { name: 'Two', instructions: 'b'.repeat(60) }], 100)
     expect(over).toContain('a'.repeat(60))
     expect(over).not.toContain('b'.repeat(60))
-    expect(over).toContain('Not shown because the guides are long: Two')
+    expect(over).toContain('Not shown here because the guides are long: Two. Read one with service_guide')
+  })
+
+  test('takesAccount: a tool whose input names an account, profile or workspace', () => {
+    expect(takesAccount({ type: 'object', properties: { profile_id: {}, code: {} } })).toBe(true)
+    expect(takesAccount({ type: 'object', properties: { workspace_id: {} } })).toBe(true)
+    expect(takesAccount({ type: 'object', properties: { account: {} } })).toBe(true)
+    expect(takesAccount({ type: 'object', properties: { query: {}, text: {} } })).toBe(false)
+    expect(takesAccount(null)).toBe(false)
   })
 
   test('the account rule names no service, account or wording, and forbids changes in an account that does not match', () => {
@@ -75,6 +83,10 @@ describe('the words of a guide', () => {
 describe('an MCP server that gives instructions', () => {
   test('a check keeps them (the key hidden); the next answer has them under Connected services, the rule, and service_guide', async () => {
     fake.instructions = 'Call list_workspaces first and pass workspace_id on every call. Your key is {token}.'
+    // a tool that works in one of several workspaces: the account rule in short goes with every message
+    const before = fake.tools
+    fake.tools = [...before, { name: 'search_pages', description: 'Search pages', inputSchema: { type: 'object', properties: { query: { type: 'string' }, workspace_id: { type: 'string' } } }, annotations: { readOnlyHint: true } }]
+    fake.pageSize = 100
     const c = (await post('alice', '/api/integrations', { kind: 'mcp', name: 'Workdesk', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })).body
     expect(c.status).toBe('connected')
     const row = getRow(A.ctx.db, c.id)!
@@ -97,6 +109,7 @@ describe('an MCP server that gives instructions', () => {
     const b = turn('bob')
     expect(b.prompt).not.toContain('list_workspaces')
     expect(b.tools.has(SERVICE_GUIDE)).toBe(false)
+    fake.tools = before
   })
 
   test('a call keeps a changed guide; a server that gives none has no guide and no service_guide tool', async () => {
@@ -111,7 +124,8 @@ describe('an MCP server that gives instructions', () => {
     expect(getRow(A.ctx.db, c.id)!.instructions).toBe('Second guide.')
     fake.instructions = null
     const n = (await post('alice', '/api/integrations', { kind: 'mcp', name: 'Plain', url: `${fake.base}/mcp-open?plain`, auth: 'none' })).body
-    expect(getRow(A.ctx.db, n.id)!.instructions).toBe('')
+    // none given: nothing saved (a guide the desktop app could not read now never wipes one saved before)
+    expect(getRow(A.ctx.db, n.id)!.instructions ?? null).toBeNull()
     const t = turn('alice')
     expect(t.prompt).not.toContain('<service_guide service="Plain">')
     expect(t.prompt).toContain('<service_guide service="Notes">')
