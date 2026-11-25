@@ -53,8 +53,10 @@ tests/unit/change-card-action.test.ts.
 
 ## Result
 
-Built as planned. Also: a call that names people it reaches (a non-empty "to", attendees) is a send unless it only
-saves, so an event with attendees still reads "send" and a draft with a "to" reads "save".
+Built, then turned around after the independent review of #585: send is the default, and the card says save, add,
+delete or change only with a known action (Trina's Google list, or a clear non-send verb in a plain ASCII name or title
+with no word that reaches people) and no sign in the call's arguments of anyone it reaches. A Gmail draft (Trina's list)
+is the one tool whose recipients do not count.
 
 Item 2 of the QA note (an interim line, "Nothing relevant yet. Let me widen the search…", above the final answer) is not
 changed here. The text is not lost or invented: for an answer in Latin letters the text between calls stays in the

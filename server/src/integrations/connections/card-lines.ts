@@ -6,7 +6,7 @@
 import { readableToolName } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { opaqueParts } from '../../tools/url-gate'
-import { argsReachOthers, nameWords, plainName } from './read-mark'
+import { nameWords, plainName } from './read-mark'
 import { demoHiggsfieldToolWord, FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
 
 /** more values than this, nested deeper, or more characters in all: no lines, the JSON open */
@@ -172,70 +172,123 @@ export interface CardLine { name: string; value: string; code?: true }
  * "Don't add"), so saving a Gmail draft or adding a Calendar event is never "Send it?". */
 export type ChangeAction = 'send' | 'save' | 'add' | 'delete' | 'change'
 
-/** words that say the call reaches other people: anywhere in the name or title they make it a send, whatever else is
- * said ("create_and_send", "draft_and_send", "create_post") */
-const SEND_WORDS = new Set(['send', 'resend', 'reply', 'forward', 'post', 'repost', 'publish', 'share', 'invite', 'notify',
-  'tweet', 'retweet', 'broadcast', 'respond', 'announce', 'dm', 'sms'])
-/** things that go to people: made or written with no other verb ("create_message", "schedule_email", "email_team") they
- * are a send; drafted, saved or changed they are not ("draft_gmail_message", "modify_gmail_message_labels") */
-const MESSAGE_NOUNS = new Set(['message', 'messages', 'email', 'emails', 'mail', 'mails', 'chat', 'comment', 'comments'])
-const SAVE_WORDS = new Set(['draft', 'drafts', 'save', 'store', 'export', 'backup', 'bookmark'])
-const ADD_WORDS = new Set(['create', 'add', 'new', 'insert', 'append', 'make', 'generate', 'build', 'upload', 'import', 'schedule', 'book', 'duplicate', 'copy', 'clone'])
-const DELETE_WORDS = new Set(['delete', 'remove', 'trash', 'erase', 'purge', 'destroy', 'wipe', 'drop', 'clear', 'cancel', 'unsubscribe', 'uninstall', 'revoke'])
-const CHANGE_WORDS = new Set(['update', 'edit', 'modify', 'change', 'set', 'rename', 'move', 'patch', 'replace', 'mark', 'label', 'archive', 'format', 'resize', 'toggle', 'enable', 'disable', 'assign', 'upsert', 'merge', 'restore', 'complete', 'close', 'reopen', 'sync', 'batch', 'write'])
+/** The Google Workspace library's change tools, by Trina's own list (google-apps/catalog.ts), not by their words:
+ * 'manage' tools do what their `action` argument says, among the non-send actions only */
+const GOOGLE_ACTIONS: Record<string, ChangeAction | 'manage'> = {
+  send_gmail_message: 'send', draft_gmail_message: 'save', modify_gmail_message_labels: 'change', batch_modify_gmail_message_labels: 'change',
+  manage_gmail_label: 'manage', manage_gmail_filter: 'manage',
+  manage_event: 'manage', manage_calendar: 'manage', manage_out_of_office: 'manage', manage_focus_time: 'manage',
+  create_doc: 'add', modify_doc_text: 'change', find_and_replace_doc: 'change', insert_doc_elements: 'add', insert_doc_image: 'add',
+  update_paragraph_style: 'change', update_doc_headers_footers: 'change', create_table_with_data: 'add', batch_update_doc: 'change',
+  manage_doc_tab: 'manage', export_doc_to_pdf: 'save',
+  create_spreadsheet: 'add', create_sheet: 'add', modify_sheet_values: 'change', append_table_rows: 'add', format_sheet_range: 'change',
+  manage_conditional_formatting: 'manage', manage_sheet_tab: 'manage', resize_sheet_dimensions: 'change', move_sheet_rows: 'change',
+  manage_named_range: 'manage',
+}
+/** A Google tool whose recipients go nowhere: a draft keeps its "to", subject and body (with any address in it) and is
+ * sent only by the person, later, from Gmail */
+const GOOGLE_NO_SEND = new Set(['draft_gmail_message'])
 
-/** One word's action, or null for a word that names no action ("gmail", "event") */
-function wordAction(w: string): ChangeAction | null {
-  if (SEND_WORDS.has(w)) return 'send'
-  if (SAVE_WORDS.has(w)) return 'save'
-  if (ADD_WORDS.has(w)) return 'add'
-  if (DELETE_WORDS.has(w)) return 'delete'
-  if (CHANGE_WORDS.has(w)) return 'change'
-  return null
+/** Verbs that, as a tool's verb, do not reach people by themselves. Anything else (submit, execute, launch, finalize,
+ * transfer, call, book, schedule, assign, invite, publish, a word Trina does not know) is a send. */
+const NON_SEND_VERBS: Record<string, Exclude<ChangeAction, 'send'>> = Object.fromEntries([
+  ...['draft', 'save', 'store', 'export', 'backup', 'bookmark'].map((w) => [w, 'save'] as const),
+  ...['create', 'add', 'insert', 'append', 'new', 'make', 'generate', 'build', 'upload', 'import', 'duplicate', 'copy', 'clone'].map((w) => [w, 'add'] as const),
+  ...['delete', 'remove', 'trash', 'erase', 'purge', 'destroy', 'wipe', 'clear'].map((w) => [w, 'delete'] as const),
+  ...['update', 'edit', 'modify', 'change', 'set', 'rename', 'move', 'patch', 'replace', 'mark', 'label', 'format', 'resize', 'toggle', 'write', 'upsert', 'batch'].map((w) => [w, 'change'] as const),
+])
+/** Words in a name or title that say people are reached or the thing is seen by others: any of them makes it a send */
+const REACH_WORDS = new Set(['message', 'messages', 'msg', 'comment', 'comments', 'chat', 'chats', 'email', 'emails', 'mail', 'mails',
+  'post', 'posts', 'status', 'statuses', 'story', 'stories', 'toot', 'toots', 'tweet', 'tweets', 'campaign', 'campaigns', 'review',
+  'reviews', 'pull', 'pr', 'form', 'forms', 'mention', 'mentions', 'invite', 'invites', 'invitation', 'invitations', 'share', 'shared',
+  'sharing', 'permission', 'permissions', 'user', 'users', 'member', 'members', 'group', 'groups', 'owner', 'owners', 'ownership',
+  'meeting', 'meetings', 'video', 'videos', 'public', 'publish', 'notify', 'notification', 'notifications', 'phone', 'sms', 'call',
+  'calls', 'broadcast', 'newsletter', 'reply', 'replies', 'forward', 'send', 'submit', 'announcement', 'dm', 'channel', 'channels',
+  'webhook', 'webhooks', 'letter', 'invoice', 'invoices', 'contact', 'contacts', 'guest', 'guests', 'attendee', 'attendees',
+  'recipient', 'recipients', 'subscriber', 'subscribers', 'audience', 'feed', 'thread', 'threads', 'ticket', 'tickets'])
+
+/** An argument name that says who or where something goes, or who sees it (any depth, as part of the name) */
+const REACH_KEY = /attendee|invitee|recipient|assignee|forward|email|e_mail|owner|user|member|share|channel|mention|notify|notif|participant|guest|collaborat|subscriber|audience|webhook|phone|sms|privacy|visib|permission|access|role|reviewer|follower|contact|^(to|cc|bcc|from|reply_?to|send_?to|target|dest(ination)?)$/i
+/** A value that names a person or a place to reach: an e-mail address or an @handle among its words, or the whole value
+ * a phone number or "public". Linear in the value's length (a long text is split into words once; no regex over it). */
+const EMAIL_WORD = /^[^@]{1,64}@[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})*\.[a-z]{2,}$/i
+const HANDLE_WORD = /^@[a-z0-9_][a-z0-9_.-]{1,}$/i
+const WHOLE_VALUE = [/^\+\d[\d\s().-]{6,30}$/, /^\(?\d{2,4}\)?[\s.-]\d{3,4}[\s.-]\d{4}$/, /^(public|anyone|anyonewithlink|anyone_with_link|everyone|domain|unlisted)$/i]
+function reachValue(v: string): boolean {
+  const t = v.trim()
+  if (t.length <= 40 && WHOLE_VALUE.some((re) => re.test(t))) return true
+  if (!t.includes('@')) return false
+  return t.split(/[\s<>()"',;:[\]{}]+/).some((w) => w.includes('@') && w.length <= 320 && (EMAIL_WORD.test(w.replace(/[.!?]+$/, '')) || HANDLE_WORD.test(w.replace(/[.!?]+$/, ''))))
 }
 
-/** The action of a list of words: a send word anywhere; else the first action word, where making a thing that goes to
- * people (a message, a mail, a comment) is a send; else a thing that goes to people with no verb at all ("email_team")
- * is a send; null when the words name no action */
-function wordsAction(words: readonly string[]): ChangeAction | null {
-  if (words.some((w) => SEND_WORDS.has(w))) return 'send'
-  const at = words.findIndex((w) => wordAction(w) !== null)
-  const toPeople = words.some((w, i) => MESSAGE_NOUNS.has(w) && i > at)
-  if (at < 0) return toPeople ? 'send' : null
-  const first = wordAction(words[at]!)!
-  return first === 'add' && toPeople ? 'send' : first
+/** The call's arguments name someone or somewhere it reaches: a REACH_KEY with a value, a key that is not plain ASCII,
+ * or a value that names someone (reachValue), at any depth */
+export function argsReach(v: unknown, depth = 0): boolean {
+  if (depth > 8 || v === null || v === undefined) return false
+  if (typeof v === 'string') return reachValue(v)
+  if (typeof v !== 'object') return false
+  if (Array.isArray(v)) return v.some((x) => argsReach(x, depth + 1))
+  return Object.entries(v as Record<string, unknown>).some(([k, x]) => {
+    const key = plainName(k)
+    if (!/^[\x21-\x7e]+$/.test(key)) return true
+    if (REACH_KEY.test(key) && filled(x)) return true
+    return argsReach(x, depth + 1)
+  })
+}
+/** a value that holds something (not empty, null, false or an empty list or object) */
+function filled(v: unknown): boolean {
+  if (v === null || v === undefined || v === '' || v === false) return false
+  if (Array.isArray(v)) return v.some(filled)
+  if (typeof v === 'object') return Object.values(v as Record<string, unknown>).some(filled)
+  return true
 }
 
-/** A "manage_*" style tool's own choice of what it does: its `action` / `operation` / `op` argument ("create", "update",
- * "delete"), as an action; null when the call names none this reads */
-function argAction(args: unknown): ChangeAction | null {
+/** A name's or title's non-send verb: its first word, or the second after a service prefix ("gmail_create_label"), and
+ * no word in it that reaches people; null when not plain ASCII or not sure */
+function verbOf(s: string | null | undefined): Exclude<ChangeAction, 'send'> | null {
+  const p = plainName(s)
+  if (!p || !/^[\x20-\x7e]+$/.test(p)) return null
+  const w = nameWords(p)
+  if (w.some((x) => REACH_WORDS.has(x))) return null
+  const first = NON_SEND_VERBS[w[0] ?? '']
+  if (first) return first
+  return w.length > 2 && !Object.hasOwn(NON_SEND_VERBS, w[0]!) ? NON_SEND_VERBS[w[1]!] ?? null : null
+}
+
+/** A trusted manage_* tool's own action argument, among the non-send verbs only (never a send it picks itself) */
+function manageAction(args: unknown): Exclude<ChangeAction, 'send'> | null {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null
-  const a = args as Record<string, unknown>
-  const v = [a.action, a.operation, a.op].find((x) => typeof x === 'string' && x.trim())
-  return typeof v === 'string' ? wordsAction(nameWords(plainName(v.slice(0, 80)))) : null
-}
-
-/** The call's arguments without empty values (an empty "attendees": [] names nobody) */
-function filled(v: unknown, depth = 0): unknown {
-  if (depth > 6 || v === null || v === undefined || v === '') return undefined
-  if (Array.isArray(v)) { const xs = v.map((x) => filled(x, depth + 1)).filter((x) => x !== undefined); return xs.length ? xs : undefined }
-  if (typeof v !== 'object') return v
-  const out = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, filled(x, depth + 1)] as const).filter(([, x]) => x !== undefined))
-  return Object.keys(out).length ? out : undefined
+  const v = (args as Record<string, unknown>).action
+  if (typeof v !== 'string' || !/^[a-z_ -]{1,30}$/i.test(v.trim())) return null
+  const w = nameWords(v.trim())
+  return w.length === 1 ? NON_SEND_VERBS[w[0]!] ?? null : null
 }
 
 /**
- * What a call of this tool does, for the card's words: `send` whenever the name or title (or the call's own action
- * argument) says it reaches people, or the call names someone it reaches (a "to", attendees: read-mark.ts
- * argsReachOthers) and it does not only save (a draft has a "to" but goes nowhere); else the call's own action argument
- * ("manage_event" with action "create": add); else the name's words, then the title's (wordsAction); else `change`. An
- * HTTP API request is not read here (its card names a request).
+ * What a call does, for the card's words. The default is **send**: the card says something else only when Trina is
+ * sure nothing reaches anyone (docs/decisions/20261125-change-card-action-verb.md):
+ * - the action is known: Trina's own list of the Google Workspace library's tools (a manage_* tool there by its own
+ *   `action` argument, among the non-send actions only), else a non-send verb in a plain ASCII name or title with no
+ *   word in name or title that reaches people (REACH_WORDS); never from the call's arguments alone;
+ * - and the call's arguments name no one and nowhere to reach (argsReach), checked for every tool but a Gmail draft.
+ * Anything else, a name or title not in plain ASCII included, is a send. An HTTP API request is not read here.
  */
-export function changeAction(tool: { name: string; title?: string | null }, args?: unknown): ChangeAction {
-  const name = wordsAction(nameWords(plainName(tool.name)))
-  const title = wordsAction(nameWords(plainName(tool.title)))
-  const own = argAction(args)
-  if (name === 'send' || title === 'send' || own === 'send') return 'send'
-  const action = own ?? name ?? title ?? 'change'
-  return action !== 'save' && argsReachOthers(filled(args)) ? 'send' : action
+export function changeAction(tool: { name: string; title?: string | null }, args?: unknown, o: { googleApp?: boolean } = {}): ChangeAction {
+  const bare = tool.name.replace(/^.*__/, '')
+  const google = o.googleApp && Object.hasOwn(GOOGLE_ACTIONS, bare) ? GOOGLE_ACTIONS[bare]! : null
+  if (google === 'send') return 'send'
+  if (google && GOOGLE_NO_SEND.has(bare)) return google === 'manage' ? 'send' : google
+  const title = tool.title ? plainName(tool.title) : ''
+  if (title && !/^[\x20-\x7e]+$/.test(title)) return 'send'
+  let action: Exclude<ChangeAction, 'send'> | null
+  if (google === 'manage') action = manageAction(args)
+  else if (google) action = google
+  else {
+    if (title && nameWords(title).some((x) => REACH_WORDS.has(x))) return 'send'
+    const name = plainName(tool.name)
+    if (!/^[\x21-\x7e]+$/.test(name) || nameWords(name).some((x) => REACH_WORDS.has(x))) return 'send'
+    action = verbOf(name) ?? verbOf(title)
+  }
+  if (!action) return 'send'
+  return argsReach(args) ? 'send' : action
 }
