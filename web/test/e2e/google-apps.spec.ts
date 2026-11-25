@@ -137,6 +137,8 @@ test('Admin sets up Gmail with the same Google app as Drive, per card; members c
   const dialog = page.getByTestId('gapp-setup-dialog')
   await expect(dialog.getByTestId('gapp-setup-same')).toBeChecked()
   await expect(dialog.getByTestId('drive-setup-id')).toHaveCount(0)
+  // on: Drive's client must list this card's return address too, so the dialog shows it
+  await expect(dialog.getByTestId('gapp-setup-same-redirect')).toContainText('/api/integrations/google-apps/callback')
   // off: its own Google client, with the address to add in Google Cloud
   await dialog.getByTestId('gapp-setup-same').uncheck()
   await expect(dialog.getByTestId('drive-setup-redirect')).toContainText('/api/integrations/google-apps/callback')

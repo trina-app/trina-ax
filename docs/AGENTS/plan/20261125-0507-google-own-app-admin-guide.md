@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 05:07
 - Branch: `docs/google-own-app-admin-guide`
-- Status: in progress
+- Status: done
 - Where: docs/site (operate) and web/src/components/integrations. Why: the per-card own-app path had never been run
   against real Google; this records how an admin does it and fixes one step the dialog left out.
 - Version impact: patch (a missing line in a setup dialog, and a new docs page; no behaviour change)
@@ -48,4 +48,6 @@ Docs-site tests (navigation in six languages, image sizes and use). No migration
 
 ## Result
 
-(at the end)
+Run passed end to end (admin setup, members connected Drive, Gmail and Calendar, a chat read all three). Built as
+planned: the dialog fix, the e2e assertion, and the operate page with six screenshots in every language's navigation.
+Google names the server's address on its screens for an unverified External app, not the app name; the page says so.
