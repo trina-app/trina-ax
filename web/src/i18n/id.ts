@@ -1215,6 +1215,7 @@ export const id: Record<MessageKey, string> = {
   'folderAccess.followsFolder': "Mengikuti \"{folder}\"",
   'folderAccess.followsTop': "Mengikuti folder tim",
   'folderAccess.sharedRestricted': "\"{folder}\" biasanya terbuka untuk seluruh tim. Admin membatasinya.",
+  'folderAccess.removedMore': "{n} orang lainnya juga tidak akan bisa membukanya lagi.",
   'folderAccess.lowerNeedsLimit': "Batasi akses untuk mengubah ini",
   'folderAccess.teamEditsAbove': "Siapa pun di {team} dapat mengedit \"{folder}\"",
   'folderAccess.teamViewsAbove': "Siapa pun di {team} dapat melihat \"{folder}\"",

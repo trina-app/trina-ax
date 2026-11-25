@@ -1215,6 +1215,7 @@ export const en: Record<MessageKey, string> = {
   'folderAccess.followsFolder': "Follows \"{folder}\"",
   'folderAccess.followsTop': "Follows the team folder",
   'folderAccess.sharedRestricted': "\"{folder}\" is usually open to the whole team. An admin restricted it.",
+  'folderAccess.removedMore': "{n} more people will no longer be able to open it.",
   'folderAccess.lowerNeedsLimit': "Limit access to change this",
   'folderAccess.teamEditsAbove': "Anyone at {team} can edit \"{folder}\"",
   'folderAccess.teamViewsAbove': "Anyone at {team} can view \"{folder}\"",

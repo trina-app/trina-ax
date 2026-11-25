@@ -20,7 +20,7 @@ import type { Access, Folder, FolderEditPreview, Group, Project, User } from '@m
 import { api, API, errorText } from '../../lib/api'
 import { addNamed, removeNamed, setNamed, type Draft } from '../../lib/access-edit'
 import { isPersonalPath, isSkillsPath } from '../../lib/access-view'
-import { aboveRows, askTitle, peopleOf, audienceOf, generalLevel, hasPanel, inheritedOf, inProjects, latentLines, outcomeLines, parentOf, pickable, pickBasic, removedPeople, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
+import { aboveAdmits, aboveRows, askTitle, peopleOf, audienceOf, generalLevel, hasPanel, inheritedOf, inProjects, latentLines, outcomeLines, parentOf, pickable, pickBasic, removedPeople, sameOutcome, saveAsk, type AboveRow } from '../../lib/folder-sharing'
 import { useFolderName } from '../../lib/folderLabels'
 import { markBusy } from '../../lib/busy'
 import { useLocale, useT } from '../../i18n'
@@ -102,7 +102,7 @@ export default function FolderSharing(props: FolderSharingProps) {
     setLoaded(null)
     setRound((n) => n + 1)
   }
-  return <Body key={`${path}\u0003${round}`} {...props} folder={folder} users={loaded.users} groups={loaded.groups} below={loaded.below} reload={reload} onStale={refreshFolders} />
+  return <Body key={`${path}\u0003${round}`} {...props} folder={folder} folders={loaded.folders} users={loaded.users} groups={loaded.groups} below={loaded.below} reload={reload} onStale={refreshFolders} />
 }
 
 const LEVEL_WORD: Record<Access, 'folderAccess.canView' | 'folderAccess.canEdit' | 'folderAccess.cantOpenHere'> = { read: 'folderAccess.canView', write: 'folderAccess.canEdit', none: 'folderAccess.cantOpenHere' }
@@ -113,8 +113,10 @@ const STAFF = 'staff'
 const generalSelect = 'h-9 cursor-pointer rounded-lg border border-field-border bg-surface px-2.5 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-sm:h-11'
 const roleSelect = 'h-8 shrink-0 cursor-pointer rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent max-sm:h-11'
 
-function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, folder, users, groups, below, reload, onStale, admin, onSaved }: FolderSharingProps & {
+function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, folder, folders, users, groups, below, reload, onStale, admin, onSaved }: FolderSharingProps & {
   folder: Folder | null
+  /** every rule row (Limit access reads the folders above from them) */
+  folders: Folder[]
   users: User[]
   groups: Group[]
   below: number
@@ -246,12 +248,14 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   // the team root) only while it is limited, so a limit the update put there can be taken away, and always on shared/
   // and skills/ (their Restricted is the limit); never at the team root
   const limitShown = parent !== null && (parent !== '' || limited || !!d.base.limited || teamFolder)
-  // Limit access stops only the people the folders above let in. When those let in nobody but the owner and admins (the
-  // server's answer for this folder with no setting of its own has no rule row that opens it), on and off are the same
-  // people: the switch is greyed with one line why, and works again by itself once the folder above opens to someone.
-  // Not while the draft changed it (it can always go back), except on shared/ and skills/, whose Restricted is the limit:
-  // General access changes it there
-  const limitIdle = !!data && (teamFolder || limited === !!d.base.limited) && !(data.above ?? []).some((w) => w.reason === 'rule' && w.access !== 'none' && w.count > 0)
+  // Limit access stops only the people the folders above let in. When nothing above lets in anyone but the owner and
+  // admins (General access from above is Restricted, and no folder on the way up names a person, a group, everyone or
+  // members: the stored rules, so a team with no members yet, an empty group or a person switched off still counts as
+  // let in), turning it on changes nobody, now or later: the switch is greyed with one line why. Only while it is off
+  // (a limit that is on can always be taken away), and not while the draft changes General access on shared/ or
+  // skills/ (there that changes the limit with it)
+  const limitIdle = !!data && !limited && !d.base.limited && (data.everyoneAbove?.access ?? 'none') === 'none' && !aboveAdmits(folders, path)
+    && !(teamFolder && draft.basic !== d.initial.basic)
   // people the update listed by name on this folder ("Added when folders changed"), while their role is as it was
   const byConversion = new Set((folder?.rules ?? []).filter((r) => r.byConversion).map((r) => `${r.subjectType}:${r.subjectId}:${r.access}`))
   // a connected folder offers the team no Editor, unless it has it now (shown as it is)
@@ -262,7 +266,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
     : t(level === 'read' ? (listed ? 'folderAccess.teamHintViewElse' : 'folderAccess.teamHintView') : listed ? 'folderAccess.teamHintEditElse' : 'folderAccess.teamHintEdit', { team })
   const folderWord = (f: string) => (f === '' ? team : nameOf(f))
   // shared/ ("Company-wide") is open to the team when it is made; Restricted there is an admin's choice, said as one
-  const sharedNote = data && teamFolder && !skills && level === 'none' ? t('folderAccess.sharedRestricted', { folder: nameOf(path) }) : null
+  const sharedNote = data && teamFolder && !skills && generalLevel(d.initial.basic, !!d.base.limited, above) === 'none' ? t('folderAccess.sharedRestricted', { folder: nameOf(path) }) : null
   /** Remove access (the role menu): the row goes from the draft at once, and the toast's Undo puts it back where it was
    * (a native menu's arrow keys can remove a row on the way; nothing is saved before Save, which still shows who loses
    * what: docs/decisions/20261123-do-then-undo.md) */
@@ -403,9 +407,10 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   }, [path, d.base.limited, d.base.hash])
   // turned on in this draft: who it stops, from the server's answer for exactly the draft (people the preview names as
   // losing access), so the list shows the effect before Save, as Drive does
-  const cutInDraft = limited && !d.base.limited && data
-    ? data.changes.filter((c) => c.before !== 'none' && c.after === 'none').flatMap((c) => c.people).sort((a, b) => a.name.localeCompare(b.name))
-    : []
+  const cutChanges = limited && !d.base.limited && data ? data.changes.filter((c) => c.before !== 'none' && c.after === 'none') : []
+  const cutInDraft = cutChanges.flatMap((c) => c.people).sort((a, b) => a.name.localeCompare(b.name))
+  // the server names at most 50 of each change: the rest are said as a number, never left out silently
+  const cutUnnamed = cutChanges.reduce((n, c) => n + c.count - c.people.length, 0)
   const removedAllNow = !limited ? [] : (d.base.limited ? removedAll : cutInDraft).filter((p) => !draft.named.some((n) => n.subjectType === 'user' && n.subjectId === p.id))
   // a long list would push General access out of sight: the first few, then "Show all"
   const [removedOpen, setRemovedOpen] = useState(false)
@@ -535,6 +540,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
               </li>
             ))}
           </ul>
+          {cutUnnamed > 0 && removedAllNow.length <= removedList.length && <p className="mt-1 text-xs text-muted" data-testid="sharing-removed-unnamed">{t('folderAccess.removedMore', { n: cutUnnamed })}</p>}
           {removedAllNow.length > removedList.length && (
             <button type="button" onClick={() => setRemovedOpen(true)} className="mt-1 text-xs font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-removed-more">
               {t('folderAccess.showAllRemoved', { n: removedAllNow.length })}

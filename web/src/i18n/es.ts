@@ -1191,6 +1191,7 @@ export const es: Record<MessageKey, string> = {
   'folderAccess.followsFolder': "Igual que \"{folder}\"",
   'folderAccess.followsTop': "Igual que la carpeta del equipo",
   'folderAccess.sharedRestricted': "\"{folder}\" suele estar abierta a todo el equipo. Un administrador la restringió.",
+  'folderAccess.removedMore': "Otras {n} personas tampoco podrán abrirla.",
   'folderAccess.lowerNeedsLimit': "Limite el acceso para cambiarlo",
   'folderAccess.teamEditsAbove': "Cualquier persona de {team} puede editar \"{folder}\"",
   'folderAccess.teamViewsAbove': "Cualquier persona de {team} puede ver \"{folder}\"",

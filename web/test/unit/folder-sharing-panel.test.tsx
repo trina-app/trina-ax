@@ -392,15 +392,15 @@ describe('review of #787: Limit access off, and shared/', () => {
     const m = await mountHost('shared')
     await m.until(() => m.find('sharing-limit'), 'the switch')
     await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'the first answer')
-    // the team root lets nobody in: the switch changes nobody here, greyed with that line (General access is the way)
+    // the switch says why it cannot go off, and is not offered
     expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
-    expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdleTop'))
+    expect(m.get('sharing-limit-locked').textContent).toBe(en('folderAccess.limitLocked'))
     expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
     expect(m.find('sharing-save')).toBeNull()
-    // a team role picked in General access: saved with the limit as it is (shared/ keeps a setting either way)
+    // a team role picked: the limit can go off again
     await choose(m.get('sharing-general-select'), 'team')
-    await m.until(() => m.find('sharing-save'), 'Save')
-    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    await m.until(() => !m.get('sharing-limit').hasAttribute('disabled'), 'the switch free')
+    expect(m.find('sharing-limit-locked')).toBeNull()
     await m.unmount()
   })
 
@@ -717,19 +717,23 @@ describe('Limit access says what it does, or why it does nothing (owner report 1
     await m.unmount()
   })
 
-  test('limited already, and the folder above lets nobody in now: shown on, greyed (it works again when the folder above opens)', async () => {
+  test('a limit that is on can always be taken away, even when the folder above lets nobody in (review of #590)', async () => {
     rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
     limitedPaths.add('shared/Sales/Plans')
     const m = await open('shared/Sales/Plans')
     expect(checked(m)).toBe(true)
-    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(false)
+    expect(m.get('sharing-limit-hint').textContent).toBe(en('folderAccess.limitHint', { parent: 'Sales' }))
     await m.unmount()
-    // Sales opens to Leads: the same folder's switch works again
-    rows.set('shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
-    const again = await open('shared/Sales/Plans')
-    expect(again.get('sharing-limit').hasAttribute('disabled')).toBe(false)
-    expect(again.get('sharing-limit-hint').textContent).toBe(en('folderAccess.limitHint', { parent: 'Sales' }))
-    await again.unmount()
+  })
+
+  test('a folder above names someone the head count cannot see (a person switched off, an empty group): the switch works', async () => {
+    // Sales names a person who is not active (no head count) and nobody else
+    rows.set('shared/Sales', [{ subjectType: 'user', subjectId: 'gone', access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const m = await open('shared/Sales/Plans')
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(false)
+    expect(m.find('sharing-limit-idle')).toBeNull()
+    await m.unmount()
   })
 
   test('the folder above lets people in: on lists who it stops under Access removed at once, off takes them back', async () => {
@@ -755,14 +759,27 @@ describe('Limit access says what it does, or why it does nothing (owner report 1
     await m.unmount()
   })
 
-  test('a top folder under a team root that lets nobody in: the limit (on, so it can be taken away) is greyed with the team folder line', async () => {
+  test('a top folder under a team root that lets nobody in: off and greyed with the team folder line; on, it can be taken away', async () => {
     rows.set('Board', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }])
     limitedPaths.add('Board')
-    const m = await openAny('Board')
-    expect(checked(m)).toBe(true)
+    const on = await openAny('Board')
+    expect(checked(on)).toBe(true)
+    expect(on.get('sharing-limit').hasAttribute('disabled')).toBe(false)
+    // off now: a limit the update put on a top folder can be taken away, and the switch then shows only while it is on
+    await tick(on, on.get('sharing-limit'))
+    await on.until(() => on.find('sharing-save'), 'Save')
+    await on.unmount()
+  })
+
+  test('shared/ open under a team root that lets nobody in: greyed with the team folder line, gone while General access changes (review of #590)', async () => {
+    const m = await openAny('shared')
     expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
     expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdleTop'))
-    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.restrictedHint'))
+    // Restricted in the draft takes the whole team out: no "changes nobody" line next to that
+    await choose(m.get('sharing-general-select'), 'restricted')
+    await m.until(() => !m.find('sharing-limit-idle'), 'the idle line gone')
+    // the "an admin restricted it" note is about the saved setting, not this draft
+    expect(m.find('sharing-general-note')).toBeNull()
     await m.unmount()
   })
 
