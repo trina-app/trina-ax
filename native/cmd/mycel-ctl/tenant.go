@@ -997,6 +997,100 @@ func cmdGitHubAppSet(e *env, args []string) (int, error) {
 	}{true, *r.Changed})
 }
 
+// microsoftAppFile: where the server reads its Microsoft app (server/src/integrations/microsoft/app.ts
+// microsoftAppFile), relative to the base.
+const microsoftAppFile = "secrets/integrations/microsoft/app.json"
+
+// The Microsoft app's values (shared/src/cloud-protocol MicrosoftAppFile): a GUID client ID, a secret of printable
+// ASCII without spaces, and an optional tenant (common, organizations or a directory's GUID; no personal accounts). app.ts reads
+// the same names with the same rules.
+var (
+	microsoftGUIDRE   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	microsoftTenantRE = regexp.MustCompile(`^(common|organizations|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+)
+
+// microsoftApp is the file's shape (field order fixed, so the same values always give the same bytes).
+type microsoftApp struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	Tenant       string `json:"tenant,omitempty"`
+}
+
+// parseMicrosoftApp checks one MicrosoftAppFile: exactly these keys, each a string that matches its rule.
+func parseMicrosoftApp(m map[string]json.RawMessage) (microsoftApp, error) {
+	var a microsoftApp
+	for k := range m {
+		if k != "clientId" && k != "clientSecret" && k != "tenant" {
+			return a, fmt.Errorf("stdin must be { clientId, clientSecret, tenant? }")
+		}
+	}
+	str := func(k string) (string, bool) {
+		var v string
+		raw, ok := m[k]
+		return v, ok && json.Unmarshal(raw, &v) == nil
+	}
+	var ok bool
+	if a.ClientID, ok = str("clientId"); !ok || !microsoftGUIDRE.MatchString(a.ClientID) {
+		return a, fmt.Errorf("clientId: not a Microsoft application (client) ID")
+	}
+	if a.ClientSecret, ok = str("clientSecret"); !ok || len(a.ClientSecret) > 4096 || !githubSecretRE.MatchString(a.ClientSecret) {
+		return a, fmt.Errorf("clientSecret: 1 to 4096 printable characters without spaces")
+	}
+	if _, has := m["tenant"]; has {
+		if a.Tenant, ok = str("tenant"); !ok || !microsoftTenantRE.MatchString(a.Tenant) {
+			return a, fmt.Errorf("tenant: common, organizations or a directory ID")
+		}
+	}
+	return a, nil
+}
+
+// microsoft-app-set < { clientId, clientSecret, tenant? }: the hosting service's Microsoft app for this team server's
+// Microsoft 365 connector, written like github-app-set's file (server account, 0600, folder 0700, atomic, never
+// through a link) to <base>/secrets/integrations/microsoft/app.json. No restart; the same values again change nothing.
+// The secret is never in an argument, an error or the answer { ok, changed }.
+func cmdMicrosoftAppSet(e *env, args []string) (int, error) {
+	t := newTenant(e, "microsoft-app-set")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	_, m, err := t.stdinJSON(32 << 10)
+	if err != nil {
+		return 1, err
+	}
+	app, err := parseMicrosoftApp(m)
+	if err != nil {
+		return 1, err
+	}
+	return writeServerAppFile(t, microsoftAppFile, app)
+}
+
+// writeServerAppFile writes one app file through server-write (as github-app-set) and answers { ok, changed }.
+func writeServerAppFile(t *tenant, target string, app any) (int, error) {
+	var file bytes.Buffer
+	enc := json.NewEncoder(&file)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(app); err != nil {
+		return 1, err
+	}
+	if file.Len() > 16<<10 {
+		return 1, fmt.Errorf("the app file would be over 16 KiB")
+	}
+	raw, err := t.asServerFn(file.Bytes(), "server-write", "--file", target)
+	if err != nil {
+		return 1, err
+	}
+	var r struct {
+		Changed *bool `json:"changed"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(raw), &r) != nil || r.Changed == nil {
+		return 1, fmt.Errorf("server-write did not say whether the file changed")
+	}
+	return t.out(struct {
+		OK      bool `json:"ok"`
+		Changed bool `json:"changed"`
+	}{true, *r.Changed})
+}
+
 // ---------------------------------------------------------------- as the server account
 
 // serverWriteTarget: a file server-write may replace, its mode, and its folder's mode (0 = leave an existing folder's
@@ -1007,6 +1101,7 @@ type serverWriteTarget struct{ mode, dirMode os.FileMode }
 var serverWriteTargets = map[string]serverWriteTarget{
 	"data/relay/registration.json": {mode: 0o600},
 	githubAppFile:                  {mode: 0o600, dirMode: 0o700},
+	microsoftAppFile:               {mode: 0o600, dirMode: 0o700},
 }
 
 // cmdServerWrite (internal, run as the server account by asServer): replace one allowed file atomically with stdin.

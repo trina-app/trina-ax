@@ -20,6 +20,7 @@ import {
 import { CredentialKind as ApiCredentialKind, Username as ApiUsername } from '@mycel/shared/api'
 import { parseDsn } from '@mycel/shared/sentry-report'
 import { parseGitHubApp } from '../../server/src/integrations/github/app'
+import { parseMicrosoftApp } from '../../server/src/integrations/microsoft/app'
 import { buildVectors } from '../../shared/src/cloud-protocol/vectors.ts'
 import { VECTORS_FILE, vectorsText } from '../../scripts/cloud-protocol-vectors.ts'
 
@@ -75,9 +76,9 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys, GitHub App and mail service, the owner recovery claim and the data disk grow', () => {
+  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys, GitHub and Microsoft apps and mail service, the owner recovery claim and the data disk grow', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
-      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'github-app-set', 'hosted-speech-key-set', 'idle-wait', 'mail-in-set', 'notices-set',
+      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'github-app-set', 'hosted-speech-key-set', 'idle-wait', 'mail-in-set', 'microsoft-app-set', 'notices-set',
       'owner-recovery-claimed', 'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
@@ -102,6 +103,14 @@ describe('cloud-protocol: tenant commands', () => {
     expect(ErrorReportsResult.safeParse({ ok: true, changed: true }).success).toBe(false)
     expect(tenantCommandArgv('error-reports-set', {})).toEqual(['error-reports-set', '--json'])
     expect(tenantCommandTimeoutSec('error-reports-set', {})).toBe(120)
+  })
+  test('microsoft-app-set: every app the gate lets through is one the server reads (and every one it refuses, the server refuses too)', () => {
+    const apps = V.tenantCommands.allowed.filter((c) => c.command === 'microsoft-app-set').map((c) => c.stdin)
+    expect(apps.length).toBeGreaterThan(1)
+    for (const a of apps) expect(parseMicrosoftApp(a)).toEqual(a as never)
+    for (const r of V.tenantCommands.refused.filter((c) => c.command === 'microsoft-app-set' && c.stdin && Object.keys(c.args).length === 0)) expect(parseMicrosoftApp(r.stdin)).toBeNull()
+    expect(tenantCommandArgv('microsoft-app-set', {})).toEqual(['microsoft-app-set', '--json'])
+    expect(tenantCommandTimeoutSec('microsoft-app-set', {})).toBe(30)
   })
   test('github-app-set: every app the gate lets through is one the server reads, its file far below 16 KiB; the answer shape', () => {
     const apps = V.tenantCommands.allowed.filter((c) => c.command === 'github-app-set').map((c) => c.stdin)
