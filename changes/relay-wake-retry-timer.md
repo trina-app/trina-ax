@@ -1,0 +1,1 @@
+- On the "Resuming your team" page, **Try again** now starts the waiting count over at 0. It went on from the old count (196 s, then 210 s).
