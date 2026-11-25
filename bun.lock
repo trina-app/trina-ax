@@ -20,6 +20,7 @@
         "electron": "44.7.2",
         "electron-builder": "26.15.3",
         "electron-updater": "6.8.10",
+        "tldts": "7.0.30",
         "zod": "4.6.7",
       },
     },
@@ -60,6 +61,7 @@
       "name": "@mycel/shared",
       "version": "0.2.2",
       "dependencies": {
+        "tldts": "7.0.30",
         "zod": "4.6.7",
       },
     },

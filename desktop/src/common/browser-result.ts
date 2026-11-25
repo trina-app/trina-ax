@@ -1,7 +1,7 @@
 // Turn the pane's internal tool result into the wire shape (shared/src/api/browser.ts BrowserResult):
 // at most 20 content items, text <= 2 MB, images <= 20 MB base64, error <= 4000 characters.
 // Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
-import type { BrowserResult } from '@mycel/shared/api'
+import { BrowserSiteKey, type BrowserResult } from '@mycel/shared/api'
 
 export type PaneContent =
   | { type: 'text'; text: string }
@@ -47,4 +47,54 @@ export function resultBytes(r: BrowserResult): number {
   let n = r.error?.length ?? 0
   for (const c of r.content) n += c.type === 'text' ? c.text.length : c.data.length
   return n
+}
+
+/** At most this many hosts of each kind go back with one result (BrowserResult.always). */
+export const ALWAYS_BACK_MAX = 50
+
+/**
+ * The result with the hosts the person answered "Always allow" to during the call (BrowserResult.always), so the team
+ * server keeps them as the person's own allowance on every computer (docs/decisions/20261125-one-site-always-desktop-
+ * browser.md). Unchanged when there were none.
+ */
+export function withAlways(r: BrowserResult, always: { site: ReadonlySet<string>; private: ReadonlySet<string> } | undefined): BrowserResult {
+  const sites = [...(always?.site ?? [])].filter(okKey).slice(0, ALWAYS_BACK_MAX)
+  const office = [...(always?.private ?? [])].filter(okKey).slice(0, ALWAYS_BACK_MAX)
+  if (!sites.length && !office.length) return r
+  return { ...r, always: { ...(sites.length ? { sites } : {}), ...(office.length ? { office } : {}) } }
+}
+const okKey = (k: string) => BrowserSiteKey.safeParse(k).success
+
+/**
+ * "Always allow" answers on this computer's site cards that have not gone to the team server yet. Each entry belongs to
+ * the person signed in when it was pressed and goes only with that person's results (never the next person's after a
+ * sign-out). An entry rides exactly one result (take), then it is gone: a site the person removes in Settings afterwards
+ * is never sent again. The caller takes only for a result that goes out (not for a call that was stopped or ran out of
+ * time), so an Always answered then waits for the next result.
+ */
+export class PendingAlways {
+  private items = new Map<string, { scope: 'site' | 'private'; host: string; owner: string | null }>()
+
+  add(scope: 'site' | 'private', host: string, owner: string | null) {
+    this.items.set(`${scope}\u0000${host}`, { scope, host, owner })
+    while (this.items.size > ALWAYS_BACK_MAX * 2) this.items.delete(this.items.keys().next().value as string)
+  }
+
+  /** What goes with this result for `owner` (signed in now), taken out; entries of anyone else are dropped. */
+  take(owner: string | null): { site: Set<string>; private: Set<string> } {
+    const out = { site: new Set<string>(), private: new Set<string>() }
+    for (const [k, e] of this.items) {
+      this.items.delete(k)
+      if (owner !== null && e.owner === owner) out[e.scope].add(e.host)
+    }
+    return out
+  }
+
+  clear() {
+    this.items.clear()
+  }
+
+  get size() {
+    return this.items.size
+  }
 }
