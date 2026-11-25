@@ -71,6 +71,35 @@ export const TEXT = {
   no: t('보내지 않기', 'Don’t send', 'Jangan kirim', "送信しない", "No enviar", "不发送"),
   // the card's three answers (TC-130): this once, from now on (the person's own choice for this connection), no
   once: t('이번만 보내기', 'Send once', 'Kirim sekali ini', "今回だけ送信", "Enviar esta vez", "发送一次"),
+  // the write card of a change that sends nothing to people (tools.ts gate, card-lines.ts changeAction; docs/decisions/
+  // 20261125-change-card-action-verb.md): its sentence, question, buttons and details label say what the call does
+  // (save a draft, add an event, delete, change), so only a send reads "Send it?" (QA 11-25: a Gmail draft and a Calendar
+  // event asked "Send once / Don't send")
+  confirmSave: t('AI가 {name}에 이 내용을 저장하려고 해요: {what}', 'The AI wants to save this in {name}: {what}', 'AI ingin menyimpan ini di {name}: {what}', "AIが{name}に次の内容を保存しようとしています：{what}", "La IA quiere guardar esto en {name}: {what}", "AI 想在{name}中保存这个：{what}"),
+  askSave: t('저장할까요?', 'Save it?', 'Simpan?', "保存しますか？", "¿Guardarlo?", "要保存吗？"),
+  onceSave: t('이번만 저장하기', 'Save once', 'Simpan sekali ini', "今回だけ保存", "Guardar esta vez", "保存一次"),
+  yesSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar", "保存"),
+  noSave: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar", "不保存"),
+  labelSave: t('저장할 내용', 'What it saves', 'Yang disimpan', "保存する内容", "Lo que guarda", "保存的内容"),
+  confirmAdd: t('AI가 {name}에 이 내용을 추가하려고 해요: {what}', 'The AI wants to add this to {name}: {what}', 'AI ingin menambahkan ini ke {name}: {what}', "AIが{name}に次の内容を追加しようとしています：{what}", "La IA quiere añadir esto a {name}: {what}", "AI 想把这个添加到{name}：{what}"),
+  askAdd: t('추가할까요?', 'Add it?', 'Tambahkan?', "追加しますか？", "¿Añadirlo?", "要添加吗？"),
+  onceAdd: t('이번만 추가하기', 'Add once', 'Tambahkan sekali ini', "今回だけ追加", "Añadir esta vez", "添加一次"),
+  yesAdd: t('추가하기', 'Add', 'Tambahkan', "追加", "Añadir", "添加"),
+  noAdd: t('추가하지 않기', 'Don’t add', 'Jangan tambahkan', "追加しない", "No añadir", "不添加"),
+  labelAdd: t('추가할 내용', 'What it adds', 'Yang ditambahkan', "追加する内容", "Lo que añade", "添加的内容"),
+  confirmDelete: t('AI가 {name}에서 이것을 지우려고 해요: {what}', 'The AI wants to delete this in {name}: {what}', 'AI ingin menghapus ini di {name}: {what}', "AIが{name}で次のものを削除しようとしています：{what}", "La IA quiere eliminar esto en {name}: {what}", "AI 想在{name}中删除这个：{what}"),
+  askDelete: t('지울까요?', 'Delete it?', 'Hapus?', "削除しますか？", "¿Eliminarlo?", "要删除吗？"),
+  onceDelete: t('이번만 지우기', 'Delete once', 'Hapus sekali ini', "今回だけ削除", "Eliminar esta vez", "删除一次"),
+  yesDelete: t('지우기', 'Delete', 'Hapus', "削除", "Eliminar", "删除"),
+  noDelete: t('지우지 않기', 'Don’t delete', 'Jangan hapus', "削除しない", "No eliminar", "不删除"),
+  labelDelete: t('지울 대상', 'What it deletes', 'Yang dihapus', "削除するもの", "Lo que elimina", "删除的对象"),
+  confirmChange: t('AI가 {name}에서 이 내용을 바꾸려고 해요: {what}', 'The AI wants to change this in {name}: {what}', 'AI ingin mengubah ini di {name}: {what}', "AIが{name}で次の内容を変更しようとしています：{what}", "La IA quiere cambiar esto en {name}: {what}", "AI 想在{name}中更改这个：{what}"),
+  askChange: t('바꿀까요?', 'Change it?', 'Ubah?', "変更しますか？", "¿Cambiarlo?", "要更改吗？"),
+  onceChange: t('이번만 바꾸기', 'Change once', 'Ubah sekali ini', "今回だけ変更", "Cambiar esta vez", "更改一次"),
+  yesChange: t('바꾸기', 'Change', 'Ubah', "変更", "Cambiar", "更改"),
+  noChange: t('바꾸지 않기', 'Don’t change', 'Jangan ubah', "変更しない", "No cambiar", "不更改"),
+  labelChange: t('바꿀 내용', 'What it changes', 'Yang diubah', "変更する内容", "Lo que cambia", "更改的内容"),
+  checkBelowChange: t('바뀌는 내용 전체를 아래에서 확인해 주세요.', 'Check everything it would do, below.', 'Periksa semua yang akan dilakukan di bawah.', "行われる内容全体を下で確認してください。", "Revise abajo todo lo que hará.", "请在下方查看将要执行的全部内容。"),
   alwaysAllow: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
   // the line under the three buttons: what Always allow covers, and where it is turned off
   alwaysNote: t('항상 허용: 이 내용만이 아니라 {name}의 모든 변경(보내기, 고치기, 지우기)을 앞으로 모든 대화에서 AI가 묻지 않고 해요. 웹페이지나 파일을 읽은 대화에서도 다시 묻지 않아요. 설정 › 커넥터에서 끌 수 있어요.',

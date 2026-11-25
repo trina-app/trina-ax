@@ -136,6 +136,27 @@ describe('calls', () => {
     expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action='google_app.write_policy'").get()).toMatchObject({ detail: JSON.stringify({ app: 'gmail', writePolicy: 'allow', via: 'card' }) })
   })
 
+  // docs/decisions/20261125-change-card-action-verb.md (QA 11-25: a draft and an event asked "Send it? Send once")
+  test('the card says what the call does: a draft is saved, an event added, never "send"', async () => {
+    setPolicy('ask')
+    setPolicyOf('calendar', 'ask')
+    lib.calls = []
+    const draft = person('no')
+    expect((await turn('alice', { person: draft }).call('my_gmail__draft_gmail_message', { to: 'bob@acme.example', subject: 'Re: late order', body: 'Thanks' })).isError).toBe(true)
+    expect(draft.asked[0]).toStartWith('The AI wants to save this in Gmail: ')
+    expect(draft.asked[0]).toEndWith('Save it?')
+    expect(draft.choices).toEqual([['Save once', 'Always allow', 'Don’t save']])
+    const event = person('no')
+    expect((await turn('carol', { person: event }).call('my_gcal__manage_event', { action: 'create', summary: 'Q4 review', start_time: '2026-11-26T14:00:00', end_time: '2026-11-26T15:00:00' })).isError).toBe(true)
+    expect(event.asked[0]).toStartWith('The AI wants to add this to Google Calendar: ')
+    expect(event.asked[0]).toEndWith('Add it?')
+    expect(event.choices).toEqual([['Add once', 'Always allow', 'Don’t add']])
+    const del = person('no')
+    expect((await turn('carol', { person: del }).call('my_gcal__manage_event', { action: 'delete', event_id: 'e1' })).isError).toBe(true)
+    expect(del.choices).toEqual([['Delete once', 'Always allow', 'Don’t delete']])
+    expect(lib.calls).toEqual([])
+  })
+
   // docs/DECISIONS.md "Always allow on every card" (the owner, 2026-11-13): Always allow holds after a room read too
   test('Always allow holds after a room read; in a scheduled run only the task person\'s own choice sends (owner 2026-11-14)', async () => {
     setPolicy('allow')
