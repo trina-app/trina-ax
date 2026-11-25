@@ -187,6 +187,21 @@ export type GitHubAppFile = z.infer<typeof GitHubAppFile>
 export const GitHubAppResult = z.object({ ok: z.literal(true), changed: z.boolean() })
 export type GitHubAppResult = z.infer<typeof GitHubAppResult>
 
+/** microsoft-app-set's stdin: the Microsoft (Entra) app the team server's Microsoft 365 connector signs in through
+ * (trina-ax server/src/integrations/microsoft/app.ts reads it from <secrets>/integrations/microsoft/app.json; its rules
+ * are at least this wide). clientId: the application (client) ID, a GUID. tenant: the authority's tenant (default
+ * common). The secret is printable ASCII without spaces, only ever on stdin. */
+const MicrosoftGuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+export const MicrosoftAppFile = z.strictObject({
+  clientId: MicrosoftGuid,
+  clientSecret: z.string().regex(/^[!-~]{1,4096}$/),
+  tenant: z.union([z.enum(['common', 'organizations', 'consumers']), MicrosoftGuid]).optional(),
+})
+export type MicrosoftAppFile = z.infer<typeof MicrosoftAppFile>
+/** microsoft-app-set's answer: as GitHubAppResult (the server reads the file at each request: no restart) */
+export const MicrosoftAppResult = GitHubAppResult
+export type MicrosoftAppResult = z.infer<typeof MicrosoftAppResult>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -294,6 +309,8 @@ export const TENANT_COMMANDS = {
   'error-reports-set': { args: NoArgs, stdin: ErrorReportsInput, output: ErrorReportsResult, timeoutSec: 120 },
   /** the hosting service's GitHub App (GitHubAppFile, GitHubAppResult). Idempotent: send it again when unsure. */
   'github-app-set': { args: NoArgs, stdin: GitHubAppFile, output: GitHubAppResult, timeoutSec: 30 },
+  /** the hosting service's Microsoft app (MicrosoftAppFile, MicrosoftAppResult). Idempotent: send it again when unsure. */
+  'microsoft-app-set': { args: NoArgs, stdin: MicrosoftAppFile, output: MicrosoftAppResult, timeoutSec: 30 },
   /** the hosting service's mail service for room email (MailInSetInput, MailInSetResult): MYCEL_MAIL_IN_URL and
    * MYCEL_MAIL_IN_DOMAIN in the environment file. Idempotent: send it again when unsure. Waits up to 60 s for running answers. */
   'mail-in-set': { args: NoArgs, stdin: MailInSetInput, output: MailInSetResult, timeoutSec: 120 },

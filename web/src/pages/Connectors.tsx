@@ -32,7 +32,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, SLACK, type Integration, type IntegrationList, type MyIntegrationTemplate, type SlackAdmin } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../lib/connectors'
+import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, serverAppMissing, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, emptyForm, splitByScope, toInput } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
@@ -291,7 +291,8 @@ function ConnectorsHome() {
   const urls = [...(list.data?.items ?? []).map((i) => i.url), ...fromTeam.urls]
   // GitHub signs in through the server's GitHub App: without one (an older server says nothing: as before) it cannot be
   // connected yet, so its card says so like a Google card the team has not set up (docs/INTEGRATIONS.md "GitHub")
-  const notSetUp = (c: Connector) => c.id === 'github' && list.data?.github?.ready === false
+  // Microsoft 365 the same with the server's Microsoft app (docs/decisions/20261125-m365-connector.md)
+  const notSetUp = (c: Connector) => serverAppMissing(c, list.data)
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : notSetUp(c) ? 'off' as const : 'available' as const,
@@ -568,7 +569,7 @@ function ListedPage({ c }: { c: Connector }) {
   // GitHub without the server's GitHub App: no Connect (it would fail at sign-in); a member asks an admin, an owner or
   // admin reads where it is set up (docs/INTEGRATIONS.md "GitHub"). A team template with the company's own GitHub App
   // is the team's setup: the page sends the person to it (its row under Your connectors connects it)
-  const noServerApp = c.id === 'github' && list.data?.github?.ready === false
+  const noServerApp = serverAppMissing(c, list.data)
   const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
   const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
   const notSetUp = noServerApp && !viaTemplate
@@ -583,8 +584,8 @@ function ListedPage({ c }: { c: Connector }) {
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
         status={listed.error?.id === c.id ? <Note tone="warn" testId="connector-connect-error">{listed.error.text}</Note>
           : askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
-          : viaTemplate ? <Note testId="connector-github-template">{t('connectors.github.viaTemplate')}</Note>
-          : notSetUp && admin ? <Note testId="connector-github-not-set-up">{t('connectors.github.notSetUpAdmin')}</Note> : undefined}
+          : viaTemplate ? <Note testId={`connector-${c.id === 'github' ? 'github' : 'microsoft'}-template`}>{t(c.id === 'github' ? 'connectors.github.viaTemplate' : 'connectors.microsoft.viaTemplate')}</Note>
+          : notSetUp && admin ? <Note testId={`connector-${c.id === 'github' ? 'github' : 'microsoft'}-not-set-up`}>{t(c.id === 'github' ? 'connectors.github.notSetUpAdmin' : 'connectors.microsoft.notSetUpAdmin')}</Note> : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>
   )
