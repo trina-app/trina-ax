@@ -84,10 +84,13 @@ function teamKey(dataDir: string) { const { key, publicKey } = loadOrCreateKey(d
 export const NO_BADGE_RETRY_MS = 60 * 60_000
 /** What the transport answers for a sync to a gateway that refused one within NO_BADGE_RETRY_MS (nothing was sent). */
 export const SYNC_UNSUPPORTED = 'sync_unsupported'
+/** What the transport answers for an iPhone sync of ids alone to a gateway that takes no iPhone ids (a gateway from
+ * before 2026-11) and has no number to send instead: nothing was sent, and nothing is worth trying again. */
+export const SYNC_NOTHING_SENT = 'sync_nothing_sent'
 
 export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; loopbackRequest?: typeof http.request; now?: () => number }): NativeTransport {
   // gateway address -> until when it gets no badge / no label
-  const noBadge = new Map<string, number>(), noLabel = new Map<string, number>(), noSync = new Map<string, number>()
+  const noBadge = new Map<string, number>(), noLabel = new Map<string, number>(), noSync = new Map<string, number>(), noIosClear = new Map<string, number>()
   const now = () => (o.now ?? Date.now)()
   return async input => {
     const url = validGatewayUrl(input.config.url)
@@ -113,18 +116,29 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
     return post(url, send, input)
   }
   /** A sync goes once, as it is: never again without `sync` (a gateway from before it would show its generic line for an
-   * unknown code), and none to a gateway that refused one within the hour. */
+   * unknown code), and none to a gateway that refused one within the hour. An iPhone's ids (an app with push-clear-v1)
+   * that a gateway from before them refuses: the same sync goes again at once without them (the number alone), and that
+   * gateway gets no iPhone ids for the hour; Android syncs there go on. Only a refusal without ids stops syncs there. */
   async function sync(url: string, device: NativeDevice, p: NativeSyncPayload, input: NativeSend): Promise<{ statusCode: number; error?: string }> {
     if ((noSync.get(url) ?? 0) > now()) return { statusCode: 400, error: SYNC_UNSUPPORTED }
-    // the ids for Android only (the iPhone app takes nothing off while closed); an iPhone's sync is now or never
+    const ios = device.platform === 'ios'
+    // an iPhone's sync is now or never
     const clear = p.clear.filter((id) => /^[A-Za-z0-9_-]{1,100}$/.test(id)).slice(0, PUSH_SYNC_MAX_CLEAR)
+    const badge = validPushBadge(p.badge) && ios ? { badge: p.badge } : {}
     const send: PushGatewaySend = {
       v: 1, platform: device.platform, environment: device.environment, token: device.token, notificationId: p.notificationId,
       code: PUSH_SYNC_CODE, locale: p.locale, ...(p.tag && /^[A-Za-z0-9_-]{1,100}$/.test(p.tag) ? { tag: p.tag } : {}),
-      ttlSeconds: device.platform === 'ios' ? 0 : Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))), sync: true,
-      ...(validPushBadge(p.badge) && device.platform === 'ios' ? { badge: p.badge } : {}), ...(clear.length && device.platform === 'android' ? { clear } : {}),
+      ttlSeconds: ios ? 0 : Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))), sync: true, ...badge,
     }
-    const r = await post(url, send, input)
+    const iosIds = ios && clear.length > 0 && (noIosClear.get(url) ?? 0) <= now()
+    if (ios && !iosIds && !('badge' in badge)) return { statusCode: 400, error: SYNC_NOTHING_SENT }
+    if (iosIds) {
+      const first = await post(url, { ...send, clear }, input)
+      if (first.statusCode !== 400 || first.error !== 'invalid_body') return first
+      noIosClear.set(url, now() + NO_BADGE_RETRY_MS)
+      if (!('badge' in badge)) return { statusCode: 400, error: SYNC_NOTHING_SENT }
+    }
+    const r = await post(url, { ...send, ...(clear.length && !ios ? { clear } : {}) }, input)
     if (r.statusCode === 400 && r.error === 'invalid_body') noSync.set(url, now() + NO_BADGE_RETRY_MS)
     return r
   }

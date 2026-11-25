@@ -21,6 +21,8 @@ const upstream = Bun.serve({
   port: 0, hostname: '127.0.0.1',
   async fetch(req) {
     const key = req.headers.get('x-api-key') ?? ''
+    // the free check that confirms a refusal before it is marked (credentials/confirm.ts): GET /v1/models
+    if (req.method === 'GET') return (mode[key] ?? 'ok') === '401' ? Response.json({ type: 'error', error: { type: 'authentication_error' } }, { status: 401 }) : Response.json({ data: [] })
     const body = await req.json() as { messages: { content: string }[] }
     seen.push({ key, turn: body.messages[0]!.content })
     const m = mode[key] ?? 'ok'

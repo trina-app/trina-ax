@@ -321,7 +321,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/admin/credentials/:id` | Admin | Rename, order, switch off, assign to groups / people, monthly limit. |
 | `POST` | `/api/admin/credentials/:id/secret` | Admin | Put a new token / key on an existing connection (same kind). |
 | `DELETE` | `/api/admin/credentials/:id` | Admin | Remove a connection (usage history stays). |
-| `POST` | `/api/admin/credentials/:id/check` | Admin | Check a connection again now, without spending tokens. |
+| `POST` | `/api/admin/credentials/:id/check` | Admin | Check a connection again now, without spending tokens; says what it found (check.outcome: ok, refused, unclear, with a reason). |
 | `POST` | `/api/admin/credential-logins` | Admin | Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login. |
 | `GET` | `/api/admin/credential-logins/:id` | Admin | State of a sign-in this person started (the owner or an admin; no one else can read it). |
 | `DELETE` | `/api/admin/credential-logins/:id` | Admin | Stop a sign-in: the person who started it, or the owner or an admin for any (also a member's own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams. |

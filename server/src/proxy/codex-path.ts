@@ -21,6 +21,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 import type { Database } from 'bun:sqlite'
 import type { CredentialBroker } from '../credentials/broker'
 import { isCreditLimit } from '../credentials/store'
+import { providerError } from './anthropic-refusal'
 import { aliveSignal, overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, toolPolicyOf, type ProxyTurnEvent, type TokenRow } from './model-proxy'
 
 export interface CodexPathDeps {
@@ -287,6 +288,8 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     } catch { return null }
   }
 
+  // when it went out: a 401 of a request sent before a passed check belongs to that check (credentials/confirm.ts)
+  const sentAt = Date.now()
   let up = await send(cred)
   if (!up) return unreachable(req)
   if (up.status >= 300 && up.status < 400) {
@@ -303,7 +306,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     return apiError(status === 401 ? 403 : 429, status === 401 ? 'permission_error' : 'rate_limit_error', `the model service answered ${status} to this web search`)
   }
   if (up.status === 401) {
-    await up.body?.cancel().catch(() => {})
+    const first = await up.text().catch(() => '')
     if (cred.kind === 'chatgpt') {
       // one refresh (or the one another request just did), then one more try with the new access token
       const r = await d.broker.onUnauthorized(cred.credentialId, cred.inject.type === 'chatgpt' ? cred.inject.accessToken : '')
@@ -321,9 +324,21 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
       up = await send(c2)
       if (!up) return unreachable(req)
     }
+    if (up.status === 401 && cred.kind === 'openai-api-key') {
+      // an OpenAI key: one free check (GET /models) before it is marked; it passes -> nothing marked, Codex retries the
+      // 503 on the same key (a refusal again marks it)
+      const r = await d.broker.confirmRefusal(cred.credentialId, sentAt, { status: 401, code: 'upstream_401', error: providerError(401, first) })
+      if (r === 'passed') {
+        d.log?.warn('model proxy: a 401 of an AI connection was not confirmed by its free check; Codex retries', { turn: row.turn_id, credential: cred.credentialId })
+        return apiError(503, 'api_error', 'the AI account is being checked again; try again')
+      }
+      d.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+      return apiError(403, 'permission_error', 'credential_invalid')
+    }
     if (up.status === 401) {
-      await up.body?.cancel().catch(() => {})
-      d.broker.markInvalid(cred.credentialId, 'upstream_401', 401)
+      // ChatGPT after its refresh and one retry: the refresh was the confirming check
+      const text = await up.text().catch(() => '')
+      d.broker.markInvalid(cred.credentialId, 'upstream_401', 401, providerError(401, text))
       d.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
       // 403, not 401: Codex answers a 401 by refreshing its own (placeholder) login
       return apiError(403, 'permission_error', 'credential_invalid')

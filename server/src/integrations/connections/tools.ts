@@ -56,7 +56,7 @@ import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOL
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { sourceOf, type ReadSource } from '../../chat/read-scope'
-import { awayWords, localSpecOf, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
+import { awayWords, localSpecOf, notReadyWords, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
 export const MAX_RESULT_CHARS = 40_000
@@ -1838,7 +1838,8 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           continue
         }
         if (row.local_app && !savedTools(ctx.db, row).length) {
-          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): not set up on the computer yet. When they ask for it, tell them to open ${SCREEN.connectors(b.shared?.locale ?? 'en', row.name)} in the desktop app on that computer and press Check again`)
+          // in the words of its last check (not installed: with the app's download page; QA TC-9006)
+          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): ${notReadyWords(row, localSpecOf(row), SCREEN.connectors(b.shared?.locale ?? 'en', row.name))}`)
           continue
         }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"${sharedNote(row)}`); continue }

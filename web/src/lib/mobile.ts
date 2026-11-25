@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken, PUSH_SYNC_CAPABILITY } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, GOOGLE_SIGNIN_CAPABILITY, googleSignInCode, googleSignInError, type GoogleSignInError, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken, PUSH_SYNC_CAPABILITY, PUSH_CLEAR_CAPABILITY } from '../../../mobile/src/protocol'
 import type { DesktopBridge, DesktopDictationEvent } from '@mycel/shared'
 import { currentTheme } from './theme'
 
@@ -183,7 +183,7 @@ export async function googleSignInInApp(url: string): Promise<{ code: string } |
  * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. labelHash:
  * a phone app that shows who and where in a room push (push-label-v1; the iPhone's notification extension, Android's
  * messaging service in Android builds from 1.0.11 on) made a label key and gives only its hash, which the page registers with the token. */
-export async function requestPushToken(): Promise<PushToken & { labelHash?: string; sync?: true }> {
+export async function requestPushToken(): Promise<PushToken & { labelHash?: string; sync?: true; clear?: true }> {
   const turn = epoch
   await barrier
   if (turn !== epoch) throw cancelled()
@@ -195,8 +195,10 @@ export async function requestPushToken(): Promise<PushToken & { labelHash?: stri
   if (!validPushToken(reply.push)) throw new Error('push_unavailable')
   const { platform, token, environment } = reply.push
   const labelHash = config.capabilities.includes(PUSH_LABEL_CAPABILITY) && typeof reply.labelHash === 'string' && /^[0-9a-f]{64}$/.test(reply.labelHash) ? reply.labelHash : undefined
-  // an app that takes silent syncs (push-sync-v1): notices read elsewhere leave its list
-  return { platform, token, environment, ...(labelHash ? { labelHash } : {}), ...(config.capabilities.includes(PUSH_SYNC_CAPABILITY) ? { sync: true as const } : {}) }
+  // an app that takes silent syncs (push-sync-v1): notices read elsewhere leave its list; an iPhone app that takes them
+  // off Notification Center itself (push-clear-v1) gets their ids too
+  const sync = config.capabilities.includes(PUSH_SYNC_CAPABILITY), clear = sync && platform === 'ios' && config.capabilities.includes(PUSH_CLEAR_CAPABILITY)
+  return { platform, token, environment, ...(labelHash ? { labelHash } : {}), ...(sync ? { sync: true as const } : {}), ...(clear ? { clear: true as const } : {}) }
 }
 /** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
  * uses to remove the device when the person switches team. Only an app offering push-registered-v1 gets it: an older

@@ -15,6 +15,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { BATCH_REFUSED, BATCH_REFUSED_RE, windowsShare } from '@mycel/shared/api'
+
+export { windowsShare }
 
 /** The computer a program is looked for on (tests: a fake one). */
 export interface ProgramHost {
@@ -52,10 +55,7 @@ export function pathExts(env: NodeJS.ProcessEnv): string[] {
 /** A full path as Windows writes one: a drive (C:\ or C:/) or a share (\\server\share). */
 const winAbsolute = (p: string) => /^[A-Za-z]:[\\/]/.test(p)
 
-/** A Windows path on a network share or a device (\\server\share, \\?\…, \\.\…, //server): never looked at, not even
- * whether a file is there, because opening one sends this computer's sign-in (its NTLM hash) to that server (security
- * review of #515). Such a program is refused with words; PATH folders like that are skipped. */
-export const windowsShare = (p: string) => /^[\\/]{2}/.test(p.trim())
+// windowsShare (shared/src/api/local-apps.ts): a share or device path is never looked at, and refused with words
 export const SHARE_REFUSED = (command: string) => `${command.slice(0, 200)} is on a network share or a device path (it starts with \\\\). Only programs on this computer can be connected: copy it to a folder on this computer and use that path.`
 
 /** The program to start: a full path as it is (`~/`, on Windows also `~\`, is the home folder), a bare name found in
@@ -99,8 +99,8 @@ function resolveWindows(command: string, dirs: string[], host: ProgramHost): str
  * are one command line for cmd.exe as they are (Node's windowsVerbatimArguments). */
 export type Launch = { file: string; args: string[]; verbatim?: true; via?: 'npm' | 'cmd'; env?: Record<string, string> } | { refused: 'unsupported' | 'unsafe_arg'; error: string }
 
-/** what cmd.exe reads even inside "…": never passed through it */
-const CMD_UNSAFE = /["%!^\r\n\0]|[\u0001-\u001f]/
+/** what cmd.exe reads even inside "…": never passed through it (BATCH_REFUSED, the list the words say) */
+const CMD_UNSAFE = BATCH_REFUSED_RE
 /** what cmd.exe passes on as it is without quotes */
 const CMD_PLAIN = /^[A-Za-z0-9_\-.:/\\@+~]+$/
 
@@ -123,7 +123,7 @@ export function launchFor(program: string, args: string[], h?: Partial<ProgramHo
 export function cmdLaunch(program: string, args: string[], host: ProgramHost): Launch {
   const bad = [program, ...args].find((a) => CMD_UNSAFE.test(a))
   if (bad !== undefined) {
-    return { refused: 'unsafe_arg', error: `${path.win32.basename(program)} is a batch file, which Windows runs through cmd.exe, and a value has a character cmd.exe would read (" % ! ^ or a line break), so it was not run. Pass that value another way, or use the program's .exe.` }
+    return { refused: 'unsafe_arg', error: `${path.win32.basename(program)} is a batch file, which Windows runs through cmd.exe, and a value has a character cmd.exe would read (${BATCH_REFUSED.join(' ')} or a line break), so it was not run. Pass that value another way, or use the program's .exe.` }
   }
   const q = (a: string) => (CMD_PLAIN.test(a) ? a : `"${a}"`)
   const line = [`"${program}"`, ...args.map(q)].join(' ')

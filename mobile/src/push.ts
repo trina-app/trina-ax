@@ -95,8 +95,16 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
  * sets the icon's number itself (badge-v1: its own count, the newest), so a push's number does not replace it. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
-  // a silent sync (an iPhone's number after reads elsewhere) is never listed
-  try { Notifications.setNotificationHandler({ handleNotification: async (n) => ({ shouldShowBanner: false, shouldShowList: n.request.content.data?.code !== SYNC_CODE, shouldPlaySound: false, shouldSetBadge: false }) }) }
+  // a silent sync (an iPhone's number after reads elsewhere) is never listed; on an iPhone with modules/push-sync the
+  // notices it lists leave Notification Center here too (iOS may hand the open app a sync with a number as a
+  // notification to present rather than, or as well as, to the app delegate; removing twice changes nothing)
+  try {
+    Notifications.setNotificationHandler({ handleNotification: async (n) => {
+      const data = n.request.content.data
+      if (data?.code === SYNC_CODE && typeof data.clear === 'string') void pushSyncModule?.clear(data.clear).catch(() => false)
+      return { shouldShowBanner: false, shouldShowList: data?.code !== SYNC_CODE, shouldPlaySound: false, shouldSetBadge: false }
+    } })
+  }
   catch { console.log('push: notification handler unavailable') }
 }
 
@@ -124,6 +132,11 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
  * iPhone only (setsIconNumber): on Android setBadgeCountAsync is never called, not even with 0, and the launcher counts
  * the notifications in the tray. */
 export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNumber(Platform.OS)) await Notifications.setBadgeCountAsync(n) })
+
+/** The iPhone's native sync handler is in this build (modules/push-sync): it removes the delivered notifications a silent
+ * sync lists, in the background or while the app is open, with no JS (src/badge.ts takesClear). */
+const pushSyncModule = Platform.OS === 'ios' ? requireOptionalNativeModule<{ clear(list: string): Promise<boolean> }>('PushSync') : null
+export const pushSyncNative = pushSyncModule !== null
 
 /** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
  * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */

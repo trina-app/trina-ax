@@ -96,7 +96,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       ['expo-image-picker', { photosPermission: IOS_USAGE.en.NSPhotoLibraryUsageDescription, cameraPermission: IOS_USAGE.en.NSCameraUsageDescription, microphonePermission: IOS_USAGE.en.NSMicrophoneUsageDescription }],
       // aps-environment entitlement; Xcode's App Store export switches it to production.
       // Android's status bar icon is a white silhouette (otherwise the system shows a plain circle)
-      ['expo-notifications', { defaultChannel: 'default', ...(chosen.assets ? { icon: chosen.assets.notification, color: product.accent } : {}) }],
+      // iPhone: the remote-notification background mode (UIBackgroundModes), so iOS runs the closed app for a silent sync
+      // and modules/push-sync takes the notifications read on another device off Notification Center (push-clear-v1)
+      ['expo-notifications', { defaultChannel: 'default', enableBackgroundRemoteNotifications: true, ...(chosen.assets ? { icon: chosen.assets.notification, color: product.accent } : {}) }],
       // the launch screen follows the phone's light or dark mode when the edition has a dark mark (backgroundDark)
       ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}), ...(chosen.assets?.splashDark && product.backgroundDark ? { dark: { backgroundColor: product.backgroundDark, image: chosen.assets.splashDark } } : {}) }],
       // target 36 (Play's requirement since 2026-08-31); compile against 37, which the SDK 58 modules require

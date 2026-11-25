@@ -57,3 +57,8 @@ export const SYNC_CODE = 'phone.sync'
  * without it expo-notifications would list an empty notification while the app is open). */
 export const takesSync = (platform: string, androidService: boolean): boolean => platform === 'ios' || (platform === 'android' && androidService)
 
+/** Whether this app takes the notices read elsewhere off the iPhone's Notification Center itself (push-clear-v1): an
+ * iPhone build with the PushSync module (modules/push-sync, the remote-notification background mode's handler). Never
+ * on Android, whose syncs always carry the ids (Sync.kt). */
+export const takesClear = (platform: string, pushSyncModule: boolean): boolean => platform === 'ios' && pushSyncModule
+

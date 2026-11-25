@@ -101,9 +101,40 @@ test('silent syncs: offered by an iPhone and an Android build with its own messa
   expect([takesSync('ios', false), takesSync('android', true), takesSync('android', false), takesSync('web', true)]).toEqual([true, true, false, false])
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8'), push = fs.readFileSync(path.join(import.meta.dir, '../../mobile/src/push.ts'), 'utf8')
   expect(app).toContain('...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : [])')
-  expect(push).toContain('shouldShowList: n.request.content.data?.code !== SYNC_CODE')
+  expect(push).toContain('shouldShowList: data?.code !== SYNC_CODE')
   // the page's count never clears delivered notifications: a stale count on return to the foreground (or 0 before the
   // lists load at sign-in) would wipe a new one (review of #442); reads elsewhere come by id in a sync
   expect(app).toContain('badge: n => appBadge.show(n),')
   expect(push).not.toContain('dismissNotificationAsync')
+})
+
+// docs/AGENTS/plan/20261124-1853-iphone-clear-read-notifications.md (QA TC-8979, TC-8990, TC-8991)
+test('iPhone: push-clear-v1 only with the native handler; the background mode; the handler removes by notice id and answers after', async () => {
+  const { takesClear } = await import('../../mobile/src/badge')
+  const { PUSH_CLEAR_CAPABILITY } = await import('../../mobile/src/protocol')
+  const { PUSH_SYNC_CODE, PUSH_SYNC_MAX_CLEAR } = await import('../../shared/src/cloud-protocol/push-gateway')
+  expect(PUSH_CLEAR_CAPABILITY).toBe('push-clear-v1')
+  expect([takesClear('ios', true), takesClear('ios', false), takesClear('android', true)]).toEqual([true, false, false])
+  const mobile = path.join(import.meta.dir, '../../mobile')
+  const read = (f: string) => fs.readFileSync(path.join(mobile, f), 'utf8')
+  expect(read('App.tsx')).toContain('...(takesClear(Platform.OS, pushSyncNative) ? [PUSH_CLEAR_CAPABILITY] : [])')
+  expect(read('src/push.ts')).toContain("Platform.OS === 'ios' ? requireOptionalNativeModule<{ clear(list: string): Promise<boolean> }>('PushSync') : null")
+  // the open app: a sync iOS hands over as a notification to present goes through the same native removal
+  expect(read('src/push.ts')).toContain("if (data?.code === SYNC_CODE && typeof data.clear === 'string') void pushSyncModule?.clear(data.clear)")
+  expect(read('modules/push-sync/ios/PushSync.swift')).toContain('AsyncFunction("clear")')
+  // iOS runs the closed app for a content-available push only with the remote-notification background mode
+  expect(read('app.config.ts')).toMatch(/\['expo-notifications', \{[^\n]*enableBackgroundRemoteNotifications: true/)
+  // the module: iOS only, linked as a module and an app delegate subscriber
+  expect(JSON.parse(read('modules/push-sync/expo-module.config.json'))).toEqual({ platforms: ['apple'], apple: { modules: ['PushSyncModule'], appDelegateSubscribers: ['PushSyncAppDelegateSubscriber'] } })
+  const swift = read('modules/push-sync/ios/PushSync.swift')
+  expect(swift).toContain(`static let code = "${PUSH_SYNC_CODE}"`)
+  expect(swift).toContain(`static let maxClear = ${PUSH_SYNC_MAX_CLEAR}`)
+  expect(swift).toContain('Name("PushSync")')
+  // matched by body.notificationId first, the request identifier (apns-collapse-id) as a fallback
+  expect(swift).toContain('ids.contains(noticeId(n) ?? "") || ids.contains(n.request.identifier)')
+  // every path answers iOS; the removal answers only from inside getDeliveredNotifications' callback
+  expect(swift).toContain('guard let ids = PushSync.ids(userInfo) else { completionHandler(.noData); return }')
+  expect(swift).toMatch(/getDeliveredNotifications \{ delivered in[\s\S]*removeDeliveredNotifications[\s\S]*done\(!gone\.isEmpty\)/)
+  // never shows anything and never sets the number (iOS applies aps.badge itself)
+  expect(swift).not.toMatch(/UNNotificationRequest\(|\.add\(|applicationIconBadgeNumber|setBadgeCount/)
 })

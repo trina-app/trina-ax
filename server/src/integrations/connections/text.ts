@@ -1,6 +1,6 @@
 // Words people see for external-service connections (docs/INTEGRATIONS.md): the server's confirmation card, API
 // refusals and why a connection check failed (lastError, stored as a code and put into words for each reader).
-import type { Locale } from '@mycel/shared/api'
+import { BATCH_REFUSED, type Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
 
@@ -232,12 +232,35 @@ export const TEXT = {
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo.", "登录没有完成。请重试。"),
   // an app on the person's computer (local.ts): the reasons its check stored, and the refusals of its API
   local_offline: t('이 연결은 추가한 컴퓨터의 데스크톱 앱에서만 쓸 수 있어요. 그 컴퓨터에서 열어 확인해 주세요.', 'This works only from the desktop app on the computer where you added it. Open it there to check it.', 'Ini hanya berfungsi dari aplikasi desktop di komputer tempat Anda menambahkannya. Buka di sana untuk memeriksanya.', "これは、追加したパソコンのデスクトップアプリからのみ使えます。そのパソコンで開いて確認してください。", "Solo funciona desde la aplicación de escritorio en el ordenador donde la añadió. Ábrala allí para comprobarla.", "只能在添加它的那台电脑上的桌面应用中使用。请在那台电脑上打开并检查。"),
-  local_declined: t('이 컴퓨터에서 연결하지 않았어요(취소를 눌렀어요). 다시 확인을 누르면 다시 물어봐요.', 'It is not connected on this computer: Cancel was chosen. Press Check again to be asked again.', 'Belum terhubung di komputer ini: Batal dipilih. Tekan Periksa lagi agar ditanya lagi.', "このパソコンでは接続されていません（キャンセルが選ばれました）。「もう一度確認」を押すと、もう一度確認します。", "No está conectada en este ordenador: se eligió Cancelar. Pulse Comprobar de nuevo para que se lo vuelva a preguntar.", "在这台电脑上没有连接：选择了取消。按“重新检查”会再次询问。"),
+  local_declined: t('이 컴퓨터에서 연결하지 않았어요(취소를 눌렀어요). 다시 확인을 누르면 다시 물어봐요.', 'It is not connected on this computer: Cancel was chosen. Press Check again to be asked again.', 'Belum terhubung di komputer ini: Batal dipilih. Tekan Periksa lagi agar ditanya lagi.', "このパソコンでは接続されていません（キャンセルが選ばれました）。「再確認」を押すと、もう一度確認します。", "No está conectada en este ordenador: se eligió Cancelar. Pulse Volver a comprobar para que se lo vuelva a preguntar.", "在这台电脑上没有连接：选择了取消。按“重新检查”会再次询问。"),
   // the desktop app's "Connect this program?" was still open when the check stopped waiting (local.ts 'unconfirmed')
   local_confirm: t('데스크톱 앱에서 확인을 기다리고 있어요. 거기서 연결을 눌러 주세요.', 'Waiting for you to confirm in the desktop app. Press Connect there.', 'Menunggu konfirmasi Anda di aplikasi desktop. Tekan Hubungkan di sana.', "デスクトップアプリでの確認を待っています。そこで「接続」を押してください。", "Esperando su confirmación en la aplicación de escritorio. Pulse Conectar allí.", "正在等待你在桌面应用中确认。请在那里按“连接”。"),
-  local_failed: t('이 컴퓨터에서 프로그램을 시작하지 못했어요. 명령을 확인한 뒤 다시 확인을 눌러 주세요.', 'The program could not start on this computer. Check the command, then press Check again.', 'Program tidak dapat dimulai di komputer ini. Periksa perintahnya, lalu tekan Periksa lagi.', "このパソコンでプログラムを起動できませんでした。コマンドを確認してから「もう一度確認」を押してください。", "El programa no pudo iniciarse en este ordenador. Revise el comando y pulse Comprobar de nuevo.", "程序无法在这台电脑上启动。请检查命令，然后按“重新检查”。"),
+  local_failed: t('이 컴퓨터에서 프로그램을 시작하지 못했어요. 명령을 확인한 뒤 다시 확인을 눌러 주세요.', 'The program could not start on this computer. Check the command, then press Check again.', 'Program tidak dapat dimulai di komputer ini. Periksa perintahnya, lalu tekan Periksa lagi.', "このパソコンでプログラムを起動できませんでした。コマンドを確認してから「再確認」を押してください。", "El programa no pudo iniciarse en este ordenador. Revise el comando y pulse Volver a comprobar.", "程序无法在这台电脑上启动。请检查命令，然后按“重新检查”。"),
   // the desktop app found no program by that name on the computer (LocalResult.cause not_found): install it
-  local_missing: t('{name}이(가) 이 컴퓨터에 설치되어 있지 않아요. 설치한 다음 다시 확인을 눌러 주세요.', '{name} isn’t installed on this computer. Install it, then press Check again.', '{name} belum terpasang di komputer ini. Pasang dulu, lalu tekan Periksa lagi.', '{name}はこのパソコンにインストールされていません。インストールしてから「もう一度確認」を押してください。', '{name} no está instalado en este ordenador. Instálelo y pulse Comprobar de nuevo.', '这台电脑上没有安装 {name}。安装后请按“重新检查”。'),
+  local_missing: t('{name}이(가) 이 컴퓨터에 설치되어 있지 않아요. 설치한 다음 다시 확인을 눌러 주세요.', '{name} isn’t installed on this computer. Install it, then press Check again.', '{name} belum terpasang di komputer ini. Pasang dulu, lalu tekan Periksa lagi.', '{name}はこのパソコンにインストールされていません。インストールしてから「再確認」を押してください。', '{name} no está instalado en este ordenador. Instálelo y pulse Volver a comprobar.', '这台电脑上没有安装 {name}。安装后请按“重新检查”。'),
+  // the program is on a network share or a device path (\\server\share\x.exe): the desktop app never starts one
+  // (programs.ts windowsShare; local.ts causeOf). The connection keeps its command, so the fix is to add it again
+  local_share: t('{name}의 프로그램이 네트워크 경로(\\\\로 시작)에 있어요. 이 컴퓨터에 있는 프로그램만 실행할 수 있어요. 이 컴퓨터의 폴더로 복사한 다음, 이 연결을 삭제하고 그 경로로 다시 추가해 주세요.',
+    '{name}’s program is on a network path (it starts with \\\\). Only programs on this computer can run: copy it to a folder on this computer, then delete this connection and add it again with that path.',
+    'Program {name} ada di jalur jaringan (diawali \\\\). Hanya program di komputer ini yang bisa dijalankan: salin ke folder di komputer ini, lalu hapus koneksi ini dan tambahkan lagi dengan jalur itu.',
+    '{name}のプログラムはネットワーク上のパス（\\\\で始まる）にあります。このパソコンにあるプログラムしか実行できません。このパソコンのフォルダーにコピーしてから、この接続を削除し、そのパスでもう一度追加してください。',
+    'El programa de {name} está en una ruta de red (empieza por \\\\). Solo se pueden ejecutar programas de este ordenador: cópielo a una carpeta de este ordenador, elimine esta conexión y vuelva a añadirla con esa ruta.',
+    '{name} 的程序在网络路径上（以 \\\\ 开头）。只能运行这台电脑上的程序：请把它复制到这台电脑上的文件夹，然后删除这个连接，用那个路径重新添加。'),
+  // a kind of file Windows does not start here (.ps1, .js, .vbs …: programs.ts launchFor)
+  local_unsupported: t('{name}의 프로그램은 Windows가 여기서 실행하지 않는 종류의 파일이에요. .exe, .com, .cmd, .bat 프로그램만 실행할 수 있어요. 이 연결을 삭제하고 프로그램의 .exe로 다시 추가해 주세요.',
+    '{name}’s program is a kind of file Windows doesn’t start here. Only .exe, .com, .cmd and .bat programs can run: delete this connection and add it again with the program’s .exe.',
+    'Program {name} adalah jenis file yang tidak dijalankan Windows di sini. Hanya program .exe, .com, .cmd, dan .bat yang bisa dijalankan: hapus koneksi ini dan tambahkan lagi dengan file .exe programnya.',
+    '{name}のプログラムは、Windowsがここで起動しない種類のファイルです。.exe、.com、.cmd、.batのプログラムだけが実行できます。この接続を削除し、プログラムの.exeでもう一度追加してください。',
+    'El programa de {name} es un tipo de archivo que Windows no inicia aquí. Solo se pueden ejecutar programas .exe, .com, .cmd y .bat: elimine esta conexión y vuelva a añadirla con el .exe del programa.',
+    '{name} 的程序是 Windows 在这里不会启动的文件类型。只能运行 .exe、.com、.cmd 和 .bat 程序：请删除这个连接，用程序的 .exe 重新添加。'),
+  // a batch file (.cmd, .bat that is not an npm shim) whose command holds what cmd.exe reads even in quotes: {chars} is
+  // BATCH_REFUSED, the list programs.ts refuses (QA TC-9008)
+  local_unsafe: t('{name}의 프로그램은 배치 파일(.cmd, .bat)인데, 명령에 Windows가 배치 파일에 안전하게 넘길 수 없는 문자가 있어요: {chars}. 이 연결을 삭제하고 그 문자 없이, 또는 프로그램의 .exe로 다시 추가해 주세요.',
+    '{name}’s program is a batch file (.cmd or .bat), and its command has a character Windows can’t pass to one safely: {chars}. Delete this connection and add it again without that character, or with the program’s .exe.',
+    'Program {name} adalah file batch (.cmd atau .bat), dan perintahnya berisi karakter yang tidak bisa diteruskan Windows dengan aman: {chars}. Hapus koneksi ini dan tambahkan lagi tanpa karakter itu, atau dengan file .exe programnya.',
+    '{name}のプログラムはバッチファイル（.cmd、.bat）で、コマンドにWindowsが安全に渡せない文字が含まれています：{chars}。この接続を削除し、その文字を使わずに、またはプログラムの.exeでもう一度追加してください。',
+    'El programa de {name} es un archivo por lotes (.cmd o .bat) y su comando tiene un carácter que Windows no puede pasarle de forma segura: {chars}. Elimine esta conexión y vuelva a añadirla sin ese carácter o con el .exe del programa.',
+    '{name} 的程序是批处理文件（.cmd 或 .bat），它的命令里有 Windows 无法安全传给它的字符：{chars}。请删除这个连接，不用那个字符重新添加，或者改用程序的 .exe。'),
   localOff: t('팀에서 내 컴퓨터의 앱 연결을 꺼 두었어요. 관리자에게 알려 주세요.', 'Your team turned off apps on your computer. Tell your admin.', 'Tim Anda menonaktifkan aplikasi di komputer Anda. Beri tahu admin Anda.', "チームで「パソコンのアプリ」がオフになっています。管理者に知らせてください。", "Su equipo desactivó las aplicaciones de su ordenador. Avise a su administrador.", "你的团队关闭了“电脑上的应用”。请告诉管理员。"),
   localFixed: t('내 컴퓨터의 앱에는 바꿀 주소, 키, 로그인이 없어요.', 'An app on your computer has no address, key or sign-in to change.', 'Aplikasi di komputer Anda tidak punya alamat, kunci, atau login untuk diubah.', "パソコンのアプリには、変更できるアドレス、キー、ログインがありません。", "Una aplicación de su ordenador no tiene dirección, clave ni inicio de sesión que cambiar.", "电脑上的应用没有可以更改的地址、密钥或登录。"),
   localHidden: t('보이지 않는 문자가 들어 있어요. 다시 입력해 주세요.', 'It has characters that cannot be seen. Type it again.', 'Ada karakter yang tidak terlihat. Ketik ulang.', "見えない文字が含まれています。もう一度入力してください。", "Contiene caracteres que no se ven. Escríbalo de nuevo.", "其中有看不见的字符。请重新输入。"),
@@ -323,7 +346,7 @@ export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =
 /** a reason a connection check failed (integrations.last_error holds "<reason>", "<reason>:<status>" or, for no_access,
  * "no_access:<status>:<the service's words>": refusal.ts codeParts) */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'scope' | 'no_access' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
 const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
@@ -358,5 +381,5 @@ export function reasonText(code: string | null, locale: Locale, can: { address: 
   if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
   if (!known) return say('unreachable', locale)
   const key = reason === 'no_access' && !said ? 'no_access_bare' : reason as TextKey
-  return say(key, locale, { status: status || '?', ...(said ? { said } : {}), ...(name ? { name } : {}) })
+  return say(key, locale, { status: status || '?', ...(said ? { said } : {}), ...(name ? { name } : {}), ...(reason === 'local_unsafe' ? { chars: BATCH_REFUSED.join(' ') } : {}) })
 }
