@@ -1194,7 +1194,7 @@ export const ja: Record<MessageKey, string> = {
   'folderAccess.followsFolder': "「{folder}」の設定に従います",
   'folderAccess.followsTop': "チームフォルダーの設定に従います",
   'folderAccess.sharedRestricted': "「{folder}」は通常チーム全員が開けるフォルダーです。管理者が制限しています。",
-  'folderAccess.removedMore': "ほかに{n}人も開けなくなります。",
+  'folderAccess.removedMore': "ほかに{n, plural, one {#人} other {#人}}も開けなくなります。",
   'folderAccess.lowerNeedsLimit': "変更するにはアクセスを制限",
   'folderAccess.teamEditsAbove': "{team} の全員が「{folder}」を編集できます",
   'folderAccess.teamViewsAbove': "{team} の全員が「{folder}」を閲覧できます",

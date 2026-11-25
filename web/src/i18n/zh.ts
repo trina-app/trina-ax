@@ -1193,7 +1193,7 @@ export const zh: Record<MessageKey, string> = {
   'folderAccess.followsFolder': "沿用“{folder}”的设置",
   'folderAccess.followsTop': "沿用团队文件夹的设置",
   'folderAccess.sharedRestricted': "“{folder}”通常对整个团队开放。管理员已将其限制。",
-  'folderAccess.removedMore': "另外还有 {n} 人将无法再打开。",
+  'folderAccess.removedMore': "另外还有 {n, plural, one {#人} other {#人}}将无法再打开。",
   "folderAccess.lowerNeedsLimit": "限制权限后才能更改此项",
   "folderAccess.teamEditsAbove": "{team}的任何人都可以编辑“{folder}”",
   "folderAccess.teamViewsAbove": "{team}的任何人都可以查看“{folder}”",
