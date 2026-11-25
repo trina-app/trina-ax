@@ -25,3 +25,10 @@
 - **Control plane:** trina-cloud vendors the contract (`scripts/sync-protocol.ts`): sync it and replace its own copy
   of the coverage check with `googleScopesCover` so its broker asks Google for the same smaller set.
 - **Version impact:** patch (fewer scopes on Google's consent screen; nothing else changes).
+- **Rollout:** team servers older than this release check the hosting service's Google grant against an old table,
+  which knows only that `gmail.modify` covers `gmail.readonly`. When trina-cloud asks Google for only the 10 scopes,
+  Gmail sign-in on those servers would fail with `scope_denied`, unless trina-cloud adds the implied narrower scopes
+  to the granted-scope list it hands back: `gmail.readonly`, `gmail.send`, `gmail.compose`, `gmail.labels`, also
+  `calendar.readonly`, `calendar.events`, `documents.readonly`, `spreadsheets.readonly`. Order: that trina-cloud
+  change ships first, then the console edit. The console must never list fewer scopes than the hosting service
+  requests.
