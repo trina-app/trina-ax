@@ -4330,6 +4330,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.msg.what": "{product}, our team's AI, helps us with everyday documents.",
   "teamLink.msg.skill": "I set up '{skill}' for us.",
   "teamLink.msg.ownAi": "You'll need your own AI account.",
+  "teamLink.msg.shared": "Several teammates can join with this one link. It works until {date}.",
   "teamLink.msg.join": "Join with this link:\n{url}",
   "teamLink.messageEditLabel": "Message to send (you can edit it)",
   "teamLink.usesLabel": "Joined",
