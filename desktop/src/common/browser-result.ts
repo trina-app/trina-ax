@@ -2,7 +2,6 @@
 // at most 20 content items, text <= 2 MB, images <= 20 MB base64, error <= 4000 characters.
 // Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
 import { BrowserSiteKey, type BrowserResult } from '@mycel/shared/api'
-import { bareHost, siteToKeep } from '@mycel/shared/web-site'
 
 export type PaneContent =
   | { type: 'text'; text: string }
@@ -67,39 +66,28 @@ export function withAlways(r: BrowserResult, always: { site: ReadonlySet<string>
 const okKey = (k: string) => BrowserSiteKey.safeParse(k).success
 
 /**
- * "Always allow" answers on this computer's site cards that the team server has not confirmed yet. Each entry belongs to
+ * "Always allow" answers on this computer's site cards that have not gone to the team server yet. Each entry belongs to
  * the person signed in when it was pressed and goes only with that person's results (never the next person's after a
- * sign-out). An entry goes with every result until a later call lists it as allowed (BrowserCall.sites / office: the
- * server kept it), or after CARRY_TRIES results (the server keeps none there, e.g. the team's switch is off).
+ * sign-out). An entry rides exactly one result (take), then it is gone: a site the person removes in Settings afterwards
+ * is never sent again. The caller takes only for a result that goes out (not for a call that was stopped or ran out of
+ * time), so an Always answered then waits for the next result.
  */
-export const CARRY_TRIES = 10
 export class PendingAlways {
-  private items = new Map<string, { scope: 'site' | 'private'; host: string; owner: string | null; tries: number }>()
+  private items = new Map<string, { scope: 'site' | 'private'; host: string; owner: string | null }>()
 
   add(scope: 'site' | 'private', host: string, owner: string | null) {
-    this.items.set(`${scope}\u0000${host}`, { scope, host, owner, tries: 0 })
+    this.items.set(`${scope}\u0000${host}`, { scope, host, owner })
     while (this.items.size > ALWAYS_BACK_MAX * 2) this.items.delete(this.items.keys().next().value as string)
   }
 
-  /** What goes with this result for `owner` (signed in now); entries of anyone else are dropped. */
-  carry(owner: string | null): { site: Set<string>; private: Set<string> } {
+  /** What goes with this result for `owner` (signed in now), taken out; entries of anyone else are dropped. */
+  take(owner: string | null): { site: Set<string>; private: Set<string> } {
     const out = { site: new Set<string>(), private: new Set<string>() }
     for (const [k, e] of this.items) {
-      if (owner === null || e.owner !== owner) { this.items.delete(k); continue }
-      out[e.scope].add(e.host)
-      if (++e.tries >= CARRY_TRIES) this.items.delete(k)
+      this.items.delete(k)
+      if (owner !== null && e.owner === owner) out[e.scope].add(e.host)
     }
     return out
-  }
-
-  /** A call listed these as the person's (the server has them): no need to send them again. */
-  confirmed(sites: readonly string[], office: readonly string[]) {
-    const s = new Set(sites.map((x) => x.toLowerCase()))
-    const o = new Set(office.map((x) => x.toLowerCase()))
-    for (const [k, e] of this.items) {
-      const name = bareHost(e.host).replace(/^www\./, '')
-      if (e.scope === 'private' ? o.has(name) : s.has(name) || s.has(siteToKeep(e.host) ?? '\u0000')) this.items.delete(k)
-    }
   }
 
   clear() {

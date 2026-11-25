@@ -744,10 +744,10 @@ export class BrowserPane {
     return false
   }
 
-  /** The result with the Always answers of the person signed in now that the server has not confirmed yet
-   * (PendingAlways: kept until a later call shows the server has them). */
+  /** The result with the Always answers of the person signed in now that have not gone out yet (PendingAlways: each
+   * rides exactly one result). */
   private takeAlways(r: BrowserResult): BrowserResult {
-    return withAlways(r, this.pendingAlways.carry(this.owner))
+    return withAlways(r, this.pendingAlways.take(this.owner))
   }
 
   /** Who is signed in to the team page now (app-window.ts after its identity check). */
@@ -912,8 +912,6 @@ export class BrowserPane {
     // what the person already allowed on the team server for this call (their sites for good, an address its card or
     // their own message approved, office addresses): allowed for this answer here too, so the same site never asks twice
     this.perms.allowForTurn(call.turnId, call.sites ?? [], call.office ?? [])
-    // what the server now lists for the person is kept there: those Always answers need not go again
-    this.pendingAlways.confirmed(call.sites ?? [], call.office ?? [])
     debug('start', call.tool, call.callId)
     this.calls.set(call.callId, ctx)
     this.driving++
@@ -928,7 +926,8 @@ export class BrowserPane {
       const r = await Promise.race([work, aborted])
       debug('end', call.tool, call.callId, r.isError ? `error: ${(r.content[0] as { text?: string })?.text?.slice(0, 300)}` : 'ok')
       const result = toBrowserResult(call.callId, ctx.notes.length ? { ...r, content: [{ type: 'text', text: ctx.notes.join('\n') }, ...r.content] } : r)
-      return this.takeAlways(result)
+      // a call that was stopped or ran out of time: its result does not reach the server, so its Always waits for the next
+      return ctx.cancelled ? result : this.takeAlways(result)
     } finally {
       clearTimeout(deadline)
       this.calls.delete(call.callId)

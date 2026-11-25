@@ -3,7 +3,7 @@
 // computer goes back with the result. Pure parts (common/site-permissions.ts, common/browser-result.ts).
 import { describe, expect, test } from 'bun:test'
 import { SitePermissions } from '../../desktop/src/common/site-permissions'
-import { ALWAYS_BACK_MAX, CARRY_TRIES, PendingAlways, toBrowserResult, withAlways } from '../../desktop/src/common/browser-result'
+import { ALWAYS_BACK_MAX, PendingAlways, toBrowserResult, withAlways } from '../../desktop/src/common/browser-result'
 import { BrowserResult } from '../../shared/src/api/browser'
 
 describe('allowForTurn: the server\'s allowed sites for one answer', () => {
@@ -79,40 +79,45 @@ describe('withAlways: what the person answered Always to goes back with the resu
   })
 })
 
-describe('PendingAlways: an Always goes out once the server can keep it, and only for who pressed it', () => {
+describe('PendingAlways: an Always rides one result, only for who pressed it', () => {
   const base = toBrowserResult('c1', { content: [{ type: 'text', text: 'ok' }], isError: false })
 
   test('a late Always, then a sign-out (reset): the next result carries nothing, also for the next person', () => {
     const p = new PendingAlways()
     p.add('site', 'stock.naver.com', 'alice')
     p.clear() // resetForNewPerson
-    expect(withAlways(base, p.carry('bob')).always).toBeUndefined()
-    expect(withAlways(base, p.carry('alice')).always).toBeUndefined()
+    expect(withAlways(base, p.take('bob')).always).toBeUndefined()
+    expect(withAlways(base, p.take('alice')).always).toBeUndefined()
   })
 
   test('an entry of another person is dropped, never sent under the person signed in now', () => {
     const p = new PendingAlways()
     p.add('site', 'stock.naver.com', 'alice')
-    expect(withAlways(base, p.carry('bob')).always).toBeUndefined()
+    expect(withAlways(base, p.take('bob')).always).toBeUndefined()
     expect(p.size).toBe(0)
     p.add('site', 'x.example', null)
-    expect(withAlways(base, p.carry(null)).always).toBeUndefined()
+    expect(withAlways(base, p.take(null)).always).toBeUndefined()
   })
 
-  test('kept and sent again until a later call lists it (the server has it), or after CARRY_TRIES results', () => {
+  test('carried once, then removed in Settings: the next result does not bring it back', () => {
     const p = new PendingAlways()
     p.add('site', 'stock.naver.com:8443', 'alice')
     p.add('private', '192.168.0.5:8080', 'alice')
-    expect(withAlways(base, p.carry('alice')).always).toEqual({ sites: ['stock.naver.com:8443'], office: ['192.168.0.5:8080'] })
-    // the result may not have reached the server: the next result carries it again
-    expect(withAlways(base, p.carry('alice')).always).toEqual({ sites: ['stock.naver.com:8443'], office: ['192.168.0.5:8080'] })
-    // the next call lists the site (the server kept naver.com) and the office host: confirmed, not sent again
-    p.confirmed(['naver.com'], ['192.168.0.5'])
+    expect(withAlways(base, p.take('alice')).always).toEqual({ sites: ['stock.naver.com:8443'], office: ['192.168.0.5:8080'] })
+    // (the person removes naver.com in Settings › 트리나에게 허용한 것 here)
+    expect(withAlways(base, p.take('alice')).always).toBeUndefined()
     expect(p.size).toBe(0)
-    const q = new PendingAlways()
-    q.add('site', 'a.example', 'alice')
-    for (let i = 0; i < CARRY_TRIES; i++) expect(withAlways(base, q.carry('alice')).always).toEqual({ sites: ['a.example'] })
-    expect(q.size).toBe(0)
+  })
+
+  test('kept across a stopped call: nothing is taken for a result that does not go out, the next result carries it', () => {
+    const p = new PendingAlways()
+    p.add('site', 'etk.srail.kr', 'alice')
+    // pane.ts runOnce: a cancelled call (stop, deadline) returns its result without take()
+    const stopped = { cancelled: true }
+    const first = stopped.cancelled ? base : withAlways(base, p.take('alice'))
+    expect(first.always).toBeUndefined()
+    expect(p.size).toBe(1)
+    expect(withAlways(base, p.take('alice')).always).toEqual({ sites: ['etk.srail.kr'] })
   })
 })
 
