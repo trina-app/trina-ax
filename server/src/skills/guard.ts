@@ -18,8 +18,9 @@ import { sha256 } from '../files/store'
 import type { ToolCtx } from '../files/service'
 
 // the path rule itself is in shared/ (no dependencies: the dev environment's srt runner uses it in its own image)
-import { PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot } from '@mycel/shared/skill-roots'
-export { PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot }
+import { inPersonalSkills, PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot } from '@mycel/shared/skill-roots'
+export { inPersonalSkills, PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot }
+import { originAuto, personalSkillProblem } from './personal-guard'
 /** An approval for a produced file (make_file, generated media): the bytes are made after the card. */
 export const ANY_CONTENT = '*'
 
@@ -29,6 +30,13 @@ const fold = (s: string) => s.normalize('NFC').toLowerCase()
  * or projects/<name>/skills/ (a project's), the folder itself or anything below it (skillRootOf). */
 export function inSkills(rel: string): boolean {
   return skillRootOf(rel) !== null
+}
+
+/** In any skills folder: a shared skill root (inSkills) or a person's own skills folder (inPersonalSkills). The tools
+ * that refuse to save into a skills folder check this one, so nothing but a SKILL.md of text lands in a personal skill
+ * (docs/decisions/20261125-auto-personal-skills.md). */
+export function inAnySkills(rel: string): boolean {
+  return inSkills(rel) || inPersonalSkills(rel)
 }
 
 /** May a project on `folder` have skills of its own (docs/DECISIONS.md "Project skills")? Only a team project whose
@@ -62,8 +70,22 @@ export function skillRootWords(root: SkillRoot | null): string {
  * next to it counts as the same save). The check uses the approval up, whether or not the save then succeeds: one card,
  * one save. Writes outside a chat turn (people on the file screen, turnId null) pass.
  */
-export function requireSkillApproval(ctx: ToolCtx, rel: string, data: Uint8Array | null, approvalPath = rel): void {
-  if (ctx.turnId === null || !inSkills(rel)) return
+export function requireSkillApproval(ctx: ToolCtx, rel: string, data: Uint8Array | null, approvalPath = rel, cur?: Uint8Array | null): void {
+  if (ctx.turnId === null) return
+  // a person's own skills folder: an AI turn writes only <name>/SKILL.md there, as text (no script: personal skills'
+  // scripts run; chat/personal-skills.ts). A skill the AI did not make itself (no `origin: auto`) changes only with the
+  // person's yes on the card (chat/personal-skills.ts beforeSkillWrite): an approval for exactly these bytes, used up here
+  if (inPersonalSkills(rel)) {
+    const no = personalSkillProblem(rel, data)
+    if (no) throw new Denied(no)
+    if (cur && !originAuto(Buffer.from(cur).toString('utf8'))) {
+      const ok = ctx.files.skillApprovals.get(approvalPath)
+      ctx.files.skillApprovals.delete(approvalPath)
+      if (ok === undefined || data === null || ok !== sha256(data)) throw new Denied(`changing the user's own skill '${rel}' needs their yes on the server's card, and it was not given for this content, so nothing was saved`)
+    }
+    return
+  }
+  if (!inSkills(rel)) return
   const ok = ctx.files.skillApprovals.get(approvalPath)
   ctx.files.skillApprovals.delete(approvalPath)
   if (ok !== undefined && (ok === ANY_CONTENT || (data !== null && ok === sha256(data)))) return

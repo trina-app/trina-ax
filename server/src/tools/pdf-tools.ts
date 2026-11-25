@@ -36,7 +36,7 @@ import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
-import { skillRootOf } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
@@ -141,7 +141,7 @@ function target(files: TeamFiles, c: ToolCtx, output: string | undefined, dir: s
   } else rel = [...dir, freeName(path.join(files.fx.root, ...dir), `${base.replace(/\.pdf$/i, '')} (${word}).pdf`)].join('/')
   const out = authorizeOutput(files.fx, files.rules(), c, rel, { mustExist: false, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .pdf`, 'is_folder')
-  if (skillRootOf(out.rel)) throw new ToolError('a PDF made here is not saved in a skill folder; save it in a project or the person\'s own folder')
+  if (inAnySkills(out.rel)) throw new ToolError('a PDF made here is not saved in a skill folder; save it in a project or the person\'s own folder')
   return out
 }
 
@@ -268,11 +268,11 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     if (a.replace === true) {
       if (!c.files.readHashes.has(src.rel)) throw new ToolError(`to replace '${src.rel}' (its old version stays in its history), read it in this chat first. Replace it only when the user asked for that; otherwise leave replace out to save a new file next to it`)
       out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
-      if (skillRootOf(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
+      if (inAnySkills(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
     } else if ((a.output === undefined || a.output.trim() === '') && madeThisTurn(c, src.rel, src.bytes)) {
       // the AI's own PDF of this turn: changed in place (a new version), no unchanged copy left next to it
       out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
-      if (skillRootOf(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
+      if (inAnySkills(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
     } else {
       out = target(files, c, a.output, src.rel.split('/').slice(0, -1), src.rel.split('/').at(-1)!, PDF_WORDS.edited[teamDefaultLocale(ctx.db)] ?? 'edited')
       if (out.rel === src.rel) throw new ToolError(`output is the original '${src.rel}'; to replace it use replace: true, only when the user asked for that`)

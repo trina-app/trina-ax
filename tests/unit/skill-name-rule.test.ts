@@ -119,8 +119,10 @@ describe('at the save', () => {
     const a = turn('name-rule-own', 'alice')
     const own = 'users/alice/skills/mine/SKILL.md'
     expect((await env.files.call('write', { file_path: own, content: md('mine') }, a)).text).not.toContain('does not load')
+    // a personal SKILL.md that would not load is not saved at all (docs/decisions/20261125-auto-personal-skills.md): the
+    // AI is told why, with the header to write
     const edited = await env.files.call('edit', { file_path: own, old_string: 'name: mine', new_string: 'name: 내것' }, a)
-    expect(edited.text).toContain('does not load')
+    expect(edited.text).toContain('would not load')
   })
 
   test('a file that loads and a SKILL.md in a project folder add no text to the result', async () => {

@@ -60,7 +60,8 @@ export function sameStamps(a: readonly Stamp[] | null, b: readonly Stamp[]): boo
   return true
 }
 
-const fold = (s: string) => s.normalize('NFC').toLowerCase()
+// NFKC as policy/names.ts foldKey: a folding disk reads "ſkills" as skills
+const fold = (s: string) => s.normalize('NFKC').toLowerCase().normalize('NFKC')
 
 /**
  * A skill root or anything in one, by the path alone, letter case and Unicode form folded: skills/, groups/<g>/skills/,
