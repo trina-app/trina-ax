@@ -14,8 +14,9 @@
   make_file's rule ends with one sentence (`chat/hwpx-guide.ts HWP_PLUGIN_HINT`): Hangul files cannot be made or filled
   in here until a team admin installs and turns on "HWP Preview" (한글 문서 미리보기) in Admin › Plugins; only when
   someone asks for a Hangul file, or writes in Korean and asks which document format to use, the AI says so plainly (to
-  an admin: that exact place) and offers a Word (.docx) file meanwhile. It is in every turn's instructions whatever the
-  team's or the person's language; the AI answers in the person's language.
+  an admin: that exact place) and offers a Word (.docx) file meanwhile. It is in every team member's turn whatever the
+  team's or the person's language (the AI answers in the person's language); not in a guest's turn (a guest from
+  outside the team has no admin to ask by that name) nor a sub-agent's (it does not talk to the person).
 - **Unchanged:** writing and filling Hangul documents still need the plugin; the tool list, make_file's schema without
   `hwpx`, and the refusal (`hwpWritingOff`, which already names the place) are as they were. Reading .hwp/.hwpx stays on
   for every team.

@@ -1443,9 +1443,10 @@ export const DOC_SKILLS_RULE = 'To produce a Word, PowerPoint, Excel or PDF file
 const usesDocSkills = (has: { has(t: string): boolean }) => has.has('box_shell') && has.has('save_work_file') && docSkillsReady()
 
 /** make_file; Hangul (.hwpx) only while Hangul writing is on, which is exactly while edit_hwp is offered (the HWP
- * plugin installed and on, tools/hwp-writing.ts). Otherwise one line on where to get it, used only when someone asks
- * for a Hangul file (docs/decisions/20261125-hwp-plugin-hint.md). */
-export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false, officeView: boolean = officeViewer() !== null, hwpRender: boolean = false): string {
+ * plugin installed and on, tools/hwp-writing.ts). Otherwise, in a team member's turn (`pluginHint`; not a guest's,
+ * who has no admin to ask by that name, nor a sub-agent's, which does not talk to the person), one line on where to get
+ * it, used only when someone asks for a Hangul file (docs/decisions/20261125-hwp-plugin-hint.md). */
+export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false, officeView: boolean = officeViewer() !== null, hwpRender: boolean = false, pluginHint: boolean = false): string {
   // an HTML page becomes a PDF by printing, not through Markdown (files/html-pdf.ts), where this server can print
   const fromHtml = html ? ' An HTML page becomes a PDF with make_file `source` = the .html file and format "pdf": it is printed as a browser prints it; never rewrite HTML as Markdown for that. A PowerPoint deck becomes a PDF with `source` = the .pptx and format "pdf" (a page per slide); never rewrite the slides as a document for that.' : ''
   return (docSkills
@@ -1453,7 +1454,7 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
     : hangul
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
     : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml +
-    (hangul ? ` ${HWPX_GUIDE}${HWPX_LOOK(hwpRender)}` : HWP_PLUGIN_HINT) +
+    (hangul ? ` ${HWPX_GUIDE}${HWPX_LOOK(hwpRender)}` : pluginHint ? HWP_PLUGIN_HINT : '') +
     // what the AI can honestly say about a Word or Excel file it made (files/office-view.ts)
     (docSkills ? '' : officeView ? ' Look at a Word or Excel file you made with read as_images before you answer, and fix what you see.' : ' This server cannot show you Word or Excel pages: when you make one, say in one short line of your answer that you did not see how its pages look, and never say you checked.') +
     // second limits audit N4: a chart picture is an SVG saved as PNG by make_file (tools/svg-png.ts)
@@ -1623,7 +1624,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // without the person's Always allow for folder shares)
     tools.has('share_with_person') || tools.has('post_to_room') ? (tools.has('share_folder') ? REFUSAL_NEXT_RULE_FOLDERS : REFUSAL_NEXT_RULE) : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',
-    tools.has('make_file') ? makeFileRule(tools.has('edit_hwp'), undefined, usesDocSkills(tools), undefined, tools.has('hwp_render')) : '',
+    tools.has('make_file') ? makeFileRule(tools.has('edit_hwp'), undefined, usesDocSkills(tools), undefined, tools.has('hwp_render'), !i.guest) : '',
     tools.has('edit_hwp') ? EDIT_HWP_RULE : '',
     tools.has('edit_pdf') || tools.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     tools.has('resize_images') ? RESIZE_IMAGES_RULE : '',
