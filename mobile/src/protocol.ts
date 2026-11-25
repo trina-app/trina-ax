@@ -52,6 +52,12 @@ export const BADGE_CAPABILITY = 'badge-v1'
  * registers the device with `sync: true`; the team sends an Android phone syncs only then (an app from before would
  * list an empty notification for one while it is open). An iPhone gets its number by APNs either way. */
 export const PUSH_SYNC_CAPABILITY = 'push-sync-v1'
+/** Optional, versioned: an iPhone app that takes the notices read on another device off Notification Center itself
+ * (docs/AGENTS/plan/20261124-1853-iphone-clear-read-notifications.md): the remote-notification background mode and its
+ * native handler (modules/push-sync) remove the delivered notifications a silent sync lists (`body.clear`), closed or
+ * open. The page then registers the device with `clear: true` (next to `sync: true`) and the team's iPhone syncs carry
+ * the ids. An app without it: the iPhone gets its icon number only, as before. iPhone only. */
+export const PUSH_CLEAR_CAPABILITY = 'push-clear-v1'
 /** Optional, versioned: `change-team` opens the app's own "다른 팀에 연결" screen over the team (the one the signed-out
  * page's footer opens): the team stays until another one answered and the person said yes. The 나 tab's "다른 팀으로
  * 전환…" row. An app without it: the page shows no such row. */

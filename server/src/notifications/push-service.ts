@@ -30,7 +30,7 @@ import { pushBadge } from './push-badge'
 import { pushSecretsLogLine, pushSecretsProblem } from './push-secrets'
 import { readNativePushConfig } from './push-gateway-setting'
 import { decidePhone, type PhoneDecision } from './away'
-import { createNativeTransport, labelCode, nativeCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
+import { createNativeTransport, labelCode, nativeCode, nativeConfigKey, SYNC_NOTHING_SENT, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 import { PUSH_SYNC_CODE, PUSH_SYNC_MAX_CLEAR } from '@mycel/shared/cloud-protocol'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
@@ -189,15 +189,22 @@ export class PushService {
     // push's title and nothing else (it cannot remove the device); the same key again changes nothing, so a lost answer
     // never leaves the phone with a key the server forgot. On Android it also makes the push data-only (label below)
     const labelHash=input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
-    // a phone app that takes silent syncs (push-sync-v1): it takes notices read elsewhere off its list (syncPhones)
-    const syncOk=input.sync===true?1:0
+    // a phone app that takes silent syncs (push-sync-v1): it takes notices read elsewhere off its list (syncPhones).
+    // push_subscriptions.sync_ok: 0 none, 1 takes syncs (Android: with the ids; an iPhone: its number only), 2 an iPhone
+    // that also takes the read notices off Notification Center itself (push-clear-v1), so its syncs carry the ids too
+    const syncOk=input.sync===true?(device.platform==='ios'&&input.clear===true?2:1):0
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.user_id!==userId&&this.live(other.user_id,other.session_id))throw new HttpError('conflict',PHONE_TAKEN[getUser(this.ctx.db,userId)?.locale??teamDefaultLocale(this.ctx.db)])
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
         // the same device again: a fresh removal key (the app keeps only the latest)
-        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=?,sync_ok=? WHERE id=?').run(removeHash,labelHash,syncOk,other.id);return{id:other.id,moved:null}}
+        if(old.environment===device.environment){
+          // an app that now takes ids (an update): forget the set already looked at, so its next sync lists every
+          // notice read so far (they stayed on the phone while it took the number alone)
+          if((other as Subscription&{sync_ok?:number}).sync_ok!==syncOk)this.ctx.db.query('UPDATE push_phone_sync SET digest=NULL,read_mark=NULL WHERE subscription_id=?').run(other.id)
+          this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=?,sync_ok=? WHERE id=?').run(removeHash,labelHash,syncOk,other.id);return{id:other.id,moved:null}
+        }
       }
       if(other)this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(other.id)
       const count=this.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=? AND session_id<>?').get(userId,sessionId) as {n:number}
@@ -373,8 +380,9 @@ export class PushService {
    * sound, no text; push-native.ts). Android (an app that said push-sync-v1): every such id of the push day, newest
    * first (the whole set each time, so a sync lost while the phone was offline costs nothing), and it takes them off its
    * tray; only when that set changed. iPhone: its icon number now, only when it went down (a later real push carries a
-   * higher one), never the ids (the app takes nothing off while closed yet), now or never (ttl 0: a sync never waits at
-   * Apple in a real alert's place). An iPhone last sent a number above 0 is looked at only after the person read
+   * higher one), now or never (ttl 0: a sync never waits at Apple in a real alert's place); an iPhone app that takes
+   * the notices off Notification Center itself (sync_ok 2, push-clear-v1) also gets the ids as Android does, when that
+   * set changed (with the number only when it went down), an older one never the ids. An iPhone last sent a number above 0 is looked at only after the person read
    * something (readMark). At most one per phone per SYNC_GAP_MS and SYNC_PER_DAY a day; a round sends SYNC_PARALLEL at a
    * time within SYNC_BUDGET_MS, apart from the real pushes (tick), so a slow gateway never holds a notification back.
    * Plan: docs/AGENTS/plan/20261123-0705-phone-badge-sync.md. */
@@ -408,14 +416,17 @@ export class PushService {
       try{this.safeSecrets();device=this.vault.decrypt(`${sub.user_id}|${sub.session_id}|${sub.id}`,'native-push',sub.secret_enc,sub.key_version) as NativeDevice}catch{continue}
       const ios=device.platform==='ios'
       // Android: only an app that takes syncs (an older one would list an empty notification while open)
-      if(!ios&&sub.sync_ok!==1){remember({digest:digestOf(all)});continue}
-      // Android's ids: as many as fit the gateway's body next to this token (ids are at most 100 characters)
-      const clear=ios?[]:all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103))))
+      if(!ios&&sub.sync_ok<1){remember({digest:digestOf(all)});continue}
+      // the ids (Android, and an iPhone that takes them off itself): as many as fit the gateway's body next to this
+      // token (ids are at most 100 characters)
+      const ids=!ios||sub.sync_ok===2
+      const clear=ids?all.slice(0,Math.min(PUSH_SYNC_MAX_CLEAR,Math.max(0,Math.floor((3000-device.token.length)/103)))):[]
       const digest=digestOf(all)
       let badge=ios?this.o.badge(sub.user_id):null
-      // an iPhone: only a lower number (a higher one comes with the next real push); Android: only a changed set
-      const go=ios?badge!==null&&st?.badge!=null&&badge<st.badge:clear.length>0&&digest!==st?.digest
-      if(!go){remember(ios?{digest}:{});continue}
+      // a number only when lower (a higher one comes with the next real push); ids only when the set changed
+      const lower=ios&&badge!==null&&st?.badge!=null&&badge<st.badge, newSet=clear.length>0&&digest!==st?.digest
+      if(!lower)badge=null
+      if(!lower&&!newSet){remember(ios?{digest}:{});continue}
       jobs.push({sid,run:async()=>{
         if(this.stopped||performance.now()-started>SYNC_BUDGET_MS)return
         // an iPhone: a real push may have reached it since the round began (with a higher number): then this sync is
@@ -426,24 +437,29 @@ export class PushService {
           if((this.pushedAt.get(sid)??-Infinity)>=roundAt)return
           snapshot=(db.query('SELECT badge FROM push_phone_sync WHERE subscription_id=?').get(sid) as {badge:number|null}|null)?.badge??null
           const now=this.o.badge(sub.user_id)
-          if(now===null||snapshot===null||now>=snapshot)return
-          badge=now
+          // the number goes only while it is still below the recorded one; ids alone go without it
+          badge=now!==null&&snapshot!==null&&now<snapshot?now:null
+          if(badge===null&&!newSet)return
         }
         const locale=getUser(db,sub.user_id)?.locale??teamDefaultLocale(db),abort=new AbortController(),wait=this.o.requestTimeoutMs??10_000,syncId=newId()
         const timer=setTimeout(()=>abort.abort(),wait)
-        let status=0
+        let status=0,syncStatus:{statusCode:number;error?:string}={statusCode:0}
         try{
           const beforeSend=()=>!abort.signal.aborted&&!this.stopped&&this.activeKeys().includes(key)&&this.session(sub.user_id,sub.session_id)&&this.enabled(sub.user_id)
-          status=(await bounded(syncTransport({device,payload:{notificationId:syncId,code:PUSH_SYNC_CODE,locale,tag:sub.id},sync:{notificationId:syncId,locale,tag:sub.id,clear,...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds:ios?0:SYNC_TTL_S}),abort.signal,wait)).statusCode
+          syncStatus=await bounded(syncTransport({device,payload:{notificationId:syncId,code:PUSH_SYNC_CODE,locale,tag:sub.id},sync:{notificationId:syncId,locale,tag:sub.id,clear,...(badge!==null?{badge}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds:ios?0:SYNC_TTL_S}),abort.signal,wait)
+          status=syncStatus.statusCode
         }catch{status=0}finally{clearTimeout(timer);abort.abort()}
         if(status===410){db.query('DELETE FROM push_subscriptions WHERE id=?').run(sid);return}
+        // an older gateway took no iPhone ids and there was no number to send instead: nothing went. The set is
+        // remembered (no try every round) without counting in the day's syncs or starting the gap
+        if(syncStatus.error===SYNC_NOTHING_SENT){remember({digest});return}
         const sent=status>=200&&status<300
         // a failed one is tried again after SYNC_GAP_MS (its number and set stay the old ones; its mark is cleared so
         // the next round looks again)
         if(sent){
           remember({digest,count:true})
           // the number only if no newer real push recorded its own meanwhile (it wins: the phone shows the newest)
-          if(ios)db.query('UPDATE push_phone_sync SET badge=? WHERE subscription_id=? AND badge IS ?').run(badge,sid,snapshot)
+          if(ios&&badge!==null)db.query('UPDATE push_phone_sync SET badge=? WHERE subscription_id=? AND badge IS ?').run(badge,sid,snapshot)
         }
         else db.query(`INSERT INTO push_phone_sync(subscription_id,synced_at,day,day_count) VALUES(?,?,?,1) ON CONFLICT(subscription_id) DO UPDATE SET read_mark=NULL,synced_at=excluded.synced_at,
           day=excluded.day,day_count=CASE WHEN push_phone_sync.day=excluded.day THEN push_phone_sync.day_count+1 ELSE 1 END`).run(sid,this.iso(),day)

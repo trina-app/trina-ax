@@ -6,7 +6,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import { roomsOf } from '../../server/src/rooms/service'
 import { PushService, SYNC_GAP_MS, SYNC_EVERY_MS, SYNC_PER_DAY } from '../../server/src/notifications/push-service'
-import { createNativeTransport, SYNC_UNSUPPORTED, type NativeSend } from '../../server/src/notifications/push-native'
+import { createNativeTransport, SYNC_NOTHING_SENT, SYNC_UNSUPPORTED, type NativeSend } from '../../server/src/notifications/push-native'
 import { parsePushGatewaySend, PUSH_SYNC_CODE } from '../../shared/src/cloud-protocol/push-gateway'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -15,7 +15,7 @@ let h: Harness, p: PushService | undefined
 afterEach(async () => { await p?.stop(); p = undefined; await h?.close() })
 const cm = () => 'cm-' + crypto.randomUUID()
 
-async function setup(platform: 'ios' | 'android', o: { sync?: boolean } = {}) {
+async function setup(platform: 'ios' | 'android', o: { sync?: boolean; clear?: boolean } = {}) {
   h = await harness('push-read-sync')
   const owner = await withOwner(h)
   const mia = await addMember(h, owner, { username: 'mia' })
@@ -33,12 +33,12 @@ async function setup(platform: 'ios' | 'android', o: { sync?: boolean } = {}) {
   })
   const sid = (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(nora.id) as { id: string }).id
   const token = platform === 'ios' ? crypto.randomBytes(32).toString('hex') : `fcm:${'A'.repeat(140)}`
-  const device = p.registerDevice(nora.id, sid, { consent: true, platform, environment: 'production', token, ...(o.sync === false ? {} : { sync: true as const }) })
+  const device = p.registerDevice(nora.id, sid, { consent: true, platform, environment: 'production', token, ...(o.sync === false ? {} : { sync: true as const }), ...(o.clear ? { clear: true as const } : {}) })
   await new Promise((r) => setTimeout(r, 5))
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   const send = (c: Client, body: string) => c.call('POST', `/api/rooms/${dm.id}/messages`, { body, clientMessageId: cm() })
   const tick = async (ms = SYNC_EVERY_MS) => { now += ms; await p!.tick() }
-  return { mia, nora, dm, send, tick, pushes, syncs, device, setAnswer: (n: number) => { syncAnswer = n }, advance: (ms: number) => { now += ms }, today: () => new Date(now).toISOString().slice(0, 10) }
+  return { mia, nora, dm, send, tick, pushes, syncs, device, sid, token, setAnswer: (n: number) => { syncAnswer = n }, advance: (ms: number) => { now += ms }, today: () => new Date(now).toISOString().slice(0, 10) }
 }
 
 test('Android: notices read on the desktop leave the phone in one sync, ids only, no number, no text', async () => {
@@ -135,18 +135,124 @@ test('the transport sends a sync once, as a contract sync; a gateway that refuse
       config: { url: `http://127.0.0.1:${server.port}` }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 86400,
     })
     expect(await transport(input('ios'))).toEqual({ statusCode: 200 })
-    // an iPhone: the number alone, now or never (ttl 0), never the ids
-    expect(parsePushGatewaySend(seen[0])).toEqual({ v: 1, platform: 'ios', environment: 'production', token: 'ab'.repeat(32), notificationId: 's-1', code: PUSH_SYNC_CODE, locale: 'en', tag: 'dev-1', ttlSeconds: 0, sync: true, badge: 2 })
+    // an iPhone: the number and the ids the server gave (an app with push-clear-v1), now or never (ttl 0)
+    expect(parsePushGatewaySend(seen[0])).toEqual({ v: 1, platform: 'ios', environment: 'production', token: 'ab'.repeat(32), notificationId: 's-1', code: PUSH_SYNC_CODE, locale: 'en', tag: 'dev-1', ttlSeconds: 0, sync: true, badge: 2, clear: ['n-1', 'n-2'] })
     // Android: no number
     await transport(input('android'))
     expect(parsePushGatewaySend(seen[1])).toMatchObject({ platform: 'android', sync: true, clear: ['n-1', 'n-2'], ttlSeconds: 86400 })
     expect('badge' in seen[1]!).toBe(false)
-    // an older gateway: refused once, nothing sent again (never without `sync`), and none for the hour
+    // an older gateway: refused (an iPhone's ids, then the number alone), never sent without `sync`, none for the hour
     strict = true; seen.length = 0
     expect(await transport(input('ios'))).toEqual({ statusCode: 400, error: 'invalid_body' })
     expect(await transport(input('ios'))).toEqual({ statusCode: 400, error: SYNC_UNSUPPORTED })
-    expect(seen).toHaveLength(1)
+    expect(await transport(input('android'))).toEqual({ statusCode: 400, error: SYNC_UNSUPPORTED })
+    expect(seen.map((b) => [b.sync, 'clear' in b])).toEqual([[true, true], [true, false]])
   } finally { server.stop(true) }
+})
+
+test('a gateway from before iPhone ids: the sync goes again at once with the number alone, Android syncs go on, ids alone send nothing', async () => {
+  h = await harness('push-read-sync-old-gateway')
+  const seen: Record<string, unknown>[] = []
+  // the gateway as deployed before this change: syncs, but `clear` for Android only
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: async (req) => {
+    const body = JSON.parse(await req.text()) as Record<string, unknown>
+    seen.push(body)
+    if (body.platform === 'ios' && 'clear' in body) return Response.json({ ok: false, error: 'invalid_body' }, { status: 400 })
+    return Response.json({ ok: true })
+  } })
+  try {
+    let now = Date.now()
+    const transport = createNativeTransport({ dataDir: h.ctx.config.dataDir, now: () => now })
+    const input = (platform: 'ios' | 'android', badge?: number): NativeSend => ({
+      device: platform === 'ios' ? { platform, token: 'ab'.repeat(32), environment: 'production' } : { platform, token: `fcm:${'A'.repeat(140)}`, environment: 'production' },
+      payload: { notificationId: 's-1', code: PUSH_SYNC_CODE, locale: 'en' }, sync: { notificationId: 's-1', locale: 'en', clear: ['n-1'], ...(badge !== undefined ? { badge } : {}) },
+      config: { url: `http://127.0.0.1:${server.port}` }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 86400,
+    })
+    // refused with the ids, sent again at once with the number alone
+    expect(await transport(input('ios', 1))).toEqual({ statusCode: 200 })
+    expect(seen.map((b) => [b.platform, 'clear' in b, b.badge])).toEqual([['ios', true, 1], ['ios', false, 1]])
+    // within the hour: no ids tried there; the number goes straight away; ids alone send nothing at all
+    seen.length = 0
+    expect(await transport(input('ios', 0))).toEqual({ statusCode: 200 })
+    expect(await transport(input('ios'))).toEqual({ statusCode: 400, error: SYNC_NOTHING_SENT })
+    expect(seen.map((b) => [b.platform, 'clear' in b, b.badge])).toEqual([['ios', false, 0]])
+    // Android syncs to that gateway go on, with their ids
+    seen.length = 0
+    expect(await transport(input('android'))).toEqual({ statusCode: 200 })
+    expect(seen.map((b) => [b.platform, b.clear])).toEqual([['android', ['n-1']]])
+    // after the hour the ids are tried again
+    now += 60 * 60_000 + 1; seen.length = 0
+    await transport(input('ios', 1))
+    expect(seen.map((b) => 'clear' in b)).toEqual([true, false])
+  } finally { server.stop(true) }
+})
+
+test('iPhone with push-clear-v1: a read sends the ids with the lower number; a set that changed alone sends the ids without one', async () => {
+  const { mia, nora, dm, send, tick, pushes, syncs, device } = await setup('ios', { clear: true })
+  expect((h.ctx.db.query('SELECT sync_ok FROM push_subscriptions WHERE id = ?').get(device.id) as { sync_ok: number }).sync_ok).toBe(2)
+  await send(mia.client, 'one'); await tick(1000)
+  await send(mia.client, 'two'); await tick(1000)
+  const ids = pushes.map((s) => s.payload.notificationId)
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await tick()
+  expect(syncs).toHaveLength(1)
+  expect(syncs[0]!.sync!.badge).toBe(0)
+  expect(syncs[0]!.sync!.clear).toEqual([ids[1]!, ids[0]!])
+  expect(syncs[0]!.ttlSeconds).toBe(0)
+  expect(JSON.stringify(syncs[0]!.sync)).not.toMatch(/one|two|mia/)
+  // a pushed notice deleted since (the set changes, the number does not): the ids alone, and no number recorded
+  await send(mia.client, 'three'); await tick(1000)
+  const recorded = () => (h.ctx.db.query('SELECT badge FROM push_phone_sync WHERE subscription_id = ?').get(device.id) as { badge: number }).badge
+  expect(recorded()).toBe(1)
+  const third = pushes[2]!.payload.notificationId
+  h.ctx.db.query('UPDATE room_notices SET suppressed = 1 WHERE id = ?').run(third)
+  ;(p as any).o.badge = () => 1
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(2)
+  expect('badge' in syncs[1]!.sync!).toBe(false)
+  expect(syncs[1]!.sync!.clear).toContain(third)
+  expect(recorded()).toBe(1)
+  // nothing new: nothing more
+  await tick(SYNC_GAP_MS); await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(2)
+})
+
+test('an iPhone app from before push-clear-v1 never gets ids; updating to it lists the notices already read', async () => {
+  const { mia, nora, dm, send, tick, pushes, syncs, device, sid, token } = await setup('ios')
+  expect((h.ctx.db.query('SELECT sync_ok FROM push_subscriptions WHERE id = ?').get(device.id) as { sync_ok: number }).sync_ok).toBe(1)
+  await send(mia.client, 'one'); await tick(1000)
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await tick()
+  expect(syncs).toHaveLength(1)
+  expect(syncs[0]!.sync!.clear).toEqual([])
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(1)
+  // the app is updated and registers again with clear: its next sync lists the notice read before
+  const nora2 = h.ctx.db.query('SELECT user_id FROM push_subscriptions WHERE id = ?').get(device.id) as { user_id: string }
+  const again = p!.registerDevice(nora2.user_id, sid, { consent: true, platform: 'ios', environment: 'production', token, sync: true, clear: true })
+  expect(again.id).toBe(device.id)
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(2)
+  expect(syncs[1]!.sync!.clear).toEqual([pushes[0]!.payload.notificationId])
+  expect('badge' in syncs[1]!.sync!).toBe(false)
+})
+
+test('the server: ids an older gateway could not take (nothing sent) are remembered without using the day\'s syncs', async () => {
+  const { mia, send, tick, pushes, syncs, device, today } = await setup('ios', { clear: true })
+  const svc = p as any
+  svc.o.syncTransport = async (i: NativeSend) => { syncs.push(i); return { statusCode: 400, error: SYNC_NOTHING_SENT } }
+  await send(mia.client, 'one'); await tick(1000)
+  h.ctx.db.query('UPDATE room_notices SET suppressed = 1 WHERE id = ?').run(pushes[0]!.payload.notificationId)
+  svc.o.badge = () => 1
+  await tick()
+  expect(syncs).toHaveLength(1)
+  const st = h.ctx.db.query('SELECT synced_at, day, day_count, digest FROM push_phone_sync WHERE subscription_id = ?').get(device.id) as { synced_at: string | null; day: string | null; day_count: number; digest: string | null }
+  expect(st.digest).not.toBeNull()
+  expect(st.synced_at).toBeNull()
+  expect(st.day === today() ? st.day_count : 0).toBe(0)
+  // and it is not tried again every round
+  await tick(SYNC_GAP_MS); await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(1)
 })
 
 test('a pushed notice deleted since (its delivery row goes with it) leaves the phone too; an unread one stays', async () => {
@@ -289,6 +395,19 @@ test('a real push that lands while an iPhone sync is under way wins: its number 
   now += SYNC_GAP_MS; await p.tick()
   now += SYNC_GAP_MS; await p.tick()
   expect(syncs).toHaveLength(1)
+})
+
+test('an iPhone ids-only sync whose round began before a real push reached the phone is dropped too', async () => {
+  const { mia, send, tick, pushes, syncs, device } = await setup('ios', { clear: true })
+  await send(mia.client, 'one'); await tick(1000)
+  h.ctx.db.query('UPDATE room_notices SET suppressed = 1 WHERE id = ?').run(pushes[0]!.payload.notificationId)
+  const svc = p as any
+  svc.o.badge = () => { svc.pushedAt.set(device.id, ++svc.pushSeq); return 1 }
+  await tick(SYNC_GAP_MS)
+  expect(syncs).toHaveLength(0)
+  svc.o.badge = () => 1
+  await tick(SYNC_GAP_MS)
+  expect(syncs.map((s) => s.sync!.clear)).toEqual([[pushes[0]!.payload.notificationId]])
 })
 
 test('an iPhone sync whose round began before a real push reached the phone is dropped before it is sent', async () => {
