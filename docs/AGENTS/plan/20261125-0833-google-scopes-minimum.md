@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25
 - Branch: `fix/google-scopes-minimum`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/src/cloud-protocol/drive-broker.ts` (MIT contract: the scope sets and the one coverage
   check), `server/src/integrations/google-apps/service.ts`, docs listing the scopes; trina-cloud `src/drive-broker/`
   later (sync the contract, use its coverage check). Why: Google's verification review ("minimum scopes") flags a
