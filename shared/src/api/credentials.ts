@@ -67,12 +67,19 @@ export const Credential = z.object({
   providerError: z.object({ status: z.number().int().nullable(), type: z.string(), message: z.string(), at: IsoTime }).nullable().optional(),
 })
 export type Credential = z.infer<typeof Credential>
-/** POST /api/admin/credentials/:id/check: the connection, and what the check found. `ok`: the provider took it;
- * `refused`: it is (still) refused, `reason` says why (the provider's message, or the state's line); `unclear`: the
- * provider gave no clear answer (busy, unreachable, a 403 that is not about the account), nothing changed, try again
- * later; `reason` is the provider's message or the HTTP status when there was one. */
+/** A check's answer in plain words (CheckCredentialResponse.check.why), shown in the person's language: the provider
+ * did not accept the sign-in or key, the account lacks permission, its organization does not allow OAuth now, the
+ * plan ended or lacks Claude Code, a rate limit, a usage or credit limit, the provider is busy, nothing answered. */
+export const CheckWhy = z.enum(['authentication', 'permission', 'org_oauth_blocked', 'plan_ended', 'rate_limited', 'usage_limit', 'overloaded', 'unreachable'])
+export type CheckWhy = z.infer<typeof CheckWhy>
+/** POST /api/admin/credentials/:id/check: the connection, and what this check found. `ok`: the provider took it;
+ * `refused`: this check was refused (or passed but the account stays refused for a reason a check cannot clear),
+ * `reason` says why (the provider's message, or the state's line); `unclear`: this check got no clear answer (busy,
+ * unreachable, timed out, a 403 that is not about the account), whatever the account's state was: nothing changed,
+ * try again later; `reason` is the provider's message or the HTTP status when there was one. `why`: the plain reason,
+ * when it is a known one (the web shows it, never the provider's own words). */
 export const CheckCredentialResponse = Credential.extend({
-  check: z.object({ outcome: z.enum(['ok', 'refused', 'unclear']), reason: z.string().nullable() }).optional(),
+  check: z.object({ outcome: z.enum(['ok', 'refused', 'unclear']), reason: z.string().nullable(), why: CheckWhy.nullable().optional() }).optional(),
 })
 export type CheckCredentialResponse = z.infer<typeof CheckCredentialResponse>
 export const CredentialsResponse = z.object({

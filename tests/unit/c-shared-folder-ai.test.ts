@@ -359,7 +359,7 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(marks(own.chatId)).toEqual({ r: 0, o: 0 })
   })
 
-  test('(R) a read marks it too, and the mark survives a new session: remember asks, a connection sees outside content', async () => {
+  test('(R) a read marks it too, and the mark survives a new session; remember keeps the person\'s own words quietly; a connection sees outside content', async () => {
     const dir = folder(), id = shareDir(dir)
     bucket()
     const first = await turn(`read it\n${fake({ tool: 'read', args: { file_path: `/f/${id}/report.md` }, sayResult: true })}`)
@@ -368,10 +368,10 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     // a new session of the same chat (a first message again: chat/turn.ts newSession clears the session's marks)
     const again = await turn(`hello\n${fake({ tool: 'remember', args: { text: 'Prefers Q4 numbers' }, sayResult: true })}`, first.chatId, null)
     expect(marks(first.chatId).r).toBe(1)
-    // (R) remember asks after it
-    expect(again.cards).toHaveLength(1)
-    expect(again.cards[0]!.question).toContain('Prefers Q4 numbers')
-    expect((db().query("SELECT COUNT(*) n FROM memories WHERE text = 'Prefers Q4 numbers'").get() as { n: number }).n).toBe(0)
+    // (R) remember after it: the person's own words are kept without a card (auto memory after a read of a shared file,
+    // docs/decisions/20261125-auto-memory-shared-chats.md; a copy of the file would be skipped as tool output)
+    expect(again.cards).toHaveLength(0)
+    expect((db().query("SELECT COUNT(*) n FROM memories WHERE text = 'Prefers Q4 numbers'").get() as { n: number }).n).toBe(1)
     // (R) a connection's write: the gate counts this chat as having read outside content (connections/tools.ts gate)
     expect(outsideSeen(db(), first.chatId)).toBe(true)
   })

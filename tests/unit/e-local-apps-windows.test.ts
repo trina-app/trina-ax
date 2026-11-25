@@ -234,14 +234,20 @@ describe('the desktop app on Windows', () => {
     expect(w.asked).toHaveLength(0)
   })
   test('npm-installed Aside (aside.cmd): the confirm shows the command Windows\' way and the .cmd; it runs as node + script, no shell', async () => {
-    const w = winManager({ [`${NPM}\\aside.cmd`]: CMD_SHIM('node_modules\\aside\\cli.js'), [`${NPM}\\node_modules\\aside\\cli.js`]: '', [`${NODEJS}\\node.exe`]: '' })
+    // `aside mcp` answers MCP; the one-shot `aside --help` (the guide check at initialize: local-apps.ts withGuide)
+    // prints a help without `guide` and exits
+    const w = winManager({ [`${NPM}\\aside.cmd`]: CMD_SHIM('node_modules\\aside\\cli.js'), [`${NPM}\\node_modules\\aside\\cli.js`]: '', [`${NODEJS}\\node.exe`]: '' },
+      { child: (_f, args) => (args.at(-1) === 'mcp' ? fakeChild({ mcp: true }) : fakeChild({ stdout: 'Usage: aside <task>\n' })) })
     const r = await w.call(ASIDE, INIT)
     expect(r.ok).toBe(true)
     expect(w.asked).toEqual([expect.objectContaining({ id: 'conn-w', lines: ['aside mcp'], program: `${NPM}\\aside.cmd` })])
-    expect(w.spawned).toHaveLength(1)
-    expect(w.spawned[0]).toMatchObject({ file: `${NODEJS}\\node.exe`, args: [`${NPM}\\node_modules\\aside\\cli.js`, 'mcp'] })
-    expect(w.spawned[0]!.opts).toMatchObject({ shell: false, windowsHide: true, detached: false })
-    expect(w.spawned[0]!.opts.windowsVerbatimArguments).toBeUndefined()
+    expect(w.spawned.map((s) => s.args.at(-1))).toEqual(['mcp', '--help'])
+    for (const s of w.spawned) {
+      expect(s).toMatchObject({ file: `${NODEJS}\\node.exe`, args: [`${NPM}\\node_modules\\aside\\cli.js`, s.args.at(-1)] })
+      expect(s.opts).toMatchObject({ shell: false, windowsHide: true })
+      expect(s.opts.windowsVerbatimArguments).toBeUndefined()
+    }
+    expect(w.spawned[0]!.opts).toMatchObject({ detached: false })
     // Stop: the tree under the PID it started (taskkill /T /F), never by name
     w.apps.stop('team', 'conn-w')
     expect(w.killed).toEqual([4242])
