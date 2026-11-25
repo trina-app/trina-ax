@@ -483,16 +483,23 @@ export const sharedMemoryRule = (asker: string) => `In this shared chat, keep on
  * difference; docs/decisions/20261125-auto-personal-skills.md; wording after Hermes Agent's review prompts). In the
  * memory section next to AUTO_MEMORY_RULE; `dir` is the person's own skills folder. The server writes the origin line
  * and checks every save (chat/personal-skills.ts). */
+/** What the answer says after a personal skill was saved, changed or deleted: the step line under it already names the
+ * skill with 보기 and 되돌리기, so the reply needs at most one short plain line; never the "/" command, the file or
+ * its path, and no invitation to start it, unless the person asks (QA of #606). */
+export const SKILL_SAVED_REPLY = 'After a skill is saved, changed or deleted, say so in at most one short plain sentence in the user\'s words ("I will do the weekly report this way from now on."), or not at all: the line under your answer already shows it, with View and Undo. Never name its "/" command, SKILL.md, a file name, a folder or a path, and do not suggest how to start it, unless the user asks.'
+
 export const autoSkillRule = (dir: string) => [
   'Memory or skill: you decide, the user never has to. One thing goes to one of them, never both.',
-  `How the user wants a kind of task done (the steps in order, how the result should look, the pitfalls: "from now on the weekly report is: pull the sales sheet, make a table, send it to Mina") is a personal skill: save it in that same answer without asking, as ${dir}/<name>/SKILL.md with the write tool (a header "---", "name: <the folder name>", "description: <one sentence on when to use it>", "metadata:", "  title: <a short name in the user's language, as they would say it>", "---", then the steps). Name the folder for the kind of task (lowercase words joined by hyphens, never a date); steps first, then each pitfall as a rule with one short reason why. Only SKILL.md, plain text: no scripts or other files. Do not write an origin line: the server adds it. In your answer call it the skill "<its title>" in the user's words: never name SKILL.md, a path, a folder or the "/" command unless the user asks how to start it.`,
+  `How the user wants a kind of task done (the steps in order, how the result should look, the pitfalls: "from now on the weekly report is: pull the sales sheet, make a table, send it to Mina") is a personal skill: save it in that same answer without asking, as ${dir}/<name>/SKILL.md with the write tool (a header "---", "name: <the folder name>", "description: <one sentence on when to use it>", "metadata:", "  title: <a short name in the user's language, as they would say it>", "---", then the steps). Name the folder for the kind of task (lowercase words joined by hyphens, never a date); steps first, then each pitfall as a rule with one short reason why. Only SKILL.md, plain text: no scripts or other files. Do not write an origin line: the server adds it. In your answer call it the skill "<its title>" in the user's words.`,
+  // QA of #606: after a save nobody asked for, the reply said "/weekly-report로 바로 시작할 수 있어요"
+  SKILL_SAVED_REPLY,
   'Short facts and preferences that hold in every chat stay memories (remember).',
   'When the user corrects how you did a task and one of their personal skills covered it, fix that skill in place: read it, then change every place the correction affects (the step itself, its numbers and its examples), never only a note added below; the skill must not contradict itself afterwards. When a skill turns out wrong or the user says it is not needed any more, delete its folder with delete_files.',
   'You change or delete on your own only skills whose header says "origin: auto" (the ones you made). A skill you did not make: change or delete it only with the user\'s OK on the card the server shows (just make the change; the card asks). Team, group and project skills never this way. Keep only what the user said or what worked in their task; if unsure, keep nothing.',
 ].join(' ')
 
 /** ...and its one line right before the person's message (a resumed session keeps the first instructions) */
-export const AUTO_SKILL_REMINDER = 'Skills too: when the user\'s message says how they want a kind of task done, or corrects how you did one, save or fix their personal skill for it in this answer (only skills marked "origin: auto" on your own); facts and preferences for every chat go to remember. Do not mention this.'
+export const AUTO_SKILL_REMINDER = `Skills too: when the user's message says how they want a kind of task done, or corrects how you did one, save or fix their personal skill for it in this answer (only skills marked "origin: auto" on your own); facts and preferences for every chat go to remember; do not mention this reminder. ${SKILL_SAVED_REPLY}`
 
 /** Every turn: a promise about next time is only true when a memory was kept (the owner, 2026-11-25: the AI said
  * "next time I will check the profile list first" and kept nothing). `remember`: the turn has the tool. */
