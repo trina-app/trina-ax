@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 20:10
 - Branch: `fix/skill-edit-markdown-own-words`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/auto-memory.ts. Why: the copy check that personal skills and auto memory share (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a bug fix in an existing check
 
@@ -41,4 +41,5 @@ tests under Bun 1.3.12.
 
 ## Result
 
-Filled in at the end.
+As planned: `copiedFrom` cleans `own` with `cleanOutside`. Two tests fail without the change. Real-AI check on a local
+QA copy: the same skill line (`**맨 아래**에 ... **딱 3개**`) now changes to 5 with its rule line in one answer.
