@@ -305,6 +305,9 @@ async function candidates(files: TeamFiles, user: Principal, rules: RuleSet, lin
   return out
 }
 
+/** A person's own folder (내 파일): only they see it, so a move that is meant to share never suggests it */
+export const privateFolder = (rel: string) => rel === 'users' || rel.startsWith('users/')
+
 const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf('/')))
 const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 
@@ -355,7 +358,7 @@ export function admitSuggest(userId: string) {
 }
 
 /** The Move picker's suggestions for `paths` (each readable by the person, else the policy's not-found). */
-export async function moveSuggestions(files: TeamFiles, userId: string, paths: readonly string[]): Promise<MoveSuggestions> {
+export async function moveSuggestions(files: TeamFiles, userId: string, paths: readonly string[], widen = false): Promise<MoveSuggestions> {
   admitSuggest(userId)
   const user = files.principal(userId)
   const rules = files.rules()
@@ -363,7 +366,7 @@ export async function moveSuggestions(files: TeamFiles, userId: string, paths: r
   const from = new Set(items.map((a) => dirOf(a.rel)))
   // where the items are, and the moved folders themselves and everything in them, are never a place to go
   const moved = items.filter((a) => a.st?.isDirectory()).map((a) => a.rel)
-  const skip = (rel: string) => from.has(rel) || insideAny(rel, moved)
+  const skip = (rel: string) => from.has(rel) || insideAny(rel, moved) || (widen && privateFolder(rel))
   const lines = (() => { try { return fileListOf(files.ctx).lineFields(user, rules) } catch { return () => null } })()
   const queries: Query[] = items.filter((a) => a.st?.isFile()).slice(0, FILES_SCORED).map((a) => {
     const name = nameOf(a.rel)
