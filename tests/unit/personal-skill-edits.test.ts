@@ -68,6 +68,17 @@ describe('changing a skill Trina made', () => {
     expect(st.label).not.toContain('SKILL.md')
   })
 
+  // real-AI QA of #609: a line with bold marks inside a word ("**맨 아래**에") was refused, the rule line without marks
+  // saved, and the skill said both 3 and 5
+  test('a line with bold marks inside a word changes too', async () => {
+    clean()
+    const edit = { tool: 'edit', args: { file_path: rel('weekly'), old_string: '**딱 3개** 적는다.', new_string: '**딱 5개** 적는다.' }, sayResult: true }
+    put('weekly', `${head('weekly')}1. 이번 주 한 일을 **표**로 정리한다 (예: 항목 | 내용 | 진행 상태 | 비고).\n2. 보고서 **맨 아래**에 "다음 주 할 일"을 **딱 3개** 적는다.\n\n${escaped(edit)}\n`)
+    const r = await ask(h, alice, 'alice', await newChat(), '다음 주 할 일은 5개로 해줘, 앞으로도.\n' + fake({ tool: 'read', args: { file_path: rel('weekly') }, followResult: true }))
+    expect(r.done.content).not.toContain('Nothing was')
+    expect(read('weekly')).toContain('2. 보고서 **맨 아래**에 "다음 주 할 일"을 **딱 5개** 적는다.')
+  })
+
   test('a rewrite in place of its lines saves too', async () => {
     clean()
     const body = '1. 시트를 연다.\n2. 매주 월요일 아침에 영업 시트에서 정확히 3개의 지역을 골라 표로 만든다.\n3. 매주 월요일 아침에 영업 시트에서 고른 3개의 지역을 모두 표로 만든다.\n'
