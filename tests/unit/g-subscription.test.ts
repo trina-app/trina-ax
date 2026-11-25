@@ -61,6 +61,7 @@ function answer(text: string, usage: { input_tokens: number; output_tokens: numb
   }), { headers: { 'content-type': 'text/event-stream' } })
 }
 let upstream: ReturnType<typeof Bun.serve>
+let checkRefuses = false
 let h: Harness
 let alice: TestSocket
 let carol: TestSocket
@@ -73,6 +74,12 @@ beforeAll(async () => {
       const raw = await req.text()
       const all = JSON.stringify([...req.headers]) + raw
       if (/mpx_/.test(all)) leaks.push(all.slice(0, 300))
+      // the free check that confirms a refusal before it is marked (credentials/confirm.ts): refused for any token but
+      // REAL, and for REAL too while `checkRefuses` (a token really revoked)
+      if (new URL(req.url).pathname.endsWith('/count_tokens')) {
+        return req.headers.get('authorization') === 'Bearer ' + REAL && !checkRefuses ? Response.json({ input_tokens: 1 })
+          : Response.json({ type: 'error', error: { type: 'authentication_error', message: 'OAuth token has been revoked' } }, { status: 401 })
+      }
       auths.push(req.headers.get('authorization') ?? '')
       if (req.headers.get('authorization') !== 'Bearer ' + REAL) return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, { status: 401 })
       const prompt = String(JSON.parse(raw).messages?.[0]?.content ?? '')
@@ -183,7 +190,9 @@ describe.skipIf(!mac)('managed mode (same user): engine -> fd token -> model pro
 
   test('upstream 401 (revoked token): the connection is marked refused, the turn ends, admins are told, diagnostics say so', async () => {
     const chat = await newChat()
+    checkRefuses = true
     const { done } = await ask(h, alice, 'alice', chat.id, fake({ model: 'revoked' }), { ms: 30_000 })
+    checkRefuses = false
     expect(done.status).toBe('error')
     expect(done.error?.code).toBe('engine_unavailable')
     expect(done.error?.message).toContain("The AI account can't be used") // plain words since #348

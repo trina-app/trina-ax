@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 01:04
 - Branch: `fix/ai-account-refusal-recheck`
-- Status: in progress
+- Status: done
 - Where: server/src/credentials (broker, store, validate, service, maintenance, i18n), server/src/proxy (model-proxy,
   anthropic-refusal, codex-path), shared/src/api/credentials.ts, web/src/pages/admin/Credentials.tsx, web/src/i18n
   (6 languages). Why: AI connections are area A (docs/WORKPLAN.md).
@@ -139,7 +139,12 @@ confirmed by count_tokens before it is marked; the org-not-allowed one has its o
 
 ## Result
 
-Filled in at the end.
+Built as planned (after the plan review): `server/src/credentials/confirm.ts` (single-flight free check, confirm before
+marking, background re-check), `org_oauth_blocked` with the saved provider answer (`Credential.providerError`),
+`CheckCredentialResponse.check`, and the row spinner + outcome toast. A code review afterwards added: a refusal marked
+although its check passed is not re-checked in the background (it would only pass again), a working answer ends the
+10-minute hold, a legacy row is checked once even when that check is unclear, and a token replaced during a check is
+not marked with the old token's answer. Decision: docs/decisions/20261125-ai-account-refusal-recheck.md. QA TC-9045..9049.
 
 ## Plan review (independent subagent, 2026-11-25)
 
