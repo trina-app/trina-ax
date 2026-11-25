@@ -18,7 +18,7 @@ describe('the web figures line', () => {
   test('says what a figure keeps, where it may come from, which links, and the check; stays short', () => {
     for (const s of ['unit, base and population', 'percent or percentage points', 'currency, year and period', 'in any language',
       'only from a page whose own text you read', 'a summary written by the search tool, not the source', 'another page that states the figure',
-      'marked as from a search summary', 'Link only addresses a tool gave you in this chat', 'never one you built or remember',
+      'marked as from a search summary', 'Link only addresses a tool or the user gave you in this chat', 'never one you built or remember',
       'check each figure against the text you read'])
       expect(WEB_FIGURES_RULE).toContain(s)
     // general: not the QA case's figures or topic

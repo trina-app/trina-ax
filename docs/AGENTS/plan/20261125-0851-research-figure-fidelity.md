@@ -36,7 +36,7 @@ Out: a server-side checker that rewrites answers; Codex search path changes (cod
 ## Steps
 
 1. Plan (this file).
-2. web_fetch / save_url fallback agent + unit tests (a test server that drops the first agent).
+2. web_fetch fallback agent (web_fetch only) + unit tests (a test server that drops the first agent).
 3. WEB_FIGURES_RULE in prompt.ts for the main prompt and the sub-agent prompt + unit tests.
 4. Eval before/after; numbers in Result.
 5. typecheck, check:prepush, unit tests; changes/research-figure-fidelity.md.
