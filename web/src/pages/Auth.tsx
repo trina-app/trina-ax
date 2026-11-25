@@ -2,7 +2,7 @@
 // (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useId, useReducer, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, joinLineKey, type GuestPlaceView } from '../lib/guests'
@@ -22,7 +22,7 @@ import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, rem
 import { googleResultOf, keepGoogleSignUp, pendingGoogleSignUp } from '../lib/googleSignUp'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
-import { APP_OPEN_WAIT_MS, appFirst, appTryStart, appTryStep, autoTries, browserChosen, canAutoTry, desktopDownloadHref, LAUNCH_FRAME_MS, launchWay, primaryAction, rememberBrowser, takeAutoTry } from '../lib/join-open-app'
+import { appFirst, appFirstLine, autoTries, browserChosen, canAutoTry, desktopDownloadHref, LAUNCH_FRAME_MS, launchWay, rememberBrowser, takeAutoTry } from '../lib/join-open-app'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
@@ -30,7 +30,7 @@ import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
 import { SourceCodeLink } from '../components/SourceCodeLink'
-import { Button, Field, IconButton, inputCls, TextAction } from '../components/ui'
+import { Button, buttonClass, Field, IconButton, inputCls, TextAction } from '../components/ui'
 import { LanguageSelect } from '../components/LanguageSelect'
 import { isSignInPath } from '@mycel/shared/team-link'
 import { teamAddressHost } from '../lib/team-address'
@@ -1007,17 +1007,18 @@ const localStore = (): Storage | null => {
 }
 
 /**
- * The join page on a computer, app first (lib/join-open-app.ts): one automatic try of the desktop app per page load,
- * then what happened as well as the browser can tell (the page lost focus or was hidden: opened). One primary button
- * (Open the app, or Download the app once it did not open) and the other two as quiet links; Open the app tries again
- * only on a press, in the press itself (browsers let a pressed link open an app).
+ * The join page on a computer, app first (lib/join-open-app.ts): Open the app leads, Download the app is the second
+ * choice, Continue in the browser and Sign in are quiet links. Where the browser allows, one try by itself once the tab
+ * is seen (once per page load); Open the app tries again in the press itself (browsers let a pressed link open an app).
+ * The page never says the app opened: after a try it says only that this tab can be closed if it did.
  */
 function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) {
   const t = useT()
   const [way] = useState(() => launchWay(navigator.userAgent))
-  const [{ phase }, step] = useReducer(appTryStep, way, appTryStart)
+  const [tried, setTried] = useState(false)
   const download = desktopDownloadHref(platform(), APP_DOWNLOADS)
-  const launch = () => {
+  const tryNow = () => {
+    setTried(true)
     if (way !== 'frame') {
       window.location.href = href
       return
@@ -1031,52 +1032,26 @@ function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) 
     window.addEventListener('pagehide', gone)
     setTimeout(gone, LAUNCH_FRAME_MS)
   }
-  // a try: its wait starts, then the link goes (the blur and visibility listeners are on from the first render)
-  const tries = useRef(0)
-  const tryNow = () => {
-    const n = ++tries.current
-    step('try')
-    // only the latest try's wait ends it (a press again starts a new wait)
-    setTimeout(() => { if (tries.current === n) step('timeout') }, APP_OPEN_WAIT_MS)
-    launch()
-  }
   useEffect(() => {
-    // signs count only as they happen: a blur, or the page turning hidden (a tab that loads hidden is no sign)
-    const onBlur = () => step('sign')
-    // the automatic try waits for the tab to be seen (a link opened in a background tab), once per page load
+    // once per page load, and only once the tab is seen (a link opened in a background tab tries when first shown)
     const auto = () => { if (autoTries(way) && canAutoTry(document.visibilityState) && takeAutoTry()) tryNow() }
-    const onVisibility = () => (document.visibilityState === 'hidden' ? step('sign') : auto())
-    window.addEventListener('blur', onBlur)
-    document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('visibilitychange', auto)
     auto()
-    return () => {
-      window.removeEventListener('blur', onBlur)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
+    return () => document.removeEventListener('visibilitychange', auto)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const again = tryNow
-  const primary = primaryAction(phase, download)
-  const quiet = 'text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center'
-  const openButton = primary === 'open'
-    ? <Button variant="primary" className="w-full" onClick={again} data-testid="app-first-open">{t('auth.openApp')}</Button>
-    : <button type="button" className={quiet} onClick={again} data-testid="app-first-open">{t('auth.openApp')}</button>
-  const downloadLink = download && (
-    <a href={download} target="_blank" rel="noopener noreferrer" className={primary === 'download' ? PRIMARY_LINK_CLS : quiet} data-testid="app-first-download">
-      {t('openApp.download')}
-    </a>
-  )
   return (
-    <div data-testid="app-first" data-phase={phase}>
-      <p role="status" className="mb-4 flex items-start gap-2 text-sm leading-6 text-ink break-keep" data-testid="app-first-status">
-        {phase === 'opening' && <Loader2 size={16} className="mt-1 shrink-0 animate-spin text-muted" aria-hidden />}
-        <span>{t(phase === 'ready' ? 'auth.appReady' : phase === 'opening' ? 'auth.appOpening' : phase === 'opened' ? 'auth.appOpened' : 'auth.appNotOpened')}</span>
-      </p>
-      {primary === 'open' ? openButton : downloadLink}
-      <div className="mt-4 flex flex-col items-center gap-2 text-sm md:gap-3">
-        {primary === 'open' ? downloadLink : openButton}
+    <div data-testid="app-first" data-tried={tried || undefined}>
+      <p role="status" className="mb-4 text-sm leading-6 text-ink break-keep" data-testid="app-first-status">{t(appFirstLine(tried))}</p>
+      <Button variant="primary" className="w-full" onClick={tryNow} data-testid="app-first-open">{t('auth.openApp')}</Button>
+      {download && (
+        <a href={download} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: 'secondary', className: 'mt-2 w-full' })} data-testid="app-first-download">
+          {t('openApp.download')}
+        </a>
+      )}
+      <p className="mt-4 text-center text-sm">
         <button type="button" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
-      </div>
+      </p>
       {/* already a member (the link opened again): sign in, without remembering the browser for invites */}
       <HaveAccount />
     </div>

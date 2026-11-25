@@ -1,7 +1,7 @@
 // A computer's join pages open the desktop app first (lib/join-open-app.ts; docs/decisions/20261125-invite-open-app-first.md):
-// a member invite and the team link try the app once on load with the "앱에서 열기" link, say it is opening, and with no
-// sign of the app (this browser has none) make Download the app the one primary button; Continue in the browser shows
-// the form and is remembered. A guest invite keeps the form first. SHOT_DIR=<folder> saves light and dark screenshots
+// a member invite and the team link lead with Open the app (the "앱에서 열기" link), Download the app second, try the app
+// once by itself where that is harmless, and never say whether it opened; Continue in the browser shows the form and is
+// remembered. A guest invite keeps the form first. SHOT_DIR=<folder> saves light and dark screenshots
 // at 1440 and 390.
 import path from 'node:path'
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -44,7 +44,7 @@ async function computer(browser: Browser, o: { width?: number; colorScheme?: 'li
   return { ctx, p, tries, show }
 }
 
-test('a member invite on a computer: the app first, Download once it did not open, the browser remembered', async ({ page, browser }) => {
+test('a member invite on a computer: Open the app leads, one try by itself, never "opened", the browser remembered', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
@@ -53,26 +53,31 @@ test('a member invite on a computer: the app first, Download once it did not ope
   const box = p.getByTestId('app-first')
   await expect(box).toBeVisible()
   await expect(p.getByTestId('join-form')).toHaveCount(0)
-  // no app here: after the wait, Download leads (the edition's download page, nothing of this page in it)
-  await expect(box).toHaveAttribute('data-phase', 'notOpened')
-  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appNotOpened'))
+  // exactly one try by itself, with the same link as "앱에서 열기"; the line says only what to do either way
+  await expect(box).toHaveAttribute('data-tried', 'true')
+  await p.waitForTimeout(2500)
+  expect(tries).toEqual([`trina-ax://open?url=${encodeURIComponent(`${new URL(p.url()).origin}/invite/${token}`)}`])
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appTried'))
+  // Open the app leads; Download the app is the clear second choice (the edition's download page, nothing of this page)
+  await expect(p.getByTestId('app-first-open')).toHaveText(ko('auth.openApp'))
+  await expect(p.getByTestId('app-first-open')).toHaveClass(/bg-accent/)
   const download = p.getByTestId('app-first-download')
   await expect(download).toHaveText(ko('openApp.download'))
   expect(await download.getAttribute('href')).toBe(DOWNLOAD)
-  await expect(download).toHaveClass(/bg-accent/)
-  await expect(p.getByTestId('app-first-open')).toHaveText(ko('auth.openApp'))
-  await expect(p.getByTestId('app-first-open')).not.toHaveClass(/bg-accent/)
-  // exactly one automatic try, never a loop, with the same link as "앱에서 열기"
-  await p.waitForTimeout(2500)
-  expect(tries).toEqual([`trina-ax://open?url=${encodeURIComponent(`${new URL(p.url()).origin}/invite/${token}`)}`])
+  await expect(download).not.toHaveClass(/bg-accent/)
   // already a member: a quiet sign-in line, which does not remember the browser
   await expect(p.getByTestId('join-signin')).toBeVisible()
   // Open the app tries again on a press only
   await p.getByTestId('app-first-open').click()
-  await expect(box).toHaveAttribute('data-phase', 'opening')
-  await expect(box).toHaveAttribute('data-phase', 'notOpened')
-  expect(tries.length).toBe(2)
+  await expect.poll(() => tries.length).toBe(2)
   expect(await p.evaluate(() => localStorage.getItem('mycel.joinInBrowser'))).toBeNull()
+  // Download in a new tab, focus gone and back: the page says the same, nothing about the app having opened
+  await ctx.route(/^https:\/\/ax\.trina\.app\//, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>download</title>' }))
+  const [dl] = await Promise.all([ctx.waitForEvent('page'), download.click()])
+  await p.evaluate(() => window.dispatchEvent(new Event('blur')))
+  await dl.close()
+  await p.bringToFront()
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appTried'))
   // Continue in the browser: the form, and this browser remembers
   await p.getByTestId('app-first-browser').click()
   await expect(p.getByTestId('invite-name')).toBeVisible()
@@ -83,7 +88,7 @@ test('a member invite on a computer: the app first, Download once it did not ope
   await ctx.close()
 })
 
-test('a tab opened in the background tries nothing until it is seen, and its hidden start is no "opened"', async ({ page, browser }) => {
+test('a tab opened in the background tries nothing until it is seen', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
@@ -93,29 +98,26 @@ test('a tab opened in the background tries nothing until it is seen, and its hid
   await expect(box).toBeVisible()
   await p.waitForTimeout(3000)
   expect(tries).toEqual([])
-  await expect(box).toHaveAttribute('data-phase', 'opening')
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appReady'))
   await show()
-  await expect(box).toHaveAttribute('data-phase', 'notOpened')
-  expect(tries.length).toBe(1)
+  await expect.poll(() => tries.length).toBe(1)
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appTried'))
   await ctx.close()
 })
 
-test('Safari: no try on load (its alert would cover the page), Open the app leads and its press is the try', async ({ page, browser }) => {
+test('Safari: no try by itself (its alert would cover the page); the press of Open the app is the try', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
   const { ctx, p, tries } = await computer(browser, { userAgent: SAFARI })
   await p.goto(`/invite/${token}`)
-  const box = p.getByTestId('app-first')
-  await expect(box).toHaveAttribute('data-phase', 'ready')
   await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appReady'))
   await p.waitForTimeout(2500)
   expect(tries).toEqual([])
-  await expect(p.getByTestId('app-first-open')).toHaveClass(/bg-accent/)
   await shot(p, 'app-first-safari-1440-light')
   await p.getByTestId('app-first-open').click()
-  await expect(box).toHaveAttribute('data-phase', 'notOpened')
-  expect(tries.length).toBe(1)
+  await expect.poll(() => tries.length).toBe(1)
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appTried'))
   await ctx.close()
 })
 
@@ -158,7 +160,7 @@ test('the app-first page at 1440 and 390, light and dark', async ({ page, browse
       const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
       const { ctx, p } = await computer(browser, { width, colorScheme })
       await p.goto(`/invite/${token}`)
-      await expect(p.getByTestId('app-first')).toHaveAttribute('data-phase', 'notOpened')
+      await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appTried'))
       // nothing runs out of the page sideways
       expect(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       await shot(p, `app-first-${width}-${colorScheme}`)

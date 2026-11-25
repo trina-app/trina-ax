@@ -69,3 +69,6 @@ Download until the person accepts the prompt (then a later blur switches it to "
 the background read as "opened"); Safari showed a modal "cannot open the page" alert on a top-level try without the
 app, so Safari gets no automatic try and leads with Open the app; the frame stays up to 60 s; "Already joined? Sign in"
 stays on the app-first page. Windows and Safari with the app installed were not checked by hand (see the PR).
+After the Windows check (Edge 158 prompt and translate bubble read as "opened"; Chrome 158 blocks a try with no press):
+the page no longer guesses. Open the app leads, Download the app second, one neutral line after any try; one try by
+itself where harmless (not Safari). The first HTML's `lang` stays "en" (the team language needs a per-team page).

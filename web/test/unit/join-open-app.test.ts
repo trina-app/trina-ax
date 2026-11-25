@@ -2,7 +2,7 @@
 // docs/decisions/20261125-invite-open-app-first.md): when the page tries the app, which button leads, the remembered
 // browser choice, guests, the download link and how the try is made.
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { APP_OPEN_WAIT_MS, appFirst, appTryStart, appTryStep, autoTries, browserChosen, canAutoTry, desktopDownloadHref, JOIN_IN_BROWSER_KEY, LAUNCH_FRAME_MS, launchWay, primaryAction, rememberBrowser, resetAutoTry, takeAutoTry, type AppTryState } from '../../src/lib/join-open-app'
+import { appFirst, appFirstLine, autoTries, browserChosen, canAutoTry, desktopDownloadHref, JOIN_IN_BROWSER_KEY, LAUNCH_FRAME_MS, launchWay, rememberBrowser, resetAutoTry, takeAutoTry } from '../../src/lib/join-open-app'
 import { openInAppHref } from '../../src/lib/team-link'
 
 const HTTPS = 'https://acme.trina.app'
@@ -48,44 +48,19 @@ describe('the automatic try happens once per page load', () => {
   })
 })
 
-describe('did the app open, and which button leads', () => {
-  const run = (start: AppTryState, ...events: ('try' | 'sign' | 'timeout')[]) => events.reduce(appTryStep, start).phase
-  test('after a try, a blur or the page turning hidden means opened; nothing within the wait means not opened', () => {
-    expect(APP_OPEN_WAIT_MS).toBeLessThanOrEqual(2500)
-    const s = appTryStart('page')
-    expect(s.phase).toBe('opening')
-    expect(run(s, 'try', 'sign')).toBe('opened')
-    expect(run(s, 'try', 'timeout')).toBe('notOpened')
-    // a sign after the wait still counts (Chrome's own prompt answered late)
-    expect(run(s, 'try', 'timeout', 'sign')).toBe('opened')
-    // a press again starts over
-    expect(run(s, 'try', 'timeout', 'try')).toBe('opening')
+describe('the page never guesses whether the app opened', () => {
+  test('one neutral line after any try; before a try, what the page is for', () => {
+    expect(appFirstLine(false)).toBe('auth.appReady')
+    expect(appFirstLine(true)).toBe('auth.appTried')
   })
-  test('a tab that loads hidden is no sign: nothing counts before the try, and the try waits for the tab to be seen', () => {
-    const s = appTryStart('page')
-    // the background tab's hidden state and a blur before any try change nothing
-    expect(run(s, 'sign')).toBe('opening')
-    expect(run(s, 'sign', 'timeout')).toBe('opening')
-    expect(run(s, 'sign', 'try', 'timeout')).toBe('notOpened')
+  test('the automatic try waits for the tab to be seen (a link opened in a background tab)', () => {
     expect(canAutoTry('hidden')).toBe(false)
     expect(canAutoTry('visible')).toBe(true)
   })
-  test('Safari: no try on load, Open the app leads, and no blur counts as opened (its own sheet takes focus)', () => {
-    const s = appTryStart('press')
-    expect(autoTries('press')).toBe(false)
+  test('tries by itself where that is harmless: not in Safari (its alert would cover the page)', () => {
     expect(autoTries('page')).toBe(true)
     expect(autoTries('frame')).toBe(true)
-    expect(s.phase).toBe('ready')
-    expect(primaryAction('ready', 'https://ax.trina.app/download')).toBe('open')
-    expect(run(s, 'try', 'sign')).toBe('opening')
-    expect(run(s, 'try', 'sign', 'timeout')).toBe('notOpened')
-  })
-  test('Download leads only once the app did not open and there is a download link', () => {
-    const dl = 'https://ax.trina.app/download'
-    expect(primaryAction('opening', dl)).toBe('open')
-    expect(primaryAction('opened', dl)).toBe('open')
-    expect(primaryAction('notOpened', dl)).toBe('download')
-    expect(primaryAction('notOpened', null)).toBe('open')
+    expect(autoTries('press')).toBe(false)
   })
 })
 
