@@ -195,7 +195,7 @@ const NON_SEND_VERBS: Record<string, Exclude<ChangeAction, 'send'>> = Object.fro
   ...['draft', 'save', 'store', 'export', 'backup', 'bookmark'].map((w) => [w, 'save'] as const),
   ...['create', 'add', 'insert', 'append', 'new', 'make', 'generate', 'build', 'upload', 'import', 'duplicate', 'copy', 'clone'].map((w) => [w, 'add'] as const),
   ...['delete', 'remove', 'trash', 'erase', 'purge', 'destroy', 'wipe', 'clear'].map((w) => [w, 'delete'] as const),
-  ...['update', 'edit', 'modify', 'change', 'set', 'rename', 'move', 'patch', 'replace', 'mark', 'label', 'format', 'resize', 'toggle', 'write', 'upsert', 'batch'].map((w) => [w, 'change'] as const),
+  ...['update', 'edit', 'modify', 'change', 'set', 'rename', 'move', 'patch', 'replace', 'mark', 'label', 'format', 'resize', 'toggle', 'write', 'upsert'].map((w) => [w, 'change'] as const),
 ])
 /** Words in a name or title that say people are reached or the thing is seen by others: any of them makes it a send */
 const REACH_WORDS = new Set(['message', 'messages', 'msg', 'comment', 'comments', 'chat', 'chats', 'email', 'emails', 'mail', 'mails',
@@ -205,15 +205,18 @@ const REACH_WORDS = new Set(['message', 'messages', 'msg', 'comment', 'comments'
   'meeting', 'meetings', 'video', 'videos', 'public', 'publish', 'notify', 'notification', 'notifications', 'phone', 'sms', 'call',
   'calls', 'broadcast', 'newsletter', 'reply', 'replies', 'forward', 'send', 'submit', 'announcement', 'dm', 'channel', 'channels',
   'webhook', 'webhooks', 'letter', 'invoice', 'invoices', 'contact', 'contacts', 'guest', 'guests', 'attendee', 'attendees',
-  'recipient', 'recipients', 'subscriber', 'subscribers', 'audience', 'feed', 'thread', 'threads', 'ticket', 'tickets'])
+  'recipient', 'recipients', 'subscriber', 'subscribers', 'audience', 'feed', 'thread', 'threads', 'ticket', 'tickets',
+  'published', 'live', 'whatsapp', 'mms', 'push', 'notifications', 'autoreply', 'autoresponder'])
+/** Phrases of several words that reach people (an auto-reply answers whoever writes): matched on the name with its separators out */
+const REACH_PHRASES = ['autoreply', 'outofoffice', 'islive', 'golive']
 
 /** An argument name that says who or where something goes, or who sees it (any depth, as part of the name) */
-const REACH_KEY = /attendee|invitee|recipient|assignee|forward|email|e_mail|owner|user|member|share|channel|mention|notify|notif|participant|guest|collaborat|subscriber|audience|webhook|phone|sms|privacy|visib|permission|access|role|reviewer|follower|contact|^(to|cc|bcc|from|reply_?to|send_?to|target|dest(ination)?)$/i
+const REACH_KEY = /attendee|invitee|recipient|assignee|forward|email|e_mail|owner|user|member|share|channel|mention|notify|notif|participant|guest|collaborat|subscriber|audience|webhook|phone|sms|privacy|visib|permission|access|role|reviewer|follower|contact|publish|whatsapp|sms|mms|push|auto_?reply|out_?of_?office|^(is_?)?live$|^(to|cc|bcc|from|reply_?to|send_?to|target|dest(ination)?)$/i
 /** A value that names a person or a place to reach: an e-mail address or an @handle among its words, or the whole value
  * a phone number or "public". Linear in the value's length (a long text is split into words once; no regex over it). */
 const EMAIL_WORD = /^[^@]{1,64}@[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})*\.[a-z]{2,}$/i
 const HANDLE_WORD = /^@[a-z0-9_][a-z0-9_.-]{1,}$/i
-const WHOLE_VALUE = [/^\+\d[\d\s().-]{6,30}$/, /^\(?\d{2,4}\)?[\s.-]\d{3,4}[\s.-]\d{4}$/, /^(public|anyone|anyonewithlink|anyone_with_link|everyone|domain|unlisted)$/i]
+const WHOLE_VALUE = [/^\+\d[\d\s().-]{6,30}$/, /^\+?\d{8,15}$/, /^\(?\d{2,4}\)?[\s.-]\d{3,4}[\s.-]\d{4}$/, /^(public|anyone|anyonewithlink|anyone_with_link|everyone|domain|unlisted)$/i]
 function reachValue(v: string): boolean {
   const t = v.trim()
   if (t.length <= 40 && WHOLE_VALUE.some((re) => re.test(t))) return true
@@ -224,7 +227,9 @@ function reachValue(v: string): boolean {
 /** The call's arguments name someone or somewhere it reaches: a REACH_KEY with a value, a key that is not plain ASCII,
  * or a value that names someone (reachValue), at any depth */
 export function argsReach(v: unknown, depth = 0): boolean {
-  if (depth > 8 || v === null || v === undefined) return false
+  // deeper than this is not read: taken as reaching someone (fail safe)
+  if (depth > 8) return true
+  if (v === null || v === undefined) return false
   if (typeof v === 'string') return reachValue(v)
   if (typeof v !== 'object') return false
   if (Array.isArray(v)) return v.some((x) => argsReach(x, depth + 1))
@@ -243,13 +248,19 @@ function filled(v: unknown): boolean {
   return true
 }
 
+/** A name or title holds a word or phrase that reaches people */
+function reaches(s: string): boolean {
+  const joined = s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  return nameWords(s).some((x) => REACH_WORDS.has(x)) || REACH_PHRASES.some((p) => joined.includes(p))
+}
+
 /** A name's or title's non-send verb: its first word, or the second after a service prefix ("gmail_create_label"), and
  * no word in it that reaches people; null when not plain ASCII or not sure */
 function verbOf(s: string | null | undefined): Exclude<ChangeAction, 'send'> | null {
   const p = plainName(s)
   if (!p || !/^[\x20-\x7e]+$/.test(p)) return null
   const w = nameWords(p)
-  if (w.some((x) => REACH_WORDS.has(x))) return null
+  if (reaches(p)) return null
   const first = NON_SEND_VERBS[w[0] ?? '']
   if (first) return first
   return w.length > 2 && !Object.hasOwn(NON_SEND_VERBS, w[0]!) ? NON_SEND_VERBS[w[1]!] ?? null : null
@@ -284,9 +295,9 @@ export function changeAction(tool: { name: string; title?: string | null }, args
   if (google === 'manage') action = manageAction(args)
   else if (google) action = google
   else {
-    if (title && nameWords(title).some((x) => REACH_WORDS.has(x))) return 'send'
+    if (title && reaches(title)) return 'send'
     const name = plainName(tool.name)
-    if (!/^[\x21-\x7e]+$/.test(name) || nameWords(name).some((x) => REACH_WORDS.has(x))) return 'send'
+    if (!/^[\x21-\x7e]+$/.test(name) || reaches(name)) return 'send'
     action = verbOf(name) ?? verbOf(title)
   }
   if (!action) return 'send'

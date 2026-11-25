@@ -100,3 +100,42 @@ describe('argsReach on long values', () => {
     expect(a('create_page', { body: `${'word '.repeat(50_000)}write to bob@acme.example.` })).toBe('send')
   })
 })
+
+// re-review of #585 (135021a): fail-safe follow-ups
+describe('fail safe', () => {
+  test('arguments nested deeper than the check reads count as reaching someone', () => {
+    let deep: unknown = { title: 'x' }
+    for (let i = 0; i < 12; i++) deep = { inner: deep }
+    expect(a('create_page', deep)).toBe('send')
+    expect(a('create_page', { a: { b: { title: 'x' } } })).toBe('add')
+  })
+
+  test('"batch" is no verb of its own', () => {
+    expect(a('batch_items', { ids: ['1'] })).toBe('send')
+    expect(a('batch_messages', {})).toBe('send')
+  })
+
+  test('publishing or going live reaches people', () => {
+    expect(a('update_page_published', {})).toBe('send')
+    expect(a('set_live', {})).toBe('send')
+    expect(a('update_page', { published: true })).toBe('send')
+    expect(a('update_stream', { is_live: true })).toBe('send')
+    expect(a('update_post_settings', { publish_at: '2026-12-01' })).toBe('send')
+    // (a "published" key with no value set names no change of who sees it)
+    expect(a('update_page', { published: false })).toBe('change')
+  })
+
+  test('channel words: WhatsApp, MMS, push, SMS, notifications, auto-reply, out of office', () => {
+    for (const n of ['create_whatsapp_template', 'add_mms', 'create_push', 'update_sms_settings', 'update_notification', 'set_auto_reply', 'update_out_of_office', 'create_autoreply'])
+      expect(a(n, {})).toBe('send')
+    expect(a('update_settings', { auto_reply: 'on' })).toBe('send')
+    expect(a('update_settings', { out_of_office: { enabled: true } })).toBe('send')
+  })
+
+  test('a phone number without separators', () => {
+    expect(a('create_contact_card', {})).toBe('send')
+    expect(a('update_record', { number: '01012345678' })).toBe('send')
+    expect(a('update_record', { number: '+821012345678' })).toBe('send')
+    expect(a('update_record', { code: '1234567' })).toBe('change')
+  })
+})
