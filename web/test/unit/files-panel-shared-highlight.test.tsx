@@ -94,6 +94,18 @@ for (const [where, ui] of [['computer', <FilesPanel />], ['phone', <PhoneFilesHo
     }
   })
 
+  test(`${where}: 내 파일 is the first place, before 최근 파일 and the team's (docs/decisions/20261125-upload-destination.md)`, async () => {
+    const m = await at('/files?path=users%2Fmina')
+    try {
+      const order = m.container.querySelectorAll('[data-testid^="files-panel-"]').map((e) => e.getAttribute('data-testid')).filter((id) => IDS.includes(id!))
+      expect(order[0]).toBe('files-panel-mine')
+      expect(order.slice(1, 3)).toEqual(['files-panel-recent', 'files-panel-shared'])
+      expect(order.at(-1)).toBe('files-panel-trash')
+    } finally {
+      await m.unmount()
+    }
+  })
+
   test(`${where}: the rows link to their own place`, async () => {
     const m = await at('/files')
     try {

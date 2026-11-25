@@ -2,7 +2,8 @@
 
 - Date (UTC): 2026-11-25 12:03
 - Branch: `feat/upload-destination`
-- Status: **draft for review** (not built; replaces Part 2 of 20261125-1044-folder-restrict-honest.md)
+- Status: done (replaces Part 2, "who can open a folder, visible like Notion", of
+  20261125-1044-folder-restrict-honest.md in #590: that part was dropped for this plan and is not built)
 - Where: web/ (the 파일 rail's landing, the Files side list and the phone 파일 tab order, an Upload button on 최근 파일,
   the upload line, My files' empty state). Why: navigation and Files are web (see docs/REPOSITORY-RULES.md). No server
   or API change.
@@ -134,4 +135,15 @@ member uploads from the first screen, then moves the file to 전사 공유 and s
 
 ## Result
 
-(at the end)
+Built after the UX review and the owner's two answers (everyone lands on 내 파일; 최근 파일's Upload goes straight to 내 파일).
+What changed from the draft above (docs/decisions/20261125-upload-destination.md has the rule as built):
+- Only 최근 파일 gets an Upload button (나에게 공유된 파일 none). It hands the files to 내 파일 and opens it.
+- The line after an upload into 내 파일 reads "내 파일에 올렸어요 · 나만 봐요 · 팀과 같이 보려면 [옮기기]". 옮기기 opens the
+  existing Move picker (bulk Move for several), at the team folder's places, with its 추천 folders; no AI call.
+- The empty state reads "여기 올린 파일은 나만 봐요. 팀과 같이 보려면 팀 폴더로 옮기세요." (no claim about finding files).
+- Moving somewhere more people can see asks first (`files.widenTitle`, `files.widenBody…`); Undo exists only after a
+  narrowing move, as before. Nothing new was built for widening.
+- Guests have no 파일 place at all (unchanged), so they see none of this; the line's guest variant (no 옮기기) is kept
+  for any guest who reaches their own folder.
+- The decision file supersedes the three 2026-11-13 lines: 파일 starts on 최근 파일; "no Upload button in 파일's header … one
+  button, not two"; "No upload button on the places" (for 최근 파일 only, which had no Upload of its own).

@@ -1,9 +1,10 @@
 // 파일's list panel beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1), like
 // Slack's Files: the places on the left, the folder or the file on the right (pages/Files.tsx).
-// 최근 파일 (pages/RecentFiles.tsx), Shared with me (pages/SharedFiles.tsx: files people shared with me; always shown to
+// 내 파일 (my own folder, where 파일 opens: docs/decisions/20261125-upload-destination.md), 최근 파일
+// (pages/RecentFiles.tsx), Shared with me (pages/SharedFiles.tsx: files people shared with me; always shown to
 // a member, also while empty), 팀 폴더 (the team folder's top folders I can see, in the order the Files screen
-// shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can see, by name), then 내 파일 (my
-// own folder; "내 폴더" before, decision Q4) and 휴지통. The owner's setup row is on top while it shows. The row of the
+// shows them: 전사 공유, 부서, then the others; 팀 스킬 is 트리나's page, not a place here), 프로젝트 폴더 (the projects I can
+// see, by name), then 휴지통. The owner's setup row is on top while it shows. The row of the
 // place on screen is marked: the deepest place the open folder is in.
 // The same places are the root of a phone's 파일 tab (PhoneFilesHome below; docs/DECISIONS.md
 // "Phone tabs: 트리나 · 대화 · 파일 · 나"): its bar says 파일, with 🔍 for files; a place opens on its own screen.
@@ -133,6 +134,9 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
   return (
     <>
       <ul className="mb-4">
+        {/* 내 파일 first, where 파일 opens and where an upload with no folder of its own goes, like Drive's My Drive
+            (docs/decisions/20261125-upload-destination.md); the team's places follow, one tap away */}
+        {mine && row(mine)}
         {row({ key: VIEW_KEY.recent, to: '/files?view=recent', label: t('filesPanel.recent'), icon: Clock, testId: 'files-panel-recent' })}
         {row({ key: VIEW_KEY.shared, to: '/files?view=shared', label: t('filesPanel.shared'), icon: Users, testId: 'files-panel-shared' })}
       </ul>
@@ -161,7 +165,6 @@ function FilesPlaces({ phone = false }: { phone?: boolean }) {
         </PanelSection>
       )}
       <ul className="mt-3 border-t border-line pt-2">
-        {mine && row(mine)}
         {row({ key: VIEW_KEY.trash, to: '/files?view=trash', label: t('files.trash'), icon: Trash2, testId: 'files-panel-trash' })}
       </ul>
     </>
