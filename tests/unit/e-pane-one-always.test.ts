@@ -19,13 +19,13 @@ describe('allowForTurn: the server\'s allowed sites for one answer', () => {
     expect(p.toJSON().always).toEqual([])
   })
 
-  test('a host key covers only that host (and keeps its port); a typed www address arrives without "www."', () => {
+  test('a host key covers only that host, on every port; a www address matches without "www."', () => {
     const p = new SitePermissions()
-    p.allowForTurn('t1', ['etk.srail.kr', 'shop.example:8443'])
+    p.allowForTurn('t1', ['etk.srail.kr', 'shop.example'])
     expect(p.isAllowed('site', 'etk.srail.kr', 't1')).toBe(true)
     expect(p.isAllowed('site', 'www.srail.kr', 't1')).toBe(false)
     expect(p.isAllowed('site', 'shop.example:8443', 't1')).toBe(true)
-    expect(p.isAllowed('site', 'shop.example', 't1')).toBe(false)
+    expect(p.isAllowed('site', 'other.example', 't1')).toBe(false)
   })
 
   test('office addresses count for the site and the office scope; public sites never for the office scope', () => {

@@ -51,7 +51,8 @@
 // allow-list of ④.
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
-import { getDomain, parse } from 'tldts'
+import { parse } from 'tldts'
+import { longSubdomainOf, MAX_SITE_SUBDOMAIN, opaqueParts, siteOfHost, siteToKeep } from '@mycel/shared/web-site'
 import { ROOM_REF_RE, type CardAlwaysKind, type ConfirmDetail, type Locale, type PictureAlwaysKey } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
@@ -440,11 +441,9 @@ export function rememberUrls(db: Database, chatId: string, urls: Iterable<string
  */
 export function siteOf(rawUrl: string): string | null {
   let host: string
-  try { host = new URL(rawUrl).hostname.toLowerCase() } catch { return null }
-  host = host.replace(/\.+$/, '')
-  if (!host || host.startsWith('[') || !host.includes('.') || /^[\d.]+$/.test(host)) return null
-  const d = getDomain(host, { allowPrivateDomains: true, detectIp: true, validateHostname: true, extractHostname: false })
-  return d && d.includes('.') ? d : null
+  try { host = new URL(rawUrl).hostname } catch { return null }
+  // one rule with the desktop app's browser (shared/src/web-site.ts)
+  return siteOfHost(host)
 }
 
 /** The part of a host name before its site that always asks, also on an allowed site: this many characters or more
@@ -452,17 +451,14 @@ export function siteOf(rawUrl: string): string | null {
  * cases), and dots or hyphens cut data into short pieces (a1b2….c3d4….site.example). A name also goes out in the clear
  * to the name servers on the way, before any page opens, so data in it reaches more than the site. Real sites rarely
  * need this much (www, news, m.blog, docs, kr). */
-export const MAX_SITE_SUBDOMAIN = 20
+export { MAX_SITE_SUBDOMAIN }
 
 /** The part of the address's host name before its site (news.example.co.kr: "news") when it is MAX_SITE_SUBDOMAIN
  * characters or longer, as a mark for the card; none when it is shorter or the address has no site. */
 export function longSubdomain(rawUrl: string, site: string | null): string[] {
-  if (!site) return []
   let host: string
-  try { host = new URL(rawUrl).hostname.toLowerCase().replace(/\.+$/, '') } catch { return [] }
-  if (!host.endsWith('.' + site)) return []
-  const sub = host.slice(0, -(site.length + 1))
-  return sub.length >= MAX_SITE_SUBDOMAIN ? [sub] : []
+  try { host = new URL(rawUrl).hostname } catch { return [] }
+  return longSubdomainOf(host, site)
 }
 
 /** A site as shown on a card: ASCII form, and the Unicode form next to it when they differ (예시.한국). */
@@ -560,11 +556,12 @@ export function namedByPerson(db: Database, chatId: string | null, rawUrl: strin
 
 /**
  * An "Always allow" the person pressed on the desktop app's site card for `host`: kept as their site for good, the row
- * the address card's "이 사이트 항상 허용" writes, where a site allowance may be kept (siteScope, sitesForGood). Returns
- * the site kept, or null (no site for that host: an IP address, a public suffix; or not kept here).
+ * the address card's "이 사이트 항상 허용" writes, where a site allowance may be kept (siteScope, sitesForGood). Only
+ * the site the card named (shared siteToKeep: the address card's own rule, so never for a host with a long or
+ * random-looking name before its site, an IP address or a public suffix). Returns the site kept, or null.
  */
 export function allowSiteFromDevice(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null, host: string, turnId: string | null): string | null {
-  const site = siteOf(`https://${host.replace(/:\d+$/, '')}/`)
+  const site = siteToKeep(host)
   if (!site || !siteScope(db, chatId, userId) || !sitesForGood(db, person)) return null
   allowSite(db, chatId, userId!, site, turnId)
   return site
@@ -574,39 +571,7 @@ export function allowSiteFromDevice(db: Database, chatId: string | null, userId:
  * characters without separators that mix letters and digits (or both cases) with high character entropy, except
  * letters that read as camelCase words (camelWords: attributesToRetrieve, XMLHttpRequest). Shown highlighted on cards;
  * a hint, not a rule. */
-export function opaqueParts(text: string, max = 50): string[] {
-  const out = new Set<string>()
-  for (const m of text.matchAll(/[A-Za-z0-9+%]{20,}/g)) {
-    if (out.size >= max) break
-    const s = m[0]
-    const mixed = /\d/.test(s) ? /[A-Za-z]/.test(s) : /[a-z]/.test(s) && /[A-Z]/.test(s)
-    if (mixed && entropy(s) >= 3 && !camelWords(s)) out.add(s)
-  }
-  return [...out]
-}
-/** Letters only, in camelCase or PascalCase words (attributesToRetrieve, getElementById, XMLHttpRequest): every piece
- * between case changes is a word ("To", "By", "Retrieve": 2 letters or more, a two-letter one with a vowel) or an
- * acronym in capitals (1 to 5 letters, at most 2 of them: "XML", the "A" of "isAValue"), 3 letters or more a piece on
- * average, and the words are at least 30% vowels (a e i o u y) as English words are. Random letters (base64 without
- * digits: "xKqWzPbNvLmTrYcHdJsF") change case about every other letter, which leaves one-letter pieces, runs of
- * capitals and few vowels: fewer than 1 in 100 random runs of 20 to 40 letters pass all of it. */
-function camelWords(s: string): boolean {
-  if (!/^[A-Za-z]+$/.test(s)) return false
-  const pieces = s.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? []
-  const words = pieces.filter((p) => /[a-z]/.test(p))
-  const acronyms = pieces.length - words.length
-  if (acronyms > 2 || pieces.length * 3 > s.length) return false
-  if (!pieces.every((p) => /[a-z]/.test(p) ? p.length > 2 || (p.length === 2 && /[aeiouy]/i.test(p)) : p.length <= 5)) return false
-  const letters = words.join('')
-  return (letters.match(/[aeiouy]/gi)?.length ?? 0) >= letters.length * 0.3
-}
-function entropy(s: string): number {
-  const n = new Map<string, number>()
-  for (const c of s) n.set(c, (n.get(c) ?? 0) + 1)
-  let e = 0
-  for (const k of n.values()) { const p = k / s.length; e -= p * Math.log2(p) }
-  return e
-}
+export { opaqueParts }
 
 /**
  * Does a tool input carry a web address or a long random-looking part? A call that only reads can still take data out

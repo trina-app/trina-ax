@@ -8,6 +8,7 @@
 // first page is drawn this view shows the theme's own surface there (a loading line while a page loads). The edge
 // handle on the left (the strip this view reaches over the team page's edge) resizes the browser like the web app's
 // PanelDivider: drag, arrow keys when focused, double-click resets (docs/DECISIONS.md "브라우저 너비는 끌어서").
+import { siteToKeep } from '@mycel/shared/web-site'
 import type { DesktopPaneState } from '@mycel/shared'
 import { browserAction } from '../common/browser-action'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
@@ -260,7 +261,9 @@ function promptCard(p: PanePrompt, more: number) {
       'div',
       { class: 'actions' },
       h('button', { class: 'primary', type: 'button', onclick: () => ui.pane.answer(p.id, 'once') }, tr('perm.once')),
-      h('button', { type: 'button', onclick: () => ui.pane.answer(p.id, 'always') }, tr('perm.always')),
+      // the site an Always keeps for the person on every computer (shared siteToKeep, as the chat's address card names
+      // it); an office address, or a host no site may be kept for, keeps only this host on this computer
+      h('button', { type: 'button', 'data-testid': 'prompt-always', onclick: () => ui.pane.answer(p.id, 'always') }, alwaysLabel(p)),
       // "Allow all websites" on the first card already (docs/DECISIONS.md "Always allow on every card"): this site now,
       // every public site from then on (not office-network addresses), while the team allows it
       !isPrivate && sites.teamAllowsAll
@@ -270,6 +273,11 @@ function promptCard(p: PanePrompt, more: number) {
     ),
     more > 0 ? h('p', { class: 'more', 'data-testid': 'prompts-more' }, tr('pane.promptsMore', { n: String(more) })) : null,
   )
+}
+
+function alwaysLabel(p: PanePrompt): string {
+  const site = p.scope === 'site' ? siteToKeep(p.host) : null
+  return site ? tr('perm.alwaysSite', { site }) : tr('perm.always')
 }
 
 function activityText(a: PaneActivity) {

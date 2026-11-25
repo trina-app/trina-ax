@@ -5,8 +5,8 @@
 - Status: in progress
 - Where: shared/src/api, server/src/chat + tools, desktop/src/main/pane. Why: the server and the desktop app each keep
   their own site allowance, so one site asks twice and asks again on every new computer (docs/REPOSITORY-RULES.md).
-- Version impact: patch: fewer cards for the same choices, no new setting, no migration; old desktop apps and old
-  servers ignore the new optional fields.
+- Version impact: minor: an Always on the desktop app's card now holds on every computer and shows in Settings;
+  no migration, and old desktop apps and old servers ignore the new optional fields.
 
 ## Goal
 

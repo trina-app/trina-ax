@@ -64,12 +64,13 @@ describe('the server tells the desktop app what the person already allowed', () 
     } finally { s.stop() }
   })
 
-  test('an address the person typed goes with the call as its host key (no "www.", port kept)', async () => {
+  test('an address the person typed goes with the call as its host name (no "www.", no port: every port, as the server\'s own allowance)', async () => {
     const s = serve()
     try {
       const { r } = await ask('https://www.typed-site.example:8443/a 이거 열어줘\n' + step('navigate', { url: 'https://www.typed-site.example:8443/a' }))
       await finished(r)
-      expect(s.calls[0]!.sites).toContain('typed-site.example:8443')
+      expect(s.calls[0]!.sites).toContain('typed-site.example')
+      expect(s.calls[0]!.sites!.some((k) => k.includes(':'))).toBe(false)
     } finally { s.stop() }
   })
 
@@ -104,7 +105,7 @@ describe('the server tells the desktop app what the person already allowed', () 
       const card = await desk.next('turn.request', (f) => f.data.turnId === r.turnId)
       await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'once' } })
       await finished(r)
-      expect(s.calls[0]!.office).toEqual(['192.168.40.5:8080'])
+      expect(s.calls[0]!.office).toEqual(['192.168.40.5'])
     } finally { s.stop() }
   })
 })
@@ -178,6 +179,32 @@ describe('an "Always allow" on the desktop app\'s card is the person\'s one Alwa
       const { r } = await ask(step('navigate', { url: 'https://news.example.org/b' }))
       await finished(r)
       expect(s.calls[0]!.sites).not.toContain('bobs-site.example')
+    } finally { s.stop() }
+  })
+})
+
+describe('review fixes: the kept site is the card\'s site, office grants by name', () => {
+  test('an Always keeps only the site the address card would offer: none for a long or random name, a public suffix or an IP', async () => {
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const person = { sitesForGood: () => true } as never
+    expect(allowSiteFromDevice(h.ctx.db, chat, 'alice', person, 'a'.repeat(24) + '.long-site.example', null)).toBeNull()
+    expect(allowSiteFromDevice(h.ctx.db, chat, 'alice', person, 'x7f3k9q2m8z4w1v6b5n0.rand-site.example', null)).toBeNull()
+    expect(allowSiteFromDevice(h.ctx.db, chat, 'alice', person, 'lovable.app', null)).toBeNull()
+    expect(allowSiteFromDevice(h.ctx.db, chat, 'alice', person, '[fd00::7]', null)).toBeNull()
+    // a host under a private public suffix keeps itself, never the suffix's owner
+    expect(allowSiteFromDevice(h.ctx.db, chat, 'alice', person, 'attacker.lovable.app', null)).toBe('attacker.lovable.app')
+    expect(sitesOf('alice')).not.toContain('lovable.app')
+    expect(sitesOf('alice')).not.toContain('long-site.example')
+    expect(sitesOf('alice')).not.toContain('rand-site.example')
+  })
+
+  test('an office grant for a name this server does not see as an office address still goes with the call', async () => {
+    h.ctx.db.query("INSERT OR IGNORE INTO browser_site_grants (user_id, host) VALUES ('alice', 'wiki.corp-name.example')").run()
+    const s = serve()
+    try {
+      const { r } = await ask('https://wiki.corp-name.example/home 열어줘\n' + step('navigate', { url: 'https://wiki.corp-name.example/home' }))
+      await finished(r)
+      expect(s.calls[0]!.office).toContain('wiki.corp-name.example')
     } finally { s.stop() }
   })
 })

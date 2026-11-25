@@ -1917,6 +1917,9 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
         if (!u.ok) return { ...text(`Cannot open ${url.slice(0, 200)}: ${u.reason}.`, true), summary: `${name} -> refused url (${u.reason})` }
         const host = u.host
         if (!host || !u.href) continue
+        // an office grant the person has for this host goes with the call whatever this server's own lookup says (a name
+        // the desktop app's network reads as an office address, such as wiki.corp.example, while this server does not)
+        if (exec.allowedHosts.has(host) || (teamAllowsAlways(rt.db) && rt.siteGranted(spec.userId, host))) { const k = paneSiteKey(u.href); if (k) { officeHosts.add(k); sites.add(k) } }
         const office = async (): Promise<Awaited<ReturnType<Tool['call']>> | 'ok' | 'shown'> => {
           // the team's "Always allow" switch (Admin › Team AI settings), as every other Always: off, a site kept for good
           // does not count (kept, not deleted) and the card offers no Always (an "always" answer counts once)
@@ -1985,9 +1988,10 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
   }
 }
 
-/** The desktop app's site key of an address: host[:port] in lower case without "www." (its site permissions' key). */
+/** The name the desktop app hears for an allowed address: the host in lower case without "www." and without its port
+ * (a server allowance holds on every port, as the server's own site allowance does). */
 function paneSiteKey(href: string): string | null {
-  try { return new URL(href).host.toLowerCase().replace(/^www\./, '') || null } catch { return null }
+  try { return new URL(href).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/^www\./, '') || null } catch { return null }
 }
 
 /** "Always allow" pressed on the desktop app's site cards during a call: kept as the person's own allowance (a site for

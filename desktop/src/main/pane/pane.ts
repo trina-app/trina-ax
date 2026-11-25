@@ -17,6 +17,7 @@
  *
  * Each team has its own pane and its own session partition.
  */
+import { siteToKeep } from '@mycel/shared/web-site'
 import { BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Session, type WebContents } from 'electron'
 import { parseBrowserToolInput, type BrowserToolInput, type ParsedBrowserCall } from '@mycel/shared'
 import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
@@ -107,9 +108,6 @@ interface CallCtx {
   abort: AbortController
   /** the person's answers during this call, sent along with the result (the server logs them in tool_events) */
   notes: string[]
-  /** hosts the person answered "Always allow" to during this call: sent with the result, so the team server keeps them
-   * as the person's own allowance (every computer; docs/decisions/20261125-one-site-always-desktop-browser.md) */
-  always?: { site: Set<string>; private: Set<string> }
 }
 
 const MAX_LOG = 500
@@ -193,6 +191,10 @@ export class BrowserPane {
   private clockOffsetMs = 0
   /** private hosts the person opened themselves from the address bar this session */
   readonly userHosts = new Set<string>()
+  /** hosts the person answered "Always allow" to that the team server has not heard yet: they go with the next call's
+   * result, so the server keeps them as the person's own allowance on every computer
+   * (docs/decisions/20261125-one-site-always-desktop-browser.md) */
+  private pendingAlways: { site: Set<string>; private: Set<string> } = { site: new Set(), private: new Set() }
   /** office hosts let through for an allowed office page (net-guard.ts letThroughOffice) */
   readonly officeLetThrough = new Set<string>()
   readonly perms: SitePermissions
@@ -684,7 +686,9 @@ export class BrowserPane {
         clearTimeout(timer)
         this.emitPrompts()
         if (ctx && !ctx.cancelled) ctx.notes.push(decisionNote(req, d))
-        if (ctx && d === 'always') (ctx.always ??= { site: new Set(), private: new Set() })[req.scope].add(req.host)
+        // kept for the team server until a call's result takes it (also an answer that came after its call ended, was
+        // stopped or ran out of time: the next result carries it)
+        if (d === 'always') this.pendingAlways[req.scope].add(req.host)
         resolve(d)
       }
       const timer = setTimeout(() => settle('deny'), PROMPT_TIMEOUT_MS)
@@ -732,10 +736,18 @@ export class BrowserPane {
     return false
   }
 
+  /** The result with the Always answers the server has not heard yet; they are then given to it (withAlways). */
+  private takeAlways(r: BrowserResult): BrowserResult {
+    const out = withAlways(r, this.pendingAlways)
+    if (out !== r) this.pendingAlways = { site: new Set(), private: new Set() }
+    return out
+  }
+
   /** Record a decision for both the site and (when private) the office-network scope. */
   grant(scopes: SiteScope[], host: string, d: PermissionDecision, turnId?: string) {
     let changed = false
-    for (const s of scopes) changed = this.perms.grant(s, host, d, turnId) || changed
+    // an Always on a public site keeps the site its button named (siteToKeep), as the server does; else this host
+    for (const s of scopes) changed = this.perms.grant(s, d === 'always' && s === 'site' && !scopes.includes('private') ? (siteToKeep(host) ?? host) : host, d, turnId) || changed
     if (changed) this.host.onSavePermissions(this.perms.toJSON())
   }
 
@@ -896,7 +908,7 @@ export class BrowserPane {
       const r = await Promise.race([work, aborted])
       debug('end', call.tool, call.callId, r.isError ? `error: ${(r.content[0] as { text?: string })?.text?.slice(0, 300)}` : 'ok')
       const result = toBrowserResult(call.callId, ctx.notes.length ? { ...r, content: [{ type: 'text', text: ctx.notes.join('\n') }, ...r.content] } : r)
-      return withAlways(result, ctx.always)
+      return this.takeAlways(result)
     } finally {
       clearTimeout(deadline)
       this.calls.delete(call.callId)
