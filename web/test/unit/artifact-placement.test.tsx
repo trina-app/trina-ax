@@ -94,8 +94,8 @@ describe('the answer', () => {
   test('while it streams, the part still being written is the last one with text', () => {
     const texts = (c: string, steps: Step[], streaming: boolean) => answerFlow(c, steps, streaming).filter((i) => i.kind === 'text').map((i) => i.kind === 'text' && [i.text, i.streaming])
     expect(texts('cap\n\nmore', [art({ textAt: 5 })], true)).toEqual([['cap\n\n', false], ['more', true]])
-    // nothing after the cards yet: the text before them is the one still streaming
-    expect(texts('cap\n\n ', [art({ textAt: 5 })], true)).toEqual([['cap\n\n', true]])
+    // the artifact's step came after the caption: the caption is finished, nothing streams until more text comes
+    expect(texts('cap\n\n ', [art({ textAt: 5 })], true)).toEqual([['cap\n\n', false]])
     expect(texts('cap\n\n ', [art({ textAt: 5 })], false)).toEqual([['cap\n\n', false]])
     expect(texts('more', [art({ textAt: 0 })], true)).toEqual([['more', true]])
   })

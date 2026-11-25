@@ -293,6 +293,21 @@ const isStatusLine = (piece: string, script: AnswerScript, input: unknown, messa
 
 const leadingSpace = (s: string) => /^\s*/.exec(s)![0]
 
+/** Mostly in the script: its letters outweigh the Latin ones, names left out (code, quoted terms, file names, addresses,
+ * paths). One syllable or character stands for about a word of Latin letters, so each counts as three: "Bright Data 관련
+ * 글을 찾아볼게요" is Korean, "Grep returned nothing; try 견적 next." is not. */
+export function inOwnScript(piece: string, script: AnswerScript): boolean {
+  const words = withoutNames(piece)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/["“'‘「『][^"”'’」』\n]{1,80}["”'’」』]/g, ' ')
+    .replace(/\bhttps?:\/\/\S+/g, ' ')
+    .replace(/\S*[\\/]\S*/g, ' ')
+    .replace(/\S+\.[A-Za-z0-9]{1,5}\b/g, ' ')
+  const own = words.match(new RegExp(SCRIPT_LETTER[script].source, 'g'))?.length ?? 0
+  const latin = words.match(/[A-Za-z]/g)?.length ?? 0
+  return own > 0 && own * 3 > latin
+}
+
 export class NarrationHold {
   /** the current piece while it is undecided */
   private buf = ''
@@ -366,10 +381,10 @@ export class NarrationHold {
   copiedInto(piece: string, input: unknown): boolean { return copied(piece, input, '') }
   /** Is this whole piece a status line this hold would drop before a call (the turn's interim fallback skips those)? */
   wouldDrop(piece: string, input?: unknown): boolean { return !!this.script && isStatusLine(piece, this.script, input, this.message) }
-  /** Is the piece written in the answer's own script (a file name in it does not count)? An interim piece that is shows as
-   * text at its place among the steps; one in other letters stays a folded working note
-   * (docs/decisions/20261125-interim-text-inline.md). */
-  inOwnScript(piece: string): boolean { return !!this.script && SCRIPT_LETTER[this.script].test(withoutNames(piece)) }
+  /** Is the piece written in the answer's own script? An interim piece that is shows as text at its place among the
+   * steps; one in other letters stays a folded working note (docs/decisions/20261125-interim-text-inline.md).
+   * inOwnScript for the rule. */
+  inOwnScript(piece: string): boolean { return !!this.script && inOwnScript(piece, this.script) }
 
   /** The end (of the answer, or of an attempt): everything held goes out as it was. */
   flush(): string {

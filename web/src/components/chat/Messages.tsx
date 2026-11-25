@@ -70,7 +70,7 @@ import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideCha
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import { StepFixes } from './StepFix'
-import Steps, { StepMemoryOwn, StepPostView } from './Steps'
+import Steps, { StepMemoryOwn, StepPostView, stepsGotPast } from './Steps'
 import { answerFlow, type FlowItem } from '../../lib/answerFlow'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
@@ -633,6 +633,8 @@ export function AnswerImagesShown({ steps, children }: { steps: ViewMessage['ste
  * to-do card, "thinking…"). Top-level quotes copy on their own. */
 function AnswerFlow({ m, chatId, streaming, receipt, between, hideSteps = false }: { m: ViewMessage; chatId: string; streaming: boolean; receipt: ViewMessage['receipt']; between: ReactNode; /** an intro deck's answer: its progress block stands for the steps */ hideSteps?: boolean }) {
   const items = useMemo(() => answerFlow(m.content, m.steps, streaming), [m.content, m.steps, streaming])
+  // a failed step the AI got past in a later group is not red: decided over the whole answer, once
+  const gotPast = useMemo(() => stepsGotPast(m.steps), [m.steps])
   // the final text (and the cards right after it) come after `between`
   let tail = items.length
   while (tail > 0 && items[tail - 1]!.kind === 'cards') tail--
@@ -645,7 +647,7 @@ function AnswerFlow({ m, chatId, streaming, receipt, between, hideSteps = false 
     switch (it.kind) {
       case 'steps':
         if (hideSteps) return null
-        return <div key={it.key} className={clsx(after && 'mt-3')}><Steps steps={it.steps} streaming={it.live} failed={m.status === 'error'} receipt={it.first ? receipt : undefined} /></div>
+        return <div key={it.key} className={clsx(after && 'mt-3')}><Steps steps={it.steps} streaming={it.live} failed={m.status === 'error'} receipt={it.first ? receipt : undefined} gotPast={gotPast} /></div>
       case 'note':
         return <div key={it.key} className={clsx(at(i + 1) !== 'steps' && i + 1 < items.length && 'mb-3', after && 'mt-3')} data-testid="answer-interim"><Markdown text={it.text} streaming={false} /></div>
       case 'text':

@@ -53,6 +53,9 @@ describe('answerFlow', () => {
     const groups = items.filter((i): i is Extract<FlowItem, { kind: 'steps' }> => i.kind === 'steps')
     expect(groups.map((g) => g.live)).toEqual([false, true])
     expect(items.filter((i) => i.kind === 'text').map((i) => i.kind === 'text' && i.streaming)).toEqual([false, true])
+    // a step after the last text: that text is finished, nothing streams
+    const after = answerFlow(A, [tool('s1', 0), tool('s2', A.length)], true)
+    expect(after.filter((i) => i.kind === 'text').map((i) => i.kind === 'text' && i.streaming)).toEqual([false])
   })
 })
 
@@ -76,6 +79,13 @@ describe('the answer', () => {
     expect(at('data-testid="answer-interim"')).toBeGreaterThan(at('data-testid="steps"'))
     expect(at('범위를 넓혀 볼게요')).toBeLessThan(at('가격표를 찾았어요'))
     expect(html.lastIndexOf('data-testid="steps"')).toBeLessThan(at('가격표를 찾았어요'))
+  })
+
+  test('a failed search, text, then a retry that worked in the next group: no red mark (decided over the whole answer)', async () => {
+    const content = 'Nothing yet. Trying the team drive.\n\nFound it.'
+    const html = await render(content, [tool('s1', 0, { status: 'error', tool: 'write', label: 'save a' }), tool('s2', 'Nothing yet. Trying the team drive.'.length, { tool: 'write', label: 'save b' })])
+    expect(html.match(/data-testid="steps"/g)?.length).toBe(2)
+    expect(html).not.toContain('data-testid="steps-failed"')
   })
 
   test('an English answer: the text between calls between its steps, one fold line per group', async () => {

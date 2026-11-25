@@ -29,6 +29,14 @@ describe('claude stream-json -> EngineEvent', () => {
     expect(ev.find((e) => e.type === 'usage')).toEqual({ type: 'usage', inputTokens: 15, outputTokens: 3, costUsd: 0.01 })
     expect(ev.some((e) => e.type === 'error')).toBe(false)
   })
+  test('no deltas: text pieces between calls keep their blank-line separator (Step.textAt lands between them)', () => {
+    const p = new ClaudeStreamParser()
+    const ev = [
+      L({ type: 'assistant', message: { content: [{ type: 'text', text: 'Nothing yet.' }, { type: 'tool_use', id: 'tu1', name: 'mcp__team__grep', input: {} }] } }),
+      L({ type: 'assistant', message: { content: [{ type: 'text', text: 'Found it.' }] } }),
+    ].flatMap((l) => p.push(l))
+    expect(ev.filter((e) => e.type === 'text').map((e: any) => e.delta)).toEqual(['Nothing yet.', '\n\nFound it.'])
+  })
   test('not logged in -> auth error', () => {
     const p = new ClaudeStreamParser()
     const ev = [L({ type: 'assistant', error: 'authentication_failed', message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] } }),

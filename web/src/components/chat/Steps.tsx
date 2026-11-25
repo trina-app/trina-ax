@@ -533,7 +533,9 @@ function RunRow({ run, live, marks }: { run: Step[]; live: boolean; marks: Omit<
 export const DEMO_REPLAY_STEP = 'demo_replay'
 
 /** `failed`: the answer itself failed (Message.status 'error'; stepMark). */
-export default function Steps({ steps: all, streaming, failed = false, receipt }: { steps: Step[]; streaming: boolean; failed?: boolean; receipt?: Message['receipt'] }) {
+/** `gotPast`: the failed steps the AI went on past, over the whole answer (stepsGotPast) when this list is one group of
+ * its steps (lib/answerFlow.ts): a retry in a later group still counts. Default: from these steps. */
+export default function Steps({ steps: all, streaming, failed = false, receipt, gotPast }: { steps: Step[]; streaming: boolean; failed?: boolean; receipt?: Message['receipt']; gotPast?: ReadonlySet<string> }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(false)
@@ -548,7 +550,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
   if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-label text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
-  const marks = { answerFailed: failed, gotPast: stepsGotPast(steps) }
+  const marks = { answerFailed: failed, gotPast: gotPast ?? stepsGotPast(steps) }
   // pictures the steps show (shared browser screenshots, a tool's saved pictures: change_banner_text's sizes) stay
   // visible even when the list is folded, each once
   const shown = stepImages(steps)

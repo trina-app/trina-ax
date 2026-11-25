@@ -15,7 +15,13 @@
   the same block-safe cut the artifact cards use: never inside a paragraph, list, quote or code block), so answers
   saved before this change read in order too; steps without `textAt` stay above the text. An interim piece that left
   the answer (a Korean, Japanese or Chinese answer, 20261122) and is written in the answer's own script is marked
-  `Step.interim` and shows as text at its step's place. A working note in other letters (an English status line in a
+  `Step.interim` and shows as text at its step's place. "Its own script" means mostly: its letters outweigh the Latin
+  ones (each syllable or character counts as three letters), code, quoted terms, file names, addresses and paths left
+  out (chat/narration.ts inOwnScript), so "Grep returned nothing; try 견적 next." stays folded. A piece longer than a
+  step's text holds (4000 characters) is content, not a note: it stays in the answer whole. Text pieces of an answer
+  are separate blocks (the Claude stream's no-delta path keeps the blank line between them), so a step lands between
+  them. Failed steps the AI got past are judged over the whole answer, not per group (no red mark for a search retried
+  after the text). A working note in other letters (an English status line in a
   Korean answer, the final answer's English lead) stays a folded thinking step. When the last piece falls back to
   being the answer, its step loses the mark, so the text never shows twice. Artifact cards go right after the step
   that made them.

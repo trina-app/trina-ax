@@ -46,3 +46,39 @@ for (const lang of ['en', 'ko'] as const) for (const width of [1440, 390] as con
     }
   })
 }
+
+// the live state (the last group open, the earlier ones folded) and a failed search the AI got past in the next group
+// (no red mark): English, 1440 and 390, light and dark
+for (const kind of ['live', 'retried'] as const) for (const width of [1440, 390] as const) {
+  test(`interim text · ${kind} · ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.getByTestId('composer-input').fill('What does our newest price list say?')
+    await page.getByTestId('send').click()
+    await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+    await page.route('**/api/chats/*/messages*', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const response = await route.fetch()
+      const body = await response.json()
+      const [q, a] = body.items
+      const at = (s: number) => new Date(Date.parse(a.createdAt) + s * 1000).toISOString()
+      const tool = (n: number, label: string, textAt: number, status = 'ok', t = 'grep') => ({ id: `s${n}`, kind: 'tool', tool: t, label, status, startedAt: at(n), endedAt: status === 'running' ? null : at(n + 1), textAt })
+      const live = kind === 'live'
+      const content = live ? `${EN_A}\n\n${EN_B}` : `${EN_A}\n\nThe October price list has **3 plans**: Basic, Team and Business.`
+      const steps = live
+        ? [tool(1, 'Search files · "price list" in Sales', 0), tool(2, 'Search files · "가격표" in Sales', 0), tool(3, 'Search files · "price list" in Team drive', EN_A.length), tool(4, 'Read file · Price list 2026-10.xlsx', EN_A.length + 2 + EN_B.length, 'running', 'read')]
+        : [tool(1, 'Read file · Sales/price-list.xlsx', 0, 'error', 'read'), tool(2, 'Search files · "price list" in Team drive', EN_A.length), tool(3, 'Read file · Price list 2026-10.xlsx', EN_A.length, 'ok', 'read')]
+      await route.fulfill({ response, json: { ...body, items: [q, { ...a, content, steps, status: live ? 'streaming' : 'done' }] } })
+    })
+    await page.reload()
+    await expect(page.getByTestId('steps')).toHaveCount(kind === 'live' ? 3 : 2)
+    if (kind === 'retried') await expect(page.getByTestId('steps-failed')).toHaveCount(0)
+    await page.mouse.move(2, 2)
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: `${dir}/en-${width}-${scheme}-${kind}.png` })
+    }
+  })
+}

@@ -95,7 +95,8 @@ export function answerFlow(content: string, all: readonly Step[], streaming: boo
   text(content.length)
   if (!out.some((i) => i.kind === 'cards')) out.push({ kind: 'cards', key: 'cards' })
   if (streaming) {
-    const lastText = out.findLast((i) => i.kind === 'text')
+    // only text nothing but cards follows is still being written; text a step came after is finished
+    const lastText = out.findLast((i) => i.kind !== 'cards')
     if (lastText?.kind === 'text') lastText.streaming = true
     const lastGroup = out.findLast((i) => i.kind === 'steps')
     if (lastGroup?.kind === 'steps') lastGroup.live = true

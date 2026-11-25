@@ -6,7 +6,7 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { NarrationHold, narrationScript } from '../../server/src/chat/narration'
+import { inOwnScript, NarrationHold, narrationScript } from '../../server/src/chat/narration'
 import { deliveredArgs } from '../../server/src/chat/turn'
 import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 
@@ -538,6 +538,14 @@ describe('a turn with an English line before a tool call', () => {
     expect(notes.map((s) => [s.detail, !!s.interim])).toEqual([['관련 파일이 아직 없어요. 범위를 넓혀 볼게요.', true], ['Good result. Saving it.', false]])
   })
 
+  test.skipIf(!native)('Korean: a piece longer than a step holds stays in the answer whole, never cut on a step', async () => {
+    const long = '가격표 내용을 정리했어요. '.repeat(300).trim()
+    const t = await turn('ko', '가격표 정리해줘\n' + fake({ say: long }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }, { say: '끝.' }))
+    expect(t.stored.startsWith(long)).toBe(true)
+    expect(t.stored.endsWith('끝.')).toBe(true)
+    expect(t.steps.some((s) => s.kind === 'thinking')).toBe(false)
+  })
+
   test.skipIf(!native)('Korean, no text after the last call: the piece that became the answer is no longer shown as interim', async () => {
     const t = await turn('ko', '파일 확인해줘\n' + fake({ say: '파일을 확인했고 내용은 비어 있어요.' }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }))
     expect(t.stored).toBe('파일을 확인했고 내용은 비어 있어요.')
@@ -560,6 +568,18 @@ describe('a turn with an English line before a tool call', () => {
     const t = await turn('ko', '단가 알려줘\n' + fake({ say: 'A형은 1,200,000원이에요.' }, { tool: 'set_title', args: { title: '단가 확인' } }, { say: ' 더 필요하면 말씀해 주세요.' }))
     expect(t.streamed).toBe(t.stored)
     expect(t.stored.replace(/\s+/g, ' ')).toBe('A형은 1,200,000원이에요. 더 필요하면 말씀해 주세요.')
+  })
+})
+
+describe('inOwnScript (an interim piece shown at its place)', () => {
+  test('mostly the script: names, quotes and paths do not count; one Korean word in English does not make it Korean', () => {
+    expect(inOwnScript('관련 파일이 아직 없어요. 범위를 넓혀 볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('Bright Data 관련 글을 찾아볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('`price-list-2026.xlsx` 파일을 읽어 볼게요.', 'ko')).toBe(true)
+    expect(inOwnScript('Grep returned nothing; try 견적 next.', 'ko')).toBe(false)
+    expect(inOwnScript('Now the 견적서.pdf.', 'ko')).toBe(false)
+    expect(inOwnScript('Search "견적서 양식" in shared/영업.', 'ko')).toBe(false)
+    expect(inOwnScript('価格表を確認します。', 'ja')).toBe(true)
   })
 })
 

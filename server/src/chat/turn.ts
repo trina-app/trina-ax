@@ -291,6 +291,8 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
 const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
+/** the longest text piece that leaves the answer as an interim step: a step's detail holds 4000 characters (Step.detail) */
+export const INTERIM_MAX = 4000
 /** Calls whose arguments are a command or a sub-agent's brief and the step's own label (`description`: "Install
  * python-docx in a venv", shown in the step list instead of the command): a dev-environment command (devenv/tool.ts),
  * Claude Code's Bash and its Agent calls. A text piece before one that repeats its label, or shares most words with its
@@ -2454,6 +2456,9 @@ export class TurnExec {
     if (at === null || !this.narration.active) return false
     const piece = this.writtenText.slice(at)
     if (!piece.trim()) return false
+    // longer than a step's text can hold (Step.detail): no working note but content; it stays in the answer whole,
+    // never cut mid-sentence on a step (docs/decisions/20261125-interim-text-inline.md)
+    if (piece.trim().length > INTERIM_MAX) return false
     const statusLine = this.narration.wouldDrop(piece)
     this.discardTextFrom(at)
     this.interimDropped++
