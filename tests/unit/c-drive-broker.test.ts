@@ -13,14 +13,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
-import { brokerOrigin, driveBrokerFor, googleBrokerKey } from '../../server/src/integrations/google-drive/broker'
+import { brokerOrigin, driveBrokerFor, googleBrokerKey, selfInstalledDefault } from '../../server/src/integrations/google-drive/broker'
 import { loadOrCreateKey } from '../../server/src/relay-client/registration'
 import { driveAdminStatus, setDriveClient } from '../../server/src/integrations/google-drive/admin-setup'
 import { stopShare, updateShare } from '../../server/src/integrations/google-drive/share-admin'
 import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { GOOGLE_REVOKE, GOOGLE_TOKEN } from '../../server/src/integrations/google-drive/client'
-import { DRIVE_BROKER_PATHS } from '../../shared/src/cloud-protocol/drive-broker'
+import { DRIVE_BROKER_PATHS, GOOGLE_BROKER_KEY_PATH, brokerSelfOrigin, parseDriveBrokerRegister } from '../../shared/src/cloud-protocol/drive-broker'
 import { SERVICE_HOSTS } from '../../shared/src/service-hosts'
 import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import { BROKER_ORIGIN, FakeDriveBroker } from '../lib/fake-drive-broker'
@@ -262,11 +262,157 @@ test('a self-installed server with a Google client of its own never calls the br
   expect(svc.broker).toBeNull()
   expect(await svc.checkBroker()).toBe(false)
   expect(driveAdminStatus(a.ctx)).toMatchObject({ blocked: 'server' })
-  // no broker URL: no broker, and the page sets up a client as before
+  // no broker URL under NODE_ENV=test: no broker, and the page sets up a client as before (outside tests a server with
+  // a public address registers itself at the hosting service: the self-registration tests below)
   svc = withEnv({ MYCEL_GOOGLE_DRIVE_BROKER_URL: undefined, MYCEL_GOOGLE_DRIVE_CLIENT_FILE: undefined }, () => googleDriveOf(a.ctx, { config: null, fetch: broker.fetch }))
   expect(svc.broker).toBeNull(); expect(svc.mode).toBe('off')
   expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: false, canSetUp: true, blocked: null, redirectUri: 'https://office.example.test/api/integrations/google-drive/callback' })
   expect(broker.requests).toHaveLength(0)
+})
+
+test('a self-installed server with a public address defaults to the hosting service and registers itself (no variable)', () => {
+  const console_ = `https://${SERVICE_HOSTS.accountHost}`
+  selfInstalled(); (a.ctx.config as any).mode = 'production'
+  // the default: the edition's console, and this server's own address to register there
+  expect(selfInstalledDefault(a.ctx, {})).toEqual({ origin: console_, selfOrigin: 'https://office.example.test' })
+  expect(driveBrokerFor(a.ctx, false, false, {})).toMatchObject({ origin: console_, selfOrigin: 'https://office.example.test' })
+  // off: the variable empty or "off"; an operator's variable wins (no self-registration then); a client of its own wins
+  for (const v of ['', ' ', 'off']) expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: v })).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: BROKER_ORIGIN })?.origin).toBe(BROKER_ORIGIN)
+  expect(driveBrokerFor(a.ctx, false, false, { MYCEL_GOOGLE_DRIVE_BROKER_URL: BROKER_ORIGIN })?.selfOrigin).toBeUndefined()
+  expect(driveBrokerFor(a.ctx, true, false, {})).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, true, {})).toBeNull()
+  // never under NODE_ENV=test, in dev, without a public address, or with an address that is not a DNS name on 443
+  expect(selfInstalledDefault(a.ctx, { NODE_ENV: 'test' })).toBeNull()
+  ;(a.ctx.config as any).mode = 'dev'
+  expect(selfInstalledDefault(a.ctx, {})).toBeNull()
+  ;(a.ctx.config as any).mode = 'production'; (a.ctx.config as any).office = true
+  expect(selfInstalledDefault(a.ctx, {})?.selfOrigin).toBe('https://office.example.test') // an office Mac with a public address too
+  ;(a.ctx.config as any).office = false
+  for (const host of ['', '10.0.0.5', 'office.example.test:8443', 'localhost']) {
+    ;(a.ctx.config as any).tunnel = host ? { host, allowFrom: [], countries: [] } : null
+    expect(selfInstalledDefault(a.ctx, {})).toBeNull()
+  }
+  ;(a.ctx.config as any).tunnel = { host: 'Office.Example.Test', allowFrom: [], countries: [] }
+  expect(selfInstalledDefault(a.ctx, {})?.selfOrigin).toBe('https://office.example.test')
+  // a hosted server keeps its own default and never registers itself
+  ;(a.ctx.config as any).deployment = 'hosted'
+  expect(selfInstalledDefault(a.ctx, {})).toBeNull()
+  expect(driveBrokerFor(a.ctx, false, false, {})?.selfOrigin).toBeUndefined()
+  // the contract's origin rule
+  expect(brokerSelfOrigin('https://a.example.com')).toBe('https://a.example.com')
+  for (const bad of ['http://a.example.com', 'https://a.example.com:8443', 'https://a.example.com/x', 'https://u@a.example.com', 'https://1.2.3.4', 'https://[::1]', 'https://a.example.com.', 'https://localhost', 'https://A.example.com', 'https://a.example.com?x'])
+    expect(brokerSelfOrigin(bad)).toBeNull()
+  expect(parseDriveBrokerRegister({ v: 1, origin: 'https://a.example.com', extra: 1 })).toBeNull()
+})
+
+test('a self-installed server the hosting service does not serve registers itself by its key at its own address; members connect with no admin step', async () => {
+  selfInstalled(); (a.ctx.config as any).mode = 'production'
+  const relay = loadOrCreateKey(a.ctx.config.dataDir)
+  broker.trusted = 'nobody-yet'
+  // the control plane's fetch of the key route, answered by this team app (as through its public address)
+  const proofUrls: string[] = []
+  broker.proof = async (url) => { proofUrls.push(url); return a.req(new URL(url).pathname) }
+  let t = 1_000_000
+  svc = googleDriveOf(a.ctx, { config: null, fetch: broker.fetch, now: () => t, broker: { origin: BROKER_ORIGIN, identity: () => ({ key: relay.key, publicKey: relay.publicKey }), selfOrigin: 'https://office.example.test' } })
+  // the check at start: status says no, the server registers itself, the console fetches the key at its address
+  for (let n = 0; n < 50 && !svc.brokerServes; n++) await Bun.sleep(5)
+  expect(svc.brokerServes).toBe(true)
+  // the key route: the public key only, no session, not cached
+  const r = await a.req(GOOGLE_BROKER_KEY_PATH)
+  expect(r.status).toBe(200); expect(r.headers.get('cache-control')).toBe('no-store')
+  expect(await r.json()).toEqual({ v: 1, key: relay.publicKey })
+  t += 11 * 60_000
+  expect(await svc.checkBroker()).toBe(true)
+  expect(broker.registered).toEqual(['https://office.example.test'])
+  expect(proofUrls).toEqual(['https://office.example.test' + GOOGLE_BROKER_KEY_PATH])
+  expect(svc.mode).toBe('broker')
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: true, source: 'service', blocked: 'hosted' })
+  membersMayConnect(a.ctx.db)
+  expect(await connect('alice')).toMatchObject({ status: 'connected' })
+  // served now: no further register calls
+  expect(await svc.checkBroker()).toBe(true)
+  expect(broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.register)).toHaveLength(1)
+})
+
+test('a refused self-registration keeps Google off, backs off and never loops; an older control plane is fine', async () => {
+  selfInstalled(); (a.ctx.config as any).mode = 'production'
+  const relay = loadOrCreateKey(a.ctx.config.dataDir)
+  let t = 1_000_000
+  const opts = { origin: BROKER_ORIGIN, identity: () => ({ key: relay.key, publicKey: relay.publicKey }), selfOrigin: 'https://office.example.test' }
+  const registers = () => broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.register).length
+  broker.trusted = 'nobody-yet'
+  // the address answers another key: origin_unverified
+  broker.proof = async () => Response.json({ v: 1, key: broker.publicKey })
+  svc = googleDriveOf(a.ctx, { config: null, fetch: broker.fetch, now: () => t, broker: opts })
+  await Bun.sleep(0); await Bun.sleep(0); broker.requests = []
+  t += 60 * 60_000
+  expect(await svc.checkBroker()).toBe(false)
+  expect(registers()).toBe(1)
+  expect(svc.enabled).toBe(false)
+  expect(driveAdminStatus(a.ctx)).toMatchObject({ configured: false, canSetUp: true, blocked: null })
+  // within the back-off no new register; after it, one more
+  t += 30_000
+  expect(await svc.checkBroker()).toBe(false)
+  expect(registers()).toBe(1)
+  t += 60 * 60_000
+  expect(await svc.checkBroker()).toBe(false)
+  expect(registers()).toBe(2)
+  // an older control plane (404) or one that takes no self-registrations: off, no error
+  for (const mode of ['old', 'off'] as const) {
+    broker.selfRegister = mode
+    t += 60 * 60_000
+    expect(await svc.checkBroker()).toBe(false)
+    expect(svc.enabled).toBe(false)
+  }
+  // the key route answers 404 on a server that does not register itself (hosted, or an operator's variable)
+  googleDriveOf(a.ctx, { config: null, fetch: broker.fetch, broker: broker.options() })
+  expect((await a.req(GOOGLE_BROKER_KEY_PATH)).status).toBe(404)
+})
+
+test('a self-installed server backs off 1 to 30 minutes on every "no" of the hosting service, not only not_served; a yes starts over', async () => {
+  selfInstalled(); (a.ctx.config as any).mode = 'production'
+  const relay = loadOrCreateKey(a.ctx.config.dataDir)
+  broker.trusted = relay.publicKey
+  let t = 1_000_000
+  // what the hosting service answers: not reachable, not configured, rate limited, or the fake broker itself
+  let mode: 'down' | 'not_configured' | 'rate_limited' | 'ok' = 'down'
+  const fetcher = (async (input: any, init?: any) => {
+    if (mode === 'down') throw new TypeError('fetch failed')
+    if (mode === 'rate_limited') return Response.json({ error: { code: 'rate_limited', message: 'too many' } }, { status: 429 })
+    return broker.fetch(input, init)
+  }) as typeof broker.fetch
+  const opts = { origin: BROKER_ORIGIN, identity: () => ({ key: relay.key, publicKey: relay.publicKey }), selfOrigin: 'https://office.example.test' }
+  svc = googleDriveOf(a.ctx, { config: null, fetch: fetcher, now: () => t, broker: opts })
+  await Bun.sleep(0); await Bun.sleep(0)
+  const due = () => (svc as any).brokerDue() as boolean
+  /** minutes until the background check is due again after a check at `t` */
+  const waitMinutes = () => { const start = t; let m = 0; while (!due() && m < 120) { m++; t = start + m * 60_000 } return m }
+  const waits: number[] = []
+  for (const m of ['down', 'not_configured', 'rate_limited', 'down', 'not_configured', 'rate_limited', 'down'] as const) {
+    mode = m
+    if (m === 'not_configured') broker.configured = false; else broker.configured = true
+    expect(await svc.checkBroker()).toBe(false)
+    waits.push(waitMinutes())
+  }
+  // the initial check (down) counted as the first "no"
+  expect(waits).toEqual([2, 4, 8, 16, 30, 30, 30])
+  expect(broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.register)).toHaveLength(0)
+  // a yes starts over: the next "no" waits 1 minute again
+  mode = 'ok'; broker.configured = true
+  expect(await svc.checkBroker()).toBe(true)
+  mode = 'down'
+  t += 11 * 60_000
+  expect(await svc.checkBroker()).toBe(false)
+  expect(waitMinutes()).toBe(1)
+  // a hosted server (or an operator's variable: no selfOrigin) keeps checking every minute
+  const hosted = googleDriveOf(a.ctx, { config: null, fetch: fetcher, now: () => t, broker: { origin: BROKER_ORIGIN, identity: opts.identity } })
+  await Bun.sleep(0)
+  for (let n = 0; n < 3; n++) {
+    expect(await hosted.checkBroker()).toBe(false)
+    t += 60_000
+    expect((hosted as any).brokerDue()).toBe(true)
+  }
 })
 
 test('admin.js google-broker-key prints the relay public key and the address, plain or JSON, never the private key; never makes a key', () => {

@@ -234,6 +234,9 @@ describe('route registry', () => {
       'GET /api/integrations/oauth/client-metadata.json',
       // the desktop app's page before a Drive sign-in in the system browser (tests/unit/c-drive-app-return.test.ts; matrix: P4_RAW_COVERED)
       'GET /api/integrations/google-drive/go',
+      // a self-installed server's relay PUBLIC key, which the hosting service fetches to prove its address (no session on
+      // purpose; format: cloud-protocol GOOGLE_BROKER_KEY_PATH; tests/unit/c-drive-broker.test.ts; matrix: P4_RAW_COVERED)
+      'GET /api/integrations/google-broker/key',
       // Sign in with Slack's return (tests/unit/c-slack.test.ts; matrix: SLACK_RAW_COVERED)
       'GET /api/integrations/slack/oauth/callback',
       // "Add to Slack"'s return from the hosting service (the official app; tests/unit/c-slack-official.test.ts; matrix: SLACK_RAW_COVERED)

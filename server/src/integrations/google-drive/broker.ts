@@ -8,10 +8,13 @@
 // https://account.trina.app; https, or http to this machine), or, on a HOSTED server whose environment leaves the
 // variable out, the edition's console (https://SERVICE_HOSTS.accountHost): the control plane already serves every hosted
 // team by the relay key it recorded at enroll, so a new hosted team gets Drive with no setup (an empty value or "off"
-// turns it off). A self-installed server uses it only when its operator sets the variable, and is served only after the
-// hosting service's operator registered its relay public key and exact address (`admin.js google-broker-key` prints
-// both); without the variable nothing changes there: no call to the hosting service, Drive as today. A server with its own client keeps the direct flow (oauth.ts)
-// unchanged. Even when it is set, Drive turns on only after the hosting service answers that it serves this server
+// turns it off). A SELF-INSTALLED server (selfhost or office, not dev) with a public address (tunnel.host) and the variable
+// left out uses the same console since 2026-11-25 (docs/decisions/20261125-google-broker-self-install-default.md) and
+// registers ITSELF there: it publishes its relay public key at GOOGLE_BROKER_KEY_PATH on its own address and asks the
+// console to `register` that address; the console fetches the key there and serves the server only when it matches
+// (selfOrigin). An operator may still register a server by hand (`admin.js google-broker-key` prints the key and
+// address). Empty or "off" turns it off; no public address: off, no call to the hosting service. A server with its own
+// client keeps the direct flow (oauth.ts) unchanged. Even when it is set, Drive turns on only after the hosting service answers that it serves this server
 // (oauth.ts checkBroker); an unregistered or removed server stays "Not available yet".
 //
 // Trust boundaries:
@@ -26,11 +29,11 @@ import crypto, { type KeyObject } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
+  brokerSelfOrigin, DRIVE_BROKER_MAX_BODY_BYTES, DRIVE_BROKER_PATHS, driveBrokerAuthorization, driveBrokerConnectUrl, driveBrokerSigningString,
   type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
-import { isHosted } from '../../system/deployment'
+import { isHosted, publicHostOf, runKindOf } from '../../system/deployment'
 import { loadOrCreateKey } from '../../relay-client/registration'
 import { loadPrivateKey, publicKeyOf } from '@mycel/shared/relay-protocol'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
@@ -38,7 +41,9 @@ import { DriveError } from './store'
 import type { DriveFetch } from './client'
 
 export interface BrokerIdentity { key: KeyObject; publicKey: string }
-export interface BrokerOptions { origin: string; identity: () => BrokerIdentity }
+/** selfOrigin: this self-installed server's own address (https://<public host>), which it registers itself with the
+ * console when the console does not serve it yet (`register`); absent: a hosted server, or a variable an operator set */
+export interface BrokerOptions { origin: string; identity: () => BrokerIdentity; selfOrigin?: string }
 
 /** The hosting service's console, where a hosted server signs in when its environment names none (null: an edition
  * without a hosted service). */
@@ -73,9 +78,25 @@ export function brokerUrlOrigin(raw: string): string | null {
  * left out on a hosted server: brokerOrigin). The hosting service decides whether it serves this server. */
 export function driveBrokerFor(ctx: AppContext, ownClient: boolean, clientFromEnv: boolean, env: Record<string, string | undefined> = process.env): BrokerOptions | null {
   if (ownClient || clientFromEnv) return null
+  const identity = () => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } }
   const origin = brokerOrigin(env, isHosted(ctx.config))
-  if (!origin) return null
-  return { origin, identity: () => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } } }
+  if (origin) return { origin, identity }
+  const self = selfInstalledDefault(ctx, env)
+  return self ? { origin: self.origin, identity, selfOrigin: self.selfOrigin } : null
+}
+
+/** A self-installed server's default (variable left out): the edition's console, and its own address to register
+ * there. null: the variable is set (also empty or "off"), a hosted or dev server, office or self-installed without a
+ * public address, an edition without a hosted service, or NODE_ENV=test (tests pass their own env). */
+export function selfInstalledDefault(ctx: Pick<AppContext, 'config'>, env: Record<string, string | undefined> = process.env): { origin: string; selfOrigin: string } | null {
+  if (env.MYCEL_GOOGLE_DRIVE_BROKER_URL !== undefined || env.NODE_ENV === 'test' || !HOSTED_BROKER_ORIGIN) return null
+  const kind = runKindOf(ctx.config)
+  if (kind !== 'selfhost' && kind !== 'office') return null
+  const host = publicHostOf(ctx.config)
+  const selfOrigin = host ? brokerSelfOrigin(`https://${host.toLowerCase()}`) : null
+  // never register the console's own address
+  if (!selfOrigin || selfOrigin === HOSTED_BROKER_ORIGIN) return null
+  return { origin: HOSTED_BROKER_ORIGIN, selfOrigin }
 }
 
 /** What a self-installed server's operator gives the hosting service to register it (`admin.js google-broker-key`): the
@@ -101,6 +122,12 @@ export const brokerKey = (origin: string) => 'broker:' + crypto.createHash('sha2
  * only a team sign-in's start looks at it, to start again as "personal" (google-apps/service.ts brokerStart). */
 export class BrokerRequestRefused extends DriveError {
   constructor() { super('service_limited', 409) }
+}
+
+/** The hosting service does not serve this key (`not_hosted`): not registered, disabled or removed. Reads as
+ * broker_unavailable everywhere; only checkBroker looks at it, to register a self-installed server. */
+export class BrokerNotServing extends DriveError {
+  constructor() { super('broker_unavailable', 503) }
 }
 
 export class DriveBroker {
@@ -140,6 +167,7 @@ export class DriveBroker {
     // a newer one may not offer that app yet; either way it is not available through the hosting service now
     if (forApp && code === 'invalid_request') throw new BrokerRequestRefused()
     if (forApp && code === 'app_unavailable') throw new DriveError('service_limited', 409)
+    if (code === 'not_hosted') throw new BrokerNotServing()
     if (code === 'rate_limited' || r.status === 429) throw new DriveError('rate_limited', 503)
     if (code === 'provider_error') throw new DriveError('provider_unavailable', 503)
     throw new DriveError('broker_unavailable', 503)
@@ -147,7 +175,18 @@ export class DriveBroker {
 
   /** The broker serves this team now (signed; the hosting service knows this team key and has a Google client). */
   async ready(signal?: AbortSignal): Promise<boolean> {
-    try { return (await this.call('status', { v: 1 }, signal)).ok === true } catch { return false }
+    return (await this.serving(signal)) === 'yes'
+  }
+  /** 'yes': served; 'not_served': the hosting service does not know this key (or stopped serving it); 'no': anything
+   * else (not reachable, not configured, rate limited) */
+  async serving(signal?: AbortSignal): Promise<'yes' | 'not_served' | 'no'> {
+    try { return (await this.call('status', { v: 1 }, signal)).ok === true ? 'yes' : 'no' } catch (e) { return e instanceof BrokerNotServing ? 'not_served' : 'no' }
+  }
+  /** Ask the hosting service to serve this self-installed server at `selfOrigin` (it fetches the key there). true: it
+   * said yes. Any refusal or an older console (404): false. */
+  async register(signal?: AbortSignal): Promise<boolean> {
+    if (!this.o.selfOrigin) return false
+    try { return (await this.call('register', { v: 1, origin: this.o.selfOrigin }, signal)).ok === true } catch { return false }
   }
   /** Google's sign-in address for this flow, and the hosting service's own start page for it when it sent one
    * (connectUrl: kept only when it is exactly that page on the configured origin, else dropped). */

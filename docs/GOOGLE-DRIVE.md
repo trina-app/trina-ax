@@ -70,13 +70,15 @@ wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: t
 **When.** On a server that has NO Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`):
 a **hosted** server always, unless its environment turns it off (`MYCEL_GOOGLE_DRIVE_BROKER_URL` empty or `off`); with
 the variable left out it uses the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`shared/src/service-hosts.ts`),
-so a new hosted team can connect Drive with nothing set up. A **self-installed** server only when its operator sets
-`MYCEL_GOOGLE_DRIVE_BROKER_URL` (the control plane's console origin, for example `https://account.trina.app`; https,
-or http to this machine) and the hosting service registered it (below); without the variable nothing changes there: the
-server makes no call to the hosting service. (Under `NODE_ENV=test` a hosted test app gets no default.) A server
+so a new hosted team can connect Drive with nothing set up. A **self-installed** server (Linux, Docker, an office Mac;
+not dev mode) with a public address (`tunnel.host`) and the variable left out uses the same console since 2026-11-25
+and **registers itself** there (below, "Self-registration"); with `MYCEL_GOOGLE_DRIVE_BROKER_URL` set it uses that
+console and an operator registers it by hand, as before; empty or `off` turns it off; without a public address it
+makes no call to the hosting service. (Under `NODE_ENV=test` no server gets a default.) A server
 with its own client keeps the direct flow above, unchanged, even with the variable. Even with the variable, Drive turns
 on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
-minutes, every minute while it says no); until then the card says "Not available yet". Admin › Connected apps › Google
+minutes, every minute while it says no; a self-installed server that registers itself backs off to 30 minutes after
+every "no" (registration refused, console not reachable, not configured or rate limited; a yes starts over), and an admin page asks again on load); until then the card says "Not available yet". Admin › Connected apps › Google
 Drive then shows `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."),
 and everyone's own Drive and team shares work as described above. The Set up dialog is the hosting service's
 (`blocked: "hosted"`, no upload form, no redirect address shown): always on a hosted server, and on a self-installed one
@@ -84,9 +86,24 @@ while the hosting service serves it. While it does not (not registered yet, or r
 still lets an admin set a client of its own, which then wins.
 
 **A self-installed server through the hosting service.** A self-installed server would otherwise need its own Google
-client, its own return address at Google and Google's review. Instead its operator can ask the hosting service to
-register it; for its people it then looks exactly like a hosted team (the same Google app, the same start page, the
-same admin page).
+client, its own return address at Google and Google's review. Instead it uses the hosting service's; for its people it
+then looks exactly like a hosted team (the same Google app, the same start page, the same admin page).
+
+**Self-registration (default, 2026-11-25).** No admin or operator step:
+
+- The server publishes its relay team **public** key at `GET /api/integrations/google-broker/key` (`{ v: 1, key }`,
+  no session, `no-store`; 404 on a server that does not register itself).
+- When the console's `/status` answers `not_hosted`, the server sends a signed `register` `{ v: 1, origin }` with its
+  own address (`https://<tunnel.host>`, port 443, a DNS name). The console fetches the key at that address and serves
+  the server only when it is the key that signed the call. The browser then only ever comes back to that address.
+- Refused (another key at the address, an address the console may not serve, an operator's record, self-registration
+  closed at the console, an older console without `register`): Google stays "not set up", the admin may set a client
+  of its own, and the server tries again after 1, 2, 4, 8, 16, then every 30 minutes. The same back-off applies when
+  the console cannot be reached, is not configured or answers rate_limited.
+- The console decides whether it takes self-registrations (trina-cloud `docs/drive-broker.md`); an operator can still
+  disable or remove any server there.
+
+**By hand (an operator's variable).** For a server the operator points at a console explicitly:
 
 1. Set `MYCEL_GOOGLE_DRIVE_BROKER_URL` in the server's environment, and remove the server's own Google client (move
    `client.json` away and unset `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`; keep a copy to switch back). Restart the server. It
