@@ -95,3 +95,12 @@ export class Graph {
 }
 
 export const isNetError = (e: unknown): e is NetError => e instanceof NetError
+
+/** The signed-in Microsoft account as people read it (the connection's `account`, Settings › Connectors): its mail
+ * address, else its sign-in name (userPrincipalName), else its display name; null when Graph names none usable. One
+ * Graph call (`User.Read`, asked for at sign-in). */
+export async function microsoftAccountOf(g: Graph): Promise<string | null> {
+  const me = await g.call<{ displayName?: unknown; mail?: unknown; userPrincipalName?: unknown }>({ path: '/me', query: { select: 'displayName,mail,userPrincipalName' } })
+  const ok = (v: unknown) => (typeof v === 'string' && v.trim() && v.length <= 320 && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(v) ? v.trim() : null)
+  return ok(me?.mail) ?? ok(me?.userPrincipalName) ?? ok(me?.displayName)
+}

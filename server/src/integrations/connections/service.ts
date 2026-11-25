@@ -32,6 +32,7 @@ import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { MICROSOFT_SCOPE, microsoftAppOf, microsoftAppView, microsoftAuthorizeUrl, microsoftTokenUrl } from '../microsoft/app'
 import { answerMicrosoftMcp } from '../microsoft/mcp-server'
+import { Graph, microsoftAccountOf } from '../microsoft/graph'
 import { extractText } from '../../files/extract'
 import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -1034,6 +1035,12 @@ export class Integrations {
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools);
         // how many were left out as too large, so an empty list says why (ConnectionPage.tsx)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: dropped.length })
+        // Microsoft 365 signed in before its account was named at sign-in: named now, once
+        const now = getRow(this.db, row.id)
+        if (now && !now.account && now.secret_enc && serverAppAt(now.url) === 'microsoft') {
+          // the token first: a refresh replaces the stored tokens, and the name goes with the ones stored then
+          try { const token = await this.oauthToken(now, undefined, deadline); const enc = getRow(this.db, row.id)?.secret_enc; if (enc) await this.nameMicrosoftAccount(now.id, enc, token) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
+        }
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) {
@@ -1061,6 +1068,15 @@ export class Integrations {
       this.setStatus(row, kept ? 'connected' : s?.status ?? 'error', s?.reason ?? (row.kind === 'mcp' ? 'not_mcp' : 'unreachable'))
     }
     return getRow(this.db, row.id) ?? row
+  }
+
+  /** The Microsoft account a Microsoft 365 connection's tokens are for (Graph /me: microsoft/graph.ts), kept as its
+   * `account` while those tokens (`enc`) are the stored ones. Graph not answering leaves it empty (never the account of
+   * an earlier sign-in): the sign-in still works, and the next check names it. */
+  private async nameMicrosoftAccount(id: string, enc: string, token: string): Promise<void> {
+    let account: string | null = null
+    try { account = await microsoftAccountOf(new Graph(token, this.net)) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id, err: errorForLog(err) }) }
+    this.db.query('UPDATE integrations SET account=? WHERE id=? AND secret_enc=?').run(account, id, enc)
   }
 
   /** one line for a check the service refused: the status and what it said (sanitized and cut, refusal.ts; no token) */
@@ -1549,6 +1565,8 @@ export class Integrations {
       // bookkeeping never undoes a sign-in that worked)
       try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
+      // Microsoft 365: the account these tokens are for, named on the connection (another account on a reconnect)
+      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken)
       await this.check(getRow(this.db, cur.id)!)
     } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
     return { ok: true }
