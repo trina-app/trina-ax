@@ -31,8 +31,9 @@ const bookkeeping: Record<string, string> = {
   // tools_total, tools_total_more, tools_dropped: how many tools the service offers, and how many were too large (counts
   // for Settings and the instructions; tools_json is the policy); tools_rev: moves on with tools_json (the parsed lists in memory, store.ts savedTools)
   // secret_enc, key_version: the sealed key or tokens (a refresh rotates them); status: whether the last call worked.
-  // A new key, sign-in or sign-out also moves version, which is policy (344_c_policy_token_refresh.sql)
-  integrations: 'secret_enc key_version status created_by name notes last_error tools_updated_at tools_total tools_total_more tools_dropped tools_rev last_used_at created_at updated_at',
+  // A new key, sign-in or sign-out also moves version, which is policy (344_c_policy_token_refresh.sql).
+  // instructions: the service's own guide for its tools (452), words for the AI like a tool's description; no access
+  integrations: 'secret_enc key_version status created_by name notes last_error tools_updated_at tools_total tools_total_more tools_dropped tools_rev last_used_at created_at updated_at instructions',
   integration_access: '', connected_folders: 'created_by created_at last_sync_at last_status last_error files bytes',
   // a template's name and note change no one's access
   integration_templates: 'created_by name notes created_at updated_at', integration_template_access: '',

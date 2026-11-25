@@ -183,12 +183,21 @@ function splitWindows(line: string): string[] | null {
  * `reads`: an MCP preset's tools that only read, Trina's own list for a program that marks none of its tools
  * (MCP readOnlyHint): Aside 1.26 gives no annotations, so without it listing profiles asked on the "send" card
  * (docs/decisions/20261118-local-app-connectors.md "Aside's reads"). Only for the exact listed command (presetReads). */
-export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[]; download?: string }[] = [
+/** `guide`: an MCP preset whose program gives no `instructions` of its own but prints its usage guide with these
+ * arguments (Aside: `aside guide`, what Claude Code's Aside skill reads before it starts): the desktop app gives that
+ * text as the server's instructions, after `note`, which says how its command-line words map to the tools here
+ * (docs/decisions/20261125-connector-guide-and-account-choice.md). Only for the exact listed command. */
+export interface LocalAppGuide { args: readonly string[]; note: string }
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[]; download?: string; guide?: LocalAppGuide }[] = [
   // browser_profiles lists profile ids, labels and whether each is connected; memory_search searches the person's own
   // Aside notes. repl (JavaScript in the logged-in browser) and exec (Aside's browser agent) are not here: they ask.
   // download: the app's own download page (macOS and Windows), said when its program is not on the computer (the npx
   // presets below have none: their install line names Node.js)
-  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'], download: 'https://aside.com/download' },
+  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'], download: 'https://aside.com/download',
+    guide: {
+      args: ['guide'],
+      note: 'Aside\'s own guide follows (what `aside guide` prints). It is written for Aside\'s command line; here Aside is connected through its tools instead, and no command line is there: `aside exec` / `aside "<task>"` is the exec tool, `aside repl` is the repl tool (its description is its guide), `aside host profiles` is browser_profiles, `aside memory search` is memory_search. Where the guide says --profile or --account, pass a profile_id from browser_profiles to exec or repl; a profile of any Aside account works.',
+    } },
   {
     id: 'ego-lite', name: 'ego lite', download: 'https://lite.ego.app/download', spec: {
       adapter: 'cli', command: 'ego-browser', env: [], tools: [

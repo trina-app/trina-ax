@@ -16,17 +16,19 @@ connection the AI (1) sent the account words as free text to Aside's own agent, 
 nothing and stopped, (3) listed the 14 profiles only when the person asked. The same person's Claude Code finds the
 right profile at once.
 
-Root causes (all general, none is about one mailbox or one service):
+Root causes (all general, none is about one mailbox or one service). Plan review corrected the order: the AI did see
+the `profile_id` argument (a connection that fits the turn's budget is offered with full schemas); what it lacked was a
+rule for choosing it and the app's own guide.
 
-1. **The app's own usage guide never reaches the AI.** Claude Code reads Aside's guide (`aside guide`, through its
+1. **Nothing tells the AI to choose the account before it acts** (main cause). Tools such as Aside's take an optional
+   profile id whose own words say "omit to reuse the default"; no rule says that a request about a named account,
+   company, mailbox or address must first list the accounts or profiles and pass the matching one, nor that "found
+   nothing in one account" is not "it is not there" while others exist.
+2. **The app's own usage guide never reaches the AI.** Claude Code reads Aside's guide (`aside guide`, through its
    skill) before it starts: use the agent for most tasks, look in Aside's memory for the person's context first, list
    profiles and pass a profile id. Trina gives the AI only the tool names and the first sentence of each description.
    More generally, Trina drops every MCP server's `instructions` (the `initialize` answer, mcp.ts `start`), which
    Claude Code puts in its system prompt ("MCP Server Instructions").
-2. **Nothing tells the AI to choose the account before it acts.** Tools such as Aside's take an optional profile id
-   whose own words say "omit to reuse the default"; no rule says that a request about a named account, company,
-   mailbox or address must first list the accounts or profiles and pass the matching one, nor that "found nothing in
-   one account" is not "it is not there" while others exist.
 3. **The agent tool's sign-in failure is a dead end.** Aside's agent (`exec`) needs the Aside account of its profile
    signed in; when it is not, Aside answers "Sign in again before using built-in Aside models". The AI is not told that
    nothing ran, that the code tool (`repl`) works in the same profile without that sign-in, or which accounts are
@@ -36,9 +38,11 @@ Root causes (all general, none is about one mailbox or one service):
 
 In:
 1. Every MCP connection (remote and on the computer): keep the server's `instructions` (cut to a budget, secrets
-   hidden), saved with the connection (migration `452_c_integration_instructions.sql`, additive), refreshed by a check
+   hidden), saved with the connection (migration `366_c_integration_instructions.sql`, additive; component C's range is 300-399), refreshed by a check
    and whenever a session starts for a call; given to the AI under "Connected services" as that service's own guide
-   for its tools, within a total budget, only for connections it can use in this answer.
+   for its tools, within a total budget, only for connections it can use in this answer. A resumed session keeps its
+   first instructions, so the per-message context names the services that have a guide and a read-only tool
+   `service_guide` gives it; the account rule goes in the context in short too.
 2. Listed apps on the computer whose guide is a command of their own (preset field `guide`, Aside: `aside guide`): the
    desktop app fills the `instructions` of the `initialize` answer from it when the program gives none, with one line
    that maps its command-line words to its tools.
@@ -46,8 +50,8 @@ In:
    (organization, mailbox, email address, workspace, person) and a connection works in one of several accounts or
    profiles, list them first, pick the matching one (names in another script or language count: a Korean company name
    and its Latin spelling), pass it in the tool's own account/profile argument (never as words in a free-text task),
-   and try the other plausible ones before saying something is not there; ask with the short list only when none
-   matches; remember the match (memory rule exists).
+   and look in the other plausible ones before saying something is not there (never send or change anything in one
+   that does not match); ask with the short list only when none matches; remember the match (memory rule exists).
 4. Aside (the listed connector only, desktop): `repl`/`exec` `profile_id` descriptions say to choose it for the
    request's account and what omitting it does; `browser_profiles` entries say whether their Aside account is signed
    in (exec needs it, repl does not); an exec sign-in failure gets an added note: nothing ran, use repl with the same
@@ -60,7 +64,7 @@ request needs it); changing Aside itself; a phrase or service list of any kind.
 
 1. Plan (this file), independent plan review.
 2. mcp.ts: `instructions` from `initialize` (string, one budget, hidden); `ListedTools.instructions`.
-3. Migration 452 + store Row field; service.ts: save on check and after a call's session start when it changed.
+3. Migration 366 + store Row field; service.ts: save on check and after a call's session start when it changed.
 4. tools.ts: the guide block per usable connection (budget per connection and in all), and the account rule.
 5. shared presets: `guide` args for Aside; desktop local-apps.ts: fill `instructions`, tool description words, profile
    signed-in field, exec sign-in note.
@@ -75,7 +79,7 @@ decision in `docs/DECISIONS.md`.
 
 ## Risks
 
-- Migration number: 452 is the highest + 1 on dev today; renumber at batch time if another PR takes it.
+- Migration number: 366 (C's highest is 365 on dev today); renumber at batch time if another PR takes it.
 - A remote service's instructions are its own words in the AI's prompt (Claude Code does the same). They are framed as
   the service's guide for its own tools, never above the person's request, the rules or the cards; budgets keep them
   short; secrets are hidden as in descriptions.

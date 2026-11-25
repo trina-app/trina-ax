@@ -445,7 +445,7 @@ export function teamRules(files: FileService, user: Principal, readable?: ((rel:
   return out
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'chat_file', 'room_refs', 'answer_comments', 'answer_comment', 'attachments', 'document_matches', 'shared_chat', 'shared_chats', 'conversation_summary', 'chat', 'previous_summary', 'answer_so_far', 'answer_text', 'stopped_answer', 'chat_pages', 'steps_record']
+const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'chat_file', 'room_refs', 'answer_comments', 'answer_comment', 'attachments', 'document_matches', 'shared_chat', 'shared_chats', 'conversation_summary', 'chat', 'previous_summary', 'answer_so_far', 'answer_text', 'stopped_answer', 'chat_pages', 'steps_record', 'service_guide']
 // conversation_summary: the summary inside <previous_conversation> (historyBlock); chat / previous_summary: the data
 // blocks of the summary call (chat/history-summary.ts summaryMessage)
 // document_matches: the removed knowledge graph's block in front of a message (docs/DECISIONS.md, 2026-11-11); a Claude

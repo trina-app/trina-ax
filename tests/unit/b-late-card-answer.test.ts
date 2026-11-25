@@ -15,7 +15,7 @@ import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { CONNECTION_RESULT, FIND_TOOLS } from '../../server/src/integrations/connections/tools'
+import { CONNECTION_RESULT, FIND_TOOLS, SERVICE_GUIDE } from '../../server/src/integrations/connections/tools'
 import { NOT_LATER } from '../../server/src/chat/tools'
 import { CHANGED_MARK, declined, sameCard } from '../../server/src/chat/open-questions'
 import { ALWAYS_VALUE } from '../../server/src/chat/always-allow'
@@ -359,6 +359,6 @@ describe('the rules, alone', () => {
   })
 
   test('the connected-service tools that never wait are the provider\'s own names', () => {
-    expect([...NOT_LATER].sort()).toEqual([CONNECTION_RESULT, FIND_TOOLS].sort())
+    expect([...NOT_LATER].sort()).toEqual([CONNECTION_RESULT, FIND_TOOLS, SERVICE_GUIDE].sort())
   })
 })
