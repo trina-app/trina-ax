@@ -70,7 +70,7 @@ import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideCha
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import { StepFixes } from './StepFix'
-import Steps, { StepPostView } from './Steps'
+import Steps, { StepMemoryOwn, StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
 import { copyRoomIds, WithRoomNames } from '../RoomNames'
@@ -704,6 +704,7 @@ export function AssistantMessage({
   shareRoomId,
   sendHere,
   canRegenerate = true,
+  ownAnswer = true,
   canSuggest: canSuggestHere = true,
   pressMenu = false,
   onThread,
@@ -731,6 +732,9 @@ export function AssistantMessage({
   sendHere?: { roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
+  /** false: someone else asked this in a shared chat: its memory steps are theirs, so no 되돌리기 here
+   * (docs/decisions/20261125-auto-memory-shared-chats.md) */
+  ownAnswer?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
   canSuggest?: boolean
   /** a room's side chat panel: on a phone a long press opens copy, retry and the model as a sheet, as a room's message
@@ -871,7 +875,9 @@ export function AssistantMessage({
         {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : (
           // a side chat: a post's 보기 goes the way its sent line's does (the panel's onView)
           <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
-            <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+            <StepMemoryOwn.Provider value={ownAnswer}>
+              <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+            </StepMemoryOwn.Provider>
           </StepPostView.Provider>
         )}
         {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}

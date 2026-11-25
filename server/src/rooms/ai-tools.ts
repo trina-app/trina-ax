@@ -38,8 +38,8 @@ export const SHARED_UNDER_ALWAYS: Readonly<Record<string, CardAlwaysKind>> = {
 
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
- * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no memories, no
- * chat title, no Google Drive, nothing on a computer or in the person's signed-in
+ * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no private
+ * memories (only the asker's memories kept in that chat, from the asker's own words), no chat title, no Google Drive, nothing on a computer or in the person's signed-in
  * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
  * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
@@ -100,11 +100,18 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // refused up front ('shared'), never a card. Not in a confidential or template chat, never a sub-agent's
   // (QA TC-7332: left out of this list, the AI said it could not delete in a shared project chat)
   'delete_files',
+  // the asker's own memory (chat/tools.ts remember, forget; docs/decisions/20261125-auto-memory-shared-chats.md): what the
+  // asker said here is kept in the asker's own memory, other people's words are checked as tool output, and only the
+  // memories kept in this very chat are seen or changed here. A member's only (SHARED_MEMBER_ONLY_TOOLS)
+  'remember', 'forget',
   // the demo's banner words (tools/demo-banner.ts; offered only on a demo with a banner kit): a local tool like make_file,
   // the banner saved into the project's folder through the write gates (WRITE_TARGET_ARGS, SAVE_CARD_TOOLS). Missing
   // here, a shared project chat never had it: the AI took 13 steps and saved a junk SVG (demo re-test 11-22)
   'change_banner_text',
 ])
+
+/** Tools of SHARED_TOOLS a guest's turn in a shared chat never gets (a guest keeps no memories there) */
+export const SHARED_MEMBER_ONLY_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget'])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */

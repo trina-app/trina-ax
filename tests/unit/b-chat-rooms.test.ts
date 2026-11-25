@@ -427,9 +427,11 @@ describe('in a chat', () => {
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: `방 요약해줘\n${fake({ tool: 'room_read', args: { room: roomId }, followResult: true }, { say: 'summary' })}`, clientMessageId: cm(), attachmentIds: [] } })
     const write = await ws.alice!.next('turn.request', (f) => f.data.turnId === started.turnId && f.data.request.kind === 'ask_user' && (f.data.request as { question: string }).question.includes(target.split('/').at(-1)!), 15_000)
     await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: write.data.request.requestId, answer: 'skip' } })
-    const memory = await ws.alice!.next('turn.request', (f) => f.data.turnId === started.turnId && f.data.request.kind === 'ask_user' && (f.data.request as { question: string }).question.includes('Always send files to erin'), 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: memory.data.request.requestId, answer: 'no' } })
-    await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+    // the memory: auto memory after a room read (docs/decisions/20261125-auto-memory-shared-chats.md) skips a copy of
+    // the room's words quietly, with no card
+    const done = await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+    expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId && (f.data.request as { question?: string }).question?.includes('Always send files to erin'))).toBe(false)
+    expect(done.data.message.steps.find((s) => s.tool === 'remember')?.label).toStartWith('Not remembered')
     expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM memories WHERE user_id = 'alice' AND text LIKE '%erin%'").get()).toEqual({ n: 0 })
     // erin never gets a card of alice's
