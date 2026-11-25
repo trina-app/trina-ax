@@ -90,7 +90,8 @@ function devAnswersOf(db: Database, ids: readonly string[]): Set<string> {
 
 /** Answers of the chat's private time written while `userId` had a personal memory: a memory made by then, or one
  * deleted (memory.delete, memory.clear, the AI's forget) after it was written. `sharedAt`: when it was first shared
- * (people_shared_at or shared_at); later answers are a shared chat's, which never carry memories. */
+ * (people_shared_at or shared_at); later answers are a shared chat's, which carry no private memory (only the asker's
+ * memories kept in that chat, whose words are in its transcript already: docs/decisions/20261125-auto-memory-shared-chats.md). */
 function memoryAnswersOf(db: Database, userId: string, answers: readonly { id: string; at: string }[], sharedAt: string | null): string[] {
   const own = answers.filter((a) => !sharedAt || a.at < sharedAt)
   if (!own.length) return []

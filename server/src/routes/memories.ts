@@ -94,7 +94,9 @@ export const memoriesRoutes: RouteModule = {
         const before = ctx.db.query('SELECT text FROM memories WHERE id = ? AND user_id = ?').get(params.id, auth.user.id) as { text: string } | null
         if (!before) return fail('not_found')
         if (before.text === text) return false
-        ctx.db.query("UPDATE memories SET text = ?, source = 'user' WHERE id = ? AND user_id = ?").run(text, params.id, auth.user.id)
+        // a change in Settings is the person's private words: no shared chat shows it from now on (migration 452,
+        // docs/decisions/20261125-auto-memory-shared-chats.md)
+        ctx.db.query("UPDATE memories SET text = ?, source = 'user', shared_chat_id = NULL WHERE id = ? AND user_id = ?").run(text, params.id, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'memory.update', target: params.id, detail: { chars: text.length } })
         return true
       })()

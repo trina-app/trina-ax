@@ -9,6 +9,7 @@
 //   OutsideText        what tool output came into each chat, in memory only (never on disk; a restart forgets it)
 import type { Database } from 'bun:sqlite'
 import type { UserPrefs } from '@mycel/shared/api'
+import { isQuoteLine, withoutQuoteLines } from './read-rooms'
 
 /** silent saves at most per answer and per person per 24 hours (source 'auto'); past them a save is skipped */
 export const AUTO_PER_ANSWER = 2
@@ -314,10 +315,35 @@ export function autoCapReached(db: Database, userId: string, turnId: string, now
   return inDay >= AUTO_PER_DAY ? 'day' : null
 }
 
-/** The person's own messages in this chat (the newest 200), for "the person wrote it". */
-export function ownWords(db: Database, chatId: string, userId: string): string {
-  const rows = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND (author_id IS NULL OR author_id = ?) ORDER BY created_at DESC LIMIT 200").all(chatId, userId) as { content: string | null }[]
-  return rows.map((r) => r.content ?? '').join('\n')
+/** The person's own messages in this chat (the newest 200), for "the person wrote it". Quote lines ("> …") are someone
+ * else's words, whoever pasted them (chat/read-rooms.ts isQuoteLine): left out. `shared`: a chat other people write in
+ * (docs/decisions/20261125-auto-memory-shared-chats.md): only messages with the person as their author count. */
+export function ownWords(db: Database, chatId: string, userId: string, shared = false): string {
+  const rows = db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND ${shared ? 'author_id = ?' : '(author_id IS NULL OR author_id = ?)'} ORDER BY created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
+  return rows.map((r) => withoutQuoteLines(r.content ?? '')).join('\n')
+}
+
+/**
+ * What other people brought into a shared chat, as the copy and address checks read tool output
+ * (docs/decisions/20261125-auto-memory-shared-chats.md): every message another person wrote (or with no author), the
+ * answers to their turns, and the quote lines in the person's own messages. Read from the database on every call, so a
+ * restart or a new session never empties it (unlike OutsideText). The newest 200 of each.
+ */
+export function othersWords(db: Database, chatId: string, userId: string): string {
+  const theirs = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND (author_id IS NULL OR author_id != ?) ORDER BY created_at DESC LIMIT 200").all(chatId, userId) as { content: string | null }[]
+  const answers = db.query(`SELECT a.content FROM messages a JOIN messages q ON q.id = a.parent_id
+    WHERE a.chat_id = ? AND a.role = 'assistant' AND q.role = 'user' AND (q.author_id IS NULL OR q.author_id != ?) ORDER BY a.created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
+  const quoted = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND author_id = ? ORDER BY created_at DESC LIMIT 200").all(chatId, userId) as { content: string | null }[]
+  return [
+    ...theirs.map((r) => r.content ?? ''), ...answers.map((r) => r.content ?? ''),
+    ...quoted.map((r) => (r.content ?? '').split('\n').filter(isQuoteLine).join('\n')),
+  ].filter(Boolean).join('\n')
+}
+
+/** The person's memories a shared chat's turn may see and change: those the AI kept in this very chat (their words are
+ * in its transcript), never the person's private ones (docs/decisions/20261125-auto-memory-shared-chats.md). */
+export function chatMemories(db: Database, userId: string, chatId: string): { id: string; text: string; source: string }[] {
+  return db.query("SELECT id, text, source FROM memories WHERE user_id = ? AND shared_chat_id = ? ORDER BY (source = 'user') DESC, created_at DESC, id DESC LIMIT 200").all(userId, chatId) as { id: string; text: string; source: string }[]
 }
 
 /**

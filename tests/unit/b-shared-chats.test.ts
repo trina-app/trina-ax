@@ -619,7 +619,9 @@ describe('the read card', () => {
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
   test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    for (const t of ['set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    // the asker's own memory, from the asker's own words (docs/decisions/20261125-auto-memory-shared-chats.md)
+    for (const t of ['remember', 'forget']) expect(SHARED_TOOLS.has(t)).toBe(true)
     // in a shared chat everything is shared (docs/decisions/20261118-shared-schedules-any-frequency.md): schedules and
     // videos, behind the asker's own cards and with this chat's gates
     for (const t of ['schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'promo_video', 'save_promo_video']) expect(SHARED_TOOLS.has(t)).toBe(true)
@@ -629,18 +631,20 @@ describe('what a shared turn has', () => {
     const r = await ask('alice', chat.id, fake({ echo: 'tools' }))
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
     for (const t of offered) expect({ t, ok: t in FILE_TOOLS || SHARED_TOOLS.has(t) }).toEqual({ t, ok: true })
-    expect(offered).not.toContain('remember')
+    expect(offered).toContain('remember')
     expect(offered).not.toContain('room_read')
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'memories', 'memoryReminder', 'sideRoom', 'situation'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'sideRoom', 'situation'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
-      user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
+      // a private memory never reaches a shared chat, whoever passes it; one kept in this very chat does
+      // (prompt.ts promptMemories, docs/decisions/20261125-auto-memory-shared-chats.md)
+      user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }, { id: 'm2', text: 'OTHER-CHAT-CANARY', sharedChat: 'chat-other' }, { id: 'm3', text: 'THIS-CHAT-MEMORY', sharedChat: 'chat-here' }],
       project: { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR' }, browser: true,
       tools: ['make_file', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-07T09:00:00Z'),
-      shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
+      shared: { project: 'Falcon', audience: 4, asker: user.name, chatId: 'chat-here' }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
       // where things are in the app (chat/app-map.ts): its shared form, the same for everyone here
       appMap: { view: 'shared', managed: false, devEnv: false, office: false },
     }
@@ -653,8 +657,12 @@ describe('what a shared turn has', () => {
       for (const sec of sections) if (sec.text) expect({ id: sec.id, in: prompt.includes(sec.text) }).toEqual({ id: sec.id, in: SHARED_PROMPT_SECTIONS[sec.id] === true })
       // (the connections section is there since 2026-11-18, in its shared form: tests/unit/b-shared-chat-connections.test.ts)
       expect(prompt.includes('CONN-CANARY')).toBe(true)
-      for (const canary of ['MEMORY-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
+      for (const canary of ['MEMORY-CANARY', 'OTHER-CHAT-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
     }
+    expect(buildTurnPrompt(h.ctx.files, input)).toContain('THIS-CHAT-MEMORY')
+    expect(buildTurnContext(h.ctx.files, input)).toContain('THIS-CHAT-MEMORY')
+    // a guest's turn: none at all
+    expect(buildTurnContext(h.ctx.files, { ...input, guest: { places: [], inviter: null } })).not.toContain('THIS-CHAT-MEMORY')
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Shared project chat')
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')
     // a fresh session of bob's gets the transcript with who wrote each message

@@ -89,6 +89,10 @@ export function stepsGotPast(steps: Step[]): Set<string> {
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
 /** Where a post's 보기 goes (a room's side chat passes its own; elsewhere the room's or the thread's page). */
 export const StepPostView = createContext<((p: NonNullable<Step['posted']>) => void) | null>(null)
+/** false: the answer is someone else's in a shared chat (docs/decisions/20261125-auto-memory-shared-chats.md): its memory
+ * step is that person's memory, so it has no 되돌리기 and no first-memory line here (an undo of a forgotten one would
+ * have added their words to the viewer's own memories) */
+export const StepMemoryOwn = createContext(true)
 export const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
 
 export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: ReadonlySet<string> }
@@ -263,6 +267,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const t = useT()
   const locale = useLocale()
   const viewPost = useContext(StepPostView)
+  const ownMemory = useContext(StepMemoryOwn)
   // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
   // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
   const viewer = usePlaceViewer()
@@ -351,7 +356,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
           {t('steps.postView')}
         </button>
       ) : null}
-      {step.memory && !expandable && !running ? <MemoryUndo memory={step.memory} /> : null}
+      {step.memory && !expandable && !running && ownMemory ? <MemoryUndo memory={step.memory} /> : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )
@@ -368,7 +373,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
       {/* a narrow screen: the key input on its own dimmer line, under the tool's words, never cut */}
       {split && <p className="ml-11 pr-1 pl-0.5 text-xs text-faint [overflow-wrap:anywhere] sm:hidden" data-testid="step-key">{split.key}</p>}
       {step.devEnvRun && (step.devEnvRun.kind === 'server' ? <PreviewLine step={step} /> : <QueueLine step={step} />)}
-      {step.memory?.first && (
+      {step.memory?.first && ownMemory && (
         <p className="ml-6 px-1 text-xs text-muted" data-testid="memory-first-line">
           {t('memory.firstLine', { ai: aiName(t) })}{' '}
           <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="memory-first-open">{t('memory.firstOpen')}</button>
