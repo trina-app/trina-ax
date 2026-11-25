@@ -265,7 +265,8 @@ function SkillUndo({ skill }: { skill: NonNullable<Step['skill']> }) {
         const left = await api.call(API.tree, { query: { path: folder, limit: 1 } }).then((r) => r.entries.length, () => 1)
         if (!left) await api.call(API.remove, { query: { path: folder } }).catch(() => undefined)
       } else if (skill.change === 'fixed') await api.call(API.restoreVersion, { body: { path: skill.path, versionId: skill.versionId! } })
-      else for (const id of skill.trashIds ?? []) await api.call(API.restoreTrash, { params: { id } })
+      // each skill back from the trash; one already back (404: restored on the Files screen or a second press) is done
+      else for (const id of skill.trashIds ?? []) await api.call(API.restoreTrash, { params: { id } }).catch((e: unknown) => { if (!(e instanceof ApiError && e.status === 404)) throw e })
       setState('done')
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) { toast({ level: 'info', text: t('skill.undoGone') }); setState('done'); return }

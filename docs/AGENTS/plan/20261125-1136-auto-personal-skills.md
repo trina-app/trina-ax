@@ -20,10 +20,11 @@
 - chat/personal-skills.ts, called from the file tools' gate in chat/tools.ts: the auto-memory rules for that path (the
   switch "자동으로 기억하기"; none on its own in side, scheduled, Slack, template or confidential chats or for guests:
   there only when the person's own message asks for a skill), the asker's own words only (auto memory's copy and
-  address checks), 2 per answer and 6 a day on its own. The server writes `origin: auto` into a skill it saves on its
-  own and keeps the origin as it was on a change; a change on its own only to an `origin: auto` skill.
-- delete_files: one exception, an `origin: auto` personal SKILL.md (its folder holds nothing else) goes to the trash
-  with no card.
+  address checks), 2 per answer and 6 a day, asked or not. The server writes `origin: auto` into a skill it saves on
+  its own and keeps the origin as it was on a change. A change to any other personal skill asks on a server card
+  with the diff (askAlways 'skill_save'); the file layer holds the approval for those bytes.
+- delete_files: a personal SKILL.md (its folder holds nothing else) goes to the trash: `origin: auto` with no card,
+  any other after its card.
 - Step: "스킬 저장함 / 고침 / 지움: <name>" with 보기 and 되돌리기, through the existing file routes (remove, restore a
   version, restore from the trash); no new table, no new route.
 

@@ -103,7 +103,7 @@ import { readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
-import { afterSkillWrite, beforeSkillWrite, deleteAutoSkills } from './personal-skills'
+import { afterSkillWrite, beforeSkillWrite, deletePersonalSkills } from './personal-skills'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
@@ -527,10 +527,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // into skills/, …)
     const early = t.refuse?.(args, files)
     if (early) return { ...text(early.text, true), summary: early.summary }
-    // a skill the AI made on its own, deleted with no card (chat/personal-skills.ts; the main AI's own call)
+    // the person's own skills: one the AI made on its own with no card, any other after its card (chat/personal-skills.ts)
     if (name === 'delete_files' && files === exec.files) {
-      const d = deleteAutoSkills(exec, args)
-      if (d) return { ...text(d.text, !!d.isError), summary: `delete_files -> ${d.isError ? 'not deleted' : 'deleted'}: personal skill made on its own` }
+      const d = await deletePersonalSkills(exec, args)
+      if (d) return { ...text(d.text, !!d.isError), summary: `delete_files -> ${d.isError ? 'not deleted' : 'deleted'}: personal skill` }
     }
     // a shared project chat: a search without a path looks in the project folder; then what the call would read that
     // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
@@ -766,7 +766,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // here before any card (who may change it in this turn, the file itself), and the cards below as for any save.
       // a person's own skills folder: one SKILL.md of text, under the auto-memory rules (chat/personal-skills.ts), before
       // any card
-      const skillNo = beforeSkillWrite(exec, name, args, !caller || caller.files === exec.files)
+      const skillNo = await beforeSkillWrite(exec, name, args, !caller || caller.files === exec.files)
       if (skillNo) return { refusal: skillNo, summary: `${name} -> not saved: personal skill` }
       const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
       if (writePlace && !chatVersionPlace(writePlace)) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }

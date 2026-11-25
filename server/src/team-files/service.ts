@@ -529,7 +529,8 @@ export class TeamFiles {
    * groups/, projects/, a groups/<g>/ or a projects/<name>/ that holds one anywhere (their skills would leave with it;
    * docs/DECISIONS.md "Project skills"). */
   private touchesSkills(fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean): boolean {
-    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    // NFKC as policy/names.ts foldKey: a folding disk reads "ſkills" as skills
+    const fold = (n: string) => n.normalize('NFKC').toLowerCase().normalize('NFKC')
     const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
     const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
     // groups/<g>/skills and projects/<name>/skills are both skill roots by their path (skills/guard.ts)
@@ -537,7 +538,7 @@ export class TeamFiles {
     const intoGroup = isDir && target.length === 2 && holder(target[0]) && hasSkills(fr.abs)
     const groupOut = isDir && holder(fr.segs[0]) && (
       fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
-    return inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut
+    return inAnySkills(fr.rel) || inAnySkills(target.join('/')) || intoGroup || groupOut
   }
 
   /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these

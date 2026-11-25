@@ -1,20 +1,26 @@
 // Personal skills the AI keeps on its own (docs/decisions/20261125-auto-personal-skills.md). The AI writes them with the
-// plain write and edit tools (no card); this is the turn's gate around those calls, before any card:
+// plain write and edit tools; this is the turn's gate around those calls, before any other card:
 // - only <name>/SKILL.md of text (skills/personal-guard.ts, also checked by the file layer);
-// - the auto-memory rules: the switch "자동으로 기억하기" and the places of auto memory (TurnExec.autoMemoryPlace); off,
-//   or a ✦ side chat, a confidential chat …, a skill is saved only when the person's own message asks for one; never a
-//   guest, a scheduled run, Slack or a template run;
-// - on its own: the asker's own words only (auto memory's copy and address checks), AUTO_SKILLS_PER_ANSWER and
-//   AUTO_SKILLS_PER_DAY, and a change only to a skill it made itself (`metadata: origin: auto`, which the server writes);
-// - after the save: the step "스킬 저장함 / 고침: <name>" with 보기 and 되돌리기 (web Steps.tsx, through the file routes).
-// delete_files moves an origin:auto personal skill to the trash with no card (deleteAutoSkills).
+// - the places of auto memory (TurnExec.autoMemoryPlace: no ✦ side chat, confidential chat, scheduled run, Slack,
+//   template or guest) for every save; the switch "자동으로 기억하기" off: a new skill only when the person's own message
+//   explicitly asks for one (asksForSkill, its one use);
+// - for every save: the asker's own words only (auto memory's copy and address checks), AUTO_SKILLS_PER_ANSWER and
+//   AUTO_SKILLS_PER_DAY;
+// - a skill the AI made itself (`metadata: origin: auto`, written by the server) changes and goes to the trash with no
+//   card; any other personal skill (the person wrote it or asked for it) only after the person's yes on a server card
+//   that shows the change (and the file layer holds the approval for exactly those bytes: skills/guard.ts);
+// - after the save: the step "스킬 저장함 / 고침 / 지움: <name>" with 보기 and 되돌리기 (web Steps.tsx, the file routes).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Step } from '@mycel/shared/api'
+import type { Step, TurnRequest } from '@mycel/shared/api'
+import crypto from 'node:crypto'
+import { sha256 } from '../files/store'
+import { lineDiff } from '../skills/diff'
 import { authorize } from '../policy/authorize'
 import { audit } from '../admin/audit'
 import { editedText, inPersonalSkills } from '../skills/guard'
-import { personalSkillName, personalSkillProblem, PERSONAL_SKILL_FILES_REFUSAL } from '../skills/personal-guard'
+import { ORIGIN_LINE, originAuto, personalSkillName, personalSkillProblem, PERSONAL_SKILL_FILES_REFUSAL, withOrigin } from '../skills/personal-guard'
+export { originAuto, withOrigin }
 import { addressesIn, autoMemoryOn, contactNotOwn, copiedFromOutside, othersWords, outsideAddress, ownWords, stripInvisible } from './auto-memory'
 import { askerMessageId } from './asked-in'
 import { withoutQuoteLines } from './read-rooms'
@@ -26,32 +32,6 @@ import type { StoredStep } from './store'
 /** saves the person did not ask for: per answer and per 24 hours (a new skill, a change and a delete each count) */
 export const AUTO_SKILLS_PER_ANSWER = 2
 export const AUTO_SKILLS_PER_DAY = 6
-
-// ---------------- origin: auto (in the header's metadata) ----------------
-
-const HEADER = /^(\uFEFF?---\r?\n)([\s\S]*?)(\r?\n---[ \t]*(?:\r?\n|$))/
-const ORIGIN_LINE = /^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*\r?$/m
-
-/** The skill was made by the AI on its own: `metadata:` holds `origin: auto`. */
-export function originAuto(text: string | null): boolean {
-  const h = text ? HEADER.exec(text) : null
-  if (!h) return false
-  const meta = /^metadata:[ \t]*\r?\n((?:[ \t]+.*(?:\r?\n|$))*)/m.exec(h[2]!)
-  return !!meta && ORIGIN_LINE.test(meta[1]!)
-}
-
-/** `text` with `origin: auto` in its metadata (`auto`) or without it. Text without a header stays as it is. */
-export function withOrigin(text: string, auto: boolean): string {
-  const h = HEADER.exec(text)
-  if (!h || originAuto(text) === auto) return text
-  let head = h[2]!
-  if (auto) head = /^metadata:[ \t]*$/m.test(head) ? head.replace(/^metadata:[ \t]*$/m, 'metadata:\n  origin: auto') : `${head}\nmetadata:\n  origin: auto`
-  else head = head.replace(/^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*(?:\r?\n|$)/gm, '').replace(/^metadata:[ \t]*\r?\n(?![ \t])/gm, '').replace(/\r?\nmetadata:[ \t]*$/, '').replace(/\n+$/, '')
-  const out = h[1] + head + h[3] + text.slice(h[0].length)
-  // every origin line is gone (review of #594: only the first one was taken out)
-  if (originAuto(out) !== auto) throw new Error('origin line not changed')
-  return out
-}
 
 // ---------------- the person asks for a skill ----------------
 
@@ -83,36 +63,24 @@ export function asksForSkill(message: string | null | undefined): boolean {
   return sentences(message).some((s) => !/[?？]$/u.test(s) && !NOT.test(s) && ASKS.some((re) => re.test(s)))
 }
 
-/** Does the message name the skill `name` ("weekly-sales-report", also as "weekly sales report")? */
-export function namesSkill(message: string | null | undefined, name: string): boolean {
-  if (!message) return false
-  const m = stripInvisible(message).normalize('NFKC').toLowerCase()
-  const n = name.normalize('NFKC').toLowerCase()
-  // as a word of its own, not inside a path or a longer name ("users/…/skills/weekly/SKILL.md" is no naming)
-  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return [n, n.replace(/-/g, ' ')].some((x) => new RegExp(`(?<![\\p{L}\\p{N}/_-])${esc(x)}(?![\\p{L}\\p{N}/_-])`, 'u').test(m))
-}
-
 // ---------------- the gate ----------------
 
-type Exec = Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templateRun' | 'autoMemoryPlace' | 'livePrincipal' | 'patchToolStep'>
+type Exec = Pick<TurnExec, 'rt' | 'spec' | 'shared' | 'restricted' | 'templateRun' | 'autoMemoryPlace' | 'livePrincipal' | 'patchToolStep' | 'askAlways' | 'files'>
 type Plan = { name: string; rel: string; change: 'saved' | 'fixed'; auto: boolean }
 const PLANS = new WeakMap<object, Plan>()
 
-/** Saved on its own (not asked) and allowed here, or a refusal for the AI; `asked`: the person's own words. */
-function placeOf(exec: Exec): { auto: boolean; message: string } | { refusal: string } {
+/** Allowed here (with whether the person explicitly asked and the switch is on), or a refusal for the AI. */
+function placeOf(exec: Exec): { asked: boolean; on: boolean } | { refusal: string } {
   const { rt, spec } = exec
   if (exec.restricted || exec.templateRun || !['web', 'desktop', 'mobile'].includes(spec.clientKind ?? '') || isGuestUser(rt.db, spec.userId))
     return { refusal: 'Nothing was saved: personal skills are saved only in the user\'s own chats in the app.' }
   // the places of auto memory hold for every save, asked or not: no ✦ side chat, confidential chat, scheduled run …
   if (!exec.autoMemoryPlace) return { refusal: 'Nothing was saved: personal skills are not saved in this chat. Do not try again here; the user can ask in their own chat.' }
   const message = withoutQuoteLines(rt.store.messageRow(askerMessageId(exec as TurnExec))?.content ?? '')
-  if (asksForSkill(message)) return { auto: false, message }
-  // the switch off: only an explicit request in the person's own words
-  if (!autoMemoryOn(rt.db, spec.userId))
-    return { refusal: 'Nothing was saved: the user keeps skills only when they ask for one in their own words (automatic saving is off). Do not try again unless they ask; do not mention this unless they ask about skills.' }
-  return { auto: true, message }
+  // asked: the one use of the person's words, getting past the switch when it is off (every other check still holds)
+  return { asked: asksForSkill(message), on: autoMemoryOn(rt.db, spec.userId) }
 }
+const OFF = 'Nothing was saved: the user keeps skills only when they ask for one in their own words (automatic saving is off). Do not try again unless they ask; do not mention this unless they ask about skills.'
 
 /** The same checks as a memory kept on its own (chat/tools.ts remember): only what the person said or what was learned
  * doing their task, never words, addresses or names from tool output or another person's message. */
@@ -146,7 +114,7 @@ function capReached(exec: Exec): string | null {
 /** The file tools' gate (chat/tools.ts beforeFileTool), before any card: a write, edit or edit_files into a person's own
  * skills folder. Returns the refusal, or null (not such a call, or allowed: the step is made after the save). A new
  * skill saved on its own gets `origin: auto` written into its header here (the call's own arguments). */
-export function beforeSkillWrite(exec: Exec, tool: string, args: unknown, main = true): string | null {
+export async function beforeSkillWrite(exec: Exec, tool: string, args: unknown, main = true): Promise<string | null> {
   if (!args || typeof args !== 'object') return null
   const a = args as Record<string, unknown>
   const { rt } = exec
@@ -167,23 +135,21 @@ export function beforeSkillWrite(exec: Exec, tool: string, args: unknown, main =
   if ('refusal' in place) return place.refusal
   let before: string | null = null
   try { before = r.exists ? fs.readFileSync(r.abs, 'utf8') : null } catch { before = null }
+  const theirs = before !== null && !originAuto(before)
+  // the switch: a new skill or a change to one the AI made needs it on, or the person's explicit ask; a change to the
+  // person's own skill asks on its card instead
+  if (!theirs && !place.on && !place.asked) return OFF
+  const auto = !place.asked
   let after: string
   if (tool === 'write') {
     if (typeof a.content !== 'string') return null
     // the origin: a new skill kept on its own is marked auto, one the person asked for is theirs; a change keeps it
-    after = withOrigin(a.content, before === null ? place.auto : originAuto(before))
+    after = withOrigin(a.content, before === null ? auto : originAuto(before))
     a.content = after
   } else {
     if (before === null || typeof a.old_string !== 'string' || typeof a.new_string !== 'string') return null
     after = editedText(before, a.old_string, a.new_string, a.replace_all === true)
     if (originAuto(after) !== originAuto(before)) return 'Nothing was changed: leave the skill\'s "origin" line as it is.'
-  }
-  // a skill the person wrote or asked for: changed only when their own message asks to change that very skill (names
-  // it, or it is the skill loaded for this answer), never on its own (review of #594)
-  if (before !== null && !originAuto(before)) {
-    const loaded = !!rt.db.query('SELECT 1 FROM turn_skill_runs WHERE turn_id = ? AND skill_path = ? AND source IN (\'command\', \'tool\')').get(exec.spec.turnId, r.rel)
-    if (place.auto || !(namesSkill(place.message, name) || loaded))
-      return `Nothing was changed: "${name}" is a skill the user wrote or asked for. Change it only when their own message asks to change that skill.`
   }
   const problem = personalSkillProblem(r.rel, Buffer.from(after, 'utf8'))
   if (problem) return problem
@@ -196,8 +162,38 @@ export function beforeSkillWrite(exec: Exec, tool: string, args: unknown, main =
   if (own) return own
   const cap = capReached(exec)
   if (cap) return cap
-  PLANS.set(args, { name, rel: r.rel, change: before === null ? 'saved' : 'fixed', auto: place.auto })
+  // a skill the AI did not make (the person wrote it or asked for it): only with the person's yes on the card, which
+  // shows the change; the yes is an approval for exactly these bytes (skills/guard.ts requireSkillApproval)
+  if (theirs) {
+    const no = await askOwnSkill(exec, 'change', [{ name, rel: r.rel, before: before!, after }])
+    if (no) return no
+    exec.files.skillApprovals.set(r.rel, sha256(Buffer.from(after, 'utf8')))
+  }
+  PLANS.set(args, { name, rel: r.rel, change: before === null ? 'saved' : 'fixed', auto })
   return null
+}
+
+/** The card for a change or a delete of the person's own skills that the AI did not make. null: yes. */
+async function askOwnSkill(exec: Exec, what: 'change' | 'delete', items: { name: string; rel: string; before: string; after?: string }[]): Promise<string | null> {
+  const L = exec.spec.locale
+  const names = items.map((i) => `"${i.name}"`).join(', ')
+  const one = items[0]!
+  const d = what === 'change' ? lineDiff(one.before, one.after ?? '') : lineDiff(one.before, '')
+  const req = {
+    kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+    question: tr(what === 'change' ? 'ownSkillChangeConfirm' : 'ownSkillDeleteConfirm', L, { names }),
+    options: [{ label: tr(what === 'change' ? 'ownSkillSave' : 'ownSkillDelete', L), value: 'save' }, { label: tr('ownSkillDont', L), value: 'skip' }],
+    multiple: false, allowText: false,
+    preview: { kind: 'skill_write', path: one.rel, isNew: false, skillName: one.name, diff: d.text, added: d.added, removed: d.removed, truncated: d.truncated },
+    expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+  } as TurnRequest & { options: { label: string; value: string }[] }
+  const { value, missing } = await exec.askAlways('skill_save', req, 'save', { label: 'cardAlwaysSkills' })
+  const picked = Array.isArray(value) && value.length === 1 ? value[0] : value
+  if (picked === 'save') return null
+  audit(exec.rt.db, { actor: exec.spec.userId, action: 'skills.ai_write_refused', target: one.rel, detail: { what, turnId: exec.spec.turnId, answer: missing ? 'none' : 'declined' } })
+  return missing
+    ? `Nothing was ${what === 'change' ? 'changed' : 'deleted'}: ${names} ${items.length === 1 ? 'is a skill' : 'are skills'} the user wrote or asked for, and their yes on the card did not come (${missing}). Do not try again unless they ask.`
+    : `The user did not allow ${what === 'change' ? 'changing' : 'deleting'} their skill ${names}, so nothing was ${what === 'change' ? 'changed' : 'deleted'}. Do not try again unless they ask.`
 }
 
 /** Is this the first skill the AI keeps on its own for the person (the step's one-time line)? Marks it seen. */
@@ -227,15 +223,15 @@ export function afterSkillWrite(exec: Exec, tool: string, args: unknown, isError
   exec.patchToolStep(tool, () => ({ label: tr(plan.change === 'saved' ? 'skillSaved' : 'skillFixed', spec.locale, { name: plan.name }), skill } as Partial<StoredStep>))
 }
 
-/** delete_files of skills the AI made on its own (`origin: auto`, the skill's folder holds only its SKILL.md): to the
- * trash with no card, each a step "스킬 지움: <name>" whose 되돌리기 restores it. null: not such a call (delete_files
- * itself goes on, and refuses skill folders). */
-export function deleteAutoSkills(exec: Exec, args: unknown): { text: string; isError?: boolean } | null {
+/** delete_files of the person's own skills (each folder holds only its SKILL.md), to the trash: one the AI made on its own
+ * (`origin: auto`) with no card, any other only after the person's yes on a card that names it. One step "스킬 지움:
+ * <names>" whose 되돌리기 restores every one. null: not such a call (delete_files itself goes on, and refuses skill folders). */
+export async function deletePersonalSkills(exec: Exec, args: unknown): Promise<{ text: string; isError?: boolean } | null> {
   const paths = (args as { paths?: unknown } | null)?.paths
   if (!Array.isArray(paths) || !paths.length) return null
   const { rt, spec } = exec
   const me = exec.livePrincipal()
-  const skills: { name: string; rel: string; dir: string }[] = []
+  const skills: { name: string; rel: string; dir: string; text: string; auto: boolean }[] = []
   for (const p of paths) {
     if (typeof p !== 'string') return null
     let r
@@ -246,23 +242,27 @@ export function deleteAutoSkills(exec: Exec, args: unknown): { text: string; isE
     const dir = path.join(rt.files.fx.root, ...rel.split('/').slice(0, -1))
     let text: string | null = null
     try { text = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8') } catch { return null }
-    if (!originAuto(text) || fs.readdirSync(dir).some((f) => f !== 'SKILL.md')) return null
-    skills.push({ name, rel, dir })
+    if (fs.readdirSync(dir).some((f) => f !== 'SKILL.md')) return null
+    skills.push({ name, rel, dir, text, auto: originAuto(text) })
   }
   const place = placeOf(exec)
   if ('refusal' in place) return { text: place.refusal, isError: true }
-  const done: string[] = [], trashIds: string[] = []
-  let capped: string | null = null
-  for (const s of skills) {
-    capped = capReached(exec)
-    if (capped) break
-    trashIds.push(rt.files.deleteFile(spec.userId, s.rel, spec.turnId))
-    try { fs.rmdirSync(s.dir) } catch { /* not empty: it stays */ }
-    audit(rt.db, { actor: spec.userId, action: 'skill.auto_delete', target: s.rel, detail: { auto: place.auto, turnId: spec.turnId } })
-    done.push(s.name)
+  if (skills.some((x) => x.auto) && !place.on && !place.asked) return { text: OFF, isError: true }
+  const capped = capReached(exec)
+  if (capped) return { text: capped, isError: true }
+  const own = skills.filter((x) => !x.auto)
+  if (own.length) {
+    const no = await askOwnSkill(exec, 'delete', own.map((x) => ({ name: x.name, rel: x.rel, before: x.text })))
+    if (no) return { text: no, isError: true }
   }
-  // one step for the call, with every trash item: its 되돌리기 brings all of them back (review of #594)
-  if (done.length) exec.patchToolStep('delete_files', () => ({ label: tr('skillDeleted', spec.locale, { name: done.join(', ') }), skill: { name: done.join(', ').slice(0, 200), path: skills[0]!.rel, change: 'deleted', trashIds } } as Partial<StoredStep>))
-  if (capped) return { text: capped + (done.length ? ` Deleted already: ${done.join(', ')}.` : ''), isError: true }
+  const done: string[] = [], trashIds: string[] = []
+  for (const x of skills) {
+    trashIds.push(rt.files.deleteFile(spec.userId, x.rel, spec.turnId))
+    try { fs.rmdirSync(x.dir) } catch { /* not empty: it stays */ }
+    audit(rt.db, { actor: spec.userId, action: 'skill.auto_delete', target: x.rel, detail: { auto: x.auto && !place.asked, turnId: spec.turnId } })
+    done.push(x.name)
+  }
+  // one step for the call, with every trash item: its 되돌리기 brings all of them back
+  exec.patchToolStep('delete_files', () => ({ label: tr('skillDeleted', spec.locale, { name: done.join(', ') }), skill: { name: done.join(', ').slice(0, 200), path: skills[0]!.rel, change: 'deleted', trashIds } } as Partial<StoredStep>))
   return { text: `Deleted the user's own skill${done.length === 1 ? '' : 's'} ${done.map((n) => `"${n}"`).join(', ')} (in the trash; the step under your answer can undo it).` }
 }

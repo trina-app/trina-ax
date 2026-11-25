@@ -5,11 +5,11 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API } from '@mycel/shared/api'
+import { API, type Step } from '@mycel/shared/api'
 import { localizeStep } from '@mycel/shared'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { personalSkillProblem } from '../../server/src/skills/personal-guard'
-import { asksForSkill, AUTO_SKILLS_PER_ANSWER, namesSkill, originAuto, withOrigin } from '../../server/src/chat/personal-skills'
+import { asksForSkill, AUTO_SKILLS_PER_ANSWER, originAuto, withOrigin } from '../../server/src/chat/personal-skills'
 import { inAnySkills } from '../../server/src/skills/guard'
 import { autoSkillRule, promiseRule } from '../../server/src/chat/prompt'
 
@@ -59,6 +59,12 @@ describe('the guard and the origin line', () => {
     const off = withOrigin(twice, false)
     expect(originAuto(off)).toBe(false)
     expect(off).not.toContain('origin')
+    // a CRLF file keeps CRLF after the line goes
+    const crlf = withOrigin(md('weekly', STEPS).replace(/\n/g, '\r\n'), true)
+    expect(originAuto(crlf)).toBe(true)
+    const back = withOrigin(crlf, false)
+    expect(originAuto(back)).toBe(false)
+    expect(back.replace(/\r\n/g, '')).not.toContain('\n')
   })
   test('the person asks for a skill: six languages; questions and refusals do not count', () => {
     for (const t of ['이거 스킬로 저장해 줘', '주간 보고 스킬 지워 줘.', 'Save this as a skill', 'これをスキルにして保存して', '把这个保存为技能', 'guarda esto como habilidad', 'simpan ini sebagai skill'])
@@ -67,13 +73,11 @@ describe('the guard and the origin line', () => {
       // review of #594: mentioning skills is not asking for one
       'Tell me how to add skills in Claude.', 'I read about skills yesterday and want to make a report.', '스킬이 뭐야. 보고서 만들어 줘', 'Claude のスキルについて教えて', 'update the report, skills are confusing'])
       expect([t, asksForSkill(t)]).toEqual([t, false])
-    expect(namesSkill('please fix my weekly sales report skill', 'weekly-sales-report')).toBe(true)
-    expect(namesSkill('fix the skill', 'weekly-sales-report')).toBe(false)
   })
   test('the rule and the step words', () => {
     const rule = autoSkillRule('users/alice/skills')
     expect(rule).toContain('One thing goes to one of them, never both')
-    expect(rule).toContain('A skill the user wrote or asked for is changed only when their own message names it')
+    expect(rule).toContain('A skill you did not make: change or delete it only with the user\'s OK on the card')
     expect(promiseRule(true)).toContain('or a personal skill was saved')
     expect(localizeStep({ kind: 'tool', tool: 'write', label: 'Saved skill: weekly' }, 'ko').label).toBe('스킬 저장함: weekly')
     expect(localizeStep({ kind: 'tool', tool: 'edit', label: '스킬 고침: weekly' }, 'en').label).toBe('Skill updated: weekly')
@@ -116,7 +120,27 @@ const clean = () => {
   db().query("DELETE FROM audit_log WHERE action IN ('skill.auto_save', 'skill.auto_delete')").run()
 }
 const write = (name: string, body = STEPS) => ({ tool: 'write', args: { file_path: rel(name), content: md(name, body) }, sayResult: true })
-const steps = (r: Awaited<ReturnType<typeof ask>>, tool: string) => r.done.steps.filter((s) => s.tool === tool)
+const steps = (r: { done: { steps: Step[] } }, tool: string) => r.done.steps.filter((s) => s.tool === tool)
+type Ask = { requestId: string; question: string; options?: { value: string }[]; preview?: { diff?: string } }
+/** one answer; every card answered with `answer` ('save' or 'skip'); the cards and the answer */
+async function run(content: string, answer: 'save' | 'skip') {
+  const r = await h.api('alice').call(API.sendMessage, { params: { id: await newChat() }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+  const cards: Ask[] = []
+  const end = Date.now() + 30_000
+  for (;;) {
+    const f = alice.frames.find((x) => x.type === 'turn.request' && x.data.turnId === r.turnId && x.data.request.kind === 'ask_user' && !cards.some((c) => c.requestId === x.data.request.requestId))
+    if (f && f.type === 'turn.request') {
+      const c = f.data.request as unknown as Ask
+      cards.push(c)
+      await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer } })
+      continue
+    }
+    const done = alice.frames.find((x) => x.type === 'message.done' && x.data.message.turnId === r.turnId)
+    if (done && done.type === 'message.done') return { cards, done: done.data.message }
+    if (Date.now() > end) throw new Error('turn did not end')
+    await Bun.sleep(25)
+  }
+}
 
 describe('in a turn', () => {
   test('kept on its own: the server marks it origin: auto; the step says so, with what undo needs and the one-time line', async () => {
@@ -173,7 +197,7 @@ describe('in a turn', () => {
     expect(read('invoices')).toBeNull()
   })
 
-  test('an explicit ask keeps the checks: caps, own words, chat type; a person\'s skill only when the message names it', async () => {
+  test('an explicit ask keeps the checks: caps, own words, chat type', async () => {
     clean(); setPrefs({ autoMemory: 'off', autoSkillNotice: 'seen' })
     put('mine', md('mine', STEPS))
     const edit = [{ tool: 'read', args: { file_path: rel('mine') } }, { tool: 'edit', args: { file_path: rel('mine'), old_string: 'Send it to Mina by mail.', new_string: 'Send it to Mina in the chat.' }, sayResult: true }]
@@ -184,13 +208,6 @@ describe('in a turn', () => {
     // an explicit ask: still at most AUTO_SKILLS_PER_ANSWER per answer
     await ask(h, alice, 'alice', await newChat(), `Save these as skills please.\n${fake(write('one-kind'), write('two-kind'), write('three-kind'))}`)
     expect([read('one-kind') !== null, read('two-kind') !== null, read('three-kind') !== null]).toEqual([true, true, false])
-    // an ask that does not name the person's skill does not change it; one that names it does
-    clean(); put('mine', md('mine', STEPS))
-    const vague = await ask(h, alice, 'alice', await newChat(), `Please update the skill for me.\n${fake(...edit)}`)
-    expect(vague.done.content).toContain('a skill the user wrote or asked for')
-    expect(read('mine')).toContain('by mail')
-    await ask(h, alice, 'alice', await newChat(), `Please update my mine skill.\n${fake(...edit)}`)
-    expect(read('mine')).toContain('in the chat')
     // an ask still does not save from tool output, nor in a confidential chat
     await ask(h, alice, 'alice', await newChat(), 'Save this page as a skill please.\n' + fake({ tool: 'read_page', args: {}, followResult: true }))
     expect(read('invoices')).toBeNull()
@@ -207,23 +224,44 @@ describe('in a turn', () => {
     expect([read('first-kind') !== null, read('second-kind') !== null, read('third-kind') !== null]).toEqual([true, true, false])
   })
 
-  test('a fix on its own: only a skill it made; the step keeps the version before for undo', async () => {
+  test('a fix: no card for a skill it made (the version before kept for undo); a card with the diff for the person\'s own', async () => {
     clean(); setPrefs({ autoSkillNotice: 'seen' })
-    put('mine', md('mine', STEPS))
     const edit = (name: string) => [{ tool: 'read', args: { file_path: rel(name) } }, { tool: 'edit', args: { file_path: rel(name), old_string: 'Send it to Mina by mail.', new_string: 'Send it to Mina in the sales chat.' }, sayResult: true }]
-    const no = await ask(h, alice, 'alice', await newChat(), fake(...edit('mine')))
-    expect(no.done.content).toContain('a skill the user wrote or asked for')
-    expect(read('mine')).toContain('by mail')
     await ask(h, alice, 'alice', await newChat(), fake(write('weekly')))
-    const ok = await ask(h, alice, 'alice', await newChat(), fake(...edit('weekly')))
+    const ok = await run(fake(...edit('weekly')), 'skip')
+    expect(ok.cards).toHaveLength(0)
     expect(read('weekly')).toContain('in the sales chat')
     expect(originAuto(read('weekly'))).toBe(true)
     const st = steps(ok, 'edit')[0]!
     expect(st.label).toBe('Skill updated: weekly')
-    expect(st.skill).toMatchObject({ change: 'fixed', path: rel('weekly') })
-    // 되돌리기: the file route people have restores the version before
     await h.api('alice').call(API.restoreVersion, { body: { path: rel('weekly'), versionId: st.skill!.versionId! } })
     expect(read('weekly')).toContain('by mail')
+    // the person's own skill, the switch on and nothing asked: the card, with the change; a no changes nothing
+    put('mine', md('mine', STEPS))
+    const no = await run(fake(...edit('mine')), 'skip')
+    expect(no.cards).toHaveLength(1)
+    expect(no.cards[0]!.question).toContain('"mine"')
+    expect(no.cards[0]!.preview?.diff).toContain('in the sales chat')
+    expect(read('mine')).toContain('by mail')
+    const yes = await run(fake(...edit('mine')), 'save')
+    expect(yes.cards).toHaveLength(1)
+    expect(read('mine')).toContain('in the sales chat')
+    expect(originAuto(read('mine'))).toBe(false)
+  })
+
+  test('a person\'s own skill always asks: also on an explicit ask that mentions it, and for a common-word name', async () => {
+    clean(); setPrefs({ autoMemory: 'off', autoSkillNotice: 'seen' })
+    // review of #594: "Save this as a new skill. I liked the weekly sales report" edited weekly-sales-report
+    put('weekly-sales-report', md('weekly-sales-report', STEPS))
+    const edit = (name: string) => [{ tool: 'read', args: { file_path: rel(name) } }, { tool: 'edit', args: { file_path: rel(name), old_string: 'Send it to Mina by mail.', new_string: 'Send it to Mina in the chat.' }, sayResult: true }]
+    const r = await run(`Save this as a new skill. I liked the weekly sales report\n${fake(...edit('weekly-sales-report'))}`, 'skip')
+    expect(r.cards).toHaveLength(1)
+    expect(read('weekly-sales-report')).toContain('by mail')
+    put('report', md('report', STEPS))
+    const c = await run(`Please update my report skill.\n${fake(...edit('report'))}`, 'skip')
+    expect(c.cards).toHaveLength(1)
+    expect(read('report')).toContain('by mail')
+    setPrefs({ autoSkillNotice: 'seen' })
   })
 
   test('delete on its own: a skill it made goes to the trash with no card; undo brings it back; the person\'s own stays', async () => {
@@ -241,9 +279,16 @@ describe('in a turn', () => {
     for (const id of st.skill!.trashIds!) await h.api('alice').call(API.restoreTrash, { params: { id } })
     expect(originAuto(read('old-kind'))).toBe(true)
     expect(originAuto(read('older-kind'))).toBe(true)
+    // the person's own skill: a card names it; a no keeps it, a yes trashes it (with the switch on and on an ask)
     put('mine', md('mine', STEPS))
-    await ask(h, alice, 'alice', await newChat(), fake({ tool: 'delete_files', args: { paths: ['users/alice/skills/mine'] }, sayResult: true }))
+    const del = fake({ tool: 'delete_files', args: { paths: ['users/alice/skills/mine'] }, sayResult: true })
+    const kept = await run(del, 'skip')
+    expect(kept.cards).toHaveLength(1)
+    expect(kept.cards[0]!.question).toContain('"mine"')
     expect(read('mine')).not.toBeNull()
+    const gone = await run(`Delete my mine skill please.\n${del}`, 'save')
+    expect(gone.cards).toHaveLength(1)
+    expect(read('mine')).toBeNull()
   })
 
   test('the instructions carry the rule while auto memory is on', async () => {

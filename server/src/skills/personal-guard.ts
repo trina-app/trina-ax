@@ -29,3 +29,32 @@ export function personalSkillProblem(rel: string, data: Uint8Array | null): stri
   if (secretIn(text)) return 'Nothing was saved: it holds a password, key, token, card number or code. Skills are plain text, so secrets never go in one; keys belong in Settings › Connections.'
   return null
 }
+
+// ---------------- origin: auto (in the header's metadata) ----------------
+
+const HEADER = /^(\uFEFF?---\r?\n)([\s\S]*?)(\r?\n---[ \t]*(?:\r?\n|$))/
+export const ORIGIN_LINE = /^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*\r?$/m
+
+/** The skill was made by the AI on its own: `metadata:` holds `origin: auto`. */
+export function originAuto(text: string | null): boolean {
+  const h = text ? HEADER.exec(text) : null
+  if (!h) return false
+  const meta = /^metadata:[ \t]*\r?\n((?:[ \t]+.*(?:\r?\n|$))*)/m.exec(h[2]!)
+  return !!meta && ORIGIN_LINE.test(meta[1]!)
+}
+
+/** `text` with `origin: auto` in its metadata (`auto`) or without it. Text without a header stays as it is. */
+export function withOrigin(text: string, auto: boolean): string {
+  const h = HEADER.exec(text)
+  if (!h || originAuto(text) === auto) return text
+  let head = h[2]!
+  if (auto) head = /^metadata:[ \t]*$/m.test(head) ? head.replace(/^metadata:[ \t]*$/m, 'metadata:\n  origin: auto') : `${head}\nmetadata:\n  origin: auto`
+  else head = head.replace(/^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*(?:\r?\n|$)/gm, '').replace(/^metadata:[ \t]*\r?\n(?![ \t])/gm, '').replace(/\r?\nmetadata:[ \t]*$/, '').replace(/\n+$/, '')
+  // (a CRLF file keeps CRLF: the lines put back together use its own line ending)
+  const nl = h[1]!.endsWith('\r\n') ? '\r\n' : '\n'
+  if (nl === '\r\n') head = head.replace(/\r?\n/g, '\r\n')
+  const out = h[1] + head + h[3] + text.slice(h[0].length)
+  // every origin line is gone (review of #594: only the first one was taken out)
+  if (originAuto(out) !== auto) throw new Error('origin line not changed')
+  return out
+}
