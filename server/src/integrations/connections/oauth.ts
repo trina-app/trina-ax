@@ -10,7 +10,7 @@
 // (clientMetadata, metadataClient). A service that refuses those too but takes an app on the person's computer (Canva,
 // Intercom, Square: RFC 8252's 127.0.0.1 return address) is signed in at from the desktop app (loopbackClient).
 // preflight opens the sign-in address once to see a clear refusal before the browser does.
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, type ServerApp } from '@mycel/shared'
 import { checkHostName } from '../../tools/web-fetch'
 import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
 
@@ -25,16 +25,17 @@ export interface OAuthTokens { accessToken: string; refreshToken: string | null;
  * for an HTTP API, which has none. */
 export interface OAuthSecret {
   type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens
-  /** signed in through the server's GitHub App (service.ts serverApp): refreshed with that app as it is now */
-  serverApp?: 'github'
+  /** signed in through an app the server holds (service.ts serverApp: GitHub's, Microsoft's): refreshed with that app
+   * as it is now */
+  serverApp?: ServerApp
 }
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
  * first sign-in that worked found from the server, where its secret may go (service.ts pinFound). clientSecret: null
  * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
-  /** not an app anyone set on the connection but the server's GitHub App (service.ts serverApp) */
-  serverApp?: 'github'
+  /** not an app anyone set on the connection but one the server holds (service.ts serverApp) */
+  serverApp?: ServerApp
   /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
    * (a template's: a sign-in through it finishes only on the template as it was when it started) */
   stored: { json: string; enc: string | null; version: number }
@@ -355,7 +356,9 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   // user access tokens", "Troubleshooting OAuth app access token request errors"): read as the standard ones
   const error = typeof j?.error === 'string' ? GITHUB_GRANT_ERRORS[j.error] ?? j.error : null
   if (r.status !== 200 || !j || error) {
-    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client') throw new GrantError(error)
+    // Entra (Microsoft) asks the person again with interaction_required or consent_required (a new MFA rule, a consent
+    // an admin took back): only a new sign-in fixes it
+    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client' || error === 'interaction_required' || error === 'consent_required') throw new GrantError(error)
     throw new NetError('oauth_failed')
   }
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null

@@ -31,6 +31,8 @@ const LOGOS: Record<CatalogServiceId, string> = {
   cloudinary: 'cloudinary.svg',
   github: 'github.svg',
   gitlab: 'gitlab.svg',
+  // Microsoft's four-square mark, drawn here (four flat squares in Microsoft's colours)
+  microsoft365: 'microsoft365.svg',
   indeed: 'indeed.svg',
   intercom: 'intercom.svg',
   mermaid: 'mermaid.svg',
@@ -61,6 +63,14 @@ export const CONNECTORS = SERVICE_CATALOG.map((c) => ({ ...c, logo: LOGOS[c.id] 
 export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
+
+/** A listed service that signs in through an app the server holds (GitHub, Microsoft 365) on a server that holds none
+ * (the list says `ready: false`; an older server says nothing: as before): it cannot be connected yet. */
+export function serverAppMissing(c: Pick<Connector, 'id'>, list: { github?: { ready: boolean }; microsoft?: { ready: boolean } } | null | undefined): boolean {
+  if (c.id === 'github') return list?.github?.ready === false
+  if (c.id === 'microsoft365') return list?.microsoft?.ready === false
+  return false
+}
 
 /** How a listed service connects: a sign-in at the service (OAuth) or a key. Every listed one signs in today
  * (shared/src/service-catalog.ts CATALOG_AUTH); the words about it follow this, never "a key" for a sign-in (QA TC-2313). */
@@ -107,6 +117,13 @@ export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
       'run_secret_scanning', 'search_code', 'search_commits', 'search_issues', 'search_pull_requests', 'search_repositories', 'search_users',
       'sub_issue_write', 'ui_get', 'update_issue_comment', 'update_pull_request', 'update_pull_request_branch',
     ],
+  },
+  // no `tools`: its tools are this server's own over Microsoft Graph (server/src/integrations/microsoft/mcp-server.ts),
+  // not a list Microsoft publishes, and a tool list here is the service's own (web/test/unit/connector-docs.test.ts)
+  microsoft365: {
+    privacy: 'https://privacy.microsoft.com/privacystatement',
+    terms: 'https://www.microsoft.com/servicesagreement',
+    docs: 'https://learn.microsoft.com/graph/overview',
   },
   notion: {
     privacy: 'https://www.notion.com/trust/privacy-policy',
