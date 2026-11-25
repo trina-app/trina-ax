@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 09:20
 - Branch: `fix/docs-no-web-fetch-card`
-- Status: in progress
+- Status: done
 - Where: server/src/docs-help/, server/src/tools/url-gate.ts. Why: the docs tool and the web address card live there
   (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a fix to how an existing tool answers; no new feature, setting or API.
@@ -49,4 +49,16 @@ can ride in the path or query). No migration. No UI text.
 
 ## Result
 
-(at the end)
+Built as planned (url-gate rule ①e, `isDocsPage` over the help index's page addresses, the result and rule wording).
+
+Real AI on two local servers (this Mac's Claude sign-in, the ai-scenarios fixture, person 이소라, every card declined
+as on qa), origin/dev (a6c9e644c) against this branch, 16 doc questions each:
+
+| Set | origin/dev: web_fetch of the docs / cards | this branch: web_fetch / cards |
+|---|---|---|
+| 8 short questions (4 ko, 4 en: Slack, invite, schedule, Drive, guest, usage limit, folder share) | 0 / 0 | 0 / 0 |
+| 8 "step by step / from the docs" questions (4 ko, 4 en: Gmail blocked, AI account reconnect, Notion, Linux install, API key, Google Forms) | **8 / 8** | **0 / 0** |
+
+On origin/dev, after the declined card the answers of the second set were short (61–303 characters, 2 of 8 with the
+link); on this branch they were full answers from the docs (481–2,153 characters, 8 of 8 with the link). The one other
+card on origin/dev (the schedule question: the AI started making a scheduled task) is not an address card.

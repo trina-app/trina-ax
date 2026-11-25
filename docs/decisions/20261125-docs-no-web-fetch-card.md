@@ -26,5 +26,8 @@
   file has an empty list.
 - **Left out:** trusting the whole host or all of trina.app (the owner's ask was the docs page only); adding the
   docs tool's links to the chat's learned links (they would still spend the link budget and could still ask).
+- **Measured** (real AI, local servers, every card declined; plan's Result): 8 "step by step / from the docs" questions
+  in Korean and English: origin/dev fetched the docs page and raised the card in 8 of 8; with the wording 0 of 8, and
+  the answers were full with the link. 8 short questions: 0 on both.
 - **Tests:** tests/unit/docs-web-fetch.test.ts.
 - **Version impact:** patch (a fix to how an existing tool answers; no new setting or API).
