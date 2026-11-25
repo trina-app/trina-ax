@@ -152,9 +152,11 @@ describe('an explicit "save it" (docs/decisions/20261116-room-link-save-one-prom
     const over = await run('alice', chat, `회의록 저장해줘\n${fake(write(`${dir}/old-${tag}.md`, 'new\n'), { say: 'x' })}`)
     expect(over.cards).toHaveLength(1)
     expect(read(`${dir}/old-${tag}.md`)).toBe('old\n')
-    // a skill: the card
+    // a skill: a side chat never saves a personal skill on its own (docs/decisions/20261125-auto-personal-skills.md):
+    // refused by the server guard, no card, nothing written
     const skill = await run('alice', chat, `save it\n${fake(write(`users/alice/skills/s-${tag}/SKILL.md`, '---\nname: s\ndescription: x\n---\nx\n'), { say: 'x' })}`)
-    expect(skill.cards).toHaveLength(1)
+    expect(skill.cards).toHaveLength(0)
+    expect(exists(`users/alice/skills/s-${tag}/SKILL.md`)).toBe(false)
     // "don't save" is no save
     const not = await run('alice', chat, `저장하지 말고 요약만 해줘\n${fake(write(`${dir}/not-${tag}.md`, 'x\n'), { say: 'x' })}`)
     expect(not.cards).toHaveLength(1)
@@ -193,14 +195,15 @@ describe('my own folder after a room read', () => {
     await send('erin', roomId, `please tidy up\n${fake(write(`${dir}/planted-${tag}.md`, body), { tool: 'read', args: { file_path: mine } }, write(mine, 'PWNED BY ERIN\n'), ...targets.map((t) => write(t, body)))}`)
     const chat = await sideChat('alice', roomId)
     const r = await run('alice', chat, `방 요약해줘\n${fake(roomRead(roomId, { followResult: true }), { say: 'summary' })}`)
-    // one card each, every one declined: nothing written
-    expect(r.cards).toHaveLength(5)
+    // one card each, every one declined: nothing written. A personal skill gets no card: a side chat never saves one on
+    // its own (the server guard refuses it, docs/decisions/20261125-auto-personal-skills.md)
+    expect(r.cards).toHaveLength(4)
     // the team folder's card is the room card's (every member may write there): it offers the room's grant
     expect(r.cards[0]!.question).toContain(`${W(dir)}: planted-${tag}.md`)
     expect(values(r.cards[0]!)).toEqual(['allow', '__always', 'skip'])
     expect(said(r.cards[1]!)).toContain(W(mine))
     // (an .attachments file's row says only "Attachments" since #337: flagged to the batch review)
-    targets.forEach((t, i) => expect(said(r.cards[i + 2]!)).toContain(t.includes('/.attachments/') ? 'Attachments' : W(t)))
+    targets.filter((t) => !t.includes('/skills/')).forEach((t, i) => expect(said(r.cards[i + 2]!)).toContain(t.includes('/.attachments/') ? 'Attachments' : W(t)))
     expect(read(mine)).toBe('mine\n')
     for (const t of [...targets, `${dir}/planted-${tag}.md`]) expect(exists(t)).toBe(false)
     expect(labels(r.done, 'write').some((l) => l.endsWith(OWN))).toBe(false)
