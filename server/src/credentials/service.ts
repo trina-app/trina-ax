@@ -3,7 +3,7 @@
 // connections (adding and replacing need no password: every kind has a fixed provider address); admins see and re-check; a member manages only
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
-import type { CheckCredentialResponse, Credential, CredentialAssignment, CredentialKind, DuplicateCredentialParams, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
+import type { CheckCredentialResponse, CheckWhy, Credential, CredentialAssignment, CredentialKind, DuplicateCredentialParams, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
 import { anthropicGateway, gatewayHost } from '../app-config'
 import { audit } from '../admin/audit'
 import { setSetting } from '../admin/settings'
@@ -17,7 +17,7 @@ import {
   ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, CLEAR_REFUSAL, fingerprintOf, getRow, listRows, mainSecret, markInvalid, markRecovered, metaOf, NO_CREDIT, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
-import { formatProblem, verifySecret } from './validate'
+import { checkWhy, formatProblem, verifySecret } from './validate'
 import { ensureFresh } from './chatgpt-tokens'
 import { checkOnce } from './confirm'
 import { forgetSignIn, recordSignIn } from '../auth/team-sign-ins'
@@ -311,10 +311,12 @@ export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwn
 }
 
 /**
- * POST /api/admin/credentials/:id/check: ask the provider again (no tokens spent) and say what it found
+ * POST /api/admin/credentials/:id/check: ask the provider again (no tokens spent) and say what this check found
  * (CheckCredentialResponse.check): `ok`, `refused` (with the provider's message, or the state's line) or `unclear` (no
- * clear answer: busy, unreachable, a Claude 403 that is not about the account; nothing changed). A Claude account-level
- * 403 marks it (org_oauth_blocked / plan_ended) with the provider's answer, like a 401; it is never silent.
+ * clear answer: busy, unreachable, timed out, a Claude 403 that is not about the account; nothing changed). The outcome
+ * is this check's own answer, never the state the account had before (QA TC-9060: a refused account whose check could
+ * not reach the provider is `unclear`, not "still refused"). A Claude account-level 403 marks it (org_oauth_blocked /
+ * plan_ended) with the provider's answer, like a 401; it is never silent. `why` is the plain reason (validate.ts checkWhy).
  */
 export async function checkCredential(cc: CredCtx, id: string, actor: string, locale: Locale): Promise<CheckCredentialResponse> {
   const row = getRow(cc.db, id)
@@ -323,6 +325,7 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
   let upstreamStatus: number | null = null
   /** the provider's own words, for the reason */
   let said: string | null = null
+  let why: CheckWhy | null = null
   const now = new Date(cc.now()).toISOString()
   if (row.kind === 'chatgpt') {
     // a ChatGPT sign-in is checked by refreshing it: a refresh token the provider still takes
@@ -333,7 +336,11 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
       // refused with a 401 after its refresh: a refresh the provider takes now brings it back (the same rule as the
       // others' check). A plan without Codex (usage_not_included) stays: a refresh says nothing about the plan.
       if (row.status === 'invalid' && row.status_code === 'upstream_401') markRecovered(cc, id)
-    } else if (!f.permanent) said = f.reason
+    } else {
+      if (!f.permanent) said = f.reason
+      const http = /^http_(\d{3})$/.exec(f.reason)
+      why = checkWhy({ type: f.reason, status: http ? Number(http[1]) : null })
+    }
   } else if (!cc.allowedKinds.has(row.kind) || otherGateway(row, cc.allowedKinds)) {
     // off on this server (a Claude subscription token or an Anthropic key while the gateway is on): nothing is sent
   } else {
@@ -341,6 +348,7 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
     upstreamStatus = v.upstreamStatus
     said = v.error ? [v.error.type, v.error.message].filter(Boolean).join(': ') || null : null
     result = v.result === 'refused' || v.result === 'blocked' ? 'invalid' : v.result
+    if (v.result !== 'ok') why = checkWhy({ code: v.code, type: v.error?.type, message: v.error?.message, status: v.upstreamStatus, unreachable: v.unreachable })
     // an out-of-credit hold (store.ts NO_CREDIT) ends with it: the admin re-checks after adding credit, and a key that
     // is still out of credit is held again by its next request. Never left as a bare limit (rate_limited, the Codex
     // fallback). Other limits keep their end time. The saved answer of a refusal goes too.
@@ -350,12 +358,14 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
   }
   audit(cc.db, { actor, action: 'credential.check', target: id, detail: { result, upstreamStatus } })
   const c = toCredential(cc, getRow(cc.db, id)!, locale)
-  const refused = ['invalid', 'needs_reconnect', 'expired'].includes(c.state)
-  const outcome = refused ? 'refused' : result === 'ok' ? 'ok' : 'unclear'
+  const refusedNow = ['invalid', 'needs_reconnect', 'expired'].includes(c.state)
+  // refused: this check was refused, or it passed and the account still stays refused (a ChatGPT plan without Codex:
+  // a refresh says nothing about the plan). Any other answer (none, timeout, busy, an unclear 403) is unclear.
+  const outcome = result === 'invalid' || (result === 'ok' && refusedNow) ? 'refused' : result === 'ok' ? 'ok' : 'unclear'
   const reason = outcome === 'ok' ? null
     : outcome === 'refused' ? (said ?? c.detail)
     : (said ?? (upstreamStatus !== null ? `HTTP ${upstreamStatus}` : null))
-  return { ...c, check: { outcome, reason } }
+  return { ...c, check: { outcome, reason, why: outcome === 'ok' ? null : why } }
 }
 
 export function setMemberOwn(cc: CredCtx, on: boolean, actor: string) {

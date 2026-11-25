@@ -12,12 +12,14 @@ import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { checkOnce, confirmRefusal, PASSED_HOLD_MS, RECHECK_MAX, recheckDue, recheckRefused } from '../../server/src/credentials/confirm'
 import { recheckDelay } from '../../server/src/credentials/maintenance'
+import { checkCredential } from '../../server/src/credentials/service'
+import { checkWhy } from '../../server/src/credentials/validate'
 import { createBroker } from '../../server/src/credentials/broker'
 import { getRow, markInvalid, metaOf, toCredential } from '../../server/src/credentials/store'
 
 const env = makeEnv('a-cred-recheck')
 const up = 'http://127.0.0.1:9'
-type Answer = 'ok' | '401' | '403org' | '403region' | '503'
+type Answer = 'ok' | '401' | '403org' | '403region' | '503' | 'net' | 'timeout'
 let answers: Record<string, Answer> = {}
 const calls: { path: string; token: string }[] = []
 let gate: Promise<void> | null = null
@@ -33,6 +35,8 @@ const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => 
   if (a === '403org') return err(403, 'permission_error', 'OAuth authentication is currently not allowed for this organization.')
   if (a === '403region') return err(403, 'permission_error', 'Request not allowed')
   if (a === '503') return err(503, 'api_error', 'Overloaded')
+  if (a === 'net') throw new TypeError('fetch failed')
+  if (a === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError')
   return Response.json({ input_tokens: 3 })
 }) as typeof fetch
 let clock = Date.parse('2026-11-25T03:00:00Z')
@@ -238,5 +242,52 @@ describe('the background re-check of refused Claude subscriptions', () => {
     expect(recheckDelay(0.5)).toBe(6 * HOUR)
     const a = refused('usage_not_included')
     expect(recheckDue(t.cc, getRow(env.db, a.id)!, clock)).toBe(false)
+  })
+})
+
+describe('Check again says what this check learned (QA TC-9060, TC-9061)', () => {
+  test('a refused account whose check gets no answer (network error, timeout): unclear, never "still refused"; nothing changes', async () => {
+    for (const a of ['net', 'timeout'] as const) {
+      const r = refused('org_oauth_blocked')
+      env.db.query('UPDATE engine_credentials SET disabled = 0 WHERE id = ?').run(r.id)
+      const before = getRow(env.db, r.id)!
+      answers[r.tok] = a
+      const c = await checkCredential(t.cc, r.id, 'owner', 'ko')
+      expect(c.check).toEqual({ outcome: 'unclear', reason: null, why: 'unreachable' })
+      // the account stays as it was: still refused, the same code and saved answer
+      const after = getRow(env.db, r.id)!
+      expect(after.status).toBe('invalid')
+      expect(after.status_code).toBe('org_oauth_blocked')
+      expect(after.updated_at).toBe(before.updated_at)
+      expect(c.state).toBe('invalid')
+    }
+  })
+  test('a refused account whose check is busy (503): unclear with the plain reason; refused again (401): refused', async () => {
+    const r = refused('upstream_401')
+    env.db.query('UPDATE engine_credentials SET disabled = 0 WHERE id = ?').run(r.id)
+    answers[r.tok] = '503'
+    expect((await checkCredential(t.cc, r.id, 'owner', 'ko')).check).toMatchObject({ outcome: 'unclear', why: 'overloaded' })
+    answers[r.tok] = '401'
+    expect((await checkCredential(t.cc, r.id, 'owner', 'ko')).check).toMatchObject({ outcome: 'refused', why: 'authentication' })
+    answers[r.tok] = '403org'
+    expect((await checkCredential(t.cc, r.id, 'owner', 'ko')).check).toMatchObject({ outcome: 'refused', why: 'org_oauth_blocked' })
+    answers[r.tok] = 'ok'
+    expect((await checkCredential(t.cc, r.id, 'owner', 'ko')).check).toEqual({ outcome: 'ok', reason: null, why: null })
+  })
+  test('checkWhy: known provider error types, mark codes and HTTP statuses map to a plain reason; unknown ones to none', () => {
+    expect(checkWhy({ type: 'authentication_error', status: 401 })).toBe('authentication')
+    expect(checkWhy({ type: 'invalid_api_key', status: 401 })).toBe('authentication')
+    expect(checkWhy({ type: 'permission_error', status: 403 })).toBe('permission')
+    expect(checkWhy({ code: 'org_oauth_blocked', type: 'permission_error', status: 403 })).toBe('org_oauth_blocked')
+    expect(checkWhy({ code: 'plan_ended', type: 'permission_error', status: 403 })).toBe('plan_ended')
+    expect(checkWhy({ type: 'rate_limit_error', status: 429 })).toBe('rate_limited')
+    expect(checkWhy({ type: 'insufficient_quota', status: 429 })).toBe('usage_limit')
+    expect(checkWhy({ type: 'invalid_request_error', message: 'Your credit balance is too low', status: 400 })).toBe('usage_limit')
+    expect(checkWhy({ type: 'overloaded_error', status: 529 })).toBe('overloaded')
+    expect(checkWhy({ status: 502 })).toBe('overloaded')
+    expect(checkWhy({ type: 'network' })).toBe('unreachable')
+    expect(checkWhy({ status: null, unreachable: true })).toBe('unreachable')
+    expect(checkWhy({ status: null })).toBeNull()
+    expect(checkWhy({ type: 'not_found_error', status: 404 })).toBeNull()
   })
 })

@@ -217,12 +217,17 @@ describe('changing, checking, removing', () => {
       // refused (401): the provider's words are the reason and stay on the row
       answer = { [path]: 401 }; bodies = { [path]: err('authentication_error', 'OAuth token has been revoked.') }
       let r = await check()
-      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused', reason: 'authentication_error: OAuth token has been revoked.' } })
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused', reason: 'authentication_error: OAuth token has been revoked.', why: 'authentication' } })
       expect(r.providerError).toMatchObject({ status: 401, type: 'authentication_error', message: 'OAuth token has been revoked.' })
+      // still refused, but this check gets no clear answer (busy): unclear, never "still refused" (QA TC-9060)
+      answer = { [path]: 503 }; bodies = {}
+      r = await check()
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'unclear', reason: 'HTTP 503', why: 'overloaded' } })
+      expect(r.providerError).toMatchObject({ status: 401, type: 'authentication_error' })
       // connected: ok, the saved answer goes
       answer = {}; bodies = {}
       r = await check()
-      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'ok', reason: null }, providerError: null })
+      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'ok', reason: null, why: null }, providerError: null })
       expect(metaOf(getRow(h.ctx.db, id)!).refusal).toBeUndefined()
       // no clear answer (busy): nothing changes, try again later
       answer = { [path]: 503 }; bodies = {}
@@ -231,7 +236,7 @@ describe('changing, checking, removing', () => {
       // a Claude 403 about the account (its organization does not allow OAuth now): marked with its own code and words
       answer = { [path]: 403 }; bodies = { [path]: err('permission_error', 'OAuth authentication is currently not allowed for this organization.') }
       r = await check()
-      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused' } })
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused', why: 'org_oauth_blocked' } })
       expect(r.check.reason).toContain('not allowed for this organization')
       expect(r.detail).toMatch(/플랜이나 조직이 접속을 허용하지 않아요/)
       expect(getRow(h.ctx.db, id)!.status_code).toBe('org_oauth_blocked')
@@ -240,7 +245,7 @@ describe('changing, checking, removing', () => {
       await check()
       answer = { [path]: 403 }; bodies = { [path]: err('permission_error', 'Request not allowed') }
       r = await check()
-      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'unclear', reason: 'permission_error: Request not allowed' } })
+      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'unclear', reason: 'permission_error: Request not allowed', why: 'permission' } })
       expect(getRow(h.ctx.db, id)!.status).toBe('ok')
     } finally { answer = {}; bodies = {} }
   })

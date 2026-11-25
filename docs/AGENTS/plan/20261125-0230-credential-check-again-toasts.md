@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 02:30
 - Branch: `fix/credential-check-again-toasts`
-- Status: in progress
+- Status: done
 - Where: server/src/credentials, shared/src/api, web (admin AI providers, connectors). Why: QA TC-9060, TC-9061 on
   #559's "Check again" toasts (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: fixes wrong and untranslated toast text of an existing button; no new feature
@@ -59,4 +59,8 @@ web/test/unit/credential-check-again.test.tsx.
 
 ## Result
 
-(filled in at the end)
+Built as planned. `checkCredential` takes its outcome from this check's answer (`validate.ts` now flags an answer that
+never came as `unreachable`); `check.why` comes from `validate.ts checkWhy`. The web toast shows `credentials.why.*`
+(six languages) or the row's localized line; the provider's words only in the opened row. The connectors' toasts drop
+"See the list for the reason". The http-api page did not change (the endpoint summary is the same). PR: see the PR
+that links this plan.

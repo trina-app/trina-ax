@@ -88,7 +88,10 @@ export function useTeamCredentials() {
     if (!r) return
     const { check: found, ...row } = r
     update(row)
-    const reason = found?.reason ?? null
+    // the reason in the person's language (QA TC-9061): the known one, else the row's own line; the provider's own
+    // words (found.reason) stay in the opened row's details, never in the toast
+    const plain = found?.why ? t(`credentials.why.${found.why}` as MessageKey) : null
+    const reason = plain ?? (found?.outcome === 'refused' ? row.detail : null)
     if (!found || found.outcome === 'ok') toast({ level: 'success', text: t('credentials.checkResult.ok') })
     else if (found.outcome === 'refused') {
       // the owner and admins fix a team account here; a member's own is theirs to fix
