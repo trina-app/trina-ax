@@ -3764,6 +3764,7 @@ export const ko = {
   "integrations.field.scopeHint.given": "여러 개는 띄어 써요. 두 주소를 직접 넣었으니 비워 두면 범위를 요청하지 않아요.",
   "integrations.error.clientId": "Client ID를 넣어 주세요(띄어쓰기 없이).",
   "integrations.error.clientSecretAgain": "다른 주소로 옮기면 저장된 Client Secret은 따라가지 않아요. 다시 넣어 주세요.",
+  "integrations.error.clientSecret": "Client Secret을 넣어 주세요.",
   "integrations.error.scope": "권한 범위는 한 줄로, 2,000자까지 넣을 수 있어요.",
   'integrations.key.saved': '저장된 키 있음',
   'integrations.key.removing': '저장하면 키를 지워요.',

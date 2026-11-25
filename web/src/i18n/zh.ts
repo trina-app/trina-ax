@@ -3716,6 +3716,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.field.scopeHint.given": "多个之间用空格分隔。两个地址都已填写时不会自动查找：留空则不申请任何权限范围。",
   "integrations.error.clientId": "请输入Client ID（不含空格）。",
   "integrations.error.clientSecretAgain": "已保存的Client secret不会沿用到新地址。请重新输入。",
+  "integrations.error.clientSecret": "请输入Client secret。",
   "integrations.error.scope": "权限范围须为一行，最多2,000个字符。",
   "integrations.key.saved": "密钥已保存",
   "integrations.key.removing": "保存时将移除密钥。",

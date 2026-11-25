@@ -575,7 +575,9 @@ function ListedPage({ c }: { c: Connector }) {
   const noServerApp = (c.id === 'github' && list.data?.github?.ready === false) || teamApp
   const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
   const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
-  const notSetUp = noServerApp && !viaTemplate
+  // a team connection to it (any state) is the team's setup too: no "set it up" note for an admin then
+  const teamHas = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url))
+  const notSetUp = noServerApp && !viaTemplate && !teamHas
   const own = !!list.data?.personalAllowed && !noServerApp
   const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) && !viaTemplate ? c.id : null
   // connected: the connection's page (with two connections to it, the first; the other is its own row in the list)

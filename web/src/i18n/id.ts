@@ -3765,6 +3765,7 @@ export const id: Record<MessageKey, string> = {
   "integrations.field.scopeHint.given": "Pisahkan beberapa dengan spasi. Kedua alamat diisi, jadi tidak ada yang dicari: bila kosong, tidak ada cakupan yang diminta.",
   "integrations.error.clientId": "Masukkan client ID (tanpa spasi).",
   "integrations.error.clientSecretAgain": "Client secret yang tersimpan tidak ikut ke alamat baru. Masukkan lagi.",
+  "integrations.error.clientSecret": "Masukkan client secret.",
   "integrations.error.scope": "Cakupan berupa satu baris, paling banyak 2.000 karakter.",
   'integrations.key.saved': 'Kunci tersimpan',
   'integrations.key.removing': 'Kunci dihapus saat Anda menyimpan.',

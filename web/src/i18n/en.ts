@@ -3767,6 +3767,7 @@ export const en: Record<MessageKey, string> = {
   "integrations.field.scopeHint.given": "Separate several with spaces. With both addresses given, nothing is looked up: left empty, no scope is asked for.",
   "integrations.error.clientId": "Enter the client ID (no spaces).",
   "integrations.error.clientSecretAgain": "The saved client secret does not follow a new address. Enter it again.",
+  "integrations.error.clientSecret": "Enter the client secret.",
   "integrations.error.scope": "Scopes are one line of at most 2,000 characters.",
   'integrations.key.saved': 'Key saved',
   'integrations.key.removing': 'The key is removed when you save.',

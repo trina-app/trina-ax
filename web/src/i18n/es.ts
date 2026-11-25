@@ -3721,6 +3721,7 @@ export const es: Record<MessageKey, string> = {
   "integrations.field.scopeHint.given": "Separe varios con espacios. Con ambas direcciones indicadas no se busca nada: si lo deja vacío, no se pide ningún permiso.",
   "integrations.error.clientId": "Introduzca el ID de cliente (sin espacios).",
   "integrations.error.clientSecretAgain": "El secreto de cliente guardado no pasa a una dirección nueva. Introdúzcalo de nuevo.",
+  "integrations.error.clientSecret": "Introduzca el secreto de cliente.",
   "integrations.error.scope": "Los permisos son una línea de 2000 caracteres como máximo.",
   'integrations.key.saved': "Clave guardada",
   'integrations.key.removing': "La clave se eliminará al guardar.",

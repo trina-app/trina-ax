@@ -93,6 +93,8 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   // Admin's Add: the list of apps first; a picked one fills the form like one added from Discover
   const [picking, setPicking] = useState(!!choices && !connector && !existing && !template)
   const [picked, setPicked] = useState<Connector | undefined>()
+  // the "who" before a pick of an app that set it to template by itself (null: none did)
+  const autoTemplate = useRef<Who | null>(null)
   const [query, setQuery] = useState('')
   const conn = connector ?? picked
   // a listed service that signs in only through the team's own app (Asana, HubSpot, Box): its app up front, not optional
@@ -129,7 +131,11 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   const users = useAdminUsers(team)
   // a template takes no key: what is wrong with one is not this form's
   const checked = validate(f, existing, template ? { app: template.oauthClient, url: template.url } : undefined)
-  const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked
+  const errors0: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked
+  // these services sign in only through a confidential app: without its secret every member's sign-in would fail at the
+  // token exchange, so Save asks for it (a new connection or template: nothing is stored yet)
+  const errors: FormErrors = teamApp && f.method === 'oauth' && usesApp(f) && !f.clientSecret.trim() && !errors0.clientSecret
+    ? { ...errors0, clientSecret: 'integrations.error.clientSecret' } : errors0
   const phone = !!mobileApp()
   const dropped = dropsSecret(f, existing)
   const signInNext = !asTemplate && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)
@@ -161,8 +167,12 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
       const blank = { ...emptyForm('mcp', x.access), writePolicy: x.writePolicy }
       return c ? listedForm(blank, c) : blank
     })
-    // one that signs in only through the team's own app: as a template, so every member it is for signs in through it
-    if (c && connectorTeamApp(c) && team && !existing && !template) setWho('template')
+    // one that signs in only through the team's own app: as a template, so every member it is for signs in through it;
+    // picking another app after Back gives back the choice made before
+    if (team && !existing && !template) {
+      if (c && connectorTeamApp(c)) { if (autoTemplate.current === null) autoTemplate.current = who; setWho('template') }
+      else if (autoTemplate.current !== null) { setWho(autoTemplate.current); autoTemplate.current = null }
+    }
     setTouched({})
     setEdited({})
     setSubmitted(false)
