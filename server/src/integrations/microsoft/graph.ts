@@ -95,3 +95,22 @@ export class Graph {
 }
 
 export const isNetError = (e: unknown): e is NetError => e instanceof NetError
+
+/** bidi controls and zero-width characters: removed from a name Microsoft gives before it is shown */
+const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g
+/** a short name people can read: no control characters, no invisible ones, at most 320 characters */
+export function accountName(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.replace(INVISIBLE, '').trim()
+  return t && t.length <= 320 && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(t) ? t : null
+}
+
+/** The signed-in Microsoft account (one Graph call, `User.Read`, asked for at sign-in): its id (used when a sign-in's
+ * id_token did not name it, store.ts MicrosoftAccount), and what people read as the connection's account: its sign-in name (userPrincipalName), else
+ * its mail address, else its display name. */
+export async function microsoftMe(g: Graph): Promise<{ id: string | null; label: string | null }> {
+  const me = await g.call<{ id?: unknown; displayName?: unknown; mail?: unknown; userPrincipalName?: unknown }>({ path: '/me', query: { select: 'id,displayName,mail,userPrincipalName' } })
+  // a work or school account's id is its Entra object id, a GUID: lowercased, as the id_token's oid (oauth.ts idSubject)
+  const id = typeof me?.id === 'string' && /^[A-Za-z0-9._@:-]{1,128}$/.test(me.id) ? (/^[0-9a-f-]{36}$/i.test(me.id) ? me.id.toLowerCase() : me.id) : null
+  return { id, label: accountName(me?.userPrincipalName) ?? accountName(me?.mail) ?? accountName(me?.displayName) }
+}

@@ -104,6 +104,10 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
   have asked for it). So does every change in a chat that read something from outside, a mail included
   ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
+- A card for an event, a message or a spreadsheet that is there already names it first (its title or subject), read
+  with the app's own read tool on the same connection just before the card shows (`google-apps/names.ts`, at most
+  5 seconds, never when that read tool is turned off). The name goes only onto the card, never to the AI; when it
+  cannot be read the card shows the id. Docs cards show the document's id (no read names a document cheaply).
 - Rooms have no AI of their own (no "@트리나" since 2026-11-09). The ✦ side chat beside a room is a personal chat: it
   uses the asker's own Google apps like any personal chat, and an answer reaches the room only when the person sends
   it (**Send to a conversation**).
