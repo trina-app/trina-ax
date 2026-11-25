@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 03:07
 - Branch: `fix/google-apps-broker-default`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/integrations/google-drive/` + `shared/src/cloud-protocol/drive-broker.ts` (MIT contract);
   trina-cloud `src/drive-broker/` in a separate PR. Why: the gate is split between the team server (opt-in variable)
   and the control plane (manual operator registration); both halves must change.
@@ -107,4 +107,12 @@ CP: `tests/drive-broker.test.ts` (register cases), typecheck.
 
 ## Result
 
-(at the end)
+Built as planned on the team server: `selfInstalledDefault` + `selfOrigin`, the key route, `register` with back-off
+(1, 2, 4, 8, 16, then 30 minutes; status checks slow to the same pace while refused), contract additions, docs,
+decision `docs/decisions/20261125-google-broker-self-install-default.md`. Plan review (security) changes taken: the
+console keeps self-registration OFF by default (`CP_DRIVE_BROKER_SELF_REGISTER=0`) until the owner opens it (Google
+verification/CASA, shared 100-user cap); a replaced self row is kept disabled for revoke; self rows never take a slug; a
+key that became a hosted tenant's lets the team win; Slack ignores self rows in all three places; daily cap on new self
+rows; proof fetch with redirects refused, streamed 4 KB cap, one per host, 4 at once. The control plane side is a
+separate trina-cloud PR (fix/broker-self-register). Not done: a separate Google client for self-installed servers
+(owner's call) and a relay-registry shortcut for `<x>.trina.app` relay addresses (proof of address covers them).
