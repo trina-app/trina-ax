@@ -6219,6 +6219,7 @@ export const id: Record<MessageKey, string> = {
   'gapps.admin.driveAbout': "Setiap anggota menghubungkan Google Drive miliknya sendiri di halamannya di Pengaturan › Konektor, dan AI mencari serta membaca Docs, Sheets, Slides, dan PDF mereka di chat mereka. Anda juga bisa membagikan Drive dengan tim di bawah.",
   "gapps.admin.sameAsDrive": "Gunakan aplikasi Google yang sama dengan Google Drive",
   "gapps.admin.sameAsDriveLine": "Tidak ada lagi yang perlu diunggah. Anggota tetap masuk ke layanan ini secara terpisah.",
+  "gapps.admin.sameAsDriveRedirect": "Tambahkan juga alamat ini ke klien Google Drive di Google Cloud, di bagian 'Authorized redirect URIs'",
   "gapps.admin.sameAsDriveOn": "Menggunakan aplikasi Google yang sama dengan Google Drive.",
   "gapps.admin.apis": "Aktifkan ini di Google Cloud:",
   "gapps.admin.unsupported": "Server ini belum bisa menjalankannya.",
