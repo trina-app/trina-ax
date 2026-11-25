@@ -215,6 +215,8 @@ export class Integrations {
   private clients = new Map<string, McpClient>()
   /** an app on the computer: one client per connection, for the window and turn it was made for (local.ts) */
   private localClients = new Map<string, { key: string; client: McpClient }>()
+  /** the guide last saved per connection and version (keepInstructions) */
+  private instructionsKept = new Map<string, string>()
   private refreshes = new Map<string, Promise<string>>()
   private recent = new Map<string, string[]>()
   /** per sign-in server (issuer and registration address): 'desktop' when it refused every client for the https
@@ -405,9 +407,9 @@ export class Integrations {
       // the oldest waiting one makes room in the write's transaction: a write that fails (conflict) removes nothing
       if (startsWaiting) replaced = this.makeRoom(row.owner_user_id!, L)
       const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
-        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_dropped=CASE WHEN ? THEN 0 ELSE tools_dropped END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
+        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_dropped=CASE WHEN ? THEN 0 ELSE tools_dropped END, instructions=CASE WHEN ? THEN NULL ELSE instructions END, tools_updated_at=?, status=?, last_error=?, oauth_client=?, oauth_client_enc=?, oauth_client_key_version=?,
         version=version+1, updated_at=? WHERE id=? AND version=?`)
-        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0, moved ? 1 : 0,
+        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0, moved ? 1 : 0, moved ? 1 : 0,
           next.tools_updated_at, next.status, next.last_error, next.oauth_client ?? null, next.oauth_client_enc ?? null, next.oauth_client_key_version ?? 1, now, id, row.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setAccess(this.db, id, patch.access)
@@ -651,7 +653,7 @@ export class Integrations {
     const json = JSON.stringify(spec)
     if (json === row.local_app) return view(this.db, row, viewer, L)
     const now = iso(this.now())
-    const r = this.db.query(`UPDATE integrations SET local_app=?, tools_json='[]', tools_total=NULL, tools_total_more=0, tools_dropped=0, tools_updated_at=NULL, status='error', last_error='local_offline',
+    const r = this.db.query(`UPDATE integrations SET local_app=?, tools_json='[]', instructions=NULL, tools_total=NULL, tools_total_more=0, tools_dropped=0, tools_updated_at=NULL, status='error', last_error='local_offline',
       version=version+1, updated_at=? WHERE id=? AND version=?`).run(json, now, id, row.version)
     if (!r.changes) fail('conflict')
     this.dropClient(id)
@@ -1092,7 +1094,12 @@ export class Integrations {
     let renewed = false, refreshed = false
     for (;;) {
       const c = this.client(row, via)
-      try { return await fn(c) } catch (e) {
+      try {
+        const out = await fn(c)
+        // the service's own guide, as its session started (a check or a call): kept for the next answer's instructions
+        if (c.instructions !== null) this.keepInstructions(row, c.instructions)
+        return out
+      } catch (e) {
         const renew = e instanceof McpError && e.code === 'session_gone' && !renewed
         // a 403 that names its token invalid (RFC 6750 3.1) is a 401 by another number: refreshed the same way
         const refusedToken = e instanceof McpError && (e.code === 'unauthorized' || (e.code === 'forbidden' && e.refusal.error === 'invalid_token'))
@@ -1112,6 +1119,19 @@ export class Integrations {
         throw e
       }
     }
+  }
+
+  /** A connection's own guide for its tools as its server gave it now (mcp.ts instructionsOf): saved when it changed, for
+   * the version of the connection it was read from only (an edit since then reads it again). */
+  private keepInstructions(row: Row, text: string) {
+    // a local connection's client is made again for every answer: no write while nothing changed
+    // a text the hider could not check (WITHHELD) is no guide; a Google app's library speaks for all four apps
+    if (row.google_app || text === WITHHELD) return
+    const key = `${row.id}:${row.version}`
+    if (this.instructionsKept.get(key) === text) return
+    this.instructionsKept.set(key, text)
+    if (this.instructionsKept.size > 1000) this.instructionsKept.delete(this.instructionsKept.keys().next().value!)
+    this.db.query('UPDATE integrations SET instructions=? WHERE id=? AND version=? AND instructions IS NOT ?').run(text, row.id, row.version, text)
   }
 
   /** The connection this person may use now, for one call (checked on every call: people, rules and settings change). */

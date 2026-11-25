@@ -875,9 +875,9 @@ export function fileLaterSafe(exec: TurnExec, name: string, args: unknown): bool
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
  * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
  * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
-/** the integrations provider's tools that never wait after the answer: connection_result and find_tools
- * (integrations/connections/tools.ts CONNECTION_RESULT, FIND_TOOLS; pinned by tests/unit/b-late-card-answer.test.ts) */
-export const NOT_LATER: ReadonlySet<string> = new Set(['connection_result', 'find_tools'])
+/** the integrations provider's tools that never wait after the answer: connection_result, find_tools and service_guide
+ * (integrations/connections/tools.ts CONNECTION_RESULT, FIND_TOOLS, SERVICE_GUIDE; pinned by tests/unit/b-late-card-answer.test.ts) */
+export const NOT_LATER: ReadonlySet<string> = new Set(['connection_result', 'find_tools', 'service_guide'])
 
 export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown) => string | null): WidenOf | undefined {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null

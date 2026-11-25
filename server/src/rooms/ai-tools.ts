@@ -269,7 +269,7 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'delete_files', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'delete_files', 'who_can_open', 'find_tools', 'service_guide', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
   // they list names only and change nothing (chat/shared-with-me-tool.ts, chat/looking-at.ts)
   'shared_with_me', 'looking_at',
   // the folders the person can open, each with its access (chat/my-folders.ts): it changes nothing

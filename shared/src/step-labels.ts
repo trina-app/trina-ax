@@ -76,6 +76,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   trina_docs: t('도움말 찾기', 'Search the docs', 'Cari di dokumentasi', 'ヘルプを検索', 'Buscar en la documentación', '搜索帮助文档'),
   // the next part of a long answer of a connected service (server/src/integrations/connections/tools.ts)
   connection_result: t('이어서 읽기', 'Read on', 'Baca lanjutan', "続きを読む", "Seguir leyendo", "继续阅读"),
+  // a connected service's own guide for its tools (server/src/integrations/connections/tools.ts SERVICE_GUIDE)
+  service_guide: t('사용 안내 읽기', 'Read the guide', 'Baca panduan', "使い方を読む", "Leer la guía", "阅读使用说明"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
   set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat", "给对话命名"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar", "记住"),
@@ -473,6 +475,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
     case 'find_skills': case 'find_tools': case 'trina_docs': return `${verb} "${clip(a.query, 60)}"`
+    case 'service_guide': return a.service ? `${verb} · ${clip(a.service, 60)}` : verb!
     // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }

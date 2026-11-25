@@ -62,6 +62,8 @@ export class FakeServices {
   seen: Seen[] = []
   // MCP
   tools: any[] = DEFAULT_TOOLS()
+  /** the MCP server's own instructions in its initialize answer ("{token}" becomes the request's token); none when null */
+  instructions: string | null = null
   pageSize = 2
   /** tools/list pages on forever (a hostile or broken server): page n (from 0) has these tools and names a next one */
   endless: ((page: number) => unknown[]) | null = null
@@ -241,7 +243,8 @@ export class FakeServices {
     if (msg.method === 'initialize') {
       const sid = crypto.randomUUID()
       this.sessions.add(sid)
-      return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } } }, { 'mcp-session-id': sid })
+      const instructions = this.instructions === null ? {} : { instructions: this.instructions.replaceAll('{token}', auth.replace(/^Bearer\s+/i, '')) }
+      return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' }, ...instructions } }, { 'mcp-session-id': sid })
     }
     const sid = req.headers.get('mcp-session-id')
     if (!sid) return new Response('no session', { status: 400 })

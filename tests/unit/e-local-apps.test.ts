@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { LOCAL_APP_PRESETS, type LocalAppSpec, type LocalCall } from '@mycel/shared/api'
 import { t } from '../../desktop/src/common/i18n'
-import { ASIDE_PROFILES_DESCRIPTION, ASIDE_SIGNED_OUT, asideAccountList, asideProfilesIn, asideSessionId, asideToolsList, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideAccountLines, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { ASIDE_EXEC_SIGN_IN, ASIDE_PROFILE_ID_WORDS, ASIDE_PROFILES_DESCRIPTION, ASIDE_SIGNED_OUT, asideAccountList, asideProfilesIn, asideSessionId, asideToolsList, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideAccountLines, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -508,6 +508,78 @@ describe('Aside with several accounts, each with its own profiles', () => {
       expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-b' }))).toEqual(['ok as u0 in prof-b'])
       expect(h.mcpRuns()).toEqual([['mcp']])
       expect(h.spawned.some((a) => a[0] === 'host')).toBe(false)
+    } finally { h.done() }
+  })
+
+  test('Aside\'s own guide (`aside guide`) is its instructions, after the line that maps it to the tools; read once per process', async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aside-guide-')), 'guide.md')
+    fs.writeFileSync(file, '# Aside\nIn MCP, call browser_profiles, then pass its profileId as profile_id.')
+    const h = multi({ FAKE_ASIDE_GUIDE_FILE: file })
+    try {
+      const first = await h.init()
+      const ins = (first.message?.result as { instructions?: string }).instructions!
+      const note = LOCAL_APP_PRESETS.find((p) => p.id === 'aside')!.guide!.note
+      expect(ins.startsWith(note)).toBe(true)
+      expect(ins).toContain('pass its profileId as profile_id')
+      const again = await h.init()
+      expect((again.message?.result as { instructions?: string }).instructions).toBe(ins)
+      expect(h.spawned.filter((a) => a[0] === 'guide' || a[0] === '--help')).toEqual([['--help'], ['guide']])
+    } finally { h.done(); fs.rmSync(path.dirname(file), { recursive: true, force: true }) }
+  })
+
+  test('an Aside CLI without `guide`: its help is read, `guide` is never run, initialize as Aside gave it', async () => {
+    const h = multi()
+    try {
+      const r = await h.init()
+      expect(r.ok).toBe(true)
+      expect((r.message?.result as { instructions?: string }).instructions).toBeUndefined()
+      expect(h.spawned.some((a) => a[0] === 'guide')).toBe(false)
+      // not asked again for every client of the same process (tried again only after a while)
+      await h.init()
+      expect(h.spawned.filter((a) => a[0] === '--help')).toHaveLength(1)
+    } finally { h.done() }
+  })
+
+  test('repl and exec: profile_id says to choose it for the request\'s account, after Aside\'s own words', async () => {
+    const h = multi()
+    try {
+      await h.init()
+      const list = await h.call({ jsonrpc: '2.0', id: 'l1', method: 'tools/list' })
+      const tools = (list.message?.result as { tools: { name: string; inputSchema: { properties: Record<string, { description?: string }> } }[] }).tools
+      for (const name of ['repl', 'exec']) {
+        const d = tools.find((t) => t.name === name)!.inputSchema.properties.profile_id!.description!
+        expect(d.startsWith('Browser profile ID from browser_profiles.')).toBe(true)
+        expect(d.endsWith(ASIDE_PROFILE_ID_WORDS)).toBe(true)
+      }
+      // a tool without profile_id is as Aside gave it
+      expect(tools.find((t) => t.name === 'echo')!.inputSchema.properties.profile_id).toBeUndefined()
+    } finally { h.done() }
+  })
+
+  test('exec in a profile whose Aside account is not signed in: nothing ran, the AI is told to use repl there; profiles say which accounts are signed in', async () => {
+    const h = multi({ FAKE_ASIDE_EXEC_SIGN_IN: '1' })
+    try {
+      await h.init()
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; accountSignedIn?: boolean }[]
+      expect(profiles.map((p) => [p.profileId, p.accountSignedIn])).toEqual([['prof-a', true], ['prof-b', true], ['prof-c', false], ['prof-d', false]])
+      const r = h.texts(await h.tool('exec', { prompt: 'open the mail', profile_id: 'prof-c' }))
+      expect(r[0]).toBe('Sign in again before using built-in Aside models.')
+      expect(r).toContain(ASIDE_EXEC_SIGN_IN)
+      // repl in the same profile works
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-c' }))).toEqual(['ok as u1 in prof-c'])
+      // exec in a signed-in account's profile: as it was
+      expect(h.texts(await h.tool('exec', { prompt: 'x', profile_id: 'prof-a' }))[0]).toStartWith('{"session_id":"s-u0-')
+    } finally { h.done() }
+  })
+
+  test('one account that is not signed in: each profile says so (accountSignedIn false); signed in, Aside\'s list as it is', async () => {
+    const h = multi({ FAKE_ASIDE_PROFILES: JSON.stringify({ u0: PROFILES.u0 }), FAKE_ASIDE_SIGNED_IN: 'none', FAKE_ASIDE_EXEC_SIGN_IN: '1' })
+    try {
+      await h.init()
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; accountSignedIn?: boolean; account?: string }[]
+      expect(profiles.map((p) => [p.profileId, p.accountSignedIn])).toEqual([['prof-a', false], ['prof-b', false]])
+      expect(profiles.some((p) => 'account' in p)).toBe(false)
+      expect(h.texts(await h.tool('exec', { prompt: 'x' }))).toContain(ASIDE_EXEC_SIGN_IN)
     } finally { h.done() }
   })
 
