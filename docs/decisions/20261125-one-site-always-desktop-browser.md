@@ -31,8 +31,13 @@
   stays on that computer for that host only.
 - **Ports:** what the server sends holds on every port of that host or site, as the server's own site allowance does
   (it ignores the port). An answer given on the desktop card and kept only on that computer stays per host and port.
-- **An Always is never lost:** the app keeps an Always until a call's result carries it, so one answered after its
-  call ended, was stopped or ran out of time goes with the next call's result.
+- **An Always is never lost, and never someone else's:** the app keeps an Always (with who was signed in when it was
+  pressed) and sends it with every result of that person until a later call lists it as allowed (the server kept it),
+  or after 10 results (the server keeps none there, e.g. the team's switch is off). One answered after its call ended,
+  was stopped or ran out of time goes with the next result. A sign-out or another person's sign-in drops them all, and
+  an entry is never sent with another person's result.
+- **On this computer** an Always on a public site keeps both the host with its port and the named site, so it holds here
+  also where the server keeps nothing.
 - **Office addresses:** an office grant the person has for a host goes with every call to it, also when the server's
   own lookup does not see it as an office address (a name only the office network resolves).
 - **Not changed:** the desktop app still asks about every site nobody allowed (a redirect to another site, a link to a

@@ -3,7 +3,7 @@
 // computer goes back with the result. Pure parts (common/site-permissions.ts, common/browser-result.ts).
 import { describe, expect, test } from 'bun:test'
 import { SitePermissions } from '../../desktop/src/common/site-permissions'
-import { ALWAYS_BACK_MAX, toBrowserResult, withAlways } from '../../desktop/src/common/browser-result'
+import { ALWAYS_BACK_MAX, CARRY_TRIES, PendingAlways, toBrowserResult, withAlways } from '../../desktop/src/common/browser-result'
 import { BrowserResult } from '../../shared/src/api/browser'
 
 describe('allowForTurn: the server\'s allowed sites for one answer', () => {
@@ -76,5 +76,53 @@ describe('withAlways: what the person answered Always to goes back with the resu
     expect(r.ok).toBe(false)
     expect(r.error).toBeDefined()
     expect(r.always).toEqual({ sites: ['a.example'] })
+  })
+})
+
+describe('PendingAlways: an Always goes out once the server can keep it, and only for who pressed it', () => {
+  const base = toBrowserResult('c1', { content: [{ type: 'text', text: 'ok' }], isError: false })
+
+  test('a late Always, then a sign-out (reset): the next result carries nothing, also for the next person', () => {
+    const p = new PendingAlways()
+    p.add('site', 'stock.naver.com', 'alice')
+    p.clear() // resetForNewPerson
+    expect(withAlways(base, p.carry('bob')).always).toBeUndefined()
+    expect(withAlways(base, p.carry('alice')).always).toBeUndefined()
+  })
+
+  test('an entry of another person is dropped, never sent under the person signed in now', () => {
+    const p = new PendingAlways()
+    p.add('site', 'stock.naver.com', 'alice')
+    expect(withAlways(base, p.carry('bob')).always).toBeUndefined()
+    expect(p.size).toBe(0)
+    p.add('site', 'x.example', null)
+    expect(withAlways(base, p.carry(null)).always).toBeUndefined()
+  })
+
+  test('kept and sent again until a later call lists it (the server has it), or after CARRY_TRIES results', () => {
+    const p = new PendingAlways()
+    p.add('site', 'stock.naver.com:8443', 'alice')
+    p.add('private', '192.168.0.5:8080', 'alice')
+    expect(withAlways(base, p.carry('alice')).always).toEqual({ sites: ['stock.naver.com:8443'], office: ['192.168.0.5:8080'] })
+    // the result may not have reached the server: the next result carries it again
+    expect(withAlways(base, p.carry('alice')).always).toEqual({ sites: ['stock.naver.com:8443'], office: ['192.168.0.5:8080'] })
+    // the next call lists the site (the server kept naver.com) and the office host: confirmed, not sent again
+    p.confirmed(['naver.com'], ['192.168.0.5'])
+    expect(p.size).toBe(0)
+    const q = new PendingAlways()
+    q.add('site', 'a.example', 'alice')
+    for (let i = 0; i < CARRY_TRIES; i++) expect(withAlways(base, q.carry('alice')).always).toEqual({ sites: ['a.example'] })
+    expect(q.size).toBe(0)
+  })
+})
+
+describe('the app\'s own Always keeps the host with its port too', () => {
+  test('a saved naver.com:8443 answer holds on this computer even where the server keeps nothing', () => {
+    const p = new SitePermissions()
+    // as pane.grant does for an Always on a public site: the host with its port, and the named site
+    p.grant('site', 'naver.com:8443', 'always')
+    p.grant('site', 'naver.com', 'always')
+    expect(p.isAllowed('site', 'naver.com:8443')).toBe(true)
+    expect(p.isAllowed('site', 'news.naver.com')).toBe(true)
   })
 })

@@ -22,7 +22,7 @@ import { BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Sessio
 import { parseBrowserToolInput, type BrowserToolInput, type ParsedBrowserCall } from '@mycel/shared'
 import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
-import { errorResult, resultBytes, toBrowserResult, withAlways, type PaneContent, type PaneResult } from '../../common/browser-result'
+import { errorResult, PendingAlways, resultBytes, toBrowserResult, withAlways, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
 import { RepeatPromptHint, sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope, type SiteSettings } from '../../common/site-permissions'
 import { isNotice, type PaneActivity } from '../../common/pane-activity'
@@ -44,6 +44,8 @@ export interface PanePrompt {
   tool: string
   /** the third site question in a row: the card says where "Allow all websites" is (once per pane) */
   hint?: boolean
+  /** the site an Always keeps for the person (shared siteToKeep), named on the Always button; absent: this host only */
+  keepSite?: string
 }
 export type { PaneActivity } from '../../common/pane-activity'
 
@@ -194,7 +196,9 @@ export class BrowserPane {
   /** hosts the person answered "Always allow" to that the team server has not heard yet: they go with the next call's
    * result, so the server keeps them as the person's own allowance on every computer
    * (docs/decisions/20261125-one-site-always-desktop-browser.md) */
-  private pendingAlways: { site: Set<string>; private: Set<string> } = { site: new Set(), private: new Set() }
+  private pendingAlways = new PendingAlways()
+  /** the person signed in to the team page now (app-window.ts checkBrowserOwner): an Always belongs to who pressed it */
+  private owner: string | null = null
   /** office hosts let through for an allowed office page (net-guard.ts letThroughOffice) */
   readonly officeLetThrough = new Set<string>()
   readonly perms: SitePermissions
@@ -319,7 +323,7 @@ export class BrowserPane {
   }
 
   private emitPrompts() {
-    this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool, hint }) => ({ id, scope, host, url, tool, ...(hint ? { hint } : {}) })))
+    this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool, hint, keepSite }) => ({ id, scope, host, url, tool, ...(hint ? { hint } : {}), ...(keepSite ? { keepSite } : {}) })))
   }
 
   /** The toolbar's page loaded again (app-window.ts): the questions waiting for the person are told once more. */
@@ -637,6 +641,9 @@ export class BrowserPane {
     this.resultBytesKept = 0
     this.repeatHint = new RepeatPromptHint()
     this.officeLetThrough.clear()
+    // an Always the last person pressed never goes out under the next one
+    this.pendingAlways.clear()
+    this.owner = null
     if (this.perms.resetForNewPerson()) this.host.onSavePermissions(this.perms.toJSON())
     // closed now, with the old person's tabs: not after the clear, which can end seconds later (a fresh profile's first
     // check runs while the person signs in) and then closed the pane they had just opened (QA TC-940)
@@ -688,7 +695,7 @@ export class BrowserPane {
         if (ctx && !ctx.cancelled) ctx.notes.push(decisionNote(req, d))
         // kept for the team server until a call's result takes it (also an answer that came after its call ended, was
         // stopped or ran out of time: the next result carries it)
-        if (d === 'always') this.pendingAlways[req.scope].add(req.host)
+        if (d === 'always') this.pendingAlways.add(req.scope, req.host, this.owner)
         resolve(d)
       }
       const timer = setTimeout(() => settle('deny'), PROMPT_TIMEOUT_MS)
@@ -698,7 +705,8 @@ export class BrowserPane {
         return resolve('deny')
       }
       const hint = req.scope === 'site' && this.repeatHint.record(ctx?.turnId)
-      this.prompts.push({ id, ...req, ...(hint ? { hint } : {}), settle, callId: ctx?.callId })
+      const keepSite = req.scope === 'site' ? siteToKeep(req.host) : null
+      this.prompts.push({ id, ...req, ...(hint ? { hint } : {}), ...(keepSite ? { keepSite } : {}), settle, callId: ctx?.callId })
       this.emitPrompts()
     })
   }
@@ -736,18 +744,28 @@ export class BrowserPane {
     return false
   }
 
-  /** The result with the Always answers the server has not heard yet; they are then given to it (withAlways). */
+  /** The result with the Always answers of the person signed in now that the server has not confirmed yet
+   * (PendingAlways: kept until a later call shows the server has them). */
   private takeAlways(r: BrowserResult): BrowserResult {
-    const out = withAlways(r, this.pendingAlways)
-    if (out !== r) this.pendingAlways = { site: new Set(), private: new Set() }
-    return out
+    return withAlways(r, this.pendingAlways.carry(this.owner))
+  }
+
+  /** Who is signed in to the team page now (app-window.ts after its identity check). */
+  setOwner(id: string | null) {
+    this.owner = id
   }
 
   /** Record a decision for both the site and (when private) the office-network scope. */
   grant(scopes: SiteScope[], host: string, d: PermissionDecision, turnId?: string) {
     let changed = false
     // an Always on a public site keeps the site its button named (siteToKeep), as the server does; else this host
-    for (const s of scopes) changed = this.perms.grant(s, d === 'always' && s === 'site' && !scopes.includes('private') ? (siteToKeep(host) ?? host) : host, d, turnId) || changed
+    for (const s of scopes) {
+      changed = this.perms.grant(s, host, d, turnId) || changed
+      // a public site's Always also keeps the site its button named (siteToKeep), as the server does; the host with its
+      // port stays too, so it holds here also where the server keeps nothing (the team's Always switch off)
+      const site = d === 'always' && s === 'site' && !scopes.includes('private') ? siteToKeep(host) : null
+      if (site && site !== host) changed = this.perms.grant(s, site, d, turnId) || changed
+    }
     if (changed) this.host.onSavePermissions(this.perms.toJSON())
   }
 
@@ -894,6 +912,8 @@ export class BrowserPane {
     // what the person already allowed on the team server for this call (their sites for good, an address its card or
     // their own message approved, office addresses): allowed for this answer here too, so the same site never asks twice
     this.perms.allowForTurn(call.turnId, call.sites ?? [], call.office ?? [])
+    // what the server now lists for the person is kept there: those Always answers need not go again
+    this.pendingAlways.confirmed(call.sites ?? [], call.office ?? [])
     debug('start', call.tool, call.callId)
     this.calls.set(call.callId, ctx)
     this.driving++
