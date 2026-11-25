@@ -303,6 +303,10 @@ export const ko = {
   'auth.getApp': "초대 링크 복사하고 앱 받기",
   'auth.getAppHint': "앱을 설치한 다음 첫 화면에 붙여 넣으세요.",
   'auth.continueInBrowser': "브라우저에서 계속하기",
+  // the join pages on a computer, app first (lib/join-open-app.ts)
+  'auth.appReady': "{product} 앱에서 참여해요. 앱이 없다면 먼저 내려받아 주세요.",
+  'auth.appTried': "앱이 열렸다면 이 탭은 닫아도 돼요. 열리지 않았다면 앱을 내려받아 설치한 뒤 '앱 열기'를 눌러 주세요.",
+  'auth.openApp': "앱 열기",
   'auth.linkCopied': "링크를 복사했어요",
   'auth.linkNotCopied': "링크를 복사하지 못했어요. 아래에서 복사한 다음 앱을 받으세요.",
   'auth.inviteLinkLabel': "초대 링크",
