@@ -5747,7 +5747,27 @@ export class TurnExec {
   /** The step of a call whose card waits after the answer: it says so (not a refusal) */
   markCallWaiting(tool: string) {
     const st = [...this.steps].reverse().find((x) => x.tool === tool && !x.parentId)
-    if (st) this.updateStep(st.id, { detail: tr('cardWaits', this.spec.locale) })
+    if (st) this.updateStep(st.id, { detail: tr('cardWaits', this.spec.locale), waiting: true })
+  }
+
+  /** The person answered a card that waited after an earlier answer (replayCalls): that answer's step of the call stops
+   * waiting, and says "Declined" for a no (QA of #594: "파일 수정 ✓" while the card was still open). The newest waiting
+   * step of the tool in that message; nothing when it is gone. */
+  private settleWaitingStep(messageId: string | undefined, tool: string, declinedIt: boolean) {
+    if (!messageId) return
+    try {
+      const row = this.rt.db.query('SELECT chat_id, steps FROM messages WHERE id = ?').get(messageId) as { chat_id: string; steps: string | null } | null
+      if (!row?.steps) return
+      const steps = JSON.parse(row.steps) as StoredStep[]
+      const st = [...steps].reverse().find((x) => x.tool === tool && x.waiting)
+      if (!st) return
+      delete st.waiting
+      delete st.detail
+      if (declinedIt) st.outcome = { ...(st.outcome ?? {}), end: 'declined' }
+      this.rt.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify(steps), messageId)
+      const step: Step = st.sv ? { ...publicStep(st), label: st.sv.label } : { ...st }
+      this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: row.chat_id, messageId, step } })
+    } catch (e) { this.rt.log.warn('settling a waiting step failed', { err: e, turn: this.id }) }
   }
 
   /**
@@ -5767,6 +5787,7 @@ export class TurnExec {
       // the card's no (or Skip) runs nothing: the call is not run again, so no check of this moment can act on a no
       // (docs/decisions/20261122-late-card-answer-resumes.md)
       if (declined(c.card, c.answer)) {
+        this.settleWaitingStep(c.asked?.assistantId, c.tool, true)
         // (the step says so, as the call's own "no" did)
         this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
         this.onEvent({ type: 'tool_end', id, ok: true, output: 'Not done: the user said no on the card.' }, errors)
@@ -5795,6 +5816,7 @@ export class TurnExec {
         try { keepAlways(this.rt.db, this.spec.userId, c.always, this.id) } catch (e) { this.rt.log.warn('keeping a waiting card\'s Always allow failed', { err: e, turn: this.id }) }
       }
       this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
+      this.settleWaitingStep(c.asked?.assistantId, c.tool, false)
       out.push(`- ${c.tool} ${argsAi}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
     }
     this.attemptHadOutput = false

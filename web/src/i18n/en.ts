@@ -825,6 +825,7 @@ export const en: Record<MessageKey, string> = {
   'steps.results': '{n, plural, one {# result} other {# results}}',
   'steps.retriedShort': "Didn't work",
   'steps.endDeclined': "Declined",
+  'steps.cardWaiting': "Waiting for your answer",
   'steps.endUnanswered': "No answer",
   'steps.endSkipped': "Skipped",
   'steps.endRefused': "Not allowed",

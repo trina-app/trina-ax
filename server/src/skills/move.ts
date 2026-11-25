@@ -18,6 +18,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
+import { originAuto, withOrigin } from './personal-guard'
 import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, isSkillName, skillNameNFC, skillFolder, skillTier, widerSkillsNamed, type Skill, movableGroupSkillRoots, SKILL_NAME_MAX, SKILL_NAME_RE } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
@@ -220,6 +221,9 @@ export interface MovePlan {
   files: FileHash[]
   /** the entry file's text as it would be at the target (a renamed copy: its name line changed), from the hashed bytes */
   text: string
+  /** the entry's `origin: auto` line goes at the target: a skill moved or copied into a person's own folder is theirs
+   * (docs/decisions/20261125-auto-personal-skills.md: only a skill Trina made there itself is changed without a card) */
+  dropsOrigin: boolean
   fromPeople: number
   toPeople: number
   /** who has it (or, for a copy, either one) afterwards */
@@ -311,6 +315,8 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
     else if (!loads?.ok || loads.name !== o.name) block('copyNotLoadable', { name: skill.name, as: o.name })
     else text = renamed
   }
+  const dropsOrigin = to.level === 'personal' && isSkillManifest(skill.path) && originAuto(text)
+  if (dropsOrigin) text = withOrigin(text, false)
   // at a wider level than a project, a project skill of that name the person sees is hidden for those who get this one
   let shadows: string | null = null
   if (to.level !== 'project') {
@@ -326,7 +332,7 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   // any of these between the card and the move refuses it: runMove, runCopy)
   const token = crypto.createHash('sha256').update(JSON.stringify({ copy, name, source, target, files: files.map((f) => [f.path, f.sha]), readers: readerIds, editors: editorIds })).digest('hex').slice(0, 64)
   return {
-    skill, from, to, copy, name, source, target, entry, files, text, fromPeople: a.size, toPeople: b.size, afterPeople: copy ? new Set([...a, ...b]).size : b.size,
+    skill, from, to, copy, name, source, target, entry, files, text, dropsOrigin, fromPeople: a.size, toPeople: b.size, afterPeople: copy ? new Set([...a, ...b]).size : b.size,
     gained: gainedIds.length, lost: lostIds.length, gainedIds, lostIds, editors: eb.size, editorsGained: editorsGainedIds.length, editorsGainedIds, readerIds, editorIds,
     fromEditorIds: [...ea].sort(), shadows, blocked, token,
   }
@@ -384,6 +390,11 @@ export function runMove(ctx: AppContext, userId: string, rel: string, to: SkillL
   const user = ctx.files.principal(userId)
   const plan = replan(ctx, user, rel, to, token, L, {})
   componentC(ctx).files.move(userId, plan.source, plan.target, 'fail', { confirm: true, turnId: o.turnId ?? null, tool: o.tool ?? 'skill_move', skillMove: true })
+  // into the person's own folder: the moved SKILL.md loses its origin line (it is theirs now); the bytes the card showed
+  if (plan.dropsOrigin) {
+    const moved = fs.readFileSync(path.join(ctx.files.fx.root, ...plan.entry.split('/')))
+    ctx.files.humanSave(userId, plan.entry, Buffer.from(withOrigin(moved.toString('utf8'), false), 'utf8'), crypto.createHash('sha256').update(moved).digest('hex'))
+  }
   audit(ctx.db, {
     actor: userId, action: 'skills.move', target: plan.to.level === 'personal' ? plan.skill.path : plan.entry,
     detail: { name: plan.skill.name, from: side(plan.from, plan.fromPeople, plan.skill.path), to: side(plan.to, plan.toPeople, plan.entry), gained: plan.gained, lost: plan.lost, editors: plan.editors, editorsGained: plan.editorsGained, files: plan.files.length, byAi: !!o.turnId, turnId: o.turnId ?? null },
@@ -400,7 +411,8 @@ export function runCopy(ctx: AppContext, userId: string, rel: string, to: SkillL
   const plan = replan(ctx, user, rel, to, token, L, { copy: true, name: o.name })
   const manifest = isSkillManifest(plan.skill.path)
   const entryFile = plan.files.find((f) => f.path === plan.skill.path) ?? plan.files.find((f) => foldKey(f.path) === foldKey(plan.skill.path))
-  const renamed = plan.name !== plan.skill.name
+  // (a copy into the person's own folder also loses the origin line: plan.dropsOrigin)
+  const renamed = plan.name !== plan.skill.name || plan.dropsOrigin
   // the bytes this plan hashed (never read again), the entry with its name line changed for a renamed copy
   const out = plan.files.map((f) => ({ segs: manifest ? f.path.slice(plan.source.length + 1).split('/') : [], bytes: f === entryFile && renamed ? Buffer.from(plan.text, 'utf8') : f.bytes }))
   componentC(ctx).files.writeSkillCopy(userId, plan.from.level === 'personal' ? null : plan.source, plan.target, out, { folder: manifest, turnId: o.turnId ?? null, tool: o.tool ?? 'skill_copy' })
