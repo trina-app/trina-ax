@@ -15,8 +15,14 @@ export type RailItem = 'ai' | 'chats' | 'projects' | 'files' | 'activity'
 /** the rail's order, top to bottom: the phone's tabs 1–4, then 활동 (the phone has it under 나) */
 export const RAIL_ITEMS: readonly RailItem[] = ['ai', 'chats', 'projects', 'files', 'activity']
 
-/** where a place starts (its first visit, or a press on the place already lit): 파일's is its 최근 파일 */
+/** where a place starts (its first visit, or a press on the place already lit). 파일's is the person's own folder, 내 파일
+ * (docs/decisions/20261125-upload-destination.md, like Drive's My Drive: upload there first, share later); this
+ * table's 최근 파일 is only the start while who is signed in is not known yet (railRoot) */
 export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', projects: '/projects', files: '/files?view=recent', activity: '/activity' }
+/** A place's start for this person: 파일 opens their own folder. */
+export const railRoot = (item: RailItem, me?: string | null): string => (item === 'files' && me ? myFilesPath(me) : RAIL_ROOT[item])
+/** The address of a person's own folder, 내 파일. */
+export const myFilesPath = (me: string): string => `/files?path=${encodeURIComponent(`users/${me}`)}`
 
 /** The routes of App.tsx (under <Layout />) that belong to a place, as App.tsx writes them; any other address (Admin,
  * the Slack link pages, an address that only shows "not found") lights none. `/new` is the phone's composer of a later
@@ -125,9 +131,9 @@ export function rememberRail(pathname: string, search = '', state?: unknown) {
 
 /** Where a press on a place goes: what was open there, or its start; the place already lit goes to its start, as a
  * phone's tab does. */
-export function railTarget(item: RailItem, current: RailItem | null, last: Partial<Record<RailItem, string>>): string {
-  if (item === current) return RAIL_ROOT[item]
-  return last[item] ?? RAIL_ROOT[item]
+export function railTarget(item: RailItem, current: RailItem | null, last: Partial<Record<RailItem, string>>, me?: string | null): string {
+  if (item === current) return railRoot(item, me)
+  return last[item] ?? railRoot(item, me)
 }
 
 /** The state a press on a place carries to its target: always the place itself. A notice's chat kept as what is open in

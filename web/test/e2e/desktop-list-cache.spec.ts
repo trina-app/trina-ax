@@ -41,7 +41,8 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
     await signIn(page)
     const phone = isPhone(page)
     const projectsShown = () => expect(page.getByTestId(phone ? 'phone-projects-list' : 'project-new')).toBeVisible()
-    const filesShown = () => expect(page.getByTestId(phone ? 'phone-files-home' : 'recent-files')).toBeVisible()
+    // a computer's 파일 opens 내 파일 (docs/decisions/20261125-upload-destination.md); a phone's 파일 tab is its places
+    const filesShown = () => expect(phone ? page.getByTestId('phone-files-home') : page.locator('[data-testid="files-panel-mine"][aria-current="page"]')).toBeVisible()
 
     // the first visits read the lists
     await openPlace(page, 'projects')
@@ -49,7 +50,6 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
     await openPlace(page, 'files')
     await filesShown()
     await expect(page.getByTestId('files-panel-team').first()).toBeVisible()
-    if (!phone) await expect(page.getByTestId('recent-file').or(page.getByTestId('recent-files-empty')).first()).toBeVisible()
     await openPlace(page, 'trina')
 
     for (const [place, shown] of [['projects', projectsShown], ['files', filesShown], ['projects', projectsShown]] as const) {
@@ -65,7 +65,6 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       for (const [list, n] of Object.entries(c)) expect(n, `${place}: ${list} read at most once`).toBeLessThanOrEqual(1)
       if (place === 'projects' && !phone) expect(c.projects).toBe(1)
       if (place === 'files') expect(c.tree).toBe(1)
-      if (place === 'files' && !phone) expect(c.recent).toBe(1)
       await openPlace(page, 'trina')
     }
   })

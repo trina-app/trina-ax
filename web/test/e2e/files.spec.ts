@@ -46,24 +46,20 @@ for (const openWith of ['keyboard', 'mouse'] as const) {
   })
 }
 
-for (const dismissWith of ['Escape', 'Cancel'] as const) {
-  test(`bulk trash cancellation retains selection and restores the selection bar (${dismissWith})`, async ({ page }) => {
-    const t = DICTS.en
-    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
-    await signIn(page)
-    await page.goto('/files?path=marketing')
-    for (const name of ['notes.txt', 'data.csv']) await row(page, name).getByTestId('file-check').check()
-    const trigger = page.getByTestId('bulk-delete')
-    await trigger.click()
-    await expect(page.getByRole('dialog')).toBeVisible()
-    if (dismissWith === 'Escape') await page.keyboard.press('Escape')
-    else await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
-    await expect(page.getByRole('dialog')).toHaveCount(0)
-    await expect(trigger).toBeFocused()
-    for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name).getByTestId('file-check')).toBeChecked()
-    expect(await deletes(page)).toEqual([])
-  })
-}
+// Bulk trash goes at once with Undo, no question (docs/decisions/20261123-do-then-undo.md, a4e889c87): the rows leave,
+// the toast's Undo brings both back
+test('bulk trash: the selected files go to the trash at once, and Undo brings them back', async ({ page }) => {
+  const t = DICTS.en
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  for (const name of ['notes.txt', 'data.csv']) await row(page, name).getByTestId('file-check').check()
+  await page.getByTestId('bulk-delete').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name)).toHaveCount(0)
+  await page.getByRole('button', { name: t['common.undo'] }).click()
+  for (const name of ['notes.txt', 'data.csv']) await expect(row(page, name)).toBeVisible()
+})
 
 test('files initial Tab reaches the skip link before any row action', async ({ page }) => {
   await reset(page)
@@ -433,8 +429,10 @@ test('version history: every earlier version can be restored, the newest too; on
   await expect(list.locator('[data-version="3"]').getByRole('button', { name: '되돌리기' })).toHaveCount(0)
   // v2 is the newest version that differs from now (before the fix only versions below the newest had the button)
   for (const v of ['1', '2']) await expect(list.locator(`[data-version="${v}"]`).getByRole('button', { name: '되돌리기' })).toBeVisible()
+  // nobody else's later edits drop out (v3 is mine): the restore goes at once, no question (bd612601c; the current
+  // content is kept as a version anyway); the question with names: web/test/unit/restore-dropouts.test.ts
   await list.locator('[data-version="2"]').getByRole('button', { name: '되돌리기' }).click()
-  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('dialog-confirm')).toHaveCount(0)
   await expect(page.getByText('v2로 되돌렸어요.')).toBeVisible()
 
   // finance is read-only for this person: the history shows, versions download, nothing restores
