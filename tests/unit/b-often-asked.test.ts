@@ -11,7 +11,7 @@ import { ChatStore } from '../../server/src/chat/store'
 import { setSetting, updateTeamSettings } from '../../server/src/admin/settings'
 import {
   buildSnapshot, genericShape, isAppPrompt, LAST_RUN_KEY, masker, oftenAskedFor, oftenAskedSwitched, passing, questionLine, readQuestions, SINCE_KEY,
-  storeLists, teamNames, type AiItem,
+  readerLocales, storeLists, teamNames, typedIn, writtenIn, type AiItem,
 } from '../../server/src/chat/often-asked'
 
 const e = makeEnv('b-often-asked'), store = new ChatStore(e.db)
@@ -28,7 +28,9 @@ beforeEach(() => {
   for (const id of PEOPLE) e.db.query("INSERT INTO users (id, username, name, role) VALUES (?, ?, ?, 'member')").run(id, `user-${id}`, `Person ${id.toUpperCase()}`)
   e.db.query("UPDATE users SET status = 'active'").run()
   setSetting(e.db, SINCE_KEY, '2026-11-01T00:00:00.000Z')
-  updateTeamSettings(e.db, { oftenAsked: true })
+  // a Korean team whose people read Korean (users.locale's default); the language tests change it
+  updateTeamSettings(e.db, { oftenAsked: true, defaultLocale: 'ko' })
+  e.db.query("UPDATE users SET locale = 'ko'").run()
 })
 
 /** One question in a chat of its own, typed in the app (a web turn), unless `o` says otherwise. */
@@ -452,5 +454,69 @@ describe('the lists and who gets which', () => {
     oftenAskedSwitched(e.db, true, NOW)
     expect(readQuestions(e.db, new Date('2026-11-21T00:00:00.000Z'))).toEqual([])
     expect(e.db.query('SELECT value FROM settings WHERE key = ?').get(LAST_RUN_KEY)).not.toBeNull()
+  })
+})
+
+// owner report 2026-11-25: Korean on screen, English chips ("Find my files", "Share it so they can view it"): the run
+// wrote every list in the team's default language. Now one list per language people read the app in, each person reads
+// their own language's and never another's (docs/decisions/20261125-often-asked-reader-language.md).
+describe('the reader\'s language', () => {
+  const item = (s: ReturnType<typeof snap>, text: string, has: string): AiItem => ({ text, ids: idsOf(s, has) })
+  function both() {
+    for (const p of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+      ask(p, '회의록 요약해 줘'); ask(p, '주간 보고서 초안 써 줘'); ask(p, '고객 메일 답장 써 줘')
+      ask(p, 'Find my files please'); ask(p, 'Write the weekly report draft'); ask(p, 'Reply to the customer email')
+    }
+    const s = snap()
+    return {
+      s,
+      ko: [item(s, '회의록 요약해 줘', '회의록'), item(s, '주간 보고서 초안 써 줘', '보고서'), item(s, '고객 메일 답장 써 줘', '고객')],
+      en: [item(s, 'Find my files', 'files'), item(s, 'Write the weekly report draft', 'weekly'), item(s, 'Reply to the customer email', 'customer')],
+    }
+  }
+
+  test('the script of a language: Korean Hangul, Japanese kana, Chinese Han alone, the rest Latin alone', () => {
+    expect(['파일 찾아 줘', 'Slack 메시지 요약해 줘'].map((t) => writtenIn(t, 'ko'))).toEqual([true, true])
+    expect(['Find my files', '会議のまとめ', '整理会议记录'].map((t) => writtenIn(t, 'ko'))).toEqual([false, false, false])
+    expect(['会議のメモをまとめて', '整理会议记录'].map((t) => writtenIn(t, 'ja'))).toEqual([true, false])
+    expect(['整理会议记录', '会議のメモをまとめて', '회의록 정리'].map((t) => writtenIn(t, 'zh'))).toEqual([true, false, false])
+    for (const l of ['en', 'es', 'id'] as const) expect([l, writtenIn('Find my files', l), writtenIn('파일 찾아 줘', l), writtenIn('Slack 메시지', l)]).toEqual([l, true, false, false])
+  })
+
+  test('the languages: the team\'s, then each active member\'s own; a run asks only in one 3+ people typed', () => {
+    expect(readerLocales(e.db)).toEqual(['ko'])
+    e.db.query("UPDATE users SET locale = 'en' WHERE id IN ('p6', 'p7')").run()
+    expect(readerLocales(e.db).sort()).toEqual(['en', 'ko'])
+    e.db.query("UPDATE users SET status = 'disabled' WHERE id IN ('p6', 'p7')").run()
+    expect(readerLocales(e.db)).toEqual(['ko'])
+    for (const p of ['p1', 'p2', 'p3']) ask(p, '회의록 요약해 줘')
+    for (const p of ['p1', 'p2']) ask(p, 'Find my files')
+    expect([typedIn(snap(), 'ko'), typedIn(snap(), 'en')]).toEqual([true, false])
+  })
+
+  test('each person reads their own language\'s list, never another\'s; a sentence in another script is not stored for a language', () => {
+    e.db.query("UPDATE users SET locale = 'en' WHERE id = 'p7'").run()
+    const { s, ko, en } = both()
+    // the Korean list, with an English sentence the AI wrote in it by mistake: not stored for Korean
+    storeLists(e.db, s, [...ko, item(s, 'Find my files', 'files')], NOW, 'ko')
+    expect(oftenAskedFor(e.db, 'p6', NOW)).toEqual({ scope: 'team', items: ['고객 메일 답장 써 줘', '주간 보고서 초안 써 줘', '회의록 요약해 줘'] })
+    // an English reader with no English list: nothing, not the Korean one
+    expect(oftenAskedFor(e.db, 'p7', NOW)).toEqual({ scope: 'none', items: [] })
+    storeLists(e.db, s, en, NOW, 'en')
+    expect(oftenAskedFor(e.db, 'p7', NOW)).toEqual({ scope: 'team', items: ['Find my files', 'Reply to the customer email', 'Write the weekly report draft'] })
+    // the Korean reader still reads Korean only
+    expect(oftenAskedFor(e.db, 'p6', NOW).items.every((t) => writtenIn(t, 'ko'))).toBe(true)
+    // the language picker changed: the other list at once
+    e.db.query("UPDATE users SET locale = 'ko' WHERE id = 'p7'").run()
+    expect(oftenAskedFor(e.db, 'p7', NOW).items).toEqual(oftenAskedFor(e.db, 'p6', NOW).items)
+  })
+
+  test('a row from before the language was kept is the team\'s language\'s', () => {
+    const { s, ko } = both()
+    storeLists(e.db, s, ko, NOW, 'ko')
+    e.db.query('UPDATE often_asked_items SET locale = NULL').run()
+    expect(oftenAskedFor(e.db, 'p6', NOW).items).toHaveLength(3)
+    e.db.query("UPDATE users SET locale = 'en' WHERE id = 'p6'").run()
+    expect(oftenAskedFor(e.db, 'p6', NOW).items).toEqual([])
   })
 })

@@ -2,7 +2,7 @@
 // what happened and who to tell; the owner and admins, who can fix it, read where instead: the admin menu's own words
 // (Admin › AI providers, Admin › System › Health), so the path follows the menu when it is renamed. No engine, proxy, API
 // or HTTP code in any of them; the provider's status stays in the error's params for diagnostics.
-import type { ChatErrorReason } from '@mycel/shared/api'
+import { chatErrorReason, DEMO_LIMIT_REASON, DEMO_REST_REASON, type ApiErrorBody, type ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
@@ -38,14 +38,8 @@ export function adminPath(t: (key: MessageKey) => string, where: Where): string 
  * none.
  */
 export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean, until = false): { key: MessageKey; where: Where | null } {
-  // the AI usage ran out for longer than an hour (params.until: when it starts again, which `until` says is known):
-  // everyone reads until when; the owner and admins read that another AI account in Admin › AI providers goes on now,
-  // a member to ask an admin for more (owner report 2026-11-19: it read "for now, try again a bit later")
-  if (reason === 'usage_used_up') {
-    const admin = role === 'owner' || role === 'admin'
-    if (admin) return { key: until ? 'chat.error.admin.usage_used_up_until' : 'chat.error.admin.usage_used_up', where: 'providers' }
-    return { key: until ? 'chat.error.usage_used_up_until' : 'chat.error.usage_used_up', where: null }
-  }
+  // the AI account at its provider's limit for longer than an hour: by who reads it (usageLimitText)
+  if (reason === 'usage_used_up') return usageLimitText({ cause: 'provider', until: until ? 'known' : null }, role)!
   const noAiKey = noAiErrorKey(reason, role, noAi)
   if (noAiKey) return { key: noAiKey, where: reason === 'credential_unusable' ? 'providers' : null }
   // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the
@@ -58,4 +52,42 @@ export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean
   const fixes = where === 'health' ? role === 'owner' : role === 'owner' || role === 'admin'
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }
   return { key: `chat.error.${reason}`, where: null }
+}
+
+/**
+ * Why the AI usage is used up, the one place that tells (docs/decisions/20261125-usage-limit-cause.md):
+ * - `budget`: a limit an admin set (Admin › Usage: the team's, a group's or the person's own; code budget_exceeded,
+ *   server/src/admin/budgets.ts budgetBlock), which an admin can raise. `until`: when its period starts again
+ *   (params.resetsAt). Not a free-roam demo's limit or pause (lib/freeRoam.ts has its own words).
+ * - `provider`: the AI account itself is at its provider's limit for longer than an hour (a Claude subscription used up
+ *   until its reset, the model proxy's 403 subscription_limited; server/src/chat/turn.ts limitError, reason
+ *   usage_used_up), which no admin can raise: it comes back by itself at `until` (params.until, when known), or another
+ *   AI account goes on now.
+ * null for any other answer.
+ */
+export type UsageLimit = { cause: 'budget' | 'provider'; until: string | null }
+const when = (v: unknown): string | null => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? v : null)
+export function usageLimitOf(error: ApiErrorBody | null | undefined): UsageLimit | null {
+  if (!error) return null
+  if (error.code === 'budget_exceeded') {
+    const r = error.params?.reason
+    return r === DEMO_LIMIT_REASON || r === DEMO_REST_REASON ? null : { cause: 'budget', until: when(error.params?.resetsAt) }
+  }
+  return chatErrorReason(error) === 'usage_used_up' ? { cause: 'provider', until: when(error.params?.until) } : null
+}
+
+/**
+ * The words of a used-up limit by its cause and who reads it. `budget`: null, the server's own words stand (they say
+ * when it starts again and to ask an admin, or a guest the person who invited them). `provider`: when it comes back
+ * (when known); the owner and admins, that another AI account in Admin › AI providers goes on now; a member, to wait or
+ * tell an admin; a guest, to wait or tell the person who invited them (never "ask your admin to add more": no admin can raise a provider's limit; owner report 2026-11-25).
+ */
+export function usageLimitText(limit: UsageLimit, role: Role): { key: MessageKey; where: Where | null } | null {
+  if (limit.cause === 'budget') return null
+  const until = limit.until !== null
+  if (role === 'owner' || role === 'admin') return { key: until ? 'chat.error.admin.usage_used_up_until' : 'chat.error.admin.usage_used_up', where: 'providers' }
+  // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
+  // were invited to")
+  if (role === 'guest') return { key: until ? 'chat.error.guest.usage_used_up_until' : 'chat.error.guest.usage_used_up', where: null }
+  return { key: until ? 'chat.error.usage_used_up_until' : 'chat.error.usage_used_up', where: null }
 }

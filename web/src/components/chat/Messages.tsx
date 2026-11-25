@@ -50,7 +50,7 @@ import { Markdown } from '../LazyMarkdown'
 import AiAccessButton from './AiAccessButton'
 import NotReadyButton from './NotReadyButton'
 import { isNoAiReason } from '../../lib/aiAccess'
-import { adminPath, chatErrorText } from '../../lib/chatErrors'
+import { adminPath, chatErrorText, usageLimitOf, usageLimitText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard, { BatchCard } from './AskCard'
 import { gathers, groupCards, groupKey, showsAsBatch } from '../../lib/cardBatch'
@@ -766,9 +766,11 @@ export function AssistantMessage({
   // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
   const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
-  // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
-  const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
-  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
+  // the AI usage used up, and why (lib/chatErrors.ts usageLimitOf: a limit an admin set, or the AI account at its
+  // provider's limit): the provider's words say when it comes back (params.until) and what each reader can do
+  const usage = m.error ? usageLimitOf(m.error) : null
+  const usageUntil = usage?.cause === 'provider' ? usage.until : null
+  const said = guestKey ? { key: guestKey, where: null } : usage?.cause === 'provider' ? usageLimitText(usage, guest ? 'guest' : role) : reason ? chatErrorText(reason, role, noAi) : null
   // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
   const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
@@ -930,7 +932,7 @@ export function AssistantMessage({
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
                 {/* used up until a later time (or for a week, the time not told): the same AI is refused until then, so
                     only "another model" (when there is one), never "Try again" (QA TC-f3-01) */}
-                {!(reason === 'usage_used_up' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
+                {!(usage?.cause === 'provider' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                     <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                   </Button>

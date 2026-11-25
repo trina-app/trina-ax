@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 17:35
 - Branch: `fix/usage-limit-notice-home-chips`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (often asked, limit errors), shared/src/api/errors.ts, web/src (chat errors, Home, i18n).
   Why: both are the team server's and web app's own words (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Wording and a language fix of existing screens; one additive column, no new feature or API.
@@ -49,6 +49,7 @@ hold it), other surfaces' limit words (the composer's own budget notice is uncha
 
 ## Decisions
 
+- docs/decisions/20261125-usage-limit-cause.md: the cause decides the words.
 - docs/decisions/20261125-often-asked-reader-language.md: amends "Home: what my group often asks" (sentences in the
   team's language for everyone) to the reader's language.
 
@@ -63,4 +64,8 @@ web/test/unit/chat-error-words.test.ts, web often-asked tests.
 
 ## Result
 
-(at the end)
+Built as planned. Usage limit: `usageLimitOf` / `usageLimitText` in web/src/lib/chatErrors.ts, Messages.tsx reads them;
+the server's role-blind `usage_used_up` words are the member's; guests read "the person who invited you" (added: a
+guest has no admin to tell). Often asked: migration 454, one call per reader language that 3+ people typed in, a
+sentence kept only in its language's script, Home reads the caller's language only. Phones: the existing sideways row
+with a wider edge fade (3.5rem), checked at 390 px (web/test/e2e/often-asked.spec.ts). The PR is linked from the branch.

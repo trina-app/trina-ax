@@ -123,3 +123,22 @@ test('phones: the lines are one row of 44px chips right above the box at the bot
   expect(Math.round((await items.nth(4).boundingBox())!.y)).toBe(Math.round(boxes[0]!.y))
   await b.context().close()
 })
+
+// owner report 2026-11-25 at 390 px: the third chip read as cut off. The row scrolls sideways and a chip cut by the
+// screen's edge fades out (a fade wider than the page's 16 px gutter), so it reads as "more this way"; a swipe shows it whole
+test('phones: a chip past the screen\'s edge fades out and the row scrolls to show it whole', async ({ browser, page }) => {
+  await reset(page)
+  await setLists(page, { team: ['내 파일 찾아 줘', '볼 수 있게 공유해 줘', '이번 주 팀 폴더에서 바뀐 것 보여 줘'] })
+  const b = await asBob(browser, 390)
+  const row = list(b).getByRole('list')
+  await expect(row).toHaveAttribute('data-fade-end', '')
+  const fade = await row.evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--fade')) * parseFloat(getComputedStyle(document.documentElement).fontSize))
+  expect(fade).toBeGreaterThan(40)
+  const third = list(b).getByTestId('often-asked-item').nth(2)
+  expect((await third.boundingBox())!.x + (await third.boundingBox())!.width).toBeGreaterThan(390)
+  await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
+  await expect(row).not.toHaveAttribute('data-fade-end', '')
+  const box = (await third.boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(390)
+  await b.context().close()
+})
