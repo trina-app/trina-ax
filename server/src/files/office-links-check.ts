@@ -20,6 +20,10 @@ import { readZip, writeZip, type ZipEntry } from './zip-write'
 /** relationship types (their last path segment) that pull in or run outside content: refused even when internal-looking */
 const OBJECT_RELS = new Set(['oleObject', 'package', 'control', 'activeXControl', 'activeXControlBinary', 'vbaProject', 'subDocument', 'frame', 'aFChunk'])
 const ATTACHED_TEMPLATE = 'attachedTemplate'
+/** a chart part (PowerPoint ppt/charts/, Word word/charts/, Excel xl/charts/): its own data workbook may be embedded */
+const CHART_PART = /(^|\/)charts\/chart[^/]*\.xml$/i
+/** where a chart's data workbook sits: an .xlsx in the package's embeddings folder (never a binary .xls / .bin / .xlsm) */
+const CHART_WORKBOOK = /(^|\/)embeddings\/[^/]+\.xlsx$/i
 
 /** a .rels part's own part (word/_rels/settings.xml.rels -> word/settings.xml) */
 const ownerOf = (relsName: string) => relsName.replace(/(^|\/)_rels\/([^/]+)\.rels$/i, '$1$2')
@@ -38,7 +42,7 @@ export function checkOfficeLinks(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Arr
  * officeExitCheck): `risks` gets one entry per item, named by what it is and where it points, not by the part it is in,
  * so the same link moved to another part of an edited file is the same item. A damaged package still throws.
  */
-export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, risks: Map<string, string> | null): Uint8Array {
+export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, risks: Map<string, string> | null, nested = false): Uint8Array {
   const what = `the ${kind === 'docx' ? 'Word' : kind === 'pptx' ? 'PowerPoint' : 'Excel'} file would contain`
   const stop = (part: string, why: string): never => { throw new ToolError(`${what}: ${part} ${why}; links may only go to web pages (http, https), mail addresses (mailto) or places inside the document; nothing was saved`) }
   /** one risky item: refused at once (make_file), or collected by its exact identity `id` (the exit check) */
@@ -75,6 +79,9 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
         continue
       }
       if (OBJECT_RELS.has(r.type)) {
+        // a chart's own data sheet (PowerPoint and Word: right-click > Edit Data; QA A-03-L): the workbook pptxgenjs,
+        // python-pptx and Office write for every native chart passes when it holds nothing this scan refuses itself
+        if (!nested && chartWorkbook(e.name, r, resolve(e.name, r.target), partBytes, fail)) continue
         const id = r.external ? `rel|${r.type}|ext|${norm(r.target)}` : `obj|${r.type}|${norm(resolve(e.name, r.target))}|${hashOf(partBytes.get(resolve(e.name, r.target)))}`
         fail(e.name, `refers to ${r.external ? 'a link to ' : ''}an embedded object, a frame or a subdocument (${r.type})`, id)
       }
@@ -133,6 +140,27 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
     }
   }
   return writeZip(entries)
+}
+
+/**
+ * Is this relationship a chart's data workbook that may stay: an internal `package` relationship of a chart part to an
+ * .xlsx in the package, which passes this same scan as a workbook (no macros, links, connections, objects; a chart in it
+ * may not embed a workbook of its own). A workbook that holds a risky item fails with that item, named in the workbook.
+ */
+function chartWorkbook(relsName: string, r: { type: string; target: string; external: boolean }, target: string, parts: Map<string, Uint8Array>, fail: (part: string, why: string, id?: string) => never): boolean {
+  if (r.type !== 'package' || r.external || !CHART_PART.test(ownerOf(relsName)) || !CHART_WORKBOOK.test(target)) return false
+  const data = parts.get(target)
+  if (!data || !isZip(data)) return false
+  const found = new Map<string, string>()
+  let cleaned: Uint8Array
+  try { cleaned = scanOffice('xlsx', data, found, true) } catch (e) {
+    fail(target, `is a chart's data workbook that could not be checked (${String((e as Error).message).slice(0, 120)})`, `chartdata|${target.toLowerCase()}|damaged`)
+    return true
+  }
+  // an attached template taken out would change the bytes: not a plain workbook
+  if (cleaned !== data) fail(target, 'is a chart\'s data workbook with an attached template', `chartdata|${target.toLowerCase()}|template`)
+  for (const [id, why] of found) fail(target, `(a chart's data workbook) ${why}`, `chartdata|${target.toLowerCase()}|${id}`)
+  return true
 }
 
 const clip = (s: string, n = 80) => {

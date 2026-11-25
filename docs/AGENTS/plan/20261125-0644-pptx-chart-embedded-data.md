@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 06:44
 - Branch: `fix/pptx-chart-embedded-data`
-- Status: in progress
+- Status: done
 - Where: server/src/files (the office exit check and a chart read-back), server/src/chat/places-copy.ts. Why: the
   check every AI-made Office file passes is in files/ (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: decks and Word files with native charts are kept with their chart data; no new
@@ -32,8 +32,9 @@ In:
   officeOut), in the office worker: each chart has its data workbook, and the workbook's cells match the series the
   chart shows. The save result says so, or names each chart without data (or with other numbers) and how to fix it
   (rebuild with addChart, keep `ppt/embeddings/`), so the AI fixes it before answering.
-- Tests with real files made by pptxgenjs (combo chart included) and by python-pptx's layout (Word chart built in the
-  test), the exit check passing them, a macro / external link inside the embedded workbook refused, and the read-back.
+- Tests with real files made by pptxgenjs (combo chart included) and python-pptx (a Word chart built in the test from
+  the deck's parts), the exit check passing them, a macro / external link inside the embedded workbook refused, and the
+  read-back.
 
 Out:
 - make_file's Markdown route (pandoc) still puts a chart in as a PNG picture; it is the fallback when box_shell cannot
@@ -50,13 +51,13 @@ Out:
 
 ## Decisions
 
-docs/decisions/20261125-chart-data-workbook.md: a chart's own data workbook is not "an embedded object" for the exit
+docs/decisions/20261125-pptx-chart-embedded-data.md: a chart's own data workbook is not "an embedded object" for the exit
 check (changes docs/decisions/20261124-doc-skills.md "Exit check").
 
 ## Risks
 
-Security: the exit check gets one narrow allowance; the workbook is scanned with the same rules, and its hash is part
-of the item identity as before. No migration, no UI text.
+Security: the exit check gets one narrow allowance; the workbook is scanned with the same rules, and a risky item in
+it is identified by the workbook's path and that item's own identity. No migration, no UI text.
 
 ## Tests
 
@@ -64,4 +65,8 @@ of the item identity as before. No migration, no UI text.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Reproduced first: the pptxgenjs fixture deck saved through save_work_file was refused with "the
+PowerPoint file refers to an embedded object ... (package) (and 3 more) ... Remove it and save again"; with the fix it
+is saved byte for byte and the result says "all 4 charts are native charts with their data sheet". LibreOffice 26
+headless opens both fixture decks with live chart objects. Fixtures and the scripts that made them are in
+tests/fixtures/charts/.
