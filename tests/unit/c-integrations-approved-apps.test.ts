@@ -596,7 +596,9 @@ function recordedNet(r: Recorded, server: { registration?: string; authorization
 describe('the listed services, from their recorded metadata', () => {
   test('every listed service has a recording', () => {
     const ids = new Set(RECORDED.map((r) => r.id))
-    for (const c of SERVICE_CATALOG) expect(ids.has(c.id), c.id).toBe(true)
+    // Microsoft 365's address is reserved and never contacted (its MCP server is this server's own, signed in at
+    // Microsoft's fixed addresses: c-integrations-microsoft.test.ts): nothing to record
+    for (const c of SERVICE_CATALOG) if (c.id !== 'microsoft365') expect(ids.has(c.id), c.id).toBe(true)
   })
   for (const r of RECORDED) {
     test(`${r.id} (${new URL(r.mcpUrl).host}): ${expectedFor(r)}`, async () => {

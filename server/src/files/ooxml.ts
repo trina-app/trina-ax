@@ -90,7 +90,7 @@ export function* tags(xml: string): Generator<Tag> {
 }
 
 /** The next start tag `<name …>` or `<name …/>` at or after `from` (not `<nameMore`), or null. */
-function startTag(xml: string, name: string, from: number): Tag | null {
+export function startTag(xml: string, name: string, from: number): Tag | null {
   const pat = '<' + name
   for (let s = xml.indexOf(pat, from); s >= 0; s = xml.indexOf(pat, s + pat.length)) {
     if (!nameEnds(xml.charCodeAt(s + pat.length))) continue
@@ -105,7 +105,7 @@ function startTag(xml: string, name: string, from: number): Tag | null {
  * the element (the same name is not nested in the parts read here). The scan stops at the first element without its
  * end tag, so the time is linear in the size of the XML.
  */
-function elements(xml: string, name: string, max = Infinity): { head: string; inner: string }[] {
+export function elements(xml: string, name: string, max = Infinity): { head: string; inner: string }[] {
   const out: { head: string; inner: string }[] = []
   const endTag = `</${name}>`
   let pos = 0
@@ -120,13 +120,13 @@ function elements(xml: string, name: string, max = Infinity): { head: string; in
   }
   return out
 }
-const inner = (xml: string, name: string) => elements(xml, name, 1)[0]?.inner
+export const inner = (xml: string, name: string) => elements(xml, name, 1)[0]?.inner
 
 /**
  * Paragraph text of WordprocessingML or DrawingML: paragraphs are <w:p> / <a:p>, text runs <w:t> / <a:t>, with tabs and
  * line breaks. Deleted text (<w:delText>) and field codes (<w:instrText>) are not text runs, so they are left out.
  */
-function paragraphs(xml: string, ns: 'w' | 'a'): string[] {
+export function paragraphs(xml: string, ns: 'w' | 'a'): string[] {
   const out: string[] = []
   const open: number[] = [] // line index of each open paragraph (a text box paragraph nests in a body paragraph)
   let inText = false
@@ -370,7 +370,7 @@ function notesText(xml: string): string {
  * Cached values of a chart reference (<c:pt idx="n"><c:v>…</c:v></c:pt>), by index, on one line each. A point with an
  * index at or past the declared <c:ptCount>, or at POINT_IDX_MAX and more, is skipped: the index sizes the array.
  */
-function points(xml: string | undefined): string[] {
+export function points(xml: string | undefined): string[] {
   const out: string[] = []
   if (!xml) return out
   const count = startTag(xml, 'c:ptCount', 0)
@@ -391,7 +391,7 @@ function points(xml: string | undefined): string[] {
  * converters) put the chart namespace as the default one (`<chartSpace>`, `<ser>`) or under another prefix. One pass
  * of a regex that cannot backtrack (each match is `<`, an optional `/` and a name start).
  */
-function chartPrefix(xml: string): string {
+export function chartPrefix(xml: string): string {
   let root: Tag | undefined
   for (const t of tags(xml)) if (!t.close && t.name.slice(t.name.indexOf(':') + 1) === 'chartSpace') { root = t; break }
   if (!root) return xml
