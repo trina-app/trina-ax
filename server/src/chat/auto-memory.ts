@@ -131,6 +131,10 @@ export function copiedFromOutside(memory: string, outside: string, own: string):
 function copiedFrom(memory: string, foldedOutside: string, own: string): boolean {
   const outside = foldedOutside
   memory = cleanOutside(memory)
+  // the person's own words cleaned the same way as the other two (markdown marks dropped): a skill line read back with
+  // "**맨 아래**에" is "맨 아래에" in the output and in the new text, and must be the same in the person's own words
+  // (real-AI QA of #609: an edit of such a line was refused as copied from the skill's own read)
+  own = cleanOutside(own)
   const out = ` ${outside} `, mine = ` ${fold(own)} `
   const w = words(memory)
   if (w.length) {
