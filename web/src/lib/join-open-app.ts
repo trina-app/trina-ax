@@ -28,7 +28,7 @@ export function appFirst(o: { platform: Platform; client: 'web' | 'desktop' | 'm
 export type AppOpenPhase = 'opening' | 'opened' | 'notOpened'
 
 /** What the wait says once it is over: any sign of the app means it opened. A later sign still counts (the caller
- * moves to 'opened' on it): Chrome asks "Open Trina AX?" first, and a slow press on it comes after the wait. */
+ * moves to 'opened' on it): Chrome asks "Open <app>?" first, and a slow press on it comes after the wait. */
 export const phaseAfterWait = (o: { blurred: boolean; hidden: boolean }): AppOpenPhase => (o.blurred || o.hidden ? 'opened' : 'notOpened')
 
 /** The one primary button: Download once the app did not open and there is a download link; otherwise Open the app.
