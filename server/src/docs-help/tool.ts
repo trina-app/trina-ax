@@ -33,7 +33,7 @@ export function docsText(hits: DocsHit[], home: string, english: boolean): strin
   const again = english ? '' : ' Some pages are only in English: if this does not answer it, search once more in English words.'
   if (!hits.length) return `Nothing in the docs matches.${again} Do not guess how the app works: say you did not find it in the docs, and give the docs' address: ${home}`
   return [
-    `Docs of this app, best match first. Answer from them, and end your answer with the link of the page you used.${again}`,
+    `Docs of this app, best match first. Each passage is the page's own text, so do not fetch the links: answer from them, and end your answer with the link of the page you used.${again}`,
     ...hits.map((h, i) => `${i + 1}. ${neutralizeTags(h.title)}: ${h.url}${h.english ? ' (English page)' : ''}\n   ${neutralizeTags(h.heading)}: ${neutralizeTags(h.passage)}`),
   ].join('\n')
 }
@@ -62,5 +62,5 @@ export function docsTool(locale: Locale, root?: string): Tool {
 /** The instructions' line where the tool is offered: what to search it for, the link at the end, and prices. */
 export function docsRule(appName: string, root?: string): string {
   const pricing = helpIndex(root)?.pricing
-  return `Questions about using, setting up or fixing ${appName}: search with ${DOCS_TOOL} first, answer from what it finds and end with the page's link.${pricing ? ` Prices and plans: link ${pricing}.` : ''}`
+  return `Questions about using, setting up or fixing ${appName}: search with ${DOCS_TOOL} first, answer from its text (don't fetch the page) and end with the page's link.${pricing ? ` Prices and plans: link ${pricing}.` : ''}`
 }
