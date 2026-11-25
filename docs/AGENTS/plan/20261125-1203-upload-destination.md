@@ -1,142 +1,136 @@
-# Upload destination: close the gaps that leave a person asking "where do I put this?"
+# Files starts in My files, like Google Drive: upload first, share later
 
 - Date (UTC): 2026-11-25 12:03
 - Branch: `feat/upload-destination`
 - Status: **draft for review** (not built; replaces Part 2 of 20261125-1044-folder-restrict-honest.md)
-- Where: web/ (Files root list, the Upload button at the root, FolderPicker rows, the upload line), server/ (one
-  optional field on the folder listing), shared/ (the top places' words). Why: the screens are web; who can see a
-  folder is the server's answer (see docs/REPOSITORY-RULES.md)
-- Version impact: minor (new words on the Files root, in pickers and after an upload; no breaking API change)
+- Where: web/ (the 파일 rail's landing, the Files side list and the phone 파일 tab order, an Upload button on 최근 파일,
+  the upload line, My files' empty state). Why: navigation and Files are web (see docs/REPOSITORY-RULES.md). No server
+  or API change.
+- Version impact: minor (Files opens in a different place; no API change)
 
 ## Goal
 
-Owner, 11-25: "파일을 올릴때 쫌 막막해 이걸 어디에 올려야하는거지?" Start from what exists and change only what leaves a
-person stuck.
+Owner, 11-25: "파일을 올릴때 쫌 막막해 이걸 어디에 올려야하는거지?", then the cause: "구글에서는 그냥 내 파일이 default니깐 일단
+여기에 올리고 보는데, 우리는 전사 공유가 눈에 보이니깐 아 어디 올려야하지..? 하는거 같아." In Drive you land in My Drive and
+upload without deciding anything; sharing is a later step. In Trina the first places you see are team places, so every
+upload starts with a choice. Make My files the place you start and upload, and make sharing the later step (move the
+file to a team folder, or share it), which the existing move warnings already cover.
 
-## What already exists (kept as is)
+## Where it is today (read from the code, seen on screen)
 
-- **Uploads go to the folder on screen** (button, drag-and-drop, drop on a folder row "Upload here", phone ⊕).
-- **The folder header chip says who sees the folder on screen** where you can write ("팀 전체가 봐요", "5명",
-  "팀장과 관리자만", "나만 봐요"), so an upload inside Files already has a who-sees line in view.
-- **Move/copy/restore warn when more people will see it** (`files.widenTitle` "Show it to more people?",
-  `files.widenBodyAny`, `files.narrowTitle`, Undo after a narrowing move).
-- **The room "Save to team folder" sheet** suggests a folder and says "{n} people outside this conversation can see
-  this folder"; the AI's `save_wider` card asks before saving where more people can see.
-- **Trina places files by place words** (`chat/explicit-place.ts`, `place-words.ts`), defaults to the person's own
-  folder, and says where it saved.
-- **Chat attachments** in your own chat are yours only (the box says "새 채팅은 나만 볼 수 있어요"); shared chats say who
-  sees an upload.
+- **The 파일 rail opens 최근 파일** (`RAIL_ROOT.files = '/files?view=recent'`, navigation P3, 2026-11-13). 최근 파일 has
+  **no Upload button**. To upload you must first pick a place.
+- **The side list (desktop) and the phone 파일 tab** show: 최근 파일, 나에게 공유된 파일, **팀 폴더 (전사 공유 first, then
+  부서, then the others)**, 프로젝트 폴더, and only then **내 파일**, then 휴지통 (`panels/FilesPanel.tsx`). The first
+  folder the eye meets is 전사 공유.
+- **Upload goes to the folder on screen** (button, drag-and-drop, phone ⊕), with no line about where it went.
+- **Moves already warn** when more people will see a file (`files.widenTitle`, `files.widenBodyAny`, "{n}명이 더 보게
+  돼요"), with Undo after a narrowing move. A file of mine can be shared with chosen people (Share).
+- Not gaps (checked): Home and the chat box have no team-folder upload (the chat + attaches to that chat, and a new
+  chat already says "나만 볼 수 있어요"); the desktop app is the web page; Trina saves new files in My files unless a place
+  is named (docs/decisions/20261117-ai-save-my-files-default.md).
 
-## The gaps, checked on screen (local test server, owner and member, 1440 and 390, 11-25)
+## What Drive does (seen 11-25)
 
-| Gap | Real? | What the screen shows |
-|---|---|---|
-| (b) The top places don't say what each is for or who sees it | **Yes** | Files root and the phone's Files tab list "전사 공유, 팀 스킬, 개인, docs, …" with names only. Nothing says 전사 공유 is everyone's and 내 파일 is mine. This is where the question starts. |
-| (c) An upload with no folder has no clear default | **Yes, at the Files root only** | A member's Upload is greyed at the team root (the root has no rule by default, so members cannot write there) and nothing says where to go. Home, chat and the desktop app have no team-folder upload (the chat + attaches to that chat, which already says who sees it; the desktop app is the web page), so they are not gaps. |
-| (a) At upload or pick time nothing says who will see the file | **Partly** | Inside Files, the header chip already says it. Not covered: the **folder picker** (move, "Save to team folder" from an artifact, schedules) lists folder names only, and the warning comes only after "Move here". The upload line says "3 files uploaded" without the place. |
+Drive opens on Home/My Drive. New › File upload goes into the folder on screen, My Drive by default. Shared drives sit
+lower in the side list. Sharing is a separate step (Share, or a move that changes who can see it). Pickers say where,
+not who. Notion is the same: Private is "only visible to you", Teamspaces come after.
 
-## What others do (verified 11-25: Drive live; Slack, Notion, Dropbox from their help pages)
+## The change (three small pieces)
 
-1. **Context-first** (Slack: a file belongs to the conversation; Notion: a subpage "will take on the permissions of its
-   parent page"; Drive: upload into the folder on screen). **We have it.** Keep.
-2. **Top level split by audience** (Notion Private "only visible to you" / Teamspaces / Shared; Drive My Drive vs
-   Shared drives, "all members of a shared drive see all of the files"). **We have the split** (전사 공유 / 부서 /
-   프로젝트 / 내 파일) **but don't say it**: gap (b). Adopt: say it.
-3. **Warn on a different audience** (Drive: documented only for moving *out of* a shared folder and big moves into a
-   shared drive; nothing on upload; Notion documents the risk, no dialog). **We have it for moves.** Adopt only the
-   cheap part: the who-sees words on picker rows, before the click.
-4. **Search over filing** (Drive: filter chips, "text within the file", OCR of PDFs and images). **We have search and
-   the file lists the AI reads.** Keep; it is not the fix for deciding where.
-5. **AI filing** (Gemini "Suggest file moves": on request, "will not move any files without your permission"; Dropbox
-   automated folders are fixed rules; Notion AI and Slack AI do not place uploads). **No product files a new upload by
-   itself.** Not in this change (decision 2).
-
-## The smallest change (three pieces, one shared helper)
-
-One helper makes the same short words everywhere: **"what it is for · who sees it"**. The purpose comes from one table
-of the top places, moved out of the AI's instructions (`folderPurposeLines`) into `shared/src/folder-labels.ts`, so
-the AI and the screen say the same thing. Who sees it uses the Files chip's words. No new description field.
-
-**1. Files root: a second line on each top place (gap b)**
+1. **The 파일 rail opens 내 파일**, and 내 파일 moves to the top of the side list and the phone 파일 tab, right under the
+   search. 최근 파일 and 나에게 공유된 파일 follow, then 팀 폴더 and 프로젝트 폴더, one tap away as now (Drive's Shared drives).
+   The list itself, its rows and the phone screens keep their look; only the order and the landing change.
+2. **An upload with no folder of its own goes to 내 파일.** That is the Upload button that 최근 파일 and 나에게 공유된 파일 get,
+   and a drop on those lists. Inside a folder you can write, uploads still go to that folder. A read-only folder keeps
+   its greyed Upload: you are clearly somewhere else.
+3. **One line, so sharing reads as the next step.** After an upload to 내 파일, the upload line says "내 파일에 올렸어요 ·
+   나만 봐요 · 팀과 보려면 옮기기". 옮기기 opens the existing picker, and the existing "{n}명이 더 보게 돼요" warning and Undo
+   apply. 내 파일's empty state says: "나와 내 트리나는 어디에 두든 찾아요. 팀과 같이 볼 때 전사 공유로 옮기세요."
 
 ```
-1440                                                         390 (Files tab)
-파일                                                         팀 폴더
-📁 전사 공유   팀 모두가 쓰는 자료 · 팀원 모두 12명           📁 전사 공유
-📁 부서        부서별 폴더 · 그 부서 사람만                      팀 모두가 쓰는 자료 · 12명
-📁 프로젝트    프로젝트별 폴더 · 프로젝트 사람만               📁 내 파일
-📁 팀 스킬     팀 규칙과 스킬 · 팀원 모두 봐요                   나만 봐요
-📁 내 파일     나만 봐요                                      …
+1440, now                                   1440, proposed
+파일                                        파일
+ 🕘 최근 파일          ← lands here           👤 내 파일            ← lands here, [올리기]
+ 👥 나에게 공유된 파일                         🕘 최근 파일          [올리기 → 내 파일]
+ 팀 폴더                                      👥 나에게 공유된 파일
+   📁 전사 공유                               팀 폴더
+   📁 영업                                      📁 전사 공유
+ 프로젝트 폴더                                    📁 영업
+ 👤 내 파일                                   프로젝트 폴더
+ 🗑 휴지통                                     🗑 휴지통
+
+upload line after:   ✓ 견적서.pdf  내 파일에 올렸어요 · 나만 봐요 · 팀과 보려면 [옮기기]
+
+390 (파일 tab), now                          390, proposed
+파일                     🔍                  파일                     🔍
+ 최근 파일                                    내 파일                 (opens it; ⊕ uploads there)
+ 나에게 공유된 파일                            최근 파일
+ 팀 폴더 ›                                    나에게 공유된 파일
+   전사 공유 · 영업 · …                        팀 폴더 ›
+ 내 파일                                        전사 공유 · 영업 · …
+ 휴지통                                       휴지통
 ```
 
-Root list rows only; the sidebar stays as it is (lean). Other folders made at the root get their who-sees words, with
-no purpose.
+On the phone the tab keeps its list of places (Phone tabs decision); 내 파일 is the first row. The upload line on the
+phone is the same one line, wrapped to two.
 
-**2. Upload at the root asks where, with the default picked (gap c)**
+## What stays
 
-Where Upload is greyed today (the root, a read-only folder), it opens the folder picker titled "어디에 올릴까요?" with
-**decision 1's default** selected, then uploads there. No new dialog type: the existing FolderPicker.
-
-**3. Picker rows and the upload line say who sees it (gap a)**
-
-```
-FolderPicker, 1440                                    390 (bottom sheet)
- 📁 전사 공유      팀원 모두 12명이 봐요                📁 전사 공유
- 📁 Finance        팀장과 관리자만 봐요                    팀원 모두 12명이 봐요
- 📁 내 파일        나만 봐요                            📁 Finance
-                                                         팀장과 관리자만 봐요
-upload line, after:  "영업에 3개 올렸어요 · 5명이 봐요 · 옮기기"
-```
-
-Writable rows only (read-only rows keep the lock and no count). "옮기기" opens the same picker; the move keeps its
-existing warning and Undo.
+- **Setup's 팀 파일 step** (the owner uploads the company's files and the AI proposes folders in 전사 공유): it names its
+  place, so it does not change. The same goes for the member welcome card ("Ask Trina what you can do here", no files
+  step) and **Find work files** (a member's files already go to 내 파일 › "From this computer", and the owner's in setup
+  go to 전사 공유).
+- **Trina's own saves:** 내 파일 unless named (20261117-ai-save-my-files-default.md). This change makes the screen match
+  that rule.
+- Folder headers, the Share dialog, the move/copy warnings, search, team places and their order among themselves.
 
 ## What gets removed or kept small
 
-- Removed: the bare "{n} files uploaded" line becomes the one place line. The greyed, unexplained Upload at the root
-  goes.
-- Not added: no "where?" dialog before an upload inside a folder (one extra click on every upload; nobody else has
-  one); no avatars; no folder descriptions; no new page; no AI.
-- Kept: the move/copy warnings, the room save sheet, the AI's card, the header chip, search.
+- Removed: 최근 파일 as the landing; an upload that needs a choice before it can start.
+- Not added: no picker before an upload, no new page, no avatars, no AI placement, no folder descriptions.
 
 ## Roles
 
-- Owner and admins: the words everywhere they can write, including "팀장과 관리자만".
-- Members: the words only on folders they can write (every upload destination), the same rule the chip follows today.
-- Guests: their own folder and their project's folder only. "나만 봐요" or "프로젝트 사람 N명"; never the team's size
-  ("팀원 모두 N명"), never names or a member list.
+- Members and admins: as above.
+- Guests: their 파일 already shows only their own folder and their one project. They land on 내 파일 too. No member lists,
+  no team sizes; the upload line says "나만 봐요".
+
+## Conflicts checked
+
+- Navigation P3 (2026-11-13) made 최근 파일 the rail's landing. That part is superseded by a new decision file
+  (`docs/decisions/<date>-files-start-in-my-files.md`).
+- Phone tabs (트리나 · 대화 · 파일 · 나): kept; only the order inside 파일 changes.
+- Files onboarding (setup proposes team folders; leads upload for everyone): kept, because setup names 전사 공유.
+- AI default save place, Find work files, member welcome: already 내 파일 or not about files. No conflict.
 
 ## Performance
 
-- The picker and the root list already call `API.tree`; the listing adds an optional `audience` field to writable
-  folder entries. No new request, no N+1.
-- Counted per class of people (same role and groups, as `classesAt` does), cached by the rules hash and the member
-  list's version. A timing test with 1,000 people and 200 folders on a page.
+No new request: 내 파일's listing is the same `API.tree` call as any folder. One fewer screen before the first upload.
 
 ## Owner decisions (2)
 
-1. **Default place for an upload started where you cannot write** (the Files root, a read-only folder).
-   **Recommended: 내 파일 (나만 봐요)**, with "옮기기" right after. It matches Trina's own rule (new files go to the
-   person's folder unless a place is named), and a file never reaches more people by accident. The other choice is
-   전사 공유: everyone sees the file at once and it is easier to find, but it is riskier.
-2. **Trina suggests a folder from the file's content.** **Recommended: not now.** If wanted later, make it a button
-   after an upload that only suggests and moves on a yes, like Gemini's "Suggest file moves". Each ask is one model
-   call: the file name, its first page and the candidate folders' file-list lines, about 2–4k tokens and 2–5 s, on the
-   team's own AI connection. It reads the file before the person confirms the place, and teams with no AI connected
-   get nothing.
+1. **Owner and admins too, or members only?** **Recommended: everyone lands in 내 파일** (one rule, like Drive). Leads still
+   put team files in 전사 공유 through setup's 팀 파일 step and by moving files, and the move says how many more people will
+   see them. The other choice: owner and admins land in 전사 공유, so team files go there first, but then the screen
+   differs by role.
+2. **Upload on 최근 파일 and 나에게 공유된 파일: straight to 내 파일, or ask first?** **Recommended: straight to 내 파일**,
+   with the one line after it. That is the Drive habit the owner described ("일단 여기에 올리고 보는"), and it saves a
+   question on every upload. The other choice: open the folder picker with 내 파일 preselected (one more click, the
+   place chosen up front).
 
 ## Risks
 
-- "팀원 모두 N명" must never reach a guest (test).
-- Subfolders have no purpose line; only the top places do.
+- Habit change for teams that used 최근 파일 as the start: it stays as the second row.
+- "나와 내 트리나는 어디에 두든 찾아요" must stay true: Files search and your own Trina read 내 파일. Teammates' Trina does
+  not (personal folders are private and not in the shared file list), which is why the line says "나와 내 트리나".
 - Six locales; ko in 해요체.
 
 ## Tests (when built)
 
-Server: the listing's `audience` per role (admin; member write vs read; guest: no team size, no names) and per state;
-the 1,000-person timing test. Web: root lines, the root Upload picker with the default, picker rows, and the upload line
-at 1440/390 light/dark. e2e: a member uploads from the root (default chosen), moves with "옮기기" (warning and Undo
-kept), and a guest uploads.
+Web: the rail opens 내 파일 (member, admin, guest); the side list and phone tab order; Upload on 최근 파일 lands in
+내 파일; the upload line and 옮기기 (the warning and Undo kept); the empty-state line. 1440/390, light and dark. e2e: a
+member uploads from the first screen, then moves the file to 전사 공유 and sees "{n}명이 더 보게 돼요".
 
 ## Result
 
