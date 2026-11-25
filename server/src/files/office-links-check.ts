@@ -13,17 +13,22 @@
 import crypto from 'node:crypto'
 import { ToolError } from '../policy/errors'
 import { allowedLinkTarget } from './office-rules'
-import { attrNS, dropElements, looksXml, parseXml, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
+import { attrNS, CHART_CONTENT_TYPE, CHART_PART, dropElements, looksXml, parseXml, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
 /** relationship types (their last path segment) that pull in or run outside content: refused even when internal-looking */
 const OBJECT_RELS = new Set(['oleObject', 'package', 'control', 'activeXControl', 'activeXControlBinary', 'vbaProject', 'subDocument', 'frame', 'aFChunk'])
 const ATTACHED_TEMPLATE = 'attachedTemplate'
-/** a chart part (PowerPoint ppt/charts/, Word word/charts/, Excel xl/charts/): its own data workbook may be embedded */
-const CHART_PART = /(^|\/)charts\/chart[^/]*\.xml$/i
-/** where a chart's data workbook sits: an .xlsx in the package's embeddings folder (never a binary .xls / .bin / .xlsm) */
-const CHART_WORKBOOK = /(^|\/)embeddings\/[^/]+\.xlsx$/i
+/** where a chart's data workbook sits: an .xlsx in the embeddings folder beside the charts (never .xls / .bin / .xlsm) */
+const CHART_WORKBOOK = /^(ppt|word|xl)\/embeddings\/[^/]+\.xlsx$/
+/** a chart's relationship target that is a plain relative path: no scheme, share, rooted path, backslash or escape */
+const PLAIN_TARGET = /^(?![./]*\/\/)(?!\/)[^:\\%]+$/
+/** chart data workbooks checked in one scan, at most, and their bytes together */
+export const CHART_WORKBOOKS_MAX = 500
+export const CHART_WORKBOOK_BYTES_MAX = 64 * 1024 * 1024
+const CHART_NS = 'http://schemas.openxmlformats.org/drawingml/2006/chart'
+const OFFICE_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
 /** a .rels part's own part (word/_rels/settings.xml.rels -> word/settings.xml) */
 const ownerOf = (relsName: string) => relsName.replace(/(^|\/)_rels\/([^/]+)\.rels$/i, '$1$2')
@@ -67,29 +72,107 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
   }
   const hashOf = (b: Uint8Array | undefined) => (b ? crypto.createHash('sha256').update(b).digest('hex') : 'missing')
 
+  // chart parts by content type ([Content_Types].xml Override), not by name alone
+  // (a part with any other Override as well is not a chart)
+  const chartParts = new Set<string>()
+  if (!nested) {
+    const notChart = new Set<string>()
+    const types = partBytes.get('[Content_Types].xml')
+    if (types) parseXml(dec.decode(types), '[Content_Types].xml', stop, {
+      open: (t) => {
+        if (t.local !== 'Override') return
+        const name = (attrNS(t, '', 'PartName') ?? '').replace(/^\//, '')
+        if (CHART_PART.test(name) && (attrNS(t, '', 'ContentType') ?? '').trim().toLowerCase() === CHART_CONTENT_TYPE) chartParts.add(name)
+        else notChart.add(name.toLowerCase())
+      },
+    })
+    for (const name of chartParts) if (notChart.has(name.toLowerCase())) chartParts.delete(name)
+  }
+  /** the relationship id each chart part's <c:externalData r:id> names (read once per chart) */
+  const dataIds = new Map<string, string | null>()
+  const dataIdOf = (chart: string): string | null => {
+    if (dataIds.has(chart)) return dataIds.get(chart)!
+    let id: string | null = null
+    const b = partBytes.get(chart)
+    if (b) parseXml(dec.decode(b), chart, stop, { open: (t) => { if (id === null && t.uri === CHART_NS && t.local === 'externalData') id = attrNS(t, OFFICE_REL_NS, 'id') ?? null } })
+    dataIds.set(chart, id)
+    return id
+  }
+  /** the Id of each relationship of a .rels part, by its position (the order relationshipsOf gives them in) */
+  const relIds = new Map<string, (string | undefined)[]>()
+  const idsOf = (relsName: string): (string | undefined)[] => {
+    let ids = relIds.get(relsName)
+    if (!ids) {
+      const found: (string | undefined)[] = []
+      parseXml(dec.decode(partBytes.get(relsName) ?? new Uint8Array()), relsName, stop, { open: (t) => { if (t.local === 'Relationship' && t.uri === REL_NS) found.push(attrNS(t, '', 'Id')) } })
+      relIds.set(relsName, (ids = found))
+    }
+    return ids
+  }
+  /** each workbook scanned once: its risky items, or why it could not be read */
+  const checked = new Map<string, { risks: Map<string, string> } | { why: string }>()
+  let checkedBytes = 0
+  /**
+   * Is this relationship a chart's data workbook that may stay: an internal `package` relationship, at a plain relative
+   * target, of a part that is a chart by its content type, the one its <c:externalData> names, to an .xlsx in the
+   * embeddings folder, which passes this same scan as a workbook (no macros, links, connections, objects; a chart in it
+   * may not embed a workbook of its own). A workbook that holds a risky item fails, naming the workbook and the item.
+   */
+  const chartWorkbook = (relsName: string, r: { type: string; target: string; external: boolean }, at: number, target: string): boolean => {
+    const owner = ownerOf(relsName)
+    if (r.type !== 'package' || r.external || !PLAIN_TARGET.test(r.target) || !chartParts.has(owner) || !CHART_WORKBOOK.test(target)) return false
+    if (target.split('/')[0] !== owner.split('/')[0]) return false
+    const id = idsOf(relsName)[at]
+    if (!id || dataIdOf(owner) !== id) return false
+    const data = partBytes.get(target)
+    if (!data || !isZip(data)) return false
+    // memoized by the exact part name: two parts whose names differ only in case are two workbooks
+    const key = target.toLowerCase()
+    let got = checked.get(target)
+    if (!got) {
+      checkedBytes += data.length
+      if (checked.size >= CHART_WORKBOOKS_MAX || checkedBytes > CHART_WORKBOOK_BYTES_MAX) got = { why: `is past what one file may hold in chart data workbooks (${CHART_WORKBOOKS_MAX}, ${CHART_WORKBOOK_BYTES_MAX / 1024 / 1024} MB)` }
+      else {
+        const risks = new Map<string, string>()
+        try {
+          // an attached template taken out would change the bytes: not a plain workbook
+          if (scanOffice('xlsx', data, risks, true) !== data) risks.set('template', 'holds an attached template')
+          got = { risks }
+        } catch (e) { got = { why: `could not be checked (${String((e as Error).message).slice(0, 120)})` } }
+      }
+      checked.set(target, got)
+    }
+    const named = `has a chart data workbook ${clip(target)} that`
+    if ('why' in got) fail(relsName, `${named} ${got.why}`, `chartdata|${key}|unreadable`)
+    else for (const [rid, why] of got.risks) fail(relsName, `${named} ${why}`, `chartdata|${key}|${rid}`)
+    return true
+  }
+
   for (const e of entries) {
     if (!/\.rels$/i.test(e.name)) continue
     const xml = dec.decode(e.data)
     const owner = ownerOf(e.name)
-    for (const r of relationshipsOf(xml, e.name, stop)) {
+    for (const [at, r] of relationshipsOf(xml, e.name, stop).entries()) {
       if (r.type === ATTACHED_TEMPLATE) {
         // taken out below (the element in the owner part and this relationship), not refused
         stripRels.add(e.name)
         stripOwners.add(owner)
         continue
       }
-      if (OBJECT_RELS.has(r.type)) {
-        // a chart's own data sheet (PowerPoint and Word: right-click > Edit Data; QA A-03-L): the workbook pptxgenjs,
-        // python-pptx and Office write for every native chart passes when it holds nothing this scan refuses itself
-        if (!nested && chartWorkbook(e.name, r, resolve(e.name, r.target), partBytes, fail)) continue
-        const id = r.external ? `rel|${r.type}|ext|${norm(r.target)}` : `obj|${r.type}|${norm(resolve(e.name, r.target))}|${hashOf(partBytes.get(resolve(e.name, r.target)))}`
-        fail(e.name, `refers to ${r.external ? 'a link to ' : ''}an embedded object, a frame or a subdocument (${r.type})`, id)
-      }
+      // where it points first: outside the file is refused whatever the relationship is
+      const outside = r.external || /^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/i.test(r.target)
       if (r.external) {
         if (r.type !== 'hyperlink') fail(e.name, `refers to "${clip(r.target)}" outside the file (${r.type || 'a relationship'})`, `rel|${r.type}|ext|${norm(r.target)}`)
         else if (!allowedLinkTarget(r.target) || r.target.startsWith('#')) fail(e.name, `has a link to "${clip(r.target)}"`, `rel|hyperlink|ext|${norm(r.target)}`)
-      } else if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/i.test(r.target)) {
+      } else if (outside) {
         fail(e.name, `refers to "${clip(r.target)}" outside the file`, `rel|${r.type}|int|${norm(r.target)}`)
+      }
+      if (OBJECT_RELS.has(r.type)) {
+        // a chart's own data sheet (PowerPoint and Word: right-click > Edit Data; QA A-03-L): the workbook pptxgenjs,
+        // python-pptx and Office write for every native chart passes when it holds nothing this scan refuses itself
+        if (!nested && !outside && chartWorkbook(e.name, r, at, resolve(e.name, r.target))) continue
+        const id = r.external ? `rel|${r.type}|ext|${norm(r.target)}` : `obj|${r.type}|${norm(resolve(e.name, r.target))}|${hashOf(partBytes.get(resolve(e.name, r.target)))}`
+        fail(e.name, `refers to ${r.external ? 'a link to ' : ''}an embedded object, a frame or a subdocument (${r.type})`, id)
       }
     }
   }
@@ -140,27 +223,6 @@ export function scanOffice(kind: 'docx' | 'pptx' | 'xlsx', bytes: Uint8Array, ri
     }
   }
   return writeZip(entries)
-}
-
-/**
- * Is this relationship a chart's data workbook that may stay: an internal `package` relationship of a chart part to an
- * .xlsx in the package, which passes this same scan as a workbook (no macros, links, connections, objects; a chart in it
- * may not embed a workbook of its own). A workbook that holds a risky item fails with that item, named in the workbook.
- */
-function chartWorkbook(relsName: string, r: { type: string; target: string; external: boolean }, target: string, parts: Map<string, Uint8Array>, fail: (part: string, why: string, id?: string) => never): boolean {
-  if (r.type !== 'package' || r.external || !CHART_PART.test(ownerOf(relsName)) || !CHART_WORKBOOK.test(target)) return false
-  const data = parts.get(target)
-  if (!data || !isZip(data)) return false
-  const found = new Map<string, string>()
-  let cleaned: Uint8Array
-  try { cleaned = scanOffice('xlsx', data, found, true) } catch (e) {
-    fail(target, `is a chart's data workbook that could not be checked (${String((e as Error).message).slice(0, 120)})`, `chartdata|${target.toLowerCase()}|damaged`)
-    return true
-  }
-  // an attached template taken out would change the bytes: not a plain workbook
-  if (cleaned !== data) fail(target, 'is a chart\'s data workbook with an attached template', `chartdata|${target.toLowerCase()}|template`)
-  for (const [id, why] of found) fail(target, `(a chart's data workbook) ${why}`, `chartdata|${target.toLowerCase()}|${id}`)
-  return true
 }
 
 const clip = (s: string, n = 80) => {

@@ -69,4 +69,7 @@ Built as planned. Reproduced first: the pptxgenjs fixture deck saved through sav
 PowerPoint file refers to an embedded object ... (package) (and 3 more) ... Remove it and save again"; with the fix it
 is saved byte for byte and the result says "all 4 charts are native charts with their data sheet". LibreOffice 26
 headless opens both fixture decks with live chart objects. Fixtures and the scripts that made them are in
-tests/fixtures/charts/.
+tests/fixtures/charts/. After the security review of #573: outside/scheme/share guards run before the chart-workbook
+allowance and only plain relative targets pass; the chart part is decided by its content type and the relationship
+must be the one <c:externalData> names; workbooks are scanned once with a count and byte cap; the read-back has one
+byte and cell budget and checks the zip before SheetJS reads it; refusals name the workbook.

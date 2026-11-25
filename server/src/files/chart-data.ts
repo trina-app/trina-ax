@@ -11,6 +11,8 @@
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { attr, chartPrefix, elements, inner, paragraphs, parts, points, rels, slideOrder, startTag, xmlOf, type Parts } from './ooxml'
+import { CHART_PART } from './office-xml'
+import { checkZip, isZip } from './zip-guard'
 
 export const CHART_DATA_MODE = 'chart-data'
 
@@ -18,6 +20,9 @@ export const CHART_DATA_MODE = 'chart-data'
 export const CHART_DATA_MAX = 200
 /** an embedded workbook larger than this is not opened (counted as unreadable) */
 const WORKBOOK_MAX = 32 * 1024 * 1024
+/** workbook bytes opened in one review, and cells compared, at most; a chart past either is counted as unreadable */
+export const REVIEW_BYTES_MAX = 64 * 1024 * 1024
+export const REVIEW_CELLS_MAX = 1_000_000
 
 /** What one chart's data is: `ok` the workbook is there and holds the numbers the chart shows; `none` no data
  * workbook named (<c:externalData> missing); `missing` named but not in the file; `unreadable` not a workbook;
@@ -36,13 +41,13 @@ export interface ChartData {
 export interface ChartDataReview { kind: 'pptx' | 'docx'; charts: ChartData[]; more: number }
 
 const CHART_REL = /\/relationships\/chart$/
-const CHART_PART = /^(ppt|word)\/charts\/chart\d+\.xml$/
 
 /** The charts of a .pptx or .docx and their data; ToolError when the file cannot be read. */
 export function chartDataReview(bytes: Uint8Array): ChartDataReview {
   const p = parts(bytes, 'file')
   const kind = p.has('ppt/presentation.xml') ? 'pptx' : 'docx'
-  const names = [...p.keys()].filter((n) => CHART_PART.test(n)).sort((a, b) => num(a) - num(b))
+  // Word and PowerPoint charts (an Excel chart reads the workbook's own sheets)
+  const names = [...p.keys()].filter((n) => CHART_PART.test(n) && !n.startsWith('xl/')).sort((a, b) => num(a) - num(b))
   // PowerPoint: a chart is named by the first slide that shows it
   const onSlide = new Map<string, number>()
   if (kind === 'pptx') {
@@ -51,13 +56,17 @@ export function chartDataReview(bytes: Uint8Array): ChartDataReview {
     })
   }
   const charts: ChartData[] = []
+  const budget: Budget = { bytes: REVIEW_BYTES_MAX, cells: REVIEW_CELLS_MAX, books: new Map() }
   names.slice(0, CHART_DATA_MAX).forEach((name, i) => {
     const xml = chartPrefix(xmlOf(p, name) ?? '')
     const slide = onSlide.get(name)
-    charts.push({ where: slide ? `slide ${slide}` : `chart ${i + 1}`, title: titleOf(xml), ...stateOf(p, name, xml) })
+    charts.push({ where: slide ? `slide ${slide}` : `chart ${i + 1}`, title: titleOf(xml), ...stateOf(p, name, xml, budget) })
   })
   return { kind, charts, more: Math.max(0, names.length - CHART_DATA_MAX) }
 }
+
+/** what one review may still open and compare; each workbook is read once */
+interface Budget { bytes: number; cells: number; books: Map<string, XLSX.WorkBook | null> }
 
 const num = (n: string) => Number(/(\d+)\.xml$/.exec(n)?.[1] ?? 0)
 
@@ -68,19 +77,27 @@ function titleOf(xml: string): string {
   return (paragraphs(t, 'a').join(' ').trim() || points(t)[0] || '').replace(/\s+/g, ' ').slice(0, 80)
 }
 
-function stateOf(p: Parts, name: string, xml: string): { state: ChartDataState; detail?: string } {
+function stateOf(p: Parts, name: string, xml: string, budget: Budget): { state: ChartDataState; detail?: string } {
   const ext = startTag(xml, 'c:externalData', 0)
   const id = ext ? attr(ext.head, 'r:id') : undefined
   if (!id) return { state: 'none' }
   const target = rels(p, name).get(id)?.target
   const data = target ? p.get(target) : undefined
   if (!target || !data) return { state: 'missing' }
-  let wb: XLSX.WorkBook
-  try {
-    if (data.length > WORKBOOK_MAX) return { state: 'unreadable' }
-    wb = XLSX.read(data, { type: 'buffer', cellFormula: false, cellHTML: false, cellStyles: false })
-  } catch { return { state: 'unreadable' } }
-  if (!wb.SheetNames.length) return { state: 'unreadable' }
+  let wb = budget.books.get(target)
+  if (wb === undefined) {
+    wb = null
+    if (data.length <= WORKBOOK_MAX && data.length <= budget.bytes && isZip(data)) {
+      budget.bytes -= data.length
+      try {
+        checkZip(data)
+        wb = XLSX.read(data, { type: 'buffer', cellFormula: false, cellHTML: false, cellStyles: false })
+        if (!wb.SheetNames.length) wb = null
+      } catch { wb = null }
+    }
+    budget.books.set(target, wb)
+  }
+  if (!wb) return { state: 'unreadable' }
   let linked = 0
   for (const { inner: ser } of elements(inner(xml, 'c:plotArea') ?? xml, 'c:ser')) {
     for (const [el, numeric] of [['c:val', true], ['c:yVal', true], ['c:xVal', false], ['c:cat', false], ['c:bubbleSize', true], ['c:tx', false]] as const) {
@@ -92,7 +109,11 @@ function stateOf(p: Parts, name: string, xml: string): { state: ChartDataState; 
       const cached = points(part)
       // a name (c:tx) caches its one value in <c:v> of the strRef
       if (el === 'c:tx' && !cached.length) { const v = inner(part, 'c:v'); if (v !== undefined) cached[0] = v }
-      const cells = cellsOf(wb, ref)
+      // only the cells the chart shows are compared: none cached, nothing to compare
+      if (!cached.length) continue
+      if (budget.cells < cached.length) return { state: 'unreadable' }
+      budget.cells -= cached.length
+      const cells = cellsOf(wb, ref, cached.length)
       if (!cells) return { state: 'mismatch', detail: `${ref.trim()} is not a range of its data sheet` }
       for (let i = 0; i < cached.length; i++) {
         if (cached[i] === undefined) continue
@@ -107,17 +128,17 @@ function stateOf(p: Parts, name: string, xml: string): { state: ChartDataState; 
   return linked ? { state: 'ok' } : { state: 'unlinked' }
 }
 
-/** The values of a chart reference (Sheet1!$B$2:$B$5, 'My sheet'!$A$1), row by row; null when it names no sheet or range. */
-function cellsOf(wb: XLSX.WorkBook, ref: string): (string | number | boolean | undefined)[] | null {
+/** The first `count` values of a chart reference (Sheet1!$B$2:$B$5, 'My sheet'!$A$1), row by row; null when it names no
+ * sheet or range. */
+function cellsOf(wb: XLSX.WorkBook, ref: string, count: number): (string | number | boolean | undefined)[] | null {
   const m = /^\s*(?:'((?:[^']|'')+)'|([^!'\s]+))!\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?\s*$/.exec(ref.replace(/&apos;/g, "'"))
   if (!m) return null
   const sheet = (m[1] ?? m[2] ?? '').replace(/''/g, "'")
   const ws = wb.Sheets[sheet] ?? wb.Sheets[wb.SheetNames.find((n) => n.toLowerCase() === sheet.toLowerCase()) ?? '']
   if (!ws) return null
   const r = XLSX.utils.decode_range(`${m[3]}${m[4]}:${m[5] ?? m[3]}${m[6] ?? m[4]}`)
-  if ((r.e.r - r.s.r + 1) * (r.e.c - r.s.c + 1) > 100_000) return null
   const out: (string | number | boolean | undefined)[] = []
-  for (let row = r.s.r; row <= r.e.r; row++) for (let col = r.s.c; col <= r.e.c; col++) out.push((ws[XLSX.utils.encode_cell({ r: row, c: col })] as XLSX.CellObject | undefined)?.v as string | number | boolean | undefined)
+  for (let row = r.s.r; row <= r.e.r && out.length < count; row++) for (let col = r.s.c; col <= r.e.c && out.length < count; col++) out.push((ws[XLSX.utils.encode_cell({ r: row, c: col })] as XLSX.CellObject | undefined)?.v as string | number | boolean | undefined)
   return out
 }
 

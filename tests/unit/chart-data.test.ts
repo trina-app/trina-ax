@@ -9,9 +9,9 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
-import { checkOfficeLinks, officeExitRequest } from '../../server/src/files/office-links-check'
+import { CHART_WORKBOOKS_MAX, checkOfficeLinks, officeExitRequest } from '../../server/src/files/office-links-check'
 import { assertSafeTeamFile } from '../../server/src/files/office-exit'
-import { CHART_DATA_MODE, chartDataLine, chartDataRequest, chartDataReview } from '../../server/src/files/chart-data'
+import { CHART_DATA_MODE, chartDataLine, chartDataRequest, chartDataReview, REVIEW_CELLS_MAX } from '../../server/src/files/chart-data'
 import { officeWorkerWrite } from '../../server/src/files/extract'
 import { readZip, writeZip, type ZipEntry } from '../../server/src/files/zip-write'
 import { docx } from '../lib/office-fixture'
@@ -96,11 +96,11 @@ describe('the Office exit check keeps a chart\'s own data workbook (QA A-03-L)',
     const wb = part(DECK, WB1)!
     // a macro project inside the workbook
     const macro = edit(DECK, { [WB1]: edit(wb, { 'xl/vbaProject.bin': enc.encode('macro') }) })
-    expect(() => officeExitRequest(frame('pptx', macro))).toThrow(/data workbook.*macro project/)
+    expect(() => officeExitRequest(frame('pptx', macro))).toThrow(/chart data workbook ppt\/embeddings\/Microsoft_Excel_Worksheet1\.xlsx that holds a macro project/)
     // a file: link inside the workbook
     const linkRels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="file:///etc/passwd" TargetMode="External"/></Relationships>'
     const linked = edit(DECK, { [WB1]: edit(wb, { 'xl/worksheets/_rels/sheet1.xml.rels': enc.encode(linkRels) }) })
-    expect(() => officeExitRequest(frame('pptx', linked))).toThrow(/data workbook.*file:\/\/\/etc\/passwd/)
+    expect(() => officeExitRequest(frame('pptx', linked))).toThrow(/chart data workbook ppt\/embeddings\/Microsoft_Excel_Worksheet1\.xlsx that .*file:\/\/\/etc\/passwd/)
     // a damaged workbook
     expect(() => officeExitRequest(frame('pptx', edit(DECK, { [WB1]: enc.encode('PK\x03\x04 not really') })))).toThrow()
     // a workbook whose own chart embeds another workbook (one level only)
@@ -120,6 +120,93 @@ describe('the Office exit check keeps a chart\'s own data workbook (QA A-03-L)',
     const slideRels = 'ppt/slides/_rels/slide1.xml.rels'
     const fromSlide = edit(DECK, { [slideRels]: (x) => x.replace('</Relationships>', `<Relationship Id="rId99" Type="${PACKAGE}" Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"/></Relationships>`) })
     expect(() => officeExitRequest(frame('pptx', fromSlide))).toThrow(/package/)
+  })
+})
+
+describe('security review of #573: only a chart\'s own, plain, internal workbook passes', () => {
+  const rels = 'ppt/charts/_rels/chart1.xml.rels'
+  const wb = part(DECK, WB1)!
+  const retarget = (target: string, extra: Record<string, Uint8Array> = {}, mode = '') =>
+    edit(DECK, { [rels]: (x) => x.replace('Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"', `Target="${target}"${mode}`), ...extra })
+
+  test('a share, file: or web target is refused even with a zip entry at that name', () => {
+    expect(() => officeExitRequest(frame('pptx', retarget('//evil.example/share/embeddings/a.xlsx', { 'evil.example/share/embeddings/a.xlsx': wb })))).toThrow(/evil\.example/)
+    expect(() => officeExitRequest(frame('pptx', retarget('file:///C:/embeddings/a.xlsx', { 'ppt/charts/file:/C:/embeddings/a.xlsx': wb })))).toThrow(/file:/)
+    expect(() => officeExitRequest(frame('pptx', retarget('http://evil.example/embeddings/a.xlsx', { 'ppt/charts/http:/evil.example/embeddings/a.xlsx': wb })))).toThrow(/evil\.example/)
+    // backslashes, escapes and rooted paths are not plain targets either
+    expect(() => officeExitRequest(frame('pptx', retarget('..\\embeddings\\a.xlsx')))).toThrow()
+    expect(() => officeExitRequest(frame('pptx', retarget('../embeddings/a%2Exlsx', { 'ppt/embeddings/a%2Exlsx': wb })))).toThrow(/package/)
+    expect(() => officeExitRequest(frame('pptx', retarget('/ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx')))).toThrow(/package/)
+  })
+
+  test('a part named like a chart but not typed as one, or a package the chart does not name, is refused', () => {
+    // slide XML saved as ppt/charts/chart9.xml with a package relationship
+    const slide = part(DECK, 'ppt/slides/slide1.xml')!
+    const pkg = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${PACKAGE}" Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"/></Relationships>`
+    const fake = edit(DECK, { 'ppt/charts/chart9.xml': slide, 'ppt/charts/_rels/chart9.xml.rels': enc.encode(pkg) })
+    expect(() => officeExitRequest(frame('pptx', fake))).toThrow(/package/)
+    // a real chart part whose override names another content type
+    expect(() => officeExitRequest(frame('pptx', edit(DECK, { '[Content_Types].xml': (x) => x.replace(/(PartName="\/ppt\/charts\/chart1\.xml" ContentType=")[^"]+/, '$1application/xml') })))).toThrow(/package/)
+    // a second package relationship of the chart that <c:externalData> does not name
+    const second = edit(DECK, { [rels]: (x) => x.replace('</Relationships>', `<Relationship Id="rId9" Type="${PACKAGE}" Target="../embeddings/Microsoft_Excel_Worksheet2.xlsx"/></Relationships>`) })
+    expect(() => officeExitRequest(frame('pptx', second))).toThrow(/package/)
+    // a second Override for the chart part with another type
+    expect(() => officeExitRequest(frame('pptx', edit(DECK, { '[Content_Types].xml': (x) => x.replace('</Types>', '<Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>') })))).toThrow(/package/)
+    // two workbooks whose names differ only in case (the second with a macro): refused, never vouched for by the first
+    const twin = 'ppt/embeddings/microsoft_excel_worksheet1.xlsx'
+    const cased = edit(DECK, { [twin]: edit(wb, { 'xl/vbaProject.bin': enc.encode('macro') }), 'ppt/charts/_rels/chart2.xml.rels': (x) => x.replace(/Microsoft_Excel_Worksheet2\.xlsx/, 'microsoft_excel_worksheet1.xlsx') })
+    expect(() => officeExitRequest(frame('pptx', cased))).toThrow(/there twice|macro project/)
+    // <c:externalData> removed: its workbook is no longer the chart's data
+    expect(() => officeExitRequest(frame('pptx', edit(DECK, { 'ppt/charts/chart1.xml': (x) => x.replace(/<c:externalData\b[\s\S]*?<\/c:externalData>/, '') })))).toThrow(/package/)
+  })
+
+  test('each workbook is scanned once, and the number of workbooks is capped', () => {
+    // 3000 charts on one workbook: one scan
+    const many: Record<string, Uint8Array | ((x: string) => string)> = {}
+    let types = ''
+    for (let i = 10; i < 3010; i++) {
+      many[`ppt/charts/chart${i}.xml`] = part(DECK, 'ppt/charts/chart1.xml')!
+      many[`ppt/charts/_rels/chart${i}.xml.rels`] = part(DECK, rels)!
+      types += `<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`
+    }
+    many['[Content_Types].xml'] = (x) => x.replace('</Types>', `${types}</Types>`)
+    const big = edit(DECK, many)
+    // the same 3000 chart parts with no relationships: what reading them costs without any workbook scan
+    const noRels: Record<string, null> = {}
+    for (let i = 10; i < 3010; i++) noRels[`ppt/charts/_rels/chart${i}.xml.rels`] = null
+    const bare = edit(big, noRels)
+    let t = performance.now()
+    officeExitRequest(frame('pptx', bare))
+    const base = performance.now() - t
+    t = performance.now()
+    expect(officeExitRequest(frame('pptx', big))).toBeInstanceOf(Uint8Array)
+    // one workbook scan costs about 1 ms: 3000 scans would add seconds
+    expect(performance.now() - t).toBeLessThan(base * 1.5 + 300)
+    // more distinct workbooks than the cap: refused
+    const books: Record<string, Uint8Array | ((x: string) => string)> = {}
+    types = ''
+    for (let i = 10; i < 10 + CHART_WORKBOOKS_MAX + 1; i++) {
+      books[`ppt/charts/chart${i}.xml`] = part(DECK, 'ppt/charts/chart1.xml')!
+      books[`ppt/charts/_rels/chart${i}.xml.rels`] = enc.encode(dec.decode(part(DECK, rels)!).replace('Microsoft_Excel_Worksheet1.xlsx', `book${i}.xlsx`))
+      books[`ppt/embeddings/book${i}.xlsx`] = wb
+      types += `<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`
+    }
+    books['[Content_Types].xml'] = (x) => x.replace('</Types>', `${types}</Types>`)
+    t = performance.now()
+    expect(() => officeExitRequest(frame('pptx', edit(DECK, books)))).toThrow(/past what one file may hold in chart data workbooks/)
+    expect(performance.now() - t).toBeLessThan(10_000)
+  }, 30_000)
+
+  test('the read-back has one cell budget: 2000 series over 100k-cell ranges finish fast', () => {
+    const ser = (i: number) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:val><c:numRef><c:f>Sheet1!$B$1:$B$100000</c:f><c:numCache><c:ptCount val="1"/><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>`
+    const huge = edit(DECK, { 'ppt/charts/chart1.xml': (x) => x.replace(/<c:ser>[\s\S]*<\/c:ser>/, Array.from({ length: 2000 }, (_, i) => ser(i)).join('')) })
+    const t = performance.now()
+    const r = chartDataReview(huge)
+    expect(performance.now() - t).toBeLessThan(2000)
+    expect(r.charts).toHaveLength(4)
+    expect(REVIEW_CELLS_MAX).toBeGreaterThan(0)
+    // a damaged workbook is unreadable, not a crash
+    expect(chartDataReview(edit(DECK, { [WB1]: enc.encode('PK\x03\x04 not really') })).charts[0]!.state).toBe('unreadable')
   })
 })
 
@@ -166,6 +253,7 @@ describe('the read-back names charts that cannot be edited', () => {
 function wordWithChart(): Uint8Array {
   const base = docx({ extra: '<w:p><w:r><w:drawing><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId7"/></w:drawing></w:r></w:p>' })
   return edit(base, {
+    '[Content_Types].xml': (x) => x.replace('</Types>', '<Override PartName="/word/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/><Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/></Types>'),
     'word/_rels/document.xml.rels': (x) => x.replace('</Relationships>', '<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="charts/chart1.xml"/></Relationships>'),
     'word/charts/chart1.xml': part(DECK, 'ppt/charts/chart1.xml')!,
     'word/charts/_rels/chart1.xml.rels': part(DECK, 'ppt/charts/_rels/chart1.xml.rels')!,

@@ -34,6 +34,7 @@ import { officeRecalc, officeViewer } from '../files/office-view'
 import { OFFICE_WRITE_MAX, officeWorkerWrite } from '../files/extract'
 import { DOCX_REVIEW_MODE, docxReviewLine, type DocxReview } from '../files/docx-review'
 import { CHART_DATA_MODE, chartDataLine, type ChartDataReview } from '../files/chart-data'
+import { CHART_PART } from '../files/office-xml'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
@@ -204,7 +205,7 @@ async function docxReadBack(exec: TurnExec, tmp: string, size: number): Promise<
 /** The chart read-back of a deck or Word file about to be saved (files/chart-data.ts, in the office worker); '' when it
  * has no chart part. */
 async function chartReadBack(exec: TurnExec, tmp: string, size: number, names: string[]): Promise<string> {
-  if (!names.some((n) => /^(ppt|word)\/charts\/chart\d+\.xml$/.test(n))) return ''
+  if (!names.some((n) => CHART_PART.test(n) && !n.startsWith('xl/'))) return ''
   if (size > OFFICE_WRITE_MAX) return ' It is too large for its charts to be read back here (the file itself is saved): do not say its charts can be edited unless you checked.'
   try {
     const r = JSON.parse((await officeWorkerWrite(CHART_DATA_MODE, new Uint8Array(fs.readFileSync(tmp)), exec.abort.signal, 256 * 1024)).toString('utf8')) as ChartDataReview
