@@ -17,7 +17,7 @@ import * as XLSX from 'xlsx'
 import { MAKE_FILE_CHARTS_MAX } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import { readZip, writeZip, type ZipEntry } from '../files/zip-write'
-import { CHART_TYPES, chartXml, type ChartSheet, type ChartType } from './xlsx-chart'
+import { CHART_TYPES, chartXml, esc, type ChartSheet, type ChartType } from './xlsx-chart'
 
 /** a chart block's language: ```chart */
 export const CHART_BLOCK_CLASS = 'chart'
@@ -72,17 +72,26 @@ type Block = { t?: unknown; c?: unknown }
  * Every ```chart block of a pandoc tree, replaced in place by a paragraph holding only a marker (a word no document
  * holds); returns the charts by marker, in document order. ToolError when a block is wrong or there are too many.
  */
-export function chartBlocks(ast: unknown): Map<string, DocChart> {
+export function chartBlocks(ast: unknown, format: 'docx' | 'pptx' | 'pdf' = 'docx'): Map<string, DocChart> {
   const nonce = crypto.randomBytes(6).toString('hex')
   const charts = new Map<string, DocChart>()
+  /** a place a chart cannot stand: pandoc writes a footnote, speaker notes (::: notes) and a slide's table outside the
+   * body paragraphs a chart replaces */
+  const placeOf = (b: Block): string | null => {
+    if (b.t === 'Note') return 'a footnote'
+    if (b.t === 'Div' && Array.isArray(b.c) && Array.isArray((b.c[0] as unknown[])?.[1]) && ((b.c[0] as unknown[])[1] as unknown[]).includes('notes')) return 'speaker notes (::: notes)'
+    if (b.t === 'Table' && format === 'pptx') return 'a table'
+    return null
+  }
   // document order: the tree is walked depth first, children in order
-  const visit = (x: unknown): void => {
+  const visit = (x: unknown, inside: string | null): void => {
     if (Array.isArray(x)) {
       for (let i = 0; i < x.length; i++) {
         const b = x[i] as Block
         if (b && typeof b === 'object' && b.t === 'CodeBlock' && Array.isArray(b.c)) {
           const [attr, text] = b.c as [[string, string[], unknown], string]
           if (Array.isArray(attr?.[1]) && attr[1].includes(CHART_BLOCK_CLASS) && typeof text === 'string') {
+            if (inside) throw new ToolError(`chart ${charts.size + 1}: a chart block cannot stand in ${inside}; put it in the ${format === 'pptx' ? 'slide itself, alone under its ## heading' : 'document body, on its own lines'}; nothing was saved`)
             if (charts.size >= MAKE_FILE_CHARTS_MAX) throw new ToolError(`at most ${MAKE_FILE_CHARTS_MAX} charts per file; nothing was saved`)
             const marker = `MYCELCHART${nonce}N${charts.size + 1}`
             charts.set(marker, parseChartBlock(text, `chart ${charts.size + 1}`))
@@ -90,13 +99,16 @@ export function chartBlocks(ast: unknown): Map<string, DocChart> {
             continue
           }
         }
-        visit(b)
+        visit(b, inside)
       }
       return
     }
-    if (x && typeof x === 'object') for (const v of Object.values(x)) if (v && typeof v === 'object') visit(v)
+    if (x && typeof x === 'object') {
+      const here = inside ?? placeOf(x as Block)
+      for (const v of Object.values(x)) if (v && typeof v === 'object') visit(v, here)
+    }
   }
-  visit(ast)
+  visit(ast, null)
   return charts
 }
 
@@ -181,7 +193,8 @@ function around(xml: string, at: number, tag: string): { start: number; end: num
   return start < 0 || close < 0 ? null : { start, end: close + tag.length + 3 }
 }
 
-const missing = (marker: string) => new Error(`chart marker ${marker} not found in the written file`)
+/** a marker pandoc did not write where a chart can go (a header, a caption, metadata): the AI's to fix, not a bug */
+const missing = (_marker: string) => new ToolError('a chart block must stand in the document body (in PowerPoint: alone on a slide under its ## heading), not in a footnote, header, caption, table of a slide or speaker notes; nothing was saved')
 
 /** Word: each marker paragraph becomes a paragraph holding the chart, inline and centred, 16 x 9.5 cm. */
 export function insertDocxCharts(bytes: Uint8Array, charts: Map<string, DocChart>): Uint8Array {
@@ -201,7 +214,7 @@ export function insertDocxCharts(bytes: Uint8Array, charts: Map<string, DocChart
     const part = p.addChart('word', c)
     const rid = p.relate(docPart, 'chart', `charts/${part}`)
     const cx = 5760000, cy = 3420000
-    const name = (c.title ?? 'Chart').replace(/[&<>"]/g, '').slice(0, 80)
+    const name = esc((c.title ?? 'Chart').slice(0, 80))
     const drawing = `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>` +
       `<wp:docPr id="${id}" name="Chart ${id}" descr="${name}"/><wp:cNvGraphicFramePr/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="${CHART_URI}">` +
       `<c:chart xmlns:c="${CHART_URI}" xmlns:r="${REL}" r:id="${rid}"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`
@@ -272,7 +285,7 @@ export function insertPptxCharts(bytes: Uint8Array, charts: Map<string, DocChart
       const cNvPr = /<p:cNvPr\b[^>]*\sid="(\d+)"/.exec(shape)?.[1] ?? '1000'
       const chartPart = p.addChart('ppt', c)
       const rid = p.relate(part, 'chart', `../charts/${chartPart}`)
-      const name = (c.title ?? 'Chart').replace(/[&<>"]/g, '').slice(0, 80)
+      const name = esc((c.title ?? 'Chart').slice(0, 80))
       const frame = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${cNvPr}" name="Chart ${cNvPr}" descr="${name}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>` +
         `<p:xfrm><a:off x="${box.x}" y="${box.y}"/><a:ext cx="${box.cx}" cy="${box.cy}"/></p:xfrm><a:graphic><a:graphicData uri="${CHART_URI}">` +
         `<c:chart xmlns:c="${CHART_URI}" xmlns:r="${REL}" r:id="${rid}"/></a:graphicData></a:graphic></p:graphicFrame>`

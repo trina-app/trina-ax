@@ -445,7 +445,7 @@ export class MakeFile {
           images = await this.copyImages(c, ast, base, work)
           sources.push(...images)
           // ```chart blocks: native charts with their data sheet in Word and PowerPoint, put in after pandoc
-          docCharts = chartBlocks(ast)
+          docCharts = chartBlocks(ast, a.format === 'pptx' ? 'pptx' : a.format === 'pdf' ? 'pdf' : 'docx')
           if (docCharts.size && a.format === 'pdf') throw new ToolError('a ```chart block makes a native chart in a Word (docx) or PowerPoint (pptx) file; a PDF cannot hold one: for a PDF, draw the chart as SVG and put it in as a picture (![](charts/sales.svg)); nothing was saved')
           if (a.format === 'pdf' || a.format === 'docx') doc = { pictures: imageCount(ast), textBars: textBars(text) }
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows

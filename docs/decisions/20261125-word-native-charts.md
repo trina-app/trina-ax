@@ -27,9 +27,14 @@
     native"). Word gets `docx/scripts/word_chart.py`, our own file next to the vendored skill (`added` in SOURCE.json):
     it replaces placeholder paragraphs ("[[chart:sales]]") with native charts, using python-docx and python-pptx's
     chart writer (both preinstalled in a run). The prompt names it (`DOC_CHART_RULE`).
-  - Read-back: a .docx / .pptx leaving the work folder with pictures and no chart part gets one line: a chart drawn as
-    a picture cannot be edited; rebuild it natively, or say plainly it is a picture (files/chart-data.ts
-    `pictureChartLine`, from the part names only).
+  - Read-back: a .docx / .pptx leaving the work folder with no chart part gets one line when its slides or document
+    body show a new picture: a chart drawn as a picture cannot be edited; rebuild it natively, or say plainly it is a
+    picture (files/chart-data.ts `pictureChartLine`). Pictures of layouts, masters, headers and footers (a template's
+    logo or background) never count, nor a picture byte for byte (CRC-32 and size, from the zip directory) in a team
+    file this answer read, such as the template or the file being replaced.
+  - A chart block in a footnote, speaker notes or (PowerPoint) a table is refused with that reason; text that XML
+    cannot hold (control characters) is dropped from chart text and names, in make_file and in word_chart.py, whose
+    errors are plain lines, not tracebacks (independent review of #598).
 - **Left out:** chart kinds beyond column, bar, line and pie in the make_file block (the helper also has stacked, area
   and doughnut); Hangul (.hwpx) charts; templates' own embedded workbooks (still refused, as before).
 - **Tests:** tests/unit/office-chart.test.ts (block parsing, Word and PowerPoint files from make_file read back as "ok"

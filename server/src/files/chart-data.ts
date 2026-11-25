@@ -13,6 +13,7 @@ import { ToolError } from '../policy/errors'
 import { attr, chartPrefix, elements, inner, paragraphs, parts, points, rels, slideOrder, startTag, xmlOf, type Parts } from './ooxml'
 import { CHART_PART } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
+import { crc32, zipDirectory } from './zip-write'
 
 export const CHART_DATA_MODE = 'chart-data'
 
@@ -38,7 +39,10 @@ export interface ChartData {
   detail?: string
 }
 
-export interface ChartDataReview { kind: 'pptx' | 'docx'; charts: ChartData[]; more: number }
+/** a picture the slides or the document body show (not a layout's, master's, header's or footer's: a template's logo or
+ * background is never a chart), by its part and the CRC-32 and size of its bytes */
+export interface BodyPicture { name: string; crc: number; size: number }
+export interface ChartDataReview { kind: 'pptx' | 'docx'; charts: ChartData[]; more: number; pictures?: BodyPicture[] }
 
 const CHART_REL = /\/relationships\/chart$/
 
@@ -62,7 +66,23 @@ export function chartDataReview(bytes: Uint8Array): ChartDataReview {
     const slide = onSlide.get(name)
     charts.push({ where: slide ? `slide ${slide}` : `chart ${i + 1}`, title: titleOf(xml), ...stateOf(p, name, xml, budget) })
   })
-  return { kind, charts, more: Math.max(0, names.length - CHART_DATA_MAX) }
+  return { kind, charts, more: Math.max(0, names.length - CHART_DATA_MAX), pictures: bodyPictures(p, kind) }
+}
+
+const IMAGE_REL = /\/relationships\/image$/
+/** the pictures of the slides (PowerPoint) or the document body (Word), at most 200 */
+function bodyPictures(p: Parts, kind: 'pptx' | 'docx'): BodyPicture[] {
+  const owners = kind === 'pptx' ? slideOrder(p) : ['word/document.xml']
+  const seen = new Map<string, BodyPicture>()
+  for (const o of owners) {
+    for (const r of rels(p, o).values()) {
+      if (seen.size >= 200) break
+      if (!IMAGE_REL.test(r.type) || !PICTURE_PART.test(r.target) || seen.has(r.target)) continue
+      const data = p.get(r.target)
+      if (data) seen.set(r.target, { name: r.target, crc: crc32(data), size: data.length })
+    }
+  }
+  return [...seen.values()]
 }
 
 /** what one review may still open and compare; each workbook is read once */
@@ -176,15 +196,25 @@ export function chartDataLine(r: ChartDataReview): string {
 /** a picture part of a Word file or deck (word/media/image1.png, ppt/media/image2.jpeg) */
 const PICTURE_PART = /^(word|ppt)\/media\/[^/]+\.(png|jpe?g|gif|bmp|tiff?|webp|svg|emf|wmf)$/i
 
-/** One line for a Word file or deck with pictures and no native chart (live QA 2026-11-25: a Word report's bar chart was
- * a PNG, and the answer did not say so), '' without pictures. Read from the zip's part names only. */
-export function pictureChartLine(kind: 'docx' | 'pptx', names: string[]): string {
-  const pictures = names.filter((n) => PICTURE_PART.test(n)).length
-  if (!pictures) return ''
+/** The body pictures of a review that are new: not byte for byte (CRC-32 and size) a picture of one of `known`, the
+ * team files this answer read (a template, the file being replaced). Read from their zip directories only. */
+export function newPictures(r: ChartDataReview, known: Uint8Array[]): string[] {
+  const have = new Set<string>()
+  for (const k of known) {
+    try { for (const e of zipDirectory(k)) if (PICTURE_PART.test(e.name)) have.add(`${e.crc >>> 0}:${e.usize}`) } catch { /* not a zip: vouches for nothing */ }
+  }
+  return (r.pictures ?? []).filter((x) => !have.has(`${x.crc >>> 0}:${x.size}`)).map((x) => x.name)
+}
+
+/** One line for a Word file or deck with new pictures in its body and no native chart (live QA 2026-11-25: a Word
+ * report's bar chart was a PNG, and the answer did not say so), '' without such pictures. `pictures`: those parts. */
+export function pictureChartLine(kind: 'docx' | 'pptx', pictures: string[]): string {
+  const count = pictures.filter((x) => PICTURE_PART.test(x)).length
+  if (!count) return ''
   const fix = kind === 'pptx'
     ? 'build it with addChart (pptxgenjs) or add_chart (python-pptx)'
     : 'put it in with the docx skill\'s scripts/word_chart.py (or a ```chart block in make_file)'
-  return ` Read back: it has ${n(pictures, 'picture')} and no native chart. If one of them is a chart (bars, lines, a pie drawn as a picture), its numbers cannot be edited in ${kind === 'pptx' ? 'PowerPoint' : 'Word'} (right-click > Edit Data finds nothing): ${fix} and save again, unless the person asked for a picture; if it stays a picture, say plainly in your answer that the chart is a picture whose numbers cannot be edited.`
+  return ` Read back: it has ${n(count, 'new picture')} and no native chart. If one of them is a chart (bars, lines, a pie drawn as a picture), its numbers cannot be edited in ${kind === 'pptx' ? 'PowerPoint' : 'Word'} (right-click > Edit Data finds nothing): ${fix} and save again, unless the person asked for a picture; if it stays a picture, say plainly in your answer that the chart is a picture whose numbers cannot be edited.`
 }
 
 /** The office worker's mode: the .pptx or .docx in, the review as JSON out. */

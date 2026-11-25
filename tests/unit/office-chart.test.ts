@@ -14,7 +14,7 @@ import { makeHandler } from '../../server/src/mcp/protocol'
 import { readZip } from '../../server/src/files/zip-write'
 import { which } from '../../server/src/config'
 import { chartBlocks, chartWorkbook, docChartXml, parseChartBlock } from '../../server/src/tools/office-chart'
-import { chartDataLine, chartDataReview, pictureChartLine } from '../../server/src/files/chart-data'
+import { chartDataLine, chartDataReview, newPictures, pictureChartLine } from '../../server/src/files/chart-data'
 import { checkOfficeLinks } from '../../server/src/files/office-links-check'
 import { CHART_BLOCK_HINT } from '../../server/src/tools/make-file'
 import { DOC_CHART_RULE, makeFileRule } from '../../server/src/chat/prompt'
@@ -26,6 +26,8 @@ const REPO = path.resolve(import.meta.dir, '../..')
 const HELPER = path.join(REPO, 'resources/doc-skills/docx/scripts/word_chart.py')
 
 const SALES = { type: 'column', title: '분기별 매출', categories: ['1분기', '2분기', '3분기'], series: [{ name: '2025', values: [120, 135, 150] }, { name: '2026', values: [130, null, 170] }] }
+/** a minimal Word file whose body is one paragraph */
+const docxOf = (text: string) => { const { docx } = require('../lib/office-fixture') as typeof import('../lib/office-fixture'); return docx({ body: text }) }
 const block = (o: unknown) => '```chart\n' + JSON.stringify(o) + '\n```'
 
 describe('a chart block (pure)', () => {
@@ -167,13 +169,13 @@ describe.skipIf(!py)('the docx skill\'s word_chart.py (a run builds Word files w
 
 describe('a saved Word file or deck with pictures and no chart', () => {
   test('is told that a chart picture cannot be edited, with the way to fix it', () => {
-    const w = pictureChartLine('docx', ['word/document.xml', 'word/media/image1.png'])
-    expect(w).toContain('it has 1 picture and no native chart')
+    const w = pictureChartLine('docx', ['word/media/image1.png'])
+    expect(w).toContain('it has 1 new picture and no native chart')
     expect(w).toContain('scripts/word_chart.py')
     expect(w).toContain('say plainly in your answer that the chart is a picture')
-    expect(pictureChartLine('pptx', ['ppt/media/image1.jpeg', 'ppt/media/image2.png'])).toContain('2 pictures and no native chart')
+    expect(pictureChartLine('pptx', ['ppt/media/image1.jpeg', 'ppt/media/image2.png'])).toContain('2 new pictures and no native chart')
     expect(pictureChartLine('pptx', ['ppt/media/image1.jpeg'])).toContain('addChart')
-    expect(pictureChartLine('docx', ['word/document.xml'])).toBe('')
+    expect(pictureChartLine('docx', [])).toBe('')
   })
 })
 
@@ -187,5 +189,85 @@ describe('the words', () => {
     expect(makeFileRule(false, false, true)).toContain(DOC_CHART_RULE)
     expect(makeFileRule(false, false, false)).toContain('```chart block')
     expect(makeFileRule(false, false, false)).not.toContain('word_chart.py')
+  })
+})
+
+describe('review fixes (#598)', () => {
+  test('a chart block in a footnote, speaker notes or a slide\'s table is refused as the AI\'s to fix; a marker that went missing is a ToolError', async () => {
+    const { ToolError } = await import('../../server/src/policy/errors')
+    const { insertDocxCharts } = await import('../../server/src/tools/office-chart')
+    const note = { blocks: [{ t: 'Para', c: [{ t: 'Note', c: [{ t: 'CodeBlock', c: [['', ['chart'], []], JSON.stringify(SALES)] }] }] }] }
+    expect(() => chartBlocks(note)).toThrow(/cannot stand in a footnote/)
+    const notes = { blocks: [{ t: 'Div', c: [['', ['notes'], []], [{ t: 'CodeBlock', c: [['', ['chart'], []], JSON.stringify(SALES)] }]] }] }
+    expect(() => chartBlocks(notes, 'pptx')).toThrow(/cannot stand in speaker notes/)
+    const table = { blocks: [{ t: 'Table', c: [[{ t: 'CodeBlock', c: [['', ['chart'], []], JSON.stringify(SALES)] }]] }] }
+    expect(() => chartBlocks(table, 'pptx')).toThrow(/cannot stand in a table/)
+    expect(chartBlocks(structuredClone(table), 'docx').size).toBe(1)
+    let err: unknown
+    try { insertDocxCharts(docxOf('no marker here'), new Map([['MYCELCHARTx', parseChartBlock(JSON.stringify(SALES), 'c')]])) } catch (e) { err = e }
+    expect(err).toBeInstanceOf(ToolError)
+    expect(String((err as Error).message)).toContain('must stand in the document body')
+  })
+  test.skipIf(!pandoc)('make_file: a footnote chart and speaker-notes chart are refused with a plain reason', async () => {
+    const r = await call('make_file', { format: 'docx', output: 'users/alice/fn.docx', content: `Text.[^1]\n\n[^1]: Note.\n\n    ${block(SALES).split('\n').join('\n    ')}\n` })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('cannot stand in a footnote')
+    const n = await call('make_file', { format: 'pptx', output: 'users/alice/notes.pptx', content: `## Sales\n\n- one\n\n::: notes\n${block(SALES)}\n:::\n` })
+    expect(n.isError).toBe(true)
+    expect(n.text).toContain('cannot stand in speaker notes')
+  })
+  test.skipIf(!pandoc)('a title with control characters makes valid XML (no misleading exit-check refusal)', async () => {
+    const r = await call('make_file', { format: 'docx', output: 'users/alice/ctl.docx', content: block({ ...SALES, title: 'Sales\u0001\u001f by quarter' }) })
+    expect(r.isError, r.text).toBe(false)
+    const b = bytesOf('users/alice/ctl.docx')
+    const doc = new TextDecoder().decode(readZip(b).find((e) => e.name === 'word/document.xml')!.data)
+    expect(doc).toContain('descr="Sales by quarter"')
+    expect(chartDataReview(b).charts[0]!.state).toBe('ok')
+  })
+  test.skipIf(!py)('word_chart.py: control characters are dropped; a bad spec is a plain error, not a traceback', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-chart-'))
+    try {
+      expect(Bun.spawnSync([py!, '-c', "from docx import Document\nd = Document()\nd.add_paragraph('[[c]]')\nd.save('in.docx')\n"], { cwd: dir }).exitCode).toBe(0)
+      fs.writeFileSync(path.join(dir, 'c.json'), JSON.stringify([{ placeholder: '[[c]]', ...SALES, title: 'T\u0001itle', series: [{ name: 'a\u0002', values: [1, 2, 3] }] }]))
+      const r = Bun.spawnSync([py!, HELPER, 'in.docx', 'out.docx', 'c.json'], { cwd: dir })
+      expect(r.exitCode, r.stderr.toString()).toBe(0)
+      const b = new Uint8Array(fs.readFileSync(path.join(dir, 'out.docx')))
+      expect(chartDataReview(b).charts.map((c) => [c.title, c.state])).toEqual([['Title', 'ok']])
+      fs.writeFileSync(path.join(dir, 'd.json'), JSON.stringify(['not a chart']))
+      const bad = Bun.spawnSync([py!, HELPER, 'in.docx', 'out2.docx', 'd.json'], { cwd: dir })
+      expect(bad.exitCode).toBe(1)
+      expect(bad.stderr.toString()).toContain('word_chart.py: chart 1: each chart is an object')
+      expect(bad.stderr.toString()).not.toContain('Traceback')
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('a template deck\'s logo (on its layout) is never taken for a chart; a slide picture is, unless a file read holds it', () => {
+    const { writeZip } = require('../../server/src/files/zip-write') as typeof import('../../server/src/files/zip-write')
+    const deck = new Uint8Array(fs.readFileSync(path.join(REPO, 'tests/fixtures/charts/python-pptx-chart.pptx')))
+    const IMG = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image'
+    const logo = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7]), shot = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 5])
+    const relsAdd = (x: string, id: string, target: string) => x.replace('</Relationships>', `<Relationship Id="${id}" Type="${IMG}" Target="${target}"/></Relationships>`)
+    const build = (onSlide: Uint8Array | null) => {
+      const es = readZip(deck).map((e) => ({ name: e.name, data: e.data }))
+        // no chart: only pictures
+        .filter((e) => !/^ppt\/(charts|embeddings)\//.test(e.name))
+        .map((e) => {
+          const t = new TextDecoder().decode(e.data)
+          if (e.name === 'ppt/slideLayouts/_rels/slideLayout7.xml.rels') return { name: e.name, data: new TextEncoder().encode(relsAdd(t, 'rIdLogo', '../media/logo.png')) }
+          if (e.name === 'ppt/slides/_rels/slide1.xml.rels') return { name: e.name, data: new TextEncoder().encode(relsAdd(t.replace(/<Relationship [^>]*chart[^>]*\/>/, ''), 'rIdShot', '../media/shot.png')) }
+          return e
+        })
+      es.push({ name: 'ppt/media/logo.png', data: logo })
+      if (onSlide) es.push({ name: 'ppt/media/shot.png', data: onSlide })
+      return writeZip(es)
+    }
+    const layoutOnly = chartDataReview(build(null))
+    expect(layoutOnly.pictures).toEqual([])
+    expect(pictureChartLine('pptx', newPictures(layoutOnly, []))).toBe('')
+    const withShot = build(shot)
+    const r = chartDataReview(withShot)
+    expect(r.pictures!.map((x) => x.name)).toEqual(['ppt/media/shot.png'])
+    expect(pictureChartLine('pptx', newPictures(r, []))).toContain('1 new picture and no native chart')
+    // the same picture in a file this answer read (the template, the file being replaced): not new
+    expect(newPictures(r, [withShot])).toEqual([])
   })
 })

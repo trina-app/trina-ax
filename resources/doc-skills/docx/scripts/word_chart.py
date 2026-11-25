@@ -20,6 +20,7 @@ type: column, stacked_column, bar (horizontal), stacked_bar, line, area, pie, do
 (null for a gap). The output is a new file; the placeholder paragraph keeps its alignment.
 """
 import json
+import re
 import sys
 
 from docx import Document
@@ -50,6 +51,15 @@ TYPES = {
 }
 
 
+# characters XML 1.0 cannot hold (control characters other than tab, line feed and carriage return; lone surrogates)
+_NOT_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def clean(s):
+    """text for the chart's XML: characters XML cannot hold dropped"""
+    return _NOT_XML.sub("", str(s))
+
+
 def fail(msg):
     sys.stderr.write("word_chart.py: " + msg + "\n")
     sys.exit(1)
@@ -69,7 +79,7 @@ def chart_parts(spec, i):
     if kind in ("pie", "doughnut") and len(series) != 1:
         fail("%s: a %s chart takes one series" % (what, kind))
     data = CategoryChartData(number_format=spec.get("number_format", "General"))
-    data.categories = [str(c) if not isinstance(c, (int, float)) else c for c in cats]
+    data.categories = [clean(c) if not isinstance(c, (int, float)) or isinstance(c, bool) else c for c in cats]
     for s in series:
         vals = s.get("values")
         if not isinstance(vals, list) or len(vals) != len(cats):
@@ -77,13 +87,13 @@ def chart_parts(spec, i):
         for v in vals:
             if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
                 fail("%s: series %r: values must be plain numbers (no units or %%), null for a gap" % (what, s.get("name")))
-        data.add_series(str(s.get("name", "")), vals)
+        data.add_series(clean(s.get("name", "")), vals)
     space = parse_xml(data.xml_bytes(TYPES[kind]))
     chart = Chart(space, None)
     title = spec.get("title")
     if title:
         chart.has_title = True
-        chart.chart_title.text_frame.text = str(title)
+        chart.chart_title.text_frame.text = clean(title)
     else:
         chart.has_title = False
     if kind in ("pie", "doughnut") or len(series) > 1:
@@ -142,6 +152,8 @@ def main():
     ids = [int(x) for x in doc.element.body.xpath("//wp:docPr/@id") if str(x).isdigit()]
     pid = max(ids + [0]) + 1
     for i, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            fail("chart %d: each chart is an object with placeholder, type, categories and series" % (i + 1))
         ph = spec.get("placeholder")
         hits = [p for p in paras if ph and text_of(p) == ph]
         if not hits:
@@ -164,7 +176,7 @@ def main():
             for child in list(p):
                 if child.tag != qn("w:pPr"):
                     p.remove(child)
-            name = str(spec.get("title", "Chart")).replace("&", "").replace("<", "").replace(">", "").replace('"', "")[:80]
+            name = clean(spec.get("title", "Chart")).replace("&", "").replace("<", "").replace(">", "").replace('"', "")[:80]
             p.append(etree.fromstring(inline_xml(rid, cx, cy, pid, name)))
             pid += 1
     doc.save(out)
@@ -172,4 +184,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except (ValueError, TypeError, KeyError, OSError) as e:
+        fail("could not make the charts: %s" % str(e)[:300])

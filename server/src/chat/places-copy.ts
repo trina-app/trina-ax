@@ -29,11 +29,11 @@ import type { McpContent } from '../turns'
 import type { ToolCtx, TurnFiles } from '../files/service'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from '../files/places'
 import { openToRead } from '../files/store'
-import { contentKind, fdReader, type ContentKind } from '../files/office-exit'
+import { contentKind, fdReader, readVouchers, type ContentKind } from '../files/office-exit'
 import { officeRecalc, officeViewer } from '../files/office-view'
 import { OFFICE_WRITE_MAX, officeWorkerWrite } from '../files/extract'
 import { DOCX_REVIEW_MODE, docxReviewLine, type DocxReview } from '../files/docx-review'
-import { CHART_DATA_MODE, chartDataLine, pictureChartLine, type ChartDataReview } from '../files/chart-data'
+import { CHART_DATA_MODE, chartDataLine, newPictures, pictureChartLine, type ChartDataReview } from '../files/chart-data'
 import { CHART_PART } from '../files/office-xml'
 import { turnWriteLimits } from '../files/turn-write-limits'
 import { authorize } from '../policy/authorize'
@@ -175,8 +175,8 @@ function noteWorkRead(exec: TurnExec): boolean {
 async function officeOut(exec: TurnExec, _files: TurnFiles, tmp: string, got: { name: string; size: number; sha256: string }, _also: string[] = [], _given: Uint8Array[] = []): Promise<{ name: string; size: number; sha256: string; note?: string }> {
   const fd = fs.openSync(tmp, 'r'); let k: ContentKind
   try { k = contentKind(got.name, fs.fstatSync(fd).size, fdReader(fd)) } finally { fs.closeSync(fd) }
-  if (k && 'office' in k && k.office === 'docx') return { ...got, note: await docxReadBack(exec, tmp, got.size) + await chartReadBack(exec, tmp, got.size, k.names, 'docx') }
-  if (k && 'office' in k && k.office === 'pptx') return { ...got, note: await chartReadBack(exec, tmp, got.size, k.names, 'pptx') }
+  if (k && 'office' in k && k.office === 'docx') return { ...got, note: await docxReadBack(exec, tmp, got.size) + await chartReadBack(exec, _files, tmp, got.size, k.names, 'docx') }
+  if (k && 'office' in k && k.office === 'pptx') return { ...got, note: await chartReadBack(exec, _files, tmp, got.size, k.names, 'pptx') }
   if (!k || !('office' in k) || !k.names.some((n) => n.toLowerCase() === 'xl/workbook.xml')) return got
   if (!officeViewer()) return { ...got, note: ' This server cannot calculate the formulas, so a preview may show empty formula cells until the file is opened in Excel: say so.' }
   const bytes = new Uint8Array(fs.readFileSync(tmp))
@@ -203,16 +203,19 @@ async function docxReadBack(exec: TurnExec, tmp: string, size: number): Promise<
 }
 
 /** The chart read-back of a deck or Word file about to be saved (files/chart-data.ts, in the office worker); with no
- * chart part, a line when it has pictures (one may be a chart drawn as a picture, live QA 2026-11-25), else ''. */
-async function chartReadBack(exec: TurnExec, tmp: string, size: number, names: string[], kind: 'docx' | 'pptx'): Promise<string> {
-  if (!names.some((n) => CHART_PART.test(n) && !n.startsWith('xl/'))) return pictureChartLine(kind, names)
-  if (size > OFFICE_WRITE_MAX) return ' It is too large for its charts to be read back here (the file itself is saved): do not say its charts can be edited unless you checked.'
+ * chart part, a line when its slides or body hold pictures that are new (not those of a template or file this answer
+ * read): one may be a chart drawn as a picture (live QA 2026-11-25). '' when there is nothing to say. */
+async function chartReadBack(exec: TurnExec, files: TurnFiles, tmp: string, size: number, names: string[], kind: 'docx' | 'pptx'): Promise<string> {
+  const charts = names.some((n) => CHART_PART.test(n) && !n.startsWith('xl/'))
+  if (!charts && !names.some((n) => /^(word|ppt)\/media\//i.test(n))) return ''
+  if (size > OFFICE_WRITE_MAX) return charts ? ' It is too large for its charts to be read back here (the file itself is saved): do not say its charts can be edited unless you checked.' : ''
   try {
     const r = JSON.parse((await officeWorkerWrite(CHART_DATA_MODE, new Uint8Array(fs.readFileSync(tmp)), exec.abort.signal, 256 * 1024)).toString('utf8')) as ChartDataReview
-    return chartDataLine(r)
+    if (charts) return chartDataLine(r)
+    return pictureChartLine(kind, newPictures(r, readVouchers(exec.rt.ctx.files.fx.root, files.readHashes)))
   } catch {
     exec.abort.signal.throwIfAborted()
-    return ' Its charts could not be read back this time (the file itself is saved): do not say its charts can be edited unless you checked.'
+    return charts ? ' Its charts could not be read back this time (the file itself is saved): do not say its charts can be edited unless you checked.' : ''
   }
 }
 
