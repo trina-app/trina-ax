@@ -124,6 +124,43 @@ describe('the run (no server)', () => {
     expect(runDue(db, new Date('2026-11-20T21:00:00.000Z'))).toBe(false)
     expect(runDue(db, new Date('2026-11-20T23:30:00.000Z'))).toBe(true)
   })
+
+  // owner report 2026-11-25: English chips on a Korean screen. One call per language people read the app in that 3+
+  // people typed lines in, each in that language; each list stored as its language's
+  test('one call per language people read in and typed in; each list in its own language; none for a language nobody typed', async () => {
+    const at = new Date(Date.now() - 86400_000).toISOString()
+    for (const p of PEOPLE) for (const text of ['Find my files please', 'Write the weekly report draft']) {
+      const chat = newId(), m = newId()
+      env.db.query('INSERT INTO chats (id, user_id, created_at, updated_at, active_leaf_id) VALUES (?, ?, ?, ?, ?)').run(chat, p, at, at, m)
+      env.db.query("INSERT INTO messages (id, chat_id, role, content, author_id, status, created_at) VALUES (?, ?, 'user', ?, ?, 'done', ?)").run(m, chat, text, p, at)
+      env.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, user_message_id, client_kind) VALUES (?, ?, ?, 'claude-code', 'done', ?, 'web')").run(newId(), chat, p, m)
+    }
+    // the team reads English (its default), p1–p3 Korean, p4 Japanese (nobody typed Japanese: no call)
+    env.db.query("UPDATE users SET locale = 'ko' WHERE id IN ('p1', 'p2', 'p3')").run()
+    env.db.query("UPDATE users SET locale = 'ja' WHERE id = 'p4'").run()
+    env.db.query('DELETE FROM often_asked_items').run()
+    const systems: string[] = []
+    const ai: AskAi = async (system, message) => {
+      systems.push(system)
+      const lines = message.split('\n').filter((l) => l.startsWith('{"id"')).map((l) => JSON.parse(l) as { id: string; text: string })
+      const ids = (has: string) => lines.filter((l) => l.text.includes(has)).map((l) => l.id)
+      // the Korean call also slips in an English sentence: it is not stored for Korean
+      return json({ items: system.includes('In Korean') ? [{ text: '회의록 요약해 줘', ids: ids('회의록') }, { text: '주간 보고서 초안 써 줘', ids: ids('보고서') }, { text: '고객 메일 답장 써 줘', ids: ids('메일') }, { text: 'Find my files', ids: ids('files') }]
+        : [{ text: 'Find my files', ids: ids('files') }, { text: 'Write the weekly report draft', ids: ids('weekly') }, { text: '회의록 요약해 줘', ids: ids('회의록') }] })
+    }
+    expect(await runOftenAsked(ctx, { random, ai })).toBe('done')
+    expect(systems.map((x) => (x.match(/- In ([^,]+),/) ?? [])[1]).sort()).toEqual(['English', 'Korean (한국어)'])
+    const rows = env.db.query("SELECT locale, text FROM often_asked_items WHERE audience = 'team' ORDER BY locale, text").all() as { locale: string; text: string }[]
+    expect(rows).toEqual([
+      { locale: 'en', text: 'Find my files' }, { locale: 'en', text: 'Write the weekly report draft' },
+      { locale: 'ko', text: '고객 메일 답장 써 줘' }, { locale: 'ko', text: '주간 보고서 초안 써 줘' }, { locale: 'ko', text: '회의록 요약해 줘' },
+    ])
+    // one language's call failing still stores the other's
+    env.db.query('DELETE FROM often_asked_items').run()
+    expect(await runOftenAsked(ctx, { random, ai: async (system, message) => { if (system.includes('In Korean')) throw new Error('limit'); return ai(system, message, new AbortController().signal) } })).toBe('done')
+    expect((env.db.query('SELECT DISTINCT locale FROM often_asked_items').all() as { locale: string }[]).map((r) => r.locale)).toEqual(['en'])
+    env.db.query("UPDATE users SET locale = 'ko' WHERE id LIKE 'p%'").run()
+  })
 })
 
 describe('the route and the admin switch', () => {

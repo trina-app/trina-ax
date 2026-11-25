@@ -5,8 +5,9 @@
 // turn of the owner (turns.chat_id 'often-asked', so Admin › Usage counts it and budgets stop it). No chat is made: no
 // message is stored, no realtime event is sent, no route can open anything. The masked lines go in the message as data
 // inside <material>, one JSON line each, with every tag broken; the answer is one JSON object, read defensively
-// (parseOftenAsked), and the lists come from the server's checks (often-asked.ts passing). A failed call logs its kind
-// only, never the engine's output.
+// (parseOftenAsked), and the lists come from the server's checks (often-asked.ts passing). One call per language people
+// read the app in that 3+ people typed lines in (often-asked.ts readerLocales, typedIn), each writing in that language
+// (docs/decisions/20261125-often-asked-reader-language.md). A failed call logs its kind only, never the engine's output.
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
 import { OFTEN_ASKED_TEXT_MAX, type Locale } from '@mycel/shared/api'
@@ -16,7 +17,7 @@ import { LANGUAGE } from './prompt'
 import { answerJson } from '../onboarding/draft'
 import { zonedParts } from '../system/time-zone'
 import { pickReader, READER_TIMEOUT_MS } from '../file-list/engine-reader'
-import { buildSnapshot, expireLists, LAST_RUN_KEY, LAST_TRY_KEY, OFTEN_ASKED, storeLists, worthARun, type AiItem } from './often-asked'
+import { buildSnapshot, expireLists, LAST_RUN_KEY, LAST_TRY_KEY, OFTEN_ASKED, readerLocales, sentenceLocale, storeLists, typedIn, worthARun, type AiItem } from './often-asked'
 
 /** turns.chat_id of the run's call (no chat has this id) */
 export const OFTEN_ASKED_CHAT = 'often-asked'
@@ -124,19 +125,30 @@ export async function runOftenAsked(ctx: AppContext, o: RunOptions = {}): Promis
     if (!worthARun(snapshot)) return 'no_data'
     const ai = o.ai === undefined ? engineAsk(ctx) : o.ai
     if (!ai) return 'no_ai'
-    const material: OftenAskedMaterial = { locale: getTeamSettings(ctx.db).defaultLocale, current: snapshot.current, entries: snapshot.entries.map((e) => ({ id: e.id, text: e.text })) }
-    const stop = new AbortController()
-    const timer = setTimeout(() => stop.abort(), READER_TIMEOUT_MS + 30_000)
-    let text: string
-    try {
-      text = await ai(oftenAskedSystemPrompt(material.locale), oftenAskedMessage(material), stop.signal)
-    } catch (e) {
-      ctx.log.warn('often asked run failed', { err: e instanceof Error ? e.name : 'error' })
-      return 'failed'
-    } finally { clearTimeout(timer) }
-    const items = parseOftenAsked(text, material.entries.map((e) => e.id))
-    if (!items) return 'failed'
-    storeLists(ctx.db, snapshot, items, now)
+    // one call per language people read the app in, for a language that 3+ people typed lines in (a sentence in any
+    // other could never pass the word check); a sentence the AI keeps from yesterday is offered in its own language only
+    const locales = readerLocales(ctx.db).filter((l) => typedIn(snapshot, l))
+    if (!locales.length) return 'no_data'
+    const team = sentenceLocale(ctx.db)
+    let stored = 0
+    for (const locale of locales) {
+      const current = (ctx.db.query('SELECT DISTINCT text FROM often_asked_items WHERE COALESCE(locale, ?) = ?').all(team, locale) as { text: string }[]).map((r) => r.text)
+      const material: OftenAskedMaterial = { locale, current, entries: snapshot.entries.map((e) => ({ id: e.id, text: e.text })) }
+      const stop = new AbortController()
+      const timer = setTimeout(() => stop.abort(), READER_TIMEOUT_MS + 30_000)
+      let text: string
+      try {
+        text = await ai(oftenAskedSystemPrompt(material.locale), oftenAskedMessage(material), stop.signal)
+      } catch (e) {
+        ctx.log.warn('often asked run failed', { err: e instanceof Error ? e.name : 'error', locale })
+        continue
+      } finally { clearTimeout(timer) }
+      const items = parseOftenAsked(text, material.entries.map((e) => e.id))
+      if (!items) continue
+      storeLists(ctx.db, snapshot, items, now, locale)
+      stored++
+    }
+    if (!stored) return 'failed'
     return 'done'
   } finally {
     running.delete(ctx)

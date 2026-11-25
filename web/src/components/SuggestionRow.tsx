@@ -13,8 +13,10 @@ export function SuggestionRow({ id, children, testId, className }: { id?: string
   const ref = useRef<HTMLUListElement>(null)
   useEdgeFade(ref)
   return (
-    // the row runs to the screen's edges (the page's 16 px gutter as its padding), its scrollbar hidden: a swipe moves it
-    <ul ref={ref} id={id} className={clsx('edge-fade -mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)} data-testid={testId}>
+    // the row runs to the screen's edges (the page's 16 px gutter as its padding), its scrollbar hidden: a swipe moves it.
+    // The fade is wider than the gutter (3.5rem): a chip cut by the screen's edge fades out and reads as "more this way",
+    // not as a chip cut off (owner report 2026-11-25 at 390 px: the third chip read as clipped)
+    <ul ref={ref} id={id} className={clsx('edge-fade -mx-4 flex gap-2 overflow-x-auto px-4 [--fade:3.5rem]! [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)} data-testid={testId}>
       {children}
     </ul>
   )
