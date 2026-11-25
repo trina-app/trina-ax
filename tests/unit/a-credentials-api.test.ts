@@ -14,13 +14,15 @@ import fs from 'node:fs'
 import { readApiEngine, writeApiEngine, apiEngineKeyPath } from '../../server/src/engine/api-agent'
 import { apiEngineFetch } from '../../server/src/system/egress'
 import { createCredential, replaceSecret } from '../../server/src/credentials/service'
-import { credentialsOf, markInvalid, markNeedsReconnect, noticeOwners } from '../../server/src/credentials/store'
+import { credentialsOf, getRow, markInvalid, markNeedsReconnect, metaOf, noticeOwners } from '../../server/src/credentials/store'
 import { sealSecret } from '../../web/src/lib/seal'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 
 // ---------------- fake providers ----------------
 const hits: { path: string; headers: Record<string, string> }[] = []
 let answer: Record<string, number> = {}
+/** a provider's error body for a path (else {ok}) */
+let bodies: Record<string, unknown> = {}
 let delayMs = 0
 const stolen: string[] = []
 const other = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { stolen.push(new URL(req.url).pathname); return new Response('ok') } })
@@ -32,7 +34,7 @@ const fake = Bun.serve({
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
     const status = answer[u.pathname] ?? 200
     if (status === 307) return new Response(null, { status: 307, headers: { location: `http://127.0.0.1:${other.port}/steal` } })
-    return Response.json({ ok: status < 300 }, { status })
+    return Response.json(bodies[u.pathname] ?? { ok: status < 300 }, { status })
   },
 })
 const up = `http://127.0.0.1:${fake.port}`
@@ -206,6 +208,46 @@ describe('changing, checking, removing', () => {
     answer = {}
     expect((await admin.call('POST', `/api/admin/credentials/${id}/check`)).state).toBe('ok')
     expect((await member.client.try('POST', `/api/admin/credentials/${id}/check`)).status).toBe(403)
+  })
+  test('check again says what it found: connected, still refused (why), or no clear answer; a Claude 403 is never silent', async () => {
+    const path = '/v1/messages/count_tokens'
+    const err = (type: string, message: string) => ({ type: 'error', error: { type, message } })
+    const check = () => admin.call('POST', `/api/admin/credentials/${id}/check`)
+    try {
+      // refused (401): the provider's words are the reason and stay on the row
+      answer = { [path]: 401 }; bodies = { [path]: err('authentication_error', 'OAuth token has been revoked.') }
+      let r = await check()
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused', reason: 'authentication_error: OAuth token has been revoked.', why: 'authentication' } })
+      expect(r.providerError).toMatchObject({ status: 401, type: 'authentication_error', message: 'OAuth token has been revoked.' })
+      // still refused, but this check gets no clear answer (busy): unclear, never "still refused" (QA TC-9060)
+      answer = { [path]: 503 }; bodies = {}
+      r = await check()
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'unclear', reason: 'HTTP 503', why: 'overloaded' } })
+      expect(r.providerError).toMatchObject({ status: 401, type: 'authentication_error' })
+      // connected: ok, the saved answer goes
+      answer = {}; bodies = {}
+      r = await check()
+      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'ok', reason: null, why: null }, providerError: null })
+      expect(metaOf(getRow(h.ctx.db, id)!).refusal).toBeUndefined()
+      // no clear answer (busy): nothing changes, try again later
+      answer = { [path]: 503 }; bodies = {}
+      r = await check()
+      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'unclear', reason: 'HTTP 503' } })
+      // a Claude 403 about the account (its organization does not allow OAuth now): marked with its own code and words
+      answer = { [path]: 403 }; bodies = { [path]: err('permission_error', 'OAuth authentication is currently not allowed for this organization.') }
+      r = await check()
+      expect(r).toMatchObject({ state: 'invalid', check: { outcome: 'refused', why: 'org_oauth_blocked' } })
+      expect(r.check.reason).toContain('not allowed for this organization')
+      expect(r.detail).toMatch(/플랜이나 조직이 접속을 허용하지 않아요/)
+      expect(getRow(h.ctx.db, id)!.status_code).toBe('org_oauth_blocked')
+      // another Claude 403 (a region, an IP): reported as unclear with its words, nothing marked
+      answer = {}; bodies = {}
+      await check()
+      answer = { [path]: 403 }; bodies = { [path]: err('permission_error', 'Request not allowed') }
+      r = await check()
+      expect(r).toMatchObject({ state: 'ok', check: { outcome: 'unclear', reason: 'permission_error: Request not allowed', why: 'permission' } })
+      expect(getRow(h.ctx.db, id)!.status).toBe('ok')
+    } finally { answer = {}; bodies = {} }
   })
   test('remove: not a member; gone afterwards', async () => {
     expect((await member.client.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(403)

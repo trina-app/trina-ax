@@ -20,6 +20,7 @@
 //   app/native/bin/darwin-{arm64,amd64}/{mycel-gate,mycel-bridge,mycel-launcher,mycel-safeops,mycel-ocr}
 //   app/server/src/{main.js,office.js,admin.js,accounts.js}, app/server/migrations/*.sql
 //   app/scripts/macos/engine.sb, app/web/dist/
+//   app/resources/docs/help-index.json (the docs the AI's docs tool searches, scripts/docs/help-index.ts)
 // Needs `ARCHS="arm64 amd64" bash native/build.sh` and the web build first (the package script runs both).
 // The desktop app installers are NOT in the zip (110–200 MB each). --with-desktop builds them (desktop: dist:win and
 // dist:mac, the universal dmg; TEAMAX_KIT_TEAM / TEAMAX_KIT_LOCALE make one team's kit build) and copies them next to
@@ -38,6 +39,8 @@ import { inspectInstaller, MANIFEST } from '../server/src/office/desktop'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
+import { HELP_INDEX_FILE } from '../server/src/docs-help/data'
+import { stageDocsHelp } from './docs/help-index'
 import { RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
 import { checkWhisper } from './release/mac-whisper'
 
@@ -98,6 +101,8 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean; whisper?:
     'office-install.sh', 'office-uninstall.sh', '설치-먼저-읽기.txt', ...(o.desktop ? [MANIFEST] : []),
     // the official plugin list (metadata only); never the HWP renderer, its font or a plugin package
     'app/resources/plugins/catalog.json',
+    // the app's docs for the AI's docs tool (scripts/docs/help-index.ts)
+    `app/${HELP_INDEX_FILE}`,
     'app/VERSION', 'app/product.env', 'app/teamax', 'app/versions.json', 'app/docs/OFFICE.md', 'app/docs/OFFICE.en.md',
     ...RELEASE_NOTICE_FILES.map(f => `app/${f}`),
     ...ARCHS.flatMap((a) => [
@@ -316,6 +321,8 @@ export async function buildOffice(o: {
 
   await stageHwp(REPO, app, ['darwin-arm64', 'darwin-x64'])
   stagePluginCatalog(REPO, app)
+  // the app's docs for the AI's docs tool (trina_docs), the ones of this version (server/src/docs-help/)
+  stageDocsHelp(app)
   assertNoPluginPayload(stage)
   const notices = writeReleaseNotices({ repoRoot: REPO, artifactDir: app, version: o.version, target: 'darwin', arch: 'universal', kind: 'office', includeWeb: true })
   reportReleaseNotices(notices)

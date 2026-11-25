@@ -96,7 +96,8 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
   await est.getByTestId('skill-more').click()
   await expect(est.getByRole('menuitem', { name: '채팅에서 쓰기' })).toHaveCount(0)
   await expect(est.getByTestId('skill-file')).toBeVisible()
-  await expect(est.getByTestId('skill-path')).toHaveText('skills/estimate/SKILL.md')
+  await expect(est.getByTestId('skill-path')).toHaveText('팀 스킬 › estimate › SKILL.md')
+  await expect(est.getByTestId('skill-path')).toHaveAttribute('title', '경로: skills/estimate/SKILL.md')
   await page.keyboard.press('Escape')
   await expect(lost.locator('[data-path="skills/quote/SKILL.md"]').getByTestId('skill-shadow-note')).toHaveText('내 개인 스킬이 대신 쓰여요')
   // the one that runs is in its own group's section
@@ -117,7 +118,8 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
   for (const row of await list.getByTestId('skill-row').all()) await expect(row).not.toContainText(/skills\//)
   await expect(ad).toContainText('marketing · write ad copy')
   await ad.getByTestId('skill-more').click()
-  await expect(ad.getByTestId('skill-path')).toHaveText('skills/marketing/ad-copy/SKILL.md')
+  await expect(ad.getByTestId('skill-path')).toHaveText('팀 스킬 › marketing › ad-copy › SKILL.md')
+  await expect(ad.getByTestId('skill-path')).toHaveAttribute('title', '경로: skills/marketing/ad-copy/SKILL.md')
 
   // the "/" menu shows only the one that runs, with the same names, and says what it replaced
   await page.goto('/')

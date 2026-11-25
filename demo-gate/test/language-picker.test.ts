@@ -14,6 +14,9 @@ describe.skipIf(!NODE)('gate: the language picker', () => {
   let g: Gate
   beforeAll(async () => {
     g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en', 'ko', 'ja', 'zh', 'es', 'id'] })
+    // the landing (with its Start form) is served only while that language has a warm copy, else the busy page; the
+    // pool starts all six at once and they get warm in any order, so wait for each language a test reads as a landing
+    await warm(g, 1, 'en')
     await warm(g, 1, 'ko')
   })
   afterAll(async () => { await g?.stop(); upstream.stop(); turnstile.stop() })
@@ -22,6 +25,7 @@ describe.skipIf(!NODE)('gate: the language picker', () => {
     const v = visitor()
     const first = await (await get(g, v, '/', { headers: { 'accept-language': 'en-US' } })).text()
     expect(first).toContain('<html lang="en">')
+    expect(langOf(first)).toBe('en')
     expect(first.match(/data-lang-link href/g)?.length).toBe(6)
     const href = first.match(/href="(\/\?lang=ko)"/)?.[1]
     expect(href).toBe('/?lang=ko')

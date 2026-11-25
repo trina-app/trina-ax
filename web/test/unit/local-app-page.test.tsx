@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { DESKTOP_BRIDGE_GLOBAL } from '@mycel/shared'
 import type { Integration } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { ConnectionPage } from '../../src/components/integrations/ConnectionPage'
+import { checkAgainFixes, ConnectionPage } from '../../src/components/integrations/ConnectionPage'
 import { useIntegrationActions } from '../../src/components/integrations/IntegrationRow'
 import { settingLines } from '../../src/components/integrations/LocalApp'
 import { connectionRowStatus } from '../../src/lib/integrations'
@@ -142,4 +142,23 @@ test('a program the person typed (not Aside or ego lite) keeps the generic line'
     expect(m.html()).toContain(translate('en', 'localApps.title'))
     expect(m.html()).not.toContain('/icons/connectors/aside.png')
   } finally { await m.unmount() }
+})
+
+test('a failed check whose fix is to check again: a Check again button by its words, not only in ⋯ (QA TC-9009)', async () => {
+  for (const reason of ['local_failed', 'local_missing', 'local_declined']) {
+    const m = await mount(<Page i={{ ...aside, status: 'error', lastError: 'x', lastErrorReason: reason }} />)
+    try {
+      expect(m.get('integration-error-refresh').textContent).toBe(translate('en', 'integrations.refresh'))
+    } finally { await m.unmount() }
+  }
+  // its fix is elsewhere (add it again, confirm on the computer): no button that cannot help
+  for (const reason of ['local_share', 'local_unsafe', 'local_confirm']) {
+    const m = await mount(<Page i={{ ...aside, status: 'error', lastError: 'x', lastErrorReason: reason }} />)
+    try { expect(m.find('integration-error-refresh')).toBeNull() } finally { await m.unmount() }
+  }
+  // a reader who does not manage it: no button
+  expect(checkAgainFixes({ kind: 'local', lastError: 'x', lastErrorReason: 'local_failed' }, false)).toBe(false)
+  // a slow service: the step names the button that is now there
+  expect(checkAgainFixes({ kind: 'mcp', lastError: 'x', lastErrorReason: 'timeout' }, true)).toBe(true)
+  expect(translate('en', 'connectors.step.checkAgain')).not.toContain('⋯')
 })

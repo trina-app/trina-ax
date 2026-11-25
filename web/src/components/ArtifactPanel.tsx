@@ -15,6 +15,7 @@ import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { useFrameScripts, useSharedChat } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
+import { useTeamPlace } from '../lib/teamPlace'
 import { versionBy } from '../lib/chatFileVersions'
 import { formatRelative } from '../lib/format'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
@@ -41,6 +42,7 @@ let compiler: Promise<CompileFn> | null = null
 export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose }: { chatId: string; artifactKey: string; versionId?: string; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const me = useMeStrict()
   const groups = useChatArtifacts(chatId)
   const live = useChats((s) => s.liveArtifacts[chatId]?.[artifactKey])
@@ -114,7 +116,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     try {
       const name = artifactFileName(artifact)
       const r = await api.call(API.saveContent, { body: { path: joinPath(folder, name), content: artifact.content, baseSha256: null } })
-      toast({ level: 'success', text: r.conflict ? t('artifact.savedConflict', { path: r.path }) : t('artifact.saved', { path: r.path }) })
+      toast({ level: 'success', text: r.conflict ? t('artifact.savedConflict', { path: place(r.path) }) : t('artifact.saved', { path: place(r.path) }) })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
@@ -349,9 +351,9 @@ function StaticArtifact({ type, content, title, files }: { type: ArtifactType; c
 /**
  * [영상 파일로 받기] on a promo video: shown where this server can make the MP4 (GET /api/promo-videos/:id says so; never
  * a button that cannot work), for everyone who may open the chat. Where it cannot, one short muted line says why
- * instead (docs/decisions/20261123-linux-video-mp4.md: never a silent missing button). The first press makes it (about a
- * minute; the button says so meanwhile) and the download starts when it is ready; a later press downloads the one made
- * before.
+ * instead (docs/decisions/20261123-linux-video-mp4.md: never a silent missing button). The first press makes it (a few
+ * minutes; the button says so meanwhile, and that it waits while another large job runs on the server) and the download
+ * starts when it is ready; a later press downloads the one made before. A failure says why (too long, memory).
  */
 export function PromoMp4Button({ id }: { id: string }) {
   const t = useT()
@@ -377,7 +379,11 @@ export function PromoMp4Button({ id }: { id: string }) {
   useEffect(() => {
     if (!wanted || !info) return
     if (info.mp4.state === 'done') { setWanted(false); download(info) }
-    else if (info.mp4.state === 'failed') { setWanted(false); toast({ level: 'error', text: t('promo.mp4.failed') }) }
+    else if (info.mp4.state === 'failed') {
+      setWanted(false)
+      const f = info.mp4.failure
+      toast({ level: 'error', text: f === 'too_long' ? t('promo.mp4.failedTooLong') : f === 'memory' ? t('promo.mp4.failedMemory') : t('promo.mp4.failed') })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info, wanted])
   if (!info) return null
@@ -405,7 +411,7 @@ export function PromoMp4Button({ id }: { id: string }) {
   }
   return (
     <Button size="sm" variant="secondary" className="mr-1" busy={rendering} disabled={rendering} onClick={() => void press()} data-testid="promo-mp4">
-      {!rendering && <Download size={14} aria-hidden />} {rendering ? t('promo.mp4.making') : t('promo.mp4.get')}
+      {!rendering && <Download size={14} aria-hidden />} {rendering ? (info.mp4.waiting ? t('promo.mp4.waiting') : t('promo.mp4.making')) : t('promo.mp4.get')}
     </Button>
   )
 }

@@ -33,6 +33,7 @@ import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloa
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
 import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, sameNamedProjects, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
+import { useTeamPlace } from '../lib/teamPlace'
 import { ListRow } from '../components/list/List'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
@@ -1725,6 +1726,7 @@ export function HistoryModal({ path, onClose, onRestored }: { path: string; onCl
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
+  const place = useTeamPlace()
   const [items, setItems] = useState<FileVersion[] | null>(null)
   // every stored version is an earlier content of the file (the newest one is what it was before the last change),
   // so each can be restored by whoever may write the file; only one identical to the file as it is now is not offered
@@ -1817,7 +1819,7 @@ export function HistoryModal({ path, onClose, onRestored }: { path: string; onCl
                 </span>
                 {v.kind === 'conflict_copy' && v.conflictPath && (
                   <button type="button" className="block text-xs text-warn underline" onClick={() => openTeamFile(v.conflictPath!)}>
-                    {t('files.conflictSaved', { path: v.conflictPath })}
+                    {t('files.conflictSaved', { path: place(v.conflictPath) })}
                   </button>
                 )}
                 {v.kind === 'restore' && <span className="block text-xs text-faint">{t('files.restoredVersion')}</span>}

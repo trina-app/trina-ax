@@ -16,6 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
+import { useTeamPlace } from '../../lib/teamPlace'
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -69,7 +70,7 @@ import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideCha
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import { StepFixes } from './StepFix'
-import Steps, { StepPostView } from './Steps'
+import Steps, { StepMemoryOwn, StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
 import { copyRoomIds, WithRoomNames } from '../RoomNames'
@@ -170,6 +171,7 @@ export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect:
 export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; align?: 'start' | 'end'; chatId?: string }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   const [thumbFailed, setThumbFailed] = useState(false)
   // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
   const [thumbLoaded, setThumbLoaded] = useState(false)
@@ -209,7 +211,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   const body = (
     <>
       <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
-      {team && <span className="sr-only">{t('composer.teamFile', { path: a.path })}</span>}
+      {team && <span className="sr-only">{t('composer.teamFile', { path: place(a.path) })}</span>}
       <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-micro text-faint">
         {ext && <span className="rounded border border-line px-1 leading-4 font-medium text-muted">{ext}</span>}
         {formatSize(a.size, locale)}
@@ -702,6 +704,7 @@ export function AssistantMessage({
   shareRoomId,
   sendHere,
   canRegenerate = true,
+  ownAnswer = true,
   canSuggest: canSuggestHere = true,
   pressMenu = false,
   onThread,
@@ -729,6 +732,9 @@ export function AssistantMessage({
   sendHere?: { roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
+  /** false: someone else asked this in a shared chat: its memory steps are theirs, so no 되돌리기 here
+   * (docs/decisions/20261125-auto-memory-shared-chats.md) */
+  ownAnswer?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
   canSuggest?: boolean
   /** a room's side chat panel: on a phone a long press opens copy, retry and the model as a sheet, as a room's message
@@ -869,7 +875,9 @@ export function AssistantMessage({
         {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : (
           // a side chat: a post's 보기 goes the way its sent line's does (the panel's onView)
           <StepPostView.Provider value={sendHere ? (p) => sendHere.onView({ to: p.threadRootId ? 'thread' : 'room', roomId: p.roomId, rootId: p.threadRootId ?? null, messageId: p.messageId, cut: false }) : null}>
-            <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+            <StepMemoryOwn.Provider value={ownAnswer}>
+              <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
+            </StepMemoryOwn.Provider>
           </StepPostView.Provider>
         )}
         {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}

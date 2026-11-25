@@ -66,6 +66,29 @@ export const VIDEO_ONE_MIB = 1280
 export const VIDEO_ONE_PIDS = 256
 /** The plan's (or the machine's) memory at which one render is offered: a 4 GiB team VM, not the 2 GiB of the free plan. */
 export const VIDEO_MIN_MACHINE_MIB = 3584
+/** One render that encodes while the browser draws (HyperFrames' streaming encode: about 15 % faster). Measured on an
+ * arm64 VM (2 CPU, 4 GiB, Debian 13, three 48 MP photos made smaller): anon+shmem+kernel 1169 MiB streaming against
+ * 963 MiB encoding after drawing (docs/decisions/20261124-heavy-job-budget.md). 1169 is 91 % of VIDEO_ONE_MIB, too close;
+ * this leaf keeps it at 71–75 % (1087–1144 MiB, 123–127 s). */
+export const VIDEO_STREAM_MIB = 1536
+/** From this much memory (the plan's or the machine's) a render's leaf is VIDEO_STREAM_MIB and it encodes while it draws;
+ * below it (the 4 GiB team VM) VIDEO_ONE_MIB, encoding after drawing. The same line as the heavy-job budget's sharing
+ * (system/heavy-jobs.ts HEAVY_SHARED_FROM_MIB). */
+export const VIDEO_STREAM_FROM_MIB = 6144
+/** The plan's memory (plan.json memoryMiB, root-owned and range-checked) or the machine's, in MiB. */
+export function planMemoryMiB(planFile: string | undefined = process.env.MYCEL_PLAN_FILE, machineMiB = Math.round(os.totalmem() / 1048576)): number {
+  if (planFile) {
+    try {
+      const p = JSON.parse(fs.readFileSync(planFile, 'utf8'))
+      if (Number.isInteger(p.memoryMiB) && p.memoryMiB >= 1024 && p.memoryMiB <= 262144) return p.memoryMiB
+    } catch { /* no plan (self-install): the machine's memory */ }
+  }
+  return machineMiB
+}
+/** The memory of one render's leaf here (S/video and each S/video/v-*). */
+export function videoLeafMiB(planFile: string | undefined = process.env.MYCEL_PLAN_FILE, machineMiB = Math.round(os.totalmem() / 1048576)): number {
+  return planMemoryMiB(planFile, machineMiB) >= VIDEO_STREAM_FROM_MIB ? VIDEO_STREAM_MIB : VIDEO_ONE_MIB
+}
 export function videoFits(planFile: string | undefined, machineMiB = Math.round(os.totalmem() / 1048576)): boolean {
   let mem = machineMiB
   if (planFile) {
@@ -215,7 +238,8 @@ function trySetup(o: SetupOptions): CgroupState {
         const vset = (f: string, v: string, optional = false) => {
           try { fs.writeFileSync(path.join(vdir, f), v) } catch (e) { if (!optional) throw e }
         }
-        vset('memory.max', String(VIDEO_ONE_MIB * 1048576))
+        const vmib = videoLeafMiB(o.planFile ?? process.env.MYCEL_PLAN_FILE, o.machineMiB)
+        vset('memory.max', String(vmib * 1048576))
         vset('memory.swap.max', '0', true)
         vset('pids.max', String(VIDEO_ONE_PIDS))
         // two cores at most, and half the weight of the others when the CPU is busy (a render never starves the server)
@@ -226,7 +250,7 @@ function trySetup(o: SetupOptions): CgroupState {
           try { fs.writeFileSync(path.join(vdir, leaf.name, 'cgroup.kill'), '1') } catch { /* an older kernel */ }
           try { fs.rmdirSync(path.join(vdir, leaf.name)) } catch { /* still emptying: the next start */ }
         }
-        video = { dir: vdir, memoryMiB: VIDEO_ONE_MIB }
+        video = { dir: vdir, memoryMiB: vmib }
       } catch (e) {
         o.log?.warn('the promo video cgroup was not made; the MP4 stays off', { err: (e as Error).message })
         video = null
@@ -243,10 +267,15 @@ function trySetup(o: SetupOptions): CgroupState {
 /** argv prefix that runs a converter inside the converter cgroup with rlimits (spec 3.8.2); [] without one. The CPU
  * limit is the wall-clock limit for each of `threads` threads (RLIMIT_CPU counts them all: whisper.cpp -t 2 would be
  * stopped at half its time otherwise). */
+/** The kernel's OOM choice when the box runs out (oom_score_adj): heavy jobs go before the server, which runs at 0 (no
+ * OOMScoreAdjust in scripts/linux/systemd/server.service.in; tests/unit/heavy-jobs.test.ts checks both). A converter
+ * in S/conv 500; a print (html-pdf.ts PRINT_OOM_SCORE_ADJ) and the MP4 render 900. */
+export const CONV_OOM_SCORE_ADJ = 500
+export const VIDEO_OOM_SCORE_ADJ = 900
 export function cgexecPrefix(timeoutMs: number, threads = 1, leaf?: { dir: string; oomScoreAdj: number }): string[] {
   const c = converterCgroup()
   if (!c) return []
-  return [c.helper, 'cgexec', '--cgroup', leaf?.dir ?? path.join(c.dir,'legacy'), '--oom-score-adj', String(leaf?.oomScoreAdj ?? 500), '--rlimit-cpu', String(Math.ceil((timeoutMs / 1000) * Math.max(1, Math.floor(threads))) + 5),
+  return [c.helper, 'cgexec', '--cgroup', leaf?.dir ?? path.join(c.dir,'legacy'), '--oom-score-adj', String(leaf?.oomScoreAdj ?? CONV_OOM_SCORE_ADJ), '--rlimit-cpu', String(Math.ceil((timeoutMs / 1000) * Math.max(1, Math.floor(threads))) + 5),
     '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--']
 }
 
@@ -275,7 +304,7 @@ export function makeVideoLeaf(): string | null {
   const dir = path.join(v.dir, `v-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
   fs.mkdirSync(dir, { mode: 0o755 })
   const set = (f: string, val: string, optional = false) => { try { fs.writeFileSync(path.join(dir, f), val) } catch (e) { if (!optional) throw e } }
-  set('memory.max', String(VIDEO_ONE_MIB * 1048576))
+  set('memory.max', String(v.memoryMiB * 1048576))
   set('memory.swap.max', '0', true)
   set('pids.max', String(VIDEO_ONE_PIDS))
   set('memory.oom.group', '1', true)

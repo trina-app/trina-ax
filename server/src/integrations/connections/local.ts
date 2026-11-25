@@ -6,11 +6,12 @@
 // never a setting's value; the desktop app asks once on the computer before it runs a command, and again when the
 // command changes.
 import type { Database } from 'bun:sqlite'
-import { LocalAppSpec, presetOf, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { LocalAppSpec, presetOf, windowsShare, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { getTeamSettings } from '../../admin/settings'
 import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
 import { MCP_LIST_TIMEOUT_MS } from './mcp'
+import { reasonText } from './text'
 import type { LocalRelay } from '../../realtime/local-relay'
 import type { Row } from './store'
 
@@ -58,15 +59,28 @@ export function turnAway(db: Database, turnId: string): LocalAway {
   return k === 'web' ? 'web' : k === 'mobile' ? 'mobile' : k === 'schedule' ? 'schedule' : k === 'desktop' && t?.window_id ? 'window' : 'other'
 }
 
+/** Why a program did not start, more exactly than LocalResult's cause: `share` is an `unsupported` whose command is a
+ * network share or device path (the desktop app refuses those: programs.ts), told from the command the server keeps, so
+ * no new value goes over the wire (an older server would refuse the whole answer). */
+export type LocalCause = NonNullable<LocalResult['cause']> | 'share'
+export type LocalReason = 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
+/** the start_failed causes that have words of their own (text.ts); any other start failure is local_failed */
+const CAUSE_REASON: Record<LocalCause, LocalReason> = { not_found: 'local_missing', share: 'local_share', unsupported: 'local_unsupported', unsafe_arg: 'local_unsafe' }
+
+/** The cause a result names, with a refused share told apart (LocalCause). */
+export const causeOf = (r: Pick<LocalResult, 'cause'>, spec: Pick<LocalAppSpec, 'command'>): LocalCause | undefined =>
+  r.cause === 'unsupported' && windowsShare(spec.command) ? 'share' : r.cause
+
 /** Why a local call did not run, with words for the AI (never a setting's value) and the reason stored on the
- * connection (text.ts: local_offline, local_declined, local_failed). */
+ * connection (text.ts: local_offline, local_declined, local_failed, and for a program that did not start the one known
+ * cause: local_missing, local_share, local_unsupported, local_unsafe). */
 export class LocalError extends Error {
   name = 'LocalError'
-  constructor(readonly failure: LocalFailure | 'offline', message: string, readonly cause?: LocalResult['cause']) { super(message) }
-  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' {
+  constructor(readonly failure: LocalFailure | 'offline', message: string, readonly cause?: LocalCause) { super(message) }
+  get reason(): LocalReason {
     return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm'
-      // the program is not on the computer: the connection "needs attention" with words to install it (text.ts)
-      : this.failure === 'start_failed' && this.cause === 'not_found' ? 'local_missing' : 'local_failed'
+      // the program did not start for a known cause: the connection "needs attention" with that cause in words (text.ts)
+      : this.failure === 'start_failed' && this.cause ? CAUSE_REASON[this.cause] : 'local_failed'
   }
 }
 
@@ -92,13 +106,36 @@ export const awayWords = (away: LocalAway) =>
 /** A program's file name without its folder (C:\\Users\\…\\tool.exe → tool.exe): the AI's words never carry the saved path. */
 export const programName = (command: string) => (command.split(/[\\/]/).filter(Boolean).pop() ?? command).slice(0, 100)
 
+/** Where the person fixes it, for the AI: the connection's page, which has a Check again button by the problem. */
+const page = (name: string) => `Settings › Connectors › ${name}`
+
+/** For the AI: a program that is not on the computer, and for a listed app (Aside, ego lite) its own download page. One
+ * place for a call that failed and for the instructions before anyone asks (tools.ts), so both give the link (QA
+ * TC-9006). */
+export function missingWords(name: string, spec: LocalAppSpec | null, where = page(name)): string {
+  const download = spec ? presetOf(spec)?.download : undefined
+  const program = spec ? ` (the program "${programName(spec.command)}" was not found there)` : ''
+  return `${name} is not installed on the user's computer${program}. Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can download it at ${download} (give them this link)` : 'need to install it or fix the command'}, then press Check again on ${where}.`
+}
+
+/** For the AI's instructions: an app on the computer whose tools are not known yet, in the words of its last check
+ * (the same words its page shows, text.ts), never a vague "not set up" (QA TC-9006). `where`: its page, as the AI
+ * names it to this reader (policy/refusal.ts SCREEN.connectors). */
+export function notReadyWords(row: Pick<Row, 'name' | 'last_error'>, spec: LocalAppSpec | null, where = page(row.name)): string {
+  const reason = row.last_error?.split(':')[0]
+  if (reason === 'local_missing') return `not usable yet: ${missingWords(row.name, spec, where)}`
+  const said = reason?.startsWith('local_') && reason !== 'local_offline' ? reasonText(row.last_error, 'en', undefined, row.name) : null
+  return said
+    ? `not usable yet; its last check on the computer said: "${said}" When they ask for it, tell them that in plain words; the fix is on ${where} in the desktop app on that computer`
+    : `not set up on the computer yet. When they ask for it, tell them to open ${where} in the desktop app on that computer and press Check again`
+}
+
 function errorOf(name: string, r: LocalResult, spec: LocalAppSpec): LocalError {
   const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
-  if (r.failure === 'start_failed' && r.cause === 'not_found') {
-    // a listed app (Aside, ego lite): its own download page; a program the person typed: install it or fix the command
-    const download = presetOf(spec)?.download
-    return new LocalError('start_failed', `Nothing ran: ${name} is not installed on the user's computer (the program "${programName(spec.command)}" was not found there). Tell them in plain words that ${name} is not installed on this computer and that they ${download ? `can get it at ${download}` : 'need to install it or fix the command'}, then press Check again in Settings › Connectors › ${name}.`, 'not_found')
-  }
+  const cause = r.failure === 'start_failed' ? causeOf(r, spec) : undefined
+  if (cause === 'not_found') return new LocalError('start_failed', `Nothing ran: ${missingWords(name, spec)}`, cause)
+  // a program that did not start for a known cause: the same words its page shows (text.ts), passed on by the AI
+  if (cause) return new LocalError('start_failed', `Nothing ran: ${reasonText(CAUSE_REASON[cause], 'en', undefined, name)} Tell them that in plain words; the fix is on ${page(name)}.`, cause)
   switch (r.failure) {
     case 'not_desktop': return new LocalError('not_desktop', offlineWords(name, 'no_local_apps'))
     case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)

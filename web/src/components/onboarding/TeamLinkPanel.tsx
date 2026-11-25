@@ -19,6 +19,7 @@ import { noPurchaseLinks } from '../../lib/desktop'
 import { formatDateTime } from '../../lib/format'
 import { canShareText, shareText, SHARE_PHONE_QUERY } from '../../lib/share'
 import { teamLinkMessage, withInviteLink } from '../../lib/team-link'
+import { useTeamPlace } from '../../lib/teamPlace'
 import { loadLocale, localeLoaded, translate, useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
@@ -644,6 +645,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
 }) {
   const t = useT()
   const id = useId()
+  const place = useTeamPlace()
   const [groupIds, setGroupIds] = useState<string[]>(initial?.groupIds ?? [])
   const [uses, setUses] = useState('')
   const [days, setDays] = useState<number>(TEAM_LINK_DEFAULT_DAYS)
@@ -690,7 +692,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
             {skills.map((s) => (
               <option key={s.path} value={s.path}>
                 {/* two skills that read the same (a title and another skill's name) are told apart by their path */}
-                {skills.some((o) => o !== s && skillTitle(o) === skillTitle(s)) ? `${skillTitle(s)} · ${s.path}` : skillTitle(s)}
+                {skills.some((o) => o !== s && skillTitle(o) === skillTitle(s)) ? `${skillTitle(s)} · ${place(s.path)}` : skillTitle(s)}
               </option>
             ))}
           </select>

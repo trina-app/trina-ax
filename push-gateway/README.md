@@ -55,13 +55,16 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   again; each notification counts as one there. A number only. A gateway from before the field answers `400 invalid_body` to a
   request that has it; the team server then sends the same push without it and tries the field again an hour later.
 - Silent sync (`sync: true`, code `phone.sync`; the team server sends it after the person read things on another
-  device): never an alert, a sound or a line. `clear` (Android only, at most 40 notice ids) lists the notices to take
-  off the tray. iOS: `{aps:{badge?, content-available:1}, body:{notificationId, code, device?}}`, push type `alert`
+  device): never an alert, a sound or a line. `clear` (at most 40 notice ids) lists the notices to take off the
+  Android tray or the iPhone's Notification Center (an iPhone app with push-clear-v1 removes them in the background or
+  while open; an older one ignores them). iOS: `{aps:{badge?, content-available:1}, body:{notificationId, code, device?,
+  clear?: "id,id"}}`, push type `alert`
   with a badge (else `background`), priority 5, collapse id `phone.sync`, expiry 0 (now or never: Apple keeps one
   notification per app for an offline phone, and a sync must never take a real alert's place). Android: data-only `{notificationId, code, device?,
   clear: "id,id"}`, priority NORMAL, no `notification` block and no title or line, so an app from before it shows
   nothing in the background (the team server sends Android syncs only to apps that registered for them). `phone.sync`
-  without `sync`, and `sync` with `path`, `label`, an Android `badge` or an iOS `clear`, are refused. What the provider
+  without `sync`, `clear` without `sync`, and `sync` with `path`, `label` or an Android `badge`, are refused (a gateway
+  from before 2026-11 also refuses an iOS `clear`; the team server then sends the number alone). What the provider
   would get (the APNs payload, the FCM data) must fit 4096 bytes, else `413 body_too_large`. A gateway from before `sync` refuses
   it (`invalid_body`); the team server then sends none for an hour and never resends one without `sync`.
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider

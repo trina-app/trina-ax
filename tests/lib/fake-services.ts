@@ -62,6 +62,8 @@ export class FakeServices {
   seen: Seen[] = []
   // MCP
   tools: any[] = DEFAULT_TOOLS()
+  /** the MCP server's own instructions in its initialize answer ("{token}" becomes the request's token); none when null */
+  instructions: string | null = null
   pageSize = 2
   /** tools/list pages on forever (a hostile or broken server): page n (from 0) has these tools and names a next one */
   endless: ((page: number) => unknown[]) | null = null
@@ -108,6 +110,10 @@ export class FakeServices {
   listStatus: number | null = null
   /** tools/call answers with this HTTP status */
   callStatus: number | null = null
+  /** a refusal with its own body and headers (a 401 or 403 that says why): the MCP methods in `methods` answer with it,
+   * and so does GET /refuse (an HTTP API's address) */
+  refuse: { status: number; body?: string; headers?: Record<string, string>; methods?: string[] } | null = null
+  private refusal() { const r = this.refuse!; return new Response(r.body ?? null, { status: r.status, headers: r.headers ?? {} }) }
   /** a tools/call that takes `ms` before its answer (a web scraper): silent (plain JSON at the end), or an event stream
    * with a progress notification for the call's progressToken every `progressEveryMs` until then */
   slow: { ms: number; progressEveryMs?: number } | null = null
@@ -237,7 +243,8 @@ export class FakeServices {
     if (msg.method === 'initialize') {
       const sid = crypto.randomUUID()
       this.sessions.add(sid)
-      return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } } }, { 'mcp-session-id': sid })
+      const instructions = this.instructions === null ? {} : { instructions: this.instructions.replaceAll('{token}', auth.replace(/^Bearer\s+/i, '')) }
+      return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' }, ...instructions } }, { 'mcp-session-id': sid })
     }
     const sid = req.headers.get('mcp-session-id')
     if (!sid) return new Response('no session', { status: 400 })
@@ -246,6 +253,7 @@ export class FakeServices {
     if (msg.method === 'notifications/initialized') return new Response(null, { status: 202 })
     if (msg.method === 'notifications/cancelled') { this.cancelled.push(msg.params); return new Response(null, { status: 202 }) }
     const token = credential(req)
+    if (this.refuse?.methods?.includes(msg.method)) return this.refusal()
     if (msg.method === 'tools/list' && this.listStatus) return new Response('busy', { status: this.listStatus })
     if (msg.method === 'tools/call' && this.callStatus) return new Response('no', { status: this.callStatus })
     if (msg.method === 'tools/list' && this.endless) {
@@ -302,6 +310,7 @@ export class FakeServices {
     const p = u.pathname
     // ---- MCP servers ----
     if (p === '/mcp-open') return this.mcp(again(), auth)
+    if (p === '/refuse') return this.refuse ? this.refusal() : Response.json({ ok: true })
     // lets anyone start a session but lists its tools only after a sign-in it does not publish (no metadata)
     // open without a key, but they publish sign-in metadata that cannot be used (another issuer), or whose address is down
     if (p === '/mcp-badmeta' || p === '/mcp-down' || p === '/mcp-limited') return this.mcp(again(), auth)

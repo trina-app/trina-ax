@@ -23,7 +23,7 @@ import { componentC } from '../team-files/component'
 import { confirmSources, placeProduced } from '../tools/make-file'
 import type { ToolRegistry } from '../tools/registry'
 import { DURATION } from './layout'
-import { mp4Available, mp4Why, noFileReason, promoVideoFile, promoVideoInfo, renderPromoVideo, type StoredSpec } from './render'
+import { mp4Available, mp4Why, noFileReason, promoVideoFile, promoVideoInfo, renderCpuCount, renderPromoVideo, renderTimeLimitMs, type StoredSpec } from './render'
 import { teamPathOf } from './spec'
 
 export const SAVE_PROMO_TOOL = 'save_promo_video'
@@ -34,11 +34,11 @@ export const SavePromoVideoInput = z.strictObject({
 
 export const SAVE_PROMO_DESCRIPTION =
   `Save this chat's promo video (made with promo_video; ${DURATION} s with music) as an .mp4 file in the team folder, so it can be sent or shared like any file ` +
-  '(share_with_person, post_to_room). Call it when the person wants the video as a file, or to send, share or post it. Rendering takes about a minute or two. ' +
+  '(share_with_person, post_to_room). Call it when the person wants the video as a file, or to send, share or post it. Rendering takes a few minutes (longer on a small server, or while it finishes another large job first). ' +
   'Without `save_as` it goes to the person\'s own folder. The length is fixed by the template; it cannot be shortened.'
 
-/** a render's wait: the render's own limit (4 minutes) and the queue in front of it */
-const WAIT_MS = 10 * 60_000
+/** a render's wait within the answer: the render's own limit (render.ts renderTimeLimitMs) and two minutes more */
+const waitMs = () => renderTimeLimitMs(renderCpuCount()) + 2 * 60_000
 let pollMs = 1000
 /** Tests poll faster (null: back to one second). */
 export function setSavePollForTests(ms: number | null) { pollMs = ms ?? 1000 }
@@ -83,15 +83,17 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
     if (e instanceof HttpError) throw new ToolError('This person cannot save this promo video as a file: it shows pictures they cannot open. Nothing was saved. The person whose chat this is can save it.')
     throw e
   }
-  const until = Date.now() + WAIT_MS
+  const until = Date.now() + waitMs()
   while (info.mp4.state === 'rendering' && Date.now() < until) {
     t.signal?.throwIfAborted()
     await Bun.sleep(pollMs)
     info = promoVideoInfo(ctx, t.user.id, row.artifact_id)
   }
   if (info.mp4.state !== 'done') throw new ToolError(info.mp4.state === 'rendering'
-    ? 'The video is still rendering; nothing was saved yet. Tell the person it takes a little longer and to ask again in a minute.'
-    : 'The video could not be rendered to a file this time; nothing was saved. Tell the person so in one plain sentence; they can still play it next to the chat.')
+    ? (info.mp4.waiting
+      ? 'The video file has not started yet: the server is finishing another large job first (another video file or a document), and it starts by itself after that. Nothing was saved yet. Tell the person so and to ask again in a few minutes.'
+      : 'The video is still rendering; nothing was saved yet. Tell the person it takes a little longer and to ask again in a few minutes.')
+    : `The video could not be rendered to a file this time${info.mp4.failure === 'too_long' ? ': it took longer than this server allows' : info.mp4.failure === 'memory' ? ': it needed more memory than this server gives it (fewer or smaller pictures help)' : ''}; nothing was saved. Tell the person so in one plain sentence; they can still play it next to the chat.`)
   const files = componentC(ctx).files
   // the wider-audience card for its material and pictures, before anything is placed
   await confirmSources(ctx, files, t, segs.join('/'), segs, videoSources(spec))

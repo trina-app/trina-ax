@@ -41,6 +41,7 @@ Abra **N pasos** bajo una respuesta para ver cada herramienta que usó la IA y c
 | **Ayudantes** | Para peticiones grandes, la IA puede dividir el trabajo en subtareas, hasta 4 a la vez. Cada ayudante trabaja como usted. |
 | **Extensión** | Una respuesta puede usar herramientas hasta 500 veces de forma predeterminada (los administradores eligen entre 10 y 2000; las tareas programadas, las preguntas desde Slack y los invitados, hasta 150). Al llegar al límite, **Continuar** retoma el trabajo. |
 | **Web** | La IA puede abrir páginas web. El servidor comprueba cada dirección y le pregunta antes de abrir las que son arriesgadas. |
+| **Ayuda** | Pregunte cómo usar, configurar o arreglar Trina AX: la IA lo busca en esta documentación, que está en su servidor con cada versión, y termina con el enlace a la página. |
 
 :::note
 El contexto seleccionado se envía al proveedor de IA que usted conectó. Alojarlo en su propio servidor no significa procesarlo sin conexión. [Leer los flujos de datos](../../operate/security.md) (en inglés).

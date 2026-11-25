@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type CredentialKind } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { getRow, listRows } from '../../server/src/credentials/store'
+import { credentialsOf, getRow, listRows } from '../../server/src/credentials/store'
 import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { LIMIT_FALLBACK_KEY } from '../../server/src/admin/engine-choice'
@@ -17,9 +17,11 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 const T = (n: number) => `sk-ant-oat01-TOK${n}` + 'x'.repeat(36)
 const AKEY = 'sk-ant-api03-AKEY' + 'x'.repeat(36)
 const OKEY = 'sk-proj-' + 'O'.repeat(40)
-type Mode = 'ok' | '401' | '429' | '403plan' | '403region' | 'cf403' | 'noreqid403' | 'billing400' | 'billing402' | 'sub400' | '500' | 'bad_request' | 'authish400'
+type Mode = 'ok' | '401' | '401ok' | '403blockedok' | '429' | '403plan' | '403region' | 'cf403' | 'noreqid403' | 'billing400' | 'billing402' | 'sub400' | '500' | 'bad_request' | 'authish400'
 let modes: Record<string, Mode> = {}
 const hits: string[] = []
+/** the free checks (count_tokens, GET /models) the proxy made, by token (credentials/confirm.ts) */
+const checks: string[] = []
 const enc = new TextEncoder()
 const ev = (o: unknown) => enc.encode(`event: e\ndata: ${JSON.stringify(o)}\n\n`)
 let reqN = 0
@@ -31,9 +33,12 @@ const up = Bun.serve({
   async fetch(req) {
     await req.text()
     const tok = (req.headers.get('authorization') ?? '').replace(/^Bearer /, '') || (req.headers.get('x-api-key') ?? '')
-    hits.push(tok)
+    const check = /\/count_tokens$|\/models$/.test(new URL(req.url).pathname)
+    ;(check ? checks : hits).push(tok)
     const m = modes[tok] ?? 'ok'
-    if (m === '401') return err(401, 'authentication_error', 'OAuth token has been revoked.')
+    if (check && (m === '401ok' || m === '403blockedok')) return Response.json({ input_tokens: 3 })
+    if (m === '401' || m === '401ok') return err(401, 'authentication_error', 'OAuth token has been revoked.')
+    if (m === '403blockedok') return err(403, 'permission_error', 'OAuth authentication is currently not allowed for this organization.')
     if (m === '429') return err(429, 'rate_limit_error', 'limit', { 'retry-after': '3600' })
     // what Anthropic answers for a Claude account whose subscription ended: the token still signs in, the account may not use Claude
     if (m === '403plan') return err(403, 'permission_error', 'OAuth authentication is currently not allowed for this organization.')
@@ -72,7 +77,8 @@ beforeAll(async () => {
 afterAll(async () => { bob?.close(); await h?.close(); up.stop(true) })
 const idOf = (label: string) => listRows(h.ctx.db).find((r) => r.label === label)!.id
 const reset = () => {
-  modes = {}; hits.length = 0
+  modes = {}; hits.length = 0; checks.length = 0
+  ;(credentialsOf(h.ctx).extra.confirm as { passedAt?: Map<string, number> } | undefined)?.passedAt?.clear()
   h.ctx.db.query("UPDATE engine_credentials SET status = 'ok', status_code = NULL, limited_until = NULL, disabled = 0").run()
   // the API key answers only in its own test
   h.ctx.db.query("UPDATE engine_credentials SET disabled = 1 WHERE kind = 'anthropic-api-key'").run()
@@ -97,7 +103,12 @@ describe('the owner\'s team: refused, limited, subscription ended, healthy', () 
     expect(hits).toEqual([T(3), T(4)])
     const c3 = getRow(h.ctx.db, idOf('C3'))!
     expect(c3.status).toBe('invalid')
-    expect(c3.status_code).toBe('plan_ended')
+    // the org-not-allowed answer has its own code (it can pass), confirmed by one free check, and the answer is kept
+    expect(c3.status_code).toBe('org_oauth_blocked')
+    expect(checks).toEqual([T(3)])
+    const shown = (await h.api('dana').call(API.listCredentials, {})).items.find((x) => x.label === 'C3')!
+    expect(shown.providerError).toMatchObject({ status: 403, type: 'permission_error', message: 'OAuth authentication is currently not allowed for this organization.' })
+    expect(shown.detail).toMatch(/플랜이나 조직/)
     // the next turn skips it without trying it again
     hits.length = 0
     expect((await run()).content).toContain('answer by TOK4')
@@ -134,12 +145,33 @@ describe('each kind of answer from the provider', () => {
     expect(r.status).toBe('ok')
     expect(r.limited_until).not.toBeNull()
   })
-  test('subscription ended (known 403, the same account as before): marked plan_ended, the next account answers', async () => {
+  test('organization not allowed (known 403, the same account as before): confirmed and marked org_oauth_blocked, the next account answers', async () => {
     // C3 again: a 403 of another account within minutes would count as this server's problem (below)
     reset(); h.ctx.db.query("UPDATE engine_credentials SET disabled = 1 WHERE label IN ('C1', 'C2')").run(); modes[T(3)] = '403plan'
     const done = await run()
     expect(done.content).toContain('answer by TOK4')
-    expect(getRow(h.ctx.db, idOf('C3'))!.status_code).toBe('plan_ended')
+    expect(getRow(h.ctx.db, idOf('C3'))!.status_code).toBe('org_oauth_blocked')
+  })
+  test('a 401 whose free check passes: not marked, the engine is asked to retry (529); a 401 again marks it and the turn moves on', async () => {
+    firstFails('401ok')
+    const first = await run()
+    expect(checks).toEqual([T(1)])
+    expect(hits).toEqual([T(1)])
+    expect(first.content ?? '').not.toContain('answer by')
+    unmarked('C1')
+    // refused again after the check passed: marked without another check, the next account answers
+    hits.length = 0; checks.length = 0
+    const second = await run()
+    expect(second.content).toContain('answer by TOK2')
+    expect(checks).toEqual([])
+    const c1 = getRow(h.ctx.db, idOf('C1'))!
+    expect([c1.status, c1.status_code]).toEqual(['invalid', 'upstream_401'])
+  })
+  test('an account-level 403 whose free check passes: not marked either', async () => {
+    reset(); h.ctx.db.query("UPDATE engine_credentials SET disabled = 1 WHERE label IN ('C1', 'C2')").run(); modes[T(3)] = '403blockedok'
+    await run()
+    expect(checks).toEqual([T(3)])
+    unmarked('C3')
   })
   test('another 403 from Anthropic (a region): skipped in this turn, nothing marked', async () => {
     firstFails('403region')

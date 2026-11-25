@@ -26,7 +26,7 @@ import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
 import type { FitReport } from './fit-images'
-import { accountRefusal, upstreamSpeaksForAccount } from './anthropic-refusal'
+import { accountRefusal, providerError, upstreamSpeaksForAccount } from './anthropic-refusal'
 
 /** 403s of two different accounts within this time: a cause on this server's side, nothing is marked */
 const SERVER_WIDE_403_MS = 5 * 60_000
@@ -418,10 +418,9 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       }
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
-      let sent = ''
-      if (cred.inject.type === 'anthropic-x-api-key') { headers.set('x-api-key', cred.inject.key); sent = cred.inject.key; beta.delete('oauth-2025-04-20') }
+      if (cred.inject.type === 'anthropic-x-api-key') { headers.set('x-api-key', cred.inject.key); beta.delete('oauth-2025-04-20') }
       else if (cred.inject.type === 'anthropic-bearer') {
-        headers.set('authorization', 'Bearer ' + cred.inject.token); sent = cred.inject.token
+        headers.set('authorization', 'Bearer ' + cred.inject.token)
         beta.add('oauth-2025-04-20')
       } else return apiError(403, 'permission_error', 'this AI connection is not for Claude')
       if (beta.size) headers.set('anthropic-beta', [...beta].join(','))
@@ -434,6 +433,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const abort = new AbortController()
       req.signal.addEventListener('abort', () => abort.abort(), { once: true })
       let up: Response
+      // when it went out: a refusal of a request sent before a passed check belongs to that check (credentials/confirm.ts)
+      const sentAt = Date.now()
       try {
         // never follow a redirect: it would carry the request (and an x-api-key, which fetch keeps across origins) to
         // another host, or the real credential to a path the rules above do not allow
@@ -461,10 +462,23 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         if (gateStop) o.onTurnEvent?.(row.turn_id, { type: 'budget', demoRest: true })
         return new Response(text, { status: up.status, headers: outHeaders })
       }
+      // A refusal the free check does not confirm (credentials/confirm.ts): nothing is marked and no account event goes
+      // to the turn; the engine gets a 529, which its SDK retries on the same account (a retry never runs a tool twice,
+      // unlike moving the turn to another account after a tool ran). A refusal again marks it.
+      const checkPassed = (status: number) => {
+        o.log?.warn('model proxy: a refusal of an AI connection was not confirmed by its free check; the engine retries', { turn: row.turn_id, credential: cred.credentialId, status })
+        busy(row.turn_id, true)
+        return apiError(529, 'overloaded_error', 'the AI account is being checked again; try again')
+      }
       if (up.status === 401 && broker && marks) {
-        // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
-        await broker.onUnauthorized(cred.credentialId, sent)
+        // this connection only, once its free check agrees: marked refused (the owner is told), the turn moves to
+        // another connection or ends
+        const text = await up.text().catch(() => '')
+        const seen = { status: 401, code: 'upstream_401', error: providerError(401, text) }
+        const r = 'kind' in cred ? await broker.confirmRefusal(cred.credentialId, sentAt, seen) : 'marked'
+        if (r === 'passed') return checkPassed(401)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+        return new Response(text, { status: up.status, headers: outHeaders })
       }
       // Anthropic's own refusal of the account (a subscription that ended, an API key out of credit, an account switched
       // off): marked, so it is not "healthy" again on the next turn, and the turn moves on (QA TC-4835,
@@ -483,7 +497,9 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           if (others) r = { action: 'skip' }
         }
         if (r?.action === 'invalid') {
-          broker.markInvalid(cred.credentialId, r.code, up.status)
+          // an account-level 403 is confirmed by the free check first; a billing answer is marked as it came
+          if (up.status === 403 && (await broker.confirmRefusal(cred.credentialId, sentAt, { status: 403, code: r.code, error: r.error })) === 'passed') return checkPassed(403)
+          if (up.status !== 403) broker.markInvalid(cred.credentialId, r.code, up.status, r.error)
           o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
         } else if (r?.action === 'no_credit') {
           broker.onNoCredit(cred.credentialId)

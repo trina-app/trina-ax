@@ -98,6 +98,26 @@ export function localCommandLines(s: LocalAppSpec, style: CommandStyle = looksWi
   return s.tools.map((t) => [q(s.command), ...t.args.map((a) => (typeof a === 'string' ? q(a) : `<${a.slot}>`))].join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
 }
 
+/** What a command line typed in Settings may not hold (splitCommand refuses it), in each style, as people read them: the
+ * splitter and the page's words both read this list, so they never say different things (QA TC-9008). Windows: outside
+ * "…" only; `%NAME%` stands for any %…% value. */
+export const COMMAND_REFUSED: Record<CommandStyle, readonly string[]> = {
+  posix: ['|', '&', ';', '<', '>', '`', '$', '(', ')'],
+  windows: ['|', '&', ';', '<', '>', '^', '%NAME%'],
+}
+/** the single characters of COMMAND_REFUSED (a %NAME% is matched on its own) */
+const refusedChars = (style: CommandStyle) => COMMAND_REFUSED[style].filter((c) => c.length === 1).join('')
+/** What Windows' cmd.exe reads even inside "…": a batch file (.cmd, .bat that is not an npm shim) is never started with
+ * a value that holds one (desktop/src/common/programs.ts cmdLaunch), and the words say this list. */
+export const BATCH_REFUSED: readonly string[] = ['"', '%', '!', '^']
+/** BATCH_REFUSED as a pattern, with line breaks and other control characters */
+export const BATCH_REFUSED_RE = new RegExp(`[${BATCH_REFUSED.map((c) => `\\${c}`).join('')}\\r\\n\\0\\u0001-\\u001f]`)
+
+/** A Windows path on a network share or a device (\\server\share, \\?\…, \\.\…, //server): the desktop app never looks at
+ * it, not even whether a file is there, because opening one sends this computer's sign-in (its NTLM hash) to that
+ * server (security review of #515). The page refuses one before saving; the server names the reason (local.ts). */
+export const windowsShare = (p: string) => /^[\\/]{2}/.test(p.trim())
+
 /** A Windows program file's ending that starts it (an unquoted path with spaces ends at the first one) */
 const WIN_RUNNABLE_END = /\.(exe|cmd|bat|com)(?=\s|$)/i
 
@@ -132,7 +152,7 @@ function splitPosix(line: string): string[] | null {
     if (ch === "'" || ch === '"') { q = ch; has = true; continue }
     if (ch === '\\' && i + 1 < line.length) { cur += line[++i]; has = true; continue }
     if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
-    if ('|&;<>`$()'.includes(ch)) return null
+    if (refusedChars('posix').includes(ch)) return null
     cur += ch; has = true
   }
   if (q) return null
@@ -140,8 +160,8 @@ function splitPosix(line: string): string[] | null {
   return out.length ? out : null
 }
 
-/** what cmd.exe would read outside "…" (never passed on as it reads) */
-const WIN_SHELL_ONLY = /[|&;<>^]|%[^%\s]+%/
+/** what cmd.exe would read outside "…" (never passed on as it reads): COMMAND_REFUSED.windows */
+const WIN_SHELL_ONLY = new RegExp(`[${refusedChars('windows').replace(/[\\^\]-]/g, '\\$&')}]|%[^%\\s]+%`)
 
 function splitWindows(line: string): string[] | null {
   const out: string[] = []
@@ -169,7 +189,7 @@ function splitWindows(line: string): string[] | null {
     }
     if (ch === '"') { quoted = true; has = true; continue }
     if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
-    if ('|&;<>^'.includes(ch)) return null
+    if (refusedChars('windows').includes(ch)) return null
     cur += ch; has = true
   }
   if (quoted) return null
@@ -183,12 +203,24 @@ function splitWindows(line: string): string[] | null {
  * `reads`: an MCP preset's tools that only read, Trina's own list for a program that marks none of its tools
  * (MCP readOnlyHint): Aside 1.26 gives no annotations, so without it listing profiles asked on the "send" card
  * (docs/decisions/20261118-local-app-connectors.md "Aside's reads"). Only for the exact listed command (presetReads). */
-export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[]; download?: string }[] = [
+/** `guide`: an MCP preset whose program gives no `instructions` of its own but prints its usage guide with these
+ * arguments (Aside: `aside guide`, what Claude Code's Aside skill reads before it starts), when its help (`helpArgs`)
+ * lists that command (`helpHas`): the desktop app gives that
+ * text as the server's instructions, after `note`, which says how its command-line words map to the tools here
+ * (docs/decisions/20261125-connector-guide-and-account-choice.md). Only for the exact listed command. */
+export interface LocalAppGuide { args: readonly string[]; note: string; helpArgs: readonly string[]; helpHas: RegExp }
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[]; notOn?: readonly string[]; download?: string; guide?: LocalAppGuide }[] = [
   // browser_profiles lists profile ids, labels and whether each is connected; memory_search searches the person's own
   // Aside notes. repl (JavaScript in the logged-in browser) and exec (Aside's browser agent) are not here: they ask.
   // download: the app's own download page (macOS and Windows), said when its program is not on the computer (the npx
   // presets below have none: their install line names Node.js)
-  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'], download: 'https://aside.com/download' },
+  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'], download: 'https://aside.com/download',
+    guide: {
+      args: ['guide'],
+      // only an Aside CLI whose help lists `guide` is asked for it (an older one would take the word as a task)
+      helpArgs: ['--help'], helpHas: /^\s*guide\b/m,
+      note: 'Aside\'s own guide follows (what `aside guide` prints). It is written for Aside\'s command line; here Aside is connected through its tools instead, and no command line is there: `aside exec` / `aside "<task>"` is the exec tool, `aside repl` is the repl tool (its description is its guide), `aside host profiles` is browser_profiles, `aside memory search` is memory_search. Where the guide says --profile or --account, pass a profile_id from browser_profiles to exec or repl; a profile of any Aside account works.',
+    } },
   {
     id: 'ego-lite', name: 'ego lite', download: 'https://lite.ego.app/download', spec: {
       adapter: 'cli', command: 'ego-browser', env: [], tools: [

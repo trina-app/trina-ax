@@ -7,7 +7,7 @@
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
-import { ExternalLink, GripVertical, MoreHorizontal, Plug, Plus, Trash2 } from 'lucide-react'
+import { ExternalLink, GripVertical, Loader2, MoreHorizontal, Plug, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -79,11 +79,26 @@ export function useTeamCredentials() {
   const [checking, setChecking] = useState<string | null>(null)
 
   const update = (c: Credential) => state.data && state.setData({ ...state.data, items: state.data.items.map((x) => (x.id === c.id ? c : x)) })
+  /** "Check again": the row's badge turns while it runs (the menu it starts from closes), then one toast says what the
+   * provider answered: connected, still refused (why, and the way to fix it) or no clear answer (try again later) */
   const check = async (c: Credential) => {
     setChecking(c.id)
-    const r = await act(() => api.call(API.checkCredential, { params: { id: c.id } }), t('credentials.checked'))
+    const r = await act(() => api.call(API.checkCredential, { params: { id: c.id } }))
     setChecking(null)
-    if (r) update(r)
+    if (!r) return
+    const { check: found, ...row } = r
+    update(row)
+    // the reason in the person's language (QA TC-9061): the known one, else the row's own line; the provider's own
+    // words (found.reason) stay in the opened row's details, never in the toast
+    const plain = found?.why ? t(`credentials.why.${found.why}` as MessageKey) : null
+    const reason = plain ?? (found?.outcome === 'refused' ? row.detail : null)
+    if (!found || found.outcome === 'ok') toast({ level: 'success', text: t('credentials.checkResult.ok') })
+    else if (found.outcome === 'refused') {
+      // the owner and admins fix a team account here; a member's own is theirs to fix
+      const fix = row.scope === 'team' && owner
+      toast({ level: 'error', text: reason ? t('credentials.checkResult.refused', { reason }) : t('credentials.checkResult.refusedPlain'),
+        ...(fix ? { action: { label: t(SUBSCRIPTION.has(row.kind) ? 'credentials.checkResult.reconnect' : 'credentials.checkResult.replace'), run: () => setReplacing(row), primary: true } } : {}) })
+    } else toast({ level: 'warn', text: t('credentials.checkResult.unclear'), ...(reason ? { detail: reason } : {}) })
   }
   const patch = async (c: Credential, body: { disabled?: boolean; priority?: number }) => {
     const r = await act(() => api.call(API.updateCredential, { params: { id: c.id }, body }))
@@ -395,7 +410,12 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
             </p>
           )}
         </div>
-        <Badge tone={TONE[c.state]}>{t(`credentials.state.${c.state}` as MessageKey)}</Badge>
+        {/* while "Check again" runs, here (its menu has closed): a turning mark and "Checking…" */}
+        <span role="status" className="contents" data-testid="credential-state" data-checking={checking ? '' : undefined}>
+          {checking
+            ? <Badge tone="neutral"><span className="inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" aria-hidden />{t('credentials.checking')}</span></Badge>
+            : <Badge tone={TONE[c.state]}>{t(`credentials.state.${c.state}` as MessageKey)}</Badge>}
+        </span>
         <div className="flex shrink-0 items-center gap-1">
           {reconnectButton && <Button size="sm" onClick={onReplace}>{t('credentials.reconnect')}</Button>}
           {!personal && !owner && <Button size="sm" variant="ghost" onClick={onCheck} disabled={checking}>{checking ? t('credentials.checking') : t('credentials.check')}</Button>}
@@ -421,6 +441,11 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
       {open && (
         <div id={details} className={`mt-1.5 space-y-0.5 text-xs text-faint max-md:pl-0 ${handle ? 'pl-16' : 'pl-10'}`} data-testid="credential-details">
           {c.detail && <p className="text-muted" data-testid="credential-detail">{c.detail}</p>}
+          {c.providerError && (
+            <p className="break-words" data-testid="credential-provider-answer">
+              {t('credentials.providerAnswer', { date: formatDateTime(c.providerError.at, locale), answer: [c.providerError.status, c.providerError.type, c.providerError.message].filter((x) => x !== null && x !== '').join(' · ') })}
+            </p>
+          )}
           <p>
             {target} · {t('credentials.month', { tokens: formatNumber(c.month.tokens, locale) })}
             {apiKey && c.month.usd > 0 && ` · ${t('credentials.monthUsd', { usd: formatUsd(c.month.usd, locale) })}`}

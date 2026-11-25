@@ -62,7 +62,7 @@ import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
-import { autoMemoryOn, NOT_OUTSIDE_TOOLS } from './auto-memory'
+import { autoMemoryOn, chatMemories, NOT_OUTSIDE_TOOLS } from './auto-memory'
 import { TOOL_OUTPUT_MAX } from '../engine/claude-parse'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
@@ -1094,8 +1094,8 @@ export class TurnExec {
     // outside content the instructions themselves carry (a Slack thread asked from, integrations/slack/read.ts): in
     // the read scope and marked, after a new session cleared the marks
     if (toolSet.seen.length) { addSources(rt.db, spec.chatId, toolSet.seen); this.taint(); this.markOthersWords() }
-    // a shared project chat: other people's messages on this branch are outside content (remember protection; no
-    // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
+    // a shared project chat: other people's messages on this branch are outside content (remember protection: auto memory
+    // reads them as tool output, chat/auto-memory.ts othersWords), and the folder lists, skills, team rules and company profile the AI is shown are
     // only what everyone who sees the chat may read (chat/shared.ts)
     if (this.shared || othersWrote) {
       if (rt.store.pathTo(userMsg.parent_id).some((m) => m.role === 'user' && m.author_id !== spec.userId)) this.taint()
@@ -1151,7 +1151,7 @@ export class TurnExec {
     // a shared project chat: who changes its members when this person may not (prompt.ts sharedSection)
     const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
     const shared = this.shared ? {
-      project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name, chatId: spec.chatId,
       // the project's own chat room, which this chat reads (chat/room-tools.ts projectRoomTools)
       projectRoom: sharedProject && !this.templateScope ? projectRoomOfChat(this) : null,
       members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
@@ -1253,8 +1253,9 @@ export class TurnExec {
     }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
-      // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
+      // a shared chat: only the asker's memories kept in this very chat (their words are in its transcript), never their
+      // private ones; a guest's none (docs/decisions/20261125-auto-memory-shared-chats.md; prompt.ts promptMemories)
+      memories: this.shared ? (guestTurn ? [] : chatMemories(rt.db, spec.userId, spec.chatId).map((m) => ({ id: m.id, text: m.text, sharedChat: spec.chatId }))) : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -1365,7 +1366,8 @@ export class TurnExec {
     const refs = roomRefsBlock(userMsg.content, roomsOff, spec.locale)
     // a message that names a room carries room names (other people's words) into the chat: marked like a room read,
     // names only (no message of the room came in: chat/read-rooms.ts ROOM_NAMES_ONLY)
-    if (refs) this.markRoomsSeen(true)
+    // (the names are other people's words: auto memory's copy and address checks read them as tool output)
+    if (refs) { this.markRoomsSeen(true); this.noteOutside('room_refs', refs) }
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
@@ -2754,15 +2756,20 @@ export class TurnExec {
   }
   /**
    * May the AI keep memories on its own in this turn (docs/decisions/20261122-auto-memory.md "Where auto-save runs")?
-   * Per turn: the person's own private chat in the app, with nothing of rooms in it; never a shared chat, a scheduled
-   * run, Slack, a template or restricted run, or a confidential chat. The person's switch is read separately, when the
-   * tool is called (autoMemoryOn).
+   * Per turn: the person's own chat in the app, and since 2026-11-25 a shared or project chat of a member, in the asker's
+   * own memory from the asker's own words (docs/decisions/20261125-auto-memory-shared-chats.md); never a guest's turn
+   * in a shared chat, a ✦ side chat, a scheduled run, Slack, a template or restricted run, or a confidential chat. A
+   * chat that read rooms (or a file shared one by one, or holds a quote) keeps auto memory since 2026-11-25: what came
+   * from rooms is tool output and quote lines are other people's words, both checked by remember as tool output is
+   * (before, every save there asked on a card, which the owner's rule forbids). The person's switch is read
+   * separately, when the tool is called (autoMemoryOn).
    */
   get autoMemoryPlace(): boolean {
-    if (this.shared || this.restricted || this.templateRun) return false
+    if (this.restricted || this.templateRun) return false
+    if (this.shared && isGuestUser(this.rt.db, this.spec.userId)) return false
     if (!['web', 'desktop', 'mobile'].includes(this.spec.clientKind ?? '')) return false
     if (confidentialChat(this.rt.db, this.spec.chatId)) return false
-    return !readRooms(this)
+    return !(this.rt.db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
   }
   get tainted(): boolean {
     return !!(this.rt.db.query('SELECT session_tainted FROM chats WHERE id = ?').get(this.spec.chatId) as { session_tainted: number } | null)?.session_tainted

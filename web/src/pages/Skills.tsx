@@ -26,6 +26,7 @@ import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useFolderWords } from '../lib/folderLabels'
+import { useTeamPlace } from '../lib/teamPlace'
 import { skillFolderWords, skillPlaceWords } from '../lib/skillPlaces'
 import { useLocale, useT } from '../i18n'
 import { readCached, useCachedRead } from '../store/listCache'
@@ -287,6 +288,7 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
+  const place = useTeamPlace()
   const list = useRef<HTMLDivElement>(null)
   // the Inbox line of a batch: its person's group comes into view
   const focusPerson = focusBatch ? items?.find((s) => s.batchId === focusBatch)?.suggester.id ?? null : null
@@ -328,7 +330,7 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
             {s.resultPath && (
               // where it was registered: a quiet link in the line's grey (before: the accent colour, which read as an error)
               <button type="button" className="block text-left text-xs text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" onClick={() => navigateTo(`/files?path=${encodeURIComponent(s.resultPath!.slice(0, s.resultPath!.lastIndexOf('/')))}&select=${encodeURIComponent(s.resultPath!)}`)} data-testid="suggestion-result">
-                {t('skills.resultAt', { path: s.resultPath })}
+                {t('skills.resultAt', { path: place(s.resultPath) })}
               </button>
             )}
           </span>
@@ -358,6 +360,7 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
 function ChangeList({ items }: { items: SkillChange[] | null }) {
   const t = useT()
   const locale = useLocale()
+  const place = useTeamPlace()
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <EmptyState icon={<History size={22} />} title={t('skills.noChanges')} />
   return (
@@ -366,13 +369,13 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
         <li key={c.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-testid="skill-change">
           <Badge tone={c.change === 'delete' ? 'danger' : 'neutral'}>{t(`skills.change.${c.change}`)}</Badge>
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-xs" title={c.path}>
-              {c.path}
+            <span className="block truncate text-xs" title={c.path}>
+              {place(c.path)}
               {c.kind === 'skill' || c.kind === 'rule' ? <span className="ml-1 font-sans text-faint">({t(`skills.kind.${c.kind}`)})</span> : null}
             </span>
             <span className="block text-xs text-faint">
               {c.actor?.name ?? '—'} · {formatDateTime(c.at, locale)}
-              {c.from ? ` · ${t('skills.change.from', { path: c.from })}` : ''}
+              {c.from ? ` · ${t('skills.change.from', { path: place(c.from) })}` : ''}
               {c.group ? ` · ${t('skills.fromGroup', { group: c.group.name })}` : ''}
             </span>
           </span>
@@ -399,6 +402,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
+  const place = useTeamPlace()
   const isDir = s.source.kind === 'folder'
   // a skill folder: the files that go with it, with their text (GET …/:id gives it to its reviewer), so the owner reads
   // everything the team's AI would read, not only SKILL.md
@@ -442,7 +446,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
     try {
       if (what === 'approve') {
         const r = await api.call(API.approveSkillSuggestion, { params: { id: s.id }, body: { targetFolder: folder, name: name.trim(), description: description.trim(), content, ...(!isDir && fileName.trim() ? { fileName: fileName.trim() } : {}) } })
-        toast({ level: 'success', text: t('skills.registered', { path: r.resultPath ?? '' }) })
+        toast({ level: 'success', text: t('skills.registered', { path: r.resultPath ? place(r.resultPath) : '' }) })
       } else {
         await api.call(API.rejectSkillSuggestion, { params: { id: s.id }, body: note ? { note } : {} })
         toast({ level: 'success', text: t('skills.rejectedToast') })
@@ -476,7 +480,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
       <div className="space-y-3" data-testid="review-dialog">
         <p className="text-xs text-faint">
           {t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) })} ·{' '}
-          {dir ? t('skills.folderMeta', { app: appName(dir.app), n: dir.files.length }) : s.source.kind === 'file' && s.source.path ? t('skills.source.file', { path: s.source.path }) : t('skills.source.message')}
+          {dir ? t('skills.folderMeta', { app: appName(dir.app), n: dir.files.length }) : s.source.kind === 'file' && s.source.path ? t('skills.source.file', { path: place(s.source.path) }) : t('skills.source.message')}
         </p>
         <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
           {t('skills.registerWarn')}

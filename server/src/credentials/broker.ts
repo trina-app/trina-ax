@@ -8,13 +8,14 @@ import { audit } from '../admin/audit'
 import { anthropicGateway, isFreeRoam, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
+import { confirmRefusal, type SeenRefusal } from './confirm'
 import { ctAll, fmtTime } from './i18n'
 import { costOf, estimateOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { personalConnectionsAllowed } from './policy'
 import {
   getRow, markInvalid, markNoCredit, notifyAboutConnection, secretOf, teamDay, unusable,
-  type CredCtx, type CredRow, type Secrets,
+  type CredCtx, type CredRow, type ProviderAnswer, type Secrets,
 } from './store'
 
 export type Injection =
@@ -38,12 +39,16 @@ export interface CredentialBroker {
   readonly freeRoam?: boolean
   /** the connection bound to this token, if it can be used now, and what to put on the request */
   forRequest(t: TokenBinding, want: Family): Promise<ForRequest>
-  /** the upstream answered 401. API keys and Claude tokens: marked refused ('refused'). ChatGPT: refreshed once (or
-   * already refreshed by another request): 'retry' = send again with the new token; 'refused' = the sign-in is gone
-   * (marked needs_reconnect); 'temporary' = the refresh failed for now (nothing changed). */
+  /** the upstream answered 401. API keys and Claude tokens: confirmed by one free check first (confirm.ts): 'refused' =
+   * marked; 'temporary' = the check passed, nothing marked. ChatGPT: refreshed once (or already refreshed by another
+   * request): 'retry' = send again with the new token; 'refused' = the sign-in is gone (marked needs_reconnect);
+   * 'temporary' = the refresh failed for now (nothing changed). */
   onUnauthorized(credentialId: string, sentAccess: string): Promise<'retry' | 'refused' | 'temporary'>
-  /** refused for good (after a retry still 401, or a plan without Codex) */
-  markInvalid(credentialId: string, code: string, upstreamStatus: number | null): void
+  /** a 401 or an account-level 403 of an API key or a Claude token on a model request sent at `sentAt` (ms): one free
+   * check before anything is marked (confirm.ts confirmRefusal). 'passed' = nothing marked, the engine should retry */
+  confirmRefusal(credentialId: string, sentAt: number, seen: SeenRefusal): Promise<'passed' | 'marked'>
+  /** refused for good (after a retry still 401, or a plan without Codex); `error`: the provider's answer, cleaned */
+  markInvalid(credentialId: string, code: string, upstreamStatus: number | null, error?: ProviderAnswer | null): void
   /** an API key out of credit (Anthropic's billing answer): held out for a while, shown as out of credit */
   onNoCredit(credentialId: string): void
   /** a long limit (subscription 5-hour / weekly, out of credit): no request goes out on it until then */
@@ -126,7 +131,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     async onUnauthorized(credentialId, sentAccess) {
       const row = getRow(cc.db, credentialId)
       if (!row) return 'refused'
-      if (row.kind !== 'chatgpt') { markInvalid(cc, credentialId, 'upstream_401', 401); return 'refused' }
+      if (row.kind !== 'chatgpt') return (await confirmRefusal(cc, credentialId, cc.now(), { status: 401, code: 'upstream_401', error: null })) === 'passed' ? 'temporary' : 'refused'
       // A late 401 must not start new maintenance after the owner withdrew permission.
       // An already-running refresh still persists rotated tokens; forRequest checks permission before use.
       if (unusable(cc.db, row, new Date(cc.now()), cc.allowedKinds)
@@ -135,7 +140,9 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       return f.ok ? 'retry' : f.permanent ? 'refused' : 'temporary'
     },
 
-    markInvalid(credentialId, code, upstreamStatus) { markInvalid(cc, credentialId, code, upstreamStatus) },
+    confirmRefusal(credentialId, sentAt, seen) { return confirmRefusal(cc, credentialId, sentAt, seen) },
+
+    markInvalid(credentialId, code, upstreamStatus, error) { markInvalid(cc, credentialId, code, upstreamStatus, { error }) },
 
     onNoCredit(credentialId) { markNoCredit(cc, credentialId) },
 
@@ -186,6 +193,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     },
 
     succeeded(credentialId) {
+      // it answers again: a later refusal is checked afresh, not marked as "refused again after a passed check"
+      ;(cc.extra.confirm as { passedAt?: Map<string, number> } | undefined)?.passedAt?.delete(credentialId)
       cc.db.query('UPDATE engine_credentials SET checked_at = ? WHERE id = ? AND checked_at IS NULL').run(new Date(cc.now()).toISOString(), credentialId)
     },
   }

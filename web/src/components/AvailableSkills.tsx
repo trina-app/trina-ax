@@ -24,6 +24,7 @@ import { ArrowRightLeft, ChevronDown, ChevronRight, FileText, FolderUp, MessageS
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { skillSummary, type SkillInfo } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { useTeamPlace } from '../lib/teamPlace'
 import { answersFileInputs } from '../lib/desktop'
 import { newChatPath } from '../lib/newChat'
 import { canPickHandle, canPickInput } from '../lib/skillScan'
@@ -385,6 +386,7 @@ function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => v
 
 function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: (() => void) | null }) {
   const t = useT()
+  const place = useTeamPlace()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
@@ -432,7 +434,7 @@ function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() =
             </button>
           )}
           {/* where the file is, for people who manage skills (the row itself keeps to the name and the description) */}
-          <p className="mt-1 border-t border-line px-2 pt-1.5 pb-1 font-mono text-micro break-all text-faint" title={t('skills.pathLine', { path: s.path })} data-testid="skill-path">{s.path}</p>
+          <p className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-micro break-all text-faint" title={t('skills.pathLine', { path: s.path })} data-testid="skill-path">{place(s.path)}</p>
         </div>
       )}
     </div>

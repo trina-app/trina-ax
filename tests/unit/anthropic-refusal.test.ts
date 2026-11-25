@@ -3,26 +3,26 @@
 // that may not be the account's, network or provider errors and unknown request errors are read here.
 import { describe, expect, test } from 'bun:test'
 import type { CredentialKind } from '@mycel/shared/api'
-import { accountRefusal, upstreamSpeaksForAccount } from '../../server/src/proxy/anthropic-refusal'
+import { accountLevel403, accountRefusal, cleanProviderText, providerError, refusalCode, upstreamSpeaksForAccount } from '../../server/src/proxy/anthropic-refusal'
 
 const body = (type: string, message: string) => JSON.stringify({ type: 'error', error: { type, message } })
 const read = (status: number, b: string, kind: CredentialKind = 'anthropic-oauth', o: { path?: string; requestId?: string | null } = {}) =>
   accountRefusal({ path: o.path ?? '/v1/messages', status, body: b, requestId: o.requestId === undefined ? 'req_011CTest401x' : o.requestId, kind })
 
 describe('accountRefusal: marks', () => {
-  test('subscription ended: a known account-level 403 of a Claude subscription account is plan_ended', () => {
-    expect(read(403, body('permission_error', 'OAuth authentication is currently not allowed for this organization.'))).toEqual({ action: 'invalid', code: 'plan_ended' })
-    expect(read(403, body('permission_error', 'This organization has been disabled.'))).toEqual({ action: 'invalid', code: 'plan_ended' })
-    expect(read(403, body('authentication_error', 'OAuth token has been revoked. Please obtain a new token.'))).toEqual({ action: 'invalid', code: 'plan_ended' })
-    expect(read(403, body('permission_error', 'Your account does not have access to Claude Code.'))).toEqual({ action: 'invalid', code: 'plan_ended' })
+  test('subscription ended: a known account-level 403 of a Claude subscription account is plan_ended (org-not-allowed: org_oauth_blocked, it can pass)', () => {
+    expect(read(403, body('permission_error', 'OAuth authentication is currently not allowed for this organization.'))).toMatchObject({ action: 'invalid', code: 'org_oauth_blocked' })
+    expect(read(403, body('permission_error', 'This organization has been disabled.'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
+    expect(read(403, body('authentication_error', 'OAuth token has been revoked. Please obtain a new token.'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
+    expect(read(403, body('permission_error', 'Your account does not have access to Claude Code.'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
   })
   test('subscription ended: a 402 or 400 billing_error, or the exact credit phrase, of a subscription account is plan_ended', () => {
-    expect(read(402, body('billing_error', 'Payment required'))).toEqual({ action: 'invalid', code: 'plan_ended' })
-    expect(read(400, body('billing_error', 'x'))).toEqual({ action: 'invalid', code: 'plan_ended' })
-    expect(read(400, body('invalid_request_error', 'Your credit balance is too low to access the Anthropic API.'))).toEqual({ action: 'invalid', code: 'plan_ended' })
+    expect(read(402, body('billing_error', 'Payment required'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
+    expect(read(400, body('billing_error', 'x'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
+    expect(read(400, body('invalid_request_error', 'Your credit balance is too low to access the Anthropic API.'))).toMatchObject({ action: 'invalid', code: 'plan_ended' })
   })
   test('an API key: account-level 403 refused (upstream_403), out of credit held as no_credit', () => {
-    expect(read(403, body('permission_error', 'This organization has been disabled.'), 'anthropic-api-key')).toEqual({ action: 'invalid', code: 'upstream_403' })
+    expect(read(403, body('permission_error', 'This organization has been disabled.'), 'anthropic-api-key')).toMatchObject({ action: 'invalid', code: 'upstream_403' })
     expect(read(402, body('billing_error', 'Payment required'), 'anthropic-api-key')).toEqual({ action: 'no_credit' })
     expect(read(400, body('invalid_request_error', 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'), 'anthropic-api-key')).toEqual({ action: 'no_credit' })
   })
@@ -46,7 +46,7 @@ describe('accountRefusal: never marks', () => {
     expect(read(403, body('permission_error', 'This organization has been disabled.'), 'anthropic-oauth', { requestId: null })).toBeNull()
     expect(read(402, body('billing_error', 'x'), 'anthropic-oauth', { requestId: null })).toBeNull()
   })
-  test('count_tokens: never read (validate.ts treats its OAuth 403 as unclear)', () => {
+  test('count_tokens: never read here (it is the free check: validate.ts reads its answers)', () => {
     expect(read(403, body('permission_error', 'This organization has been disabled.'), 'anthropic-oauth', { path: '/v1/messages/count_tokens' })).toBeNull()
     expect(read(402, body('billing_error', 'x'), 'anthropic-oauth', { path: '/v1/messages/count_tokens' })).toBeNull()
   })
@@ -91,5 +91,37 @@ describe('classifyError: sign-in errors need the error class or the leading text
     const { classifyError } = await import('../../server/src/engine/claude-parse')
     expect(classifyError('API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"},"request_id":"req_011C401abc"}')).toBe('crash')
     expect(classifyError('API Error: 500 {"error":{"type":"api_error"}} request-id: req_401401')).toBe('crash')
+  })
+})
+
+describe('the provider\'s answer kept on a refused account (docs/decisions/20261125-ai-account-refusal-recheck.md)', () => {
+  test('org-not-allowed has its own code; other account-level 403s keep theirs', () => {
+    expect(refusalCode('anthropic-oauth', 'OAuth authentication is currently not allowed for this organization.')).toBe('org_oauth_blocked')
+    expect(refusalCode('anthropic-oauth', 'This organization has been disabled.')).toBe('plan_ended')
+    expect(refusalCode('anthropic-api-key', 'OAuth authentication is currently not allowed for this organization.')).toBe('upstream_403')
+    expect(accountLevel403('permission_error', 'OAuth authentication is currently not allowed for this organization.')).toBe(true)
+    expect(accountLevel403('permission_error', 'Request not allowed')).toBe(false)
+    expect(accountLevel403('invalid_request_error', 'This organization has been disabled.')).toBe(false)
+  })
+  test('a refusal carries the answer: status, type and message', () => {
+    expect(read(403, body('permission_error', 'OAuth authentication is currently not allowed for this organization.'))).toEqual({
+      action: 'invalid', code: 'org_oauth_blocked',
+      error: { status: 403, type: 'permission_error', message: 'OAuth authentication is currently not allowed for this organization.' },
+    })
+  })
+  test('Anthropic\'s and OpenAI\'s error shapes are read; anything else is no answer', () => {
+    expect(providerError(401, body('authentication_error', 'invalid x-api-key'))).toEqual({ status: 401, type: 'authentication_error', message: 'invalid x-api-key' })
+    expect(providerError(401, JSON.stringify({ error: { code: 'invalid_api_key', message: 'Incorrect API key provided.' } }))).toEqual({ status: 401, type: 'invalid_api_key', message: 'Incorrect API key provided.' })
+    expect(providerError(403, '<html>blocked</html>')).toBeNull()
+    expect(providerError(403, JSON.stringify({ message: 'Forbidden' }))).toBeNull()
+    expect(providerError(500, '')).toBeNull()
+  })
+  test('never a token, an e-mail address or an id; no control characters; at most 300 characters', () => {
+    const m = providerError(401, body('authentication_error', 'Incorrect API key provided: sk-proj-abcdefghijklmnop1234. Org org_01ABCDEFGH for jane.doe@example.com, request 123e4567-e89b-12d3-a456-426614174000, Bearer eyJhbGciOiJIUzI1NiJ9.x\n\u0007done'))!
+    for (const leak of ['sk-proj', 'abcdefghijklmnop1234', 'org_01ABCDEFGH', 'jane.doe', 'example.com', '123e4567', 'eyJhbGci', '\n', '\u0007']) expect(m.message).not.toContain(leak)
+    expect(m.message).toContain('Incorrect API key provided')
+    expect(m.message).toContain('done')
+    expect(cleanProviderText('x'.repeat(10) + ' ' + 'word '.repeat(200), 300).length).toBeLessThanOrEqual(300)
+    expect(cleanProviderText('a'.repeat(40), 300)).toBe('[hidden]')
   })
 })

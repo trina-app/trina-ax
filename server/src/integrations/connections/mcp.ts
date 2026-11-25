@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { INTEGRATION_TOOLS_MAX } from '@mycel/shared/api'
 import { hideDeep } from './hide'
 import { NetError, serviceRequest, type NetOptions, type NetRequest, type NetResponse } from './net'
+import { refusalOf, type Refusal } from './refusal'
 
 export const MCP_PROTOCOL = '2025-06-18'
 /** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
@@ -53,14 +54,19 @@ export const MAX_SCHEMA_CHARS = 32_000
  * 1.07 million characters) */
 export const MAX_SCHEMAS_CHARS = 4_000_000
 const MAX_DESCRIPTION = 1000
+/** a server's own instructions (the `initialize` answer's `instructions`), as kept for the AI: Claude Code gives the
+ * same text to its model as "MCP Server Instructions" (docs/decisions/20261125-connector-guide-and-account-choice.md).
+ * 6,000 characters holds a CLI's whole usage guide (Aside's is about 4,600) */
+export const MAX_INSTRUCTIONS = 6000
 /** the end of a description we cut (a tool's own, or one inside its schema): the AI is told the words go on */
 export const SHORTENED = '… (shortened)'
 
 export class McpError extends Error {
   name = 'McpError'
   /** unauthorized: 401 (wwwAuthenticate: its header); forbidden: 403; session_gone: 404 for our session; rpc: a
-   * JSON-RPC error (message: the server's, cut); not_mcp: an answer that is not MCP */
-  constructor(readonly code: 'unauthorized' | 'forbidden' | 'session_gone' | 'rpc' | 'not_mcp' | 'http', readonly status = 0, readonly detail = '') { super(code) }
+   * JSON-RPC error (message: the server's, cut); not_mcp: an answer that is not MCP. `refusal`: a 401's or 403's OAuth
+   * error code and the service's words, sanitized (refusal.ts) */
+  constructor(readonly code: 'unauthorized' | 'forbidden' | 'session_gone' | 'rpc' | 'not_mcp' | 'http', readonly status = 0, readonly detail = '', readonly refusal: Refusal = { error: '', said: '' }) { super(code) }
 }
 
 export interface RemoteTool { name: string; title: string | null; description: string; readOnly: boolean; inputSchema: Record<string, unknown>
@@ -109,6 +115,9 @@ export class McpClient {
   version: string | null = null
   private ready: Promise<void> | null = null
   usedAt = Date.now()
+  /** the server's own instructions from its `initialize` answer (cut, secrets hidden), once the session started; null
+   * before, or when it gave none */
+  instructions: string | null = null
 
   /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated
    * them); `auth` is told when a check's request must end (a token still valid is then not refreshed ahead of time) */
@@ -136,8 +145,8 @@ export class McpClient {
     const res = this.send ? await this.send(this.url, req) : await serviceRequest(this.url, req, this.net)
     this.usedAt = Date.now()
     if (read) read.bytes += res.body.length
-    if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '')
-    if (res.status === 403) throw new McpError('forbidden', 403)
+    if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '', refusalOf(res, this.hider()))
+    if (res.status === 403) throw new McpError('forbidden', 403, res.headers['www-authenticate'] ?? '', refusalOf(res, this.hider()))
     if (res.status === 404 && this.sessionId) throw new McpError('session_gone', 404)
     if (res.status >= 300 && res.status < 400) throw new NetError('redirect', res.status)
     if (res.status < 200 || res.status >= 300) throw new McpError('http', res.status)
@@ -168,8 +177,10 @@ export class McpClient {
       const v = typeof r?.protocolVersion === 'string' ? r.protocolVersion : ''
       if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new McpError('not_mcp')
       this.version = KNOWN_VERSIONS.has(v) ? v : MCP_PROTOCOL
+      // none given: unknown, so a guide saved before stays (a listed app's guide the desktop app could not read now)
+      this.instructions = typeof r.instructions === 'string' ? instructionsOf(r.instructions, this.hider()) : null
       await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal })
-    })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; throw e })
+    })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; this.instructions = null; throw e })
     return this.ready
   }
 
@@ -256,6 +267,13 @@ function byDeadline<T>(p: Promise<T>, deadline: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new NetError('list_timeout')), Math.max(0, deadline - Date.now())) })
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+
+/** A server's `instructions` as kept: text only, control characters but line breaks and tabs made spaces, secrets hidden,
+ * cut to MAX_INSTRUCTIONS ('' when it gave none). */
+export function instructionsOf(x: unknown, hide: Hide = keep): string {
+  if (typeof x !== 'string') return ''
+  return cutWords(hide(x).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim(), MAX_INSTRUCTIONS)
 }
 
 const clean = (s: unknown, max: number, hide: Hide) => (typeof s === 'string' ? hide(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')

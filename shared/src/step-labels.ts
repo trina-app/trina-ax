@@ -5,7 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
-import { ownFolderLabel, ownFolderWord, TOP_FOLDER_LABELS } from './folder-labels'
+import { ownFolderLabel, ownFolderWord, personFolderLabel, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
 import { maskSecrets } from './secrets'
@@ -72,8 +72,12 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad", "移动技能"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades", "技能文件夹文件"),
   find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones", "查找功能"),
+  // the app's own docs on this server (server/src/docs-help/tool.ts)
+  trina_docs: t('도움말 찾기', 'Search the docs', 'Cari di dokumentasi', 'ヘルプを検索', 'Buscar en la documentación', '搜索帮助文档'),
   // the next part of a long answer of a connected service (server/src/integrations/connections/tools.ts)
   connection_result: t('이어서 읽기', 'Read on', 'Baca lanjutan', "続きを読む", "Seguir leyendo", "继续阅读"),
+  // a connected service's own guide for its tools (server/src/integrations/connections/tools.ts SERVICE_GUIDE)
+  service_guide: t('사용 안내 읽기', 'Read the guide', 'Baca panduan', "使い方を読む", "Leer la guía", "阅读使用说明"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
   set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat", "给对话命名"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar", "记住"),
@@ -170,7 +174,7 @@ export function mediaStepKind(step: { tool?: string; label: string }): MediaKind
 /** Tools that only look things up: the read-only Explore helper's tools (server/src/chat/subagents.ts EXPLORE_TOOLS).
  * A failed call of one changed nothing, so the steps list under an answer that did not fail shows it with the quiet
  * mark even when no later step worked (web/src/components/chat/Steps.tsx stepMark). */
-export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch', 'trina_docs'])
 /** Removed tools that only looked things up (search by meaning, the knowledge graph's knowledge_explore): never offered
  * any more, but their steps in older chats keep the quiet mark of a read-only step (Steps.tsx stepMark). */
 export const REMOVED_READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['search', 'knowledge_explore'])
@@ -470,7 +474,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_promo_video': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
-    case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
+    case 'find_skills': case 'find_tools': case 'trina_docs': return `${verb} "${clip(a.query, 60)}"`
+    case 'service_guide': return a.service ? `${verb} · ${clip(a.service, 60)}` : verb!
     // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
@@ -666,10 +671,18 @@ const BRAND_NAMES = nfcSet(BRAND_FOLDER)
 const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
 const NOTES_NAMES = nfcSet(NOTES_FOLDER)
 
+/** Who reads a place (QA TC-8922): `me`, their user id, so users/<me>/ is their own folder ("My files") and any other
+ * users/<id>/ is that person's ("Mina's folder" by `nameOf`, else "Personal": never their id, never "My files"). */
+export interface PlaceViewer {
+  me: string | null | undefined
+  nameOf?: (id: string) => string | null | undefined
+}
+
 /** A team path with its well-known folder in words ("브랜드 이미지 폴더 › 홈페이지-6.jpg"), or null for any other path
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
- * named in the team's language and the screen may be in another. */
-export function placeName(path: string, locale: Locale): string | null {
+ * named in the team's language and the screen may be in another. Without `viewer`, users/<id>/ is the reader's own
+ * folder (an AI's step line in its asker's chat); with one, only users/<viewer.me>/ is. */
+export function placeName(path: string, locale: Locale, viewer?: PlaceViewer): string | null {
   // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id; $TRINA_WORK/… (box_shell's
   // spelling of the work folder) reads the same as chat:work/… (QA TC-6937)
   const place = parsePlace(WORK_VAR.test(path.trim()) ? `chat:work${path.trim().replace(WORK_VAR, '')}` : path)
@@ -692,6 +705,13 @@ export function placeName(path: string, locale: Locale): string | null {
     if (b && BRAND_NAMES.has(b)) return c && IMAGES_NAMES.has(c) ? say('brandImages', 4) : say('brand', 3)
     if (b && NOTES_NAMES.has(b)) return say('notes', 3)
     return say('team', 2, { team: a })
+  }
+  if (top === 'users' && !a) return TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
+  // another person's folder, for a viewer who is not them (a shared chat, a room, an admin): by their name
+  if (top === 'users' && a && viewer && a !== viewer.me) {
+    const name = viewer.nameOf?.(a)
+    const head = name ? personFolderLabel(name, locale) : TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
+    return (b === '.attachments' && c ? [head, STEP_PLACE.attachments[locale] ?? STEP_PLACE.attachments.en, ...segs.slice(4)] : [head, ...segs.slice(2)]).join(' › ')
   }
   // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
@@ -750,24 +770,24 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  * tooltip: { label: "파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg", path: "groups/Acme/브랜드/이미지/홈페이지-6.jpg" }.
  * Any other line comes back as it is, without `path`.
  */
-export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
-  const r = toolPlace(step, label, locale)
+export function stepPlace(step: { tool?: string }, label: string, locale: Locale, viewer?: PlaceViewer): { label: string; path?: string } {
+  const r = toolPlace(step, label, locale, viewer)
   // whatever is left of a chat place or a box_shell variable in a tool's line (a tool whose line is not a path, a path
   // cut short), in words: never "chat:files/<id>/", "chat:work/" or "$TRINA_WORK" (QA TC-r2u-09/12/23). Not in the
   // words of a question, a memory or a sub-task, which are someone's own
-  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale), locale) }
+  return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(arrowPlace(r.label, locale, viewer), locale) }
 }
 
 /** A line's "<what> → <where>" with <where> in words when it is a team path ("… → users/qa-member/보고서/" reads
  * "… → 내 파일 › 보고서"): the save tools end their line this way (QA step list "작업 결과 저장"). A target that is no path
  * (a new name, a group) stays as it is. */
-function arrowPlace(label: string, locale: Locale): string {
+function arrowPlace(label: string, locale: Locale, viewer?: PlaceViewer): string {
   const at = label.lastIndexOf(' → ')
   if (at < 0) return label
   const cover = coverWhy(label)?.end ?? ''
   const tail = label.slice(at + 3, cover ? label.length - cover.length : undefined)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
-  const named = placeName(path, locale)
+  const named = placeName(path, locale, viewer)
   return named ? `${label.slice(0, at + 3)}${named}${suffix}${cover}` : label
 }
 
@@ -783,7 +803,7 @@ function plainPlaces(label: string, locale: Locale): string {
     .replace(/ › (?=\s|$)/g, '')
 }
 
-function toolPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+function toolPlace(step: { tool?: string }, label: string, locale: Locale, viewer?: PlaceViewer): { label: string; path?: string } {
   // a command saved before its line said the work folder in words
   if (step.tool === 'box_shell') {
     const at = label.indexOf(' · ')
@@ -798,7 +818,7 @@ function toolPlace(step: { tool?: string }, label: string, locale: Locale): { la
   if (at < 0) return { label: chatPlaceWords(label, locale) }
   const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
-  const named = placeName(path, locale)
+  const named = placeName(path, locale, viewer)
   // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
   // (nor for the whole team folder: "/" tells nothing more)
   if (named && (parsePlace(path) || /^\s*\/+\s*$/.test(path))) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }

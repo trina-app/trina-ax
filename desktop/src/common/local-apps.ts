@@ -20,7 +20,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { commandStyleFor, LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { commandStyleFor, LOCAL_APP_PRESETS, localCommandKey, presetOf, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { insideAppDir, withoutAppImage } from './linux'
 import { launchFor, realProgramHost, resolveProgram, SHARE_REFUSED, windowsShare, type Launch, type ProgramHost } from './programs'
 import { t, DEFAULT_UI_LOCALE, type UiKey, type UiLocale } from './i18n'
@@ -37,6 +37,11 @@ export const CLI_OUTPUT_MAX = 2 * 1024 * 1024
 const KILL_AFTER_MS = 2000
 /** the listed Aside: how long a profile id no Aside account has is not looked for again */
 const ASIDE_MISS_MS = 60_000
+/** the most of a listed app's own guide given as its instructions, in characters (the server cuts again: mcp.ts
+ * MAX_INSTRUCTIONS) */
+const GUIDE_MAX = 8000
+/** a listed app's guide that could not be read is not read again before this long (each read can take 10 s) */
+const GUIDE_RETRY_MS = 10 * 60_000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
 const HIDE_MIN = 4
 export const HIDDEN_VALUE = '[hidden]'
@@ -167,7 +172,7 @@ export function asideAccountLines(text: string): ReturnType<typeof asideAccountL
  * manager lists the profiles of every account (`aside host profiles --account uN --json`) and runs a call for a profile
  * of another account in an `aside mcp --account uN` of its own: the AI sees Aside's own tools and every profile, with
  * nothing added on top of Aside's own interface. */
-export interface AsideProfile { profileId: string; label: string | null; connected: boolean | null; account: string }
+export interface AsideProfile { profileId: string; label: string | null; connected: boolean | null; account: string; accountSignedIn?: boolean }
 
 /** The accounts `aside account list --json` shows ("u0" …), each with the profile ids bound to it, and the current one
  * (the plain lines of an older Aside CLI without --json: asideAccountLines). */
@@ -196,13 +201,36 @@ export function asideProfilesIn(text: string): { profileId: string; label: strin
 }
 
 /** browser_profiles' description for the AI: Aside's own words say "this MCP server's … account"; here it lists every account's. */
-export const ASIDE_PROFILES_DESCRIPTION = 'List the browser profile IDs, labels, connection status and Aside account of every browser profile in Aside on this computer (all of its accounts). Pass a profileId as profile_id to repl or exec to work in that profile.'
+export const ASIDE_PROFILES_DESCRIPTION = 'List the browser profile IDs, labels, connection status and Aside account of every browser profile in Aside on this computer (all of its accounts; accountSignedIn, when known: whether that Aside account is signed in, which exec needs and repl does not). Each profile is signed in to the user\'s own sites as a different person or organization: when the request is about one account (a company, a mailbox, an address), call this first and pass the matching profileId as profile_id to repl or exec.'
+/** profile_id's words in repl and exec for the AI: Aside's own say only "omit to reuse the default", and the AI then
+ * worked in the default profile, signed in to another account (2026-11-25) */
+export const ASIDE_PROFILE_ID_WORDS = 'Choose it with browser_profiles to match the account, organization or mailbox the request is about; without it Aside uses its default profile, which may be signed in to a different account than the one the user means.'
+/** Aside's agent (exec) in a profile whose Aside account is not signed in: Aside answers "Sign in again before using
+ * built-in Aside models" (Aside CLI createExecSession), seen 2026-11-25 as a dead end for the AI */
+const ASIDE_EXEC_SIGNED_OUT = /Sign in again before using built-in Aside models|Aside needs sign-in again|Aside requires sign-in/i
+export const ASIDE_EXEC_SIGN_IN = 'Nothing ran: exec runs Aside\'s own browser agent, which needs the Aside account of this profile signed in to Aside, and it is not. The repl tool works in the same profile without that sign-in: do the task with repl and the same profile_id (browser_profiles lists the profiles; accountSignedIn says which accounts exec can use). Only if the user wants Aside\'s own agent, tell them in plain words to sign in to that account in Aside (Settings › Account) and ask again.'
+export const asideExecSignedOut = (answer: Record<string, unknown>) => {
+  // only a failed call: a page the agent read may hold the same words
+  const failed = !!answer.error || (answer.result as { isError?: unknown } | undefined)?.isError === true
+  return failed && answerTexts(answer).some((x) => ASIDE_EXEC_SIGNED_OUT.test(x))
+}
 
 /** tools/list from the listed Aside with browser_profiles described as listing every account's profiles. */
 export function asideToolsList(answer: Record<string, unknown>): Record<string, unknown> {
   const result = answer.result as { tools?: unknown } | undefined
   if (!result || !Array.isArray(result.tools)) return answer
-  const tools = result.tools.map((t) => (t && typeof t === 'object' && (t as { name?: unknown }).name === 'browser_profiles' ? { ...t, description: ASIDE_PROFILES_DESCRIPTION } : t))
+  const tools = result.tools.map((t) => {
+    if (!t || typeof t !== 'object') return t
+    const name = (t as { name?: unknown }).name
+    if (name === 'browser_profiles') return { ...t, description: ASIDE_PROFILES_DESCRIPTION }
+    if (name !== 'repl' && name !== 'exec') return t
+    // profile_id: Aside's own words, then how to choose it
+    const schema = (t as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema
+    const prop = schema?.properties?.profile_id as { description?: unknown } | undefined
+    if (!schema || !prop || typeof prop !== 'object') return t
+    const said = typeof prop.description === 'string' ? prop.description.trim() : ''
+    return { ...t, inputSchema: { ...schema, properties: { ...schema.properties, profile_id: { ...prop, description: `${said}${said ? ' ' : ''}${ASIDE_PROFILE_ID_WORDS}` } } } }
+  })
   return { ...answer, result: { ...result, tools } }
 }
 
@@ -391,6 +419,10 @@ interface Running {
   /** start the program again before the next request (Aside had no signed-in account with a profile: once the person
    * signs in, a fresh `aside mcp` picks it) */
   restartNext?: boolean
+  /** a listed app's own guide as read for this process (withGuide): '' when it has none or the read failed */
+  guide?: Promise<string>
+  /** when that read failed ('' answer): it is tried again after GUIDE_RETRY_MS */
+  guideFailedAt?: number
 }
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } })
@@ -644,7 +676,7 @@ export class LocalApps {
     if (method === 'initialize' && isRequest) {
       this.initParams.set(ck, m.params ?? {})
       const failed = await this.initOnce(r, call, signal, m.params ?? {})
-      return failed ?? { message: { jsonrpc: '2.0', id: m.id, result: r.init } }
+      return failed ?? { message: { jsonrpc: '2.0', id: m.id, result: await this.withGuide(team, call, r) } }
     }
     if (method === 'notifications/initialized') {
       if (!r.initialized) { r.initialized = true; this.write(r, m) }
@@ -686,11 +718,40 @@ export class LocalApps {
       return { message: withAsideSignedOut(answer.message, notOpenWords(this.say('localApp.asideNotOpen'))) }
     }
     if (aside && 'message' in answer && answer.message) {
+      if (tool === 'exec' && asideExecSignedOut(answer.message)) return { message: withAsideSignedOut(answer.message, ASIDE_EXEC_SIGN_IN) }
       if (method === 'tools/list') return { message: asideToolsList(answer.message) }
       if (tool === 'browser_profiles') return { message: await this.asideAllProfiles(team, call, r, answer.message) }
       if (tool === 'exec' && typeof args.session_id !== 'string') this.asideRemember(ck, answer.message, this.asideMain(r, ck))
     }
     return answer
+  }
+
+  /** The initialize answer, with a listed app's own guide as its `instructions` when the program gives none (preset
+   * `guide`: Aside's `aside guide`, the text Claude Code's Aside skill reads). Read once per process; a program that
+   * prints nothing for it (an older version) keeps its answer as it is. */
+  private async withGuide(team: string, call: LocalCall, r: Running): Promise<Record<string, unknown> | null> {
+    const init = r.init
+    const guide = presetOf(call.spec)?.guide
+    if (!init || !guide || (typeof init.instructions === 'string' && init.instructions.trim())) return init
+    // a failed read (no such command, a timeout) is tried again after GUIDE_RETRY_MS, never kept for the process's life;
+    // nothing is sent then, so the server keeps the guide it saved before (mcp.ts: no `instructions`, nothing saved)
+    const now = (this.d.now ?? Date.now)()
+    if (!r.guide || (r.guideFailedAt !== undefined && now - r.guideFailedAt >= GUIDE_RETRY_MS)) {
+      r.guideFailedAt = undefined
+      r.guide = this.readGuide(team, call, guide).then((text) => { if (!text) r.guideFailedAt = (this.d.now ?? Date.now)(); return text })
+    }
+    const text = await r.guide
+    return text ? { ...init, instructions: text } : init
+  }
+
+  /** A listed app's own guide: only when its help names the guide command (`aside --help` lists `guide`), so an older
+   * version that does not have it never gets the word as anything else (Aside reads an unknown first word as a task for
+   * its agent); '' when it has none or the read failed. */
+  private async readGuide(team: string, call: LocalCall, guide: NonNullable<ReturnType<typeof presetOf>>['guide'] & object): Promise<string> {
+    const help = await this.runProgram(team, call, [...guide.helpArgs])
+    if (!guide.helpHas.test(help)) return ''
+    const text = (await this.runProgram(team, call, [...guide.args])).trim()
+    return text ? `${guide.note}\n\n${text}`.slice(0, GUIDE_MAX) : ''
   }
 
   /** The Aside account a repl or exec call belongs to: its profile_id's, its exec session's, or the last repl's; null:
@@ -729,6 +790,7 @@ export class LocalApps {
     const answer = await this.request(started, call.message, call.deadline, signal)
     if (!('message' in answer) || !answer.message) return answer
     if (asideNotRunning(answer.message)) return { message: withAsideSignedOut(answer.message, notOpenWords(this.say('localApp.asideNotOpen'))) }
+    if (tool === 'exec' && asideExecSignedOut(answer.message)) return { message: withAsideSignedOut(answer.message, ASIDE_EXEC_SIGN_IN) }
     if (tool === 'repl') this.asideReplAccount.set(ck, account)
     if (tool === 'exec' && typeof args.session_id !== 'string') this.asideRemember(ck, answer.message, account)
     return answer
@@ -777,6 +839,9 @@ export class LocalApps {
     }))
     const all: AsideProfile[] = main ? mine.map((p) => ({ ...p, account: main })) : []
     for (const l of others) for (const p of l) if (!mineIds.has(p.profileId)) all.push(p)
+    // whether each profile's Aside account is signed in (Aside's agent, exec, needs it; repl does not)
+    const signedIn = new Map(list.accounts.map((a) => [a.id, a.signedIn]))
+    for (const p of all) { const v = signedIn.get(p.account); if (v !== undefined) p.accountSignedIn = v }
     const map = new Map<string, string>()
     for (const p of all) if (!map.has(p.profileId)) map.set(p.profileId, p.account)
     // the main account's profiles not listed now (the AI's id came from elsewhere): from the account list's bindings
@@ -794,8 +859,14 @@ export class LocalApps {
     if (at < 0) return answer
     const mine = asideProfilesIn(result.content[at]!.text as string)!
     const { main, all } = await this.asideList(team, call, mine)
-    // no other account has a profile (one account): Aside's own answer as it is
-    if (!main || all.length <= mine.length) return answer
+    // no other account has a profile (one account): Aside's own answer as it is, unless that account is not signed in
+    // (Aside's agent, exec, then refuses: each profile says so, accountSignedIn false)
+    if (!main || all.length <= mine.length) {
+      if (!all.length || all.some((p) => p.accountSignedIn !== false)) return answer
+      const parsed = JSON.parse(result.content[at]!.text as string) as { profiles: Record<string, unknown>[] }
+      const marked = { ...parsed, profiles: parsed.profiles.map((p) => ({ ...p, accountSignedIn: false })) }
+      return { ...answer, result: { ...result, content: result.content.map((c, i) => (i === at ? { ...c, text: JSON.stringify(marked) } : c)) } }
+    }
     const content = result.content.map((c, i) => (i === at ? { ...c, text: JSON.stringify({ profiles: all }) } : c))
     return { ...answer, result: { ...result, content } }
   }
@@ -812,8 +883,11 @@ export class LocalApps {
     return json.trim() ? json : this.runAside(team, call, ['account', 'list'])
   }
 
-  /** The listed Aside program once with these arguments (no shell, 10 s at most): what it printed ('' when it failed). */
-  private runAside(team: string, call: LocalCall, args: string[]): Promise<string> {
+  private runAside(team: string, call: LocalCall, args: string[]): Promise<string> { return this.runProgram(team, call, args) }
+
+  /** The connection's program (a listed one's) once with these arguments (no shell, 10 s at most): what it printed (''
+   * when it failed). */
+  private runProgram(team: string, call: LocalCall, args: string[]): Promise<string> {
     const dirs = this.dirs()
     const l = this.launch(call.spec.command, args)
     if ('failure' in l || 'refused' in l) return Promise.resolve('')

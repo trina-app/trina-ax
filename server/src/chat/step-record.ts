@@ -6,6 +6,7 @@
 // arguments and the start of its result, secrets hidden: messages.step_notes, never sent to an app), and a fresh
 // session's history shows, under the asker's own earlier answers, one line per step.
 import { stepRepeatsCard } from './open-questions'
+import { scrubSecrets } from '../secret-scrub'
 import type { Database } from 'bun:sqlite'
 import type { StoredStep } from './store'
 import { neutralizeTags } from './prompt'
@@ -58,16 +59,9 @@ const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n -
 /** what was typed into a page or a form (a code, a card number): its length only */
 const TYPED_ARG = /^(value|text|keys|input|otp|code_value|password|passcode|pin)$/i
 
-/** Strings that look like secrets in what a call took or gave back (a token, a key, a cookie, a password field),
- * hidden whatever the person stored: the record must never let the AI repeat one. */
-export function scrubSecrets(s: string): string {
-  return s
-    .replace(/\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{4,}/g, '[hidden]')
-    .replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{12,}/g, '[hidden]')
-    .replace(/\b(ghp|gho|ghs|ghu|github_pat|xox[abpsr]|AKIA|ASIA|AIza|ya29)[A-Za-z0-9_.-]{8,}/g, '[hidden]')
-    .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [hidden]')
-    .replace(/(["']?\b(?:password|passwd|pwd|secret|token|access_token|refresh_token|api[_-]?key|apikey|session(?:id)?|cookie|set-cookie|authorization|auth|otp|pin)\b["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&}]+)/gi, '$1[hidden]')
-}
+// scrubSecrets lives in a module of its own that imports nothing (../secret-scrub.ts): the connections code uses it
+// too, and importing it from here closed an import cycle through the chat code
+export { scrubSecrets } from '../secret-scrub'
 
 function argValue(key: string, v: unknown, typed = false): string | null {
   if (v === null || v === undefined) return null

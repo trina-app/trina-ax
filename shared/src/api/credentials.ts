@@ -62,8 +62,26 @@ export const Credential = z.object({
   /** this month (team time zone), counted per request by the model proxy; cost only for API keys (estimate) */
   month: z.object({ usd: z.number(), tokens: z.number().int(), requests: z.number().int() }),
   createdAt: IsoTime,
+  /** a refused account: what the provider answered (HTTP status, error type and message, cleaned of tokens, e-mail
+   * addresses and ids) and when; null otherwise */
+  providerError: z.object({ status: z.number().int().nullable(), type: z.string(), message: z.string(), at: IsoTime }).nullable().optional(),
 })
 export type Credential = z.infer<typeof Credential>
+/** A check's answer in plain words (CheckCredentialResponse.check.why), shown in the person's language: the provider
+ * did not accept the sign-in or key, the account lacks permission, its organization does not allow OAuth now, the
+ * plan ended or lacks Claude Code, a rate limit, a usage or credit limit, the provider is busy, nothing answered. */
+export const CheckWhy = z.enum(['authentication', 'permission', 'org_oauth_blocked', 'plan_ended', 'rate_limited', 'usage_limit', 'overloaded', 'unreachable'])
+export type CheckWhy = z.infer<typeof CheckWhy>
+/** POST /api/admin/credentials/:id/check: the connection, and what this check found. `ok`: the provider took it;
+ * `refused`: this check was refused (or passed but the account stays refused for a reason a check cannot clear),
+ * `reason` says why (the provider's message, or the state's line); `unclear`: this check got no clear answer (busy,
+ * unreachable, timed out, a 403 that is not about the account), whatever the account's state was: nothing changed,
+ * try again later; `reason` is the provider's message or the HTTP status when there was one. `why`: the plain reason,
+ * when it is a known one (the web shows it, never the provider's own words). */
+export const CheckCredentialResponse = Credential.extend({
+  check: z.object({ outcome: z.enum(['ok', 'refused', 'unclear']), reason: z.string().nullable(), why: CheckWhy.nullable().optional() }).optional(),
+})
+export type CheckCredentialResponse = z.infer<typeof CheckCredentialResponse>
 export const CredentialsResponse = z.object({
   items: z.array(Credential), memberOwn: z.boolean(), sharedSubscriptions: z.boolean(), allowedKinds: z.array(CredentialKind),
   /** price table date (costs are estimates at list prices) */
@@ -180,7 +198,7 @@ export const CREDENTIALS = {
   updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'admin', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),
   replaceCredentialSecret: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/secret', auth: 'admin', owner: 'A', body: ReplaceSecretBody, response: Credential, summary: 'Put a new token / key on an existing connection (same kind).' }),
   deleteCredential: endpoint({ method: 'DELETE', path: '/api/admin/credentials/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove a connection (usage history stays).' }),
-  checkCredential: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/check', auth: 'admin', owner: 'A', response: Credential, summary: 'Check a connection again now, without spending tokens.' }),
+  checkCredential: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/check', auth: 'admin', owner: 'A', response: CheckCredentialResponse, summary: 'Check a connection again now, without spending tokens; says what it found (check.outcome: ok, refused, unclear, with a reason).' }),
   startCredentialLogin: endpoint({ method: 'POST', path: '/api/admin/credential-logins', auth: 'admin', owner: 'A', status: 202, body: StartCredentialLoginBody, response: CredentialLogin, summary: 'Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login.' }),
   getCredentialLogin: endpoint({ method: 'GET', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: CredentialLogin, summary: 'State of a sign-in this person started (the owner or an admin; no one else can read it).' }),
   cancelCredentialLogin: endpoint({ method: 'DELETE', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Stop a sign-in: the person who started it, or the owner or an admin for any (also a member\'s own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams.' }),

@@ -35,13 +35,17 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'notSignedIn' | 'slow' | 'service'> = {
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'scope' | 'notSignedIn' | 'slow' | 'service'> = {
   unreachable: 'address', private_address: 'address', blocked_port: 'address',
   // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
   not_mcp: 'notMcp', redirect: 'redirect',
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
+  // signed in, but without an access the service needs (403 insufficient_scope): sign in again and allow it. Not here:
+  // no_access (any other 403: this account may not use the service), whose server words carry what it said and that its
+  // owner turns it on (signing in again cannot fix it)
+  scope: 'scope',
   timeout: 'slow', list_timeout: 'slow', call_idle: 'slow',
   http_status: 'service', too_large: 'service', tls: 'service',
 }
@@ -64,8 +68,22 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
     : who.phone ? 'onComputer'
     : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
     // never signed in: the button there reads "Sign in", not "Sign in again"
-    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : 'signIn') : 'editKey'
+    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : kind === 'scope' ? 'signInAllow' : 'signIn')
+    // a key without an access the service needs: a key that has it, not the same key again
+    : kind === 'scope' ? 'editKeyAccess' : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
+}
+
+/** Reasons of an app on the computer whose words end "press Check again" (server text.ts): checking again is the fix. */
+const LOCAL_CHECK_AGAIN: ReadonlySet<string> = new Set(['local_declined', 'local_failed', 'local_missing'])
+
+/** The failed check's fix is to check again here (its words say "Check again"): the page shows a Check again button by
+ * the words, not only in ⋯ (QA TC-9009). Same rule as errorLine's step 'checkAgain'. */
+export function checkAgainFixes(i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'kind'>, manage: boolean): boolean {
+  if (!manage || !i.lastErrorReason) return false
+  if (i.kind === 'local') return LOCAL_CHECK_AGAIN.has(i.lastErrorReason)
+  const kind = REASON_KIND[i.lastErrorReason]
+  return kind === 'slow' || kind === 'service'
 }
 
 /** A connection's or a listed service's address without the path: what a page shows for one added by its address. */
@@ -240,7 +258,13 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {i.kind === 'local' && <LocalAppWhere />}
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {trouble && !flow && !elsewhereOnly && <Note tone="warn" testId="integration-error">{trouble}</Note>}
+            {trouble && !flow && !elsewhereOnly && (checkAgainFixes(i, manage) ? (
+              // its fix is to check again: the button is here, by the words that name it, not only in ⋯ (QA TC-9009)
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <Note tone="warn" testId="integration-error">{trouble}</Note>
+                <Button size="sm" busy={checking} onClick={() => void actions.refresh(i)} data-testid="integration-error-refresh">{t('integrations.refresh')}</Button>
+              </div>
+            ) : <Note tone="warn" testId="integration-error">{trouble}</Note>)}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>
