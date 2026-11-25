@@ -246,6 +246,12 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   // the team root) only while it is limited, so a limit the update put there can be taken away, and always on shared/
   // and skills/ (their Restricted is the limit); never at the team root
   const limitShown = parent !== null && (parent !== '' || limited || !!d.base.limited || teamFolder)
+  // Limit access stops only the people the folders above let in. When those let in nobody but the owner and admins (the
+  // server's answer for this folder with no setting of its own has no rule row that opens it), on and off are the same
+  // people: the switch is greyed with one line why, and works again by itself once the folder above opens to someone.
+  // Not while the draft changed it (it can always go back), except on shared/ and skills/, whose Restricted is the limit:
+  // General access changes it there
+  const limitIdle = !!data && (teamFolder || limited === !!d.base.limited) && !(data.above ?? []).some((w) => w.reason === 'rule' && w.access !== 'none' && w.count > 0)
   // people the update listed by name on this folder ("Added when folders changed"), while their role is as it was
   const byConversion = new Set((folder?.rules ?? []).filter((r) => r.byConversion).map((r) => `${r.subjectType}:${r.subjectId}:${r.access}`))
   // a connected folder offers the team no Editor, unless it has it now (shown as it is)
@@ -255,6 +261,8 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   const hint = !data ? '' : level === 'none' ? t(anyone ? 'folderAccess.restrictedHint' : 'folderAccess.hintAdminsOnly')
     : t(level === 'read' ? (listed ? 'folderAccess.teamHintViewElse' : 'folderAccess.teamHintView') : listed ? 'folderAccess.teamHintEditElse' : 'folderAccess.teamHintEdit', { team })
   const folderWord = (f: string) => (f === '' ? team : nameOf(f))
+  // shared/ ("Company-wide") is open to the team when it is made; Restricted there is an admin's choice, said as one
+  const sharedNote = data && teamFolder && !skills && level === 'none' ? t('folderAccess.sharedRestricted', { folder: nameOf(path) }) : null
   /** Remove access (the role menu): the row goes from the draft at once, and the toast's Undo puts it back where it was
    * (a native menu's arrow keys can remove a row on the way; nothing is saved before Save, which still shows who loses
    * what: docs/decisions/20261123-do-then-undo.md) */
@@ -354,6 +362,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
   const inPlace = (folderPath: string) => admin || hasPanel(folderPath)
   const openFrom = (folderPath: string) => (inPlace(folderPath) ? void swap(folderPath) : void leave(`/admin/folders?folder=${encodeURIComponent(folderPath)}`))
   const fromText = (folderPath: string) => (folderPath === '' ? t('folderAccess.fromTop') : t('folderAccess.fromFolder', { folder: nameOf(folderPath) }))
+  const followsText = (folderPath: string) => (folderPath === '' ? t('folderAccess.followsTop') : t('folderAccess.followsFolder', { folder: nameOf(folderPath) }))
 
   /** a row a folder above gives (or keeps out): greyed, the whole row opens that folder */
   const aboveRow = (r: AboveRow) => {
@@ -392,7 +401,12 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, d.base.limited, d.base.hash])
-  const removedAllNow = limited ? removedAll.filter((p) => !draft.named.some((n) => n.subjectType === 'user' && n.subjectId === p.id)) : []
+  // turned on in this draft: who it stops, from the server's answer for exactly the draft (people the preview names as
+  // losing access), so the list shows the effect before Save, as Drive does
+  const cutInDraft = limited && !d.base.limited && data
+    ? data.changes.filter((c) => c.before !== 'none' && c.after === 'none').flatMap((c) => c.people).sort((a, b) => a.name.localeCompare(b.name))
+    : []
+  const removedAllNow = !limited ? [] : (d.base.limited ? removedAll : cutInDraft).filter((p) => !draft.named.some((n) => n.subjectType === 'user' && n.subjectId === p.id))
   // a long list would push General access out of sight: the first few, then "Show all"
   const [removedOpen, setRemovedOpen] = useState(false)
   const removedList = removedOpen ? removedAllNow : removedAllNow.slice(0, REMOVED_SHOWN)
@@ -541,7 +555,8 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
         hint={hint}
         onPick={(to) => pick(to)}
         onAudience={(a) => pick(a === 'restricted' ? 'none' : above !== 'none' ? above : 'read')}
-        from={draft.basic === 'follow' && parent !== null ? { text: fromText(parent), label: t('folderAccess.changeIn', { folder: parent === '' ? t('files.root') : nameOf(parent) }), open: () => openFrom(parent) } : null}
+        note={sharedNote}
+        from={draft.basic === 'follow' && parent !== null ? { text: followsText(parent), label: t('folderAccess.changeIn', { folder: parent === '' ? t('files.root') : nameOf(parent) }), open: () => openFrom(parent) } : null}
         keepOne={d.keepsOne}
         // nothing to pick from before the first answer: what the folder above gives is not known yet (review M1)
         loading={!data}
@@ -555,6 +570,7 @@ function Body({ path, project, projectOf, onSwap, onLeave, guard, list, footer, 
           on={limited}
           parent={parent === '' ? t('files.root') : nameOf(parent!)}
           onChange={setLimit}
+          idle={limitIdle ? (parent === '' ? t('folderAccess.limitIdleTop') : t('folderAccess.limitIdle', { parent: nameOf(parent!) })) : null}
           // shared/ or skills/ with nobody added and nothing from the team root: off would leave no setting (refused)
           locked={teamFolder && limited && draft.basic !== 'read' && draft.basic !== 'write' && above === 'none' && !draft.named.some((n) => n.access !== 'none')}
         />
@@ -655,11 +671,13 @@ const REMOVED_SHOWN = 3
 /** General access, as Drive has it: Restricted or the team, then the team's role; one true line under it, and where it
  * comes from when the folder has no setting of its own. On a folder that is not limited a choice lower than what the
  * folders above give cannot be picked: the line says so, with "Limit access to change this". */
-function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, from, keepOne, loading, canPick, needsLimit }: {
+function GeneralAccess({ level, teamName, teamEdit, hint, note, onPick, onAudience, from, keepOne, loading, canPick, needsLimit }: {
   level: Access
   teamName: string
   teamEdit: boolean
   hint: string
+  /** one more line under the hint (shared/ restricted: an admin's choice) */
+  note?: string | null
   onPick: (level: Access) => void
   onAudience: (a: 'restricted' | 'team') => void
   from: { text: string; label: string; open: () => void } | null
@@ -698,18 +716,17 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
           </select>
         )}
       </div>
-      {!loading && <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">
-        {hint}
-        {from && (
-          <>
-            {' · '}
-            <span data-testid="sharing-general-inherited">{from.text}</span>{' · '}
-            <button type="button" onClick={from.open} aria-label={from.label} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid="sharing-general-from">
-              {t('folderAccess.changeThere')} ›
-            </button>
-          </>
-        )}
-      </p>}
+      {!loading && <p className="mt-1.5 text-xs text-muted" data-testid="sharing-general-hint">{hint}</p>}
+      {!loading && note && <p className="mt-0.5 text-xs text-muted" data-testid="sharing-general-note">{note}</p>}
+      {/* no setting of its own: where it comes from, on a line of its own, with the one way to change it */}
+      {!loading && from && (
+        <p className="mt-0.5 text-xs text-muted">
+          <span data-testid="sharing-general-inherited">{from.text}</span>{' · '}
+          <button type="button" onClick={from.open} aria-label={from.label} className="font-medium text-accent-text underline-offset-2 hover:underline max-sm:min-h-11" data-testid="sharing-general-from">
+            {t('folderAccess.changeThere')} ›
+          </button>
+        </p>
+      )}
       {!loading && needsLimit && (
         <p className="mt-1 text-xs text-muted" data-testid="sharing-general-above">
           {!from && <>{needsLimit.text}{' · '}</>}
@@ -721,8 +738,10 @@ function GeneralAccess({ level, teamName, teamEdit, hint, onPick, onAudience, fr
   )
 }
 
-/** Drive's Share › Settings › Limit access: only people added here open it (and the owner and admins, the Managers). */
-function LimitAccess({ on, parent, onChange, locked }: { on: boolean; parent: string; onChange: (on: boolean) => void; locked?: boolean }) {
+/** Drive's Share › Settings › Limit access: only people added here open it (and the owner and admins, the Managers).
+ * `idle`: it changes nobody now (the folders above let in only the owner and admins): greyed, with that line in place
+ * of the hint. */
+function LimitAccess({ on, parent, onChange, locked, idle }: { on: boolean; parent: string; onChange: (on: boolean) => void; locked?: boolean; idle?: string | null }) {
   const t = useT()
   const id = useId()
   return (
@@ -731,10 +750,10 @@ function LimitAccess({ on, parent, onChange, locked }: { on: boolean; parent: st
       <div className="mt-1.5 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-row font-medium text-ink">{t('folderAccess.limit')}</p>
-          <p className="text-xs text-muted" id={`${id}-hint`}>{t('folderAccess.limitHint', { parent })}</p>
-          {locked && <p className="mt-0.5 text-xs text-muted" id={`${id}-locked`} data-testid="sharing-limit-locked">{t('folderAccess.limitLocked')}</p>}
+          <p className="text-xs text-muted" id={`${id}-hint`} data-testid={idle ? 'sharing-limit-idle' : 'sharing-limit-hint'}>{idle ?? t('folderAccess.limitHint', { parent })}</p>
+          {locked && !idle && <p className="mt-0.5 text-xs text-muted" id={`${id}-locked`} data-testid="sharing-limit-locked">{t('folderAccess.limitLocked')}</p>}
         </div>
-        <Switch checked={on} onChange={onChange} disabled={locked} label={t('folderAccess.limit')} hideLabel describedBy={locked ? `${id}-hint ${id}-locked` : `${id}-hint`} testId="sharing-limit" />
+        <Switch checked={on} onChange={onChange} disabled={locked || !!idle} label={t('folderAccess.limit')} hideLabel describedBy={locked && !idle ? `${id}-hint ${id}-locked` : `${id}-hint`} testId="sharing-limit" />
       </div>
     </section>
   )

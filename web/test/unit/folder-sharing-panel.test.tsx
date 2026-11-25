@@ -35,7 +35,7 @@ type R = { subjectType: 'everyone' | 'role' | 'group' | 'user'; subjectId: strin
 
 /** the stub server's rule rows by folder, and its folder ids */
 let rows: Map<string, R[]>
-const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5']])
+const ids = new Map([['shared', '01900000-0000-7000-8000-0000000000f1'], ['shared/Sales', '01900000-0000-7000-8000-0000000000f2'], ['shared/Sales/Quotes', '01900000-0000-7000-8000-0000000000f3'], ['shared/Sales/Plans', '01900000-0000-7000-8000-0000000000f4'], ['shared/Sales/New', '01900000-0000-7000-8000-0000000000f5'], ['Board', '01900000-0000-7000-8000-0000000000f6']])
 /** the stub's limited folders (docs/DECISIONS.md "Folder access adds up like Google Drive (P2)"): set by a save's `limited`;
  * a folder whose rows hold "everyone: none" counts as limited too (the form these tests were written in) */
 let limitedPaths = new Set<string>()
@@ -189,7 +189,7 @@ describe('the panel shows who can open it, like Drive\'s list', () => {
     expect(valueOf(m.get('sharing-general-select'))).toBe('restricted')
     expect(m.find('sharing-general-role')).toBeNull()
     expect(m.get('sharing-general-hint').textContent).toContain(en('folderAccess.restrictedHint'))
-    expect(m.get('sharing-general-inherited').textContent).toBe(en('folderAccess.fromFolder', { folder: 'Sales' }))
+    expect(m.get('sharing-general-inherited').textContent).toBe(en('folderAccess.followsFolder', { folder: 'Sales' }))
     // the owner and admins: a row of the list, not a footer sentence
     expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.staffRow'))
     expect(m.get('sharing-staff').textContent).toContain(en('folderAccess.manager'))
@@ -392,15 +392,15 @@ describe('review of #787: Limit access off, and shared/', () => {
     const m = await mountHost('shared')
     await m.until(() => m.find('sharing-limit'), 'the switch')
     await m.until(() => !m.find('sharing-general-select')?.hasAttribute('disabled'), 'the first answer')
-    // the switch says why it cannot go off, and is not offered
+    // the team root lets nobody in: the switch changes nobody here, greyed with that line (General access is the way)
     expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
-    expect(m.get('sharing-limit-locked').textContent).toBe(en('folderAccess.limitLocked'))
+    expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdleTop'))
     expect((m.get('sharing-limit') as unknown as { checked: boolean }).checked).toBe(true)
     expect(m.find('sharing-save')).toBeNull()
-    // a team role picked: the limit can go off again
+    // a team role picked in General access: saved with the limit as it is (shared/ keeps a setting either way)
     await choose(m.get('sharing-general-select'), 'team')
-    await m.until(() => !m.get('sharing-limit').hasAttribute('disabled'), 'the switch free')
-    expect(m.find('sharing-limit-locked')).toBeNull()
+    await m.until(() => m.find('sharing-save'), 'Save')
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
     await m.unmount()
   })
 
@@ -678,6 +678,115 @@ describe('after a save, and the other ways a save ends', () => {
     const put = await m.until(() => calls(`PUT /api/admin/folders/${ids.get('shared/Sales/New')}/rules`)[0], 'the PUT')
     expect(put.body.expectedHash).toBe(rulesHash([{ subjectType: 'user', subjectId: 'erin', access: 'read' }]))
     expect(calls('POST /api/admin/folders')).toHaveLength(1)
+    await m.unmount()
+  })
+})
+
+describe('Limit access says what it does, or why it does nothing (owner report 11-25: the switch changed nothing on screen)', () => {
+  const checked = (m: Mounted) => (m.get('sharing-limit') as unknown as { checked: boolean }).checked
+  /** the panel with the first answer in, for a folder whose list may hold only the owner's and admins' row */
+  const openAny = async (path: string) => {
+    const m = await mountHost(path)
+    await m.until(() => m.find('sharing-general-hint') && m.find('sharing-list')?.getAttribute('aria-busy') === null, 'the first answer')
+    return m
+  }
+  test('the folder above lets in only the owner and admins, people added here: greyed, one line why, nothing to save', async () => {
+    // Sales restricted with nobody added; Plans lets Erin edit
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const m = await open('shared/Sales/Plans')
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    expect(checked(m)).toBe(false)
+    expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdle', { parent: 'Sales' }))
+    expect(m.find('sharing-limit-hint')).toBeNull()
+    // General access: the hint, then where it comes from on a line of its own with the one way to change it
+    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.restrictedHint'))
+    expect(m.get('sharing-general-inherited').textContent).toBe(en('folderAccess.followsFolder', { folder: 'Sales' }))
+    expect(m.find('sharing-general-from')).not.toBeNull()
+    expect(m.find('sharing-save')).toBeNull()
+    await m.unmount()
+  })
+
+  test('nobody added and nothing from above: only the owner and admins, said as such; the switch greyed', async () => {
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const m = await openAny('shared/Sales/New')
+    expect(m.find('sharing-empty')).toBeNull()
+    expect(m.get('sharing-staff')).not.toBeNull()
+    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.hintAdminsOnly'))
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdle', { parent: 'Sales' }))
+    await m.unmount()
+  })
+
+  test('limited already, and the folder above lets nobody in now: shown on, greyed (it works again when the folder above opens)', async () => {
+    rows.set('shared/Sales', [{ subjectType: 'everyone', subjectId: null, access: 'none' }])
+    limitedPaths.add('shared/Sales/Plans')
+    const m = await open('shared/Sales/Plans')
+    expect(checked(m)).toBe(true)
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    await m.unmount()
+    // Sales opens to Leads: the same folder's switch works again
+    rows.set('shared/Sales', [{ subjectType: 'group', subjectId: LEADS, access: 'read' }, { subjectType: 'everyone', subjectId: null, access: 'none' }])
+    const again = await open('shared/Sales/Plans')
+    expect(again.get('sharing-limit').hasAttribute('disabled')).toBe(false)
+    expect(again.get('sharing-limit-hint').textContent).toBe(en('folderAccess.limitHint', { parent: 'Sales' }))
+    await again.unmount()
+  })
+
+  test('the folder above lets people in: on lists who it stops under Access removed at once, off takes them back', async () => {
+    // Quotes: Sales and Alice here; Sales (above) lets Leads in, so Carol gets in only from above
+    const m = await open()
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(false)
+    expect(rowsOf(m, 'sharing-above').map((r) => r.getAttribute('data-subject'))).toEqual([`group:${LEADS}`])
+    await tick(m, m.get('sharing-limit'))
+    await m.until(() => m.find('sharing-removed'), 'Access removed in the draft')
+    expect(rowsOf(m, 'sharing-removed-row').map((r) => r.getAttribute('data-subject'))).toEqual(['user:carol'])
+    // the rows the folder above gave leave the list
+    await m.until(() => rowsOf(m, 'sharing-above').length === 0, 'the rows from above gone')
+    // Add puts Carol back here, and she leaves Access removed
+    await m.click('sharing-add-back')
+    await m.until(() => !m.find('sharing-removed'), 'Carol added')
+    expect(rowsOf(m, 'sharing-row').some((r) => r.getAttribute('data-subject') === 'user:carol')).toBe(true)
+    // Carol out again and the limit off: the rows from above come back, nothing removed
+    await choose(rowsOf(m, 'sharing-row').find((r) => r.getAttribute('data-subject') === 'user:carol')!.querySelector('select')!, 'remove')
+    await m.until(() => m.find('sharing-removed'), 'Carol removed again')
+    await tick(m, m.get('sharing-limit'))
+    await m.until(() => rowsOf(m, 'sharing-above').length === 1, 'the rows from above back')
+    expect(m.find('sharing-removed')).toBeNull()
+    await m.unmount()
+  })
+
+  test('a top folder under a team root that lets nobody in: the limit (on, so it can be taken away) is greyed with the team folder line', async () => {
+    rows.set('Board', [{ subjectType: 'user', subjectId: 'erin', access: 'write' }])
+    limitedPaths.add('Board')
+    const m = await openAny('Board')
+    expect(checked(m)).toBe(true)
+    expect(m.get('sharing-limit').hasAttribute('disabled')).toBe(true)
+    expect(m.get('sharing-limit-idle').textContent).toBe(en('folderAccess.limitIdleTop'))
+    expect(m.get('sharing-general-hint').textContent).toBe(en('folderAccess.restrictedHint'))
+    await m.unmount()
+  })
+
+  test('Company-wide restricted: its own dialog says an admin chose it; its subfolder follows it, with "Change there"', async () => {
+    rows.set('shared', [])
+    limitedPaths.add('shared')
+    rows.delete('shared/Sales')
+    rows.delete('shared/Sales/Quotes')
+    rows.delete('shared/Sales/Plans')
+    const top = await mountHost('shared')
+    await top.until(() => top.find('sharing-general-note'), 'the note')
+    expect(top.get('sharing-general-note').textContent).toBe(en('folderAccess.sharedRestricted', { folder: 'Company-wide' }))
+    await top.unmount()
+    const sub = await openAny('shared/Sales/New')
+    expect(sub.get('sharing-general-hint').textContent).toBe(en('folderAccess.hintAdminsOnly'))
+    expect(sub.get('sharing-general-inherited').textContent).toBe(en('folderAccess.followsFolder', { folder: 'Sales' }))
+    expect(sub.find('sharing-general-note')).toBeNull()
+    await sub.unmount()
+  })
+
+  test('Company-wide open (the default): no note, and its subfolder\'s team role comes from it', async () => {
+    const m = await mountHost('shared')
+    await m.until(() => m.find('sharing-general-role'), 'the team role')
+    expect(m.find('sharing-general-note')).toBeNull()
     await m.unmount()
   })
 })

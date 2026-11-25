@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 10:44
 - Branch: `fix/folder-restrict-honest`
-- Status: in progress
+- Status: done (part 1); part 2 waits for review
 - Where: web/ (Share dialog, `web/src/pages/admin/FolderSharing.tsx`) and the six locale files. Why: the dialog is the
   admin's Share panel in Files and Admin › Folder permissions (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. The dialog shows and words things differently; what the server saves and checks is unchanged.
@@ -66,4 +66,7 @@ Words in six languages; tests that compare old keys. No migration, no permission
 
 ## Result
 
-(at the end)
+Part 1 built as planned, with one change: on shared/ and skills/ the switch is greyed too when the team root lets nobody
+in (their Restricted is General access there; the old "turn it off: pick a team role first" line went with it). Also
+fixed a stale e2e step (Remove access no longer asks, since docs/decisions/20261123-do-then-undo.md). Server checks:
+`tests/unit/c-folder-limit-states.test.ts` (each state: what the preview says and what a save really does).
