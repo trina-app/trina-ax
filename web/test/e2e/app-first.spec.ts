@@ -15,6 +15,8 @@ test.use({ storageState: { cookies: [], origins: [] } })
 const ko = (k: Parameters<typeof translate>[1]) => translate('ko', k)
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const DOWNLOAD = 'https://ax.trina.app/download'
+// Safari's own string (no Chrome token); the page is still Chromium here, which fails the try as it would
+const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15'
 
 const post = async (page: Page, url: string, data: unknown) => {
   const r = await page.request.post(url, { headers: { [CSRF_HEADER]: '1' }, data })
@@ -24,13 +26,22 @@ const post = async (page: Page, url: string, data: unknown) => {
 const shot = async (p: Page, name: string) => {
   if (process.env.SHOT_DIR) await p.screenshot({ path: path.join(process.env.SHOT_DIR, `${name}.png`) })
 }
-/** a Mac's web browser; every try of the app's link is counted (Chromium says it found no app for it) */
-async function computer(browser: Browser, o: { width?: number; colorScheme?: 'light' | 'dark' } = {}) {
-  const ctx = await browser.newContext({ locale: 'ko-KR', userAgent: MAC, viewport: { width: o.width ?? 1440, height: 900 }, colorScheme: o.colorScheme ?? 'light' })
+/** a Mac's web browser; every try of the app's link is counted (Chromium fails the request: no app answers it).
+ * `hidden`: the tab loads in the background (cmd-click from a mail) until `show()`. */
+async function computer(browser: Browser, o: { width?: number; colorScheme?: 'light' | 'dark'; userAgent?: string; hidden?: boolean } = {}) {
+  const ctx = await browser.newContext({ locale: 'ko-KR', userAgent: o.userAgent ?? MAC, viewport: { width: o.width ?? 1440, height: 900 }, colorScheme: o.colorScheme ?? 'light' })
+  if (o.hidden)
+    await ctx.addInitScript(() => {
+      const w = window as unknown as { __vis: string }
+      w.__vis = 'hidden'
+      Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get: () => w.__vis })
+      Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => w.__vis === 'hidden' })
+    })
   const p = await ctx.newPage()
   const tries: string[] = []
-  p.on('console', (m) => { if (/trina-ax:\/\//.test(m.text())) tries.push(m.text()) })
-  return { ctx, p, tries }
+  p.on('requestfailed', (r) => { if (r.url().startsWith('trina-ax://')) tries.push(r.url()) })
+  const show = () => p.evaluate(() => { (window as unknown as { __vis: string }).__vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')) })
+  return { ctx, p, tries, show }
 }
 
 test('a member invite on a computer: the app first, Download once it did not open, the browser remembered', async ({ page, browser }) => {
@@ -51,13 +62,17 @@ test('a member invite on a computer: the app first, Download once it did not ope
   await expect(download).toHaveClass(/bg-accent/)
   await expect(p.getByTestId('app-first-open')).toHaveText(ko('auth.openApp'))
   await expect(p.getByTestId('app-first-open')).not.toHaveClass(/bg-accent/)
-  // one automatic try, never a loop
+  // exactly one automatic try, never a loop, with the same link as "앱에서 열기"
   await p.waitForTimeout(2500)
-  expect(tries.length).toBeLessThanOrEqual(1)
-  if (tries.length) expect(tries[0]).toContain(encodeURIComponent(`/invite/${token}`))
+  expect(tries).toEqual([`trina-ax://open?url=${encodeURIComponent(`${new URL(p.url()).origin}/invite/${token}`)}`])
+  // already a member: a quiet sign-in line, which does not remember the browser
+  await expect(p.getByTestId('join-signin')).toBeVisible()
   // Open the app tries again on a press only
   await p.getByTestId('app-first-open').click()
+  await expect(box).toHaveAttribute('data-phase', 'opening')
   await expect(box).toHaveAttribute('data-phase', 'notOpened')
+  expect(tries.length).toBe(2)
+  expect(await p.evaluate(() => localStorage.getItem('mycel.joinInBrowser'))).toBeNull()
   // Continue in the browser: the form, and this browser remembers
   await p.getByTestId('app-first-browser').click()
   await expect(p.getByTestId('invite-name')).toBeVisible()
@@ -65,6 +80,42 @@ test('a member invite on a computer: the app first, Download once it did not ope
   await p.reload()
   await expect(p.getByTestId('invite-name')).toBeVisible()
   await expect(p.getByTestId('app-first')).toHaveCount(0)
+  await ctx.close()
+})
+
+test('a tab opened in the background tries nothing until it is seen, and its hidden start is no "opened"', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const { ctx, p, tries, show } = await computer(browser, { hidden: true })
+  await p.goto(`/invite/${token}`)
+  const box = p.getByTestId('app-first')
+  await expect(box).toBeVisible()
+  await p.waitForTimeout(3000)
+  expect(tries).toEqual([])
+  await expect(box).toHaveAttribute('data-phase', 'opening')
+  await show()
+  await expect(box).toHaveAttribute('data-phase', 'notOpened')
+  expect(tries.length).toBe(1)
+  await ctx.close()
+})
+
+test('Safari: no try on load (its alert would cover the page), Open the app leads and its press is the try', async ({ page, browser }) => {
+  await reset(page)
+  await signIn(page)
+  const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
+  const { ctx, p, tries } = await computer(browser, { userAgent: SAFARI })
+  await p.goto(`/invite/${token}`)
+  const box = p.getByTestId('app-first')
+  await expect(box).toHaveAttribute('data-phase', 'ready')
+  await expect(p.getByTestId('app-first-status')).toHaveText(ko('auth.appReady'))
+  await p.waitForTimeout(2500)
+  expect(tries).toEqual([])
+  await expect(p.getByTestId('app-first-open')).toHaveClass(/bg-accent/)
+  await shot(p, 'app-first-safari-1440-light')
+  await p.getByTestId('app-first-open').click()
+  await expect(box).toHaveAttribute('data-phase', 'notOpened')
+  expect(tries.length).toBe(1)
   await ctx.close()
 })
 

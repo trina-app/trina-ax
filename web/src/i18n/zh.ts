@@ -301,6 +301,7 @@ export const zh: Record<MessageKey, string> = {
   "auth.getAppHint": "安装后，在应用的第一个界面粘贴链接。",
   "auth.continueInBrowser": "在浏览器中继续",
   "auth.appOpening": "正在打开 {product} 应用…如果浏览器询问，请选择“打开”。",
+  "auth.appReady": "在 {product} 应用中加入。还没有应用？请先下载。",
   "auth.appOpened": "已在应用中打开。可以关闭此标签页。",
   "auth.appNotOpened": "没有打开？请下载并安装应用，然后点击“打开应用”。",
   "auth.openApp": "打开应用",

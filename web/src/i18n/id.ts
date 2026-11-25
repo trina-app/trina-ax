@@ -305,6 +305,7 @@ export const id: Record<MessageKey, string> = {
   'auth.getAppHint': "Setelah terpasang, tempel tautan di layar pertama aplikasi.",
   'auth.continueInBrowser': "Lanjutkan di browser",
   'auth.appOpening': "Membuka aplikasi {product}… Jika browser bertanya, pilih Buka.",
+  'auth.appReady': "Bergabung di aplikasi {product}. Belum punya aplikasinya? Unduh dulu.",
   'auth.appOpened': "Sudah terbuka di aplikasi. Tab ini boleh ditutup.",
   'auth.appNotOpened': "Tidak terbuka? Unduh dan pasang aplikasinya, lalu tekan Buka aplikasi.",
   'auth.openApp': "Buka aplikasi",

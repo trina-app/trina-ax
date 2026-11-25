@@ -305,6 +305,7 @@ export const en: Record<MessageKey, string> = {
   'auth.getAppHint': "After installing, paste the link in the app's first screen.",
   'auth.continueInBrowser': "Continue in the browser",
   'auth.appOpening': "Opening the {product} app… If your browser asks, choose Open.",
+  'auth.appReady': "Join in the {product} app. No app yet? Download it first.",
   'auth.appOpened': "The app is open. You can close this tab.",
   'auth.appNotOpened': "Didn't open? Download and install the app, then press Open the app.",
   'auth.openApp': "Open the app",

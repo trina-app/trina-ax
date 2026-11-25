@@ -2,7 +2,7 @@
 // docs/decisions/20261125-invite-open-app-first.md): when the page tries the app, which button leads, the remembered
 // browser choice, guests, the download link and how the try is made.
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { APP_OPEN_WAIT_MS, appFirst, browserChosen, desktopDownloadHref, JOIN_IN_BROWSER_KEY, launchWay, phaseAfterWait, primaryAction, rememberBrowser, resetAutoTry, takeAutoTry } from '../../src/lib/join-open-app'
+import { APP_OPEN_WAIT_MS, appFirst, appTryStart, appTryStep, autoTries, browserChosen, canAutoTry, desktopDownloadHref, JOIN_IN_BROWSER_KEY, LAUNCH_FRAME_MS, launchWay, primaryAction, rememberBrowser, resetAutoTry, takeAutoTry, type AppTryState } from '../../src/lib/join-open-app'
 import { openInAppHref } from '../../src/lib/team-link'
 
 const HTTPS = 'https://acme.trina.app'
@@ -49,11 +49,36 @@ describe('the automatic try happens once per page load', () => {
 })
 
 describe('did the app open, and which button leads', () => {
-  test('the page lost focus or was hidden within the wait: opened', () => {
+  const run = (start: AppTryState, ...events: ('try' | 'sign' | 'timeout')[]) => events.reduce(appTryStep, start).phase
+  test('after a try, a blur or the page turning hidden means opened; nothing within the wait means not opened', () => {
     expect(APP_OPEN_WAIT_MS).toBeLessThanOrEqual(2500)
-    expect(phaseAfterWait({ blurred: true, hidden: false })).toBe('opened')
-    expect(phaseAfterWait({ blurred: false, hidden: true })).toBe('opened')
-    expect(phaseAfterWait({ blurred: false, hidden: false })).toBe('notOpened')
+    const s = appTryStart('page')
+    expect(s.phase).toBe('opening')
+    expect(run(s, 'try', 'sign')).toBe('opened')
+    expect(run(s, 'try', 'timeout')).toBe('notOpened')
+    // a sign after the wait still counts (Chrome's own prompt answered late)
+    expect(run(s, 'try', 'timeout', 'sign')).toBe('opened')
+    // a press again starts over
+    expect(run(s, 'try', 'timeout', 'try')).toBe('opening')
+  })
+  test('a tab that loads hidden is no sign: nothing counts before the try, and the try waits for the tab to be seen', () => {
+    const s = appTryStart('page')
+    // the background tab's hidden state and a blur before any try change nothing
+    expect(run(s, 'sign')).toBe('opening')
+    expect(run(s, 'sign', 'timeout')).toBe('opening')
+    expect(run(s, 'sign', 'try', 'timeout')).toBe('notOpened')
+    expect(canAutoTry('hidden')).toBe(false)
+    expect(canAutoTry('visible')).toBe(true)
+  })
+  test('Safari: no try on load, Open the app leads, and no blur counts as opened (its own sheet takes focus)', () => {
+    const s = appTryStart('press')
+    expect(autoTries('press')).toBe(false)
+    expect(autoTries('page')).toBe(true)
+    expect(autoTries('frame')).toBe(true)
+    expect(s.phase).toBe('ready')
+    expect(primaryAction('ready', 'https://ax.trina.app/download')).toBe('open')
+    expect(run(s, 'try', 'sign')).toBe('opening')
+    expect(run(s, 'try', 'sign', 'timeout')).toBe('notOpened')
   })
   test('Download leads only once the app did not open and there is a download link', () => {
     const dl = 'https://ax.trina.app/download'
@@ -80,10 +105,11 @@ describe('the download link for this computer', () => {
 })
 
 describe('how the try is made', () => {
-  test('a hidden frame on Firefox (its error page would replace the join page), the page itself elsewhere', () => {
+  test('a hidden frame on Firefox, a press on Safari (its alert would cover the join page), the page itself elsewhere', () => {
     expect(launchWay('Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:132.0) Gecko/20100101 Firefox/132.0')).toBe('frame')
     expect(launchWay('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')).toBe('page')
-    expect(launchWay('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15')).toBe('page')
+    expect(launchWay('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15')).toBe('press')
+    expect(LAUNCH_FRAME_MS).toBeGreaterThanOrEqual(60_000)
     expect(launchWay('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0')).toBe('page')
   })
 })

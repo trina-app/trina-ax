@@ -301,6 +301,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.getAppHint': "インストールしたら、アプリの最初の画面にリンクを貼り付けてください。",
   'auth.continueInBrowser': "ブラウザーで続ける",
   'auth.appOpening': "{product} アプリを開いています…ブラウザーに確認されたら「開く」を選んでください。",
+  'auth.appReady': "{product} アプリで参加します。アプリがない場合は、先にダウンロードしてください。",
   'auth.appOpened': "アプリで開きました。このタブは閉じてかまいません。",
   'auth.appNotOpened': "開きませんでしたか？アプリをダウンロードしてインストールし、「アプリを開く」を押してください。",
   'auth.openApp': "アプリを開く",

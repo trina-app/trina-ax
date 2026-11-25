@@ -23,13 +23,30 @@ export function appFirst(o: { platform: Platform; client: 'web' | 'desktop' | 'm
   return !o.guest && !o.browserChosen && !o.googleBack && !!o.href && appComputer(o) !== null
 }
 
-/** opening: the try is on its way; opened: the page lost focus or was hidden (the app, or the browser's own "Open the
- * app?" prompt, took over); notOpened: nothing happened within APP_OPEN_WAIT_MS */
-export type AppOpenPhase = 'opening' | 'opened' | 'notOpened'
+/** ready: no try yet, and the page makes none by itself (Safari, see launchWay: it waits for a press); opening: the
+ * try is on its way, or waits for the tab to be seen; opened: after a try the page lost focus or became hidden (the
+ * app, or the browser's own "Open <app>?" prompt, took over); notOpened: nothing happened within APP_OPEN_WAIT_MS of
+ * the try */
+export type AppOpenPhase = 'ready' | 'opening' | 'opened' | 'notOpened'
+/** `signs`: whether a blur or a hidden page counts at all in this browser (launchWay) */
+export interface AppTryState { phase: AppOpenPhase; tried: boolean; signs: boolean }
+export const appTryStart = (way: LaunchWay): AppTryState => ({ phase: autoTries(way) ? 'opening' : 'ready', tried: false, signs: way !== 'press' })
+/**
+ * try: a try was just made (on load once the tab is seen, or a press of Open the app); sign: a blur event or a change
+ * of the page to hidden, as it happens (never a state read later: a tab opened in the background starts hidden and
+ * would read as "opened"); timeout: APP_OPEN_WAIT_MS after the try. A sign before any try means nothing; a sign after
+ * the wait still counts (Chrome asks "Open <app>?" first, and a slow press on it comes after the wait).
+ */
+export function appTryStep(s: AppTryState, e: 'try' | 'sign' | 'timeout'): AppTryState {
+  if (e === 'try') return { ...s, phase: 'opening', tried: true }
+  if (!s.tried) return s
+  if (e === 'sign') return !s.signs || s.phase === 'opened' ? s : { ...s, phase: 'opened' }
+  return s.phase === 'opening' ? { ...s, phase: 'notOpened' } : s
+}
 
-/** What the wait says once it is over: any sign of the app means it opened. A later sign still counts (the caller
- * moves to 'opened' on it): Chrome asks "Open <app>?" first, and a slow press on it comes after the wait. */
-export const phaseAfterWait = (o: { blurred: boolean; hidden: boolean }): AppOpenPhase => (o.blurred || o.hidden ? 'opened' : 'notOpened')
+/** The automatic try waits until the person sees the tab: a link opened in a background tab (cmd-click from a mail)
+ * tries the app when that tab is first shown, never while hidden. */
+export const canAutoTry = (visibility: DocumentVisibilityState | string): boolean => visibility === 'visible'
 
 /** The one primary button: Download once the app did not open and there is a download link; otherwise Open the app.
  * The other actions stay as quiet links whatever the guess. */
@@ -43,10 +60,29 @@ export function desktopDownloadHref(platform: Platform, links: { page: string; m
   return /^https:\/\//.test(href) ? href : null
 }
 
-/** How the try is made. Firefox shows an error page in place of this one for a link no app answers, so there the
- * link goes to a hidden frame; everywhere else the page's own navigation, as "앱에서 열기" always did (the browser
- * stays on this page whether an app answers or not). */
-export const launchWay = (userAgent: string): 'frame' | 'page' => (/\bFirefox\//.test(userAgent) ? 'frame' : 'page')
+/** How long a hidden frame used for a try stays (removed earlier when the page goes away): long enough for a slow
+ * "Open <app>?" answer. */
+export const LAUNCH_FRAME_MS = 60_000
+
+/**
+ * How a try is made, by browser (checked in real Chrome and Safari on a Mac, 2026-11-25):
+ * - frame: Firefox. A top-level try of a link no app answers replaces the page with an error page, so the link goes to
+ *   a hidden frame.
+ * - press: Safari. A top-level try of a link no app answers keeps the page but covers it with a modal "Safari cannot
+ *   open the page because the address is invalid", so nothing is tried on load: the page leads with Open the app, and
+ *   its press is the try (as "앱에서 열기" always was). Safari's own "Allow this page to open …?" sheet may take focus
+ *   before the person answers, so no blur counts as opened there.
+ * - page: Chrome, Edge and the rest. The page's own navigation, as "앱에서 열기" always did; without an app the browser
+ *   stays on the page and says nothing (checked in Chrome).
+ */
+export type LaunchWay = 'frame' | 'press' | 'page'
+export function launchWay(userAgent: string): LaunchWay {
+  if (/\bFirefox\//.test(userAgent)) return 'frame'
+  const safari = /\bVersion\/[\d.]+.*\bSafari\//.test(userAgent) && !/\b(Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|FxiOS)\//.test(userAgent)
+  return safari ? 'press' : 'page'
+}
+/** whether the page tries the app by itself on load (once, when first seen) */
+export const autoTries = (way: LaunchWay): boolean => way !== 'press'
 
 /** this browser's remembered choice (storage blocked: never remembered, the app is tried) */
 export function browserChosen(storage: Pick<Storage, 'getItem'> | null): boolean {

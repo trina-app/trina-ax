@@ -2,7 +2,7 @@
 // (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useReducer, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, joinLineKey, type GuestPlaceView } from '../lib/guests'
@@ -22,7 +22,7 @@ import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, rem
 import { googleResultOf, keepGoogleSignUp, pendingGoogleSignUp } from '../lib/googleSignUp'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
-import { APP_OPEN_WAIT_MS, appFirst, browserChosen, desktopDownloadHref, launchWay, phaseAfterWait, primaryAction, rememberBrowser, takeAutoTry, type AppOpenPhase } from '../lib/join-open-app'
+import { APP_OPEN_WAIT_MS, appFirst, appTryStart, appTryStep, autoTries, browserChosen, canAutoTry, desktopDownloadHref, LAUNCH_FRAME_MS, launchWay, primaryAction, rememberBrowser, takeAutoTry } from '../lib/join-open-app'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
@@ -1014,11 +1014,11 @@ const localStore = (): Storage | null => {
  */
 function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) {
   const t = useT()
-  const [phase, setPhase] = useState<AppOpenPhase>('opening')
-  const [attempt, setAttempt] = useState(0)
+  const [way] = useState(() => launchWay(navigator.userAgent))
+  const [{ phase }, step] = useReducer(appTryStep, way, appTryStart)
   const download = desktopDownloadHref(platform(), APP_DOWNLOADS)
   const launch = () => {
-    if (launchWay(navigator.userAgent) === 'page') {
+    if (way !== 'frame') {
       window.location.href = href
       return
     }
@@ -1027,28 +1027,35 @@ function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) 
     f.setAttribute('aria-hidden', 'true')
     f.src = href
     document.body.appendChild(f)
-    setTimeout(() => f.remove(), 5000)
+    const gone = () => { f.remove(); window.removeEventListener('pagehide', gone) }
+    window.addEventListener('pagehide', gone)
+    setTimeout(gone, LAUNCH_FRAME_MS)
+  }
+  // a try: its wait starts, then the link goes (the blur and visibility listeners are on from the first render)
+  const tries = useRef(0)
+  const tryNow = () => {
+    const n = ++tries.current
+    step('try')
+    // only the latest try's wait ends it (a press again starts a new wait)
+    setTimeout(() => { if (tries.current === n) step('timeout') }, APP_OPEN_WAIT_MS)
+    launch()
   }
   useEffect(() => {
-    let blurred = false
-    const seen = () => { blurred = true; setPhase('opened') }
-    const onVisibility = () => { if (document.visibilityState === 'hidden') seen() }
-    window.addEventListener('blur', seen)
+    // signs count only as they happen: a blur, or the page turning hidden (a tab that loads hidden is no sign)
+    const onBlur = () => step('sign')
+    // the automatic try waits for the tab to be seen (a link opened in a background tab), once per page load
+    const auto = () => { if (autoTries(way) && canAutoTry(document.visibilityState) && takeAutoTry()) tryNow() }
+    const onVisibility = () => (document.visibilityState === 'hidden' ? step('sign') : auto())
+    window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibility)
-    if (attempt === 0 && takeAutoTry()) launch()
-    const timer = setTimeout(() => setPhase((p) => (p === 'opening' ? phaseAfterWait({ blurred, hidden: document.visibilityState === 'hidden' }) : p)), APP_OPEN_WAIT_MS)
+    auto()
     return () => {
-      clearTimeout(timer)
-      window.removeEventListener('blur', seen)
+      window.removeEventListener('blur', onBlur)
       document.removeEventListener('visibilitychange', onVisibility)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
-  const again = () => {
-    launch()
-    setPhase('opening')
-    setAttempt((n) => n + 1)
-  }
+  }, [])
+  const again = tryNow
   const primary = primaryAction(phase, download)
   const quiet = 'text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center'
   const openButton = primary === 'open'
@@ -1063,13 +1070,15 @@ function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) 
     <div data-testid="app-first" data-phase={phase}>
       <p role="status" className="mb-4 flex items-start gap-2 text-sm leading-6 text-ink break-keep" data-testid="app-first-status">
         {phase === 'opening' && <Loader2 size={16} className="mt-1 shrink-0 animate-spin text-muted" aria-hidden />}
-        <span>{t(phase === 'opening' ? 'auth.appOpening' : phase === 'opened' ? 'auth.appOpened' : 'auth.appNotOpened')}</span>
+        <span>{t(phase === 'ready' ? 'auth.appReady' : phase === 'opening' ? 'auth.appOpening' : phase === 'opened' ? 'auth.appOpened' : 'auth.appNotOpened')}</span>
       </p>
       {primary === 'open' ? openButton : downloadLink}
       <div className="mt-4 flex flex-col items-center gap-2 text-sm md:gap-3">
         {primary === 'open' ? downloadLink : openButton}
         <button type="button" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
       </div>
+      {/* already a member (the link opened again): sign in, without remembering the browser for invites */}
+      <HaveAccount />
     </div>
   )
 }

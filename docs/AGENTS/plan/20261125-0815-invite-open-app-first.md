@@ -65,5 +65,7 @@ dark). The e2e config starts every other spec as a browser that chose the browse
 "On an https team" uses the existing rule (lib/open-app.ts appComputer), which also allows this machine for development
 and the tests. Real browsers (Chrome on this Mac, a page with the same launch code): no app, the page stays and Download
 leads after 2 s; with an app, Chrome first asks "Open …?", which does not blur the page, so the page leads with
-Download until the person accepts the prompt (then a later blur switches it to "opened"). Safari and Windows were not
-checked by hand (see the PR).
+Download until the person accepts the prompt (then a later blur switches it to "opened"). After review (#575): the try waits for the tab to be seen and only signs that happen after it count (a tab opened in
+the background read as "opened"); Safari showed a modal "cannot open the page" alert on a top-level try without the
+app, so Safari gets no automatic try and leads with Open the app; the frame stays up to 60 s; "Already joined? Sign in"
+stays on the app-first page. Windows and Safari with the app installed were not checked by hand (see the PR).
