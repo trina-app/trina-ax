@@ -78,7 +78,7 @@ function docsKey(raw: string): string | null {
   try { u = new URL(raw) } catch { return null }
   if (u.protocol !== 'https:' || u.username || u.password || u.search) return null
   u.hash = ''
-  return u.href.replace(/\/+$/, '')
+  return u.href.replace(/\/$/, '')
 }
 
 const pageSets = new Map<string, Set<string>>()

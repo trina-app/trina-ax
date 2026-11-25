@@ -18,6 +18,8 @@
     to, taken from the docs the server carries (`docs-help/data.ts isDocsPage`: every language's page addresses, which
     carry the docs base, ax.trina.app/docs), https, no query, no user name or password; a `#fragment` and a last `/`
     do not matter. It is checked first, so it holds also while the exit address is unknown and in a run nobody watches.
+  - **After a docs fetch, that page's links count as already seen** (as after any web_fetch, rule ①: learned links,
+    within the link budget, and an echo still asks).
   - **Everything else keeps its card as before:** other pages of the site (pricing, the home page, a made-up path under
     /docs), other trina.app hosts (qa.trina.app, trina.app), http, a query, a user name; save_url and the in-app
     browser (they do not pass `docs`); a confidential chat (no web reads at all there).

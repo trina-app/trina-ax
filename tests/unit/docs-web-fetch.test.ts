@@ -57,6 +57,7 @@ describe('(b) isDocsPage: exactly the pages the docs tool links to', () => {
       SLACK_EN.replace('https:', 'http:'), // not https
       SLACK_EN.replace('https://', 'https://user:pw@'), // a user name
       'https://ax.trina.app/docs/use/slack/secret-words/', // a path under a page
+      'https://ax.trina.app/docs/use/slack//', // more than one last slash
       'https://ax.trina.app/docs/use/no-such-page/',
       'https://ax.trina.app/pricing', // the site, not the docs
       'https://ax.trina.app/',
