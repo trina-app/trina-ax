@@ -162,20 +162,47 @@ const plainPunct = (s: string) => s.replace(/[\u2013\u2014]/g, '-').replace(/[\u
 const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].test(m) && (m.match(/[A-Za-z]{2,}/g) ?? []).length >= 3
 
 /**
- * The script whose answers drop English status lines, or null (the hold lets everything through). The answer language
- * (the person's app language) is ko, ja or zh, and the message does not ask for another language or a translation. A
+ * The script whose answers drop English status lines, or null (the hold lets everything through). The answer's script
+ * is the message's (messageScript, any app language: docs/decisions/20261125-answer-script-from-message.md), else the
+ * app language's when it is ko, ja or zh, and the message does not ask for another language or a translation. A
  * message written in Latin words (3 or more, none of the script: "What did we agree in the room?") gets an answer in
  * that language: off. A short or mixed message ("ok", "👍", an attachment, pasted English with a Korean question)
  * follows the person's message before it, else the app language.
  */
 export function narrationScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
-  if (locale !== 'ko' && locale !== 'ja' && locale !== 'zh') return null
-  if (asksOtherLanguage(message, locale)) return null
-  if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, locale)) return null
-  if (SCRIPT_LETTER[locale].test(message)) return locale
-  if (writesLatin(message, locale)) return null
-  if (previous && writesLatin(previous, locale)) return null
-  return locale
+  const app = locale === 'ko' || locale === 'ja' || locale === 'zh' ? locale : null
+  // the answer is in the language of the person's message (prompt.ts answerLanguageLine), whatever the app's is
+  // (2026-11-25 night eval: an English app, a Korean question, "The 2026 report exists; I'll read …" saved in the answer)
+  // a short or mixed message ("ok", a file) follows the message before it, else the app language
+  const script = messageScript(message, app) ?? (previous && (message.match(/[A-Za-z]{2,}/g) ?? []).length < 3 ? messageScript(previous, app) : null) ?? app
+  if (!script) return null
+  if (asksOtherLanguage(message, script)) return null
+  if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, script)) return null
+  if (SCRIPT_LETTER[script].test(message)) return script
+  if (writesLatin(message, script)) return null
+  if (previous && writesLatin(previous, script)) return null
+  return script
+}
+
+const HANGUL = /[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF]/g
+const KANA = /[\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9F]/g
+const HAN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g
+/**
+ * The script the person's own words (ownWords: quote lines left out) are written in, or null: none of Hangul, kana or
+ * Chinese characters, or mostly Latin letters (mostlyLatin: pasted English with a few Korean words). Hangul that
+ * outweighs the kana and characters is Korean; kana is Japanese; characters alone are Japanese in a Japanese app, else
+ * Chinese. Any app language: a Korean question in an English app gets a Korean answer (docs/decisions/
+ * 20261125-answer-script-from-message.md).
+ */
+export function messageScript(message: string, app: AnswerScript | null = null): AnswerScript | null {
+  const own = ownWords(message)
+  const hangul = own.match(HANGUL)?.length ?? 0, kana = own.match(KANA)?.length ?? 0, han = own.match(HAN)?.length ?? 0
+  if (!hangul && !kana && !han) return null
+  if (mostlyLatin(own)) return null
+  if (hangul > kana + han) return 'ko'
+  if (kana) return 'ja'
+  if (hangul && app === 'ko') return 'ko'
+  return app === 'ja' ? 'ja' : 'zh'
 }
 
 /** The piece without `code` and file names, quoted or not ("Existing pattern: "매장-전경.jpg" (hyphenated Korean)."):
@@ -455,9 +482,10 @@ const mostlyLatin = (m: string) => {
  * words are mostly Latin letters. */
 export function leadScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (mostlyLatin(message)) return null
+  const script = narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
   // a follow-up to a request for another language ("영어 이메일 써줘", then "좀 더 짧게"): the draft is still in it (review)
-  if (previous && (locale === 'ko' || locale === 'ja' || locale === 'zh') && asksOtherLanguage(ownWords(previous), locale)) return null
-  return narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
+  if (script && previous && asksOtherLanguage(ownWords(previous), script)) return null
+  return script
 }
 
 /** The longest paragraph (trimmed) the lead rule takes out of a final answer. */

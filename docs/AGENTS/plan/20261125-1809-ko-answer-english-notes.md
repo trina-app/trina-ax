@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 18:09
 - Branch: `fix/ko-answer-english-notes`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/narration.ts. Why: the answer script was taken from the app language only
 - Version impact: patch, a fix to which text a saved answer holds
 
@@ -30,7 +30,7 @@ Out: the Latin-letters app with a Latin message (unchanged, off); the rules that
 
 ## Decisions
 
-docs/decisions/<date>-answer-script-from-message.md (narrows 20261116-answer-no-english-narration.md "Off").
+docs/decisions/20261125-answer-script-from-message.md (narrows 20261116-answer-no-english-narration.md "Off").
 
 ## Risks
 
@@ -44,4 +44,4 @@ tests/unit/b-step-text-at*.test.ts, engine tests, web/test/unit.
 
 ## Result
 
-(to fill)
+Root cause: narrationScript() and leadScript() returned null for any app language but ko/ja/zh; the eval user (daniel) has the app in English (tests/ai-scenarios/fixture/seed.ts). Fixed by taking the script from the message (messageScript). The real-turn test reproduces F7: an English app, a Korean question, a Korean and an English piece between calls; the answer saved is the final Korean text only.
