@@ -98,6 +98,26 @@ export function localCommandLines(s: LocalAppSpec, style: CommandStyle = looksWi
   return s.tools.map((t) => [q(s.command), ...t.args.map((a) => (typeof a === 'string' ? q(a) : `<${a.slot}>`))].join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
 }
 
+/** What a command line typed in Settings may not hold (splitCommand refuses it), in each style, as people read them: the
+ * splitter and the page's words both read this list, so they never say different things (QA TC-9008). Windows: outside
+ * "…" only; `%NAME%` stands for any %…% value. */
+export const COMMAND_REFUSED: Record<CommandStyle, readonly string[]> = {
+  posix: ['|', '&', ';', '<', '>', '`', '$', '(', ')'],
+  windows: ['|', '&', ';', '<', '>', '^', '%NAME%'],
+}
+/** the single characters of COMMAND_REFUSED (a %NAME% is matched on its own) */
+const refusedChars = (style: CommandStyle) => COMMAND_REFUSED[style].filter((c) => c.length === 1).join('')
+/** What Windows' cmd.exe reads even inside "…": a batch file (.cmd, .bat that is not an npm shim) is never started with
+ * a value that holds one (desktop/src/common/programs.ts cmdLaunch), and the words say this list. */
+export const BATCH_REFUSED: readonly string[] = ['"', '%', '!', '^']
+/** BATCH_REFUSED as a pattern, with line breaks and other control characters */
+export const BATCH_REFUSED_RE = new RegExp(`[${BATCH_REFUSED.map((c) => `\\${c}`).join('')}\\r\\n\\0\\u0001-\\u001f]`)
+
+/** A Windows path on a network share or a device (\\server\share, \\?\…, \\.\…, //server): the desktop app never looks at
+ * it, not even whether a file is there, because opening one sends this computer's sign-in (its NTLM hash) to that
+ * server (security review of #515). The page refuses one before saving; the server names the reason (local.ts). */
+export const windowsShare = (p: string) => /^[\\/]{2}/.test(p.trim())
+
 /** A Windows program file's ending that starts it (an unquoted path with spaces ends at the first one) */
 const WIN_RUNNABLE_END = /\.(exe|cmd|bat|com)(?=\s|$)/i
 
@@ -132,7 +152,7 @@ function splitPosix(line: string): string[] | null {
     if (ch === "'" || ch === '"') { q = ch; has = true; continue }
     if (ch === '\\' && i + 1 < line.length) { cur += line[++i]; has = true; continue }
     if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
-    if ('|&;<>`$()'.includes(ch)) return null
+    if (refusedChars('posix').includes(ch)) return null
     cur += ch; has = true
   }
   if (q) return null
@@ -140,8 +160,8 @@ function splitPosix(line: string): string[] | null {
   return out.length ? out : null
 }
 
-/** what cmd.exe would read outside "…" (never passed on as it reads) */
-const WIN_SHELL_ONLY = /[|&;<>^]|%[^%\s]+%/
+/** what cmd.exe would read outside "…" (never passed on as it reads): COMMAND_REFUSED.windows */
+const WIN_SHELL_ONLY = new RegExp(`[${refusedChars('windows').replace(/[\\^\]-]/g, '\\$&')}]|%[^%\\s]+%`)
 
 function splitWindows(line: string): string[] | null {
   const out: string[] = []
@@ -169,7 +189,7 @@ function splitWindows(line: string): string[] | null {
     }
     if (ch === '"') { quoted = true; has = true; continue }
     if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
-    if ('|&;<>^'.includes(ch)) return null
+    if (refusedChars('windows').includes(ch)) return null
     cur += ch; has = true
   }
   if (quoted) return null

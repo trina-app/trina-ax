@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 01:03
 - Branch: `fix/windows-local-app-wording`
-- Status: in progress
+- Status: done
 - Where: shared/src/api/local-apps.ts, desktop/src/common/programs.ts, server/src/integrations/connections (local.ts,
   text.ts, tools.ts), web Settings › Connectors. Why: QA on 0.18.0 for Windows apps on the computer (TC-9006..9009).
 - Version impact: patch (wording and one visible button; no API, protocol or data change)
@@ -48,4 +48,8 @@ other local-app unit tests.
 
 ## Result
 
-(at the end)
+Built as planned. The Check again button shows for local_declined, local_failed, local_missing and for a slow or
+failing service (the step's words now say "Press Check again"); local_share, local_unsupported and local_unsafe say to
+add the program again, so they get no button. The es and ja words for the existing local reasons now name the button as
+it reads. Tests: tests/unit/e-local-apps-windows-wording.test.ts, web/test/unit/local-app-page.test.tsx. PR: see the
+pull request that links this plan.

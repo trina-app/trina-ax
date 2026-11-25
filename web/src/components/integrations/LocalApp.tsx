@@ -7,7 +7,7 @@
 // server gets their names. Also here: the part of such a connection's page that is its own (where it works, what runs,
 // Running and Stop, the settings kept on this computer).
 import { useEffect, useState, type ReactNode } from 'react'
-import { commandStyleFor, localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
+import { COMMAND_REFUSED, commandStyleFor, localCommandLines, splitCommand, windowsShare, type Integration, type LocalAppSpec } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { desktop, settingsNotKeptKey } from '../../lib/desktop'
 import { useLocale, useT } from '../../i18n'
@@ -54,8 +54,12 @@ export function useLocalProgram(): { fields: ReactNode; save: () => Promise<Inte
     if (busy) return null
     setError(null)
     // read as this computer reads a command line: on Windows a backslash is part of a path (C:\Tools\x.exe)
-    const argv = splitCommand(command, commandStyleFor(desktop()?.platform))
-    if (!argv) { setError({ field: 'command', text: t('localApps.error.command') }); return null }
+    const style = commandStyleFor(desktop()?.platform)
+    const argv = splitCommand(command, style)
+    // the characters it refuses, from the list the splitter reads (shared/src/api/local-apps.ts COMMAND_REFUSED: QA TC-9008)
+    if (!argv) { setError({ field: 'command', text: t('localApps.error.command', { chars: COMMAND_REFUSED[style].join(' ') }) }); return null }
+    // a program on a network share: the desktop app never starts one, so say why before it is saved (QA TC-9007)
+    if (style === 'windows' && windowsShare(argv[0]!)) { setError({ field: 'command', text: t('localApps.error.share') }); return null }
     const values = settingLines(settings)
     if (!values) { setError({ field: 'settings', text: t('localApps.error.settings') }); return null }
     const label = name.trim() || argv[0]!.split(/[\\/]/).pop()!.slice(0, 60)

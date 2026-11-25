@@ -1,0 +1,4 @@
+- An app on your computer that is not installed (such as ego lite) now gets its download link from the AI, not "it isn't set up".
+- A program on a network path (`\\server\share\…`) on Windows now says network paths can't be used and to copy the program to this computer, both when you add it and on its page. A .ps1 or other file Windows doesn't start here, and a batch file whose command has `"`, `%`, `!` or `^`, now say so too, instead of "check the command".
+- The command box for a program on your computer now lists every character it refuses on this system (on Windows also `^` and `%NAME%`), from the same list it checks with.
+- When a connector's fix is to check again, its page now shows a **Check again** button next to the message, not only in the ⋯ menu.
