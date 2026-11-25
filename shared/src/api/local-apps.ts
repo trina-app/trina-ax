@@ -238,6 +238,8 @@ export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: Local
   // at its install prompt, which would read the JSON-RPC as the answer. Both mark their read tools (readOnlyHint, checked
   // 2026-11-24 with tools/list: 25 and 33 tools), so no `reads` here. `notOn` win32: npx is npx.cmd there, and a .cmd
   // does not start with shell: false (Node's EINVAL, QA 2026-11-24 on Windows 11 with Node 24).
+  // Playwright MCP uses the computer's Google Chrome by default (not a browser of its own): without Chrome its tools fail
+  // "Chromium distribution 'chrome' is not found" (QA 2026-11-24 on a Mac mini without Chrome), so its card says so
   { id: 'playwright', name: 'Playwright', spec: { adapter: 'mcp', command: 'npx', args: ['-y', '@playwright/mcp@0.0.86'], env: [] }, notOn: ['win32'] },
   { id: 'chrome-devtools', name: 'Chrome DevTools', spec: { adapter: 'mcp', command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.13.0'], env: [] }, notOn: ['win32'] },
 ]
