@@ -1380,6 +1380,8 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool. To change a page of this chat ("make the text bigger"), also one made for someone else here, read it with the artifact tool and save the change with the same key (update or rewrite): a new key makes a second, separate card. To show an earlier version ("show the version before Junho\'s change"), read it with its version number, say what differs, and tell the person it opens in the page\'s panel with the version arrows; restore it only when they ask to go back to it. A web page is opened in a browser after each save: fix the errors the result names before you say it is done. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
     has.has('save_url') ? SAVE_URL_RULE : '',
+    // a sub-agent that researches the web reports figures the assistant passes on as they are
+    has.has('web_fetch') ? WEB_FIGURES_RULE : '',
   ]
   // the company profile is team knowledge like the team rules (a child writing copy needs it), not a fact about the
   // person like the memories, which children never get; the same read check and the same facts framing
@@ -1411,6 +1413,12 @@ export const NO_INVENT_RULE = 'Never invent. Quote people word for word, and say
  * price list, no source named; TC-7245: a total left wrong after a change; TC-b3s-7 / S-102: the answer said the top 3
  * had 77.6% while the page it made computed 66.9% from its own data, and the page showed no date for its data). */
 export const FIGURES_RULE = 'Numbers from files: use the file the user named, else the team\'s current one (shared, group or project folders before an old or personal copy); name it, add up again the totals you use or change, and say when one does not add up and which value you used. A number you state about a file or page you made is the one it shows: compute it once (a command, or the page\'s own data) and reuse that value, never a second calculation in your head. A page or report made from a data file shows its data\'s date by the source, as a tool result gives it (none given: no date).'
+/** Figures and links from the web, for every engine and sub-agent with web_fetch (QA A-11-M, plan
+ * docs/AGENTS/plan/20261125-0851-research-figure-fidelity.md): a cited brief said "71% less burnout" where the source
+ * says 71% of staff reported less burnout. The page had not opened, and the figures came from search result text,
+ * which a search model writes. General, never keyed to one phrase: what a figure counts, read before cited, links from
+ * tool results only, one check before sending. */
+export const WEB_FIGURES_RULE = 'Figures from the web: write each one with what it counts, as the source says it: its unit, base and population (a share of people, firms or workers; percent or percentage points; per person or in total; currency, year and period; "about" or "up to"). "62% of firms reported higher sales" never becomes "sales rose 62%", in any language you write in. State and cite a figure only from a page whose own text you read with web_fetch: the text of a search result is a summary written by the search tool, not the source. When a page will not open, read another page that states the figure (the original report, its PDF, other coverage), or leave the figure out; one you still use is marked as from a search summary, not checked. Link only addresses a tool gave you in this chat (search results, pages you fetched and the links in them), never one you built or remember, and link each figure to the page you read it on. Before you send an answer with figures and sources, check each figure against the text you read and fix any that differ.'
 /** Scenario QA 11-22 S-119: "대한물산 견적서 만들어줘" got a questions card while groups/영업/단가표.xlsx, open to the
  * person, had the prices; a real run then read the 단가표 and still asked quantities, VAT and terms first (in text, then
  * on a card). Sits with fix/ask-less's ACT_FIRST_RULE: defaults shape the work, facts come from the team's
@@ -1610,6 +1618,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // the card rule of the share words follows the link rule directly)
     NO_INVENT_RULE,
     FIGURES_RULE,
+    tools.has('web_fetch') ? WEB_FIGURES_RULE : '',
     TEAM_FACTS_FIRST_RULE,
     KEEP_VERIFIED_RULE,
     CHECK_MADE_RULE,
