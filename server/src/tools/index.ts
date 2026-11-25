@@ -410,7 +410,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         await egressSettled(ctx)
         const egressKnown = egressOf(ctx).known
         if (egressKnown) why = 'not_linked'
-        const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown, turnId: t.turnId, userId: t.user.id })
+        const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown, turnId: t.turnId, userId: t.user.id, docs: true })
         why = 'unreachable'
         // a redirect to an address that echoes what the AI sent in this chat asks first, as in save_url
         const redirects = redirectGuard(ctx.db, chatId, a.url, t.person ?? null, {
@@ -437,7 +437,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)
         if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
         page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length, text: r.text, ...(r.html !== undefined ? { html: r.html } : {}), fetch: { ...o.fetch, blockedIps } })
-        return { text: wrapExternal(r), summary: `web_fetch ${a.url}${r.offset ? ` from ${r.offset}` : ''} -> ${r.text.length} chars${r.truncated ? ` (of ${r.total ?? '?'}${r.sizeCut ? ', page over the size limit' : ''})` : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : how === 'all' ? ' (all websites allowed)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated, offset: r.offset ?? 0, total: r.total ?? r.text.length } }
+        return { text: wrapExternal(r), summary: `web_fetch ${a.url}${r.offset ? ` from ${r.offset}` : ''} -> ${r.text.length} chars${r.truncated ? ` (of ${r.total ?? '?'}${r.sizeCut ? ', page over the size limit' : ''})` : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : how === 'all' ? ' (all websites allowed)' : how === 'docs' ? ' (the app\'s own docs)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated, offset: r.offset ?? 0, total: r.total ?? r.text.length } }
       } catch (e) {
         page?.failed(why, hop)
         // the site would not give the page: the next step is a connected tool that reads pages, not a question (a turn

@@ -34,6 +34,11 @@
 //   the order: ① typed or allowed; a plain address (plainAddress: a site, no random-looking part, no long name before
 //     the site, no user name or password, not an echo) on a site allowed here (①b); a learned link within the link
 //     budget; an echo asks; ①d; else the card;
+//   ①e web_fetch only (`docs`): a page of the app's own public docs, exactly one the docs tool links to (docs-help/data.ts
+//     isDocsPage: https, no query, no user name; docs/decisions/20261125-docs-no-web-fetch-card.md), opens with no card,
+//     before everything else (also while the exit address is unknown, and in a run nobody watches), except in a
+//     confidential chat: a fixed public page from a known list carries nothing out. Not other pages of that site, not
+//     other hosts;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
 //   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
 //     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
@@ -65,6 +70,7 @@ import type { ResolveOptions } from './web-fetch'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
+import { isDocsPage } from '../docs-help/data'
 
 /** ③: a query string this long needs a person, wherever the URL came from, unless the person's own site allowance or
  * "Allow all websites" covers it in a turn they watch (a plain address only) */
@@ -797,20 +803,22 @@ export const TEXT = {
   deny: { ko: '열지 않기', en: 'Don’t open', id: 'Jangan buka', ja: "開かない", es: "No abrir", zh: "不打开" },
 } satisfies Record<string, Record<Locale, string>>
 
-/** 'seen', 'site' and 'all' opened without a card (①, ①b and ①d), 'confirmed' after one. */
-export type GateResult = 'seen' | 'site' | 'all' | 'confirmed'
+/** 'seen', 'site', 'all' and 'docs' opened without a card (①, ①b, ①d and ①e), 'confirmed' after one. */
+export type GateResult = 'seen' | 'site' | 'all' | 'docs' | 'confirmed'
 
 /**
  * Throws ToolError unless the URL may be fetched. `person` is null outside a chat turn (no one to ask): then only ①
  * URLs pass (learned ones within the link budget). `turnId`: the answer the link budget counts for. `userId`: the
  * person of the turn; the sites they allowed (①b: for good) and their "Allow all websites" (①d) count only for them
- * (none without it). Decides from the address text and the database alone: the caller looks the name up only after a yes.
+ * (none without it). `docs`: web_fetch, where a page of the app's own docs opens with no card (①e). Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean; docs?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const outOfScope = person?.scope?.(url)
   if (outOfScope) throw new ToolError(outOfScope)
+  // ①e: a page of the app's own docs (web_fetch only), never in a confidential chat
+  if (o.docs && isDocsPage(rawUrl) && !(chatId && isConfidentialChat(db, chatId))) return 'docs'
   const parsed = new URL(url)
   const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
   // this server's own public exit address is not known yet (tools/egress.ts): no URL opens without the person
