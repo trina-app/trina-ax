@@ -126,8 +126,8 @@ export async function runOftenAsked(ctx: AppContext, o: RunOptions = {}): Promis
     const ai = o.ai === undefined ? engineAsk(ctx) : o.ai
     if (!ai) return 'no_ai'
     // one call per language people read the app in, for a language that 3+ people typed lines in (a sentence in any
-    // other could never pass the word check); a sentence the AI keeps from yesterday is offered in its own language only
-    const locales = readerLocales(ctx.db).filter((l) => typedIn(snapshot, l))
+    // other could never pass the word check), at most OFTEN_ASKED.maxLanguages calls; a sentence the AI keeps from yesterday is offered in its own language only
+    const locales = readerLocales(ctx.db).filter((l) => typedIn(snapshot, l)).slice(0, OFTEN_ASKED.maxLanguages)
     if (!locales.length) return 'no_data'
     const team = sentenceLocale(ctx.db)
     let stored = 0

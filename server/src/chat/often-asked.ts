@@ -42,6 +42,9 @@ export const OFTEN_ASKED = {
   materialChars: 60_000,
   /** items read from the AI's answer */
   aiItems: 30,
+  /** languages one run asks the AI in, at most (one call each): the team's first, then by how many people read the app
+   * in it. English, Spanish and Indonesian share one script, so typedIn alone can pass all three */
+  maxLanguages: 3,
 } as const
 
 /** settings: only questions sent from then count (the build's first start; the switch turned on) */
@@ -512,7 +515,8 @@ export const sentenceLocale = (db: Database): Locale => getTeamSettings(db).defa
  * writes one list per language, so each person reads suggestions in their own. */
 export function readerLocales(db: Database): Locale[] {
   const out = new Set<Locale>([sentenceLocale(db)])
-  for (const r of db.query("SELECT DISTINCT locale FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0").all() as { locale: string | null }[]) {
+  // most readers first, so the run's cap (OFTEN_ASKED.maxLanguages) leaves out the languages fewest people read
+  for (const r of db.query("SELECT locale FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 GROUP BY locale ORDER BY COUNT(*) DESC, locale").all() as { locale: string | null }[]) {
     const l = asLocale(r.locale)
     if (l) out.add(l)
   }

@@ -10,7 +10,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { makeEnv } from '../lib/env'
 import { newId } from '../../server/src/db'
 import { setSetting } from '../../server/src/admin/settings'
-import { SINCE_KEY } from '../../server/src/chat/often-asked'
+import { OFTEN_ASKED, SINCE_KEY } from '../../server/src/chat/often-asked'
 import { oftenAskedMessage, oftenAskedSystemPrompt, parseOftenAsked, runDue, runOftenAsked, type AskAi } from '../../server/src/chat/often-asked-run'
 import type { AppContext } from '../../server/src/context'
 
@@ -159,6 +159,15 @@ describe('the run (no server)', () => {
     env.db.query('DELETE FROM often_asked_items').run()
     expect(await runOftenAsked(ctx, { random, ai: async (system, message) => { if (system.includes('In Korean')) throw new Error('limit'); return ai(system, message, new AbortController().signal) } })).toBe('done')
     expect((env.db.query('SELECT DISTINCT locale FROM often_asked_items').all() as { locale: string }[]).map((r) => r.locale)).toEqual(['en'])
+    // at most OFTEN_ASKED.maxLanguages calls a run: English, Spanish and Indonesian share one script, so English lines
+    // pass typedIn for all three; the team's language first, then the most readers (Korean), then Spanish before
+    // Indonesian (one reader each, by name); Indonesian is left out
+    env.db.query("UPDATE users SET locale = 'es' WHERE id = 'p4'").run()
+    env.db.query("UPDATE users SET locale = 'id' WHERE id = 'p5'").run()
+    systems.length = 0
+    expect(await runOftenAsked(ctx, { random, ai })).toBe('done')
+    expect(systems.length).toBe(OFTEN_ASKED.maxLanguages)
+    expect(systems.map((x) => (x.match(/- In ([^,]+),/) ?? [])[1])).toEqual(['English', 'Korean (한국어)', 'Español'])
     env.db.query("UPDATE users SET locale = 'ko' WHERE id LIKE 'p%'").run()
   })
 })

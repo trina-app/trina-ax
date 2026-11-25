@@ -11,6 +11,8 @@
   - The run asks the AI once per language people read the app in (the team's default and each active member's own,
     `readerLocales`), and only for a language that 3 or more people typed lines in (`typedIn`): a sentence in another
     language could never pass the word check, so the call is not made.
+  - At most 3 languages a run (`OFTEN_ASKED.maxLanguages`): the team's first, then by how many people read the app
+    in each. English, Spanish and Indonesian share one script, so English lines alone pass `typedIn` for all three.
   - Each call writes in its language. A sentence is stored for that language only when it is written in its script
     (`writtenIn`: Hangul for Korean, kana for Japanese, Han alone for Chinese, Latin alone for English, Spanish and
     Indonesian). The checks are unchanged: every topic word is one 3+ people typed (fail closed). No sentence is
@@ -21,6 +23,6 @@
     nobody typed in sees no list, as a team with too few askers does.
 - **Why:** the suggestions are things to tap and send; a list in a language the person does not use is noise.
 - **Left out:** translating a list for readers of another language (see above); per-person lists.
-- **Cost:** one small-model call a day per language that has a list's worth of lines; most teams have one.
+- **Cost:** one small-model call a day per language that has a list's worth of lines, at most 3; most teams have one.
 - **Tests:** tests/unit/b-often-asked.test.ts, tests/unit/b-often-asked-run.test.ts ("the reader's language").
 - **Version impact:** patch.
