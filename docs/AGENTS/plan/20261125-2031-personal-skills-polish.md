@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 20:31
 - Branch: `fix/personal-skills-polish`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (personal-skills.ts, prompt.ts, i18n.ts), tests/unit. Why: real-AI QA of auto personal
   skills (#594/#606) found four rough edges people see (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — fixes to a shipped feature, no new surface or setting
@@ -46,4 +46,11 @@ Out: any change to which saves need a card; the skill list or the Skills screen.
 
 ## Result
 
-(filled in at the end)
+- Cap: `capReached` counts `DISTINCT target` of the day's skill saves and deletes; a skill already changed today
+  changes again, a new one only below 6. Per answer stays 2 calls.
+- Reply: `SKILL_SAVED_REPLY` in the skill rule and in the reminder before the person's message.
+- Card: "직접 만든 {names} 스킬을 이렇게 고칠까요? / 지울까요?" (docs/ASKS.md rows updated).
+- Step: root cause was a card answered after the answer ended (the call runs again in the next answer, whose step says
+  "스킬 고침: …"); the first answer's step kept "Edit · users/<id>/skills/<name>/SKILL.md". stepPlace now says any own
+  skill file as "내 스킬 '<name>'"; titleOf falls back to the first heading.
+- Tests: tests/unit/auto-personal-skills.test.ts (24); engine-prompt-pin fixtures re-recorded (the two prompt lines).
