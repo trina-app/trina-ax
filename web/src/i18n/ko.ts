@@ -4315,6 +4315,7 @@ export const ko = {
   "teamLink.msg.what": "우리 팀 AI {product}가 일상 문서 작업을 도와줘요.",
   "teamLink.msg.skill": "우리 팀용으로 '{skill}' 스킬을 준비해 뒀어요.",
   "teamLink.msg.ownAi": "본인 AI 계정이 필요해요.",
+  "teamLink.msg.shared": "이 링크 하나로 팀원 여러 명이 들어올 수 있어요. {date}까지 쓸 수 있어요.",
   "teamLink.msg.join": "아래 링크로 바로 들어오면 돼요.\n{url}",
   "teamLink.messageEditLabel": "함께 보낼 메시지 (고쳐 써도 돼요)",
   "teamLink.usesLabel": "들어온 사람",

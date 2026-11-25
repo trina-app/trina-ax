@@ -4262,6 +4262,7 @@ export const zh: Record<MessageKey, string> = {
   "teamLink.msg.what": "{product}是我们团队的 AI，帮我们处理日常文档。",
   "teamLink.msg.skill": "我为团队准备好了“{skill}”。",
   "teamLink.msg.ownAi": "你需要有自己的 AI 账号。",
+  "teamLink.msg.shared": "团队的多位成员都可以用这一个链接加入，{date}前有效。",
   "teamLink.msg.join": "用这个链接即可马上加入：\n{url}",
   "teamLink.messageEditLabel": "随链接发送的消息（可以修改）",
   "teamLink.usesLabel": "已加入",

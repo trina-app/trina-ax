@@ -4316,6 +4316,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.msg.what": "{product}, AI tim kita, membantu kita dengan dokumen sehari-hari.",
   "teamLink.msg.skill": "Saya sudah menyiapkan '{skill}' untuk kita.",
   "teamLink.msg.ownAi": "Anda perlu akun AI sendiri.",
+  "teamLink.msg.shared": "Beberapa rekan tim bisa bergabung lewat satu tautan ini. Berlaku sampai {date}.",
   "teamLink.msg.join": "Bergabung lewat tautan ini:\n{url}",
   "teamLink.messageEditLabel": "Pesan yang dikirim (bisa Anda ubah)",
   "teamLink.usesLabel": "Sudah bergabung",

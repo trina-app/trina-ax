@@ -4272,6 +4272,7 @@ export const es: Record<MessageKey, string> = {
   "teamLink.msg.what": "{product}, la IA de nuestro equipo, nos ayuda con los documentos del día a día.",
   "teamLink.msg.skill": "He preparado '{skill}' para nosotros.",
   "teamLink.msg.ownAi": "Necesitará su propia cuenta de IA.",
+  "teamLink.msg.shared": "Varias personas del equipo pueden unirse con este mismo enlace. Funciona hasta el {date}.",
   "teamLink.msg.join": "Únase con este enlace:\n{url}",
   "teamLink.messageEditLabel": "Mensaje para enviar (puede editarlo)",
   "teamLink.usesLabel": "Se unieron",
