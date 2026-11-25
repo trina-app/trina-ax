@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 09:02
 - Branch: `fix/team-link-message-shared-note`
-- Status: in progress
+- Status: done
 - Where: web (lib/team-link.ts, the two places that build the message, i18n). Why: the copy is built on the web side only.
 - Version impact: patch. One added line in a ready-made message; no API, data or behaviour change.
 
@@ -43,3 +43,8 @@ Six languages need natural wording. The message grows by one line (max 7 lines +
 
 ## Result
 
+New line \`teamLink.msg.shared\` in six languages, right before the join line, with the link's end written as the Expires
+row writes it (\`formatDateTime\`, in the message's language). Both builders (TeamLinkPanel: Admin › Members and the
+welcome invite step; GoalCard "초대 문구 복사") pass it. Guest and room invite messages unchanged (one-time links that
+already say "works once, until {date}"). \`teamLink.stepDesc\` unchanged. Unit tests and the invite-message e2e check the
+line. As planned.
