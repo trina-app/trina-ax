@@ -9,7 +9,7 @@
 // shape, checked where the gateway can tell (OpenRouter: GET /api/v1/key; others: a model list that needs the key).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { CredentialKind } from '@mycel/shared/api'
+import type { CheckWhy, CredentialKind } from '@mycel/shared/api'
 import { anthropicGateway, isFreeRoam, isOpenRouter, REPO_ROOT, type AnthropicGatewayConf } from '../app-config'
 import { accountLevel403, providerError, refusalCode, type ProviderError } from '../proxy/anthropic-refusal'
 import type { CredCtx } from './store'
@@ -40,8 +40,38 @@ export function formatProblem(kind: CredentialKind, secret: string, gateway = fa
 /** `refused`: 401 (and a 403 of an API key); `blocked`: a Claude subscription's account-level 403 (organization does not
  * allow OAuth now, plan without Claude Code: proxy/anthropic-refusal.ts), which adding a token treats like unverified
  * and a check marks; `code`: what the account is marked with; `error`: the provider's answer, cleaned (never the
- * secret), also on an unverified answer so "Check again" can say what it was. */
-export type CheckResult = { result: 'ok' | 'refused' | 'blocked' | 'unverified'; upstreamStatus: number | null; code?: string; error?: ProviderError | null }
+ * secret), also on an unverified answer so "Check again" can say what it was; `unreachable`: no answer at all (network
+ * error, timeout). */
+export type CheckResult = { result: 'ok' | 'refused' | 'blocked' | 'unverified'; upstreamStatus: number | null; code?: string; error?: ProviderError | null; unreachable?: boolean }
+
+const WHY_BY_TYPE: Record<string, CheckWhy> = {
+  authentication_error: 'authentication', invalid_api_key: 'authentication', invalid_grant: 'authentication', unauthorized: 'authentication',
+  refresh_token_expired: 'authentication', refresh_token_reused: 'authentication', refresh_token_invalidated: 'authentication', http_401: 'authentication',
+  permission_error: 'permission', forbidden: 'permission', http_403: 'permission',
+  rate_limit_error: 'rate_limited', rate_limit_exceeded: 'rate_limited', rate_limited: 'rate_limited', http_429: 'rate_limited',
+  insufficient_quota: 'usage_limit', billing_error: 'usage_limit', usage_limit_reached: 'usage_limit', http_402: 'usage_limit',
+  overloaded_error: 'overloaded', api_error: 'overloaded', server_error: 'overloaded',
+  network: 'unreachable',
+}
+/**
+ * The plain reason of a check's answer (CheckCredentialResponse.check.why), which the web shows in the person's
+ * language instead of the provider's own words: the mark code first (org_oauth_blocked, plan_ended), then the error
+ * type (Anthropic, OpenAI, a ChatGPT refresh's code), then the HTTP status; `unreachable` when nothing answered.
+ */
+export function checkWhy(o: { code?: string | null; type?: string | null; message?: string | null; status?: number | null; unreachable?: boolean }): CheckWhy | null {
+  if (o.code === 'org_oauth_blocked' || o.code === 'plan_ended') return o.code
+  if (o.message && /credit balance is too low/i.test(o.message)) return 'usage_limit'
+  const t = o.type ? WHY_BY_TYPE[o.type] : undefined
+  if (t) return t
+  const s = o.status ?? null
+  if (s === null) return o.unreachable ? 'unreachable' : null
+  if (s === 401) return 'authentication'
+  if (s === 403) return 'permission'
+  if (s === 402) return 'usage_limit'
+  if (s === 429) return 'rate_limited'
+  if (s >= 500) return 'overloaded'
+  return null
+}
 
 /** OpenRouter answers its model list without a key, so a key is checked on GET <api>/v1/key (older servers:
  * /auth/key; `get` adds the path to .../api/v1): ok, refused (401 / 403), or unchecked when neither answers. The API
@@ -73,7 +103,7 @@ async function verifyGatewayKey(cc: CredCtx, g: AnthropicGatewayConf, secret: st
     await open.body?.cancel().catch(() => {})
     return open.ok ? { result: 'unverified', upstreamStatus: r.status } : { result: 'ok', upstreamStatus: r.status }
   } catch {
-    return { result: 'unverified', upstreamStatus: null }
+    return { result: 'unverified', upstreamStatus: null, unreachable: true }
   }
 }
 
@@ -112,6 +142,6 @@ export async function verifySecret(cc: CredCtx, kind: Exclude<CredentialKind, 'c
     if (r.status === 403 && error && accountLevel403(error.type, error.message)) return { result: 'blocked', upstreamStatus: r.status, code: refusalCode(kind, error.message), error }
     return { result: 'unverified', upstreamStatus: r.status, error }
   } catch {
-    return { result: 'unverified', upstreamStatus: null }
+    return { result: 'unverified', upstreamStatus: null, unreachable: true }
   }
 }
