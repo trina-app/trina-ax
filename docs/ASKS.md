@@ -67,10 +67,10 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
-| Screen confirm dialogs (화면 확인창) | 101 | 4 | 97 | 0 | 0 |
+| Screen confirm dialogs (화면 확인창) | 102 | 4 | 98 | 0 | 0 |
 | Sign-in, setup and updates (로그인·설정·업데이트) | 15 | 7 | 8 | 0 | 0 |
 | System permissions (시스템 권한) | 21 | 18 | 3 | 0 | 0 |
-| **all** | 218 | 75 | 143 | 0 | 0 |
+| **all** | 219 | 75 | 144 | 0 | 0 |
 
 ## Registry
 
@@ -214,6 +214,7 @@ step the person starts; scheduled runs never reach them. "hidden for guests" mea
 | `ui.chat.leave` | `web/src/components/chat/chatActions.ts:263` | Leave a chat shared with me. | Leave "{title}"? / "{title}"에서 나갈까요? (`chat.leaveTitle`) | Cancel / Leave | none | n/a | n/a | same | irreversible | OK |
 | `ui.chat.shareDiscard` | `web/src/components/chat/ChatShareDialog.tsx:221` | Closing the chat Share dialog with unsaved picks. | Discard changes? / 변경 사항을 버릴까요? (`chat.share.discardTitle`) | Keep editing / Discard | none | n/a | n/a | n/a | other:unsaved | OK |
 | `ui.chat.threadDelete` | `web/src/components/chat/ChatThreadPanel.tsx:300` | Delete my reply in a chat thread. | Delete this reply? / 이 답글을 삭제할까요? (`chat.thread.deleteTitle`) | Cancel / Delete | none | n/a | n/a | same | irreversible | OK |
+| `ui.auto_mode.intro` | `web/src/components/chat/AutoModePill.tsx:13` | The first tap on the composer's auto mode pill that turns it on, once per browser (docs/decisions/20261125-auto-mode.md). Later taps change it at once; turning it off never asks. | Turn on auto mode? / 자동 모드를 켤까요? (`autoMode.intro.title`) | Turn on auto mode / Cancel | none (a one-off notice; the browser keeps that it was shown) | the pill or Settings › 트리나에게 허용한 것 turns auto mode off | n/a | hidden for guests (no auto mode) | other:mode-switch | OK |
 | `ui.file.discardEdit` | `web/src/components/FilePanel.tsx:309` | Closing the file panel with unsaved edits. | Discard your changes? / 고친 내용을 버릴까요? (`preview.discardTitle`) | Cancel / Discard | none | n/a | n/a | n/a | other:unsaved | OK |
 | `ui.share.file` | `web/src/components/FileShareDialog.tsx:84` | The file Share dialog: pick people, then Share (no second confirm). | Share / 공유 (`fileShare.share`) | Share | none | n/a | n/a | guests are never offered | sends-to-others | OK |
 | `ui.share.fileAskOwner` | `web/src/components/FileShareDialog.tsx:222` | Someone who may not share asks the owner. | Ask {owner} / {owner}님에게 요청 (`fileShare.askOwner`) | Ask {owner} | none | n/a | n/a | hidden for guests | sends-to-others | OK |
@@ -505,6 +506,7 @@ lines than the row fails the test; fewer passes.
 | `web/src/components/LeaveProject.tsx` | 1 | `ui.project.leave` |
 | `web/src/components/ProjectMembersDialog.tsx` | 4 | `ui.project.members`, `ui.project.addMe` |
 | `web/src/components/chat/ChatShareDialog.tsx` | 1 | `ui.chat.shareDiscard` |
+| `web/src/components/chat/AutoModePill.tsx` | 1 | `ui.auto_mode.intro` |
 | `web/src/components/chat/ChatThreadPanel.tsx` | 1 | `ui.chat.threadDelete` |
 | `web/src/components/chat/ShareChat.tsx` | 1 | `ui.share.chatProject` |
 | `web/src/components/chat/ShareToRoom.tsx` | 3 | `ui.share.room`, `definition` |
