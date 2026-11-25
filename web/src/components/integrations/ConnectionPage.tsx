@@ -74,6 +74,18 @@ export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'last
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
 
+/** Reasons of an app on the computer whose words end "press Check again" (server text.ts): checking again is the fix. */
+const LOCAL_CHECK_AGAIN: ReadonlySet<string> = new Set(['local_declined', 'local_failed', 'local_missing'])
+
+/** The failed check's fix is to check again here (its words say "Check again"): the page shows a Check again button by
+ * the words, not only in ⋯ (QA TC-9009). Same rule as errorLine's step 'checkAgain'. */
+export function checkAgainFixes(i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'kind'>, manage: boolean): boolean {
+  if (!manage || !i.lastErrorReason) return false
+  if (i.kind === 'local') return LOCAL_CHECK_AGAIN.has(i.lastErrorReason)
+  const kind = REASON_KIND[i.lastErrorReason]
+  return kind === 'slow' || kind === 'service'
+}
+
 /** A connection's or a listed service's address without the path: what a page shows for one added by its address. */
 const hostOf = (url: string) => { try { return new URL(url).host } catch { return url } }
 
@@ -246,7 +258,13 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {i.kind === 'local' && <LocalAppWhere />}
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {trouble && !flow && !elsewhereOnly && <Note tone="warn" testId="integration-error">{trouble}</Note>}
+            {trouble && !flow && !elsewhereOnly && (checkAgainFixes(i, manage) ? (
+              // its fix is to check again: the button is here, by the words that name it, not only in ⋯ (QA TC-9009)
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <Note tone="warn" testId="integration-error">{trouble}</Note>
+                <Button size="sm" busy={checking} onClick={() => void actions.refresh(i)} data-testid="integration-error-refresh">{t('integrations.refresh')}</Button>
+              </div>
+            ) : <Note tone="warn" testId="integration-error">{trouble}</Note>)}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>
