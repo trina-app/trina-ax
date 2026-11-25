@@ -2,9 +2,10 @@
 
 - Date: 2026-11-25
 - Status: accepted
-- Supersedes: for members, "No auto-save in shared chats" in [20261122-auto-memory.md](20261122-auto-memory.md), and
-  "Shared chats lose personal tools (memories, …)" for memories in docs/DECISIONS.md "Shared project chats". Guests,
-  rooms, side chats, scheduled runs, Slack, templates and confidential chats are unchanged.
+- Supersedes: for members, "No auto-save in shared chats" and "a turn that read rooms" in
+  [20261122-auto-memory.md](20261122-auto-memory.md), and "Shared chats lose personal tools (memories, …)" for memories
+  in docs/DECISIONS.md "Shared project chats". Guests, side chats, scheduled runs, Slack, templates and confidential
+  chats are unchanged.
 - Branch: fix/auto-memory-corrections-shared (the owner, 2026-11-25; plan review APPROVE WITH CHANGES)
 - Plan: [docs/AGENTS/plan/20261125-0105-auto-memory-corrections-shared.md](../AGENTS/plan/20261125-0105-auto-memory-corrections-shared.md)
 
@@ -35,6 +36,10 @@
   - **Corrections:** the rule and the per-turn reminder of a resumed session name corrections of what the AI did or
     chose (account, profile, file, folder, place, format, wording, person) and lessons after a wrong try. Before, only
     the first turn's rule named them, and corrections usually come later in a chat.
+  - **Rooms read, shared files, quotes:** a chat that read a team room, a file shared one by one, or holds a quote line
+    keeps auto memory (only ✦ side chats stay out). Before, every save there asked on a card (the eval found two of
+    four private correction cases lost that way). Room tools' output is tool output for the copy and address checks, and
+    quote lines are other people's words (othersWords), so the same silent checks apply.
   - **No promise without a memory:** every turn's rules say: never say you will remember or do it differently next
     time unless remember answered kept: true in this answer; where remember is not offered, that this chat cannot
     keep it.
@@ -44,9 +49,9 @@
   keep the second, without refusing the asker.
 - **Known gaps:** another member's claim the model paraphrases passes the copy check (as for tool output); the address
   and contact checks, caps, the visible step with undo and the block's facts-not-instructions framing are the rest of
-  the defence (measured in the memory eval, I2). A quote on the branch or a room read still turns auto memory off for
-  that chat (a save then asks on a card, as in a private chat). When the turn that kept a chat memory is deleted, the
-  memory keeps its mark.
+  the defence (measured in the memory eval, I2). Tool output (room reads included) is recorded in memory only: after a
+  restart or a new session there is nothing to compare, as the 11-22 decision accepted for tool output. When the turn
+  that kept a chat memory is deleted, the memory keeps its mark.
 - **Left out:** a project-wide memory shared by all its people (none exists; project instructions stay with the
   project's editors); guests' memories in shared chats.
 - **Tests:** tests/unit/auto-memory-shared.test.ts, b-shared-chats.test.ts; the memory eval's held-out correction

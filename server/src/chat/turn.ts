@@ -1366,7 +1366,8 @@ export class TurnExec {
     const refs = roomRefsBlock(userMsg.content, roomsOff, spec.locale)
     // a message that names a room carries room names (other people's words) into the chat: marked like a room read,
     // names only (no message of the room came in: chat/read-rooms.ts ROOM_NAMES_ONLY)
-    if (refs) this.markRoomsSeen(true)
+    // (the names are other people's words: auto memory's copy and address checks read them as tool output)
+    if (refs) { this.markRoomsSeen(true); this.noteOutside('room_refs', refs) }
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a

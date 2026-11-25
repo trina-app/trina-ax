@@ -1688,7 +1688,12 @@ function bTools(exec: TurnExec): Tool[] {
           // a tool result the server could not read (a picture, a screenshot, the engine's own web search, a result cut
           // short): every address, path, #channel or room name in the memory must be in the person's own words (M3, as
           // the owner relaxed it: the lesson itself, in the AI's words, may be kept, as the Daum/Aside case needs)
-          if (rt.outside.blind(spec.chatId) && addressesIn(value).some((x) => !own.replace(/[\s().-]/g, '').toLowerCase().includes(x)))
+          // ...and the same when the chat read rooms or other people's content but nothing of it is recorded any more (a
+          // restart or the cap on chats emptied the record while the engine session still holds it: security review of
+          // the rooms change, docs/decisions/20261125-auto-memory-shared-chats.md)
+          const marks = rt.db.query('SELECT rooms_seen AS r, others_words AS o FROM chats WHERE id = ?').get(spec.chatId) as { r: number; o: number } | null
+          const unrecorded = !rt.outside.of(spec.chatId) && (!marks || marks.r > 0 || marks.o > 0)
+          if ((rt.outside.blind(spec.chatId) || unrecorded) && addressesIn(value).some((x) => !own.replace(/[\s().-]/g, '').toLowerCase().includes(x)))
             return skip(`Not kept: this chat saw content the server could not check (a picture or a web result), and the memory names an address, path or channel the user did not write. Keep the lesson without it, or: ${notFromHere}`, 'address after unchecked content')
           // (in a private chat othersWords holds the quote lines of the person's own messages: someone else's words)
           const outside = [rt.outside.of(spec.chatId), othersWords(rt.db, spec.chatId, spec.userId)].filter(Boolean).join('\n')
@@ -1775,7 +1780,8 @@ function bTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         // a conversation that has seen outside content forgets at most FORGET_PER_ANSWER memories per answer (review of
         // #332, M2: "forget all memories" in a page); the step of each shows 되돌리기
-        if (exec.tainted || rt.outside.of(spec.chatId) || rt.outside.blind(spec.chatId)) {
+        // (also a chat holding other people's words or a quote: othersWords)
+        if (exec.tainted || rt.outside.of(spec.chatId) || rt.outside.blind(spec.chatId) || othersWords(rt.db, spec.chatId, spec.userId)) {
           const n = (rt.db.query("SELECT count(*) n FROM audit_log WHERE actor_id = ? AND action = 'memory.forget' AND json_extract(detail, '$.turnId') = ?").get(spec.userId, spec.turnId) as { n: number }).n
           if (n >= FORGET_PER_ANSWER) return { ...text(JSON.stringify({ ok: false, note: `Not forgotten: at most ${FORGET_PER_ANSWER} memories per answer in a conversation that has read outside content. If the user wants more gone, they can delete them in Settings › Memory.` })), summary: `forget -> refused: cap (${FORGET_PER_ANSWER})` }
         }
