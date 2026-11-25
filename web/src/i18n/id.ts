@@ -3693,7 +3693,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.deleteBodyTeam': 'Semua orang yang memakai koneksi ini tidak bisa memakainya lagi. Kunci dan info masuk yang tersimpan juga dihapus.',
   'integrations.signIn.waiting': 'Selesaikan proses masuk di jendela baru. Halaman ini diperbarui setelah selesai.',
   'integrations.signIn.notFinished': "Proses masuk belum selesai. Jika jendelanya sudah Anda tutup, coba lagi atau batalkan.",
-  'integrations.signIn.domainBlocked': "Jika {name} mengatakan admin Anda memblokir domain ini, admin organisasi {name} Anda perlu menambahkan {host} ke domain yang diizinkan terlebih dahulu. Lalu masuk lagi.",
+  'integrations.signIn.domainBlocked': "Jika {name} mengatakan admin Anda memblokir domain ini, admin organisasi {name} Anda perlu menambahkan https://{host}/** ke domain yang diizinkan di pengaturan server MCP-nya terlebih dahulu. Lalu masuk lagi. Jika masih diblokir, hapus entri itu, tambahkan lagi, lalu coba lagi.",
   'integrations.signIn.open': 'Buka jendela masuk',
   'integrations.signIn.done': 'Berhasil masuk.',
   'integrations.signIn.failed': 'Tidak bisa masuk. Silakan coba lagi.',

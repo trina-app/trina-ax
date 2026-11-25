@@ -3649,7 +3649,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.deleteBodyTeam': "この接続を使っていた全員が利用できなくなります。保存済みのキーとログイン情報も削除されます。",
   'integrations.signIn.waiting': "新しいウィンドウでログインを完了してください。完了するとこのページが更新されます。",
   'integrations.signIn.notFinished': "ログインはまだ終わっていません。ウィンドウを閉じた場合は、もう一度試すかキャンセルしてください。",
-  'integrations.signIn.domainBlocked': "{name}で「管理者がこのドメインをブロックしました」と表示された場合は、{name}の組織の管理者が先に{host}を許可するドメインに追加する必要があります。そのあと、もう一度ログインしてください。",
+  'integrations.signIn.domainBlocked': "{name}で「管理者がこのドメインをブロックしました」と表示された場合は、{name}の組織の管理者が先に MCP サーバー設定の許可ドメインに https://{host}/** を追加する必要があります。そのあと、もう一度ログインしてください。まだブロックされる場合は、その項目を削除してもう一度追加し、やり直してください。",
   'integrations.signIn.open': "ログインウィンドウを開く",
   'integrations.signIn.done': "ログインしました。",
   'integrations.signIn.failed': "ログインできませんでした。再試行してください。",

@@ -3692,7 +3692,7 @@ export const ko = {
   'integrations.deleteBodyTeam': '이 연결을 쓰던 사람 모두 더 이상 쓸 수 없어요. 저장한 키와 로그인 정보도 함께 지워요.',
   'integrations.signIn.waiting': '새 창에서 로그인을 마쳐 주세요. 마치면 여기 상태가 바뀌어요.',
   'integrations.signIn.notFinished': "로그인이 아직 끝나지 않았어요. 창을 닫았다면 다시 시도하거나 취소해 주세요.",
-  'integrations.signIn.domainBlocked': "{name}에서 관리자가 이 도메인을 막았다고 나오면, {name} 조직 관리자가 {host} 주소를 허용 도메인에 먼저 넣어야 해요. 그다음 다시 로그인해 주세요.",
+  'integrations.signIn.domainBlocked': "{name}에서 관리자가 이 도메인을 막았다고 나오면, {name} 조직 관리자가 MCP 서버 설정의 허용 도메인에 https://{host}/** 를 먼저 넣어야 해요. 그다음 다시 로그인해 주세요. 그래도 막혀 있으면 그 항목을 지우고 다시 넣은 뒤 다시 해 보세요.",
   'integrations.signIn.open': '로그인 창 열기',
   'integrations.signIn.done': '로그인했어요.',
   'integrations.signIn.failed': '로그인하지 못했어요. 다시 시도해 주세요.',
