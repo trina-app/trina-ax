@@ -81,19 +81,11 @@ https://www.googleapis.com/auth/userinfo.email
 https://www.googleapis.com/auth/userinfo.profile
 https://www.googleapis.com/auth/drive.readonly
 https://www.googleapis.com/auth/drive.file
-https://www.googleapis.com/auth/gmail.readonly
-https://www.googleapis.com/auth/gmail.send
-https://www.googleapis.com/auth/gmail.compose
 https://www.googleapis.com/auth/gmail.modify
-https://www.googleapis.com/auth/gmail.labels
 https://www.googleapis.com/auth/gmail.settings.basic
 https://www.googleapis.com/auth/calendar
-https://www.googleapis.com/auth/calendar.readonly
-https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/documents
-https://www.googleapis.com/auth/documents.readonly
 https://www.googleapis.com/auth/spreadsheets
-https://www.googleapis.com/auth/spreadsheets.readonly
 ```
 
 这些正是 Trina AX 为五个应用一起申请的权限。一个都不能少：缺少其中任何一个，登录都会被拒绝。
