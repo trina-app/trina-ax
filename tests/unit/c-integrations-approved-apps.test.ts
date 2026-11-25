@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaul
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
-import { catalogAt, officialService, SERVICE_CATALOG } from '../../shared/src/service-catalog'
+import { catalogAt, officialService, SERVICE_CATALOG, teamAppAt } from '../../shared/src/service-catalog'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf, MAX_PERSONAL, personalCounts } from '../../server/src/integrations/connections/service'
@@ -16,7 +16,7 @@ import { connectRows } from '../../server/src/chat/connect-service'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { authorizationUrl, chooseClient, register, CLIENT_METADATA_PATH, discover, documentOriginAt, documentOrigins, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
-import { reasonText, TEXT } from '../../server/src/integrations/connections/text'
+import { reasonText, say, TEXT } from '../../server/src/integrations/connections/text'
 
 setDefaultTimeout(30_000)
 
@@ -574,6 +574,8 @@ const EXPECTED: Record<string, 'registered' | 'metadata' | 'approved_only' | 'no
   figma: 'approved_only', intercom: 'approved_only', square: 'approved_only',
   // registers no apps: it signs in through the server's GitHub App (c-integrations-github.test.ts)
   github: 'no_registration',
+  // register no apps and take no metadata document: the team's own app, set up as a template (service-catalog.ts teamApp)
+  asana: 'no_registration', hubspot: 'no_registration', box: 'no_registration',
 }
 /** the second probe of an address (Canva's documented api.canva.com, Atlassian's v1) */
 const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connect/v1/mcp' ? 'no_registration' : EXPECTED[r.id] ?? 'registered')
@@ -636,3 +638,73 @@ describe('registration names the scope the sign-in asks for (Calendly, QA 2026-1
   })
 })
 
+
+// Asana, HubSpot and Box register no apps for others and take no metadata document: they sign in only through the
+// team's own app (shared/src/service-catalog.ts teamApp, docs/INTEGRATIONS.md "Services that need the team's own app").
+// Connected by their address without one, the sign-in stops before anything is registered or opened, in words that
+// say an admin sets it up; with the team's app (a template) the sign-in goes to the service with that app.
+describe('a listed service that signs in only through the team\'s own app', () => {
+  const recorded = (id: string) => RECORDED.find((r) => r.id === id)!
+  /** the recorded answers, and every request that reached past them */
+  function netFor(r: Recorded) {
+    const sent: { method: string; url: string }[] = []
+    const inner = recordedNet(r, {})
+    // the MCP address answers as recorded (401 naming its metadata); the rest from the recorded GETs
+    const init = { status: r.initialize.status, headers: r.initialize.headers ?? {}, body: '' }
+    return { sent, net: { answer: async (url: string, req: NetRequest) => { sent.push({ method: req.method, url }); return req.method === 'POST' && url === r.mcpUrl ? init : inner.answer!(url, req) } } satisfies NetOptions }
+  }
+
+  test('Granola registers itself: it is listed like any other, with no team app', () => {
+    expect(SERVICE_CATALOG.find((c) => c.id === 'granola')).toBeTruthy()
+    expect(teamAppAt('https://mcp.granola.ai/mcp')).toBeNull()
+    expect(expectedFor(recorded('granola'))).toBe('registered')
+  })
+
+  test('only at the exact official address: Asana asks for scope "default", HubSpot and Box for none', () => {
+    expect(teamAppAt('https://mcp.asana.com/v2/mcp')).toMatchObject({ scope: 'default' })
+    expect(teamAppAt('https://mcp.hubspot.com')?.scope).toBeUndefined()
+    expect(teamAppAt('https://mcp.box.com/')?.guide).toMatch(/^https:\/\/developer\.box\.com\//)
+    for (const u of ['https://mcp.asana.com.example.com/v2/mcp', 'http://mcp.asana.com/v2/mcp', 'https://mcp.asana.com/v2/mcp?x=1']) expect(teamAppAt(u), u).toBeNull()
+  })
+
+  for (const id of ['asana', 'hubspot', 'box'] as const) {
+    test(`${id}: without the team's app the sign-in says an admin sets it up, and nothing is registered`, async () => {
+      const r = recorded(id)
+      const c = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: r.id, url: r.mcpUrl, auth: 'oauth' }, PUBLIC)
+      const before = fake.seen.length
+      const name = SERVICE_CATALOG.find((x) => x.id === id)!.name
+      const a = await authorize(c.id)
+      expect(a.status).toBe(400)
+      expect(a.body.error.message).toBe(say('oauth_needs_team_app', 'ko', { name }))
+      expect(a.body.error.message).toContain(name)
+      expect(getRow(h.ctx.db, c.id)).toMatchObject({ status: 'needs_auth', last_error: 'oauth_needs_team_app' })
+      // nothing was looked up, registered or opened anywhere
+      expect(fake.seen.length).toBe(before)
+    })
+  }
+
+  test('every language says it, with the service\'s name', () => {
+    for (const l of [...LOCALES, 'zh'] as const) expect(say('oauth_needs_team_app', l, { name: 'Asana' }), l).toContain('Asana')
+    expect(say('oauth_needs_team_app', 'ko', { name: 'Asana' })).toContain('Asana는')
+    expect(say('oauth_needs_team_app', 'ko', { name: 'HubSpot' })).toContain('HubSpot은')
+  })
+
+  test('with the team\'s own app on a template, a member signs in through it at the service, with Asana\'s scope', async () => {
+    const r = recorded('asana')
+    const { net } = netFor(r)
+    integrationsOf(h.ctx, { net, now: () => fake.now })
+    const tpl = await olga.call('POST', '/api/admin/integration-templates', {
+      kind: 'mcp', name: 'Asana', url: r.mcpUrl, auth: 'oauth', authHeader: null, notes: null, access: { everyone: true, groups: [], users: [] },
+      oauthClient: { clientId: 'team-asana-app', clientSecret: 'CANARY-asana-secret', scope: 'default' },
+    }, PUBLIC)
+    const version = (await olga.call('GET', '/api/integration-templates')).items.find((x: any) => x.id === tpl.id).version
+    const mine = await olga.call('POST', `/api/integration-templates/${tpl.id}/connect`, { version }, PUBLIC)
+    const a = await authorize(mine.id)
+    expect(a.status).toBe(200)
+    const u = new URL(a.body.authorizationUrl)
+    expect(u.origin + u.pathname).toBe('https://app.asana.com/-/oauth_authorize')
+    expect(u.searchParams.get('client_id')).toBe('team-asana-app')
+    expect(u.searchParams.get('scope')).toBe('default')
+    expect(a.body.authorizationUrl).not.toContain('CANARY')
+  })
+})

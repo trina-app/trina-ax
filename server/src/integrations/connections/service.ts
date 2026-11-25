@@ -27,7 +27,7 @@ import {
 import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
-import { serverAppAt } from '@mycel/shared'
+import { officialService, serverAppAt, teamAppAt } from '@mycel/shared'
 import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
@@ -1228,6 +1228,14 @@ export class Integrations {
     if (row.kind !== 'mcp' && !app?.tokenUrl) {
       if (!row.secret_enc) this.setStatus(row, 'needs_auth', 'oauth_unsupported')
       return fail('validation', say('oauthHttpNeedsApp', L))
+    }
+    // a listed service that signs in only through the team's own app (Asana, HubSpot, Box) and has none: nothing is
+    // looked up, registered or opened (a member of a template signs in through the template's app). Not a try at the
+    // service, so it counts toward no limit
+    if (!app && row.kind === 'mcp' && teamAppAt(row.url)) {
+      const reason = row.template_id ? 'oauth_no_registration_member' : 'oauth_needs_team_app'
+      if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
+      return fail('validation', say(reason, L, { name: officialService(row.url)?.name ?? row.name }))
     }
     let setup: { server: OAuthServer; resource: string | null; scope: string | null; authMethods: string[] | null; metadataClients?: boolean }
     let client: OAuthClient

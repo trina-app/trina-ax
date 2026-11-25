@@ -25,7 +25,7 @@ import { Check, ChevronRight, Copy, Plus, Search, TriangleAlert, UserPlus } from
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, RemoteIntegrationKind as IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { connectorLogo, type Connector } from '../../lib/connectors'
+import { connectorLogo, connectorTeamApp, type Connector } from '../../lib/connectors'
 import {
   appInput, appPatch, authOf, storedSecretStays, CLIENT_ID_MAX, CLIENT_SECRET_MAX, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, SCOPE_MAX, serverFieldErrors, toInput, toPatch, URL_MAX, usesApp, validate, withKind,
   type FormErrors, type FormField, type IntegrationForm, type SignInMethod,
@@ -88,13 +88,17 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
     // a team connection ("For the team") and a template both start with the whole team; the admin may narrow it under
     // Advanced (QA TC-134 retest: "For the team" with only the admin ticked was not what the button says)
     const blank = emptyForm('mcp', team ? { ...TEAM_DEFAULT_ACCESS } : null)
-    return connector ? { ...blank, name: connector.name, url: connector.url } : blank
+    return connector ? listedForm(blank, connector) : blank
   })
   // Admin's Add: the list of apps first; a picked one fills the form like one added from Discover
   const [picking, setPicking] = useState(!!choices && !connector && !existing && !template)
   const [picked, setPicked] = useState<Connector | undefined>()
+  // the "who" before a pick of an app that set it to template by itself (null: none did)
+  const autoTemplate = useRef<Who | null>(null)
   const [query, setQuery] = useState('')
   const conn = connector ?? picked
+  // a listed service that signs in only through the team's own app (Asana, HubSpot, Box): its app up front, not optional
+  const teamApp = conn && !fromTeam ? connectorTeamApp(conn) : null
   // where a new custom connector runs: the internet (this form) or this computer (useLocalProgram)
   const offerLocal = !!local && scope === 'personal' && !existing && !template && !connector
   const [where, setWhere] = useState<'internet' | 'computer'>(local === 'only' ? 'computer' : 'internet')
@@ -127,7 +131,11 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   const users = useAdminUsers(team)
   // a template takes no key: what is wrong with one is not this form's
   const checked = validate(f, existing, template ? { app: template.oauthClient, url: template.url } : undefined)
-  const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked
+  const errors0: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked
+  // these services sign in only through a confidential app: without its secret every member's sign-in would fail at the
+  // token exchange, so Save asks for it (a new connection or template: nothing is stored yet)
+  const errors: FormErrors = teamApp && f.method === 'oauth' && usesApp(f) && !f.clientSecret.trim() && !errors0.clientSecret
+    ? { ...errors0, clientSecret: 'integrations.error.clientSecret' } : errors0
   const phone = !!mobileApp()
   const dropped = dropsSecret(f, existing)
   const signInNext = !asTemplate && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)
@@ -157,8 +165,14 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
     setPicked(c)
     setF((x) => {
       const blank = { ...emptyForm('mcp', x.access), writePolicy: x.writePolicy }
-      return c ? { ...blank, name: c.name, url: c.url } : blank
+      return c ? listedForm(blank, c) : blank
     })
+    // one that signs in only through the team's own app: as a template, so every member it is for signs in through it;
+    // picking another app after Back gives back the choice made before
+    if (team && !existing && !template) {
+      if (c && connectorTeamApp(c)) { if (autoTemplate.current === null) autoTemplate.current = who; setWho('template') }
+      else if (autoTemplate.current !== null) { setWho(autoTemplate.current); autoTemplate.current = null }
+    }
     setTouched({})
     setEdited({})
     setSubmitted(false)
@@ -400,6 +414,15 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
           {f.method === 'oauth' && f.kind === 'http' && !fromTeam && (
             <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
           )}
+          {teamApp && conn && f.method === 'oauth' && f.kind === 'mcp' && (
+            <div className="space-y-3" data-testid="integration-team-app">
+              <p className="text-sm text-muted">
+                {t('integrations.teamApp.guide', { name: conn.name })}{' '}
+                <a href={teamApp.guide} target="_blank" rel="noopener noreferrer" className="font-medium text-accent-text hover:underline" data-testid="integration-team-app-guide">{t('integrations.teamApp.howTo', { name: conn.name })}</a>
+              </p>
+              <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} required />
+            </div>
+          )}
           {/* a team connection: who it is for and, when signing in comes next, that note, as one quiet line; Change opens who may use it */}
           {forLine && f.access && (
             <div>
@@ -490,7 +513,7 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
               {/* most MCP servers register an app by themselves: their own app is the exception, one click away. GitHub is
                   listed but registers none: a server without the GitHub App, or a company that wants its own, sets one here
                   (docs/INTEGRATIONS.md "GitHub") */}
-              {f.method === 'oauth' && f.kind === 'mcp' && (!conn || 'serverApp' in conn) && !fromTeam && (
+              {f.method === 'oauth' && f.kind === 'mcp' && (!conn || 'serverApp' in conn) && !teamApp && !fromTeam && (
                 <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
               )}
               {(f.kind === 'http' || asTemplate) && !fromTeam && (
@@ -560,7 +583,7 @@ function SelectRow<T extends string>({ id, label, hint, value, onChange, options
 /** Your own app at the service (docs/INTEGRATIONS.md "Your own app"): an MCP server offers it behind a checkbox (most
  * register an app by themselves), an API always shows it. The client secret is write-only like a key. The redirect
  * address is where the service sends the browser back: the one this page is open at, as the server builds it. */
-function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
+function AppSection({ f, stored, storedUrl, change, errorOf, blur, template, required }: {
   f: IntegrationForm
   stored?: OAuthClientView | null
   /** the saved address: a stored secret does not follow a new one */
@@ -570,6 +593,8 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   blur: (k: FormField) => () => void
   /** the team's app on a template: members sign in through it without seeing it */
   template?: boolean
+  /** a service that signs in only through one (connectorTeamApp): its fields, no switch */
+  required?: boolean
 }) {
   const t = useT()
   const { copied, copy } = useCopy()
@@ -581,7 +606,7 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   // an MCP server finds its addresses; given ones (set before) stay visible so they can be fixed or cleared
   const addresses = api || !!f.authUrl.trim() || !!f.tokenUrl.trim()
   const fields = (
-    <div className={clsx('space-y-4', !api && 'mt-3')} data-testid="integration-app-fields">
+    <div className={clsx('space-y-4', !api && !required && 'mt-3')} data-testid="integration-app-fields">
       <div className="flex items-center gap-2 rounded-lg bg-hover px-3 py-2">
         <span className="min-w-0 flex-1">
           <span className="block text-xs text-muted">{t('integrations.app.redirect')}</span>
@@ -624,7 +649,7 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
       </Field>
     </div>
   )
-  if (api) return fields
+  if (api || required) return fields
   // a row like Team settings': the words on the left, a switch on the right; the app's fields open under it
   return (
     <Row id={switchId} label={t('integrations.app.use')} hint={t('integrations.app.useShort')} testId="integration-app" below={f.ownApp ? fields : undefined}>
@@ -829,4 +854,11 @@ export function AccessPicker({ value, onChange, groups, users, me, error, templa
       )}
     </fieldset>
   )
+}
+
+/** A new connection to a listed service: its name and address; one that signs in only through the team's own app with
+ * that app switched on and the scope the service takes (Asana: `default`) filled in. */
+function listedForm(blank: IntegrationForm, c: Connector): IntegrationForm {
+  const app = connectorTeamApp(c)
+  return { ...blank, name: c.name, url: c.url, ...(app ? { ownApp: true, scope: app.scope ?? '' } : {}) }
 }
