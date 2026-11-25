@@ -36,8 +36,8 @@ import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
-import { MAIL_FIELD_WORDS, say } from './text'
-import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type FieldWords, type ToolKind } from './card-lines'
+import { MAIL_FIELD_WORDS, say, type TextKey } from './text'
+import { cardLines, changeAction, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type ChangeAction, type FieldWords, type ToolKind } from './card-lines'
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
@@ -308,7 +308,20 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   /** the short title or description the AI gave the call (titleArg): the card's plain sentence */
   title?: string | null
   /** the tool only makes something new (createTool): no card in a turn the person watches */
-  create?: boolean }
+  create?: boolean
+  /** what the call does (card-lines.ts changeAction): the card's sentence, question and buttons say it; none (an HTTP API
+   * request) is a send */
+  action?: ChangeAction }
+
+/** The write card's words for what a call does (docs/decisions/20261125-change-card-action-verb.md): only a send says
+ * "send"; a draft is saved, an event added, a file changed or deleted */
+const CARD_WORDS: Record<ChangeAction, { confirm: TextKey; ask: TextKey; once: TextKey; yes: TextKey; no: TextKey; label: TextKey; check: TextKey }> = {
+  send: { confirm: 'confirm', ask: 'ask', once: 'once', yes: 'yes', no: 'no', label: 'sendsLabel', check: 'checkBelow' },
+  save: { confirm: 'confirmSave', ask: 'askSave', once: 'onceSave', yes: 'yesSave', no: 'noSave', label: 'labelSave', check: 'checkBelowChange' },
+  add: { confirm: 'confirmAdd', ask: 'askAdd', once: 'onceAdd', yes: 'yesAdd', no: 'noAdd', label: 'labelAdd', check: 'checkBelowChange' },
+  delete: { confirm: 'confirmDelete', ask: 'askDelete', once: 'onceDelete', yes: 'yesDelete', no: 'noDelete', label: 'labelDelete', check: 'checkBelowChange' },
+  change: { confirm: 'confirmChange', ask: 'askChange', once: 'onceChange', yes: 'yesChange', no: 'noChange', label: 'labelChange', check: 'checkBelowChange' },
+}
 
 /** Words in a tool's name or title that say it reaches other people (a post, a mail, a message, a share, an invite …) */
 const TO_OTHERS = /send|post|mail|messag|repl(y|ies)|forward|invit|publish|tweet|comment|notif|broadcast|sms|chat|respond|answer|share|member|permission|access|grant|collaborat|visib|schedul|meeting|calendar|event/i
@@ -771,9 +784,11 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const sentence = sent.runs ? (sent.title ? say('actTitled', L, { name: row.name, title: sent.title }) : say('runCode', L, { name: row.name })) : say('actTool', L, { name: row.name, what: what(L) })
   // a shared chat's change on a team connection asks every time (sharedAlwaysKey): the card says why, in one line
   const teamLine = plain && sharedMode && row.scope === 'team' ? `\n\n${say('teamEachTime', L)}` : ''
+  // what the call does (Sent.action): the sentence, question, buttons and label say it; an HTTP API request sends one
+  const words = CARD_WORDS[sent.request ? 'send' : sent.action ?? 'send']
   const question = plain
     ? `${practice}${lead}${sentence}${teamLine}`
-    : `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+    : `${practice}${lead}${say(sent.request ? 'confirmRequest' : words.confirm, L, { name: row.name, what: what(L) })}\n\n${say(words.check, L)}\n\n${say(words.ask, L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const full = new Map(whole.map((f) => [f.name, f.value]))
@@ -792,7 +807,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const cut = foldTeam ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
   const folded = cut.some((f, i) => f !== shown.fields[i]) || base !== shown.fields
   const hide = plain && !teamCall
-  const details = [{ label: say('sendsLabel', L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}), ...(sent.runs ? {} : { callJson: true as const }) }]
+  const details = [{ label: say(words.label, L), text, ...(cut.length ? { fields: cut } : {}), ...(marks.length ? { marks } : {}), ...((shown.exact || folded) && sent.text.trim() ? { exact: true as const } : {}), ...(hide ? { hidden: true as const } : {}), ...(sent.runs ? {} : { callJson: true as const }) }]
   // Send once, Always allow, Don't send (TC-130): the person's own choice for this connection (Settings turns it back),
   // offered only in a turn they watch from their own app while the team lets people choose it, and not where outside
   // content still asks (a Slack question)
@@ -809,7 +824,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   }
   if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks) && !activeDemoFakes()) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
-    const v = await person.choose(question, [{ label: say(plain ? 'unsureOnce' : 'once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say(plain ? 'unsureNo' : 'no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
+    const v = await person.choose(question, [{ label: say(plain ? 'unsureOnce' : words.once, L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say(plain ? 'unsureNo' : words.no, L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
     if (v === 'always') return 'always'
     throw new CallError(refusal({
@@ -817,7 +832,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: 'ask the user what they want', names: [row.name],
     }), cardEndShort('declined'))
   }
-  const end = await askConfirm(person, question, say(plain ? 'unsureOnce' : 'yes', L), say(plain ? 'unsureNo' : 'no', L), { details })
+  const end = await askConfirm(person, question, say(plain ? 'unsureOnce' : words.yes, L), say(plain ? 'unsureNo' : words.no, L), { details })
   if (end !== 'yes') {
     throw new CallError(refusal({
       done: end === 'declined' ? `The user did not allow this, so nothing was sent to ${row.name}.` : `Nothing was sent to ${row.name}.`,
@@ -1296,7 +1311,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), action: changeAction(t, args), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)

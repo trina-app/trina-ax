@@ -6,6 +6,7 @@
 import { readableToolName } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { opaqueParts } from '../../tools/url-gate'
+import { argsReachOthers, nameWords, plainName } from './read-mark'
 import { demoHiggsfieldToolWord, FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
 
 /** more values than this, nested deeper, or more characters in all: no lines, the JSON open */
@@ -164,3 +165,77 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
 
 /** One line of a card: a value under its name in words; `code`: a script, shown in a code block as sent */
 export interface CardLine { name: string; value: string; code?: true }
+
+/** What a change at a service does, as the write card says it (tools.ts gate; docs/decisions/
+ * 20261125-change-card-action-verb.md): it sends something to people, saves something (a draft, a copy), adds something
+ * new, deletes something, or else changes something. The card's sentence, question and buttons follow it ("Save once",
+ * "Don't add"), so saving a Gmail draft or adding a Calendar event is never "Send it?". */
+export type ChangeAction = 'send' | 'save' | 'add' | 'delete' | 'change'
+
+/** words that say the call reaches other people: anywhere in the name or title they make it a send, whatever else is
+ * said ("create_and_send", "draft_and_send", "create_post") */
+const SEND_WORDS = new Set(['send', 'resend', 'reply', 'forward', 'post', 'repost', 'publish', 'share', 'invite', 'notify',
+  'tweet', 'retweet', 'broadcast', 'respond', 'announce', 'dm', 'sms'])
+/** things that go to people: made or written with no other verb ("create_message", "schedule_email", "email_team") they
+ * are a send; drafted, saved or changed they are not ("draft_gmail_message", "modify_gmail_message_labels") */
+const MESSAGE_NOUNS = new Set(['message', 'messages', 'email', 'emails', 'mail', 'mails', 'chat', 'comment', 'comments'])
+const SAVE_WORDS = new Set(['draft', 'drafts', 'save', 'store', 'export', 'backup', 'bookmark'])
+const ADD_WORDS = new Set(['create', 'add', 'new', 'insert', 'append', 'make', 'generate', 'build', 'upload', 'import', 'schedule', 'book', 'duplicate', 'copy', 'clone'])
+const DELETE_WORDS = new Set(['delete', 'remove', 'trash', 'erase', 'purge', 'destroy', 'wipe', 'drop', 'clear', 'cancel', 'unsubscribe', 'uninstall', 'revoke'])
+const CHANGE_WORDS = new Set(['update', 'edit', 'modify', 'change', 'set', 'rename', 'move', 'patch', 'replace', 'mark', 'label', 'archive', 'format', 'resize', 'toggle', 'enable', 'disable', 'assign', 'upsert', 'merge', 'restore', 'complete', 'close', 'reopen', 'sync', 'batch', 'write'])
+
+/** One word's action, or null for a word that names no action ("gmail", "event") */
+function wordAction(w: string): ChangeAction | null {
+  if (SEND_WORDS.has(w)) return 'send'
+  if (SAVE_WORDS.has(w)) return 'save'
+  if (ADD_WORDS.has(w)) return 'add'
+  if (DELETE_WORDS.has(w)) return 'delete'
+  if (CHANGE_WORDS.has(w)) return 'change'
+  return null
+}
+
+/** The action of a list of words: a send word anywhere; else the first action word, where making a thing that goes to
+ * people (a message, a mail, a comment) is a send; else a thing that goes to people with no verb at all ("email_team")
+ * is a send; null when the words name no action */
+function wordsAction(words: readonly string[]): ChangeAction | null {
+  if (words.some((w) => SEND_WORDS.has(w))) return 'send'
+  const at = words.findIndex((w) => wordAction(w) !== null)
+  const toPeople = words.some((w, i) => MESSAGE_NOUNS.has(w) && i > at)
+  if (at < 0) return toPeople ? 'send' : null
+  const first = wordAction(words[at]!)!
+  return first === 'add' && toPeople ? 'send' : first
+}
+
+/** A "manage_*" style tool's own choice of what it does: its `action` / `operation` / `op` argument ("create", "update",
+ * "delete"), as an action; null when the call names none this reads */
+function argAction(args: unknown): ChangeAction | null {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null
+  const a = args as Record<string, unknown>
+  const v = [a.action, a.operation, a.op].find((x) => typeof x === 'string' && x.trim())
+  return typeof v === 'string' ? wordsAction(nameWords(plainName(v.slice(0, 80)))) : null
+}
+
+/** The call's arguments without empty values (an empty "attendees": [] names nobody) */
+function filled(v: unknown, depth = 0): unknown {
+  if (depth > 6 || v === null || v === undefined || v === '') return undefined
+  if (Array.isArray(v)) { const xs = v.map((x) => filled(x, depth + 1)).filter((x) => x !== undefined); return xs.length ? xs : undefined }
+  if (typeof v !== 'object') return v
+  const out = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, filled(x, depth + 1)] as const).filter(([, x]) => x !== undefined))
+  return Object.keys(out).length ? out : undefined
+}
+
+/**
+ * What a call of this tool does, for the card's words: `send` whenever the name or title (or the call's own action
+ * argument) says it reaches people, or the call names someone it reaches (a "to", attendees: read-mark.ts
+ * argsReachOthers) and it does not only save (a draft has a "to" but goes nowhere); else the call's own action argument
+ * ("manage_event" with action "create": add); else the name's words, then the title's (wordsAction); else `change`. An
+ * HTTP API request is not read here (its card names a request).
+ */
+export function changeAction(tool: { name: string; title?: string | null }, args?: unknown): ChangeAction {
+  const name = wordsAction(nameWords(plainName(tool.name)))
+  const title = wordsAction(nameWords(plainName(tool.title)))
+  const own = argAction(args)
+  if (name === 'send' || title === 'send' || own === 'send') return 'send'
+  const action = own ?? name ?? title ?? 'change'
+  return action !== 'save' && argsReachOthers(filled(args)) ? 'send' : action
+}
