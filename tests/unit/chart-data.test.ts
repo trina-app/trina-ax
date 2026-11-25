@@ -137,6 +137,13 @@ describe('security review of #573: only a chart\'s own, plain, internal workbook
     expect(() => officeExitRequest(frame('pptx', retarget('..\\embeddings\\a.xlsx')))).toThrow()
     expect(() => officeExitRequest(frame('pptx', retarget('../embeddings/a%2Exlsx', { 'ppt/embeddings/a%2Exlsx': wb })))).toThrow(/package/)
     expect(() => officeExitRequest(frame('pptx', retarget('/ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx')))).toThrow(/package/)
+    // a query, fragment or space in the target: a reader may open ppt/embeddings/a (here a macro workbook never scanned)
+    const macro = edit(wb, { 'xl/vbaProject.bin': enc.encode('macro') })
+    for (const t of ['a?.xlsx', 'a#.xlsx', 'a .xlsx']) {
+      const d = retarget(`../embeddings/${t}`, { [`ppt/embeddings/${t}`]: wb, 'ppt/embeddings/a': macro })
+      expect(() => officeExitRequest(frame('pptx', d))).toThrow(/package/)
+      expect(() => checkOfficeLinks('pptx', d)).toThrow(/package/)
+    }
   })
 
   test('a part named like a chart but not typed as one, or a package the chart does not name, is refused', () => {

@@ -22,8 +22,9 @@ const OBJECT_RELS = new Set(['oleObject', 'package', 'control', 'activeXControl'
 const ATTACHED_TEMPLATE = 'attachedTemplate'
 /** where a chart's data workbook sits: an .xlsx in the embeddings folder beside the charts (never .xls / .bin / .xlsm) */
 const CHART_WORKBOOK = /^(ppt|word|xl)\/embeddings\/[^/]+\.xlsx$/
-/** a chart's relationship target that is a plain relative path: no scheme, share, rooted path, backslash or escape */
-const PLAIN_TARGET = /^(?![./]*\/\/)(?!\/)[^:\\%]+$/
+/** a chart's relationship target that is a plain relative path: no scheme, share, rooted path, backslash, escape, query,
+ * fragment or white space (a reader may cut the name at ? or # and open another part) */
+const PLAIN_TARGET = /^(?![./]*\/\/)(?!\/)[^:\\%?#\s]+$/
 /** chart data workbooks checked in one scan, at most, and their bytes together */
 export const CHART_WORKBOOKS_MAX = 500
 export const CHART_WORKBOOK_BYTES_MAX = 64 * 1024 * 1024
