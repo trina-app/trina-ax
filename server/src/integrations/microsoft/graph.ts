@@ -105,11 +105,12 @@ export function accountName(v: unknown): string | null {
   return t && t.length <= 320 && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(t) ? t : null
 }
 
-/** The signed-in Microsoft account (one Graph call, `User.Read`, asked for at sign-in): its stable id, which a person's
- * choices are bound to, and what people read as the connection's account: its sign-in name (userPrincipalName), else
+/** The signed-in Microsoft account (one Graph call, `User.Read`, asked for at sign-in): its id (used when a sign-in's
+ * id_token did not name it, store.ts MicrosoftAccount), and what people read as the connection's account: its sign-in name (userPrincipalName), else
  * its mail address, else its display name. */
 export async function microsoftMe(g: Graph): Promise<{ id: string | null; label: string | null }> {
   const me = await g.call<{ id?: unknown; displayName?: unknown; mail?: unknown; userPrincipalName?: unknown }>({ path: '/me', query: { select: 'id,displayName,mail,userPrincipalName' } })
-  const id = typeof me?.id === 'string' && /^[A-Za-z0-9._@:-]{1,128}$/.test(me.id) ? me.id : null
+  // a work or school account's id is its Entra object id, a GUID: lowercased, as the id_token's oid (oauth.ts idSubject)
+  const id = typeof me?.id === 'string' && /^[A-Za-z0-9._@:-]{1,128}$/.test(me.id) ? (/^[0-9a-f-]{36}$/i.test(me.id) ? me.id.toLowerCase() : me.id) : null
   return { id, label: accountName(me?.userPrincipalName) ?? accountName(me?.mail) ?? accountName(me?.displayName) }
 }

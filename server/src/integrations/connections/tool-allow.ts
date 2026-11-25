@@ -14,7 +14,7 @@ import type { ConnectorSendAllowance, ConnectorToolAllowance } from '@mycel/shar
 import { audit } from '../../admin/audit'
 import { teamAllowsAlways } from '../../chat/always-allow'
 import { toolTitle } from './card-lines'
-import { accountKey, savedTools, type Row } from './store'
+import { accountKey, savedTools, UNKNOWN_ACCOUNT, type Row } from './store'
 
 /** The tool name of "<connector> 전체 항상 허용": every tool of the connection (a NUL is never in an MCP tool's name) */
 export const ALL_TOOLS = '\u0000all'
@@ -24,6 +24,8 @@ export const ALL_TOOLS = '\u0000all'
  * comes back on its own */
 function boundRow(db: Database, integrationId: string, userId: string, tools: readonly string[], bind: string): boolean {
   if (!teamAllowsAlways(db)) return false
+  // the account is not known yet: ask, and keep every choice until it is (store.ts UNKNOWN_ACCOUNT)
+  if (unknownBind(bind)) return false
   const rows = db.query(`SELECT a.tool, a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool IN (${tools.map(() => '?').join(', ')}) AND u.status = 'active' AND u.deleted_at IS NULL`)
     .all(userId, integrationId, ...tools) as { tool: string; url: string }[]
   let ok = false
@@ -57,12 +59,12 @@ export function keepToolAllow(db: Database, row: Pick<Row, 'id' | 'url' | 'accou
   audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_tool', integration: row.id, tool, on: true, via: 'card', turnId } })
 }
 
-/** The connection's account got its key (a Microsoft 365 connection named for the first time: service.ts
- * nameMicrosoftAccount): every person's choices bound to it while the account was unknown follow it, so none is dropped
- * (Always allow is final, docs/decisions/20261122-connector-always-allow.md). Only for that first naming, never for a
- * sign-in to another account (those ask again). */
+/** A Microsoft 365 connection signed in before its account was named, named now for the tokens it already had
+ * (service.ts nameMicrosoftAccount, the check path only, never a new sign-in): every person's choices bound to it while
+ * its account was unknown follow it, so none is dropped (Always allow is final,
+ * docs/decisions/20261122-connector-always-allow.md). A sign-in to another account never moves them (they ask again). */
 export function rebindAccount(db: Database, integrationId: string, from: string, to: string): void {
-  if (from !== to) db.query('UPDATE connector_tool_allow SET url = ? WHERE integration_id = ? AND url = ?').run(to, integrationId, from)
+  if (from !== to && !unknownBind(to)) db.query('UPDATE connector_tool_allow SET url = ? WHERE integration_id = ? AND url = ?').run(to, integrationId, from)
 }
 
 /** The tool name a row has for the shared connection card's Always (no tool: the whole connection's answers) */
@@ -71,6 +73,7 @@ export const SHARED_TOOL = ''
 /** What the shared connection card's Always is bound to: the connection's address and the account it is signed in to
  * (a reconnect to another account asks again), never its version (a changed setting does not end a person's choice) */
 export const sharedBind = (row: Pick<Row, 'url' | 'account'>) => `${row.url}#${accountKey(row.account)}`
+const unknownBind = (bind: string) => bind.endsWith(`#${UNKNOWN_ACCOUNT}`)
 
 /** The shared connection card's Always (chat/turn.ts confirmSharedConnection), or the whole connection's: this person
  * lets what this connection returns show to the people in any shared chat they ask in, without the card, as things are
@@ -100,7 +103,7 @@ export const warnPlace = (shared: { kind: 'project'; projectId: string } | { kin
 export function warnSeen(db: Database, integrationId: string, userId: string, place: string, bind: string): boolean {
   const r = db.query("SELECT a.url FROM connector_tool_allow a JOIN users u ON u.id = a.user_id WHERE a.user_id = ? AND a.integration_id = ? AND a.tool = ? AND u.status = 'active' AND u.deleted_at IS NULL")
     .get(userId, integrationId, WARNED_PREFIX + place) as { url: string } | null
-  return !!r && r.url === bind
+  return !!r && r.url === bind && !unknownBind(bind)
 }
 
 /** Keep that the person went on from the notice (their own press). Audited. */
@@ -134,7 +137,8 @@ export function listToolAllows(db: Database, userId: string): ConnectorToolAllow
     WHERE a.user_id = ? ORDER BY a.created_at DESC`).all(userId) as { integration_id: string; tool: string; bound: string; created_at: string; name: string; tools_rev: number; url: string; account: string | null }[]
   // a row whose connection moved or signed in to another account no longer counts: removed here, so it never comes back
   // on its own if the address returns (code review)
-  const stale = rows.filter((r) => r.bound !== sharedBind(r))
+  // (a connection whose account is not known yet keeps them, unlisted until it is: store.ts UNKNOWN_ACCOUNT)
+  const stale = rows.filter((r) => r.bound !== sharedBind(r) && !unknownBind(sharedBind(r)))
   for (const r of stale) db.query('DELETE FROM connector_tool_allow WHERE user_id = ? AND integration_id = ? AND tool = ?').run(userId, r.integration_id, r.tool)
   return rows.filter((r) => r.bound === sharedBind(r)).map((r) => {
     if (r.tool === ALL_TOOLS) return { kind: 'connector_tool' as const, id: idOf(r.integration_id, r.tool), connection: r.name, tool: 'All tools', all: true, createdAt: r.created_at }

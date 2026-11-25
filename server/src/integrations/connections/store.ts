@@ -232,9 +232,11 @@ export function signsTeamGoogleApp(db: Database, user: string, except?: string):
 }
 
 /** A Microsoft 365 connection's account (connections/service.ts nameMicrosoftAccount), kept as JSON:
- * `{ microsoft: <Graph /me id or null>, label: <what people read or null>, check?: true }`. `microsoft` is the stable
- * account the "Always allow" answers are bound to (accountKey), never the label, which Microsoft may rename; `check`:
- * Graph did not answer at the last sign-in, so the next check reads it again. Any other account is kept as it is. */
+ * `{ microsoft: <account id or null>, label: <what people read or null>, check?: true }`. `microsoft`: the account the
+ * stored tokens are for, from the sign-in's id_token (oauth.ts idSubject: Entra's object id, the same as Graph's user
+ * id), never from the label, which Microsoft may rename; null after a sign-in that did not name it (its people's
+ * "Always allow" answers then ask again until it is known, and are kept: accountKey UNKNOWN_ACCOUNT). `check`: Graph
+ * did not answer for the label (or the id) yet, so a later check reads it again. Any other account is kept as it is. */
 export interface MicrosoftAccount { microsoft: string | null; label: string | null; check?: true }
 export function microsoftAccountIn(account: string | null | undefined): MicrosoftAccount | null {
   if (!account || account[0] !== '{') return null
@@ -247,11 +249,16 @@ export function microsoftAccountIn(account: string | null | undefined): Microsof
 }
 /** What people read as the connection's account: a Microsoft 365 one's label, any other as stored */
 export const accountLabel = (account: string | null): string | null => { const m = microsoftAccountIn(account); return m ? m.label : account }
+/** The key of an account not known yet (a Microsoft 365 sign-in that did not name it): no choice bound to an account
+ * matches it, and none is removed for not matching it (tool-allow.ts boundRow) */
+export const UNKNOWN_ACCOUNT = 'unknown'
 /** What a person's choices for a connection are bound to as its account (tool-allow.ts sharedBind, tools.ts sharedKey):
- * a Microsoft 365 connection's Graph id (empty while unknown, as before it was named), any other its stored account */
+ * a Microsoft 365 connection's account id (UNKNOWN_ACCOUNT while a sign-in has not named it), any other its stored
+ * account (a connection signed in before its account was named: the empty one, as before) */
 export function accountKey(account: string | null): string {
   const m = microsoftAccountIn(account)
-  return crypto.createHash('sha256').update(m ? (m.microsoft ? `microsoft:${m.microsoft}` : '') : account ?? '').digest('hex').slice(0, 16)
+  if (m && !m.microsoft) return UNKNOWN_ACCOUNT
+  return crypto.createHash('sha256').update(m ? `microsoft:${m.microsoft}` : account ?? '').digest('hex').slice(0, 16)
 }
 
 /** The Google address a connection's, a Drive connection's or a Drive share's account was confirmed with (JSON with

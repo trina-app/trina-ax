@@ -20,7 +20,24 @@ export interface OAuthServer { issuer: string | null; authorizationEndpoint: str
 /** `registeredScope`: the scope sent with its registration (RFC 7591 `scope`); absent on an app registered without one
  * (before 2026-11-24) and on an own app or a metadata document */
 export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string; registeredScope?: string | null }
-export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
+/** `subject`: the account the tokens are for, from the token answer's OpenID Connect id_token (idSubject), when the
+ * service sent one; a refresh without one keeps the earlier one */
+export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null; subject?: string }
+
+/** The account an OpenID Connect id_token names: Entra's object id (`oid`, the same as Graph's user id), else `sub:` and
+ * its `sub`. Read without checking its signature: it came from the token address itself, over TLS, in answer to this
+ * server's own code (OpenID Connect Core 3.1.3.7, "MAY use the TLS server validation"). Null when unreadable. */
+export function idSubject(idToken: unknown): string | null {
+  if (typeof idToken !== 'string' || idToken.length > 16_384) return null
+  const part = idToken.split('.')[1]
+  if (!part) return null
+  try {
+    const c = JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as { oid?: unknown; sub?: unknown } | null
+    if (typeof c?.oid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.oid)) return c.oid.toLowerCase()
+    if (typeof c?.sub === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(c.sub)) return `sub:${c.sub}`
+  } catch {}
+  return null
+}
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
 export interface OAuthSecret {
@@ -367,7 +384,8 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   // a number, or a number written as text (NAVER WORKS sends "86400")
   const life = typeof j.expires_in === 'string' && /^\d{1,9}$/.test(j.expires_in) ? Number(j.expires_in) : j.expires_in
   const exp = typeof life === 'number' && Number.isFinite(life) && life > 0 ? Math.min(life, 31_536_000) : null
-  return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
+  const subject = idSubject(j.id_token) ?? previous?.subject ?? null
+  return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null, ...(subject ? { subject } : {}) }
 }
 
 /** GitHub's token-address errors and the standard name each stands for (RFC 6749 5.2) */

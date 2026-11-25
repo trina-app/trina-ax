@@ -1044,9 +1044,9 @@ export class Integrations {
         // answer then): named now; after a try Graph did not answer, not again for MS_NAME_RETRY_MS
         const now = getRow(this.db, row.id)
         const known = microsoftAccountIn(now?.account)
-        if (now && now.secret_enc && serverAppAt(now.url) === 'microsoft' && (!known || known.check) && this.now() - (this.msTried.get(now.id) ?? -Infinity) >= MS_NAME_RETRY_MS) {
+        if (now && now.secret_enc && serverAppAt(now.url) === 'microsoft' && (!known || !known.microsoft || known.check) && this.now() - (this.msTried.get(now.id) ?? -Infinity) >= MS_NAME_RETRY_MS) {
           // the token first: a refresh replaces the stored tokens, and the name goes with the ones stored then
-          try { const token = await this.oauthToken(now, undefined, deadline); const cur = getRow(this.db, row.id); if (cur?.secret_enc) await this.nameMicrosoftAccount(cur.id, cur.secret_enc, token, cur.account) } catch (err) { this.msTried.set(now.id, this.now()); this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
+          try { const token = await this.oauthToken(now, undefined, deadline); const cur = getRow(this.db, row.id); if (cur?.secret_enc) await this.nameMicrosoftAccount(cur.id, cur.secret_enc, token, cur.account, null) } catch (err) { this.msTried.set(now.id, this.now()); this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
         }
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
@@ -1077,26 +1077,29 @@ export class Integrations {
     return getRow(this.db, row.id) ?? row
   }
 
-  /** The Microsoft account a Microsoft 365 connection's tokens are for (Graph /me: microsoft/graph.ts microsoftMe), kept
-   * as its `account` (store.ts MicrosoftAccount) while those tokens (`enc`) are the stored ones; `prev`: its account
-   * before. The account's Graph id is what people's "Always allow" answers are bound to (store.ts accountKey):
-   *  - named for the first time (no id before): every answer given while it was unknown follows it (rebindAccount);
-   *  - the same account again: nothing changes for them, whatever its name now;
-   *  - another account: they ask again (bound to the other id);
-   *  - Graph did not answer: the account stays as it was, marked to read again (`check`), at the next check after
-   *    MS_NAME_RETRY_MS; no answer is dropped. Graph answering with no usable name: no label, and not asked again. */
-  private async nameMicrosoftAccount(id: string, enc: string, token: string, prev: string | null): Promise<void> {
+  /** The Microsoft account a Microsoft 365 connection's tokens are for, kept as its `account` (store.ts MicrosoftAccount)
+   * while those tokens (`enc`) are the stored ones; `prev`: its account before. People's "Always allow" answers are
+   * bound to the account's id (store.ts accountKey), never to its label:
+   *  - a new sign-in (`signIn`): the id its token answer's id_token named (oauth.ts idSubject), else the one Graph /me
+   *    names for these new tokens, else unknown (its answers ask again and are kept until it is known). Never the
+   *    earlier account's id, and nothing is moved: another account's answers ask again;
+   *  - a check (`signIn` null) of a connection signed in before its account was named (no account stored): the id Graph
+   *    names for the tokens it already had, and the answers given while it was unnamed follow it (rebindAccount);
+   *  - Graph /me gives only the label. Not answering: the label stays empty (or the same account's earlier one), marked
+   *    `check`, and a check tries again after MS_NAME_RETRY_MS; answering with no usable name is not asked again. */
+  private async nameMicrosoftAccount(id: string, enc: string, token: string, prev: string | null, signIn: { subject: string | null } | null): Promise<void> {
     const before = microsoftAccountIn(prev)
     let me: { id: string | null; label: string | null } | null = null
     try { me = await microsoftMe(new Graph(token, this.net)) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id, err: errorForLog(err) }) }
-    let next: MicrosoftAccount
-    if (me?.id) { this.msTried.delete(id); next = { microsoft: me.id, label: me.label } }
-    else { this.msTried.set(id, this.now()); next = { microsoft: before?.microsoft ?? null, label: before?.label ?? null, check: true } }
+    if (me) this.msTried.delete(id); else this.msTried.set(id, this.now())
+    const subject = signIn ? signIn.subject ?? me?.id ?? null : before?.microsoft ?? me?.id ?? null
+    const same = !!subject && before?.microsoft === subject
+    const next: MicrosoftAccount = { microsoft: subject, label: me ? me.label : same ? before!.label : null, ...(me && subject ? {} : { check: true as const }) }
     const account = JSON.stringify(next)
     this.db.transaction(() => {
       if (!this.db.query('UPDATE integrations SET account=? WHERE id=? AND secret_enc=?').run(account, id, enc).changes) return
       const url = getRow(this.db, id)?.url
-      if (url && !before?.microsoft && next.microsoft) rebindAccount(this.db, id, sharedBind({ url, account: prev }), sharedBind({ url, account }))
+      if (url && !signIn && prev === null && next.microsoft) rebindAccount(this.db, id, sharedBind({ url, account: prev }), sharedBind({ url, account }))
     })()
   }
 
@@ -1587,7 +1590,7 @@ export class Integrations {
       try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
       // Microsoft 365: the account these tokens are for, named on the connection (another account on a reconnect)
-      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken, cur.account)
+      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken, cur.account, { subject: tokens.subject ?? null })
       await this.check(getRow(this.db, cur.id)!)
     } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
     return { ok: true }
