@@ -300,7 +300,7 @@ export const es: Record<MessageKey, string> = {
   'auth.getApp': "Copiar la invitación y descargar la app",
   'auth.getAppHint': "Después de instalarla, pegue el enlace en la primera pantalla de la app.",
   'auth.continueInBrowser': "Seguir en el navegador",
-  'auth.appOpening': "Abriendo la app de {product}…",
+  'auth.appOpening': "Abriendo la app de {product}… Si el navegador pregunta, elija Abrir.",
   'auth.appOpened': "Se abrió en la app. Puede cerrar esta pestaña.",
   'auth.appNotOpened': "¿No se abrió? Descargue e instale la app y luego pulse Abrir la app.",
   'auth.openApp': "Abrir la app",

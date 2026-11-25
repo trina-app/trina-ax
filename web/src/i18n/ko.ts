@@ -304,7 +304,7 @@ export const ko = {
   'auth.getAppHint': "앱을 설치한 다음 첫 화면에 붙여 넣으세요.",
   'auth.continueInBrowser': "브라우저에서 계속하기",
   // the join pages on a computer, app first (lib/join-open-app.ts)
-  'auth.appOpening': "{product} 앱을 여는 중이에요…",
+  'auth.appOpening': "{product} 앱을 여는 중이에요… 브라우저가 물으면 '열기'를 눌러 주세요.",
   'auth.appOpened': "앱에서 열렸어요. 이 탭은 닫아도 돼요.",
   'auth.appNotOpened': "앱이 안 열렸나요? 앱을 내려받아 설치한 뒤 '앱 열기'를 눌러 주세요.",
   'auth.openApp': "앱 열기",
