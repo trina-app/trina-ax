@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFileRule } from '../../server/src/chat/prompt'
-import { HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
+import { HWP_PLUGIN_HINT, HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
 import { docSkillsReady, writeDocSkills } from '../../server/src/devenv/doc-skills'
 import { officeViewLine } from '../../server/src/files/office-view'
 import { docSkillBundleFiles } from '../../scripts/build-bundle'
@@ -99,8 +99,17 @@ describe('the prompt', () => {
       expect(on).toContain(HWPX_GUIDE)
       expect(on).toContain('look at every page with hwp_render')
       expect(makeFileRule(true, true, skills, true, false)).toContain('You cannot see Hangul pages here')
+      expect(makeFileRule(true, true, skills, true, true, true)).not.toContain(HWP_PLUGIN_HINT)
+      // off: no guide and no .hwpx format, only where to get it (docs/decisions/20261125-hwp-plugin-hint.md)
+      const off = makeFileRule(false, true, skills, true, true, true)
       expect(makeFileRule(false, true, skills, true, true)).not.toContain('Hangul')
+      expect(off).not.toContain(HWPX_GUIDE)
+      expect(off).not.toContain('Hangul (.hwpx)')
+      expect(off).toContain(HWP_PLUGIN_HINT)
     }
+    expect(HWP_PLUGIN_HINT).toContain('Admin › Plugins')
+    expect(HWP_PLUGIN_HINT).toContain('HWP Preview')
+    expect(HWP_PLUGIN_HINT).toContain('.docx')
     expect(HWPX_GUIDE).toContain('::: {.noborder}')
     expect(HWPX_GUIDE).toContain('Never leave an item or a section as a placeholder')
   })
