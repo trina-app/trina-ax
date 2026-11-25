@@ -46,6 +46,11 @@ export const SERVICE_CATALOG = [
   // registration (github-mcp-server issue #1404), so it signs in through the server's GitHub App
   // (server/src/integrations/github/app.ts); a user token of a GitHub App or an OAuth app is accepted (checked 2026-11-20)
   { id: 'github', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp/', serverApp: 'github', aliases: ['깃허브', 'ギットハブ'] },
+  // Microsoft 365 (Outlook mail, Calendar, OneDrive and SharePoint files, Teams chat): no remote MCP server a third-party
+  // app can sign in to, so the tools are this server's own over Microsoft Graph (server/src/integrations/microsoft/),
+  // at a reserved address that never resolves; it signs in through the Microsoft app the server holds
+  // (docs/decisions/20261125-m365-connector.md)
+  { id: 'microsoft365', name: 'Microsoft 365', url: 'https://microsoft-365.invalid/mcp', serverApp: 'microsoft', aliases: ['m365', 'office 365', 'outlook', 'onedrive', 'sharepoint', 'microsoft teams', '마이크로소프트 365', '아웃룩', '원드라이브', '팀즈', 'マイクロソフト365'] },
   { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp', aliases: ['깃랩'] },
   // https://docs.granola.ai/help-center/sharing/integrations/mcp (2026-11-25): any MCP client, dynamic client
   // registration (a registration for a team's https callback answered 201 on 2026-11-25); every Granola plan, the free
@@ -126,7 +131,8 @@ export function adminAllowsDomains(url: string): boolean {
 
 /** The listed service that signs in through an app this server holds rather than one it registers (GitHub): its id, or
  * null. Only at its exact official address (officialService), so the server's app never signs in for another address. */
-export function serverAppAt(url: string): 'github' | null {
+export type ServerApp = 'github' | 'microsoft'
+export function serverAppAt(url: string): ServerApp | null {
   const c = officialService(url)
   return c && 'serverApp' in c ? c.serverApp : null
 }

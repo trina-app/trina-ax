@@ -32,7 +32,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, SLACK, type Integration, type IntegrationList, type MyIntegrationTemplate, type SlackAdmin } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, connectorTeamApp, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../lib/connectors'
+import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, connectorTeamApp, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, serverAppMissing, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, emptyForm, splitByScope, toInput } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
@@ -291,9 +291,10 @@ function ConnectorsHome() {
   const urls = [...(list.data?.items ?? []).map((i) => i.url), ...fromTeam.urls]
   // GitHub signs in through the server's GitHub App: without one (an older server says nothing: as before) it cannot be
   // connected yet, so its card says so like a Google card the team has not set up (docs/INTEGRATIONS.md "GitHub")
-  // Asana, HubSpot, Box sign in only through the team's own app: not set up until an admin did (a template or a team
-  // connection to it is in Your connectors then, never here)
-  const notSetUp = (c: Connector) => (c.id === 'github' && list.data?.github?.ready === false) || !!connectorTeamApp(c)
+  // Microsoft 365 the same with the server's Microsoft app (docs/decisions/20261125-m365-connector.md); Asana, HubSpot,
+  // Box sign in only through the team's own app: not set up until an admin did (a template or a team connection to it
+  // is in Your connectors then, never here)
+  const notSetUp = (c: Connector) => serverAppMissing(c, list.data) || !!connectorTeamApp(c)
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : notSetUp(c) ? 'off' as const : 'available' as const,
@@ -572,7 +573,7 @@ function ListedPage({ c }: { c: Connector }) {
   // is the team's setup: the page sends the person to it (its row under Your connectors connects it)
   // Asana, HubSpot, Box (connectorTeamApp) are the same, always: only an admin's setup with the team's own app connects them
   const teamApp = !!connectorTeamApp(c)
-  const noServerApp = (c.id === 'github' && list.data?.github?.ready === false) || teamApp
+  const noServerApp = serverAppMissing(c, list.data) || teamApp
   const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
   const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
   // a team connection to it (any state) is the team's setup too: no "set it up" note for an admin then
@@ -589,8 +590,10 @@ function ListedPage({ c }: { c: Connector }) {
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
         status={listed.error?.id === c.id ? <Note tone="warn" testId="connector-connect-error">{listed.error.text}</Note>
           : askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
-          : viaTemplate ? <Note testId={teamApp ? 'connector-team-app-template' : 'connector-github-template'}>{teamApp ? t('connectors.teamApp.viaTemplate', { name: c.name }) : t('connectors.github.viaTemplate')}</Note>
-          : notSetUp && admin ? <Note testId={teamApp ? 'connector-team-app-not-set-up' : 'connector-github-not-set-up'}>{teamApp ? t('connectors.teamApp.notSetUpAdmin', { name: c.name }) : t('connectors.github.notSetUpAdmin')}</Note> : undefined}
+          : viaTemplate ? (teamApp ? <Note testId="connector-team-app-template">{t('connectors.teamApp.viaTemplate', { name: c.name })}</Note>
+            : <Note testId={`connector-${c.id === 'github' ? 'github' : 'microsoft'}-template`}>{t(c.id === 'github' ? 'connectors.github.viaTemplate' : 'connectors.microsoft.viaTemplate')}</Note>)
+          : notSetUp && admin ? (teamApp ? <Note testId="connector-team-app-not-set-up">{t('connectors.teamApp.notSetUpAdmin', { name: c.name })}</Note>
+            : <Note testId={`connector-${c.id === 'github' ? 'github' : 'microsoft'}-not-set-up`}>{t(c.id === 'github' ? 'connectors.github.notSetUpAdmin' : 'connectors.microsoft.notSetUpAdmin')}</Note>) : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>
   )

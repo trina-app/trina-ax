@@ -292,6 +292,18 @@ describe('out of chat:work/', () => {
     expect(copied.content).toContain('no tracked changes; no comments. Problems: 1 comment mark in the text names no comment')
   })
 
+  test('a deck leaving the work folder keeps its charts\' data sheets, and the result says whether Edit Data works (QA A-03-L)', async () => {
+    const chat = await personal()
+    const deck = fs.readFileSync(path.join(import.meta.dir, '..', 'fixtures', 'charts', 'pptxgenjs-charts.pptx'))
+    const p = path.join(chatWork(base, chat), 'out', 'q3-review.pptx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, deck)
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/q3-review.pptx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Saved')
+    expect(saved.content).toContain('all 4 charts are native charts with their data sheet')
+    // saved as built: the exit check no longer refuses the charts' own workbooks
+    expect(Buffer.compare(fs.readFileSync(team('users/alice/q3-review.pptx')), deck)).toBe(0)
+  })
+
   test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
     const chat = await personal()
     const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
