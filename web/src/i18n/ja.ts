@@ -1110,6 +1110,7 @@ export const ja: Record<MessageKey, string> = {
   'files.mineMove': "移動",
   'files.mineEmpty': "ここにアップロードしたファイルは自分だけが見られます。チームと共有するには、チームフォルダーに移動してください。",
   'files.mineEmptyGuest': "ここにアップロードしたファイルは自分だけが見られます。",
+  'files.handFailed': "自分のファイルを開けなかったため、アップロードしていません。もう一度アップロードしてください。",
   'files.uploads': "アップロード",
   'files.preparing': "準備中",
   'files.finishing': "完了処理中",

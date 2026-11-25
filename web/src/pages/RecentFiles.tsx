@@ -8,6 +8,7 @@ import { File as FileIcon, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { handUploads } from '../lib/fileUploads'
+import { PhonePickButton, useDevicePick } from '../components/DevicePick'
 import { myFilesPath } from '../lib/rail'
 import { useMeStrict } from '../store/session'
 import { useLocale, useT } from '../i18n'
@@ -20,7 +21,7 @@ import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { parentPath } from '../lib/paths'
 import { readRecentFiles, useFileLists } from '../store/fileLists'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
-import { Button, ErrorNote, IconButton, Skeleton, useMediaQuery } from '../components/ui'
+import { Button, ErrorNote, Skeleton, useMediaQuery } from '../components/ui'
 
 export default function RecentFiles() {
   const t = useT(), locale = useLocale()
@@ -35,13 +36,15 @@ export default function RecentFiles() {
   const navigate = useNavigate()
   const input = useRef<HTMLInputElement>(null)
   const pick = () => input.current?.click()
-  const picked = (list: FileList | null) => {
-    const files = Array.from(list ?? [])
+  const picked = (files: File[]) => {
     if (input.current) input.current.value = ''
     if (!files.length) return
     handUploads(files, `users/${me.user.id}`)
     navigate(myFilesPath(me.user.id))
   }
+  // a phone: our sheet's device rows (사진 보관함, 사진 찍기, 파일), never iOS's raw menu of a file input
+  // (docs/decisions/20261118-our-file-picker-everywhere.md); a computer: the file window at once
+  const device = useDevicePick({ onFiles: picked, testIds: 'recent-add', filesTestId: 'recent-upload-input' })
   const backLabel = useBackLabel('/files', () => null)
   const load = useCallback(async (fresh = false) => {
     try {
@@ -69,9 +72,9 @@ export default function RecentFiles() {
           backTestId="files-back"
           titleTestId="files-title"
           action={
-            <IconButton label={t('files.uploadToMine')} onClick={pick} className="size-11 shrink-0" data-testid="recent-upload">
-              <Upload size={20} />
-            </IconButton>
+            <PhonePickButton pick={device} label={t('files.uploadToMine')} className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-hover" testId="recent-upload">
+              <Upload size={20} aria-hidden />
+            </PhonePickButton>
           }
         />
       ) : (
@@ -82,7 +85,7 @@ export default function RecentFiles() {
           </Button>
         </div>
       )}
-      <input ref={input} type="file" multiple hidden onChange={(e) => picked(e.target.files)} data-testid="recent-upload-input" />
+      {!phone && <input ref={input} type="file" multiple hidden onChange={(e) => picked(Array.from(e.target.files ?? []))} data-testid="recent-upload-input" />}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-4">
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={5} className="px-2" />}

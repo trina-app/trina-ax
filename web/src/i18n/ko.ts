@@ -1133,6 +1133,7 @@ export const ko = {
   'files.mineMove': "옮기기",
   'files.mineEmpty': "여기 올린 파일은 나만 봐요. 팀과 같이 보려면 팀 폴더로 옮기세요.",
   'files.mineEmptyGuest': "여기 올린 파일은 나만 봐요.",
+  'files.handFailed': "내 파일을 열지 못해서 올리지 않았어요. 다시 올려 주세요.",
   'files.uploads': '올리는 파일',
   'files.preparing': '준비 중',
   'files.finishing': '마무리 중',

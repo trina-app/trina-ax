@@ -1134,6 +1134,7 @@ export const en: Record<MessageKey, string> = {
   'files.mineMove': "Move",
   'files.mineEmpty': "Only you can see files you upload here. To share them with your team, move them to a team folder.",
   'files.mineEmptyGuest': "Only you can see files you upload here.",
+  'files.handFailed': "My files didn't open, so nothing was uploaded. Please upload again.",
   'files.uploads': 'Uploads',
   'files.preparing': 'Preparing',
   'files.finishing': 'Finishing',

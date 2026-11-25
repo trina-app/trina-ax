@@ -1109,6 +1109,7 @@ export const zh: Record<MessageKey, string> = {
   'files.mineMove': "移动",
   'files.mineEmpty': "上传到这里的文件只有你能看到。要与团队共享，请移到团队文件夹。",
   'files.mineEmptyGuest': "上传到这里的文件只有你能看到。",
+  'files.handFailed': "未能打开我的文件，因此没有上传。请重新上传。",
   "files.uploads": "上传",
   "files.preparing": "准备中",
   "files.finishing": "即将完成",

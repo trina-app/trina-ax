@@ -1110,6 +1110,7 @@ export const es: Record<MessageKey, string> = {
   'files.mineMove': "Mover",
   'files.mineEmpty': "Solo usted puede ver los archivos que sube aquí. Para compartirlos con su equipo, muévalos a una carpeta del equipo.",
   'files.mineEmptyGuest': "Solo usted puede ver los archivos que sube aquí.",
+  'files.handFailed': "No se pudo abrir Mis archivos, así que no se subió nada. Vuelva a subirlos.",
   'files.uploads': "Cargas",
   'files.preparing': "Preparando",
   'files.finishing': "Finalizando",

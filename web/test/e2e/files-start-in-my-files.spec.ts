@@ -60,6 +60,19 @@ for (const vp of [{ w: 1440, h: 900 }, { w: 390, h: 844 }]) {
       await expect(line).toHaveCount(0)
     })
 
+    test('a finished upload into 내 파일 does not stay on other folders', async ({ page }) => {
+      // (in-app, from the list beside the rail: a reload would clear the rows anyway)
+      test.skip(isPhone(page), 'the list beside the rail is a computer\'s')
+      await reset(page, { teamLocale: 'ko' })
+      await signIn(page)
+      await page.goto('/files?path=users%2Folga')
+      await page.locator('input[type="file"]').first().setInputFiles({ name: '메모.txt', mimeType: 'text/plain', buffer: Buffer.from('x') })
+      await expect(page.getByTestId('upload-mine-line')).toBeVisible()
+      await page.getByTestId('files-panel-team').filter({ hasText: 'marketing' }).click()
+      await expect(page).toHaveURL(/path=marketing$/)
+      await expect(page.getByTestId('upload-list')).toHaveCount(0)
+    })
+
     test('an upload into a team folder keeps its usual rows, no 내 파일 line', async ({ page }) => {
       await reset(page, { teamLocale: 'ko' })
       await signIn(page)

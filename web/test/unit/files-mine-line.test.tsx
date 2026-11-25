@@ -5,7 +5,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import FileUploads from '../../src/components/FileUploads'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { addFileUpload, handUploads, patchFileUpload, takeHandedUploads, useFileUploads } from '../../src/lib/fileUploads'
+import { addFileUpload, dropHandedUploads, handUploads, patchFileUpload, takeHandedUploads, useFileUploads } from '../../src/lib/fileUploads'
 import { myFilesPath, railRoot, railTarget } from '../../src/lib/rail'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -88,4 +88,21 @@ test("최근 파일's Upload hands the files to 내 파일 once", () => {
   expect(takeHandedUploads('shared')).toBeNull()
   expect(takeHandedUploads('users/mina')).toEqual([f])
   expect(takeHandedUploads('users/mina')).toBeNull()
+})
+
+test('handed files that 내 파일 could not take are dropped, never uploaded later (review of #593)', () => {
+  const f = new File(['x'], 'x.txt')
+  handUploads([f], 'users/mina')
+  expect(dropHandedUploads()).toBe(true)
+  expect(takeHandedUploads('users/mina')).toBeNull()
+  expect(dropHandedUploads()).toBe(false)
+  // a hand-off older than a minute is not taken
+  const realNow = Date.now
+  try {
+    handUploads([f], 'users/mina')
+    Date.now = () => realNow() + 61_000
+    expect(takeHandedUploads('users/mina')).toBeNull()
+  } finally {
+    Date.now = realNow
+  }
 })

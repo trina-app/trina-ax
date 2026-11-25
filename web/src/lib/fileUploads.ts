@@ -41,16 +41,24 @@ export function dropFileUpload(id: number) {
 
 /** Files picked on a page with no folder of its own (최근 파일), handed to the Files page of the folder they go to (내 파일:
  * docs/decisions/20261125-upload-destination.md), which uploads them as its own. Kept in memory only, never stored. */
-let handed: { files: File[]; folder: string } | null = null
+let handed: { files: File[]; folder: string; at: number } | null = null
+/** how long a hand-off waits for its folder to open; an older one is dropped, never uploaded on a later visit */
+const HAND_MS = 60_000
 export function handUploads(files: File[], folder: string) {
-  handed = files.length ? { files, folder } : null
+  handed = files.length ? { files, folder, at: Date.now() } : null
 }
-/** The files handed to `folder`, once. */
+/** The files handed to `folder`, once (and only while fresh). */
 export function takeHandedUploads(folder: string): File[] | null {
   if (!handed || handed.folder !== folder) return null
-  const files = handed.files
+  const { files, at } = handed
   handed = null
-  return files
+  return Date.now() - at <= HAND_MS ? files : null
+}
+/** The page could not take them (its folder did not open, another folder opened): dropped. True when there were some. */
+export function dropHandedUploads(): boolean {
+  const had = !!handed
+  handed = null
+  return had
 }
 
 /** Sign-out or the end of a session: the next person in this tab sees no name of the last one's files, and none of them

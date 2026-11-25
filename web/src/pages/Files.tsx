@@ -50,7 +50,7 @@ import { folderProjectAction, isProjectsFolder, isProjectsTop, projectFolderOf, 
 import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
-import { addFileUpload, dropFileUpload, patchFileUpload, takeHandedUploads, useFileUploads } from '../lib/fileUploads'
+import { addFileUpload, dropFileUpload, dropHandedUploads, patchFileUpload, takeHandedUploads, useFileUploads } from '../lib/fileUploads'
 import { isGuestMe } from '../lib/guests'
 import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
@@ -682,8 +682,9 @@ function Files() {
     uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
       (r) => {
         patchFileUpload(item.id, { status: 'done', saved: r.kind === 'path' ? r.entry.path : joinPath(folder, plan.name) })
-        // one into 내 파일 stays as the "올렸어요 · 나만 봐요 · 옮기기" line until closed or the folder is left
-        if (folder !== mineRoot) setTimeout(() => dropFileUpload(item.id), 4000)
+        // one into 내 파일 stays as the "올렸어요 · 나만 봐요 · 옮기기" line while that line shows (until closed or the
+        // folder is left); any other goes after 4 s
+        if (!(folder === mineRoot && mineLineOn.current)) setTimeout(() => dropFileUpload(item.id), 4000)
         if (onScreen.current?.path === folder) void onScreen.current.load()
       },
       (e) => {
@@ -723,18 +724,16 @@ function Files() {
   // a phone's ⊕ and an empty folder's 올리기: our sheet's device rows (사진 보관함, 사진 찍기, 파일), never iOS's raw menu
   // of a file input with no type (components/DevicePick.tsx)
   const device = useDevicePick({ onFiles: (list) => startUploads(list), testIds: 'files-add', filesTestId: 'files-add-files-input' })
-  // files picked on 최근 파일 (its Upload goes to 내 파일): uploaded here once 내 파일 is open
+  // files picked on 최근 파일 (its Upload goes to 내 파일): uploaded here once 내 파일 is open; 내 파일 not opening, or
+  // another folder opening, drops them (never uploaded on a later visit), and a failure says so
   useEffect(() => {
-    if (!tree || path !== mineRoot) return
-    const files = takeHandedUploads(mineRoot)
-    if (files) startUploads(files)
+    if (path !== mineRoot) return void dropHandedUploads()
+    if (tree) {
+      const files = takeHandedUploads(mineRoot)
+      if (files) startUploads(files)
+    } else if (error && dropHandedUploads()) toast({ level: 'error', text: t('files.handFailed') })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tree, path])
-  // 내 파일 left: its "올렸어요" line goes with it
-  useEffect(() => {
-    if (path === mineRoot) return
-    for (const u of useFileUploads.getState().items) if (u.status === 'done' && u.folder === mineRoot) dropFileUpload(u.id)
-  }, [path, mineRoot])
+  }, [tree, error, path])
   /** 옮기기 on that line: the Move picker this page has (one file), or its bulk Move for several, with their 추천 folders */
   // the picker opens at the team folder's top there (its places), not at 내 파일 where the files already are
   const [pickFromTop, setPickFromTop] = useState(false)
@@ -750,6 +749,13 @@ function Files() {
   }
   // the line only while only I can see 내 파일 (not shared with anyone)
   const mineLine = path === mineRoot && !ownShare?.shared ? { folder: mineRoot, guest: isGuestMe(me), onMove: moveLanded } : null
+  const mineLineOn = useRef(false)
+  mineLineOn.current = !!mineLine
+  // no line (another folder, or 내 파일 shared): its finished rows go, as any other upload's do
+  useEffect(() => {
+    if (mineLine) return
+    for (const u of useFileUploads.getState().items) if (u.status === 'done' && u.folder === mineRoot) dropFileUpload(u.id)
+  }, [!!mineLine, mineRoot]) // eslint-disable-line react-hooks/exhaustive-deps
   // a folder upload ended (also one started before this page opened): the new files are listed
   const folderUploadsSettled = useFolderUploadsSettled()
   useEffect(() => {
