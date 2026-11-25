@@ -825,6 +825,7 @@ export const ko = {
   'steps.results': '결과 {n}개',
   'steps.retriedShort': "안 됨",
   'steps.endDeclined': "거절됨",
+  'steps.cardWaiting': "답을 기다리는 중",
   'steps.endUnanswered': "답 없음",
   'steps.endSkipped': "건너뜀",
   'steps.endRefused': "허용 안 됨",

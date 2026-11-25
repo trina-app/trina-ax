@@ -807,6 +807,7 @@ export const es: Record<MessageKey, string> = {
   'steps.results': "{n, plural, one {# resultado} other {# resultados}}",
   'steps.retriedShort': "No funcionó",
   'steps.endDeclined': "Rechazado",
+  'steps.cardWaiting': "Esperando su respuesta",
   'steps.endUnanswered': "Sin respuesta",
   'steps.endSkipped': "Omitido",
   'steps.endRefused': "No permitido",

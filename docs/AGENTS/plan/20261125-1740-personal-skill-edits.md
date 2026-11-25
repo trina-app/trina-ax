@@ -1,7 +1,7 @@
 # Personal skills: Trina can finish fixing a skill it made; plain names; a waiting card looks waiting
 
 - Date (UTC): 2026-11-25 17:40
-- Branch: `fix/personal-skill-edits` · Status: in progress
+- Branch: `fix/personal-skill-edits` · Status: done
 - Where: server/src/chat (personal-skills.ts, prompt.ts, turn.ts), server/src/skills/personal-guard.ts, shared step
   types, web Steps.tsx. Why: the personal-skill gate and the step list live in the core (docs/REPOSITORY-RULES.md)
 - Version impact: patch (fixes to the feature of #594: edits that were refused, a doubled header line, wording, a step
@@ -41,4 +41,8 @@ a waiting step's mark and its settle after the answer. `bun run typecheck`, `bun
 
 ## Result
 
-Filled in at the end.
+Built as planned. The skill's current text joins the person's own words for its own save (chat/personal-skills.ts
+ownWordsProblem); withOrigin removes any top-level origin line; the step line and the cards say the skill's title; a
+waiting card's step carries `waiting` until its answer settles it (chat/turn.ts settleWaitingStep), and such a step
+stays in view while the step list is folded. The regression test for the edit fails without the fix (checked). Tests:
+tests/unit/personal-skill-edits.test.ts, web/test/unit/steps-card-waiting.test.tsx; prompt pins recorded again.
