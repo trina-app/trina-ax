@@ -35,6 +35,10 @@ export const FETCH_MAX_REDIRECTS = 5
 export const DEFAULT_MAX_CHARS = 40_000
 // the product's own repository (an edition's public one: scripts/edition-source.ts)
 const UA = `Mozilla/5.0 (compatible; ${PRODUCT.artifactBase}-fetch/1.0; +${SOURCE_CODE.repository})`
+/** The agents a page is asked with, in order. Some sites' firewalls drop or refuse the first form (a common rule against
+ * "Mozilla/5.0 (compatible; …)" bots) and answer the plain one (QA A-11-M: autonomy.work closed the connection without
+ * an answer, so the AI wrote a report's figures from search summaries instead of the page). pinnedGetEither. */
+export const FETCH_AGENTS = [UA, `${PRODUCT.artifactBase}-fetch/1.0 (+${SOURCE_CODE.repository})`] as const
 
 // ---------------- address checks ----------------
 const v4 = (s: string): number | null => {
@@ -363,11 +367,28 @@ export function acceptLanguage(locale?: string | null): string {
 }
 
 /** web_fetch's GET (pinnedRequest with the reader's headers). */
-export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean; acceptLanguage?: string }): Promise<RawResponse> {
+export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean; acceptLanguage?: string; userAgent?: string }): Promise<RawResponse> {
   return pinnedRequest(t, {
     deadline: o.deadline, maxBytes: o.maxBytes, insecureTlsForTests: o.insecureTlsForTests, method: 'GET',
-    headers: [['User-Agent', UA], ['Accept', 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5'], ['Accept-Encoding', 'gzip, deflate, br'], ['Accept-Language', o.acceptLanguage ?? acceptLanguage()]],
+    headers: [['User-Agent', o.userAgent ?? UA], ['Accept', 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5'], ['Accept-Encoding', 'gzip, deflate, br'], ['Accept-Language', o.acceptLanguage ?? acceptLanguage()]],
   })
+}
+
+/** What a site's firewall does to an agent it will not serve: closes the connection (no answer or a reset), or 403 / 406. */
+const AGENT_REFUSED = /^(the site sent no valid HTTP response|could not connect \((ECONNRESET|EPIPE)\))/
+const AGENT_REFUSED_STATUS = new Set([403, 406])
+/** pinnedGet with the first agent, then once with the second (FETCH_AGENTS) when the site dropped or refused the first,
+ * inside the same deadline. The first answer stands when the second is no better. */
+export async function pinnedGetEither(t: Target, o: Parameters<typeof pinnedGet>[1]): Promise<RawResponse> {
+  const second = () => pinnedGet(t, { ...o, userAgent: FETCH_AGENTS[1] })
+  const timeLeft = () => o.deadline - Date.now() > 500
+  let first: RawResponse
+  try { first = await pinnedGet(t, { ...o, userAgent: FETCH_AGENTS[0] }) } catch (e) {
+    if (!(e instanceof ToolError) || !AGENT_REFUSED.test(e.message) || !timeLeft()) throw e
+    return second()
+  }
+  if (!AGENT_REFUSED_STATUS.has(first.status) || !timeLeft()) return first
+  try { const r = await second(); return r.status < 400 ? r : first } catch { return first }
 }
 
 /** How the answer says where it ends, once its head is in (the same reading of the head as parseResponse): its
@@ -727,7 +748,7 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     const t = await resolveTarget(current, { ...o, deadline })
-    const r = await pinnedGet(t, { deadline, maxBytes: Math.min(o.maxBytes ?? FETCH_MAX_BYTES, FETCH_MAX_BYTES), insecureTlsForTests: o.insecureTlsForTests, acceptLanguage: o.acceptLanguage })
+    const r = await pinnedGetEither(t, { deadline, maxBytes: Math.min(o.maxBytes ?? FETCH_MAX_BYTES, FETCH_MAX_BYTES), insecureTlsForTests: o.insecureTlsForTests, acceptLanguage: o.acceptLanguage })
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       if (hop >= FETCH_MAX_REDIRECTS) throw new ToolError(`too many redirects (more than ${FETCH_MAX_REDIRECTS})`)
       try { current = new URL(r.headers.location, t.url).href } catch { throw new ToolError('the site redirected to an invalid URL') }

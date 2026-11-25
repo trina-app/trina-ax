@@ -93,6 +93,10 @@ export function buildVectors() {
         // the hosting service's GitHub App (fake values), with and without its name
         { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000', slug: 'example-app' } },
         { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv1.0123456789abcdef', clientSecret: 'not-a-secret_!#$%&()*+,./:;<=>?@[]^`{|}~' } },
+        // the hosting service's Microsoft app (fake values), with the default tenant and a directory's own
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: 'not~a.secret_0000000000000000000000' } },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: 'ABCDEF01-2345-4678-89AB-CDEF01234567', clientSecret: '0000000000000000000000000000000000000000', tenant: 'organizations' } },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', tenant: '11111111-1111-4111-8111-111111111111' } },
         // the hosting service's mail service for room email, with a port, and taking it away
         { command: 'mail-in-set', args: {}, stdin: { url: 'https://abc123.lambda-url.us-east-1.on.aws', domain: 'in.example.com' } },
         { command: 'mail-in-set', args: {}, stdin: { url: 'https://mail-in.example.invalid:8443', domain: 'in.example.invalid' } },
@@ -147,6 +151,15 @@ export function buildVectors() {
         { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: 0 }, why: 'the secret is a string' },
         { command: 'github-app-set', args: {}, stdin: null, why: 'the app goes on stdin' },
         { command: 'github-app-set', args: { clientSecret: '0000000000000000000000000000000000000000' }, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000' }, why: 'the secret goes on stdin only' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000' }, why: 'clientSecret is required' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000' }, why: 'clientId is a GUID' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: 'two words' }, why: 'a space in the secret' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: 'x'.repeat(4097) }, why: 'a secret over 4096 characters' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', tenant: '../etc' }, why: 'tenant rule' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', redirectUris: [] }, why: 'unknown stdin field' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', tenant: 'consumers' }, why: 'personal accounts are not supported' },
+        { command: 'microsoft-app-set', args: {}, stdin: null, why: 'the app goes on stdin' },
+        { command: 'microsoft-app-set', args: { clientSecret: '0000000000000000000000000000000000000000' }, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000' }, why: 'the secret goes on stdin only' },
       ],
     },
     enroll: {

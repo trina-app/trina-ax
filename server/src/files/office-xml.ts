@@ -9,6 +9,9 @@ import { fieldProblem, type FieldCode } from './office-rules'
 /** the WordprocessingML namespaces (transitional and strict) and the package relationships namespace */
 export const W_NS = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main'])
 export const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+/** a chart part by name, as PowerPoint, Word and Excel write it (ppt/charts/chart1.xml); with its content type below */
+export const CHART_PART = /^(ppt|word|xl)\/charts\/chart\d+\.xml$/
+export const CHART_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml'
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 export const badFile = (what: string, why: string): never => { throw new ToolError(`${what}: ${why}`) }
