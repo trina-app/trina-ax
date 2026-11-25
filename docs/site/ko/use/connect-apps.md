@@ -59,6 +59,7 @@ Trina AX에는 두 가지를 연결해요.
 | Slack (우리 팀의 Slack 앱) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › 내 앱 |
 | Notion, Linear, Atlassian, Figma, Canva와 둘러보기에 있는 다른 앱 | 없어요. 그 앱 페이지에서 로그인해요 | 그 앱의 내 계정 |
 | GitHub | 없음: GitHub에서 로그인해요 | 내 GitHub 계정 |
+| Asana, HubSpot, Box | 관리자가 한 번: 팀이 그 서비스에서 만든 앱의 **클라이언트 ID**와 **클라이언트 시크릿** (창에 서비스별 안내 링크가 있어요). 그다음엔 없음: 각자 서비스에서 로그인해요 | Asana: My apps › **MCP app**. HubSpot: Development › **MCP Connectors**. Box: Admin Console › Integrations › **Box MCP server** |
 | 키를 주는 다른 앱 | **주소**와 **키** (가끔 **헤더 이름**도) | 그 앱의 도움말 ("MCP server", "API keys") |
 | 회사 API | **주소**, **키**, **사용법 메모** | 그 시스템을 맡은 사람 |
 | NAVER WORKS처럼 내 앱으로 로그인하는 서비스 | **Client ID**, **Client Secret**, **로그인 주소**, **토큰 주소**, **권한 범위(scope)** | 그 서비스의 개발자 콘솔 |

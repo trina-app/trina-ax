@@ -72,8 +72,9 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.connectIntegrationTemplate, ({ c, auth, params, body }) => tpl().connect(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.listTeamIntegrationTemplates, async ({ auth }) => ({ items: await tpl().listTeam(viewer(auth)) }))
-  kit.handle(API.createIntegrationTemplate, ({ c, auth, body }) => tpl().create(viewer(auth), body, c.get('locale')))
-  kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
+  // a template for a listed service closes the members' requests for it that it now covers (service-requests.ts)
+  kit.handle(API.createIntegrationTemplate, async ({ c, auth, body }) => { const t = await tpl().create(viewer(auth), body, c.get('locale')); afterTeamConnection(ctx, t.url); return t })
+  kit.handle(API.updateIntegrationTemplate, async ({ c, auth, params, body }) => { const t = await tpl().update(viewer(auth), params.id, body, c.get('locale')); afterTeamConnection(ctx, t.url); return t })
   kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
   kit.handle(API.listIntegrationTemplateMembers, async ({ auth, params }) => ({ items: await tpl().members(viewer(auth), params.id) }))
   // the client metadata document a service fetches when a sign-in uses its address as the client ID (oauth.ts

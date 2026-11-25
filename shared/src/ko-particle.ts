@@ -27,7 +27,7 @@ const NAMES: Record<string, KoEnding> = {
   onedrive: V, sharepoint: V, salesforce: V, miro: V, zapier: V, zendesk: V, youtube: V, kakao: V, naver: V, works: V,
   claude: V, code: V, codex: V, chatgpt: V, openai: V,
   // 제미나이 퍼플렉시티 브레이브 엑사 태빌리 감마 박스 엑스 스레드 쇼피파이 메일침프 코다 에버노트 도커 파이어베이스 헤로쿠
-  gemini: V, perplexity: V, brave: V, exa: V, tavily: V, gamma: V, box: V, x: V, threads: V, shopify: V, mailchimp: V,
+  gemini: V, perplexity: V, brave: V, exa: V, tavily: V, gamma: V, box: V, granola: V, x: V, threads: V, shopify: V, mailchimp: V,
   coda: V, evernote: V, docker: V, firebase: V, heroku: V,
   // 사파리 두레이 플렉스 잔디 하이웍스 오피스 마이크로소프트 아이클라우드 키노트 페이지스 넘버스
   safari: V, dooray: V, flex: V, jandi: V, hiworks: V, office: V, microsoft: V, icloud: V, keynote: V, pages: V, numbers: V,

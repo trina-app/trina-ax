@@ -23,7 +23,7 @@
 //     answer it here.
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type AskServiceResult, type RequestableService, type ServiceRequest, type TeamServiceRequest } from '@mycel/shared/api'
 import { catalogAt } from '@mycel/shared'
-import { mayUse, selectRows, type Row } from './connections/store'
+import { mayUse, selectRows, templateCovers, type Row } from './connections/store'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -60,13 +60,17 @@ export function serviceState(ctx: AppContext, service: RequestableService, userI
 }
 
 /** A working team connection to one of the listed service's official addresses (any spelling of it) that this member may
- * use. */
+ * use, or a template for it that is for them. */
 function teamCovers(ctx: AppContext, service: string, userId: string): boolean {
   const rows = ctx.db.query(`${selectRows(ctx.db)} WHERE scope = 'team'`).all() as Row[]
   // at any of its official addresses (Atlassian's v1 and v2: catalogAt); only one that works: a team connection that
   // needs a sign-in or fails would close the request and say "ready" for something the member cannot use yet (review
   // of #601)
-  return rows.some((r) => r.status === 'connected' && catalogAt(r.url)?.id === service && mayUse(ctx.db, r, userId))
+  if (rows.some((r) => r.status === 'connected' && catalogAt(r.url)?.id === service && mayUse(ctx.db, r, userId))) return true
+  // or an admin's template for it that is for this member: they connect it themselves (Your connectors), so it is
+  // available. The way Asana, HubSpot and Box are set up (service-catalog.ts teamApp), and any listed service's template
+  const tpls = ctx.db.query('SELECT id, url FROM integration_templates').all() as { id: string; url: string }[]
+  return tpls.some((t) => catalogAt(t.url)?.id === service && templateCovers(ctx.db, t.id, userId))
 }
 
 const refuse = (code: 'bad_request' | 'forbidden' | 'conflict' | 'rate_limited', reason: string): never => { throw new HttpError(code, undefined, { params: { reason } }) }
@@ -184,8 +188,8 @@ export function dismissServiceRequests(ctx: AppContext, actor: string, raw: stri
   for (const r of closed) notifyServiceClosed(ctx, r.user_id, r.id)
 }
 
-/** A team connection was made or changed (its address, who may use it): requests for the listed service at that
- * address close for the members who may use it now. */
+/** A team connection or a template was made or changed (its address, who may use it): requests for the listed service
+ * at that address close for the members who may use it now. */
 export function afterTeamConnection(ctx: AppContext, url: string) {
   const c = catalogAt(url)
   if (c) afterServiceSetup(ctx, c.id)

@@ -5,11 +5,12 @@
 // The services come from the remote servers listed on mcpservers.org. A listing is not enough: every address answered
 // like this server needs on 2026-11-02 (docs/INTEGRATIONS.md "Discover"), Streamable HTTP and OAuth with dynamic client
 // registration. Services that need an app of their own stay out however well known they are, because they would fail at
-// sign-in: Slack, Asana, HubSpot, Box, Zoom, Docusign, PagerDuty, Granola, Clerk. GitHub is listed: it signs in through the
+// sign-in (Slack, Zoom, Docusign, PagerDuty, Clerk), except those listed with `teamApp` (Asana, HubSpot, Box): the team
+// sets one up once with its own app (Admin, as a template), and until then a member asks an admin. GitHub is listed: it signs in through the
 // GitHub App the server holds (docs/INTEGRATIONS.md "GitHub"), and on a server without one its card says "Not set up yet". Descriptions are the message
 // keys integrations.catalog.<id>; logos are files in web/public/icons/connectors (this server's own, because the
 // content security policy loads no image from elsewhere).
-import { CATALOG_AUTH, catalogAt, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
+import { CATALOG_AUTH, catalogAt, SERVICE_CATALOG, teamAppOf, type CatalogServiceId, type TeamApp } from '@mycel/shared'
 
 /** each listed service's logo (the list itself, with names and official addresses, is shared/src/service-catalog.ts) */
 const LOGOS: Record<CatalogServiceId, string> = {
@@ -25,12 +26,17 @@ const LOGOS: Record<CatalogServiceId, string> = {
   higgsfield: 'higgsfield.png',
   ahrefs: 'ahrefs.svg',
   airtable: 'airtable.svg',
+  asana: 'asana.svg',
+  hubspot: 'hubspot.svg',
+  box: 'box.svg',
   brex: 'brex.svg',
   calendly: 'calendly.svg',
   clickup: 'clickup.svg',
   cloudinary: 'cloudinary.svg',
   github: 'github.svg',
   gitlab: 'gitlab.svg',
+  // Granola's own site icon, byte for byte https://www.granola.ai/favicon/apple-touch-icon.png (180 x 180, checked 2026-11-25)
+  granola: 'granola.png',
   // Microsoft's four-square mark, drawn here (four flat squares in Microsoft's colours)
   microsoft365: 'microsoft365.svg',
   indeed: 'indeed.svg',
@@ -64,6 +70,9 @@ export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
+/** A listed service that signs in only through the team's own app (Asana, HubSpot, Box): how it is made, or null. One
+ * connects only once an admin set it up, as a template (each member signs in with their own account) or for the team. */
+export const connectorTeamApp = (c: Connector): TeamApp | null => teamAppOf(c)
 /** A listed service that signs in through an app the server holds (GitHub, Microsoft 365) on a server that holds none
  * (the list says `ready: false`; an older server says nothing: as before): it cannot be connected yet. */
 export function serverAppMissing(c: Pick<Connector, 'id'>, list: { github?: { ready: boolean }; microsoft?: { ready: boolean } } | null | undefined): boolean {

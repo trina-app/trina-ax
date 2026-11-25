@@ -60,9 +60,11 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | 파일 | 출처 | 그 출처의 이용 조건 | 파일에서 알 수 있는 것 |
 |---|---|---|---|
 | `ahrefs.svg` | 미확인 | 미확인 | viewBox `0 0 128 128`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `asana.svg` | https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/asana.svg (Simple Icons 13.21.0, CC0 1.0, 2026-11-25 받음); `fill` `#F06A6A`(그 서비스의 브랜드 색)만 더함 | Simple Icons 자체는 CC0. Asana 로고는 그 소유자의 상표다. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다 | viewBox `0 0 24 24`; `<title>Asana</title>`; 한 가지 `fill` path, 스크립트·외부 참조 없음 |
 | `aside.png` | https://aside.com/icon.png (Aside 공식 사이트의 512×512 아이콘, 2026-11-19 받음, SHA-256 `949971a6…f0adea`; macOS `sips -Z 180`으로 180×180으로 줄임) | 이용 조건은 확인하지 않음(사이트에 브랜드 자료·로고 지침이 보이지 않음). 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. Aside 로고는 그 소유자의 상표다 | PNG 180×180 RGBA; Settings › Connectors의 Aside 카드·연결 페이지에 쓴다 |
 | `airtable.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Airtable</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `atlassian.svg` | 미확인 | 미확인 | viewBox `0 0 256 256`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `box.svg` | https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/box.svg (Simple Icons 13.21.0, CC0 1.0, 2026-11-25 받음); `fill` `#0061D5`(그 서비스의 브랜드 색)만 더함 | Simple Icons 자체는 CC0. Box 로고는 그 소유자의 상표다. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다 | viewBox `0 0 24 24`; `<title>Box</title>`; 한 가지 `fill` path, 스크립트·외부 참조 없음 |
 | `brex.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Brex</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `calendly.svg` | 미확인 | 미확인 | viewBox `0 0 841.89 595.28`; Adobe Illustrator 27.5.0(으)로 내보낸 파일(파일 안 주석), 어디서 받았는지는 없음 |
 | `canva.svg` | 미확인 | 미확인 | viewBox `0 0 80 80`; 만든 곳을 알려 주는 메타데이터 없음 |
@@ -77,7 +79,9 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `github.svg` | Simple Icons의 GitHub 아이콘 path(https://simpleicons.org/?q=github, CC0 1.0), 2026-11-20 손으로 옮겨 적음; `fill` `#181717`(Simple Icons의 GitHub 색) | Simple Icons 자체는 CC0. GitHub 로고는 GitHub의 상표이고 GitHub 로고 지침(https://github.com/logos)을 따른다. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다 | viewBox `0 0 24 24`; 한 가지 `fill` path, 스크립트·외부 참조 없음; Settings › Connectors의 GitHub 카드·연결 페이지에 쓴다 |
 | `gitlab.svg` | 미확인 | 미확인 | viewBox `0 0 32 32`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `google-drive.svg` | https://svgl.app/library/drive.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Google Drive 로고는 Google의 상표이고 Google 브랜드 지침을 따른다 | viewBox `0 0 87.3 78`; 여섯 색 path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Google Drive에 쓴다 |
+| `granola.png` | https://www.granola.ai/favicon/apple-touch-icon.png (Granola 공식 사이트 아이콘, 2026-11-25 받음, SHA-256 `906af4df…e29dafbd`, 고치지 않음) | 이용 조건은 확인하지 않음. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. Granola 로고는 그 소유자의 상표다 | PNG 180×180 RGBA |
 | `higgsfield.png` | 미확인 | 미확인 | PNG 180×180, EXIF는 색 공간과 크기뿐(만든 이·프로그램·날짜 없음) |
+| `hubspot.svg` | https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/hubspot.svg (Simple Icons 13.21.0, CC0 1.0, 2026-11-25 받음); `fill` `#FF7A59`(그 서비스의 브랜드 색)만 더함 | Simple Icons 자체는 CC0. HubSpot 로고는 그 소유자의 상표다. 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다 | viewBox `0 0 24 24`; `<title>HubSpot</title>`; 한 가지 `fill` path, 스크립트·외부 참조 없음 |
 | `indeed.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Indeed</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `intercom.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Intercom</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `linear.svg` | 미확인 | 미확인 | viewBox `0 0 100 100`; 만든 곳을 알려 주는 메타데이터 없음 |
