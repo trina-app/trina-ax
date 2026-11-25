@@ -118,15 +118,12 @@ export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
       'sub_issue_write', 'ui_get', 'update_issue_comment', 'update_pull_request', 'update_pull_request_branch',
     ],
   },
-  // this server's own tools over Microsoft Graph (server/src/integrations/microsoft/mcp-server.ts; the names are its)
+  // no `tools`: its tools are this server's own over Microsoft Graph (server/src/integrations/microsoft/mcp-server.ts),
+  // not a list Microsoft publishes, and a tool list here is the service's own (web/test/unit/connector-docs.test.ts)
   microsoft365: {
     privacy: 'https://privacy.microsoft.com/privacystatement',
     terms: 'https://www.microsoft.com/servicesagreement',
     docs: 'https://learn.microsoft.com/graph/overview',
-    tools: [
-      'mail_search', 'mail_read', 'mail_draft', 'mail_send_draft', 'mail_send', 'calendar_events', 'calendar_create_event',
-      'files_search', 'files_read', 'files_upload', 'teams_chats', 'teams_read_chat', 'teams_send',
-    ],
   },
   notion: {
     privacy: 'https://www.notion.com/trust/privacy-policy',
