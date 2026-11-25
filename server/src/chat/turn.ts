@@ -1293,9 +1293,13 @@ export class TurnExec {
     // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
     // fresh instructions that start a Claude session (`sessionId`) list the skills as they are now: what a later resumed
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
+    // the tools left out of a small API model's list (engine/api-tools-fit.ts, set below): its instructions carry no
+    // rules for them, as the model cannot call them (the left-out note names them). Claude Code and Codex never set it
+    let apiLeftOut: ReadonlySet<string> | null = null
+    const apiPromptTools = (left: ReadonlySet<string> | null) => left?.size ? { tools: extraTools.filter((n) => !left.has(n)) } : {}
     // `api`: the API engine's instructions, without the time line (it goes with the message: apiTimeContext)
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null, api = false) => {
-      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true } : {}) }
+      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true, ...apiPromptTools(apiLeftOut) } : {}) }
       this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
       // cut only because the model's context is small: the default window would have held it (the chat says so)
       this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
@@ -1428,7 +1432,7 @@ export class TurnExec {
       const all = apiToolsOf(listedTools(rt.files, toolSet))
       const onDemand = !whole && (toolBudget === undefined || toolTokens(all) <= toolBudget)
       const tools = fitApiTools(onDemand ? apiOfferedTools(all).tools : all, toolBudget)
-      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true, ...apiPromptTools(new Set(tools.left)) }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
       return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message: `${apiTime}\n\n${message}` }) }
     }
     this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
@@ -1443,6 +1447,7 @@ export class TurnExec {
         const guess = blindGuess(size, api.baseUrl)
         if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
+        apiLeftOut = tools.left.length ? new Set(tools.left) : null
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
           this.error = engineError('model_too_small', spec.locale)
