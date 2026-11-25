@@ -34,6 +34,9 @@ const TTL = 10 * 60_000
 const SETTLE_MS = 15_000
 /** how often a server signing in through the broker asks the hosting service whether its Google sign-in serves this team (broker.ts) */
 const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
+/** at most how long a self-installed server the hosting service does not serve waits between asking to be registered
+ * (broker.ts `register`) and between status checks while it says no (an admin page asks again on load: brokerFresh) */
+const BROKER_REGISTER_MS = 30 * 60_000
 const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
 const clean = (s: unknown, max: number) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
 export class GoogleDrive {
@@ -85,7 +88,7 @@ export class GoogleDrive {
     const sweep = () => {
       try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') }
       try { this.checkShareOwners() } catch { ctx.log.warn('Drive share check deferred') }
-      if (this.broker && !this.cfg && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) void this.checkBroker()
+      if (this.broker && !this.cfg && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : this.registerWait())) void this.checkBroker()
     }
     onShareOwnerCheck(ctx, () => this.checkShareOwners())
     sweep()
@@ -122,11 +125,31 @@ export class GoogleDrive {
     if (!this.broker) return false
     this.brokerCheckedAt = this.now()
     const seq = ++this.brokerSeq
-    const ok = await this.broker.ready()
+    const ok = await this.selfRegistered(await this.broker.serving())
     if (seq !== this.brokerSeq) return ok // a newer check's answer counts
     if (ok !== this.brokerOk) this.ctx.log.info(ok ? 'Google Drive sign-in through the hosting service is available' : 'Google Drive sign-in through the hosting service is not available')
     this.brokerOk = ok
     return ok
+  }
+  /** A self-installed server the hosting service does not serve yet registers itself (broker.ts `register`), then asks
+   * again. Tries back off 1, 2, 4, 8 minutes, then every BROKER_REGISTER_MS (the first try may come before this server
+   * answers on its address, which the hosting service fetches). Any other answer stands. */
+  private async selfRegistered(answer: 'yes' | 'not_served' | 'no'): Promise<boolean> {
+    if (answer === 'yes') return true
+    if (answer !== 'not_served' || !this.broker?.o.selfOrigin) return false
+    if (this.registeredAt !== null && this.now() - this.registeredAt < this.registerWait()) return false
+    this.registeredAt = this.now()
+    this.registerTries++
+    if (!(await this.broker.register())) return false
+    this.registerTries = 0
+    this.ctx.log.info('Registered this server for Google sign-in through the hosting service')
+    return this.broker.ready()
+  }
+  private registeredAt: number | null = null
+  private registerTries = 0
+  /** a self-installed server's wait after a refused registration: 1, 2, 4, 8, 16, then 30 minutes; else BROKER_RETRY_MS */
+  private registerWait() {
+    return this.broker?.o.selfOrigin && this.registerTries ? Math.min(BROKER_REGISTER_MS, 60_000 * 2 ** (this.registerTries - 1)) : BROKER_RETRY_MS
   }
   status(user: string): DriveConnection {
     const status = this.store.publicConnection(this.enabled, user, this.key)

@@ -68,7 +68,7 @@ Control plane (trina-cloud PR, separate):
    the signing key. Nothing from the answer is logged or returned.
 5. Insert `added_by = 'self'`, display name = the host; event `system.drive_broker_server_self_registered` (server
    id, origin, key id).
-6. Limits: register 10/hour per key, 30/hour per address; `CP_DRIVE_BROKER_SELF_REGISTER` (default `1`): `0` refuses
+6. Limits: register 12/hour per key, 30/hour per address, a daily cap on new self rows; `CP_DRIVE_BROKER_SELF_REGISTER` (default `0` until the owner opens it, plan review 11-25): `0` refuses
    new registrations **and** stops serving every `added_by = 'self'` row (status/start/redeem/refresh answer
    `not_hosted`; revoke still works). Operators still disable/remove per server (existing CLI/ops API).
 7. The Slack broker keeps serving only operator-added servers (self-registered rows are Google sign-in only).

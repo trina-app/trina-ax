@@ -41,6 +41,11 @@
 //      only when Google rotated it).
 //   5. POST {api}/revoke  (signed) { refreshToken: <sealed> } → { revocation: 'revoked' | 'unavailable' }
 //   0. POST {api}/status  (signed) {}                        → { ok: true } when the broker serves this team now.
+//  00. POST {api}/register (signed) { origin }                → { ok: true } (newer control planes): a self-installed
+//      server registers itself, without an operator, by proving its address: the control plane fetches
+//      https://<origin>GOOGLE_BROKER_KEY_PATH and serves the server only when that answers { v: 1, key } with the key
+//      that signed the call. The browser then only ever comes back to that origin. An operator's record (added, or
+//      disabled) is never changed this way. An older control plane answers 404: the server stays off, as before.
 //
 // Token answer: Google's own field names, so the team server reads it like Google's token response:
 //   { access_token, expires_in, scope, token_type, refresh_token? } — refresh_token is the SEALED value.
@@ -61,7 +66,11 @@ export const DRIVE_BROKER_PATHS = {
   redeem: `${DRIVE_BROKER_API_PREFIX}/redeem`,
   refresh: `${DRIVE_BROKER_API_PREFIX}/refresh`,
   revoke: `${DRIVE_BROKER_API_PREFIX}/revoke`,
+  register: `${DRIVE_BROKER_API_PREFIX}/register`,
 } as const
+/** On a self-installed team server, GET: { v: 1, key } (its relay team public key, base64 SPKI), with no session; the
+ * control plane's proof that the key belongs to that address (`register`). */
+export const GOOGLE_BROKER_KEY_PATH = '/api/integrations/google-broker/key'
 export type DriveBrokerOp = keyof typeof DRIVE_BROKER_PATHS
 /** Google's return address on the console host: the ONE address registered at Google */
 export const DRIVE_BROKER_CALLBACK_PATH = '/drive-broker/google/callback'
@@ -105,6 +114,9 @@ export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnSta
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
 export interface DriveBrokerRefresh { v: 1; refreshToken: string; app?: GoogleBrokerApp }
 export interface DriveBrokerStatus { v: 1 }
+/** origin: https://<host> exactly (port 443, no path), the server's own public address */
+export interface DriveBrokerRegister { v: 1; origin: string }
+export interface DriveBrokerKeyAnswer { v: 1; key: string }
 export interface DriveBrokerStartAnswer { authorizationUrl: string; connectUrl?: string; expiresAt: string }
 export interface DriveBrokerTokenAnswer { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string }
 export interface DriveBrokerRevokeAnswer { revocation: 'revoked' | 'unavailable' }
@@ -129,8 +141,12 @@ export const DRIVE_BROKER_ERRORS = {
   /** Google failed or answered something unexpected. 503, not 502: Cloudflare, in front of the console host, replaces
    * an origin's 502 and 504 with its own page, and the team server could not read the code. */
   provider_error: 503,
-  /** the control plane has no Google Drive client */
+  /** the control plane has no Google Drive client (or, for `register`, takes no self-registrations) */
   not_configured: 503,
+  /** `register`: the origin did not answer with the key that signed the call, or is not an address it may serve */
+  origin_unverified: 403,
+  /** `register`: the origin or the key belongs to a record an operator made */
+  conflict: 409,
 } as const
 export type DriveBrokerErrorCode = keyof typeof DRIVE_BROKER_ERRORS
 
@@ -181,6 +197,33 @@ export function parseDriveBrokerRefresh(raw: unknown): DriveBrokerRefresh | null
 export function parseDriveBrokerStatus(raw: unknown): DriveBrokerStatus | null {
   const o = plain(raw)
   return o && exactly(o, ['v']) && o.v === 1 ? { v: 1 } : null
+}
+
+/** `https://<DNS name>` exactly: lower case, port 443, no path, query, fragment, user info, IP literal or trailing dot.
+ * null otherwise. */
+export function brokerSelfOrigin(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > 300) return null
+  let u: URL
+  try { u = new URL(raw) } catch { return null }
+  if (u.protocol !== 'https:' || u.port || u.username || u.password || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '')) return null
+  const host = u.hostname
+  if (!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)) return null
+  if (/^\d+$/.test(host.split('.').pop()!)) return null
+  return raw === u.origin || raw === u.origin + '/' ? u.origin : null
+}
+
+export function parseDriveBrokerRegister(raw: unknown): DriveBrokerRegister | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['v', 'origin']) || o.v !== 1) return null
+  const origin = brokerSelfOrigin(o.origin)
+  return origin ? { v: 1, origin } : null
+}
+
+/** a key answer ({ v: 1, key }): the key, or null */
+export function parseBrokerKeyAnswer(raw: unknown): string | null {
+  const o = plain(raw)
+  if (!o || !exactly(o, ['v', 'key']) || o.v !== 1 || typeof o.key !== 'string' || !/^[A-Za-z0-9+/=]{40,200}$/.test(o.key)) return null
+  return o.key
 }
 
 /** The UTF-8 string the team key signs. path: one of DRIVE_BROKER_PATHS; bodySha256Hex: lower-case hex sha256 of the

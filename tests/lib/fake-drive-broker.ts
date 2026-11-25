@@ -4,7 +4,7 @@
 import crypto from 'node:crypto'
 import {
   DRIVE_BROKER_PATHS, DRIVE_BROKER_SCOPE, GOOGLE_APP_BROKER_SCOPES, driveBrokerConnectPage, driveBrokerSigningString, parseDriveBrokerAuthorization, parseDriveBrokerRedeem,
-  parseDriveBrokerRefresh, parseDriveBrokerStart, parseDriveBrokerStatus,
+  parseDriveBrokerRefresh, parseDriveBrokerStart, parseDriveBrokerStatus, parseDriveBrokerRegister, parseBrokerKeyAnswer, GOOGLE_BROKER_KEY_PATH,
 } from '../../shared/src/cloud-protocol/drive-broker'
 import type { DriveFetch } from '../../server/src/integrations/google-drive/client'
 import type { BrokerOptions } from '../../server/src/integrations/google-drive/broker'
@@ -42,6 +42,14 @@ export class FakeDriveBroker {
    * `{state}` replaced (a test makes it point elsewhere) */
   connect: 'none' | 'page' | string = 'none'
   seen = new Set<string>()
+  /** `register` (a self-installed server's own registration): 'old' = an older control plane (404); 'off' = it takes no
+   * self-registrations (not_configured); 'proof' = it fetches the key at the origin with `proof` and trusts the key when
+   * it matches (origin_unverified otherwise) */
+  selfRegister: 'old' | 'off' | 'proof' = 'proof'
+  /** the control plane's GET of https://<origin>GOOGLE_BROKER_KEY_PATH (a test routes it to the team app) */
+  proof: ((url: string) => Promise<Response>) | null = null
+  /** origins registered through `register` */
+  registered: string[] = []
   constructor(readonly google: FakeGoogleDrive) {}
   options(): BrokerOptions { return { origin: BROKER_ORIGIN, identity: () => ({ key: this.key, publicKey: this.publicKey }) } }
 
@@ -81,6 +89,19 @@ export class FakeDriveBroker {
     try { ok = crypto.verify(null, Buffer.from(msg), crypto.createPublicKey({ key: Buffer.from(auth.key, 'base64'), format: 'der', type: 'spki' }), Buffer.from(auth.sig, 'base64')) } catch {}
     if (!ok || this.seen.has(auth.nonce)) return err('unauthorized', 401)
     this.seen.add(auth.nonce)
+    if (path === DRIVE_BROKER_PATHS.register) {
+      if (this.selfRegister === 'old') return new Response('not found', { status: 404 })
+      if (this.selfRegister === 'off') return err('not_configured', 503)
+      let rj: unknown
+      try { rj = JSON.parse(body) } catch { return err('invalid_request', 400) }
+      const b = parseDriveBrokerRegister(rj)
+      if (!b) return err('invalid_request', 400)
+      let key: string | null = null
+      try { const r = await this.proof!(b.origin + GOOGLE_BROKER_KEY_PATH); key = r.ok ? parseBrokerKeyAnswer(await r.json()) : null } catch {}
+      if (key !== auth.key) return err('origin_unverified', 403)
+      this.trusted = auth.key; this.registered.push(b.origin)
+      return Response.json({ ok: true })
+    }
     if (auth.key !== this.trusted) return err('not_hosted', 403)
     if (!this.configured) return err('not_configured', 503)
     let json: unknown

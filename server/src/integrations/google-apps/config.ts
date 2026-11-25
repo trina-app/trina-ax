@@ -7,7 +7,7 @@
 //  - "drive": the same Google app as Google Drive (its client file or the operator's, followed when it changes: a new
 //    Drive client is a new key, so connections made with the old one sign in again);
 //  - "service": a server without a client of its own whose Drive signs in through the hosting service (hosted, or
-//    self-installed with MYCEL_GOOGLE_DRIVE_BROKER_URL) uses the hosting service's Google app (the Drive broker,
+//    self-installed with a public address, registered by itself or by an operator) uses the hosting service's Google app (the Drive broker,
 //    google-drive/broker.ts, with the `app` field);
 //  - "none".
 // Every card's redirect address is https://<public host>/api/integrations/google-apps/callback (system/deployment.ts
@@ -97,7 +97,7 @@ export function setupOf(ctx: AppContext, app: GoogleAppId, env: Record<string, s
     const c: AppClient = { clientId: drive.config.clientId, clientSecret: drive.config.clientSecret, redirectUri }
     return { ...off, source: 'drive', mode: 'direct', client: c, key: 'drive:' + keyOf(c) }
   }
-  // no client of its own and Drive through the broker (hosted, or self-installed with the broker URL): the hosting
+  // no client of its own and Drive through the broker (hosted, or self-installed and registered): the hosting
   // service's Google app, once it answered for this server
   if (drive.mode === 'broker' && drive.broker) return { ...off, source: 'service', mode: 'broker', key: `${brokerKey(drive.broker.o.origin)}:${app}` }
   return off
