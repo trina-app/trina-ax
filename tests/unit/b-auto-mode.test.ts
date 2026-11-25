@@ -126,8 +126,11 @@ describe('where it applies', () => {
     expect(autoHere(place({ reads: () => ({ others: true, outside: false }) }), 'move_files', FREE)).toBeNull()
     expect(autoHere(place({ reads: () => ({ others: false, outside: true }) }), 'move_files', FREE)).toBeNull()
     expect(autoHere(place({ reads: undefined }), 'move_files', FREE)).toBeNull()
-    // an auto kind needs neither
-    expect(autoHere(place({ reads: () => ({ others: true, outside: true }) }), 'bulk_files')).toBe('auto')
+    // an auto kind needs no floor and may follow content from outside, never other people's words (security review:
+    // a tool's own card can stand in for the room card)
+    expect(autoHere(place({ reads: () => ({ others: false, outside: true }) }), 'bulk_files')).toBe('auto')
+    expect(autoHere(place({ reads: () => ({ others: true, outside: false }) }), 'bulk_files')).toBeNull()
+    expect(autoHere(place({ reads: undefined }), 'bulk_files')).toBeNull()
     clean()
   })
 
@@ -139,7 +142,7 @@ describe('where it applies', () => {
     expect(autoHere(shared, 'save_wider', FREE)).toBe('auto-if')
     // someone else wrote there: their words are in the chat
     expect(autoHere({ ...shared, reads: () => ({ others: true, outside: false }) }, 'save_wider', FREE)).toBeNull()
-    expect(autoHere({ ...shared, reads: () => ({ others: true, outside: false }) }, 'big_download')).toBe('auto')
+    expect(autoHere({ ...shared, reads: () => ({ others: true, outside: false }) }, 'big_download')).toBeNull()
     // a guest among the people: nothing
     expect(autoHere({ ...shared, guestAmong: () => true }, 'big_download')).toBeNull()
     clean()
@@ -160,6 +163,9 @@ describe('where it applies', () => {
     let paused = 0
     for (let i = 0; i < AUTO_DAY_LIMIT; i++) db().query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'ai.auto_allow', 'alice', ?, ?)").run(JSON.stringify({ kind: 'big_download', chatId: 'chat-auto-many' }), new Date().toISOString())
     expect(autoHere(place({ chatId: 'chat-auto-many', autoPaused: () => { paused++ } }), 'big_download')).toBeNull()
+    expect(paused).toBe(1)
+    // a check only (a summary's label): no pause step
+    expect(autoHere(place({ chatId: 'chat-auto-many', autoPaused: () => { paused++ } }), 'big_download', undefined, { quiet: true })).toBeNull()
     expect(paused).toBe(1)
     // another chat is not paused
     expect(autoHere(place({ chatId: 'chat-auto-other' }), 'big_download')).toBe('auto')
@@ -280,6 +286,22 @@ describe('in a real answer', () => {
       const ev = db().query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'copy_files'").get(r.turnId) as { summary: string } | null
       expect(ev?.summary).toContain('auto mode, no card')
       expect(RAN_UNDER_AUTO).toContain('never say they approved')
+    } finally { clean() }
+  })
+
+  test('a save auto mode approved is not kept as the person\'s approval for the chat (security review)', async () => {
+    clean()
+    team('allowed'); person('alice', 1)
+    try {
+      // a file an AI turn of hers wrote from nothing outside is her own (a file put there by hand counts as outside, QA
+      // TC-326), and only the person can see it
+      const made = await turn('alice', fake({ tool: 'write', args: { file_path: 'users/alice/am-src.md', content: 'my own note\n' } }, { say: 'done' }), 'skip')
+      expect(made.cards).toEqual([])
+      const r = await turn('alice', fake({ tool: 'read', args: { file_path: 'users/alice/am-src.md' } }, { tool: 'write', args: { file_path: 'shared/am-wider.md', content: 'from my note\n' } }, { say: 'done' }), 'skip')
+      expect(r.cards).toEqual([])
+      expect(fs.existsSync(abs('shared/am-wider.md'))).toBe(true)
+      expect(autoRows().map((d) => d.kind)).toContain('save_wider')
+      expect(db().query("SELECT COUNT(*) AS n FROM chat_card_approvals WHERE chat_id = ? AND kind = 'save_wider'").get(r.chatId)).toEqual({ n: 0 })
     } finally { clean() }
   })
 

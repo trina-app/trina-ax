@@ -80,11 +80,12 @@ export interface AutoCall { floorFree: boolean }
  * Auto mode (docs/decisions/20261125-auto-mode.md): may this card of `kind` go without showing, approved by auto mode?
  * The rule that applies ('auto' or 'auto-if'), or null for the card. Never reads or writes an Always. Only in a turn the
  * person watches from their own app (never a scheduled run, Slack, a draft or a confidential chat), with the team's
- * "Always allow" on, auto mode on for this person, and no guest in the turn. An `auto-if` kind needs `call.floorFree`
- * and a chat that read nothing of other people and nothing from outside. After AUTO_DAY_LIMIT approvals in this chat
+ * "Always allow" on, auto mode on for this person, no guest in the turn and nothing of other people read in the chat.
+ * An `auto-if` kind also needs `call.floorFree` and a chat that read nothing from outside. `quiet`: a check only (no
+ * pause step). After AUTO_DAY_LIMIT approvals in this chat
  * in one day, the cards come back. Fails closed on any missing input or error.
  */
-export function autoHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, call?: AutoCall): AutoRule | null {
+export function autoHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, call?: AutoCall, o: { quiet?: boolean } = {}): AutoRule | null {
   try {
     if (!p || p.restricted) return null
     if (!LIVE_CLIENTS.has(p.clientKind ?? '')) return null
@@ -93,12 +94,12 @@ export function autoHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind
     if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
     if (!autoModeOn(p.db, p.userId)) return null
     if (!p.guestAmong || p.guestAmong()) return null
-    if (rule === 'auto-if') {
-      if (call?.floorFree !== true) return null
-      const r = p.reads?.()
-      if (!r || r.others || r.outside) return null
-    }
-    if (autoCountToday(p.db, p.userId, p.chatId) >= AUTO_DAY_LIMIT) { p.autoPaused?.(); return null }
+    // other people's words in the chat (other authors, a room read): no kind goes, since their words may steer the
+    // call (a tool's own card can stand in for the room card); content from outside stops the auto-if kinds only
+    const r = p.reads?.()
+    if (!r || r.others) return null
+    if (rule === 'auto-if' && (call?.floorFree !== true || r.outside)) return null
+    if (autoCountToday(p.db, p.userId, p.chatId) >= AUTO_DAY_LIMIT) { if (!o.quiet) p.autoPaused?.(); return null }
     return rule
   } catch { return null }
 }

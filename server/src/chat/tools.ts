@@ -1183,7 +1183,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // the person's own Always for a kind of card, as alwaysHere reads it here (their own scheduled run too, Rule A; the
     // guest limit kept there): a tool that would refuse an unattended run at once reads it first
     alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
-    autoOn: (kind, call) => autoHere(exec.alwaysPlace?.(), kind, call) !== null,
+    autoOn: (kind, call) => autoHere(exec.alwaysPlace?.(), kind, call, { quiet: true }) !== null,
     pictureAlwaysOn: (key) => alwaysHere(exec.alwaysPlace?.(), key) === 'on',
     // "Allow all websites" (tools/url-gate.ts ①d), the switch of this turn's own person: asked from their app with the
     // steps shown as they run (not a scheduled run, a Slack question, a draft or a turn the server started). Rooms,

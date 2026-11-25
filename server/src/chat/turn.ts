@@ -5176,6 +5176,7 @@ export class TurnExec {
       if (!o.room) return this.askAlways('save_wider', req, 'save', o.binding ? {} : { auto: { floorFree: this.widenFloorFree(need) } })
       return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
     }
+    const autoBefore = this.autoApprovals
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
@@ -5188,7 +5189,9 @@ export class TurnExec {
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
     if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
-      if (!o.binding) this.allowWidening(need)
+      // auto mode's yes covers this answer only: never kept as the person's 12 h approval in the chat (it would hold
+      // after auto mode is off or the chat read something from outside)
+      if (!o.binding) this.allowWidening(need, { keep: this.autoApprovals === autoBefore })
       return null
     }
     const end: CardEnd = missing ?? 'declined'
@@ -5258,12 +5261,12 @@ export class TurnExec {
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
    * folder need no card again in this answer (widenNeed). */
-  private allowWidening(need: WidenNeed): void {
+  private allowWidening(need: WidenNeed, o: { keep?: boolean } = {}): void {
     const set = this.widenAllowed.get(need.dir) ?? new Set<string>()
     for (const s of need.narrower) set.add(sourceKey(s))
     this.widenAllowed.set(need.dir, set)
     // for the rest of this chat too, while the same people can see that folder (widenNeed)
-    if (this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'save_wider', target: this.widerTarget(need.dir), detail: { sources: need.narrower.map(sourceKey) } })
+    if (o.keep !== false && this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'save_wider', target: this.widerTarget(need.dir), detail: { sources: need.narrower.map(sourceKey) } })
   }
 
   /** A folder as a 'save_wider' approval's target: its path and who may read and write it now (folderAudience). */
@@ -5632,7 +5635,11 @@ export class TurnExec {
     const w = (AUTO_WHAT as Partial<Record<CardAlwaysKind, Record<Locale, string>>>)[kind]
     this.addStep({ kind: 'tool', tool: 'auto_mode', label: tr('autoModeStep', L, { what: w?.[L] ?? w?.en ?? kind }), status: 'ok' })
     this.autoRan = true
+    this.autoApprovals++
   }
+  /** how many cards auto mode approved in this turn (a card's caller compares before and after: a yes it did not give
+   * is kept as no approval of the person's, chat/card-approvals.ts) */
+  private autoApprovals = 0
   private autoRan = false
   /** RAN_UNDER_AUTO once after a card auto mode approved (chat/tools.ts adds it to the call's result), else null */
   autoNote(): string | null {

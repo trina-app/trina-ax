@@ -144,7 +144,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     try {
       if (lost > 0 || tc.person?.roomsSeen || !items.length) return false
       if (!items.every((p) => inOwnFolder(p, tc.user.id))) return false
-      return readersOf(ctx.db, ctx.files.rules(), folder.split('/').filter(Boolean)).every((id) => !isGuestUser(ctx.db, id))
+      // the folder as it is on disk (another case or Unicode form on a case-insensitive disk), as the folder rules read it
+      const rules = ctx.files.rules()
+      const segs = authorize(ctx.files.fx, rules, tc.user, folder, 'write', { createDirs: true }).segs
+      return readersOf(ctx.db, rules, segs).every((id) => !isGuestUser(ctx.db, id))
     } catch { return false }
   }
   async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string }; floorFree: boolean }): Promise<string | null> {
@@ -155,8 +158,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const lead = o.move ? fill(TEXT.bulkMove[L], { n, people, to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people }, L)
     const question = [lead, plan.b.done ? fill(TEXT.bulkEarlier[L], { n: plan.b.done }, L) : '', TEXT.bulkRest[L]].filter(Boolean).join(' ')
     const text = lines.slice(0, BULK_LINES_MAX).join('\n') + (n > BULK_LINES_MAX ? `\n${fill(TEXT.more[L], { n: n - BULK_LINES_MAX }, L)}` : '')
+    // auto mode answers for this call only: the next many-items call of this answer is weighed (and asked) again
+    const byAuto = !tc.person!.alwaysOn?.('move_files') && !!tc.person!.autoOn?.('move_files', { floorFree: o.floorFree })
     const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', auto: { floorFree: o.floorFree }, details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
-    if (end === 'yes') { plan.b.approved = true; plan.said = people; return null }
+    if (end === 'yes') { if (!byAuto) plan.b.approved = true; plan.said = people; return null }
     const verb = o.move ? 'moved' : 'renamed'
     return refusal({
       done: end === 'declined' ? `The user did not allow this, so nothing was ${verb}.` : `Nothing was ${verb}.`,
@@ -399,9 +404,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     if (!plan) return null
     if (plan.ask) {
       const shared = new Set(plan.shared)
-      // a rename changes who sees nothing and is undone by a rename (plan section 4, `files.bulk.rename` auto); never
-      // after a room read
-      const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), { floorFree: !tc.person?.roomsSeen })
+      // a rename changes who sees nothing and is undone by a rename (plan section 4, `files.bulk.rename`); auto mode
+      // only for items in the person's own folder (a new name others see may carry private words: floor 2), never after
+      // a room read
+      const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), { floorFree: !tc.person?.roomsSeen && items.every((it) => inOwnFolder(it.path, tc.user.id)) })
       if (no) return { no }
     }
     plan.b.done += plan.shared.length
