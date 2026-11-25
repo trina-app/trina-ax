@@ -37,6 +37,8 @@ const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
 /** at most how long a self-installed server the hosting service does not serve waits between asking to be registered
  * (broker.ts `register`) and between status checks while it says no (an admin page asks again on load: brokerFresh) */
 const BROKER_REGISTER_MS = 30 * 60_000
+/** enough tries for registerWait to reach BROKER_REGISTER_MS (2^5 minutes > 30); the count stops there */
+const REGISTER_TRIES_MAX = 6
 const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
 const clean = (s: unknown, max: number) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
 export class GoogleDrive {
@@ -88,7 +90,7 @@ export class GoogleDrive {
     const sweep = () => {
       try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') }
       try { this.checkShareOwners() } catch { ctx.log.warn('Drive share check deferred') }
-      if (this.broker && !this.cfg && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : this.registerWait())) void this.checkBroker()
+      if (this.brokerDue()) void this.checkBroker()
     }
     onShareOwnerCheck(ctx, () => this.checkShareOwners())
     sweep()
@@ -131,15 +133,22 @@ export class GoogleDrive {
     this.brokerOk = ok
     return ok
   }
+  /** the background check is due: the last answer is older than BROKER_CHECK_MS while served, else registerWait() */
+  private brokerDue() {
+    return !!this.broker && !this.cfg && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : this.registerWait())
+  }
   /** A self-installed server the hosting service does not serve yet registers itself (broker.ts `register`), then asks
-   * again. Tries back off 1, 2, 4, 8 minutes, then every BROKER_REGISTER_MS (the first try may come before this server
-   * answers on its address, which the hosting service fetches). Any other answer stands. */
+   * again. Every "no" of a self-installed server backs off the next check 1, 2, 4, 8, 16 minutes, then every
+   * BROKER_REGISTER_MS: not served (the first register may come before this server answers on its address, which the
+   * hosting service fetches), and also not reachable, not configured or rate limited, so thousands of self-installed
+   * servers never ask a console that says no once a minute. A "yes" starts over. */
   private async selfRegistered(answer: 'yes' | 'not_served' | 'no'): Promise<boolean> {
-    if (answer === 'yes') return true
-    if (answer !== 'not_served' || !this.broker?.o.selfOrigin) return false
+    if (answer === 'yes') { this.registerTries = 0; return true }
+    if (!this.broker?.o.selfOrigin) return false
+    if (answer !== 'not_served') { this.registerTries = Math.min(this.registerTries + 1, REGISTER_TRIES_MAX); return false }
     if (this.registeredAt !== null && this.now() - this.registeredAt < this.registerWait()) return false
     this.registeredAt = this.now()
-    this.registerTries++
+    this.registerTries = Math.min(this.registerTries + 1, REGISTER_TRIES_MAX)
     if (!(await this.broker.register())) return false
     this.registerTries = 0
     this.ctx.log.info('Registered this server for Google sign-in through the hosting service')
@@ -147,7 +156,7 @@ export class GoogleDrive {
   }
   private registeredAt: number | null = null
   private registerTries = 0
-  /** a self-installed server's wait after a refused registration: 1, 2, 4, 8, 16, then 30 minutes; else BROKER_RETRY_MS */
+  /** a self-installed server's wait after any "no" (selfRegistered): 1, 2, 4, 8, 16, then 30 minutes; else BROKER_RETRY_MS */
   private registerWait() {
     return this.broker?.o.selfOrigin && this.registerTries ? Math.min(BROKER_REGISTER_MS, 60_000 * 2 ** (this.registerTries - 1)) : BROKER_RETRY_MS
   }

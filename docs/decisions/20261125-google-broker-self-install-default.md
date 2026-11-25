@@ -24,7 +24,8 @@
   (most self-installed servers, potenlab and jdr among them, use their own Cloudflare tunnel, not the relay) and over a
   browser-polled handoff without an address (the start page could no longer name the server).
 - **Back-off:** a refused registration tries again after 1, 2, 4, 8, 16, then every 30 minutes, and status checks
-  slow to the same pace, so servers the console says no to do not poll it every minute. An admin page still asks on
+  slow to the same pace after every "no" of the console (not served, not reachable, not configured, rate limited; a
+  yes starts over), so servers the console says no to do not poll it every minute. An admin page still asks on
   load.
 - **Not here:** a UI switch (env `off` and the per-app members switch exist), Slack (still only with its variable),
   servers without a public address.

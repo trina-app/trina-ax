@@ -370,6 +370,51 @@ test('a refused self-registration keeps Google off, backs off and never loops; a
   expect((await a.req(GOOGLE_BROKER_KEY_PATH)).status).toBe(404)
 })
 
+test('a self-installed server backs off 1 to 30 minutes on every "no" of the hosting service, not only not_served; a yes starts over', async () => {
+  selfInstalled(); (a.ctx.config as any).mode = 'production'
+  const relay = loadOrCreateKey(a.ctx.config.dataDir)
+  broker.trusted = relay.publicKey
+  let t = 1_000_000
+  // what the hosting service answers: not reachable, not configured, rate limited, or the fake broker itself
+  let mode: 'down' | 'not_configured' | 'rate_limited' | 'ok' = 'down'
+  const fetcher = (async (input: any, init?: any) => {
+    if (mode === 'down') throw new TypeError('fetch failed')
+    if (mode === 'rate_limited') return Response.json({ error: { code: 'rate_limited', message: 'too many' } }, { status: 429 })
+    return broker.fetch(input, init)
+  }) as typeof broker.fetch
+  const opts = { origin: BROKER_ORIGIN, identity: () => ({ key: relay.key, publicKey: relay.publicKey }), selfOrigin: 'https://office.example.test' }
+  svc = googleDriveOf(a.ctx, { config: null, fetch: fetcher, now: () => t, broker: opts })
+  await Bun.sleep(0); await Bun.sleep(0)
+  const due = () => (svc as any).brokerDue() as boolean
+  /** minutes until the background check is due again after a check at `t` */
+  const waitMinutes = () => { const start = t; let m = 0; while (!due() && m < 120) { m++; t = start + m * 60_000 } return m }
+  const waits: number[] = []
+  for (const m of ['down', 'not_configured', 'rate_limited', 'down', 'not_configured', 'rate_limited', 'down'] as const) {
+    mode = m
+    if (m === 'not_configured') broker.configured = false; else broker.configured = true
+    expect(await svc.checkBroker()).toBe(false)
+    waits.push(waitMinutes())
+  }
+  // the initial check (down) counted as the first "no"
+  expect(waits).toEqual([2, 4, 8, 16, 30, 30, 30])
+  expect(broker.requests.filter((q) => q.path === DRIVE_BROKER_PATHS.register)).toHaveLength(0)
+  // a yes starts over: the next "no" waits 1 minute again
+  mode = 'ok'; broker.configured = true
+  expect(await svc.checkBroker()).toBe(true)
+  mode = 'down'
+  t += 11 * 60_000
+  expect(await svc.checkBroker()).toBe(false)
+  expect(waitMinutes()).toBe(1)
+  // a hosted server (or an operator's variable: no selfOrigin) keeps checking every minute
+  const hosted = googleDriveOf(a.ctx, { config: null, fetch: fetcher, now: () => t, broker: { origin: BROKER_ORIGIN, identity: opts.identity } })
+  await Bun.sleep(0)
+  for (let n = 0; n < 3; n++) {
+    expect(await hosted.checkBroker()).toBe(false)
+    t += 60_000
+    expect((hosted as any).brokerDue()).toBe(true)
+  }
+})
+
 test('admin.js google-broker-key prints the relay public key and the address, plain or JSON, never the private key; never makes a key', () => {
   const base = path.join(a.ctx.config.dataDir, 'cli')
   const dataDir = path.join(base, 'data'), teamRoot = path.join(base, 'team')

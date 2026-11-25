@@ -77,8 +77,8 @@ console and an operator registers it by hand, as before; empty or `off` turns it
 makes no call to the hosting service. (Under `NODE_ENV=test` no server gets a default.) A server
 with its own client keeps the direct flow above, unchanged, even with the variable. Even with the variable, Drive turns
 on only after the control plane answers that it serves this server (a signed `/status`, at start, then every 10
-minutes, every minute while it says no; a self-installed server that registers itself backs off to 30 minutes while
-its registration is refused, and an admin page asks again on load); until then the card says "Not available yet". Admin › Connected apps › Google
+minutes, every minute while it says no; a self-installed server that registers itself backs off to 30 minutes after
+every "no" (registration refused, console not reachable, not configured or rate limited; a yes starts over), and an admin page asks again on load); until then the card says "Not available yet". Admin › Connected apps › Google
 Drive then shows `source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."),
 and everyone's own Drive and team shares work as described above. The Set up dialog is the hosting service's
 (`blocked: "hosted"`, no upload form, no redirect address shown): always on a hosted server, and on a self-installed one
@@ -98,7 +98,8 @@ then looks exactly like a hosted team (the same Google app, the same start page,
   the server only when it is the key that signed the call. The browser then only ever comes back to that address.
 - Refused (another key at the address, an address the console may not serve, an operator's record, self-registration
   closed at the console, an older console without `register`): Google stays "not set up", the admin may set a client
-  of its own, and the server tries again after 1, 2, 4, 8, 16, then every 30 minutes.
+  of its own, and the server tries again after 1, 2, 4, 8, 16, then every 30 minutes. The same back-off applies when
+  the console cannot be reached, is not configured or answers rate_limited.
 - The console decides whether it takes self-registrations (trina-cloud `docs/drive-broker.md`); an operator can still
   disable or remove any server there.
 
