@@ -45,8 +45,16 @@ export function originAuto(text: string | null): boolean {
 
 /** `text` with `origin: auto` in its metadata (`auto`) or without it. Text without a header stays as it is. */
 export function withOrigin(text: string, auto: boolean): string {
-  const h = HEADER.exec(text)
-  if (!h || originAuto(text) === auto) return text
+  let h = HEADER.exec(text)
+  if (!h) return text
+  // one place only (QA of #594: the AI wrote "origin: auto" at the top level and the server added the metadata one):
+  // a top-level origin line is not the marker, and goes
+  const top = /^origin:[^\r\n]*(?:\r?\n|$)/gm
+  if (top.test(h[2]!)) {
+    text = h[1] + h[2]!.replace(top, '').replace(/\r?\n$/, '') + h[3] + text.slice(h[0].length)
+    h = HEADER.exec(text)!
+  }
+  if (originAuto(text) === auto) return text
   let head = h[2]!
   if (auto) head = /^metadata:[ \t]*$/m.test(head) ? head.replace(/^metadata:[ \t]*$/m, 'metadata:\n  origin: auto') : `${head}\nmetadata:\n  origin: auto`
   else head = head.replace(/^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*(?:\r?\n|$)/gm, '').replace(/^metadata:[ \t]*\r?\n(?![ \t])/gm, '').replace(/\r?\nmetadata:[ \t]*$/, '').replace(/\n+$/, '')

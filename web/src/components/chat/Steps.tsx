@@ -108,12 +108,14 @@ export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: Re
  * cancelled is theirs, no failure. A step the time limit or Stop cut off says so (paused, stopped); an attached
  * file's note is neither. A card that ran out without an answer (a question, remember's "may I keep this?") is no
  * success either: a quiet mark with "답하지 않음" beside the line (unanswered). */
-export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'done'
+export type StepMark = 'running' | 'note' | 'paused' | 'stopped' | 'cancelled' | 'failed' | 'retried' | 'unanswered' | 'waiting' | 'done'
 export function stepMark(step: Step, o: MarkContext): StepMark {
   if (step.status === 'running' && o.live) return 'running'
   if (step.tool === 'attachment') return 'note'
   if (step.paused) return 'paused'
   if (step.stopped) return 'stopped'
+  // a card that waits after the answer ended: not done until the person answers (QA of #594)
+  if (step.waiting && step.status !== 'error') return 'waiting'
   if (step.status !== 'error') return unansweredStep(step) ? 'unanswered' : 'done'
   if (step.devEnvRun?.state === 'expired') return 'failed'
   if (step.devEnvRun?.state === 'cancelled') return 'cancelled'
@@ -338,7 +340,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const markWords = mark === 'retried' ? retried : mark === 'failed' ? t('steps.failed') : ''
   const stats = subtask ? subtaskStats(step.subtask, t) : ''
   // cut off by the time limit or by Stop: said in words, not only by the icon
-  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : ''
+  const cut = running || step.tool === 'attachment' ? '' : step.paused ? t('steps.paused') : step.stopped ? t('steps.stopped') : unanswered ? words.detail ?? '' : mark === 'waiting' ? t('steps.cardWaiting') : ''
   // what came back, in words beside the line ("10 results", "Declined", "Didn't work"): never only an icon. A sub-task
   // says its mark in its own name; a web search counts its results below
   const came = cut || running || subtask || step.sources?.length ? '' : outcomeWords(step, mark, t)
@@ -362,6 +364,9 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         <CirclePause size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-paused" />
       ) : mark === 'stopped' ? (
         <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
+      ) : mark === 'waiting' ? (
+        // its card is still open: the words beside the line say so
+        <Clock size={13} className="shrink-0 text-muted" aria-label={t('steps.cardWaiting')} data-testid="step-waiting" />
       ) : unanswered ? (
         // a card nobody answered: neither a success nor a failure (the words beside the line say it)
         <CircleDashed size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-unanswered" />
@@ -638,10 +643,11 @@ export default function Steps({ steps: all, streaming, failed = false, receipt, 
       )}
       {/* what the AI kept, changed or forgot about the person stays in view, with its 되돌리기, while the list is folded
           (docs/decisions/20261122-auto-memory.md) */}
-      {/* (a personal skill saved, fixed or deleted too: docs/decisions/20261125-auto-personal-skills.md) */}
-      {!open && top.some((s) => s.memory || s.skill) && (
+      {/* (a personal skill saved, fixed or deleted too: docs/decisions/20261125-auto-personal-skills.md; and a call whose
+          card still waits for the person) */}
+      {!open && top.some((s) => s.memory || s.skill || s.waiting) && (
         <ul className="mt-0.5 space-y-0.5" data-testid="steps-memory">
-          {top.filter((s) => s.memory || s.skill).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
+          {top.filter((s) => s.memory || s.skill || s.waiting).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
         </ul>
       )}
       {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}

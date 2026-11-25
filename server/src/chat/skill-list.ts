@@ -46,7 +46,14 @@ export function shortDescription(d: string, max = SKILL_LINE_DESCRIPTION_MAX): s
  * person (scenario SKL-04: it listed "quote-writer" to a member who knows the skill as 견적서 작성). */
 export function skillTitleText(s: Pick<Skill, 'name' | 'title'>, tag: (s: string) => string = (x) => x): string {
   const t = s.title ? oneLine(s.title) : ''
-  return t && fold(t) !== fold(oneLine(s.name)) ? ` "${tag(t).replace(/"/g, "'")}"` : ''
+  return t && fold(t) !== fold(oneLine(s.name)) ? ` "${listText(t, tag).replace(/"/g, "'")}"` : ''
+}
+
+/** A title or description as a line of the skill list: whoever wrote the skill (a teammate, a group member, the AI)
+ * writes words, never markup the instructions read as theirs. Every "<" and ">" becomes "‹" "›" and every "[" "]"
+ * becomes "(" ")", so no text there opens a block or forges a "[personal]" or "[group: …]" mark. */
+export function listText(s: string, tag: (s: string) => string = (x) => x): string {
+  return tag(s).replace(/</g, '‹').replace(/>/g, '›').replace(/\[/g, '(').replace(/\]/g, ')')
 }
 
 // ---------------- usage ----------------
@@ -139,7 +146,7 @@ export function buildSkillList(skills: readonly Skill[], o: { order?: readonly s
   const shown = listOrder(skills)
   const dup = duplicateNames(shown)
   const head = (s: Skill) => `- ${tag(oneLine(s.name))}${skillTitleText(s, tag)}${dup.has(fold(s.name)) ? ` (${s.path})` : ''}${skillTag(s, tag)}`
-  const desc = (s: Skill) => (s.description.trim() ? ': ' + tag(shortDescription(s.description)) : '')
+  const desc = (s: Skill) => (s.description.trim() ? ': ' + listText(shortDescription(s.description), tag) : '')
   const rank = new Map<string, number>()
   for (const p of o.order ?? []) if (!rank.has(p)) rank.set(p, rank.size)
   const at = new Map(shown.map((s, i) => [s, i]))

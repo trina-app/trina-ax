@@ -617,6 +617,9 @@ export const Step = z.object({
     /** the first skill the AI kept on its own for this person: the step shows the one-time line under it */
     first: z.literal(true).optional(),
   }).optional(),
+  /** a call whose card waits after the answer ended (server chat/turn.ts markCallWaiting): shown as waiting, not as
+   * done, until the person answers; then the step loses it (and says "Declined" for a no) */
+  waiting: z.literal(true).optional(),
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
