@@ -1452,3 +1452,19 @@ describe('Google for the team from a chat (#253)', () => {
     })
   })
 })
+
+describe('a listed service that signs in only through the team\'s own app (Asana, HubSpot, Box)', () => {
+  test('no card: a member is told to ask an admin, an admin where to set it up; nothing is saved', async () => {
+    const member = await start('alice', { name: 'Asana', kind: 'mcp', url: 'https://mcp.asana.com/v2/mcp', auth: 'oauth' })
+    const m = await doneOf(member.messageId)
+    expect(cards(member.turnId)).toEqual([])
+    expect(m.content).toContain('Asana signs in only through an app the team sets up')
+    expect(m.content).toContain('No card was shown.')
+    const admin = await start('carol', { name: 'HubSpot' })
+    const a = await doneOf(admin.messageId)
+    expect(cards(admin.turnId)).toEqual([])
+    expect(a.content).toContain('HubSpot signs in only through an app the team makes at HubSpot. No card was shown. This person is an admin')
+    expect(rowsAt('https://mcp.asana.com/v2/mcp')).toEqual([])
+    expect(rowsAt('https://mcp.hubspot.com')).toEqual([])
+  })
+})

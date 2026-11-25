@@ -86,6 +86,8 @@ export const DISCOVER_FIRST = 10
 /** One card of Discover (Connectors' and Admin › Connectors'): what it is, its state, what opens it and what its +
  * does. `off`: it cannot be connected now (the team has not set it up); `setUp`/`asked` say why on its right. */
 export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean;
+  /** where an owner's or admin's "Set up" goes (default: Admin › Connected apps) */
+  setUpTo?: string;
   /** off, and nothing an owner or admin can set up either (a hosted team's Google Drive and Google apps: the hosting
    * service turns them on): "Not ready yet" for everyone, never "Set up"; its page says why */
   noSetUp?: boolean
@@ -107,7 +109,7 @@ export function DiscoverCard({ c, admin, linkState }: { c: DiscoverItem; admin: 
       ) : c.state === 'off' && (!admin || c.noSetUp) ? (
         <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : c.noSetUp ? 'drive.notReadyShort' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" state={linkState} className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
+        <Link to={c.setUpTo ?? '/admin/connectors'} state={linkState} className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
         <IconButton label={t('integrations.discover.add', { name: c.name })} className="rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />

@@ -1,12 +1,12 @@
-# Services that sign in only through an approved app: one common way (HubSpot, Asana, Box, Zoom, Granola)
+# Services that sign in only through an approved app: one common way (HubSpot, Asana, Box; Granola listed)
 
 - Date (UTC): 2026-11-25 08:48
 - Branch: `feat/own-app-connectors`
-- Status: draft
+- Status: in progress
 - Where: `shared/src/service-catalog.ts`, `web/src/lib/connectors.ts`, `web/src/components/integrations/`,
   `server/src/integrations/connections/`, `server/src/chat/connect-service.ts`, `docs/`. Why: connectors are the
   integrations area (docs/REPOSITORY-RULES.md, docs/WORKPLAN.md).
-- Version impact: minor. Five new services in Discover and a new way to set them up; nothing existing changes.
+- Version impact: minor. Four new services in Discover and a new way to set three of them up; nothing existing changes.
 
 ## Goal
 
@@ -110,4 +110,14 @@ list (docs/DECISIONS.md "The chat's connect card trusts the app's list").
 
 ## Result
 
-(to fill in)
+Step 1 (2026-11-25, vendors' docs and their OAuth metadata): Granola registers clients itself (201 for a team's https
+callback; its docs name any MCP client), so it is an ordinary listed service. Asana, HubSpot and Box register none and
+take no metadata document; each lets a team make its own app with no business review for use inside the team. Zoom
+needs a paid plan and a Marketplace app, and its MCP address is `https://zoom.us/mcp/meeting/streamable`: left out by
+the owner's choice ("fix everything instead of zoom").
+
+Built: `teamApp` on Asana (scope `default`), HubSpot and Box in `shared/src/service-catalog.ts`; Granola listed; logos
+and notices; Discover "not set up" with Ask admin for members and Set up (the service's Admin page) for admins; Admin's
+page and dialog set it up as a template with the app's fields up front and the service's guide; `oauth_needs_team_app`
+before any lookup; no chat card. Differs from the plan: the reason is not a flow at all (nothing is sent), rather than
+"not counted"; no migration. Part B (the 13 sign-in tests) and Part C (live sign-ins) wait for QA accounts.
