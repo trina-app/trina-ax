@@ -319,21 +319,26 @@ export function autoCapReached(db: Database, userId: string, turnId: string, now
  * else's words, whoever pasted them (chat/read-rooms.ts isQuoteLine): left out. `shared`: a chat other people write in
  * (docs/decisions/20261125-auto-memory-shared-chats.md): only messages with the person as their author count. */
 export function ownWords(db: Database, chatId: string, userId: string, shared = false): string {
-  const rows = db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND ${shared ? 'author_id = ?' : '(author_id IS NULL OR author_id = ?)'} ORDER BY created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
+  // (a shared chat: a message with no author is the chat owner's, from before authors were kept, as chat/tools.ts reads it)
+  const rows = (shared
+    ? db.query(`SELECT m.content FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user' AND ${WRITER} = ? ORDER BY m.created_at DESC LIMIT 200`).all(chatId, userId)
+    : db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND (author_id IS NULL OR author_id = ?) ORDER BY created_at DESC LIMIT 200").all(chatId, userId)) as { content: string | null }[]
   return rows.map((r) => withoutQuoteLines(r.content ?? '')).join('\n')
 }
+/** who wrote a user message `m` of chat `c`: its author, or with none (before authors were kept) the chat's owner */
+const WRITER = 'COALESCE(m.author_id, c.user_id)'
 
 /**
  * What other people brought into a shared chat, as the copy and address checks read tool output
- * (docs/decisions/20261125-auto-memory-shared-chats.md): every message another person wrote (or with no author), the
- * answers to their turns, and the quote lines in the person's own messages. Read from the database on every call, so a
- * restart or a new session never empties it (unlike OutsideText). The newest 200 of each.
+ * (docs/decisions/20261125-auto-memory-shared-chats.md): every message another person wrote, the answers to their
+ * turns, and the quote lines in the person's own messages. Read from the database on every call, so a restart or a new
+ * session never empties it (unlike OutsideText). The newest 200 of each.
  */
 export function othersWords(db: Database, chatId: string, userId: string): string {
-  const theirs = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND (author_id IS NULL OR author_id != ?) ORDER BY created_at DESC LIMIT 200").all(chatId, userId) as { content: string | null }[]
-  const answers = db.query(`SELECT a.content FROM messages a JOIN messages q ON q.id = a.parent_id
-    WHERE a.chat_id = ? AND a.role = 'assistant' AND q.role = 'user' AND (q.author_id IS NULL OR q.author_id != ?) ORDER BY a.created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
-  const quoted = db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND author_id = ? ORDER BY created_at DESC LIMIT 200").all(chatId, userId) as { content: string | null }[]
+  const theirs = db.query(`SELECT m.content FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user' AND ${WRITER} != ? ORDER BY m.created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
+  const answers = db.query(`SELECT a.content FROM messages a JOIN messages m ON m.id = a.parent_id JOIN chats c ON c.id = m.chat_id
+    WHERE a.chat_id = ? AND a.role = 'assistant' AND m.role = 'user' AND ${WRITER} != ? ORDER BY a.created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
+  const quoted = db.query(`SELECT m.content FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.chat_id = ? AND m.role = 'user' AND ${WRITER} = ? ORDER BY m.created_at DESC LIMIT 200`).all(chatId, userId) as { content: string | null }[]
   return [
     ...theirs.map((r) => r.content ?? ''), ...answers.map((r) => r.content ?? ''),
     ...quoted.map((r) => (r.content ?? '').split('\n').filter(isQuoteLine).join('\n')),

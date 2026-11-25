@@ -83,6 +83,12 @@ describe('the asker\'s own words in a shared chat', () => {
     expect(othersWords(db(), chat, 'alice')).toContain('pay@evil.example')
     expect(othersWords(db(), chat, 'alice')).toContain('BOB-ANSWER')
     expect(othersWords(db(), chat, 'alice')).toContain('whole company list')
+    // a message with no author (from before authors were kept) is the chat owner's: alice's own, bob's "others"
+    db().query("INSERT INTO messages (id, chat_id, parent_id, role, content, status, created_at) VALUES (?, ?, NULL, 'user', 'OLD-OWNER-WORDS', 'done', '2020-01-01T00:00:00.000Z')").run(crypto.randomUUID(), chat)
+    expect(ownWords(db(), chat, 'alice', true)).toContain('OLD-OWNER-WORDS')
+    expect(othersWords(db(), chat, 'alice')).not.toContain('OLD-OWNER-WORDS')
+    expect(othersWords(db(), chat, 'bob')).toContain('OLD-OWNER-WORDS')
+    expect(ownWords(db(), chat, 'bob', true)).not.toContain('OLD-OWNER-WORDS')
   })
 })
 

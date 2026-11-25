@@ -1660,12 +1660,6 @@ function bTools(exec: TurnExec): Tool[] {
             settle({ label: tr('remembered', L, { text: value }).slice(0, 500), detail: `memory:${near.id}` })
             return { ...text(JSON.stringify({ id: near.id, kept: true, note: 'Already kept; nothing changed.' })), summary: `remember -> already kept ${near.id}` }
           }
-          // ...the same words kept in another chat of the person: nothing to add, and neither its id nor the chat it
-          // came from is named here
-          if (sharedChat && nearDuplicate(value, everything)?.exact) {
-            settle({ label: tr('remembered', L, { text: value }).slice(0, 500) })
-            return { ...text(JSON.stringify({ kept: true, note: 'Already kept; nothing changed.' })), summary: 'remember -> already kept (another chat)' }
-          }
           if (near) target = mine.find((m) => m.id === near.id) ?? null
         }
         // a change without a card never rewrites what the person wrote themselves: a new memory instead (review of
@@ -1708,7 +1702,9 @@ function bTools(exec: TurnExec): Tool[] {
           if (!target) {
             // full: a silent save never pushes another memory out of the AI's instructions; merge or forget first
             // (the block: the person's own memories first, then the AI's, newest first: runtime.memoriesForPrompt)
-            const srcOf = new Map(mine.map((m) => [m.id, m.source]))
+            // (every memory of the person: in a shared chat `mine` is only this chat's, and the person's own private
+            // ones must count as theirs)
+            const srcOf = new Map(everything.map((m) => [m.id, m.source]))
             const rows = rt.memoriesForPrompt(spec.userId)
             const users = rows.filter((r) => srcOf.get(r.id) === 'user')
             const before = memoryLines(rows, exec.memoryTokens).length
@@ -1737,6 +1733,13 @@ function bTools(exec: TurnExec): Tool[] {
             return { ...text('The user did not confirm, so nothing was remembered. Do not try again unless the user asks.'), summary: 'remember -> not confirmed' }
           }
           source = 'user'
+        }
+        // the same words kept in another chat of the person (only now, after the checks, so a shared chat learns
+        // nothing about private memories from a save that would not pass): nothing to add, and neither its id nor the
+        // chat it came from is named here
+        if (sharedChat && !target && nearDuplicate(value, everything)?.exact) {
+          settle({ label: tr('remembered', L, { text: value }).slice(0, 500) })
+          return { ...text(JSON.stringify({ kept: true, note: 'Already kept; nothing changed.' })), summary: 'remember -> already kept (another chat)' }
         }
         const now = new Date().toISOString()
         let id: string
@@ -1782,7 +1785,7 @@ function bTools(exec: TurnExec): Tool[] {
         const was = rt.db.query(`SELECT text FROM memories WHERE id = ? AND user_id = ?${only}`).get(...key) as { text: string } | null
         if (!was) return text(`No memory with id ${a.data.id}.`, true)
         const r = rt.db.query(`DELETE FROM memories WHERE id = ? AND user_id = ?${only}`).run(...key)
-        if (!r.changes || !was) return text(`No memory with id ${a.data.id}.`, true)
+        if (!r.changes) return text(`No memory with id ${a.data.id}.`, true)
         auditLog(rt.db, { actor: spec.userId, action: 'memory.forget', target: a.data.id, detail: { chars: was.text.length, turnId: spec.turnId } })
         rt.hub.publish(spec.userId, { type: 'memory.changed', data: { change: 'deleted', memory: null } })
         // a visible step with 되돌리기 (the person can put it back: the step keeps the text for them alone)
