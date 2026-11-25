@@ -125,6 +125,10 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
  * the notifications in the tray. */
 export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNumber(Platform.OS)) await Notifications.setBadgeCountAsync(n) })
 
+/** The iPhone's native sync handler is in this build (modules/push-sync): it removes the delivered notifications a silent
+ * sync lists, in the background or while the app is open, with no JS (src/badge.ts takesClear). */
+export const pushSyncNative = Platform.OS === 'ios' && requireOptionalNativeModule('PushSync') !== null
+
 /** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen,
  * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}); void appBadge.clear() }
