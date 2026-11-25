@@ -77,6 +77,26 @@ export function fieldWord(name: string, L: Locale, extra?: FieldWords): string {
 
 /** words for argument names by their letters alone (text.ts FIELD_WORDS' form) */
 export type FieldWords = Record<string, Partial<Record<Locale, string>> & { en: string }>
+/** words for known values of choice arguments, by the argument's name and the value, both by their letters alone
+ * (text.ts GOOGLE_VALUE_WORDS' form) */
+export type ValueWords = Record<string, FieldWords>
+const letters = (s: string) => s.toLowerCase().replace(/[\s_.-]+/g, '')
+/** A known value of a choice argument in words in `L` (`values`), or null: any other value is shown as it is sent */
+export function valueWord(name: string, value: string, L: Locale, values?: ValueWords): string | null {
+  if (!values) return null
+  const of = Object.hasOwn(values, letters(name)) ? values[letters(name)]! : null
+  const w = of && Object.hasOwn(of, letters(value)) ? of[letters(value)]! : null
+  return w ? w[L] ?? w.en : null
+}
+
+/** A service's name for a thing (an event's title, a message's subject) as a card's line shows it: one line, invisible
+ * and direction-changing characters out, at most NAME_SHOWN characters; null when nothing is left */
+const NAME_SHOWN = 120
+export function shownName(s: unknown): string | null {
+  if (typeof s !== 'string') return null
+  const v = s.slice(0, 2000).normalize('NFKC').replace(/[\s\p{Zl}\p{Zp}]+/gu, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').trim()
+  return v ? clip(v, NAME_SHOWN) : null
+}
 
 type Seg = string | number
 /** A value's place in the call in words: "받는 사람", "Parent › Page id", "Children 2 › Paragraph". */
@@ -99,9 +119,11 @@ function label(path: Seg[], L: Locale, extra?: FieldWords): string {
  * Two values whose names read the same get their names as sent after the words ("내용 (html)"). A text value at the top
  * whose name `isCode` picks (a program's script: a declared CLI's stdin) is a code line (`code`): byte for byte as sent,
  * for a code block, its indentation and runs of spaces allowed (CODE_ODD_SPACE instead of ODD_SPACE), never trimmed.
- * `extra`: the connection's own words for names (fieldWord).
+ * `extra`: the connection's own words for names (fieldWord); `values`: its own words for known values of its choice
+ * arguments (valueWord: Trina's own list for the connection, such as the Google library's `action`), any other value
+ * as it is sent.
  */
-export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean, isCode: (name: string) => boolean = () => false, extra?: FieldWords): CardLine[] | null {
+export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean, isCode: (name: string) => boolean = () => false, extra?: FieldWords, values?: ValueWords): CardLine[] | null {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null
   const lines: { name: string; raw: string; value: string; first: boolean; code: boolean }[] = []
   let chars = 0
@@ -152,7 +174,9 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
     const code = path.length === 1 && typeof name === 'string' && typeof v === 'string' && v !== '' && isCode(name)
     const s = scalar(v, code)
     if (s === null) { bad = true; return }
-    add(path, s, first2, code)
+    // a known value of a choice argument in words (the exact call stays one click away)
+    const known = !code && typeof v === 'string' && typeof name === 'string' ? valueWord(name, v, L, values) : null
+    add(path, known ?? s, first2, code)
   }
   const top = Object.entries(args as Record<string, unknown>)
   if (!top.length) return null

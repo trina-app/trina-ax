@@ -304,6 +304,30 @@ describe('out of chat:work/', () => {
     expect(Buffer.compare(fs.readFileSync(team('users/alice/q3-review.pptx')), deck)).toBe(0)
   })
 
+  test('a Word file with a new picture and no native chart is told that a chart picture cannot be edited; a picture of a file it read is not (live QA 2026-11-25)', async () => {
+    const chat = await personal()
+    // the QA file's shape: the bar chart is word/media/image1.png in the body, there is no word/charts
+    const { readZip, writeZip } = await import('../../server/src/files/zip-write')
+    const PIC = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image'
+    const withPicture = (png: Uint8Array) => writeZip(readZip(docx({ body: 'Report' })).map((e) => ({ name: e.name, data: e.data }))
+      .map((e) => e.name === 'word/_rels/document.xml.rels' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('</Relationships>', `<Relationship Id="rIdPic1" Type="${PIC}" Target="media/image1.png"/></Relationships>`)) } : e)
+      .concat([{ name: 'word/media/image1.png', data: png }]))
+    const chartPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    const p = path.join(chatWork(base, chat), 'out', 'report.docx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, withPicture(chartPng))
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/report.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Saved')
+    expect(saved.content).toContain('it has 1 new picture and no native chart')
+    expect(saved.content).toContain('scripts/word_chart.py')
+    // a company letterhead read in this answer: its logo, reused byte for byte, is not taken for a chart
+    const logo = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9])
+    w('users/alice/tpl/letterhead.docx', withPicture(logo))
+    fs.writeFileSync(p, withPicture(logo))
+    const filled = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/tpl/letterhead.docx' } }, { tool: 'save_work_file', args: { path: 'out/report.docx', save_as: 'users/alice/filled-letter.docx' }, sayResult: true }))
+    expect(filled.content).toContain('Saved')
+    expect(filled.content).not.toContain('no native chart')
+  })
+
   test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
     const chat = await personal()
     const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`

@@ -5,9 +5,9 @@
 // card, so another service's thread_id or references keeps its own words.
 import { describe, expect, test } from 'bun:test'
 import { Locale } from '@mycel/shared/api'
-import { catalog } from '../../server/src/integrations/google-apps/catalog'
-import { cardLines, fieldWord, toolKindOf, toolTitle } from '../../server/src/integrations/connections/card-lines'
-import { DEMO_HIGGSFIELD_TOOL_WORDS, GOOGLE_TOOL_WORDS, MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
+import { APP_IDS, catalog } from '../../server/src/integrations/google-apps/catalog'
+import { cardLines, fieldWord, shownName, toolKindOf, toolTitle, valueWord } from '../../server/src/integrations/connections/card-lines'
+import { DEMO_HIGGSFIELD_TOOL_WORDS, FIELD_WORDS, GOOGLE_FIELD_WORDS, GOOGLE_TOOL_WORDS, GOOGLE_VALUE_WORDS, MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 
 // demo re-test 11-22: the demo's Higgsfield step stayed "Higgsfield · Generate image" in a Korean chat
@@ -38,13 +38,14 @@ describe('tool titles', () => {
     expect(toolTitle({ name: 'send_gmail_message', title: 'Send Gmail Message' }, 'ko', toolKindOf({ google_app: null }))).toBe('Send Gmail Message')
     expect(toolTitle({ name: 'send_gmail_message', title: 'Send Gmail Message' }, undefined, 'google-apps')).toBe('Send Gmail Message')
     expect(toolTitle({ name: 'create_page', title: 'Create a page' }, 'ko', 'google-apps')).toBe('Create a page')
-    // Calendar keeps the library's title for now
-    expect(toolTitle({ name: 'manage_event', title: 'Manage Event' }, 'ko', 'google-apps')).toBe('Manage Event')
+    // Calendar, Docs and Sheets in Trina's words too (QA 11-25: "Manage Event" on a Korean card)
+    expect(toolTitle({ name: 'manage_event', title: 'Manage Event' }, 'ko', 'google-apps')).toBe('일정 관리')
+    expect(toolTitle({ name: 'manage_event', title: 'Manage Event' }, 'ko')).toBe('Manage Event')
     expect(toolKindOf({ google_app: 'gmail' })).toBe('google-apps')
   })
 
-  test('every Gmail catalog tool has all six languages', () => {
-    for (const tool of catalog('gmail')) {
+  test('every catalog tool of every app has all six languages', () => {
+    for (const tool of APP_IDS.flatMap((a) => catalog(a))) {
       for (const L of Locale.options) expect({ tool: tool.name, L, ok: !!GOOGLE_TOOL_WORDS[tool.name]?.[L]?.trim() }).toEqual({ tool: tool.name, L, ok: true })
     }
   })
@@ -66,5 +67,39 @@ describe('mail field words', () => {
     expect(fieldWord('thread_id', 'ko')).toBe('Thread id')
     expect(fieldWord('references', 'en')).toBe('References')
     expect(cardLines({ thread_id: 'th-1' }, 'en', () => false)!.map((l) => l.name)).toEqual(['Thread id'])
+  })
+})
+
+// QA 11-25 on qa.trina.app: a Korean Calendar card said "Action  create", "Start time", "Timezone"
+describe('Google field and value words', () => {
+  const google = { ...MAIL_FIELD_WORDS, ...GOOGLE_FIELD_WORDS }
+  test('an event card in Korean: every name and the action in words; other values as sent', () => {
+    const lines = cardLines({ action: 'create', summary: '주간 회의', start_time: '2026-11-26T14:00:00', end_time: '2026-11-26T15:00:00', timezone: 'Asia/Seoul', event_id: 'e1' }, 'ko', () => false, () => false, google, GOOGLE_VALUE_WORDS)!
+    expect(lines).toEqual([
+      { name: '작업', value: '만들기' }, { name: '제목', value: '주간 회의' }, { name: '시작 시간', value: '2026-11-26T14:00:00' },
+      { name: '종료 시간', value: '2026-11-26T15:00:00' }, { name: '시간대', value: 'Asia/Seoul' }, { name: '일정 ID', value: 'e1' },
+    ])
+    expect(cardLines({ action: 'delete', send_updates: 'externalOnly' }, 'en', () => false, () => false, google, GOOGLE_VALUE_WORDS)).toEqual([{ name: 'Action', value: 'Delete' }, { name: 'Notify guests', value: 'Only guests outside the team' }])
+    // a value Trina does not know is shown as sent
+    expect(valueWord('action', 'explode', 'ko', GOOGLE_VALUE_WORDS)).toBeNull()
+  })
+
+  test('another service: the common words for its names, its values as sent, its summary a summary', () => {
+    const lines = cardLines({ action: 'create', start_time: '9:00', summary: 'x' }, 'ko', () => false)!
+    expect(lines).toEqual([{ name: '작업', value: 'create' }, { name: '시작 시간', value: '9:00' }, { name: '요약', value: 'x' }])
+    // a name in no list: its own words, as before
+    expect(fieldWord('conference_passcode', 'ko')).toBe('Conference passcode')
+  })
+
+  test('every word in all six languages', () => {
+    for (const table of [FIELD_WORDS, GOOGLE_FIELD_WORDS, ...Object.values(GOOGLE_VALUE_WORDS)])
+      for (const [k, w] of Object.entries(table)) for (const L of Locale.options) expect({ k, L, ok: !!w[L]?.trim() }).toEqual({ k, L, ok: true })
+  })
+
+  test('a service\'s name for a thing on one line, without invisible characters, clipped', () => {
+    expect(shownName('  Weekly\n  sync\u200b ')).toBe('Weekly sync')
+    expect(shownName('x'.repeat(300))!.length).toBe(120)
+    expect(shownName('\u200b')).toBeNull()
+    expect(shownName(null)).toBeNull()
   })
 })
