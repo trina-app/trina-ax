@@ -5,7 +5,7 @@
 //   template or guest) for every save; the switch "자동으로 기억하기" off: a new skill only when the person's own message
 //   explicitly asks for one (asksForSkill, its one use);
 // - for every save: the asker's own words only (auto memory's copy and address checks), AUTO_SKILLS_PER_ANSWER and
-//   AUTO_SKILLS_PER_DAY;
+//   AUTO_SKILLS_PER_DAY (different skills a day: refining one skill again counts once);
 // - a skill the AI made itself (`metadata: origin: auto`, written by the server) changes and goes to the trash with no
 //   card; any other personal skill (the person wrote it or asked for it) only after the person's yes on a server card
 //   that shows the change (and the file layer holds the approval for exactly those bytes: skills/guard.ts);
@@ -15,6 +15,7 @@ import path from 'node:path'
 import type { Step, TurnRequest } from '@mycel/shared/api'
 import crypto from 'node:crypto'
 import { sha256 } from '../files/store'
+import { readSkillTitle } from '@mycel/shared/api'
 import { lineDiff } from '../skills/diff'
 import { authorize } from '../policy/authorize'
 import { checkSkill } from './skills'
@@ -30,7 +31,8 @@ import { tr } from './i18n'
 import type { TurnExec } from './turn'
 import type { StoredStep } from './store'
 
-/** saves the person did not ask for: per answer and per 24 hours (a new skill, a change and a delete each count) */
+/** skill saves, changes and deletes: per answer (each call counts), and different skills per 24 hours (QA of #606: a
+ * person refining one skill a few times hit the day's limit; the same skill again counts once) */
 export const AUTO_SKILLS_PER_ANSWER = 2
 export const AUTO_SKILLS_PER_DAY = 6
 
@@ -104,15 +106,20 @@ function ownWordsProblem(exec: Exec, value: string, self: string | null = null):
   return null
 }
 
-/** Skill saves and deletes, this answer and the last 24 hours. */
-function capReached(exec: Exec): string | null {
+/** Skill saves and deletes: this answer's calls, and the different skills (`rels`, the SKILL.md paths this call
+ * touches) of the last 24 hours. */
+function capReached(exec: Exec, rels: string[]): string | null {
   const db = exec.rt.db
   // every save counts, asked or not (review of #594: an ask must not lift the caps)
-  const q = "SELECT count(*) n FROM audit_log WHERE actor_id = ? AND action IN ('skill.auto_save', 'skill.auto_delete')"
-  if ((db.query(`${q} AND json_extract(detail, '$.turnId') = ?`).get(exec.spec.userId, exec.spec.turnId) as { n: number }).n >= AUTO_SKILLS_PER_ANSWER)
+  const q = "FROM audit_log WHERE actor_id = ? AND action IN ('skill.auto_save', 'skill.auto_delete')"
+  if ((db.query(`SELECT count(*) n ${q} AND json_extract(detail, '$.turnId') = ?`).get(exec.spec.userId, exec.spec.turnId) as { n: number }).n >= AUTO_SKILLS_PER_ANSWER)
     return `Nothing was saved: at most ${AUTO_SKILLS_PER_ANSWER} skill changes per answer are made. Keep the most useful one.`
-  if ((db.query(`${q} AND at >= ?`).get(exec.spec.userId, new Date(Date.now() - 24 * 3600_000).toISOString()) as { n: number }).n >= AUTO_SKILLS_PER_DAY)
-    return 'Nothing was saved: the daily number of skill changes is reached. Do not try again today.'
+  // a day: how many different skills changed, not how many saves (QA of #606: refining one skill three times is one
+  // skill); a skill already changed today changes again, a new one only below the limit
+  const day = new Set((db.query(`SELECT DISTINCT target t ${q} AND at >= ?`).all(exec.spec.userId, new Date(Date.now() - 24 * 3600_000).toISOString()) as { t: string | null }[]).map((r) => r.t))
+  const fresh = new Set(rels.filter((r) => !day.has(r)))
+  if (fresh.size && day.size + fresh.size > AUTO_SKILLS_PER_DAY)
+    return `Nothing was saved: at most ${AUTO_SKILLS_PER_DAY} different skills change in a day, and that is reached. A skill already changed today can still be fixed. Do not try a new one again today.`
   return null
 }
 
@@ -165,7 +172,7 @@ export async function beforeSkillWrite(exec: Exec, tool: string, args: unknown, 
   const fresh = after.split('\n').filter((l) => !seen.has(l.trim()) && !header(l)).join('\n')
   const own = fresh.trim() ? ownWordsProblem(exec, fresh, before) : null
   if (own) return own
-  const cap = capReached(exec)
+  const cap = capReached(exec, [r.rel])
   if (cap) return cap
   // a skill the AI did not make (the person wrote it or asked for it): only with the person's yes on the card, which
   // shows the change; the yes is an approval for exactly these bytes (skills/guard.ts requireSkillApproval)
@@ -178,11 +185,16 @@ export async function beforeSkillWrite(exec: Exec, tool: string, args: unknown, 
   return null
 }
 
-/** The skill's name as people read it (its `metadata: title`, in their language), else its folder name: the step line
- * and the cards say this, never the file or its path (QA of #594: "SKILL.md" and "/weekly-report" in the notice). */
-function titleOf(text: string, rel: string, name: string): string {
+/** The skill's name as people read it (its `metadata: title`, in their language), else the first heading of its text
+ * (a skill the person wrote by hand often has "# 회의록 정리" and no title), else its folder name: the step line and the
+ * cards say this, never the file or its path (QA of #594: "SKILL.md" and "/weekly-report" in the notice). */
+export function titleOf(text: string, rel: string, name: string): string {
   const c = checkSkill(text, rel)
-  return (c.ok && c.title) || name
+  if (c.ok && c.title) return c.title
+  const body = c.ok ? c.body : text.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '')
+  // (not a "#" line inside a code block)
+  const heading = /^#{1,3}[ \t]+(.+?)[ \t#]*$/m.exec(body.replace(/^(```|~~~)[\s\S]*?^\1/gm, ''))?.[1]?.replace(/[*_`]/g, '').trim()
+  return readSkillTitle(heading) ?? name
 }
 
 /** The card for a change or a delete of the person's own skills that the AI did not make. null: yes. */
@@ -260,7 +272,7 @@ export async function deletePersonalSkills(exec: Exec, args: unknown): Promise<{
   const place = placeOf(exec)
   if ('refusal' in place) return { text: place.refusal, isError: true }
   if (skills.some((x) => x.auto) && !place.on && !place.asked) return { text: OFF, isError: true }
-  const capped = capReached(exec)
+  const capped = capReached(exec, skills.map((x) => x.rel))
   if (capped) return { text: capped, isError: true }
   const own = skills.filter((x) => !x.auto)
   if (own.length) {

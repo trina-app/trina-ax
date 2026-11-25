@@ -6,12 +6,13 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Step } from '@mycel/shared/api'
-import { localizeStep } from '@mycel/shared'
+import { localizeStep, stepPlace } from '@mycel/shared'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { personalSkillProblem } from '../../server/src/skills/personal-guard'
-import { asksForSkill, AUTO_SKILLS_PER_ANSWER, originAuto, withOrigin } from '../../server/src/chat/personal-skills'
+import { asksForSkill, AUTO_SKILLS_PER_ANSWER, AUTO_SKILLS_PER_DAY, originAuto, titleOf, withOrigin } from '../../server/src/chat/personal-skills'
+import { tr } from '../../server/src/chat/i18n'
 import { inAnySkills } from '../../server/src/skills/guard'
-import { autoSkillRule, promiseRule } from '../../server/src/chat/prompt'
+import { AUTO_SKILL_REMINDER, autoSkillRule, promiseRule, SKILL_SAVED_REPLY } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -83,6 +84,50 @@ describe('the guard and the origin line', () => {
     expect(localizeStep({ kind: 'tool', tool: 'edit', label: '스킬 고침: weekly' }, 'en').label).toBe('Skill updated: weekly')
     expect(localizeStep({ kind: 'tool', tool: 'delete_files', label: 'Deleted skill: weekly' }, 'ja').label).toBe('スキルを削除しました：weekly')
     expect(localizeStep({ kind: 'tool', tool: 'write', label: 'Save · shared/a.md' }, 'ko').label).toBe('파일 저장 · shared/a.md')
+  })
+})
+
+describe('QA of #606: the words around a save', () => {
+  test('after a save the reply stays one plain line: no "/" command, file or path (rule and reminder)', () => {
+    expect(SKILL_SAVED_REPLY).toContain('Never name its "/" command, SKILL.md, a file name, a folder or a path')
+    expect(autoSkillRule('users/alice/skills')).toContain(SKILL_SAVED_REPLY)
+    expect(AUTO_SKILL_REMINDER).toContain(SKILL_SAVED_REPLY)
+  })
+
+  test('the card of a person\'s own skill needs no particle after the name, in every language', () => {
+    for (const names of ['"meeting-notes"', '"회의록 정리"', '"weekly", "monthly"']) {
+      const ko = [tr('ownSkillChangeConfirm', 'ko', { names }), tr('ownSkillDeleteConfirm', 'ko', { names })]
+      for (const q of ko) {
+        expect(q).toContain(`${names} 스킬을`)
+        expect(q).not.toMatch(/\(를\)|\(을\)/)
+      }
+    }
+    for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) {
+      for (const k of ['ownSkillChangeConfirm', 'ownSkillDeleteConfirm'] as const) {
+        const q = tr(k, l, { names: '"meeting-notes"' })
+        expect(q).toContain('"meeting-notes"')
+        expect(q).not.toMatch(/[{}()]/)
+      }
+    }
+  })
+
+  test('a skill\'s readable name: its title, else its first heading (not one in a code block), else its folder name', () => {
+    const r = 'users/alice/skills/meeting-notes/SKILL.md'
+    expect(titleOf(md('meeting-notes', 'x', 'metadata:\n  title: 회의록 정리\n'), r, 'meeting-notes')).toBe('회의록 정리')
+    expect(titleOf(md('meeting-notes', '# Meeting **notes**\n\n1. Write it.'), r, 'meeting-notes')).toBe('Meeting notes')
+    expect(titleOf(md('meeting-notes', '```sh\n# not a heading\n```\n\n## 회의 메모\n'), r, 'meeting-notes')).toBe('회의 메모')
+    expect(titleOf(md('meeting-notes', '1. Write it.'), r, 'meeting-notes')).toBe('meeting-notes')
+    expect(titleOf('# Notes by hand\n\nno header at all', r, 'meeting-notes')).toBe('Notes by hand')
+  })
+
+  test('a step line on one\'s own skill file says the skill, never the path', () => {
+    const me = { me: 'alice' }
+    const line = (label: string, l: 'ko' | 'en' | 'ja', tool = 'edit') => stepPlace({ tool }, localizeStep({ kind: 'tool', tool, label }, l).label, l, me).label
+    expect(line('Edit · users/alice/skills/meeting-notes/SKILL.md', 'ko')).toBe("파일 수정 · 내 스킬 'meeting notes'")
+    expect(line('Read · users/alice/skills/meeting-notes/SKILL.md', 'en', 'read')).toBe("Read · My skill 'meeting notes'")
+    expect(line('Edit · users/alice/skills/meeting-notes/SKILL.md', 'ja')).toContain('自分のスキル「meeting notes」')
+    // another file of the own folder, and a skill file deeper in: as before
+    expect(stepPlace({ tool: 'read' }, 'Read · users/alice/skills/meeting-notes/scripts/a.py', 'en', me).label).not.toContain('My skill')
   })
 })
 
@@ -224,6 +269,26 @@ describe('in a turn', () => {
     expect([read('first-kind') !== null, read('second-kind') !== null, read('third-kind') !== null]).toEqual([true, true, false])
   })
 
+  test(`the day's limit counts different skills (${AUTO_SKILLS_PER_DAY}): refining one skill again counts once`, async () => {
+    clean(); setPrefs({ autoSkillNotice: 'seen' })
+    const seed = (target: string, n: number) => { for (let i = 0; i < n; i++) db().query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES ('alice', 'skill.auto_save', ?, ?)").run(target, JSON.stringify({ change: 'fixed', auto: true, turnId: `t-old-${crypto.randomUUID()}` })) }
+    // one skill refined ten times today: a new one and a fix of it still go through
+    await ask(h, alice, 'alice', await newChat(), fake(write('weekly')))
+    seed(rel('weekly'), 10)
+    const fix = (name: string) => ({ tool: 'edit', args: { file_path: rel(name), old_string: 'Send it to Mina by mail.', new_string: 'Send it to Mina in the sales chat.' }, sayResult: true })
+    await ask(h, alice, 'alice', await newChat(), fake({ tool: 'read', args: { file_path: rel('weekly') } }, fix('weekly')))
+    expect(read('weekly')).toContain('in the sales chat')
+    await ask(h, alice, 'alice', await newChat(), fake(write('monthly')))
+    expect(read('monthly')).not.toBeNull()
+    // the limit of different skills reached: a new one is refused, one already changed today can still be fixed
+    for (let i = 3; i <= AUTO_SKILLS_PER_DAY; i++) seed(rel(`kind-${i}`), 1)
+    const refused = await ask(h, alice, 'alice', await newChat(), fake(write('one-more')))
+    expect(refused.done.content).toContain(`at most ${AUTO_SKILLS_PER_DAY} different skills change in a day`)
+    expect(read('one-more')).toBeNull()
+    await ask(h, alice, 'alice', await newChat(), fake({ tool: 'read', args: { file_path: rel('monthly') } }, fix('monthly')))
+    expect(read('monthly')).toContain('in the sales chat')
+  })
+
   test('a fix: no card for a skill it made (the version before kept for undo); a card with the diff for the person\'s own', async () => {
     clean(); setPrefs({ autoSkillNotice: 'seen' })
     const edit = (name: string) => [{ tool: 'read', args: { file_path: rel(name) } }, { tool: 'edit', args: { file_path: rel(name), old_string: 'Send it to Mina by mail.', new_string: 'Send it to Mina in the sales chat.' }, sayResult: true }]
@@ -247,6 +312,13 @@ describe('in a turn', () => {
     expect(yes.cards).toHaveLength(1)
     expect(read('mine')).toContain('in the sales chat')
     expect(originAuto(read('mine'))).toBe(false)
+    // a skill the person wrote by hand, no title: the card and the step say its first heading, never the path
+    put('meeting-notes', md('meeting-notes', `# Meeting notes\n\n${STEPS}`))
+    const hand = await run(fake(...edit('meeting-notes')), 'save')
+    expect(hand.cards[0]!.question).toContain('"Meeting notes"')
+    const handStep = steps(hand, "edit")[0]!
+    expect(handStep.label).toBe("Skill updated: Meeting notes")
+    expect(handStep.skill?.path).toBe(rel("meeting-notes"))
   })
 
   test('a person\'s own skill always asks: also on an explicit ask that mentions it, and for a common-word name', async () => {
