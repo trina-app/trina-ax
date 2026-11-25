@@ -157,6 +157,7 @@ export function buildVectors() {
         { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: 'x'.repeat(4097) }, why: 'a secret over 4096 characters' },
         { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', tenant: '../etc' }, why: 'tenant rule' },
         { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', redirectUris: [] }, why: 'unknown stdin field' },
+        { command: 'microsoft-app-set', args: {}, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000', tenant: 'consumers' }, why: 'personal accounts are not supported' },
         { command: 'microsoft-app-set', args: {}, stdin: null, why: 'the app goes on stdin' },
         { command: 'microsoft-app-set', args: { clientSecret: '0000000000000000000000000000000000000000' }, stdin: { clientId: '00000000-0000-4000-8000-000000000000', clientSecret: '0000000000000000000000000000000000000000' }, why: 'the secret goes on stdin only' },
       ],

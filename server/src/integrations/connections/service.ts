@@ -862,7 +862,9 @@ export class Integrations {
           // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
           const tokens = row.google_app
             ? await refreshGoogleApp(this.ctx, s, this.now())
-            : await tokenRequest(this.currentClient(row, s), { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
+            : await tokenRequest(this.currentClient(row, s), { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}),
+              // Microsoft 365: the same scopes again (Entra's v2.0 refresh otherwise answers for its own default set)
+              ...(serverAppAt(row.url) === 'microsoft' && s.scope ? { scope: s.scope } : {}) }, this.net, this.now(), s.tokens)
           this.keepTokens(row.id, s.tokens.refreshToken!, tokens)
           return tokens.accessToken
         } catch (e) {
@@ -1254,7 +1256,13 @@ export class Integrations {
     // Microsoft 365 (its address never resolves): only through the server's Microsoft app or an own app, nothing to find
     const microsoft = serverAppAt(row.url) === 'microsoft'
     // a company's own Entra app given by its ID and secret only: Microsoft's own addresses (any tenant) and the scopes
-    if (microsoft && app && !app.serverApp && !app.authorizationUrl && !app.tokenUrl) app = { ...app, authorizationUrl: microsoftAuthorizeUrl({}), tokenUrl: microsoftTokenUrl({}), scope: app.scope ?? MICROSOFT_SCOPE }
+    if (microsoft && app && !app.serverApp) {
+      if (!app.authorizationUrl && !app.tokenUrl) app = { ...app, authorizationUrl: microsoftAuthorizeUrl({}), tokenUrl: microsoftTokenUrl({}) }
+      // one of the two addresses only (a single-tenant app's): nothing to find at the reserved address, so both are needed
+      else if (!app.authorizationUrl || !app.tokenUrl) return fail('validation', say('microsoftOwnAppAddresses', L))
+      // the connector's scopes whatever addresses the app gave, unless it names its own
+      if (!app.scope) app = { ...app, scope: MICROSOFT_SCOPE }
+    }
     if (microsoft && !app?.authorizationUrl) return fail('validation', say('microsoftNotSetUp', L))
     let setup: { server: OAuthServer; resource: string | null; scope: string | null; authMethods: string[] | null; metadataClients?: boolean }
     let client: OAuthClient

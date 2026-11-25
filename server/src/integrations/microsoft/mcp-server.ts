@@ -79,6 +79,27 @@ const isoTime = (a: Args, k: string, required = true): string | undefined => {
   return v
 }
 const TZ = /^[A-Za-z][A-Za-z0-9_+\-/ ]{0,63}$/
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+const HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/
+/** A time as the calendar query needs it: with an offset as written, else read in `tz` (an IANA zone) and given in UTC.
+ * A date alone is that day's start in `tz`. */
+export function zonedToUtc(v: string, tz: string): string {
+  if (HAS_OFFSET.test(v)) return new Date(Date.parse(v)).toISOString()
+  const local = DATE_ONLY.test(v) ? `${v}T00:00:00` : v
+  const asUtc = Date.parse(`${local}Z`)
+  if (tz === 'UTC') return new Date(asUtc).toISOString()
+  let fmt: Intl.DateTimeFormat
+  try { fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) }
+  catch { throw new ArgError('time_zone must be an IANA time zone such as Asia/Seoul') }
+  // the zone's offset at a moment: what its wall clock shows there, read as UTC, minus the moment
+  const offsetAt = (ms: number) => {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map((x) => [x.type, x.value]))
+    return Date.UTC(+p.year!, +p.month! - 1, +p.day!, +p.hour!, +p.minute!, +p.second!) - Math.floor(ms / 1000) * 1000
+  }
+  let ms = asUtc - offsetAt(asUtc)
+  ms = asUtc - offsetAt(ms)
+  return new Date(ms).toISOString()
+}
 const timeZone = (a: Args): string => { const v = str(a, 'time_zone', { max: 64 }) ?? 'UTC'; if (!TZ.test(v)) throw new ArgError('time_zone must be a time zone name such as Asia/Seoul'); return v }
 
 /** text cut to MAX_TEXT, saying so */
@@ -149,7 +170,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'mail_draft', title: 'Write mail draft', readOnly: false,
-    description: 'Write an Outlook draft the user can check and send later (or send with mail_send_draft). reply_to: a mail id to answer (the draft replies to its sender, or everyone with reply_all; to and cc add people). body is plain text unless html is true.',
+    description: 'Write an Outlook draft the user can check and send later (or send with mail_send_draft). reply_to: a mail id to answer (the draft replies to its sender, or everyone with reply_all; to, cc and bcc add people; subject replaces the reply\'s "RE:" subject). body is plain text unless html is true.',
     inputSchema: { type: 'object', properties: { to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } }, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'boolean' }, reply_to: { type: 'string' }, reply_all: { type: 'boolean' } } },
     async run(g, a) {
       const replyTo = id(a, 'reply_to', { required: false })
@@ -157,9 +178,14 @@ const TOOLS: Tool[] = [
       if (replyTo) {
         d = await g.call({ method: 'POST', path: `/me/messages/${seg(replyTo)}/${bool(a, 'reply_all') ? 'createReplyAll' : 'createReply'}`, json: { comment: str(a, 'body', { max: 1_000_000 }) ?? '' } })
         // more people: added to the ones the reply has (a PATCH replaces the whole list)
-        const extra = { to: addresses(a, 'to'), cc: addresses(a, 'cc') }
+        const extra = { to: addresses(a, 'to'), cc: addresses(a, 'cc'), bcc: addresses(a, 'bcc') }
+        const subject = str(a, 'subject', { max: 1000 })
         const merged = (have: any[] | undefined, more: string[]) => [...(have ?? []), ...recipients(more.filter((x) => !(have ?? []).some((r: any) => r?.emailAddress?.address?.toLowerCase() === x.toLowerCase())))]
-        if (extra.to.length || extra.cc.length) d = await g.call({ method: 'PATCH', path: `/me/messages/${seg(d.id)}`, json: { ...(extra.to.length ? { toRecipients: merged(d?.toRecipients, extra.to) } : {}), ...(extra.cc.length ? { ccRecipients: merged(d?.ccRecipients, extra.cc) } : {}) } })
+        const patch = {
+          ...(extra.to.length ? { toRecipients: merged(d?.toRecipients, extra.to) } : {}), ...(extra.cc.length ? { ccRecipients: merged(d?.ccRecipients, extra.cc) } : {}),
+          ...(extra.bcc.length ? { bccRecipients: merged(d?.bccRecipients, extra.bcc) } : {}), ...(subject ? { subject } : {}),
+        }
+        if (Object.keys(patch).length) d = await g.call({ method: 'PATCH', path: `/me/messages/${seg(d.id)}`, json: patch })
       } else {
         const { message } = mailMessage(a)
         d = await g.call({ method: 'POST', path: '/me/messages', json: message })
@@ -181,14 +207,16 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'mail_send', title: 'Send mail', readOnly: false,
-    description: 'Send an Outlook mail now (kept in Sent Items). reply_to: a mail id to answer (to its sender, or everyone with reply_all; to, when given, are the recipients of the reply instead). body is plain text unless html is true.',
+    description: 'Send an Outlook mail now (kept in Sent Items). reply_to: a mail id to answer (to its sender, or everyone with reply_all; to, when given, are the recipients of the reply instead; cc, bcc and subject go with it). body is plain text unless html is true.',
     inputSchema: { type: 'object', properties: { to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } }, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'boolean' }, reply_to: { type: 'string' }, reply_all: { type: 'boolean' } } },
     async run(g, a) {
       const replyTo = id(a, 'reply_to', { required: false })
       if (replyTo) {
-        const to = addresses(a, 'to')
-        await g.call({ method: 'POST', path: `/me/messages/${seg(replyTo)}/${bool(a, 'reply_all') ? 'replyAll' : 'reply'}`, json: { comment: str(a, 'body', { max: 1_000_000 }) ?? '', ...(to.length ? { message: { toRecipients: recipients(to) } } : {}) } })
-        return { sent: true, replyTo }
+        // everything the card showed goes with the reply: to (the recipients instead of the sender's), cc, bcc, subject
+        const to = addresses(a, 'to'), cc = addresses(a, 'cc'), bcc = addresses(a, 'bcc'), subject = str(a, 'subject', { max: 1000 })
+        const message = { ...(to.length ? { toRecipients: recipients(to) } : {}), ...(cc.length ? { ccRecipients: recipients(cc) } : {}), ...(bcc.length ? { bccRecipients: recipients(bcc) } : {}), ...(subject ? { subject } : {}) }
+        await g.call({ method: 'POST', path: `/me/messages/${seg(replyTo)}/${bool(a, 'reply_all') ? 'replyAll' : 'reply'}`, json: { comment: str(a, 'body', { max: 1_000_000 }) ?? '', ...(Object.keys(message).length ? { message } : {}) } })
+        return { sent: true, replyTo, ...(to.length ? { to } : {}), ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}) }
       }
       const { to, message } = mailMessage(a)
       if (!to.length) throw new ArgError('to needs at least one address')
@@ -198,13 +226,16 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'calendar_events', title: 'List calendar events', readOnly: true,
-    description: 'Events of the Outlook calendar between start and end (ISO 8601; default: the next 7 days), with times in time_zone (IANA, default UTC).',
+    description: 'Events of the Outlook calendar between start and end (ISO 8601 dates or times; without an offset they are local times in time_zone; default: the next 7 days). time_zone: IANA, e.g. Asia/Seoul (default UTC); answers are in it too.',
     inputSchema: { type: 'object', properties: { start: { type: 'string' }, end: { type: 'string' }, time_zone: { type: 'string' }, top: { type: 'integer', minimum: 1, maximum: 100 } } },
     async run(g, a) {
-      const start = isoTime(a, 'start', false) ?? new Date().toISOString()
-      const end = isoTime(a, 'end', false) ?? new Date(Date.parse(start.length === 10 ? start + 'T00:00:00Z' : start) + 7 * 86_400_000).toISOString()
+      // a time without an offset is the user's local time in time_zone (Graph would read it as UTC)
+      const tz = timeZone(a)
+      const s0 = isoTime(a, 'start', false), e0 = isoTime(a, 'end', false)
+      const start = s0 ? zonedToUtc(s0, tz) : new Date().toISOString()
+      const end = e0 ? zonedToUtc(e0, tz) : new Date(Date.parse(start) + 7 * 86_400_000).toISOString()
       const r = await g.call({
-        path: '/me/calendarView', headers: [['Prefer', `outlook.timezone="${timeZone(a)}"`]],
+        path: '/me/calendarView', headers: [['Prefer', `outlook.timezone="${tz}"`]],
         query: { startDateTime: start, endDateTime: end, top: int(a, 'top', 50, 100), orderby: 'start/dateTime', select: 'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink' },
       })
       return { events: (r?.value ?? []).map(eventSummary), ...(r?.['@odata.nextLink'] ? { more: true } : {}) }
@@ -212,13 +243,27 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'calendar_create_event', title: 'Create calendar event', readOnly: false,
-    description: 'Create an Outlook calendar event (attendees get an invitation). start and end: local times like 2026-11-26T14:00:00 in time_zone (IANA, e.g. Asia/Seoul). teams_meeting: add a Teams meeting link.',
-    inputSchema: { type: 'object', properties: { subject: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' }, time_zone: { type: 'string' }, attendees: { type: 'array', items: { type: 'string' } }, location: { type: 'string' }, body: { type: 'string' }, teams_meeting: { type: 'boolean' } }, required: ['subject', 'start', 'end'] },
+    description: 'Create an Outlook calendar event (attendees get an invitation). start and end: local times like 2026-11-26T14:00:00 in time_zone (IANA, e.g. Asia/Seoul); dates alone (2026-11-26) make an all-day event, end being the day after the last day (or left out for one day). teams_meeting: add a Teams meeting link.',
+    inputSchema: { type: 'object', properties: { subject: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' }, time_zone: { type: 'string' }, attendees: { type: 'array', items: { type: 'string' } }, location: { type: 'string' }, body: { type: 'string' }, teams_meeting: { type: 'boolean' } }, required: ['subject', 'start'] },
     async run(g, a) {
       const tz = timeZone(a), attendees = addresses(a, 'attendees')
+      const start = isoTime(a, 'start')!, endIn = isoTime(a, 'end', false)
+      const allDay = DATE_ONLY.test(start)
+      let end: string
+      if (allDay) {
+        if (endIn !== undefined && !DATE_ONLY.test(endIn)) throw new ArgError('an all-day event takes dates for both start and end (2026-11-26)')
+        end = endIn ?? new Date(Date.parse(`${start}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+        if (end <= start) throw new ArgError('end must be after start (for an all-day event, the day after the last day)')
+      } else {
+        if (endIn === undefined) throw new ArgError('end is required for an event with a time')
+        if (DATE_ONLY.test(endIn)) throw new ArgError('give end as a time like start (2026-11-26T15:00:00)')
+        end = endIn
+      }
+      const at = (v: string) => (allDay ? `${v}T00:00:00` : v)
       const e = await g.call({
         method: 'POST', path: '/me/events', json: {
-          subject: str(a, 'subject', { max: 255, required: true }), start: { dateTime: isoTime(a, 'start'), timeZone: tz }, end: { dateTime: isoTime(a, 'end'), timeZone: tz },
+          subject: str(a, 'subject', { max: 255, required: true }), start: { dateTime: at(start), timeZone: tz }, end: { dateTime: at(end), timeZone: tz },
+          ...(allDay ? { isAllDay: true } : {}),
           ...(str(a, 'location', { max: 255 }) ? { location: { displayName: str(a, 'location') } } : {}),
           ...(str(a, 'body', { max: 100_000 }) ? { body: { contentType: 'Text', content: str(a, 'body') } } : {}),
           attendees: attendees.map((address) => ({ emailAddress: { address }, type: 'required' })),
@@ -241,7 +286,9 @@ const TOOLS: Tool[] = [
       } catch (e) {
         // an account whose organization has no Microsoft Search for it: its own OneDrive only
         if (!(e instanceof GraphError) || e.status !== 400) throw e
-        const r = await g.call({ path: `/me/drive/root/search(q='${encodeURIComponent(q.replace(/'/g, "''"))}')`, query: { top: top } })
+        // path characters (/ \ ? # %) would change the address even encoded (some servers decode %2F): words only
+        const words = q.replace(/[\/\\?#%]/g, ' ').replace(/\s+/g, ' ').trim() || 'a'
+        const r = await g.call({ path: `/me/drive/root/search(q='${encodeURIComponent(words.replace(/'/g, "''"))}')`, query: { top: top } })
         return { files: (r?.value ?? []).map(fileSummary), note: 'Only the user\'s own OneDrive was searched.' }
       }
     },

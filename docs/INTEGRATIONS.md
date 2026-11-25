@@ -780,7 +780,7 @@ process), unlike the Google apps' library.
 
 - **The app file.** `MYCEL_MICROSOFT_APP_FILE`, else `<secrets>/integrations/microsoft/app.json`, read like GitHub's
   (`server/src/integrations/microsoft/app.ts`): `{ "clientId": "<application (client) ID>", "clientSecret": "…",
-  "tenant": "common" }` (`tenant` optional: `common`, `organizations`, `consumers` or one directory's ID). The lists
+  "tenant": "common" }` (`tenant` optional: `common`, `organizations` or one directory's ID; personal Microsoft accounts are not supported). The lists
   say only `microsoft: { ready }`. A hosted team server gets it with the tenant command `microsoft-app-set` (stdin
   only, the server account writes it 0600 in a 0700 folder, the same values again change nothing).
 - **Sign-in.** Microsoft's fixed addresses `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` and
@@ -808,8 +808,10 @@ process), unlike the Google apps' library.
   Microsoft has no revocation address for these tokens: Disconnect forgets them here, and the person removes the app at
   `https://myapps.microsoft.com` (or an admin in Entra › Enterprise applications).
 - **Tools** (reads marked read-only; every other one asks on the write card unless Always allow): `mail_search`,
-  `mail_read` (body as text, attachments listed), `mail_draft` (new or reply), `mail_send_draft`, `mail_send` (new or
-  reply), `calendar_events`, `calendar_create_event` (attendees, optional Teams meeting), `files_search` (Microsoft
+  `mail_read` (body as text, attachments listed), `mail_draft` (new or reply; a reply keeps its recipients and adds
+  to, cc and bcc), `mail_send_draft`, `mail_send` (new or reply; a reply sends to, cc, bcc and subject as the card
+  showed them), `calendar_events` (a time without an offset is local time in `time_zone`), `calendar_create_event`
+  (attendees, optional Teams meeting; dates alone make an all-day event), `files_search` (Microsoft
   Search over OneDrive and SharePoint; the person's own OneDrive when the organization has no search), `files_read`
   (Word, Excel, PowerPoint, PDF, Hangul, text through the team files' readers; the bytes come from Graph's pre-signed
   download address, without the token), `files_upload` (text, at most 4 MB, a new name when one exists), `teams_chats`,
@@ -821,12 +823,22 @@ process), unlike the Google apps' library.
 - **Without the file** the card says "Not set up yet" (an owner or admin reads that the hosting service turns it on, or
   a server of their own adds an Entra app), and Connect answers that in words before anything is sent.
 
-Registering the app (once; Entra admin center › App registrations › New): name "Trina AX", **Accounts in any
-organizational directory** (multitenant, work and school accounts; personal Microsoft accounts would rule out the
-hosted wildcard), a client secret, the redirect addresses in the table, the delegated Graph permissions above. Until
-Microsoft verifies the publisher (Entra › Branding & properties › Publisher verification, with a Microsoft Partner
-Network ID), tenants that allow user consent only for verified publishers need an admin's consent once
-(`https://login.microsoftonline.com/<tenant>/adminconsent?client_id=<client ID>`).
+The hosting service's app (registered 2026-11-25 in the trinaax.onmicrosoft.com directory, Entra admin center › App
+registrations): name "Trina AX", **Accounts in any organizational directory** (`AzureADMultipleOrgs`: work and
+school accounts only, which the hosted wildcard needs), publisher domain `trina.app`, a client secret, the delegated
+Graph permissions above, and these **Web** redirect addresses:
+
+- `https://*.trina.app/api/integrations/oauth/callback` (hosted teams on the web)
+- `http://127.0.0.1/callback` (the desktop app, any port)
+- `http://localhost/api/integrations/oauth/callback`, `http://127.0.0.1/api/integrations/oauth/callback` (a server
+  opened on this computer)
+- `https://account.trina.app/oauth/microsoft/callback` (kept for a broker on the account host; not used by the team
+  server yet)
+
+A self-installed server on another https address adds `https://<host>/api/integrations/oauth/callback` to an Entra app
+of its own (or uses the desktop app). Until Microsoft verifies the publisher (Entra › Branding & properties › Publisher
+verification, with a Microsoft Partner Network ID), tenants that allow user consent only for verified publishers need an
+admin's consent once (`https://login.microsoftonline.com/<tenant>/adminconsent?client_id=<client ID>`).
 
 Not yet: personal Microsoft accounts (they need the account host's broker, trina-cloud `src/drive-broker/`), mail
 attachments, Teams channels, sending a team file as an attachment. Code: `server/src/integrations/microsoft/`,

@@ -1002,11 +1002,11 @@ func cmdGitHubAppSet(e *env, args []string) (int, error) {
 const microsoftAppFile = "secrets/integrations/microsoft/app.json"
 
 // The Microsoft app's values (shared/src/cloud-protocol MicrosoftAppFile): a GUID client ID, a secret of printable
-// ASCII without spaces, and an optional tenant (common, organizations, consumers or a directory's GUID). app.ts reads
+// ASCII without spaces, and an optional tenant (common, organizations or a directory's GUID; no personal accounts). app.ts reads
 // the same names with the same rules.
 var (
 	microsoftGUIDRE   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	microsoftTenantRE = regexp.MustCompile(`^(common|organizations|consumers|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+	microsoftTenantRE = regexp.MustCompile(`^(common|organizations|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
 )
 
 // microsoftApp is the file's shape (field order fixed, so the same values always give the same bytes).
@@ -1038,7 +1038,7 @@ func parseMicrosoftApp(m map[string]json.RawMessage) (microsoftApp, error) {
 	}
 	if _, has := m["tenant"]; has {
 		if a.Tenant, ok = str("tenant"); !ok || !microsoftTenantRE.MatchString(a.Tenant) {
-			return a, fmt.Errorf("tenant: common, organizations, consumers or a directory ID")
+			return a, fmt.Errorf("tenant: common, organizations or a directory ID")
 		}
 	}
 	return a, nil

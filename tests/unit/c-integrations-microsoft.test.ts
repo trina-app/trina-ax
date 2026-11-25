@@ -15,7 +15,7 @@ import { integrationsOf, type Integrations } from '../../server/src/integrations
 import { getRow } from '../../server/src/integrations/connections/store'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
 import { MICROSOFT_SCOPE, microsoftAppFile, microsoftAppOf, readMicrosoftApp } from '../../server/src/integrations/microsoft/app'
-import { MICROSOFT_TOOLS, plainText } from '../../server/src/integrations/microsoft/mcp-server'
+import { MICROSOFT_TOOLS, plainText, zonedToUtc } from '../../server/src/integrations/microsoft/mcp-server'
 import { say } from '../../server/src/integrations/connections/text'
 import { officialService, serverAppAt, SERVICE_CATALOG } from '../../shared/src/service-catalog'
 import { createLogger } from '../../server/src/log'
@@ -87,6 +87,9 @@ class FakeMicrosoft {
     if (p === '/me/messages' && method === 'GET') return json(200, { value: [{ id: 'm1', subject: 'Plan', from: { emailAddress: { name: 'Ann', address: 'ann@contoso.example' } }, toRecipients: [], receivedDateTime: '2026-11-24T09:00:00Z', bodyPreview: 'hi', isRead: false, hasAttachments: false, webLink: 'https://outlook.office.com/m1' }] })
     if (p === '/me/messages/m1' && method === 'GET') return json(200, { id: 'm1', subject: 'Plan', from: { emailAddress: { address: 'ann@contoso.example' } }, body: { contentType: 'text', content: 'The whole mail' }, hasAttachments: true, ccRecipients: [] })
     if (p === '/me/messages/m1/attachments') return json(200, { value: [{ name: 'plan.pdf', size: 1234, contentType: 'application/pdf' }] })
+    if (/^\/me\/messages\/m1\/(reply|replyAll)$/.test(p) && method === 'POST') return { status: 202, body: '' }
+    if (/^\/me\/messages\/m1\/createReply(All)?$/.test(p) && method === 'POST') return json(201, { id: 'd2', subject: 'RE: Plan', toRecipients: [{ emailAddress: { address: 'ann@contoso.example' } }], ccRecipients: [], bccRecipients: [] })
+    if (p === '/me/messages/d2' && method === 'PATCH') return json(200, { id: 'd2', subject: JSON.parse(body).subject ?? 'RE: Plan', ...JSON.parse(body) })
     if (p === '/me/messages' && method === 'POST') return json(201, { id: 'd1', subject: JSON.parse(body).subject, toRecipients: JSON.parse(body).toRecipients, webLink: 'https://outlook.office.com/d1' })
     if (p === '/me/sendMail' && method === 'POST') return { status: 202, body: '' }
     if (p === '/me/calendarView') return json(200, { value: [{ id: 'e1', subject: 'Standup', start: { dateTime: '2026-11-26T09:00:00', timeZone: 'Asia/Seoul' }, end: { dateTime: '2026-11-26T09:15:00', timeZone: 'Asia/Seoul' } }] })
@@ -94,6 +97,7 @@ class FakeMicrosoft {
     if (p === '/search/query' && method === 'POST') return json(200, { value: [{ hitsContainers: [{ hits: [{ summary: '<c0>plan</c0>', resource: { id: 'f1', name: 'plan.txt', size: 30, parentReference: { driveId: 'drv1' }, webUrl: 'https://contoso-my.sharepoint.com/plan.txt' } }] }] }] })
     if (p === '/drives/drv1/items/f1') return json(200, { id: 'f1', name: 'plan.txt', size: 30, file: {}, parentReference: { driveId: 'drv1' }, '@microsoft.graph.downloadUrl': DOWNLOAD })
     if (p.startsWith('/me/drive/root:/') && method === 'PUT') return json(201, { id: 'f2', name: decodeURIComponent(/\/([^/]+):\/content$/.exec(p)![1]!), size: Buffer.byteLength(body), parentReference: { driveId: 'drv1' } })
+    if (p.startsWith('/me/drive/root/search(')) return json(200, { value: [{ id: 'f1', name: 'plan.txt', parentReference: { driveId: 'drv1' } }] })
     if (p === '/me/chats') return json(200, { value: [{ id: '19:chat1@thread.v2', chatType: 'group', topic: 'Launch', members: [{ displayName: 'Ann' }], lastMessagePreview: { createdDateTime: '2026-11-24T10:00:00Z', from: { user: { displayName: 'Ann' } }, body: { content: '<p>See you</p>' } } }] })
     if (p.startsWith('/me/chats/') && p.endsWith('/messages')) return json(200, { value: [{ messageType: 'message', from: { user: { displayName: 'Ann' } }, createdDateTime: '2026-11-24T10:00:00Z', body: { content: 'Hello <b>team</b>&amp;co' } }] })
     if (p.startsWith('/chats/') && p.endsWith('/messages') && method === 'POST') return json(201, { id: 'msg9', createdDateTime: '2026-11-25T01:00:00Z' })
@@ -277,6 +281,25 @@ test('a company\'s own Entra app on the connection (ID and secret only) signs in
   expect(getRow(h.ctx.db, c.id)).toMatchObject({ status: 'connected' })
 })
 
+test('a single-tenant own app with its tenant\'s addresses and no scope gets the connector\'s scopes; one address alone is refused in words, before anything is sent', async () => {
+  const auth = `${LOGIN}/${TENANT}/oauth2/v2.0/authorize`, token = `${LOGIN}/${TENANT}/oauth2/v2.0/token`
+  const c = await olga.call('POST', '/api/integrations', m365({ oauthClient: { clientId: CLIENT_ID, clientSecret: SECRET, authorizationUrl: auth, tokenUrl: token } }), PUBLIC)
+  const { u } = await signIn(olga, c.id)
+  expect(u.origin + u.pathname).toBe(auth)
+  expect(u.searchParams.get('scope')).toBe(MICROSOFT_SCOPE)
+  expect(ms.seen.find((x) => x.url.startsWith(LOGIN))!.url).toBe(token)
+  // the API takes both addresses or neither; a stored app with only one (an older row) is refused at Connect
+  expect((await olga.try('POST', '/api/integrations', m365({ oauthClient: { clientId: CLIENT_ID, clientSecret: SECRET, authorizationUrl: auth } }), PUBLIC)).status).toBe(400)
+  const row = getRow(h.ctx.db, c.id)!
+  const info = JSON.parse(row.oauth_client!)
+  h.ctx.db.query('UPDATE integrations SET oauth_client = ? WHERE id = ?').run(JSON.stringify({ ...info, tokenUrl: null }), c.id)
+  const before = ms.seen.length
+  const no = await olga.try('POST', `/api/integrations/${c.id}/authorize`, {}, PUBLIC)
+  expect(no.status).toBe(400)
+  expect(no.body.error.message).toBe(say('microsoftOwnAppAddresses', 'ko'))
+  expect(ms.seen.length).toBe(before)
+})
+
 describe('tokens', () => {
   test('an hour\'s token is refreshed with the app\'s current secret, the rotated refresh token is kept; a refused one asks to sign in again', async () => {
     putApp()
@@ -290,6 +313,8 @@ describe('tokens', () => {
     expect((await call(c.id, 'teams_chats', {})).json.chats[0].topic).toBe('Launch')
     expect(tokenCalls().at(-1)).toMatchObject({ grant_type: 'refresh_token', client_id: CLIENT_ID, client_secret: SECRET2, refresh_token: firstRefresh })
     expect(tokenCalls().at(-1)!.resource).toBeUndefined()
+    // the same scopes again with the refresh
+    expect(tokenCalls().at(-1)!.scope).toBe(MICROSOFT_SCOPE)
     ms.now += 3_600_000
     await call(c.id, 'teams_chats', {})
     expect(tokenCalls().at(-1)!.refresh_token).not.toBe(firstRefresh)
@@ -304,6 +329,19 @@ describe('tokens', () => {
     await expect(svc.callTool(getRow(h.ctx.db, c.id)!, 'teams_chats', {})).rejects.toBeTruthy()
     expect(getRow(h.ctx.db, c.id)).toMatchObject({ status: 'needs_auth', last_error: 'sign_in' })
     expect(everything()).not.toContain(SECRET2)
+  })
+
+  test('Entra asks the person again (interaction_required, consent_required): sign in again', async () => {
+    putApp()
+    for (const error of ['interaction_required', 'consent_required']) {
+      const c = await olga.call('POST', '/api/integrations', m365({ name: `Microsoft 365 ${error}` }), PUBLIC)
+      await signIn(olga, c.id)
+      ms.now += 3_600_000
+      ms.failNext = error
+      await expect(svc.callTool(getRow(h.ctx.db, c.id)!, 'teams_chats', {})).rejects.toBeTruthy()
+      expect(getRow(h.ctx.db, c.id), error).toMatchObject({ status: 'needs_auth', last_error: 'sign_in' })
+      await olga.raw('DELETE', `/api/integrations/${c.id}`, undefined, PUBLIC)
+    }
   })
 
   test('the app replaced by another client ID: the new secret never goes with the old sign-in; once Microsoft refuses the old one, sign in again', async () => {
@@ -345,6 +383,15 @@ describe('the tools call Graph', () => {
     const sent = await call(id, 'mail_send', { to: 'Bob <bob@contoso.example>, cy@contoso.example', subject: 'Hi', body: 'Sent text' })
     expect(sent.json).toMatchObject({ sent: true, to: ['bob@contoso.example', 'cy@contoso.example'] })
     expect(JSON.parse(ms.graph('/me/sendMail')[0]!.body)).toMatchObject({ saveToSentItems: true, message: { subject: 'Hi' } })
+    // a reply sends everything the card showed: its recipients, cc, bcc and subject
+    await call(id, 'mail_send', { reply_to: 'm1', reply_all: true, to: ['bob@contoso.example'], cc: ['cy@contoso.example'], bcc: ['dee@contoso.example'], subject: 'Re: plan v2', body: 'Yes' })
+    expect(JSON.parse(ms.graph('/me/messages/m1/replyAll')[0]!.body)).toEqual({ comment: 'Yes', message: { toRecipients: [{ emailAddress: { address: 'bob@contoso.example' } }], ccRecipients: [{ emailAddress: { address: 'cy@contoso.example' } }], bccRecipients: [{ emailAddress: { address: 'dee@contoso.example' } }], subject: 'Re: plan v2' } })
+    await call(id, 'mail_send', { reply_to: 'm1', body: 'Plain' })
+    expect(JSON.parse(ms.seen.filter((x) => new URL(x.url).pathname === '/v1.0/me/messages/m1/reply')[0]!.body)).toEqual({ comment: 'Plain' })
+    // a reply draft keeps the sender and adds the others, bcc too
+    const rd = await call(id, 'mail_draft', { reply_to: 'm1', cc: ['cy@contoso.example'], bcc: ['dee@contoso.example'], body: 'Draft' })
+    expect(rd.json.draft.id).toBe('d2')
+    expect(JSON.parse(ms.graph('/me/messages/d2')[0]!.body)).toEqual({ ccRecipients: [{ emailAddress: { address: 'cy@contoso.example' } }], bccRecipients: [{ emailAddress: { address: 'dee@contoso.example' } }] })
     // an id that would move the request to another Graph path, and a search with path characters, stay where they are
     for (const bad of ['..', '.', 'a/../b']) expect((await call(id, 'mail_send_draft', { id: bad })).r.isError).toBe(true)
     expect(ms.seen.some((x) => /\/v1\.0\/me\/send$/.test(new URL(x.url).pathname))).toBe(false)
@@ -360,7 +407,15 @@ describe('the tools call Graph', () => {
     expect(e.json.events[0].subject).toBe('Standup')
     const req = ms.graph('/me/calendarView')[0]!
     expect(req.headers).toContainEqual(['Prefer', 'outlook.timezone="Asia/Seoul"'])
-    expect(new URL(req.url).searchParams.get('startDateTime')).toBe('2026-11-26T00:00:00')
+    // local times in the time zone: Seoul's midnight is 15:00 UTC the day before
+    expect(new URL(req.url).searchParams.get('startDateTime')).toBe('2026-11-25T15:00:00.000Z')
+    expect(new URL(req.url).searchParams.get('endDateTime')).toBe('2026-11-26T15:00:00.000Z')
+    // an all-day event from dates alone (one day when end is left out); a date with a time is refused
+    await call(id, 'calendar_create_event', { subject: 'Holiday', start: '2026-12-25', time_zone: 'Asia/Seoul' })
+    expect(JSON.parse(ms.graph('/me/events')[0]!.body)).toMatchObject({ isAllDay: true, start: { dateTime: '2026-12-25T00:00:00', timeZone: 'Asia/Seoul' }, end: { dateTime: '2026-12-26T00:00:00' } })
+    expect((await call(id, 'calendar_create_event', { subject: 'x', start: '2026-12-25', end: '2026-12-25T10:00:00' })).r.isError).toBe(true)
+    expect((await call(id, 'calendar_create_event', { subject: 'x', start: '2026-12-25T09:00:00' })).r.isError).toBe(true)
+    ms.seen.length = 0
     const n = await call(id, 'calendar_create_event', { subject: 'Review', start: '2026-11-26T14:00:00', end: '2026-11-26T15:00:00', time_zone: 'Asia/Seoul', attendees: ['ann@contoso.example'], teams_meeting: true })
     expect(n.json.event.id).toBe('e2')
     expect(JSON.parse(ms.graph('/me/events')[0]!.body)).toMatchObject({ start: { dateTime: '2026-11-26T14:00:00', timeZone: 'Asia/Seoul' }, attendees: [{ emailAddress: { address: 'ann@contoso.example' }, type: 'required' }], isOnlineMeeting: true, onlineMeetingProvider: 'teamsForBusiness' })
@@ -380,6 +435,13 @@ describe('the tools call Graph', () => {
     expect(new URL(put.url).pathname).toBe('/v1.0/me/drive/root:/Documents/Reports/summary%201.md:/content')
     expect(new URL(put.url).searchParams.get('@microsoft.graph.conflictBehavior')).toBe('rename')
     expect(put.body).toBe('# Summary')
+    // no Microsoft Search for the account: the own OneDrive, path characters taken out of the words
+    ms.errors.set('/search/query', { status: 400, code: 'BadRequest', message: 'not available' })
+    const fb = await call(id, 'files_search', { query: "q3/../plan's #1?" })
+    expect(fb.r.isError).toBeFalsy()
+    const fbu = ms.seen.filter((x) => x.url.includes('/me/drive/root/search')).at(-1)!.url
+    expect(new URL(fbu).pathname).toBe("/v1.0/me/drive/root/search(q='q3%20..%20plan''s%201')")
+    ms.errors.delete('/search/query')
     for (const bad of [{ name: '../x', content: 'a' }, { name: 'x.md', folder: 'a/../b', content: 'a' }]) expect((await call(id, 'files_upload', bad)).r.isError).toBe(true)
   })
 
@@ -405,6 +467,14 @@ describe('the tools call Graph', () => {
     expect(getRow(h.ctx.db, id)).toMatchObject({ status: 'connected' })
     expect((await call(id, 'no_such_tool', {})).r.isError).toBe(true)
   })
+})
+
+test('a local time in a time zone, as UTC (summer and winter time too)', () => {
+  expect(zonedToUtc('2026-11-26T09:00:00', 'Asia/Seoul')).toBe('2026-11-26T00:00:00.000Z')
+  expect(zonedToUtc('2026-07-01T09:00:00', 'America/New_York')).toBe('2026-07-01T13:00:00.000Z')
+  expect(zonedToUtc('2026-01-15', 'America/New_York')).toBe('2026-01-15T05:00:00.000Z')
+  expect(zonedToUtc('2026-11-26T09:00:00+09:00', 'America/New_York')).toBe('2026-11-26T00:00:00.000Z')
+  expect(zonedToUtc('2026-11-26T09:00:00', 'UTC')).toBe('2026-11-26T09:00:00.000Z')
 })
 
 test('Teams\' HTML bodies read as plain text', () => {

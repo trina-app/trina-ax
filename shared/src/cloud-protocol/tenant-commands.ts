@@ -195,7 +195,7 @@ const MicrosoftGuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 export const MicrosoftAppFile = z.strictObject({
   clientId: MicrosoftGuid,
   clientSecret: z.string().regex(/^[!-~]{1,4096}$/),
-  tenant: z.union([z.enum(['common', 'organizations', 'consumers']), MicrosoftGuid]).optional(),
+  tenant: z.union([z.enum(['common', 'organizations']), MicrosoftGuid]).optional(),
 })
 export type MicrosoftAppFile = z.infer<typeof MicrosoftAppFile>
 /** microsoft-app-set's answer: as GitHubAppResult (the server reads the file at each request: no restart) */

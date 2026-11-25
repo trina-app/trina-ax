@@ -356,7 +356,9 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   // user access tokens", "Troubleshooting OAuth app access token request errors"): read as the standard ones
   const error = typeof j?.error === 'string' ? GITHUB_GRANT_ERRORS[j.error] ?? j.error : null
   if (r.status !== 200 || !j || error) {
-    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client') throw new GrantError(error)
+    // Entra (Microsoft) asks the person again with interaction_required or consent_required (a new MFA rule, a consent
+    // an admin took back): only a new sign-in fixes it
+    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client' || error === 'interaction_required' || error === 'consent_required') throw new GrantError(error)
     throw new NetError('oauth_failed')
   }
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null

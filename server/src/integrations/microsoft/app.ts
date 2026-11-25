@@ -10,8 +10,8 @@
 // A private file of the server account, read like GitHub's: a regular file, one link, mode 0600 or stricter, outside
 // the team folder, never followed through a link. Shape:
 //   { "clientId": "<application (client) ID, a GUID>", "clientSecret": "…", "tenant": "common" }
-// `tenant` (optional): the Entra authority's tenant: `common` (default: any work or school account, and personal
-// accounts when the app allows them), `organizations`, or one directory's ID (a GUID) for a company's own app. The
+// `tenant` (optional): the Entra authority's tenant: `common` (default), `organizations` (both: any work or school
+// account; personal Microsoft accounts are not supported) or one directory's ID (a GUID) for a company's own app. The
 // client secret never leaves the server except to Microsoft's token address.
 //
 // Used only for a connection at Microsoft 365's exact listed address (serverAppAt) that has no own app of its own.
@@ -37,7 +37,7 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const Schema = z.object({
   clientId: z.string().regex(GUID),
   clientSecret: z.string().regex(/^[!-~]{1,4096}$/),
-  tenant: z.union([z.enum(['common', 'organizations', 'consumers']), z.string().regex(GUID)]).optional(),
+  tenant: z.union([z.enum(['common', 'organizations']), z.string().regex(GUID)]).optional(),
 }).strict()
 export type MicrosoftApp = z.infer<typeof Schema>
 export const parseMicrosoftApp = (v: unknown): MicrosoftApp | null => { const r = Schema.safeParse(v); return r.success ? r.data : null }
@@ -45,8 +45,6 @@ export const parseMicrosoftApp = (v: unknown): MicrosoftApp | null => { const r 
 /** Microsoft's sign-in and token addresses for the app's tenant (v2.0 endpoints) */
 export const microsoftAuthorizeUrl = (app: Pick<MicrosoftApp, 'tenant'>) => `${MICROSOFT_LOGIN}/${app.tenant ?? 'common'}/oauth2/v2.0/authorize`
 export const microsoftTokenUrl = (app: Pick<MicrosoftApp, 'tenant'>) => `${MICROSOFT_LOGIN}/${app.tenant ?? 'common'}/oauth2/v2.0/token`
-/** whether a token address is one of Microsoft's (a sign-in stored with it refreshes with the server's app as it is now) */
-export const isMicrosoftTokenUrl = (url: string) => { try { const u = new URL(url); return u.origin === MICROSOFT_LOGIN && /^\/[A-Za-z0-9.-]{1,64}\/oauth2\/v2\.0\/token$/.test(u.pathname) } catch { return false } }
 
 export const microsoftAppFile = (ctx: AppContext) => path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'microsoft', 'app.json')
 
