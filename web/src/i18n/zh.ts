@@ -3898,7 +3898,7 @@ export const zh: Record<MessageKey, string> = {
   "localApps.aside.noProfiles": "如果 Aside 找不到你的浏览器，请打开 Aside 并登录，然后再问一次。",
   "localApps.egoLite.install": "请先在这台电脑上安装 ego lite，并完成它的首次设置（Mac 或 Windows）：",
   "localApps.playwright.line": "AI 在这台电脑的 Playwright 浏览器中打开并测试网站。",
-  "localApps.playwright.install": "需要 Node.js（来自 nodejs.org 或 Homebrew）。暂不支持 Windows。",
+  "localApps.playwright.install": "需要 Node.js（来自 nodejs.org 或 Homebrew）和 Google Chrome。暂不支持 Windows。",
   "localApps.chromeDevtools.line": "AI 在这台电脑的 Chrome 中检查页面的控制台、网络和性能。",
   "localApps.chromeDevtools.install": "需要 Node.js（来自 nodejs.org 或 Homebrew）和 Google Chrome。暂不支持 Windows。",
   "localApps.asking": "这台电脑正在询问是否连接 {name}。请在“连接程序”窗口中按“连接”。",

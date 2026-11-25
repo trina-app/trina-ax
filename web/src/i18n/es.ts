@@ -3903,7 +3903,7 @@ export const es: Record<MessageKey, string> = {
   "localApps.aside.noProfiles": "Si Aside no encuentra su navegador, abra Aside e inicie sesión, y vuelva a preguntar.",
   "localApps.egoLite.install": "Primero instale ego lite en este ordenador y termine su configuración inicial (Mac o Windows):",
   "localApps.playwright.line": "La IA abre y prueba sitios web en un navegador Playwright de este ordenador.",
-  "localApps.playwright.install": "Necesita Node.js (de nodejs.org o Homebrew). Aún no funciona en Windows.",
+  "localApps.playwright.install": "Necesita Node.js (de nodejs.org o Homebrew) y Google Chrome. Aún no funciona en Windows.",
   "localApps.chromeDevtools.line": "La IA revisa páginas en Chrome de este ordenador: consola, red y rendimiento.",
   "localApps.chromeDevtools.install": "Necesita Node.js (de nodejs.org o Homebrew) y Google Chrome. Aún no funciona en Windows.",
   "localApps.asking": "Este ordenador pregunta si conectar {name}. Pulse Conectar en la ventana «Conectar un programa».",
