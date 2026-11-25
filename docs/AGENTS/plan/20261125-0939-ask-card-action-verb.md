@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 09:39
 - Branch: `fix/ask-card-action-verb`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/connections (the change card of a connected service). Why: QA on qa.trina.app saw
   "The AI wants to send this… Send it? Send once / Don't send" on a Gmail draft and on a Calendar event
 - Version impact: patch (card wording only; no API, no migration, no setting)
@@ -53,4 +53,15 @@ tests/unit/change-card-action.test.ts.
 
 ## Result
 
-(filled in at the end)
+Built as planned. Also: a call that names people it reaches (a non-empty "to", attendees) is a send unless it only
+saves, so an event with attendees still reads "send" and a draft with a "to" reads "save".
+
+Item 2 of the QA note (an interim line, "Nothing relevant yet. Let me widen the search…", above the final answer) is not
+changed here. The text is not lost or invented: for an answer in Latin letters the text between calls stays in the
+answer on purpose (docs/decisions/20261122-interim-text-not-answer.md, "as in Claude Code"). What differs from Claude
+Code is the place: the web shows all steps in one block above the answer text, so the pieces written between calls
+run together at the top of the answer instead of sitting between the calls they narrate. Moving them into a thinking
+step (the ko/ja/zh rule) would hide them behind a click, below the Claude Code floor. The fix is a layout change (each
+text piece shown at its Step.textAt among the steps, like the artifact cards), a follow-up of its own. A-28's summary
+coming after both cards is the model's order of work: the card ends the turn and the answer goes on after the person
+answers, as Claude Code goes on after a permission prompt.
