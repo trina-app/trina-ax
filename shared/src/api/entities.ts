@@ -609,6 +609,10 @@ export const Step = z.object({
   /** how much of the answer text (characters of Message.content) was written when the step started: an artifact's
    * card shows at that point of the answer. Absent on steps from before this field */
   textAt: z.number().int().min(0).optional(),
+  /** a thinking step whose `detail` is text the AI wrote to the person between two tool calls (chat/turn.ts endPiece,
+   * docs/decisions/20261125-interim-text-inline.md): the chat shows it as text at the step's place, not folded. Absent
+   * on every other step (a thinking block, a working note in another script) */
+  interim: z.literal(true).optional(),
   /** box_shell on the srt runner (docs/DECISIONS.md "Dev environment: one queue"): the command or job waits in the team
    * queue. id: the queued run (POST /api/dev-env/runs/:id/stop cancels it); position: its place in line when the step
    * was written (the app reads the live place from GET /api/dev-env/runs); state: waiting, started, expired (the
