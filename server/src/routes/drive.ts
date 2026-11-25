@@ -8,6 +8,7 @@ import type { AppContextC } from '../http/env'
 import { GOOGLE_RETURN_CSP, drivePreGooglePage, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
 import { GO_PATH } from '../integrations/google-drive/app-return'
 import { CALLBACK_PATH } from '../integrations/google-drive/config'
+import { GOOGLE_BROKER_KEY_PATH } from '@mycel/shared/cloud-protocol'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { driveAdminStatus, setDriveClient } from '../integrations/google-drive/admin-setup'
 import { listShares, setMembersCanConnect, shareFolders, stopShare, updateShare } from '../integrations/google-drive/share-admin'
@@ -89,6 +90,16 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
       return c.html(page.html, 400)
     }
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
+  })
+  // The hosting service's proof that this self-installed server's relay key belongs to this address (google-drive/
+  // broker.ts `register`): the PUBLIC key only, no session; 404 unless this server registers itself there
+  kit.raw('GET', GOOGLE_BROKER_KEY_PATH, async c => {
+    c.header('Cache-Control', 'no-store')
+    const broker = googleDriveOf(ctx).broker
+    if (!broker?.o.selfOrigin) return c.json({ error: { code: 'not_found' } }, 404)
+    let key: string
+    try { key = broker.o.identity().publicKey } catch { return c.json({ error: { code: 'unavailable' } }, 503) }
+    return c.json({ v: 1, key }, 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {
     // Sign in with Google comes back to the address this server's Google client registered for Drive, so a company that

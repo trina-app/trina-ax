@@ -28,8 +28,12 @@ admin asks for a personal tool; it only sorts the list (`shared/src/api/team-too
 
 ## Hosted or self-host
 
-- **Google sign-in:** hosted teams use the hosting service's Google app, nothing to set up; a self-hosted server needs
-  its own Google Cloud client (`google-apps.ts:96-98`, `docs/site/use/google-apps.md`).
+- **Google sign-in:** hosted teams use the hosting service's Google app, nothing to set up. Since 2026-11-25 a
+  self-hosted server with a public address does too: it registers itself at the hosting service (proof of its address,
+  `google-drive/broker.ts` `selfInstalledDefault`, `docs/GOOGLE-DRIVE.md`), once the hosting service takes
+  self-registrations. Each person connects their own Google with one click, no admin step. Without a public address,
+  with `MYCEL_GOOGLE_DRIVE_BROKER_URL=off`, or while the hosting service says no, it needs its own Google Cloud client
+  (`google-apps.ts:96-98`, `docs/site/use/google-apps.md`); a client of its own always wins.
 - **Slack:** "Add to Slack" (the hosting service's app) is hosted-only; self-host pastes its own app's tokens, owner only
   (`slack.ts:35-37`).
 - **GitHub:** works where the server holds a GitHub App file; otherwise the card says "Not set up yet".

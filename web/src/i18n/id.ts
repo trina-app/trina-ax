@@ -3950,7 +3950,7 @@ export const id: Record<MessageKey, string> = {
   "localApps.aside.noProfiles": "Jika Aside tidak menemukan browser Anda, buka Aside dan login, lalu tanyakan lagi.",
   "localApps.egoLite.install": "Pasang ego lite di komputer ini dan selesaikan penyiapan awalnya terlebih dahulu (Mac atau Windows):",
   "localApps.playwright.line": "AI membuka dan menguji situs web di browser Playwright di komputer ini.",
-  "localApps.playwright.install": "Perlu Node.js (dari nodejs.org atau Homebrew). Belum bisa di Windows.",
+  "localApps.playwright.install": "Perlu Node.js (dari nodejs.org atau Homebrew) dan Google Chrome. Belum bisa di Windows.",
   "localApps.chromeDevtools.line": "AI memeriksa halaman di Chrome di komputer ini: console, jaringan, dan performa.",
   "localApps.chromeDevtools.install": "Perlu Node.js (dari nodejs.org atau Homebrew) dan Google Chrome. Belum bisa di Windows.",
   "localApps.asking": "Komputer ini menanyakan apakah {name} akan dihubungkan. Tekan Hubungkan di jendela “Hubungkan program”.",

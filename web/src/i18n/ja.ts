@@ -3906,7 +3906,7 @@ export const ja: Record<MessageKey, string> = {
   "localApps.aside.noProfiles": "Asideがブラウザーを見つけられないときは、Asideを開いてログインしてから、もう一度聞いてください。",
   "localApps.egoLite.install": "先にこのパソコンにego liteをインストールし、最初の設定を済ませてください（Mac・Windows）：",
   "localApps.playwright.line": "AIがこのコンピューターのPlaywrightブラウザーでWebサイトを開いてテストします。",
-  "localApps.playwright.install": "Node.js（nodejs.orgまたはHomebrew）が必要です。Windowsにはまだ対応していません。",
+  "localApps.playwright.install": "Node.js（nodejs.orgまたはHomebrew）とGoogle Chromeが必要です。Windowsにはまだ対応していません。",
   "localApps.chromeDevtools.line": "AIがこのコンピューターのChromeでページのコンソール、ネットワーク、パフォーマンスを調べます。",
   "localApps.chromeDevtools.install": "Node.js（nodejs.orgまたはHomebrew）とGoogle Chromeが必要です。Windowsにはまだ対応していません。",
   "localApps.asking": "このパソコンで{name}を接続するか確認しています。「プログラムの接続」ウィンドウで「接続」を押してください。",

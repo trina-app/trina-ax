@@ -3949,7 +3949,7 @@ export const ko = {
   "localApps.aside.noProfiles": "Aside가 브라우저를 찾지 못하면 Aside를 열어 로그인한 다음 다시 물어보세요.",
   "localApps.egoLite.install": "먼저 이 컴퓨터에 ego lite를 설치하고 처음 설정을 마치세요(Mac, Windows):",
   "localApps.playwright.line": "AI가 이 컴퓨터의 Playwright 브라우저로 웹사이트를 열고 시험해요.",
-  "localApps.playwright.install": "Node.js가 필요해요(nodejs.org나 Homebrew). Windows는 아직 안 돼요.",
+  "localApps.playwright.install": "Node.js(nodejs.org나 Homebrew)와 Google Chrome이 필요해요. Windows는 아직 안 돼요.",
   "localApps.chromeDevtools.line": "AI가 이 컴퓨터의 Chrome에서 페이지의 콘솔, 네트워크, 성능을 살펴봐요.",
   "localApps.chromeDevtools.install": "Node.js(nodejs.org나 Homebrew)와 Google Chrome이 필요해요. Windows는 아직 안 돼요.",
   "localApps.asking": "이 컴퓨터에서 {name} 연결 여부를 묻고 있어요. ‘프로그램 연결’ 창에서 연결을 눌러 주세요.",
