@@ -324,7 +324,9 @@ export function TeamLinkView({ data, inviter, team, about = null, messageLocale 
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
   // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
   const mt = messageLocale ? (k: MessageKey, p?: Params) => translate(messageLocale, k, p) : t
-  const message = teamLinkMessage(mt, { name: inviter, team, url, about, skill: skillName, ownAi: link.memberAi === 'connect_own' })
+  // the link's end as the Expires row writes it, in the message's language
+  const until = formatDateTime(link.expiresAt, messageLocale ?? locale)
+  const message = teamLinkMessage(mt, { name: inviter, team, url, until, about, skill: skillName, ownAi: link.memberAi === 'connect_own' })
   const text = edit && edit.from === message ? edit.text : message
   // an edit that took the link out gets it back on its own last line when copied or sent
   const sendText = withInviteLink(text, url)
