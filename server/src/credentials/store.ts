@@ -39,7 +39,12 @@ export interface CredMeta {
    * (`at`) and when it was last checked (`checkedAt`: confirm.ts, the background re-check); cleared when it works again */
   refusal?: Refusal
 }
-export interface Refusal { status: number | null; type: string; message: string; code: string; at: string; checkedAt?: string }
+export interface Refusal {
+  status: number | null; type: string; message: string; code: string; at: string; checkedAt?: string
+  /** marked although its free check passed (refused again right after): the background re-check would only pass it
+   * again, so it is not asked (confirm.ts recheckDue) */
+  checkPasses?: boolean
+}
 
 /** the secret JSON of each kind (never leaves the server) */
 export interface Secrets {
@@ -356,23 +361,23 @@ const SET_REFUSAL = `json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END
 /** SQL: the row's meta without `refusal` */
 export const CLEAR_REFUSAL = `json_remove(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.refusal')`
 /** the saved answer of a refusal with this code: `at` stays when the code did not change */
-function refusalOf(cc: CredCtx, r: CredRow, code: string, upstreamStatus: number | null, error: ProviderAnswer | null | undefined): Refusal {
+function refusalOf(cc: CredCtx, r: CredRow, code: string, upstreamStatus: number | null, error: ProviderAnswer | null | undefined, checkPasses = false): Refusal {
   const now = new Date(cc.now()).toISOString()
   const old = metaOf(r).refusal
   const same = r.status === 'invalid' && r.status_code === code
-  return { status: error?.status ?? upstreamStatus, type: error?.type ?? '', message: error?.message ?? '', code, at: same && old?.at ? old.at : now, checkedAt: now }
+  return { status: error?.status ?? upstreamStatus, type: error?.type ?? '', message: error?.message ?? '', code, at: same && old?.at ? old.at : now, checkedAt: now, ...(checkPasses ? { checkPasses } : {}) }
 }
 /** what a provider said, already cleaned (proxy/anthropic-refusal.ts providerError) */
 export interface ProviderAnswer { status: number; type: string; message: string }
 
 /** mark a connection refused by its provider and tell the admins (once an hour). `error`: the provider's answer
  * (cleaned), kept on the row and shown in its details; `quiet`: no notice (an admin's own "Check again"). */
-export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null, o: { error?: ProviderAnswer | null; quiet?: boolean } = {}) {
+export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null, o: { error?: ProviderAnswer | null; quiet?: boolean; checkPasses?: boolean } = {}) {
   const r = getRow(cc.db, id)
   if (!r) return
   if (standIn(cc, r)) return
   cc.db.query(`UPDATE engine_credentials SET status = 'invalid', status_code = ?, meta = ${SET_REFUSAL}, updated_at = ? WHERE id = ?`)
-    .run(code, JSON.stringify(refusalOf(cc, r, code, upstreamStatus, o.error)), new Date(cc.now()).toISOString(), id)
+    .run(code, JSON.stringify(refusalOf(cc, r, code, upstreamStatus, o.error, o.checkPasses)), new Date(cc.now()).toISOString(), id)
   if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid', code } })
   cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus, code })
   if (!o.quiet) notifyAboutConnection(cc, r, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnRejected', { label: r.label }))

@@ -193,6 +193,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     },
 
     succeeded(credentialId) {
+      // it answers again: a later refusal is checked afresh, not marked as "refused again after a passed check"
+      ;(cc.extra.confirm as { passedAt?: Map<string, number> } | undefined)?.passedAt?.delete(credentialId)
       cc.db.query('UPDATE engine_credentials SET checked_at = ? WHERE id = ? AND checked_at IS NULL').run(new Date(cc.now()).toISOString(), credentialId)
     },
   }

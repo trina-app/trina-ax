@@ -12,6 +12,7 @@ import { setSetting } from '../../server/src/admin/settings'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { checkOnce, confirmRefusal, PASSED_HOLD_MS, RECHECK_MAX, recheckDue, recheckRefused } from '../../server/src/credentials/confirm'
 import { recheckDelay } from '../../server/src/credentials/maintenance'
+import { createBroker } from '../../server/src/credentials/broker'
 import { getRow, markInvalid, metaOf, toCredential } from '../../server/src/credentials/store'
 
 const env = makeEnv('a-cred-recheck')
@@ -109,6 +110,24 @@ describe('confirm before marking (a refusal seen in use)', () => {
     expect(calls.length).toBe(1)
     expect(getRow(env.db, id)!.status_code).toBe('upstream_401')
   })
+  test('marked although its check passed: the background re-check leaves it (it would only pass again)', async () => {
+    const tok = TOK(++n); const id = addCred(t.cc, 'anthropic-oauth', tok)
+    expect(await confirmRefusal(t.cc, id, clock, { status: 401, code: 'upstream_401', error: null })).toBe('passed')
+    clock += 1000
+    expect(await confirmRefusal(t.cc, id, clock, { status: 401, code: 'upstream_401', error: null })).toBe('marked')
+    expect(metaOf(getRow(env.db, id)!).refusal?.checkPasses).toBe(true)
+    clock += 6 * HOUR
+    expect(recheckDue(t.cc, getRow(env.db, id)!, clock)).toBe(false)
+  })
+  test('an answer that works again ends the hold: a later 401 is checked afresh, not marked', async () => {
+    const tok = TOK(++n); const id = addCred(t.cc, 'anthropic-oauth', tok)
+    expect(await confirmRefusal(t.cc, id, clock, { status: 401, code: 'upstream_401', error: null })).toBe('passed')
+    createBroker(t.cc).succeeded(id)
+    clock += 1000
+    expect(await confirmRefusal(t.cc, id, clock, { status: 401, code: 'upstream_401', error: null })).toBe('passed')
+    expect(calls.length).toBe(2)
+    expect(getRow(env.db, id)!.status).toBe('ok')
+  })
   test('after the hold a refusal is checked again', async () => {
     const tok = TOK(++n); const id = addCred(t.cc, 'anthropic-oauth', tok)
     expect(await confirmRefusal(t.cc, id, clock, { status: 401, code: 'upstream_401', error: null })).toBe('passed')
@@ -164,6 +183,14 @@ describe('the background re-check of refused Claude subscriptions', () => {
     const a = refused('plan_ended', { legacy: true, ageMs: 5 * 24 * HOUR }); answers[a.tok] = '403org'
     expect((await recheckRefused(t.cc)).checked).toBe(1)
     expect(getRow(env.db, a.id)!.status_code).toBe('org_oauth_blocked')
+    // a legacy row whose one check was unclear is not asked again either
+    const c = refused('upstream_403', { legacy: true }); answers[c.tok] = '503'
+    clock += 6 * HOUR; calls.length = 0
+    await recheckRefused(t.cc)
+    expect(calls.map((x) => x.token)).toContain(c.tok)
+    clock += 6 * HOUR; calls.length = 0
+    await recheckRefused(t.cc)
+    expect(calls.map((x) => x.token)).not.toContain(c.tok)
     // an ended plan with its answer saved is not checked in the background (count_tokens may pass for it)
     const b = refused('plan_ended')
     clock += 6 * HOUR

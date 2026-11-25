@@ -71,13 +71,13 @@ export async function confirmRefusal(cc: CredCtx, id: string, sentAt: number, se
   const passed = st.passedAt.get(id)
   // sent before the passed check finished: the same burst
   if (passed !== undefined && sentAt <= passed) return 'passed'
-  const mark = (code: string, status: number | null, error: ProviderAnswer | null | undefined) => {
+  const mark = (code: string, status: number | null, error: ProviderAnswer | null | undefined, checkPasses = false) => {
     st.passedAt.delete(id)
-    markInvalid(cc, id, code, status, { error })
+    markInvalid(cc, id, code, status, { error, checkPasses })
     return 'marked' as const
   }
   // refused again after a check that passed: the check does not tell (an ended plan may pass count_tokens)
-  if (passed !== undefined) return mark(seen.code, seen.status, seen.error)
+  if (passed !== undefined) return mark(seen.code, seen.status, seen.error, true)
   // already marked (another request of the same burst got here first): nothing to check
   if (row.status === 'invalid') return 'marked'
   const v = await checkOnce(cc, row)
@@ -88,6 +88,8 @@ export async function confirmRefusal(cc: CredCtx, id: string, sentAt: number, se
   }
   const now2 = getRow(cc.db, id)
   if (now2?.status === 'invalid') return 'marked'
+  // a new token or key arrived while the old one was checked: that answer is not about it
+  if (!now2 || now2.updated_at !== row.updated_at) return 'passed'
   if ((v.result === 'refused' || v.result === 'blocked') && v.code) return mark(v.code, v.upstreamStatus, v.error)
   return mark(seen.code, seen.status, seen.error)
 }
@@ -101,7 +103,10 @@ export function recheckDue(cc: CredCtx, r: CredRow, now: number): boolean {
   if (ref?.checkedAt && now - Date.parse(ref.checkedAt) < RECHECK_MIN_GAP_MS) return false
   const code = r.status_code ?? ''
   const hasAnswer = !!(ref && (ref.type || ref.message))
-  if (LEGACY_ONCE.has(code)) return !hasAnswer
+  // once, whatever that check answers (an unclear one too): never every round
+  if (LEGACY_ONCE.has(code)) return !hasAnswer && !ref?.checkedAt
+  // marked although its free check passed: asking that check again only passes it again
+  if (ref?.checkPasses) return false
   const forMs = RECHECK_FOR_MS[code]
   if (forMs === undefined) return false
   const since = Date.parse(ref?.at ?? r.updated_at)
