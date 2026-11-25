@@ -60,10 +60,15 @@ public class PushSyncAppDelegateSubscriber: ExpoAppDelegateSubscriber {
   }
 }
 
-/** Only so the app can tell the module is in this build (src/badge.ts takesClear): it then offers push-clear-v1. */
+/** The app tells the module is in this build by its presence (src/badge.ts takesClear) and then offers push-clear-v1.
+ * `clear` is the same removal for a sync iOS shows to the open app as a notification to present (willPresent, which
+ * comes instead of or next to the app delegate call, src/push.ts quietForeground); a second removal of the same ids
+ * changes nothing. */
 public class PushSyncModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PushSync")
-    Constant("clears") { true }
+    AsyncFunction("clear") { (list: String, promise: Promise) in
+      PushSync.remove(PushSync.ids(["body": ["code": PushSync.code, "clear": list]]) ?? []) { removed in promise.resolve(removed) }
+    }
   }
 }

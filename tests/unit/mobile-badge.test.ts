@@ -101,7 +101,7 @@ test('silent syncs: offered by an iPhone and an Android build with its own messa
   expect([takesSync('ios', false), takesSync('android', true), takesSync('android', false), takesSync('web', true)]).toEqual([true, true, false, false])
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8'), push = fs.readFileSync(path.join(import.meta.dir, '../../mobile/src/push.ts'), 'utf8')
   expect(app).toContain('...(takesSync(Platform.OS, !!labels) ? [PUSH_SYNC_CAPABILITY] : [])')
-  expect(push).toContain('shouldShowList: n.request.content.data?.code !== SYNC_CODE')
+  expect(push).toContain('shouldShowList: data?.code !== SYNC_CODE')
   // the page's count never clears delivered notifications: a stale count on return to the foreground (or 0 before the
   // lists load at sign-in) would wipe a new one (review of #442); reads elsewhere come by id in a sync
   expect(app).toContain('badge: n => appBadge.show(n),')
@@ -118,7 +118,10 @@ test('iPhone: push-clear-v1 only with the native handler; the background mode; t
   const mobile = path.join(import.meta.dir, '../../mobile')
   const read = (f: string) => fs.readFileSync(path.join(mobile, f), 'utf8')
   expect(read('App.tsx')).toContain('...(takesClear(Platform.OS, pushSyncNative) ? [PUSH_CLEAR_CAPABILITY] : [])')
-  expect(read('src/push.ts')).toContain("Platform.OS === 'ios' && requireOptionalNativeModule('PushSync') !== null")
+  expect(read('src/push.ts')).toContain("Platform.OS === 'ios' ? requireOptionalNativeModule<{ clear(list: string): Promise<boolean> }>('PushSync') : null")
+  // the open app: a sync iOS hands over as a notification to present goes through the same native removal
+  expect(read('src/push.ts')).toContain("if (data?.code === SYNC_CODE && typeof data.clear === 'string') void pushSyncModule?.clear(data.clear)")
+  expect(read('modules/push-sync/ios/PushSync.swift')).toContain('AsyncFunction("clear")')
   // iOS runs the closed app for a content-available push only with the remote-notification background mode
   expect(read('app.config.ts')).toMatch(/\['expo-notifications', \{[^\n]*enableBackgroundRemoteNotifications: true/)
   // the module: iOS only, linked as a module and an app delegate subscriber

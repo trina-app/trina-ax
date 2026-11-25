@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-24 18:53
 - Branch: `feat/iphone-clear-read-notifications`
-- Status: in progress
+- Status: done
 - Where: `server/src/notifications/`, `shared/src/cloud-protocol/push-gateway.ts`, `shared/src/api/push.ts`,
   `push-gateway/`, `web/src/lib/mobile.ts`, `mobile/`. Why: the phone push path is core (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A bug fix: a notification already read elsewhere leaves the iPhone's list as it does on
@@ -58,6 +58,10 @@ In:
      its own count, `shouldSetBadge: false` as today). No JS start-up and no network in the background. It runs the
      same way while the app is open (iOS calls the same delegate in the foreground), which fixes the "open app keeps
      the list" case.
+   - Open app, second path (added after the simulator run): iOS may hand the open app a sync that has a number as a
+     notification to present (`willPresent`, expo-notifications' handler in `src/push.ts quietForeground`) instead of,
+     or next to, the delegate call. That handler, which already keeps a sync out of the list, now also calls the
+     module's `clear(list)` (the same native removal). Removing the same ids twice changes nothing.
    - The app offers `push-clear-v1` only on iOS when that module is in the build.
 6. Docs and notes: contract comments, `push-gateway/README.md`, `changes/iphone-clear-read-notifications.md`, QA rows.
 
@@ -123,4 +127,24 @@ config; `web/test/unit/mobile.test.ts`; `bun run check:prepush`; simulator repla
 
 ## Result
 
-(filled in at the end)
+Built as in Scope after the review. Commits: plan, server/gateway/contract/page, iPhone app, open-app path.
+
+Simulator run (2026-11-25, iPhone 17 Pro simulator iOS 26.5, Release simulator build of this branch, signed in to a
+local dev server with a fake team, its gateway a local copy of this branch's gateway code that records the APNs request
+instead of sending it; every recorded body replayed with `xcrun simctl push`, `sound` removed):
+- The app registered with `clear: true` (`sync_ok = 2`).
+- 3 DMs (Alice 2, Carol 1) delivered. Bob read Alice's DM through the API: the server sent one sync, recorded as
+  `aps {badge:1, content-available:1}`, `body.clear` = Alice's 2 notice ids, push type alert, priority 5, expiry 0,
+  collapse id `phone.sync`. Replayed with the app open: Alice's 2 notifications left Notification Center, Carol's
+  stayed, no banner.
+- A new DM from Alice, then Bob read Carol's DM: the sync listed the whole read set (Carol's id and Alice's 2 older
+  ids, not the new one) with badge 1. Icon number 1 on the home screen. Replayed with the app open: Carol's left, the
+  new one from Alice stayed.
+- Not provable on the simulator: removal while the app is in the background. `simctl push` does not hand a
+  `content-available` push to the app's delegate; it asks SpringBoard for a background-fetch launch (refused without
+  the `fetch` mode, a no-op with it, checked with a simulator-only copy). The background path is iOS's documented
+  remote-notification delivery and the same `PushSync.remove` the open-app run used; it needs a real iPhone (TestFlight
+  1.0.14 with the redeployed gateway).
+
+Differences from the plan: the open-app `willPresent` path above (found on the simulator: iOS presented the sync to the
+open app's notification handler).
