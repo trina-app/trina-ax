@@ -4,7 +4,7 @@ import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile, chatOwnsFile } from './chat-file-tool'
 import { landingPaths } from './places-copy'
 import { liveSources } from './answer-share'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_VALUE, LIVE_CLIENTS, RAN_UNDER_AUTO, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace, type AutoCall } from './always-allow'
 import { keepWarnSeen, sharedAllowed, warnPlace, warnSeen } from '../integrations/connections/tool-allow'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
@@ -77,7 +77,7 @@ import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, SHARED_RUN_ALLOWANCE, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
-import { aiCalled, engineError, OWN_FOLDER_WORDS, stepLabel, tr, turnLimitError } from './i18n'
+import { AUTO_WHAT, aiCalled, engineError, OWN_FOLDER_WORDS, stepLabel, tr, turnLimitError } from './i18n'
 import { HELD_MAX_FILES, heldFile, heldFileOk, heldNote, heldPreview, heldRefusal, type HeldFile } from './skill-held'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
@@ -5066,6 +5066,18 @@ export class TurnExec {
     } catch { return false }
   }
 
+  /** Auto mode's floor for a wider-audience save (plan section 4, `save.wider` auto-if): every narrower source is the
+   * person's own file in their own folder (not through a share, a connection or the browser), and nobody who can read the
+   * target is a guest. The read rules (other people's words, outside content) are chat/always-allow.ts autoHere's. Fails
+   * closed. */
+  private widenFloorFree(need: WidenNeed): boolean {
+    try {
+      const me = this.spec.userId
+      if (!need.narrower.length || !need.narrower.every((s) => s.type === 'user' && s.id === me && !s.via && !s.share)) return false
+      return readersOf(this.rt.db, this.rt.files.rules(), need.segs).every((id) => !isGuestUser(this.rt.db, id))
+    } catch { return false }
+  }
+
   /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */
   get scheduleCover(): ScheduleCover | null {
     if (this.scheduleCoverMemo === undefined) {
@@ -5159,7 +5171,9 @@ export class TurnExec {
     // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
     const ask = async (req: TurnRequest & { options: { label: string; value: string }[] }): Promise<CardAnswer> => {
-      if (!o.room) return this.askAlways('save_wider', req, 'save')
+      // auto mode: only a save of the person's own files where nobody outside the team sees it (widenFloorFree); never
+      // a card that is the room's card too, nor a publication's binding
+      if (!o.room) return this.askAlways('save_wider', req, 'save', o.binding ? {} : { auto: { floorFree: this.widenFloorFree(need) } })
       return this.askAlways('room_change', req, 'save', { onAlways: () => keepAlways(this.rt.db, this.spec.userId, 'save_wider', this.id) })
     }
     const { value: answer, missing } = await ask({
@@ -5582,7 +5596,7 @@ export class TurnExec {
    */
   /** askPerson for a card of `kind` with "Always allow" (chat/always-allow.ts): no card while it is on (`yes` at once),
    * else the card offers it. */
-  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
+  async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills'; auto?: AutoCall } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
       // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
@@ -5594,14 +5608,45 @@ export class TurnExec {
       const pressed = Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value
       if (pressed === ALWAYS_VALUE) o.onAlways?.()
       return r.value
-    }, o.label)
+    }, o.label, o.auto)
     return { value, missing }
   }
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, offering: (k) => { this.alwaysOffer = k } }
+    return {
+      db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, offering: (k) => { this.alwaysOffer = k },
+      // auto mode (chat/always-allow.ts autoHere): no guest in this turn; what the chat read (other people's words: their
+      // messages, a room; from outside: anything someone else wrote, a site, a connection, the browser); its step and note
+      guestAmong: () => this.guestAmong(),
+      reads: () => ({ others: !!this.otherAuthors || readRooms(this), outside: this.tainted || this.othersWords }),
+      ranAuto: (kind) => this.ranAuto(kind),
+      autoPaused: () => this.autoPausedOnce(),
+    }
   }
+
+  /** Auto mode approved a card of `kind` (audited in chat/always-allow.ts autoAllow): a step in the answer that says so,
+   * and RAN_UNDER_AUTO on the next tool result (autoNote), so the AI never says the person approved it. */
+  private ranAuto(kind: CardAlwaysKind) {
+    const L = this.spec.locale
+    const w = (AUTO_WHAT as Partial<Record<CardAlwaysKind, Record<Locale, string>>>)[kind]
+    this.addStep({ kind: 'tool', tool: 'auto_mode', label: tr('autoModeStep', L, { what: w?.[L] ?? w?.en ?? kind }), status: 'ok' })
+    this.autoRan = true
+  }
+  private autoRan = false
+  /** RAN_UNDER_AUTO once after a card auto mode approved (chat/tools.ts adds it to the call's result), else null */
+  autoNote(): string | null {
+    if (!this.autoRan) return null
+    this.autoRan = false
+    return RAN_UNDER_AUTO
+  }
+  /** Auto mode reached its limit in this chat: one step that says it paused (the cards show again) */
+  private autoPausedOnce() {
+    if (this.autoPauseShown) return
+    this.autoPauseShown = true
+    this.addStep({ kind: 'tool', tool: 'auto_mode', label: tr('autoModePaused', this.spec.locale), status: 'ok' })
+  }
+  private autoPauseShown = false
 
   /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
    * the room of this side chat. It no longer limits "Always allow" (docs/decisions/20261123-one-always-allow.md); a share

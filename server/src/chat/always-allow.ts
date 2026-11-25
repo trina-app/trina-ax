@@ -10,10 +10,11 @@
 // never call this: an address that may carry data out, a redirect echo, a scheduled task's card, connect_service.
 import type { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
-import { CARD_ALWAYS_KINDS, type CardAllowance, type CardAlwaysKind, type Locale, type PictureAllowance, type PictureAlwaysKey } from '@mycel/shared/api'
+import { AUTO_KINDS, CARD_ALWAYS_KINDS, type AutoRule, type CardAllowance, type CardAlwaysKind, type Locale, type PictureAllowance, type PictureAlwaysKey } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
 import { isConfidentialChat } from '../safe-ops/confidential'
+import { AUTO_DAY_LIMIT, autoCountToday, autoModeOn, noteAutoAllow } from './auto-mode'
 import { ALWAYS_WHAT, tr } from './i18n'
 
 /** The apps a person asks from and watches the answer in. */
@@ -36,6 +37,16 @@ export interface AlwaysPlace {
   /** told the kind while a card that offers "Always allow" is being raised (null right after): a card that waits after
    * the answer ends keeps it with its call (chat/turn.ts cardLater; docs/decisions/20261122-late-card-answer-resumes.md) */
   offering?: (kind: CardAlwaysKind | null) => void
+  /** auto mode (autoHere): someone outside the team is in this turn (the person, a viewer of the shared chat, a member
+   * of the side chat's room). Absent: auto mode is off here (fails closed) */
+  guestAmong?: () => boolean
+  /** auto mode, for an `auto-if` kind: the chat read other people's words (rooms, other authors, a shared chat others
+   * wrote in) or content from outside (a site, a connection, the browser, a file someone else wrote). Absent: both true */
+  reads?: () => { others: boolean; outside: boolean }
+  /** auto mode approved a card of this kind (audited already): the turn shows its step and tells the AI (RAN_UNDER_AUTO) */
+  ranAuto?: (kind: CardAlwaysKind) => void
+  /** auto mode reached its limit in this chat (AUTO_DAY_LIMIT): the turn says once that it paused */
+  autoPaused?: () => void
 }
 
 const isKind = (k: string): k is CardAlwaysKind => (CARD_ALWAYS_KINDS as readonly string[]).includes(k)
@@ -59,6 +70,46 @@ export function alwaysHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKi
   // among the people and in a run another person's words steer (Rule A; the owner, 2026-11-23: no "Always in this
   // chat", docs/decisions/20261123-one-always-allow.md)
   return alwaysOn(p.db, p.userId, kind) ? 'on' : scheduled ? null : 'offer'
+}
+
+/** What auto mode needs from the call to approve an `auto-if` card: the call's own floor check passed (the sources are
+ * the person's own or named by them, nobody outside the team sees the target, nobody loses access). Absent: the card. */
+export interface AutoCall { floorFree: boolean }
+
+/**
+ * Auto mode (docs/decisions/20261125-auto-mode.md): may this card of `kind` go without showing, approved by auto mode?
+ * The rule that applies ('auto' or 'auto-if'), or null for the card. Never reads or writes an Always. Only in a turn the
+ * person watches from their own app (never a scheduled run, Slack, a draft or a confidential chat), with the team's
+ * "Always allow" on, auto mode on for this person, and no guest in the turn. An `auto-if` kind needs `call.floorFree`
+ * and a chat that read nothing of other people and nothing from outside. After AUTO_DAY_LIMIT approvals in this chat
+ * in one day, the cards come back. Fails closed on any missing input or error.
+ */
+export function autoHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, call?: AutoCall): AutoRule | null {
+  try {
+    if (!p || p.restricted) return null
+    if (!LIVE_CLIENTS.has(p.clientKind ?? '')) return null
+    const rule = AUTO_KINDS[kind]
+    if (rule !== 'auto' && rule !== 'auto-if') return null
+    if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
+    if (!autoModeOn(p.db, p.userId)) return null
+    if (!p.guestAmong || p.guestAmong()) return null
+    if (rule === 'auto-if') {
+      if (call?.floorFree !== true) return null
+      const r = p.reads?.()
+      if (!r || r.others || r.outside) return null
+    }
+    if (autoCountToday(p.db, p.userId, p.chatId) >= AUTO_DAY_LIMIT) { p.autoPaused?.(); return null }
+    return rule
+  } catch { return null }
+}
+
+/** Auto mode approves this card now (autoHere): the audit row, then the turn's step. True when it did. */
+export function autoAllow(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, call?: AutoCall): boolean {
+  const rule = autoHere(p, kind, call)
+  if (!rule || !p) return false
+  noteAutoAllow(p.db, { userId: p.userId, kind, chatId: p.chatId, turnId: p.turnId, rule })
+  p.ranAuto?.(kind)
+  return true
 }
 
 /** Keep the person's "Always allow" for this kind (their own answer on a card). Audited. */
@@ -153,16 +204,22 @@ export const RAN_UNDER_ALWAYS = 'No card was shown: the user chose "Always allow
 /** The value a card's "Always allow" answer carries (never one of a card's own values). */
 export const ALWAYS_VALUE = '__always'
 
+/** For a tool result when auto mode let the call run without its card (as RAN_UNDER_ALWAYS). */
+export const RAN_UNDER_AUTO = 'No card was shown: the user turned on auto mode, so Trina approved this safe step by itself. Say so in plain words (for example "Done in auto mode; you can undo it, or turn auto mode off under the message box."); never say they approved, confirmed or pressed anything this time.'
+
 /**
  * One card with "Always allow": `options` are the card's own (yes first, the no last); `yes` the value that lets the
  * call go on. On already: `yes` at once, no card. Offered: "Always allow" goes in before the last option, and picking it
  * keeps the choice and answers `yes`. Otherwise the card as it was. `ask` raises the card with the options given and
- * returns the raw answer. `label`: the option's words (a card of its own words: the skill-save card's).
+ * returns the raw answer. `label`: the option's words (a card of its own words: the skill-save card's). `call`: what auto
+ * mode needs for an `auto-if` kind (autoHere); absent, such a card shows.
  */
 export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAlwaysKind, options: { label: string; value: string }[], yes: string,
-  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: AlwaysLabel = 'cardAlways'): Promise<unknown> {
+  ask: (options: { label: string; value: string }[], extra: { buttons?: true; note?: string }) => Promise<unknown>, label: AlwaysLabel = 'cardAlways', call?: AutoCall): Promise<unknown> {
   const here = alwaysHere(p, kind)
+  // the person's own Always first (Rule A), then auto mode (it never writes an Always), then the card
   if (here === 'on') return yes
+  if (autoAllow(p, kind, call)) return yes
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
   const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]

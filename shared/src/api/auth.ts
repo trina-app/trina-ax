@@ -48,6 +48,9 @@ export const Me = z.object({
     /** my "Allow all websites" is on for the AI's web reads (Settings › Browser; PUT /api/me/web-access), as it works
      * now: the team allows it and the warning I accepted is the current one. Absent: off (or an older server). */
     webAllowAll: z.literal(true).optional(),
+    /** my auto mode is on now (docs/decisions/20261125-auto-mode.md; PUT /api/ai-allowances/auto-mode). Absent: off, not
+     * available to me, or an older server. */
+    autoMode: z.literal(true).optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({
@@ -87,6 +90,9 @@ export const Me = z.object({
      * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
      * say so. Absent: on (the default), or an older server. */
     alwaysAllowOff: z.literal(true).optional(),
+    /** I may use auto mode (Admin › Team AI settings autoMode, with "Always allow" on; never a guest): the composer shows
+     * its pill. 'default': it starts on for people who did not choose. Absent: off, or an older server. */
+    autoMode: z.enum(['allowed', 'default']).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
      * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows,
      * else for a server not on a relay the address it is reached at, with its port, http included

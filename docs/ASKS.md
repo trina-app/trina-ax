@@ -26,6 +26,8 @@ confirm dialogs, and the system prompts of the desktop, menu bar and phone apps.
 5. Set **Rule A**: OK, VIOLATION (it asks again for the person's own action after Always, per chat or per call) or
    OPEN (an owner decision is needed). A new VIOLATION needs the owner's OK in the PR.
 6. Update the file's row in "Code index" (the number of matching lines and the ids) and, for a new kind, "Kinds".
+7. Decide **auto mode** for a new kind: its `auto` value in "Kinds" (`ask` unless the card is free of the floor of
+   [decisions/20261125-auto-mode.md](decisions/20261125-auto-mode.md)), and the same value in `AUTO_KINDS`.
 
 ## Fields
 
@@ -359,70 +361,78 @@ Every card kind the code knows, and the entries that use it. The test compares t
 `CARD_ALWAYS_KINDS` (`always:`), `TurnRequest` (`request:`), `AiAllowance` (`allowance:`) and `CARD_LATER_TOOLS`
 (`waits:`).
 
-| kind | ids |
-|---|---|
-| `always:room_change` | `room.change`, `room.read`, `room.change.widen` |
-| `always:remember` | `memory.remember` |
-| `always:save_wider` | `save.wider`, `room.change.widen` |
-| `always:post_to_room` | `post.room`, `dialog.answer.room`, `ui.share.room` |
-| `always:shared_read` | `share.read`, `share.skill`, `share.copy`, `share.chat_file` |
-| `always:shared_save` | `share.save` |
-| `always:move_files` | `files.move`, `files.copy`, `files.copy.places`, `files.bulk.move`, `files.bulk.rename` |
-| `always:skill_files` | `skill.move`, `skill.copy`, `skill.files` |
-| `always:skill_save` | `skill.save` |
-| `always:delete_files` | `files.delete` |
-| `always:project_members` | `project.members` |
-| `always:video` | `video.make` |
-| `always:big_download` | `download.big` |
-| `always:share_files` | `share.files` |
-| `always:post_files` | `post.room.files`, `dialog.answer.room` |
-| `always:share_folder` | `share.folder` |
-| `always:folder_access` | `folder.access`, `folder.access.many` |
-| `always:bulk_files` | `dev.bulk` |
-| `always:dev_login` | `dev.login` |
-| `request:ask_user` | `ai.ask_user`, `card.render` |
-| `request:browser_site` | `site.office` |
-| `request:connect_service` | `conn.connect.service`, `conn.connect.reconnect`, `conn.connect.template`, `conn.connect.drive`, `conn.connect.google_app` |
-| `request:dev_env_site` | `dev.site` |
-| `allowance:room_files` | `room.change` |
-| `allowance:card` | `card.render` |
-| `allowance:connector_tool` | `conn.shared`, `conn.read.unsure`, `conn.write.own` |
-| `allowance:site` | `site.web`, `site.office` |
-| `allowance:person_alias` | `post.room.pick`, `share.files.pick` |
-| `allowance:connector_send` | `conn.write` |
-| `allowance:picture` | `files.picture.notown` |
-| `waits:delete_files` | `files.delete` |
-| `waits:share_with_person` | `share.files` |
-| `waits:share_folder` | `share.folder`, `share.folder.stop` |
-| `waits:stop_sharing` | `unshare.files` |
-| `waits:web_fetch` | `site.web` |
-| `waits:save_url` | `site.web`, `download.big` |
-| `waits:preview_start` | `site.office`, `site.web` |
-| `waits:read_page` | `site.office`, `site.web` |
-| `waits:computer` | `site.office`, `site.web` |
-| `waits:form_input` | `site.office`, `site.web` |
-| `waits:navigate` | `site.office`, `site.web` |
-| `waits:find` | `site.office`, `site.web` |
-| `waits:get_page_text` | `site.office`, `site.web` |
-| `waits:javascript_tool` | `site.office`, `site.web` |
-| `waits:read_console_messages` | `site.office`, `site.web` |
-| `waits:read_network_requests` | `site.office`, `site.web` |
-| `waits:resize_window` | `site.office`, `site.web` |
-| `waits:tabs_context` | `site.office`, `site.web` |
-| `waits:tabs_create` | `site.office`, `site.web` |
-| `waits:tabs_select` | `site.office`, `site.web` |
-| `waits:tabs_close` | `site.office`, `site.web` |
-| `waits:browser_batch` | `site.office`, `site.web` |
-| `waits:post_to_room` | `post.room`, `post.room.files` |
-| `waits:change_project_members` | `project.members` |
-| `waits:change_folder_access` | `folder.access`, `folder.access.many` |
-| `waits:skill_files` | `skill.files` |
-| `waits:move_skill` | `skill.move`, `skill.copy` |
-| `waits:schedule_create` | `schedule.create` |
-| `waits:remember` | `memory.remember` |
-| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
-| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
-| `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
+The `auto` column says what auto mode does with the kind ([decisions/20261125-auto-mode.md](decisions/20261125-auto-mode.md)):
+`auto` (no card; the call is free of the floor by its kind), `auto-if` (no card only when the call's own floor check
+passes and the chat read nothing of other people and nothing from outside), `ask` (the card always shows), `n/a` (not a
+permission: the AI's own questions, a pick between people, the web part that draws cards, a tool whose card waits). The
+test compares the `always:` rows with `AUTO_KINDS` (`shared/src/api/ai-allowances.ts`); every other row is `ask` or
+`n/a`, as no code path lets auto mode approve it. A kind with an entry whose reason is `irreversible` or `cost` is `ask`,
+and one with `sends-to-others` is never `auto`.
+
+| kind | ids | auto |
+|---|---|---|
+| `always:room_change` | `room.change`, `room.read`, `room.change.widen` | ask |
+| `always:remember` | `memory.remember` | ask |
+| `always:save_wider` | `save.wider`, `room.change.widen` | auto-if |
+| `always:post_to_room` | `post.room`, `dialog.answer.room`, `ui.share.room` | ask |
+| `always:shared_read` | `share.read`, `share.skill`, `share.copy`, `share.chat_file` | ask |
+| `always:shared_save` | `share.save` | ask |
+| `always:move_files` | `files.move`, `files.copy`, `files.copy.places`, `files.bulk.move`, `files.bulk.rename` | auto-if |
+| `always:skill_files` | `skill.move`, `skill.copy`, `skill.files` | auto-if |
+| `always:skill_save` | `skill.save` | ask |
+| `always:delete_files` | `files.delete` | ask |
+| `always:project_members` | `project.members` | ask |
+| `always:video` | `video.make` | ask |
+| `always:big_download` | `download.big` | auto |
+| `always:share_files` | `share.files` | ask |
+| `always:post_files` | `post.room.files`, `dialog.answer.room` | ask |
+| `always:share_folder` | `share.folder` | ask |
+| `always:folder_access` | `folder.access`, `folder.access.many` | ask |
+| `always:bulk_files` | `dev.bulk` | auto |
+| `always:dev_login` | `dev.login` | ask |
+| `request:ask_user` | `ai.ask_user`, `card.render` | n/a |
+| `request:browser_site` | `site.office` | ask |
+| `request:connect_service` | `conn.connect.service`, `conn.connect.reconnect`, `conn.connect.template`, `conn.connect.drive`, `conn.connect.google_app` | ask |
+| `request:dev_env_site` | `dev.site` | ask |
+| `allowance:room_files` | `room.change` | ask |
+| `allowance:card` | `card.render` | n/a |
+| `allowance:connector_tool` | `conn.shared`, `conn.read.unsure`, `conn.write.own` | ask |
+| `allowance:site` | `site.web`, `site.office` | ask |
+| `allowance:person_alias` | `post.room.pick`, `share.files.pick` | n/a |
+| `allowance:connector_send` | `conn.write` | ask |
+| `allowance:picture` | `files.picture.notown` | ask |
+| `waits:delete_files` | `files.delete` | n/a |
+| `waits:share_with_person` | `share.files` | n/a |
+| `waits:share_folder` | `share.folder`, `share.folder.stop` | n/a |
+| `waits:stop_sharing` | `unshare.files` | n/a |
+| `waits:web_fetch` | `site.web` | n/a |
+| `waits:save_url` | `site.web`, `download.big` | n/a |
+| `waits:preview_start` | `site.office`, `site.web` | n/a |
+| `waits:read_page` | `site.office`, `site.web` | n/a |
+| `waits:computer` | `site.office`, `site.web` | n/a |
+| `waits:form_input` | `site.office`, `site.web` | n/a |
+| `waits:navigate` | `site.office`, `site.web` | n/a |
+| `waits:find` | `site.office`, `site.web` | n/a |
+| `waits:get_page_text` | `site.office`, `site.web` | n/a |
+| `waits:javascript_tool` | `site.office`, `site.web` | n/a |
+| `waits:read_console_messages` | `site.office`, `site.web` | n/a |
+| `waits:read_network_requests` | `site.office`, `site.web` | n/a |
+| `waits:resize_window` | `site.office`, `site.web` | n/a |
+| `waits:tabs_context` | `site.office`, `site.web` | n/a |
+| `waits:tabs_create` | `site.office`, `site.web` | n/a |
+| `waits:tabs_select` | `site.office`, `site.web` | n/a |
+| `waits:tabs_close` | `site.office`, `site.web` | n/a |
+| `waits:browser_batch` | `site.office`, `site.web` | n/a |
+| `waits:post_to_room` | `post.room`, `post.room.files` | n/a |
+| `waits:change_project_members` | `project.members` | n/a |
+| `waits:change_folder_access` | `folder.access`, `folder.access.many` | n/a |
+| `waits:skill_files` | `skill.files` | n/a |
+| `waits:move_skill` | `skill.move`, `skill.copy` | n/a |
+| `waits:schedule_create` | `schedule.create` | n/a |
+| `waits:remember` | `memory.remember` | n/a |
+| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` | n/a |
+| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` | n/a |
+| `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` | n/a |
 
 ## Code index
 

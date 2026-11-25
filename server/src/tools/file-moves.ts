@@ -38,6 +38,9 @@ import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
 import { askConfirm } from './url-gate'
+import { inOwnFolder } from '../chat/explicit-send'
+import { isGuestUser } from '../credentials/guest-ai'
+import { readersOf } from '../rooms/ai-grants'
 import { instructionLike, patternName } from './rename-pattern'
 
 
@@ -134,7 +137,17 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return { b, shared, ask: b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]), said: undefined as number | undefined }
   }
   /** The card for many moves or renames; null on a yes (the rest of the answer goes on without it), else the refusal. */
-  async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string } }): Promise<string | null> {
+  /** Auto mode's floor for a move or copy (plan section 4, `files.move` / `files.copy` auto-if): nobody loses access,
+   * every item is in the person's own folder, no room was read, and nobody who can read the target folder is a guest.
+   * The read rules (other people's words, outside content) are chat/always-allow.ts autoHere's. Fails closed. */
+  function ownMoveFloor(tc: ToolCtx, items: readonly string[], folder: string, lost: number): boolean {
+    try {
+      if (lost > 0 || tc.person?.roomsSeen || !items.length) return false
+      if (!items.every((p) => inOwnFolder(p, tc.user.id))) return false
+      return readersOf(ctx.db, ctx.files.rules(), folder.split('/').filter(Boolean)).every((id) => !isGuestUser(ctx.db, id))
+    } catch { return false }
+  }
+  async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string }; floorFree: boolean }): Promise<string | null> {
     const L = tc.person!.locale ?? teamDefaultLocale(ctx.db)
     const n = lines.length
     // one count, shown on the card and given back to the AI (QA S-122: the card said 17 people, the answer 19)
@@ -142,7 +155,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const lead = o.move ? fill(TEXT.bulkMove[L], { n, people, to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people }, L)
     const question = [lead, plan.b.done ? fill(TEXT.bulkEarlier[L], { n: plan.b.done }, L) : '', TEXT.bulkRest[L]].filter(Boolean).join(' ')
     const text = lines.slice(0, BULK_LINES_MAX).join('\n') + (n > BULK_LINES_MAX ? `\n${fill(TEXT.more[L], { n: n - BULK_LINES_MAX }, L)}` : '')
-    const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
+    const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', auto: { floorFree: o.floorFree }, details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
     if (end === 'yes') { plan.b.approved = true; plan.said = people; return null }
     const verb = o.move ? 'moved' : 'renamed'
     return refusal({
@@ -225,6 +238,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     let confirmed = false
     // the card did not show: the person's own Always let it go (the summary says so, never "confirmed")
     let underAlways = false
+    // ...or auto mode did (chat/always-allow.ts autoHere)
+    let underAuto = false
     // many moves where other people look (QA TC-r2u-25; not copies: the originals stay): one card for the rest of the
     // answer; when the card below asks anyway, its yes (which lists them too) stands for it
     const bulk = mode === 'move' ? bulkPlan(tc, ok, folder) : null
@@ -236,7 +251,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const asked = added > 0 && !lost && !tc.person?.roomsSeen && !tc.person?.unattended && !(bulk?.ask) && !!tc.person?.explicitPlace?.(folder, ok)
     const audienceCard = !asked && (added > 0 || lost > 0 || !!tc.person?.roomsSeen)
     if (bulk?.ask && !audienceCard) {
-      const no = await bulkAsk(tc, bulk, ok.map(nameOf), { move: { to: placeWords(ctx.db, folder, L, tc.user.id) } })
+      const no = await bulkAsk(tc, bulk, ok.map(nameOf), { move: { to: placeWords(ctx.db, folder, L, tc.user.id) }, floorFree: ownMoveFloor(tc, ok, folder, lost) })
       if (no) throw new ToolError(no)
     }
     if (audienceCard) {
@@ -258,7 +273,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
         bulk?.ask && bulk.b.done ? fill(TEXT.bulkEarlier[L], { n: bulk.b.done }, L) : '',
         bulk?.ask ? TEXT.bulkRest[L] : fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
       underAlways = !!tc.person.alwaysOn?.('move_files')
-      const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files' })
+      const floorFree = ownMoveFloor(tc, ok, folder, lost)
+      underAuto = !underAlways && !!tc.person.autoOn?.('move_files', { floorFree })
+      const end = await askConfirm(tc.person, question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L], { always: 'move_files', auto: { floorFree } })
       if (end !== 'yes') {
         throw new ToolError(refusal({
           done: end === 'declined' ? `The user did not allow this, so nothing was ${verb}.` : `Nothing was ${verb}.`,
@@ -317,7 +334,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       done.length ? audienceResult(added, lost, total, mode, where) : '',
       done.length ? bulkResult(bulk?.said) : '',
     ].filter(Boolean).join('\n\n')
-    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (${underAlways ? 'Always allow, no card' : 'confirmed by the user'}: +${added} -${lost})` : ''}`
+    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (${underAlways ? 'Always allow, no card' : underAuto ? 'auto mode, no card' : 'confirmed by the user'}: +${added} -${lost})` : ''}`
     if (!done.length) return { text, isError: true, summary }
     return { text, summary, structured: mode === 'move' ? { moved: done, failed } : { copied: done, failed } }
   }
@@ -382,7 +399,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     if (!plan) return null
     if (plan.ask) {
       const shared = new Set(plan.shared)
-      const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), {})
+      // a rename changes who sees nothing and is undone by a rename (plan section 4, `files.bulk.rename` auto); never
+      // after a room read
+      const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), { floorFree: !tc.person?.roomsSeen })
       if (no) return { no }
     }
     plan.b.done += plan.shared.length

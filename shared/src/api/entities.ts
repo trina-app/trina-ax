@@ -1145,6 +1145,10 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** auto mode (docs/decisions/20261125-auto-mode.md): `off` (default) nobody can turn it on; `allowed` each person can,
+   * it starts off; `default` it starts on for each person who did not choose. With roomAlwaysAllow off it is off too.
+   * Older servers omit it (off). */
+  autoMode: z.enum(['off', 'allowed', 'default']).optional(),
   /** "Let rooms get email" (email into rooms, plan docs/AGENTS/plan/20261123-0421-room-email.md): rooms may add an Email
    * app. Off by default; off removes every room's address at the mail service (mail to them is refused). Older servers
    * omit it. */
