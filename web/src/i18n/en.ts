@@ -2949,6 +2949,8 @@ export const en: Record<MessageKey, string> = {
   'audit.act.memory.delete': "Deleted a memory of their own",
   'audit.act.memory.auto_create': "The AI kept a memory of theirs",
   'audit.act.memory.auto_update': "The AI corrected a memory of theirs",
+  'audit.act.skill.auto_save': "The AI saved or changed a skill of theirs",
+  'audit.act.skill.auto_delete': "The AI deleted a skill of theirs",
   'audit.act.memory.forget': "The AI forgot a memory of theirs",
   'audit.act.memory.clear': "Deleted all their memories",
   'audit.act.engines.api': 'Changed the API engine settings',

@@ -19,7 +19,7 @@ import { HttpError } from '../http/errors'
 import { atLeast, inPlace, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
+import { inAnySkills, inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
 import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
 import { isRunPlaceholder } from '../devenv/srt/placeholders'
@@ -1066,7 +1066,7 @@ export class TeamFiles {
     // the person's yes for exactly this copy on skill_files' card (a grant for this call, its card's plan checked again
     // right before the copy, never next to a name that is taken). People on the Files screen (no turn) copy as before
     let grant: SkillActionGrant | null = null
-    if (o.turnId != null && (o.skillGrant !== undefined || inSkills(r.rel) || inSkills(fr.rel))) {
+    if (o.turnId != null && (o.skillGrant !== undefined || inAnySkills(r.rel) || inAnySkills(fr.rel))) {
       if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
       grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
     }

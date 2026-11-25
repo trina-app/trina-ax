@@ -2946,6 +2946,8 @@ export const ko = {
   'audit.act.memory.delete': "내 메모리 지움",
   'audit.act.memory.auto_create': "AI가 내 메모리 추가",
   'audit.act.memory.auto_update': "AI가 내 메모리 수정",
+  'audit.act.skill.auto_save': "AI가 내 스킬 저장·수정",
+  'audit.act.skill.auto_delete': "AI가 내 스킬 삭제",
   'audit.act.memory.forget': "AI가 내 메모리 잊음",
   'audit.act.memory.clear': "내 메모리 모두 지움",
   'audit.act.engines.api': 'API 엔진 설정 변경',

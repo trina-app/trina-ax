@@ -2909,6 +2909,8 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.memory.delete': "自分のメモリを削除",
   'audit.act.memory.auto_create': "AIが自分のメモリを追加",
   'audit.act.memory.auto_update': "AIが自分のメモリを修正",
+  'audit.act.skill.auto_save': "AIが自分のスキルを保存・修正",
+  'audit.act.skill.auto_delete': "AIが自分のスキルを削除",
   'audit.act.memory.forget': "AIが自分のメモリを忘れた",
   'audit.act.memory.clear': "自分のメモリをすべて削除",
   'audit.act.engines.api': "APIエンジンの設定を変更",

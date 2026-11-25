@@ -2902,6 +2902,8 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.memory.create": "添加了自己的一条记忆",
   "audit.act.memory.update": "修正了自己的一条记忆",
   "audit.act.memory.delete": "删除了自己的一条记忆",
+  'audit.act.skill.auto_save': "AI保存或修改了自己的技能",
+  'audit.act.skill.auto_delete': "AI删除了自己的技能",
   "audit.act.memory.auto_create": "AI 保存了自己的一条记忆",
   "audit.act.memory.auto_update": "AI 修改了自己的一条记忆",
   "audit.act.memory.forget": "AI 忘记了自己的一条记忆",

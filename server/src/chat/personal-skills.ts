@@ -46,22 +46,51 @@ export function withOrigin(text: string, auto: boolean): string {
   if (!h || originAuto(text) === auto) return text
   let head = h[2]!
   if (auto) head = /^metadata:[ \t]*$/m.test(head) ? head.replace(/^metadata:[ \t]*$/m, 'metadata:\n  origin: auto') : `${head}\nmetadata:\n  origin: auto`
-  else head = head.replace(/^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*\r?\n?/m, '').replace(/^metadata:[ \t]*\r?\n(?![ \t])/m, '').replace(/\r?\nmetadata:[ \t]*$/, '').replace(/\n+$/, '')
-  return h[1] + head + h[3] + text.slice(h[0].length)
+  else head = head.replace(/^[ \t]+origin:[ \t]*["']?auto["']?[ \t]*(?:\r?\n|$)/gm, '').replace(/^metadata:[ \t]*\r?\n(?![ \t])/gm, '').replace(/\r?\nmetadata:[ \t]*$/, '').replace(/\n+$/, '')
+  const out = h[1] + head + h[3] + text.slice(h[0].length)
+  // every origin line is gone (review of #594: only the first one was taken out)
+  if (originAuto(out) !== auto) throw new Error('origin line not changed')
+  return out
 }
 
 // ---------------- the person asks for a skill ----------------
 
-const SKILL_WORD = /스킬|(?<![\/\w])skills?(?![\/\w])|スキル|技能|\bhabilidad(?:es)?\b|\bketerampilan\b/iu
-const VERB = /저장|만들|남겨|추가|고쳐|수정|바꿔|지워|삭제|업데이트|\b(?:save|make|create|keep|add|turn|update|fix|change|edit|delete|remove)\b|保存|作って|作成|追加|直して|更新|変更|削除|做成|创建|添加|新建|修改|删除|guarda|crea|haz|añade|actualiza|cambia|borra|elimina|simpan|buat|tambah|perbarui|ubah|hapus/iu
-const NOT = /지\s*마|하지\s*않|말아|\b(?:don['’]?t|do\s+not|never)\b|ないで|不要|别|別|jangan/iu
+// An explicit request to save, make, change or delete a skill (review of #594: a sentence that only mentions skills,
+// "Tell me how to add skills in Claude.", must not count): the skill word and a request form of the verb in one
+// sentence, in the app's six languages. A question or a refusal in the same sentence never counts.
+const ASKS: RegExp[] = [
+  // ko: "스킬로 저장해 줘", "이 스킬 고쳐 줘", "주간 보고 스킬 지워 주세요"
+  /스킬.{0,30}?(?:저장|만들어|남겨|추가|등록|고쳐|수정|바꿔|지워|삭제)\s*(?:해\s*)?(?:줘|주세요|줄래|둬|두세요|놔|해요|하자|해)/u,
+  // en: an imperative at the start of the sentence ("save this as a skill", "please update my weekly skill")
+  /^(?:(?:please|pls|also|and|so|ok|okay|now|just|hey)[\s,]+)*(?:save|make|create|turn|keep|add|update|fix|change|edit|delete|remove)\b[^,;:]{0,60}?(?<![/\w])skills?(?![/\w])/iu,
+  // ja: "スキルにして", "スキルを直して", "スキルとして保存して"
+  /スキル.{0,20}?(?:にして|保存して|作って|作成して|追加して|直して|更新して|変更して|削除して)/u,
+  // zh: "把这个保存为技能", "删除这个技能", "修改周报技能"
+  /(?:保存|做成|创建|添加|新建|修改|更新|删除)(?:为|成)?.{0,12}?技能|技能.{0,12}?(?:保存|修改|更新|删除)一下/u,
+  // es: "guarda esto como habilidad"
+  /^(?:(?:por\s+favor|y|también)[\s,]+)*(?:guarda|crea|haz|añade|actualiza|cambia|borra|elimina)\b[^,;:]{0,60}?\bhabilidad(?:es)?\b/iu,
+  // id: "simpan ini sebagai skill"
+  /^(?:(?:tolong|harap|mohon|dan)\s+)*(?:simpan|buat|tambah|perbarui|ubah|hapus)(?:kan|lah)?\b[^,;:]{0,60}?(?<![/\w])(?:skill|keterampilan)(?![/\w])/iu,
+]
+const NOT = /지\s*마|하지\s*않|말아|\b(?:don['\u2019]?t|do\s+not|never)\b|ないで|不要|别|別|jangan/iu
 
-/** Does the person's own message ask to save, change or delete a skill ("스킬로 저장해 줘", "make this a skill")? A
- * question or a refusal in the same sentence never counts; quote lines are left out by the caller. */
+/** The person's own message, cut into sentences, quote lines left out by the caller. */
+const sentences = (m: string) => stripInvisible(m).normalize('NFKC').split(/(?<=[.!?。！？\n])/u).map((x) => x.trim()).filter(Boolean)
+
+/** Does the person's own message explicitly ask to save, make, change or delete a skill? */
 export function asksForSkill(message: string | null | undefined): boolean {
   if (!message) return false
-  return stripInvisible(message).normalize('NFKC').split(/(?<=[.!?。！？\n])/u).map((x) => x.trim())
-    .some((s) => s && !/[?？]$/u.test(s) && SKILL_WORD.test(s) && VERB.test(s) && !NOT.test(s))
+  return sentences(message).some((s) => !/[?？]$/u.test(s) && !NOT.test(s) && ASKS.some((re) => re.test(s)))
+}
+
+/** Does the message name the skill `name` ("weekly-sales-report", also as "weekly sales report")? */
+export function namesSkill(message: string | null | undefined, name: string): boolean {
+  if (!message) return false
+  const m = stripInvisible(message).normalize('NFKC').toLowerCase()
+  const n = name.normalize('NFKC').toLowerCase()
+  // as a word of its own, not inside a path or a longer name ("users/…/skills/weekly/SKILL.md" is no naming)
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return [n, n.replace(/-/g, ' ')].some((x) => new RegExp(`(?<![\\p{L}\\p{N}/_-])${esc(x)}(?![\\p{L}\\p{N}/_-])`, 'u').test(m))
 }
 
 // ---------------- the gate ----------------
@@ -71,15 +100,18 @@ type Plan = { name: string; rel: string; change: 'saved' | 'fixed'; auto: boolea
 const PLANS = new WeakMap<object, Plan>()
 
 /** Saved on its own (not asked) and allowed here, or a refusal for the AI; `asked`: the person's own words. */
-function placeOf(exec: Exec): { auto: boolean } | { refusal: string } {
+function placeOf(exec: Exec): { auto: boolean; message: string } | { refusal: string } {
   const { rt, spec } = exec
   if (exec.restricted || exec.templateRun || !['web', 'desktop', 'mobile'].includes(spec.clientKind ?? '') || isGuestUser(rt.db, spec.userId))
     return { refusal: 'Nothing was saved: personal skills are saved only in the user\'s own chats in the app.' }
-  const asked = asksForSkill(withoutQuoteLines(rt.store.messageRow(askerMessageId(exec as TurnExec))?.content ?? ''))
-  if (asked) return { auto: false }
-  if (!autoMemoryOn(rt.db, spec.userId) || !exec.autoMemoryPlace)
-    return { refusal: 'Nothing was saved: here the user keeps skills only when they ask for one in their own words (automatic saving is off or not used in this chat). Do not try again unless they ask; do not mention this unless they ask about skills.' }
-  return { auto: true }
+  // the places of auto memory hold for every save, asked or not: no ✦ side chat, confidential chat, scheduled run …
+  if (!exec.autoMemoryPlace) return { refusal: 'Nothing was saved: personal skills are not saved in this chat. Do not try again here; the user can ask in their own chat.' }
+  const message = withoutQuoteLines(rt.store.messageRow(askerMessageId(exec as TurnExec))?.content ?? '')
+  if (asksForSkill(message)) return { auto: false, message }
+  // the switch off: only an explicit request in the person's own words
+  if (!autoMemoryOn(rt.db, spec.userId))
+    return { refusal: 'Nothing was saved: the user keeps skills only when they ask for one in their own words (automatic saving is off). Do not try again unless they ask; do not mention this unless they ask about skills.' }
+  return { auto: true, message }
 }
 
 /** The same checks as a memory kept on its own (chat/tools.ts remember): only what the person said or what was learned
@@ -99,14 +131,15 @@ function ownWordsProblem(exec: Exec, value: string): string | null {
   return null
 }
 
-/** Saves the person did not ask for, this answer and the last 24 hours. */
+/** Skill saves and deletes, this answer and the last 24 hours. */
 function capReached(exec: Exec): string | null {
   const db = exec.rt.db
-  const q = "SELECT count(*) n FROM audit_log WHERE actor_id = ? AND action IN ('skill.auto_save', 'skill.auto_delete') AND json_extract(detail, '$.auto') = 1"
+  // every save counts, asked or not (review of #594: an ask must not lift the caps)
+  const q = "SELECT count(*) n FROM audit_log WHERE actor_id = ? AND action IN ('skill.auto_save', 'skill.auto_delete')"
   if ((db.query(`${q} AND json_extract(detail, '$.turnId') = ?`).get(exec.spec.userId, exec.spec.turnId) as { n: number }).n >= AUTO_SKILLS_PER_ANSWER)
-    return `Nothing was saved: at most ${AUTO_SKILLS_PER_ANSWER} skill changes per answer are made without the user asking. Keep the most useful one.`
+    return `Nothing was saved: at most ${AUTO_SKILLS_PER_ANSWER} skill changes per answer are made. Keep the most useful one.`
   if ((db.query(`${q} AND at >= ?`).get(exec.spec.userId, new Date(Date.now() - 24 * 3600_000).toISOString()) as { n: number }).n >= AUTO_SKILLS_PER_DAY)
-    return 'Nothing was saved: the daily number of skill changes made without the user asking is reached. Do not try again today.'
+    return 'Nothing was saved: the daily number of skill changes is reached. Do not try again today.'
   return null
 }
 
@@ -145,18 +178,24 @@ export function beforeSkillWrite(exec: Exec, tool: string, args: unknown, main =
     after = editedText(before, a.old_string, a.new_string, a.replace_all === true)
     if (originAuto(after) !== originAuto(before)) return 'Nothing was changed: leave the skill\'s "origin" line as it is.'
   }
-  if (place.auto && before !== null && !originAuto(before))
-    return `Nothing was changed: "${name}" is a skill the user wrote or asked for. Change it only when they ask you to, in their own words.`
+  // a skill the person wrote or asked for: changed only when their own message asks to change that very skill (names
+  // it, or it is the skill loaded for this answer), never on its own (review of #594)
+  if (before !== null && !originAuto(before)) {
+    const loaded = !!rt.db.query('SELECT 1 FROM turn_skill_runs WHERE turn_id = ? AND skill_path = ? AND source IN (\'command\', \'tool\')').get(exec.spec.turnId, r.rel)
+    if (place.auto || !(namesSkill(place.message, name) || loaded))
+      return `Nothing was changed: "${name}" is a skill the user wrote or asked for. Change it only when their own message asks to change that skill.`
+  }
   const problem = personalSkillProblem(r.rel, Buffer.from(after, 'utf8'))
   if (problem) return problem
-  if (place.auto) {
-    const seen = new Set((before ?? '').split('\n').map((l) => l.trim()))
-    const fresh = after.split('\n').filter((l) => !seen.has(l.trim()) && !/^\s*(?:origin|name|description|metadata):/.test(l)).join('\n')
-    const own = fresh.trim() ? ownWordsProblem(exec, fresh) : null
-    if (own) return own
-    const cap = capReached(exec)
-    if (cap) return cap
-  }
+  // own words and the caps for every save, asked or not: only the header's name and origin lines are left out (review
+  // of #594: the description and the body are checked like the rest)
+  const seen = new Set((before ?? '').split('\n').map((l) => l.trim()))
+  const header = (l: string) => /^---\s*$/.test(l) || l.trim() === `name: ${name}` || /^metadata:\s*$/.test(l) || ORIGIN_LINE.test(l)
+  const fresh = after.split('\n').filter((l) => !seen.has(l.trim()) && !header(l)).join('\n')
+  const own = fresh.trim() ? ownWordsProblem(exec, fresh) : null
+  if (own) return own
+  const cap = capReached(exec)
+  if (cap) return cap
   PLANS.set(args, { name, rel: r.rel, change: before === null ? 'saved' : 'fixed', auto: place.auto })
   return null
 }
@@ -212,14 +251,18 @@ export function deleteAutoSkills(exec: Exec, args: unknown): { text: string; isE
   }
   const place = placeOf(exec)
   if ('refusal' in place) return { text: place.refusal, isError: true }
-  const done: string[] = []
+  const done: string[] = [], trashIds: string[] = []
+  let capped: string | null = null
   for (const s of skills) {
-    if (place.auto) { const cap = capReached(exec); if (cap) return { text: cap + (done.length ? ` Deleted already: ${done.join(', ')}.` : ''), isError: true } }
-    const trashId = rt.files.deleteFile(spec.userId, s.rel, spec.turnId)
+    capped = capReached(exec)
+    if (capped) break
+    trashIds.push(rt.files.deleteFile(spec.userId, s.rel, spec.turnId))
     try { fs.rmdirSync(s.dir) } catch { /* not empty: it stays */ }
     audit(rt.db, { actor: spec.userId, action: 'skill.auto_delete', target: s.rel, detail: { auto: place.auto, turnId: spec.turnId } })
-    exec.patchToolStep('delete_files', () => ({ label: tr('skillDeleted', spec.locale, { name: s.name }), skill: { name: s.name, path: s.rel, change: 'deleted', trashId } } as Partial<StoredStep>))
     done.push(s.name)
   }
+  // one step for the call, with every trash item: its 되돌리기 brings all of them back (review of #594)
+  if (done.length) exec.patchToolStep('delete_files', () => ({ label: tr('skillDeleted', spec.locale, { name: done.join(', ') }), skill: { name: done.join(', ').slice(0, 200), path: skills[0]!.rel, change: 'deleted', trashIds } } as Partial<StoredStep>))
+  if (capped) return { text: capped + (done.length ? ` Deleted already: ${done.join(', ')}.` : ''), isError: true }
   return { text: `Deleted the user's own skill${done.length === 1 ? '' : 's'} ${done.map((n) => `"${n}"`).join(', ')} (in the trash; the step under your answer can undo it).` }
 }

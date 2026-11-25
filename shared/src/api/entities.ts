@@ -605,14 +605,15 @@ export const Step = z.object({
   }).optional(),
   /** a write, edit or delete_files step that saved, fixed or deleted one of the person's own skills
    * (server/src/chat/personal-skills.ts): what its 되돌리기 needs, through the file routes (a new skill: remove its folder;
-   * a fix: restore `versionId`; a delete: restore `trashId` from the trash). Only for the person whose turn it was
+   * a fix: restore `versionId`; a delete: restore `trashIds` from the trash). Only for the person whose turn it was
    * (stripped for every other viewer, as `memory` is) */
   skill: z.object({
     name: z.string().max(200),
     path: RelPath,
     change: z.enum(['saved', 'fixed', 'deleted']),
     versionId: z.string().max(64).optional(),
-    trashId: z.string().max(64).optional(),
+    /** a delete: every skill this call put in the trash (the step undoes them all) */
+    trashIds: z.array(z.string().max(64)).max(50).optional(),
     /** the first skill the AI kept on its own for this person: the step shows the one-time line under it */
     first: z.literal(true).optional(),
   }).optional(),

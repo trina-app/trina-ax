@@ -251,13 +251,21 @@ function SkillUndo({ skill }: { skill: NonNullable<Step['skill']> }) {
   const t = useT()
   const locale = useLocale()
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  // nothing the step can put back (an older step without the version or the trash item): said, not offered
+  const none = (skill.change === 'fixed' && !skill.versionId) || (skill.change === 'deleted' && !skill.trashIds?.length)
+  if (none) return <span className="shrink-0 text-xs text-faint" data-testid="step-skill-undo-none">{t('skill.undoGone')}</span>
   if (state === 'done') return <span className="shrink-0 text-xs text-faint" data-testid="step-skill-undone">{t('steps.memoryUndone')}</span>
   const undo = async () => {
     setState('busy')
     try {
-      if (skill.change === 'saved') await api.call(API.remove, { query: { path: skill.path.replace(/\/SKILL\.md$/, '') } })
-      else if (skill.change === 'fixed' && skill.versionId) await api.call(API.restoreVersion, { body: { path: skill.path, versionId: skill.versionId } })
-      else if (skill.change === 'deleted' && skill.trashId) await api.call(API.restoreTrash, { params: { id: skill.trashId } })
+      if (skill.change === 'saved') {
+        // the SKILL.md only; its folder too when nothing else is in it now
+        await api.call(API.remove, { query: { path: skill.path } })
+        const folder = skill.path.replace(/\/SKILL\.md$/, '')
+        const left = await api.call(API.tree, { query: { path: folder, limit: 1 } }).then((r) => r.entries.length, () => 1)
+        if (!left) await api.call(API.remove, { query: { path: folder } }).catch(() => undefined)
+      } else if (skill.change === 'fixed') await api.call(API.restoreVersion, { body: { path: skill.path, versionId: skill.versionId! } })
+      else for (const id of skill.trashIds ?? []) await api.call(API.restoreTrash, { params: { id } })
       setState('done')
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) { toast({ level: 'info', text: t('skill.undoGone') }); setState('done'); return }
@@ -319,7 +327,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   const unanswered = mark === 'unanswered'
   // a memory step's detail is the memory's id (the server's record), never words to show; a tool's error text names a
   // chat file by its inner path: in words, never its file id (QA TC-7048)
-  const detail = unanswered || step.memory || !words.detail || words.detail.startsWith('memory:') ? undefined : thinking ? words.detail : chatPlaceWords(words.detail, locale)
+  const detail = unanswered || step.memory || step.skill || !words.detail || words.detail.startsWith('memory:') ? undefined : thinking ? words.detail : chatPlaceWords(words.detail, locale)
   const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
@@ -510,7 +518,7 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
  * to show (a sub-task, a memory, a post, pictures, a dev environment run, a card's record) stays a row. */
 const RUN_MIN = 3
 const runKey = (s: Step): string | null => {
-  if (s.kind !== 'tool' || s.tool === 'agent' || s.tool === 'attachment' || s.memory || s.posted || s.images?.length || s.devEnvRun || s.shared || s.scheduled || s.folders || s.fixes?.length || s.todos) return null
+  if (s.kind !== 'tool' || s.tool === 'agent' || s.tool === 'attachment' || s.memory || s.skill || s.posted || s.images?.length || s.devEnvRun || s.shared || s.scheduled || s.folders || s.fixes?.length || s.todos) return null
   return s.tool ? `tool:${s.tool}` : `label:${s.label}`
 }
 export type StepItem = { step: Step } | { run: Step[] }
@@ -629,9 +637,10 @@ export default function Steps({ steps: all, streaming, failed = false, receipt, 
       )}
       {/* what the AI kept, changed or forgot about the person stays in view, with its 되돌리기, while the list is folded
           (docs/decisions/20261122-auto-memory.md) */}
-      {!open && top.some((s) => s.memory) && (
+      {/* (a personal skill saved, fixed or deleted too: docs/decisions/20261125-auto-personal-skills.md) */}
+      {!open && top.some((s) => s.memory || s.skill) && (
         <ul className="mt-0.5 space-y-0.5" data-testid="steps-memory">
-          {top.filter((s) => s.memory).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
+          {top.filter((s) => s.memory || s.skill).map((s) => <StepRow key={s.id} step={s} live={false} marks={marks} />)}
         </ul>
       )}
       {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}

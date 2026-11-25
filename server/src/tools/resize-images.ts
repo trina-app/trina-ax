@@ -30,7 +30,7 @@ import { imageSlot, VISION_PARALLEL } from '../files/vision'
 import { ByteGate, helperBudgetMiB, inputMaxFor, PHOTO_MIB_PER_MB, tooLargeText } from '../files/big-inputs'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { skillRootOf } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { displaySize, imageSize } from '../uploads/image'
@@ -164,7 +164,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const allowed = (rel: string, ph: Photo) => {
     const out = authorizeOutput(fx, rules, c, rel, { mustExist: replace, createDirs: !replace })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .jpg or .png`, 'is_folder')
-    if (skillRootOf(out.rel)) throw new ToolError('a photo copy is not saved in a skill folder; save it in a project or the person\'s own folder')
+    if (inAnySkills(out.rel)) throw new ToolError('a photo copy is not saved in a skill folder; save it in a project or the person\'s own folder')
     if (!replace && out.rel === ph.rel) throw new ToolError(`output is the original '${ph.rel}'; to replace it use replace: true, only when the user asked for that`)
     return out
   }

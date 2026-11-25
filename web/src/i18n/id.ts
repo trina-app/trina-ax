@@ -2947,6 +2947,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.memory.delete': "Menghapus memori sendiri",
   'audit.act.memory.auto_create': "AI menyimpan memori miliknya",
   'audit.act.memory.auto_update': "AI mengoreksi memori miliknya",
+  'audit.act.skill.auto_save': "AI menyimpan atau mengubah skill miliknya",
+  'audit.act.skill.auto_delete': "AI menghapus skill miliknya",
   'audit.act.memory.forget': "AI melupakan memori miliknya",
   'audit.act.memory.clear': "Menghapus semua memorinya",
   'audit.act.engines.api': 'Mengubah pengaturan mesin API',

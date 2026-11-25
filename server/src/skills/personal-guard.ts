@@ -7,7 +7,8 @@ import { isUtf8 } from '@mycel/shared/text-encoding'
 import { checkSkill } from '../chat/skills'
 import { secretIn } from '../chat/auto-memory'
 
-const fold = (s: string) => s.normalize('NFC').toLowerCase()
+// NFKC as policy/names.ts foldKey: "ſkills" is skills on a folding disk
+const fold = (s: string) => s.normalize('NFKC').toLowerCase().normalize('NFKC')
 
 /** users/<id>/skills/<name>/SKILL.md (letter case folded as the skill roots are): the skill's name, else null. */
 export function personalSkillName(rel: string): string | null {
