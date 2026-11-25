@@ -41,7 +41,7 @@ import { atLeast } from '../policy/access'
 import { Denied, ToolError } from '../policy/errors'
 import { hiddenEntry } from '../policy/names'
 import { cardEndShort, cardNext, cardReason, endOfText, refusal } from '../policy/refusal'
-import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
+import { inAnySkills, inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
 import { TEXT as MOVE_TEXT } from '../tools/file-moves'
@@ -661,7 +661,7 @@ function teamSource(exec: TurnExec, p: string): { source: WorkSource; sources: R
 /** Why a copy will not be placed at the team path `target` whatever the person says, or null. */
 export function teamTargetRefusal(exec: TurnExec, target: string): string | null {
   const rt = exec.rt
-  if (inSkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
+  if (inAnySkills(target)) return 'a file is not copied into a skills folder (team, group or project skills and rules) this way; pick another folder.'
   if (instructionLike(target)) return `'${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md); pick another name.`
   try { authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), target, 'write', { createDirs: true }) } catch (e) {
     if (e instanceof Denied || e instanceof ToolError) return e.message

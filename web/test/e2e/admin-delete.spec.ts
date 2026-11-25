@@ -68,8 +68,8 @@ test('folder permissions: a folder\'s sharing is all removed in its Share dialog
   await folderRow(page, 'marketing').getByTestId('folders-share').click()
   await expect(panel(page).getByTestId('sharing-row').first()).toBeVisible()
   while (await panel(page).getByTestId('sharing-level').count()) {
+    // the row goes at once with Undo, no question (docs/decisions/20261123-do-then-undo.md)
     await panel(page).getByTestId('sharing-level').first().selectOption('remove')
-    await page.getByTestId('dialog-confirm').click()
   }
   await panel(page).getByTestId('sharing-general-select').selectOption('restricted')
   await expect(page.getByTestId('sharing-outcome')).toBeVisible()

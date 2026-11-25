@@ -32,6 +32,8 @@ export interface PanePrompt {
   tool: string
   /** the third site question in a row: say where "Allow all websites" is (once) */
   hint?: boolean
+  /** the site an Always keeps for the person (the main process works it out), named on the Always button */
+  keepSite?: string
 }
 export type { PaneActivity } from '../common/pane-activity'
 export interface SiteSettings {

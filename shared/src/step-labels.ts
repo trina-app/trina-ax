@@ -196,6 +196,10 @@ export const STEP_TEXT = {
   rememberUpdated: t('기억 고침: {text}', 'Memory updated: {text}', 'Ingatan diperbarui: {text}', "記憶を更新しました：{text}", "Memoria actualizada: {text}", "已更新记忆：{text}"),
   /** forget, with the text of the memory it removed */
   forgotText: t('잊음: {text}', 'Forgot: {text}', 'Dilupakan: {text}', "忘れました：{text}", "Olvidado: {text}", "已忘记：{text}"),
+  /** one of the person's own skills saved, fixed or deleted by the AI (server/src/chat/personal-skills.ts) */
+  skillSaved: t('스킬 저장함: {name}', 'Saved skill: {name}', 'Skill disimpan: {name}', "スキルを保存しました：{name}", "Habilidad guardada: {name}", "已保存技能：{name}"),
+  skillFixed: t('스킬 고침: {name}', 'Skill updated: {name}', 'Skill diperbarui: {name}', "スキルを更新しました：{name}", "Habilidad actualizada: {name}", "已更新技能：{name}"),
+  skillDeleted: t('스킬 지움: {name}', 'Deleted skill: {name}', 'Skill dihapus: {name}', "スキルを削除しました：{name}", "Habilidad eliminada: {name}", "已删除技能：{name}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
@@ -934,6 +938,8 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (tool === 'artifact') label = reverb(ARTIFACT_ACTION_VERB.edit, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.read, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.restore, step.label, locale) ?? reverb(FILE_STEP_VERB.artifact!, step.label, locale, LEGACY_VERBS[tool])
   else if (tool !== 'box_shell' && FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
+  // a personal skill saved, fixed or deleted (a write, edit or delete_files step the server relabelled)
+  if ((label === null || label === step.label) && (tool === 'write' || tool === 'edit' || tool === 'delete_files')) label = retemplate(['skillSaved', 'skillFixed', 'skillDeleted'], step.label, locale)
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   let detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
   // a dev-environment command: plain words on the line (the AI's description, else what kind of command it is), and the

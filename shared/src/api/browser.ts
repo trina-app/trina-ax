@@ -13,6 +13,12 @@ export const BrowserToolName = z.enum([
 ])
 export type BrowserToolName = z.infer<typeof BrowserToolName>
 
+/** A site or host as the desktop app's site permissions key it: host[:port] in lower case, without "www." (also a
+ * registrable domain such as naver.com, which covers its subdomains there). */
+export const BrowserSiteKey = z.string().min(1).max(260).regex(/^[a-z0-9.\-\[\]:_]+$/)
+/** At most this many sites in one call (a person's sites for good are listed with every call). */
+export const BROWSER_CALL_SITES_MAX = 2000
+
 export const BrowserCall = z.object({
   /** unique per call; the window must not run the same callId twice (dedupe after reconnects) */
   callId: z.string().min(1).max(100),
@@ -23,6 +29,12 @@ export const BrowserCall = z.object({
   args: z.record(z.string(), z.unknown()),
   /** epoch ms after which the server stops waiting */
   deadline: z.number().int(),
+  /** public sites the person already allowed for this call (their sites for good, the address the server's card or their
+   * own message just approved): the desktop app opens them for this answer without its own site card (one Always per
+   * person, docs/decisions/20261125-one-site-always-desktop-browser.md). An older desktop app ignores it. */
+  sites: z.array(BrowserSiteKey).max(BROWSER_CALL_SITES_MAX).optional(),
+  /** office-network addresses the person already allowed (the server's office card, for good or for this answer) */
+  office: z.array(BrowserSiteKey).max(BROWSER_CALL_SITES_MAX).optional(),
 })
 export type BrowserCall = z.infer<typeof BrowserCall>
 
@@ -36,6 +48,10 @@ export const BrowserResult = z.object({
   ok: z.boolean(),
   content: z.array(BrowserResultContent).max(20),
   error: z.string().max(4000).optional(),
+  /** what the person answered "Always allow" to on the desktop app's site cards during this call (hosts): the server
+   * keeps it as the person's own allowance, so it holds on every computer and on the server's cards too. An older
+   * server ignores it. */
+  always: z.object({ sites: z.array(BrowserSiteKey).max(50).optional(), office: z.array(BrowserSiteKey).max(50).optional() }).optional(),
 })
 export type BrowserResult = z.infer<typeof BrowserResult>
 

@@ -22,6 +22,9 @@ export default defineConfig({
     permissions: ['clipboard-read', 'clipboard-write'],
     viewport: { width: 1360, height: 860 },
     locale: 'ko-KR',
+    // a computer's join pages open the desktop app first (lib/join-open-app.ts): every spec starts as a browser that
+    // chose the browser, so they keep testing the form; test/e2e/app-first.spec.ts clears it
+    storageState: { cookies: [], origins: [{ origin: `http://127.0.0.1:${PORT}`, localStorage: [{ name: 'mycel.joinInBrowser', value: '1' }] }] },
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 }, locale: 'ko-KR' } },

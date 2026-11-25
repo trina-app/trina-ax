@@ -2370,7 +2370,7 @@ export class FileService {
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }
       // a copy of a group or project skill's script is never saved by the AI (skills/script-copies.ts, QA TC-4932)
       refuseSkillScriptCopy(ctx, this.fx.root, r.rel, data, this.mayReadNow(ctx))
-      requireSkillApproval(ctx, r.rel, data)
+      requireSkillApproval(ctx, r.rel, data, r.rel, cur)
       saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
       atomicWrite(this.fx.root, r.segs, data)
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool } })
@@ -2416,7 +2416,7 @@ export class FileService {
     const data = Buffer.from(apply(), 'utf8')
     this.limits(ctx, r.rel, data.length)
     refuseSkillScriptCopy(ctx, this.fx.root, r.rel, data, this.mayReadNow(ctx))
-    requireSkillApproval(ctx, r.rel, data)
+    requireSkillApproval(ctx, r.rel, data, r.rel, cur)
     saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
     atomicWrite(this.fx.root, r.segs, data)
     consumeSkillApproval(ctx, r.rel)

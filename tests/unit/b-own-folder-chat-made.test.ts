@@ -217,9 +217,9 @@ describe('the guard still holds: a card each', () => {
     const tag = dir.split('-').at(-1)
     const skill = `users/alice/skills/own-${tag}/SKILL.md`, notes = `${dir}/CLAUDE.md`
     const chat = await newChat('alice')
-    await run('alice', chat, `make\n${fake(write(skill, '---\nname: own\n---\nv1\n'), write(notes, 'v1\n'), { say: 'ok' })}`)
+    await run('alice', chat, `make\n${fake(write(skill, `---\nname: own-${tag}\ndescription: Own notes.\n---\nv1\n`), write(notes, 'v1\n'), { say: 'ok' })}`)
     expect(exists(skill)).toBe(true)
-    const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(skill, 'PLANTED\n'), ...fix(notes, 'PLANTED\n'), { say: 'x' })}`)
+    const r = await run('alice', chat, `fix\n${fake(roomRead(roomId), ...fix(skill, `---\nname: own-${tag}\ndescription: Own notes.\n---\nPLANTED\n`), ...fix(notes, 'PLANTED\n'), { say: 'x' })}`)
     expect(r.cards).toHaveLength(2)
     expect(read(skill)).toContain('v1')
     expect(read(notes)).toBe('v1\n')

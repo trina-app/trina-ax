@@ -30,7 +30,7 @@ import { readRegular } from '../files/store'
 import { visionBlock } from '../files/vision'
 import { authorize, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { CHAT_FILE_MAX, CHAT_FILE_VERSIONS_KEPT, chainIdOf, chatFilesOf, chatFileVersion, seesChatFiles, type ChatFileRow, type VisibleChatFile } from './chat-files'
 import { chatFileWriteHooks } from './chat-file-write'
 import { neutralizeTags } from './prompt'
@@ -322,7 +322,7 @@ function saveTarget(exec: TurnExec, a: SaveArgs): SaveRefusal | SaveFound {
   const folder = !wanted ? `users/${spec.userId}/downloads` : wanted.endsWith('/') || isFolder ? wanted.replace(/\/+$/, '') : null
   const own = file.name.normalize('NFC').replace(/[/\\\u0000-\u001f]+/g, '_').trim() || 'file'
   const target = folder === null ? wanted : `${folder}/${own}`
-  if (inSkills(target)) return { text: 'Files sent in a chat cannot be saved in a skills folder (team, group or project skills and rules); pick another folder.', summary: 'save_chat_file -> refused: skills/' }
+  if (inAnySkills(target)) return { text: 'Files sent in a chat cannot be saved in a skills folder (team, group or project skills and rules); pick another folder.', summary: 'save_chat_file -> refused: skills/' }
   // a skill, team rule or instruction file is never a copied file (the same rule as save_room_file and save_url)
   if (instructionLike(target)) return { text: `Not saved: '${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), and a file sent in a chat is not put there. Pick another name.`, summary: 'save_chat_file -> refused: instruction file' }
   // a place the person may not write: no card for a save that fails anyway; placeProduced checks again before the write

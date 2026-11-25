@@ -27,7 +27,7 @@ import type { ToolCtx } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { isReservedPlace } from '@mycel/shared/places'
 import { PLACE_WORDS } from '../files/places'
 import { inProcessParseMax, readMaxBytes } from '../system/limits'
@@ -245,7 +245,7 @@ async function queryDataOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Que
     const e = ext(a.save_as)
     if (e !== 'csv' && e !== 'tsv' && e !== 'xlsx') throw new ToolError('save_as must end in .csv, .tsv or .xlsx (for a Word or PDF report, save a .csv and make the report with make_file)')
     format = e
-    if (inSkills(a.save_as)) throw new ToolError('a result cannot be saved into a skills folder (skills/, a group\'s or a project\'s); pick another folder')
+    if (inAnySkills(a.save_as)) throw new ToolError('a result cannot be saved into a skills folder (skills/, a group\'s or a project\'s); pick another folder')
     // save_as naming one of the inputs (also in another letter case): the plain refusal below, before authorize, whose
     // "almost the same name" check would answer first on a case-sensitive file system (Linux)
     const asked = a.save_as.split('/').filter((x) => x && x !== '.').join('/')
@@ -259,7 +259,7 @@ async function queryDataOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Que
     // would replace the file instead of making a conflict copy)
     const over = inputs.find((x) => sameFile(x.rel, t.rel))
     if (a.split_by === undefined && over) throw new ToolError(`save_as is '${over.rel}', one of the files the data comes from, which is never changed; nothing was done. Save the result under a new name (for example "${over.rel.replace(/(\.[^./]+)$/, ' (result)$1')}")`)
-    if (inSkills(saveAs)) throw new ToolError('a result cannot be saved into a skills folder; pick another folder')
+    if (inAnySkills(saveAs)) throw new ToolError('a result cannot be saved into a skills folder; pick another folder')
     // the wider-audience check for the inputs' content at the result's folder, before the query runs: a "no" costs
     // nothing (every file of a split goes into this same folder)
     await confirmSources(ctx, files, c, t.rel, t.segs, inputs.map((x) => x.rel))

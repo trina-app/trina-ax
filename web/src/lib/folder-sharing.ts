@@ -70,6 +70,22 @@ export function inheritedOf(above: readonly AccessTreeWho[] | null | undefined, 
   return best
 }
 
+/**
+ * Whether a folder above `path` lets anyone in apart from the owner and admins: a rule on the way up (to and including
+ * the nearest limited folder; the team root last) for a person, a group, everyone or members by role, that gives access.
+ * Read from the stored rules, so it counts what the head count cannot: a team with no members yet, an empty group, a
+ * person switched off. Limit access changes nobody, now or later, only when this is false.
+ */
+export function aboveAdmits(folders: readonly { path: string; limited?: boolean; rules: readonly { subjectType: string; subjectId: string | null; access: Access }[] }[], path: string): boolean {
+  const byPath = new Map(folders.map((f) => [f.path, f]))
+  for (let p = parentOf(path); p !== null; p = parentOf(p)) {
+    const f = byPath.get(p)
+    if (f?.rules.some((r) => r.access !== 'none' && (r.subjectType !== 'role' || (r.subjectId !== 'admin' && r.subjectId !== 'owner')))) return true
+    if (f?.limited) return false
+  }
+  return false
+}
+
 /** Drive's "Access removed" on a limited folder: the people who can open the folder above but not this one (the limit
  * stops them), from the folder answers of both (no row of their own here). */
 export function removedPeople(here: readonly { user: { id: string; name: string }; access: Access; reason: { kind: string; cutAt?: string } }[], above: readonly { user: { id: string }; access: Access }[], path: string): { id: string; name: string }[] {

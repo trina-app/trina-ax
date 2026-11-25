@@ -61,7 +61,7 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | Connectors (커넥터) | 16 | 6 | 10 | 0 | 0 |
 | Websites (웹사이트) | 8 | 5 | 3 | 0 | 0 |
 | Commands and dev environment (명령 실행·개발 환경) | 3 | 3 | 0 | 0 | 0 |
-| Memory, skills and schedules (기억·스킬·예약) | 11 | 6 | 5 | 0 | 0 |
+| Memory, skills and schedules (기억·스킬·예약) | 13 | 8 | 5 | 0 | 0 |
 | Rooms (대화방) | 5 | 4 | 1 | 0 | 0 |
 | AI questions (AI의 질문) | 2 | 0 | 2 | 0 | 0 |
 | When guests are there (게스트가 있을 때) | 4 | 0 | 4 | 0 | 0 |
@@ -140,8 +140,8 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 | id | where | trigger | text (en / ko) | buttons | always | revoke | scheduled | guests | reason | rule A |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `site.office` | `server/src/chat/tools.ts:1708` | The in-app browser opens an office-network (private) address. Skipped when allowed in this answer or for good. | May the AI open the office-network address {host}? / 사내망 주소 {host}를 열어도 될까요? (`browserSite`, web `ask.siteTitle`) | Allow once / Always allow / Deny | per person per site (`browser_site_grants`); only while the team's Always switch is on (off: not used, the card sends `noAlways`) | Settings › 트리나에게 허용한 것 (site, office) | runs if granted, else refused | Always for good even with a guest | security | OK (fixed: follows the team switch; decision 20261123-ask-registry-findings) |
-| `desktop.site.web` | `desktop/src/ui/pane.ts:243` and `desktop/src/main/pane/net-guard.ts:98` | The desktop app's in-app browser opens or sends to a public site not yet allowed (site access "ask"). Skipped: Always, "all" on, once in this turn. | The AI wants to use {host} / AI가 {host}을(를) 쓰려고 해요 (`perm.site.title`) | Allow once / Always allow / Allow all websites (team allows) / Deny | per site per team on this computer | the pane's ⚙ › Allowed sites; Settings › Browser; Settings › 트리나에게 허용한 것 in the desktop app (this computer's sites) | only while the app is open; 180 s, then Deny | same | security, sends-to-others | OK (decision 8: kept on the device, listed in 트리나에게 허용한 것 in the desktop app; decision 20261123-ask-registry-findings) |
-| `desktop.site.private` | `desktop/src/ui/pane.ts:243` and `desktop/src/main/pane/net-guard.ts:121` | The in-app browser opens an office-network address the person did not open. | The AI wants to open the office-network address {host} / AI가 사내망 주소 {host}을(를) 열려고 해요 (`perm.private.*`) | Allow once / Always allow / Deny | per private host per team on this computer | the pane's ⚙ › Allowed sites; Settings › 트리나에게 허용한 것 in the desktop app | as `desktop.site.web` | same | security | OK |
+| `desktop.site.web` | `desktop/src/ui/pane.ts:245` and `desktop/src/main/pane/net-guard.ts:98` | The desktop app's in-app browser opens or sends to a public site not yet allowed (site access "ask"). Skipped: Always, "all" on, once in this turn, and what the team server says the person already allowed for the call (`BrowserCall.sites`: their sites for good, the address the server card or their own message approved; docs/decisions/20261125-one-site-always-desktop-browser.md). | The AI wants to use {host} / AI가 {host}을(를) 쓰려고 해요 (`perm.site.title`) | Allow once / Always allow / Allow all websites (team allows) / Deny | "Always allow this site ({site})": the site the button names (shared `siteToKeep`, the address card's rule; a host with a long or random name before its site keeps only that host on this computer), saved on this computer and sent with the next call's result to be kept as the person's site for good on the server (`user_allowed_sites`, the row of `site.web`'s "Always allow this site"): it holds on every computer, every port and on the server's card | both places: the server's site in Settings › 트리나에게 허용한 것 (any app, DELETE `/api/ai-allowances/:id`), and this computer's copy in the pane's ⚙ › Allowed sites or Settings › Browser (desktop app); remove both to be asked again on this computer | only while the app is open; 180 s, then Deny | same | security, sends-to-others | OK (decision 8: kept on the device, listed in 트리나에게 허용한 것 in the desktop app; decision 20261123-ask-registry-findings) |
+| `desktop.site.private` | `desktop/src/ui/pane.ts:245` and `desktop/src/main/pane/net-guard.ts:121` | The in-app browser opens an office-network address the person did not open. Skipped: what the team server says the person already allowed (`BrowserCall.office`: the server's office card, for good or for this answer). | The AI wants to open the office-network address {host} / AI가 사내망 주소 {host}을(를) 열려고 해요 (`perm.private.*`) | Allow once / Always allow / Deny | per private host per team on this computer, and kept in the person's office grants on the server (`browser_site_grants`), sent to the app with every call to that host on every port | both places: the server's office grant in Settings › 트리나에게 허용한 것 (site, office), and this computer's copy in the pane's ⚙ › Allowed sites | as `desktop.site.web` | same | security | OK |
 | `desktop.browser.allowall` | `desktop/src/main/app-window.ts:1299` | Settings › Browser turns on "Allow all websites" (needs the team switch). | Let the AI open any website without asking in {team}? / {team}에서 AI가 묻지 않고 모든 웹사이트를 열게 할까요? (`allowAll.message`) | Cancel / Allow all websites | sets the person's own switch on this computer | Settings › Browser ("Ask for each new site") | n/a | n/a | security | OK |
 | `site.web` | `server/src/tools/url-gate.ts:903` | `web_fetch`, `save_url` or an in-app browser address the person did not type, allow or that was not learned within the budget (30 per answer, 150 per chat), a long query, or an unknown exit address. A plain address the person typed (or allowed on a card, also their schedule's) opens without the card while the exit address is unknown too (docs/decisions/20261123-do-then-undo.md). | The AI wants to open an address that wasn't in this chat… / AI가 이 대화에 없던 주소를 열려고 해요… (`unseen`, `budget`, `longQuery`) | Open / Always allow this site ({site}) / Allow all websites (turn off in Settings) / Don't open | per person per site (`user_allowed_sites`) (none with the team switch off or in a Slack turn); "Allow all websites" is the person's own switch | Settings › 트리나에게 허용한 것 (site); Settings › Browser (all websites) | allowed sites and Allow all hold; else refused | guests have no web tools | security | OK |
 | `site.web.marked` | `server/src/tools/url-gate.ts:909` | An address with long random-looking parts, a long name before the site, or a user name or password (highlighted). | …The address has long strings that are hard to read (highlighted)… (`opaque`, `longName`) | Open / Don't open | none (a hard limit) | n/a | refused | same | security | OK |
@@ -162,6 +162,8 @@ switch); "ask every time" counts the rest (most are one-off confirms of the pers
 |---|---|---|---|---|---|---|---|---|---|---|
 | `memory.remember` | `server/src/chat/tools.ts:1540` | `remember` that is not an automatic save, after the chat read outside or room content. | The AI wants to remember this about you. OK? {text} / AI가 다음 내용을 기억하려고 해요. 기억할까요? (`rememberConfirm`) | Remember / Always allow / Don't remember | `card:remember` | Settings › 트리나에게 허용한 것 | runs under Always, else not kept | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | security | OK |
 | `skill.save` | `server/src/chat/turn.ts:5166` | The AI writes into a skills or rules folder (team, group, project). One card at a time; files of a new skill show on the SKILL.md card. | Save this as a team skill? Every teammate's AI will follow it… / 팀 스킬로 저장할까요? 팀 전체 AI가 따라요… (`confirm`, `confirmGroup`, `confirmProject`) | Save / Always allow skill saves / Don't save | `card:skill_save`; also covers the widening | Settings › 트리나에게 허용한 것 | runs under Always, else refused | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | sends-to-others | OK (the label says what it covers) |
+| `skill.own_change` | `server/src/chat/personal-skills.ts:183` | `write` or `edit` of one of the person's own skills (users/<id>/skills/) that the AI did not make (no `origin: auto`): one it made changes with no card (decision 20261125-auto-personal-skills). The card shows the diff; the file layer holds the approval for those bytes. Not in a side, scheduled, Slack, template or confidential chat (refused up front). | Change your skill {names} like this? It is one you made or asked for… / 직접 만든 내 스킬 {names}을(를) 이렇게 고칠까요?… (`ownSkillChangeConfirm`) | Change / Always allow skill saves / Keep as it is | `card:skill_save` | Settings › 트리나에게 허용한 것 | refused up front (no scheduled run) | no personal skills for guests | other:ai-instructions | OK |
+| `skill.own_delete` | `server/src/chat/personal-skills.ts:183` | `delete_files` of one of the person's own skills the AI did not make (its folder holds only SKILL.md); one it made goes to the trash with no card. | Delete your skill {names}? … It goes to the trash and can be brought back. / 직접 만든 내 스킬 {names}을(를) 지울까요?… (`ownSkillDeleteConfirm`) | Delete / Always allow skill saves / Keep as it is | `card:skill_save` | Settings › 트리나에게 허용한 것 | refused up front (no scheduled run) | no personal skills for guests | other:ai-instructions | OK |
 | `skill.save.name_taken` | `server/src/chat/turn.ts:5166` | A new project skill whose name a wider skill already has (it would never run). | (`sameNameNarrower`) | Save under another name / Don't save | none (a choice, not a permission) | n/a | refused | same | other:choice | OK |
 | `skill.move` | `server/src/chat/tools.ts:1388` | The AI moves a skill to another level. Leads in plain words (`batch`: the skill, its description, who follows it); paths, names, the start of SKILL.md and the files (each opened on request) behind 자세히. Several of one answer to one place: one card (`card.batch`). | Move the skill "{name}"? {from} → {to} / "{name}" 스킬을 옮길까요?… (`moveConfirm`) | Move / Always allow / Don't move | `card:skill_files` | Settings › 트리나에게 허용한 것 | refused at once unless Always | Always holds with a guest too (one Always, decision 20261123-one-always-allow) | sends-to-others | OK |
 | `skill.copy` | `server/src/chat/tools.ts:1388` | The same, as a copy. | Copy the skill "{name}"? The original stays… / "{name}" 스킬을 복사할까요? 원본은 그대로 있어요… (`copyConfirm`) | Copy / Always allow / Don't copy | `card:skill_files` | Settings › 트리나에게 허용한 것 | as `skill.move` | as `skill.move` | sends-to-others | OK |
@@ -369,7 +371,7 @@ Every card kind the code knows, and the entries that use it. The test compares t
 | `always:shared_save` | `share.save` |
 | `always:move_files` | `files.move`, `files.copy`, `files.copy.places`, `files.bulk.move`, `files.bulk.rename` |
 | `always:skill_files` | `skill.move`, `skill.copy`, `skill.files` |
-| `always:skill_save` | `skill.save` |
+| `always:skill_save` | `skill.save`, `skill.own_change`, `skill.own_delete` |
 | `always:delete_files` | `files.delete` |
 | `always:project_members` | `project.members` |
 | `always:video` | `video.make` |
@@ -391,7 +393,7 @@ Every card kind the code knows, and the entries that use it. The test compares t
 | `allowance:person_alias` | `post.room.pick`, `share.files.pick` |
 | `allowance:connector_send` | `conn.write` |
 | `allowance:picture` | `files.picture.notown` |
-| `waits:delete_files` | `files.delete` |
+| `waits:delete_files` | `files.delete`, `skill.own_delete` |
 | `waits:share_with_person` | `share.files` |
 | `waits:share_folder` | `share.folder`, `share.folder.stop` |
 | `waits:stop_sharing` | `unshare.files` |
@@ -420,8 +422,8 @@ Every card kind the code knows, and the entries that use it. The test compares t
 | `waits:move_skill` | `skill.move`, `skill.copy` |
 | `waits:schedule_create` | `schedule.create` |
 | `waits:remember` | `memory.remember` |
-| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
-| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
+| `waits:write` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` |
+| `waits:edit` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save`, `skill.own_change` |
 | `waits:make_file` | `share.read`, `share.save`, `room.change`, `room.change.widen`, `save.wider`, `skill.save` |
 
 ## Code index
@@ -458,6 +460,7 @@ lines than the row fails the test; fewer passes.
 | `server/src/chat/delete-files.ts` | 3 | `files.delete` |
 | `server/src/chat/folder-access-tool.ts` | 6 | `folder.access`, `folder.access.many` |
 | `server/src/chat/open-questions.ts` | 2 | `helper` |
+| `server/src/chat/personal-skills.ts` | 2 | `skill.own_change`, `skill.own_delete` |
 | `server/src/chat/people-share.ts` | 5 | `dialog.chat.people`, `dialog.chat.people.files` |
 | `server/src/chat/places-copy.ts` | 5 | `files.copy.places` |
 | `server/src/chat/post-to-room.ts` | 3 | `post.room`, `post.room.files`, `post.room.guest` |
