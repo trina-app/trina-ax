@@ -64,6 +64,7 @@ disiapkan.
 | Slack (aplikasi Slack Anda sendiri) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › aplikasi Anda |
 | Notion, Linear, Atlassian, Figma, Canva, dan aplikasi lain di Jelajahi | Tidak ada: Anda masuk di halaman aplikasi itu sendiri | Akun Anda di aplikasi itu |
 | GitHub | Tidak ada: Anda masuk di GitHub | Akun GitHub Anda |
+| Asana, HubSpot, Box | Admin, sekali: **Client ID** dan **Client secret** dari aplikasi yang dibuat tim di sana (dialognya menautkan panduan tiap layanan). Setelah itu tidak ada: Anda masuk di layanannya | Asana: My apps › **MCP app**. HubSpot: Development › **MCP Connectors**. Box: Admin Console › Integrations › **Box MCP server** |
 | Aplikasi lain yang memberikan kunci | **Alamat** dan **Kunci** (kadang **Nama header**) | Halaman bantuan aplikasi itu ("MCP server", "API keys") |
 | API perusahaan Anda | **Alamat**, **Kunci**, **Catatan pemakaian** | Orang yang mengelola sistem itu |
 | NAVER WORKS dan aplikasi lain yang masuk dengan aplikasi Anda sendiri | **Client ID**, **Client secret**, **Alamat login**, **Alamat token**, **Cakupan (scope)** | Konsol pengembang aplikasi itu |

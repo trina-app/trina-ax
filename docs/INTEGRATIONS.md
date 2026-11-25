@@ -973,9 +973,42 @@ The services come from the remote servers listed on [mcpservers.org](https://mcp
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
 answers the way this server needs, Streamable HTTP and OAuth with dynamic client registration (see above). Checked on
 2026-11-02 with an unauthenticated `initialize` and the public OAuth metadata, not with a real sign-in, so a service can
-still refuse a client it does not know. Left out because they need an app of their own: Slack, Asana, HubSpot,
-Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration. GitHub is listed although it registers
-no apps: it signs in through the server's GitHub App ("GitHub" below).
+still refuse a client it does not know. Left out because they need an app of their own: Slack, Zoom, Docusign,
+PagerDuty, Clerk. Asana, HubSpot and Box need one too and are listed anyway: the team sets them up once with its own app
+("Services that need the team's own app" below). Granola was left out on 2026-11-02; on 2026-11-25 it registered a client
+for a team's https callback (201) and its docs name any MCP client, so it is listed like the others. Google Drive has its
+own integration. GitHub is listed although it registers no apps: it signs in through the server's GitHub App ("GitHub"
+below).
+
+### Services that need the team's own app
+
+Asana, HubSpot and Box register no apps for others and take no Client ID Metadata Document. They are listed with
+`teamApp` (`shared/src/service-catalog.ts`: the service's own guide and, for Asana, the scope `default`; checked on the
+services' pages and with their OAuth metadata on 2026-11-25). None of them asks the team, or Trina, for a business review
+to use an app the team makes for itself:
+
+| Service | Where the app is made | Scope | Notes (2026-11-25) |
+|---|---|---|---|
+| Asana | app.asana.com/0/my-apps › Create new app › **MCP app**; distribution **Any workspace** | `default` (any other is refused) | Enterprise admins can block an app per workspace |
+| HubSpot | Development › **MCP Connectors** › Create MCP connector (public beta) | none: the tools decide | an admin of the HubSpot account connects first |
+| Box | Admin Console › Integrations › **Box MCP server** › Add Integration Credentials | the ones chosen there | needs a Box enterprise and its admin |
+
+- **Discover:** their cards are "not set up" for everyone until an admin sets one up: a member sees "Not set up yet" and
+  its page has **Ask admin to add it** (the existing service request); an owner or admin gets **Set up**, which opens the
+  service's page in Admin (`DiscoverItem.setUpTo`). No Connect, which would end at the service's refusal.
+- **Admin:** the service's page offers **Set up as a template** first (each member it is for signs in with their own
+  account), one shared account for the team second, and never the admin's own. The dialog shows the app's fields up
+  front, not under Advanced and with no switch: the redirect address to copy, the client ID and secret, and the scope
+  filled in from the list, with a line that says what to do and a link to the service's guide (`IntegrationDialog.tsx`
+  `listedForm`, `AppSection` `required`). The app is stored like any own app ("Your own app (client ID)" above).
+- **Sign-in without the app** (a connection added by its address): it stops before anything is looked up, registered or
+  opened, with `oauth_needs_team_app` ("Asana signs in only through an app your team makes there. An admin sets it up
+  once in Admin › Connected apps …"); a member of a template gets `oauth_no_registration_member`. It is not a try at the
+  service, so it counts toward no limit (`service.ts authorize`).
+- **Chat:** the connect card is not shown for them: a member is told to ask an admin ("Ask admin to add it" on its
+  page), an admin where to set it up (`connect-service.ts`).
+- **Left out:** Zoom (paid plans only; its own Marketplace app, and its MCP address is `https://zoom.us/mcp/meeting/streamable`),
+  Slack (its own integration), Docusign, PagerDuty, Clerk. Each is one entry with `teamApp`, a logo and its words.
 
 Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
 and a connection whose address matches a listed service shows its logo too. Where each file came from is not recorded:

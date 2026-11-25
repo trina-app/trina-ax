@@ -244,6 +244,10 @@ export const TEXT = {
   // a sign-in server without dynamic client registration (oauth.ts register): an own app is needed
   oauth_no_registration: t('이 서비스는 앱을 스스로 등록하게 해 주지 않아요. 서비스에서 앱을 만들어 "내 앱으로 로그인"에 Client ID를 넣거나, API 키로 연결해 보세요.', 'This service does not let apps register themselves. Make an app at the service and enter its client ID under "Sign in with my own app", or try an API key instead.', 'Layanan ini tidak mengizinkan aplikasi mendaftar sendiri. Buat aplikasi di layanan itu dan masukkan client ID-nya di "Login dengan aplikasi saya", atau coba pakai kunci API.', "このサービスはアプリの自動登録を受け付けていません。サービスでアプリを作成して「自分のアプリでログイン」にクライアントIDを入力するか、APIキーをお試しください。", "Este servicio no permite que las aplicaciones se registren solas. Cree una aplicación en el servicio e introduzca su ID de cliente en «Iniciar sesión con mi propia aplicación», o pruebe con una clave de API.", "这个服务不允许应用自行注册。请在该服务上创建一个应用，并在“用我自己的应用登录”中输入它的客户端 ID，或改用 API 密钥试试。"),
   oauth_no_registration_member: t('이 서비스는 팀이 서비스에 만든 앱으로만 로그인할 수 있어요. 관리자에게 알려 주세요.', 'This service signs in only through an app your team made there. Tell your admin.', 'Layanan ini hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Beri tahu admin Anda.', "このサービスには、チームがそこで作成したアプリでのみログインできます。管理者に知らせてください。", "Este servicio solo permite iniciar sesión con una aplicación que su equipo creó allí. Avise a su administrador.", "这个服务只能通过你的团队在那里创建的应用登录。请告诉你的管理员。"),
+  // a listed service that signs in only through the team's own app (shared/src/service-catalog.ts teamApp: Asana,
+  // HubSpot, Box), connected by its address without one: nothing is registered or opened; an admin sets it up as a
+  // template in Admin (docs/INTEGRATIONS.md "Services that need the team's own app")
+  oauth_needs_team_app: t('{name}은(는) 팀에서 만든 앱으로만 로그인할 수 있어요. 관리자가 관리자 › 연결한 서비스에서 한 번 설정하면 각자 자기 계정으로 로그인할 수 있어요.', "{name} signs in only through an app your team makes there. An admin sets it up once in Admin › Connected apps, then everyone signs in with their own account.", '{name} hanya bisa login melalui aplikasi yang dibuat tim Anda di sana. Admin menyiapkannya sekali di Admin › Aplikasi terhubung, lalu setiap orang login dengan akunnya sendiri.', "{name} には、チームがそこで作成したアプリでのみログインできます。管理者が 管理 › 連携サービス で一度設定すると、各自が自分のアカウントでログインできます。", "{name} solo permite iniciar sesión con una aplicación que su equipo crea allí. Un administrador la configura una vez en Administración › Apps conectadas y luego cada persona inicia sesión con su propia cuenta.", "{name} 只能通过你的团队在那里创建的应用登录。管理员在 管理 › 已连接的应用 中设置一次后，每个人都用自己的账号登录。"),
   // the service refused the app this server registered for itself, or its sign-in page refused it, and no client
   // metadata document helped (oauth.ts register, preflight): it lets only apps it approved sign in (Figma, Canva).
   // Nothing on this team can fix it, and no API key is asked for (those services take none)
@@ -380,7 +384,7 @@ export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =
 /** a reason a connection check failed (integrations.last_error holds "<reason>", "<reason>:<status>" or, for no_access,
  * "no_access:<status>:<the service's words>": refusal.ts codeParts) */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'scope' | 'no_access' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_needs_team_app' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' | 'local_missing' | 'local_share' | 'local_unsupported' | 'local_unsafe'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
 const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
@@ -397,7 +401,7 @@ export const say = (key: TextKey, locale: Locale, vars: Record<string, string | 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'scope', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_needs_team_app', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can

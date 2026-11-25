@@ -139,3 +139,22 @@ test('a working team connection at another official address of the service (Atla
   serviceRequestsTick(A.ctx)
   expect((await mine('alice')).map((x) => x.service)).toEqual(['figma'])
 })
+
+test('Asana (set up only with the team\'s own app): a template for the members who asked closes their requests; others stay open', async () => {
+  expect((await ask('alice', 'asana')).body.state).toBe('sent')
+  expect((await ask('erin', 'asana')).body.state).toBe('sent')
+  const r = await send('carol', 'POST', '/api/admin/integration-templates', {
+    kind: 'mcp', name: 'Asana', url: 'https://mcp.asana.com/v2/mcp', auth: 'oauth', authHeader: null, notes: null,
+    access: { everyone: false, groups: [], users: ['alice'] }, oauthClient: { clientId: 'team-asana-app', clientSecret: 'CANARY-asana', scope: 'default' },
+  })
+  expect(r.status).toBe(201)
+  expect(await mine('alice')).toEqual([])
+  expect((await notices('alice', 'service.ready')).length).toBe(1)
+  expect((await mine('erin')).map((x) => x.service)).toEqual(['asana'])
+  // covered by the template: asking again is refused, they connect it themselves
+  expect((await ask('alice', 'asana')).status).toBe(409)
+  // the template now covers everyone: the next check closes erin's too
+  await send('carol', 'PATCH', `/api/admin/integration-templates/${r.body.id}`, { access: { everyone: true, groups: [], users: [] } })
+  serviceRequestsTick(A.ctx)
+  expect(await mine('erin')).toEqual([])
+})
