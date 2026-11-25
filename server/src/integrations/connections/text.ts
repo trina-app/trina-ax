@@ -356,10 +356,9 @@ export const MAIL_FIELD_WORDS: Record<string, T> = {
 /** The Google Workspace library's argument names in words, only on a library connection's card (with MAIL_FIELD_WORDS;
  * tools.ts fieldWordsOf): an event's `summary` is its title there, not a summary. Names not here: FIELD_WORDS, then
  * the name's own words. tests/unit/google-tool-titles.test.ts: every entry in every language. */
-const ID_OF = (ko: string, en: string, id: string, ja: string, es: string, zh: string) => t(`${ko} ID`, `${en} ID`, `ID ${id}`, `${ja}ID`, `ID ${es}`, `${zh} ID`)
 export const GOOGLE_FIELD_WORDS: Record<string, T> = {
   summary: t('제목', 'Title', 'Judul', "タイトル", "Título", "标题"),
-  eventid: ID_OF('일정', 'Event', 'acara', "予定", "del evento", "日程"),
+  eventid: t('일정 ID', 'Event ID', 'ID acara', "予定ID", "ID del evento", "日程 ID"),
   calendarid: t('캘린더', 'Calendar', 'Kalender', "カレンダー", "Calendario", "日历"),
   starttimezone: t('시작 시간대', 'Start time zone', 'Zona waktu mulai', "開始のタイムゾーン", "Zona horaria de inicio", "开始时区"),
   endtimezone: t('종료 시간대', 'End time zone', 'Zona waktu selesai', "終了のタイムゾーン", "Zona horaria de fin", "结束时区"),
@@ -376,16 +375,16 @@ export const GOOGLE_FIELD_WORDS: Record<string, T> = {
   thisandfollowing: t('이후 일정도 함께', 'This and following events', 'Acara ini dan berikutnya', "これ以降の予定も", "Este y los siguientes", "此日程及后续日程"),
   autodeclinemode: t('자동 거절', 'Auto-decline', 'Tolak otomatis', "自動で辞退", "Rechazo automático", "自动拒绝"),
   declinemessage: t('거절 메시지', 'Decline message', 'Pesan penolakan', "辞退メッセージ", "Mensaje de rechazo", "拒绝消息"),
-  messageid: ID_OF('메일', 'Message', 'email', "メール", "del mensaje", "邮件"),
-  messageids: ID_OF('메일', 'Message', 'email', "メール", "del mensaje", "邮件"),
-  labelid: ID_OF('라벨', 'Label', 'label', "ラベル", "de la etiqueta", "标签"),
+  messageid: t('메일 ID', 'Message ID', 'ID email', "メールID", "ID del mensaje", "邮件 ID"),
+  messageids: t('메일 ID', 'Message ID', 'ID email', "メールID", "ID del mensaje", "邮件 ID"),
+  labelid: t('라벨 ID', 'Label ID', 'ID label', "ラベルID", "ID de la etiqueta", "标签 ID"),
   addlabelids: t('붙일 라벨', 'Labels to add', 'Label yang ditambahkan', "付けるラベル", "Etiquetas que se añaden", "要添加的标签"),
   removelabelids: t('뗄 라벨', 'Labels to remove', 'Label yang dilepas', "外すラベル", "Etiquetas que se quitan", "要移除的标签"),
   criteria: t('조건', 'Criteria', 'Kriteria', "条件", "Criterios", "条件"),
-  documentid: ID_OF('문서', 'Document', 'dokumen', "ドキュメント", "del documento", "文档"),
-  spreadsheetid: ID_OF('스프레드시트', 'Spreadsheet', 'spreadsheet', "スプレッドシート", "de la hoja de cálculo", "电子表格"),
-  folderid: ID_OF('폴더', 'Folder', 'folder', "フォルダー", "de la carpeta", "文件夹"),
-  tabid: ID_OF('탭', 'Tab', 'tab', "タブ", "de la pestaña", "标签页"),
+  documentid: t('문서 ID', 'Document ID', 'ID dokumen', "ドキュメントID", "ID del documento", "文档 ID"),
+  spreadsheetid: t('스프레드시트 ID', 'Spreadsheet ID', 'ID spreadsheet', "スプレッドシートID", "ID de la hoja de cálculo", "电子表格 ID"),
+  folderid: t('폴더 ID', 'Folder ID', 'ID folder', "フォルダーID", "ID de la carpeta", "文件夹 ID"),
+  tabid: t('탭 ID', 'Tab ID', 'ID tab', "タブID", "ID de la pestaña", "标签页 ID"),
   rangename: t('범위', 'Range', 'Rentang', "範囲", "Rango", "范围"),
   values: t('값', 'Values', 'Nilai', "値", "Valores", "值"),
   sheetname: t('시트', 'Sheet', 'Sheet', "シート", "Hoja", "工作表"),
