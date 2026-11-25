@@ -4264,6 +4264,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.msg.what": "チームのAI、{product}が日々の資料作りを手伝ってくれます。",
   "teamLink.msg.skill": "チーム用に「{skill}」を用意しておきました。",
   "teamLink.msg.ownAi": "ご自身のAIアカウントが必要です。",
+  "teamLink.msg.shared": "このリンク1つでチームの複数のメンバーが参加できます。{date}まで使えます。",
   "teamLink.msg.join": "こちらのリンクからすぐに参加できます:\n{url}",
   "teamLink.messageEditLabel": "一緒に送るメッセージ（編集できます）",
   "teamLink.usesLabel": "参加した人",

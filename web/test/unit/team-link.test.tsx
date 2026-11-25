@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
+import { formatDateTime } from '../../src/lib/format'
 import { readJoinToken, teamLinkMessage, withInviteLink } from '../../src/lib/team-link'
 import { namedProduct } from '../../src/lib/tabs'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
@@ -19,6 +20,8 @@ import { installDom, mount, removeDom, type FakeElement as FakeEl, type Mounted 
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const URL_ = `https://acme.example/join#t=${TOKEN}`
+/** a link's end as the message writes it (formatDateTime in the message's language) */
+const UNTIL = 'Dec 2, 2026, 2:30 PM'
 const loc = (href: string) => { const u = new URL(href, 'https://acme.example'); return { pathname: u.pathname, search: u.search, hash: u.hash } }
 const noop = () => {}
 /** the product as the message names it in each language: the AI's name where the product is named after it ("트리나에서",
@@ -43,51 +46,55 @@ describe('the ready-made message', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
   const en = (k: MessageKey, p?: Record<string, string | number>) => translate('en', k, p)
   test('Korean: a hello from the inviter, the team\'s line, what it is for, the skill set up for the team, the link alone on the last line', () => {
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구', about: '병원 마케팅 콘텐츠를 만드는 팀이에요' })).toBe([
+    expect(teamLinkMessage(ko, { until: UNTIL, name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구', about: '병원 마케팅 콘텐츠를 만드는 팀이에요' })).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
       '우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요',
       `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
       "우리 팀용으로 '광고 문구' 스킬을 준비해 뒀어요.",
+      `이 링크 하나로 팀원 여러 명이 들어올 수 있어요. ${UNTIL}까지 쓸 수 있어요.`,
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
     ].join('\n'))
   })
   test('no team description: no "우리 팀 소개" line and no blank one; no skill: no skill line (never a made-up first task)', () => {
-    const m = teamLinkMessage(ko, { name: '김하나', team: 'Acme 마케팅', url: URL_, about: '  ' })
+    const m = teamLinkMessage(ko, { until: UNTIL, name: '김하나', team: 'Acme 마케팅', url: URL_, about: '  ' })
     expect(m).toBe([
       `안녕하세요, 김하나입니다. ${named('ko')}에서 Acme 마케팅에 초대할게요.`,
       `우리 팀 AI ${named('ko')}가 일상 문서 작업을 도와줘요.`,
+      `이 링크 하나로 팀원 여러 명이 들어올 수 있어요. ${UNTIL}까지 쓸 수 있어요.`,
       '아래 링크로 바로 들어오면 돼요.',
       URL_,
     ].join('\n'))
     expect(m).not.toContain('\n\n')
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, about: null })).not.toContain('우리 팀 소개')
+    expect(teamLinkMessage(ko, { until: UNTIL, name: '김하나', team: 'Acme', url: URL_, about: null })).not.toContain('우리 팀 소개')
   })
   test('English, with and without a description and a skill; a description over several lines stays one line', () => {
-    expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_, skill: 'SEO strategy plan', about: 'We make SEO content\nfor clinics' })).toBe([
+    expect(teamLinkMessage(en, { until: UNTIL, name: 'Dion', team: 'diontree', url: URL_, skill: 'SEO strategy plan', about: 'We make SEO content\nfor clinics' })).toBe([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
       'About us: We make SEO content for clinics',
       `${named('en')}, our team's AI, helps us with everyday documents.`,
       "I set up 'SEO strategy plan' for us.",
+      `Several teammates can join with this one link. It works until ${UNTIL}.`,
       'Join with this link:',
       URL_,
     ].join('\n'))
-    expect(teamLinkMessage(en, { name: 'Dion', team: 'diontree', url: URL_ }).split('\n')).toEqual([
+    expect(teamLinkMessage(en, { until: UNTIL, name: 'Dion', team: 'diontree', url: URL_ }).split('\n')).toEqual([
       `Hi, it's Dion. I'd like you to join diontree on ${named('en')}.`,
       `${named('en')}, our team's AI, helps us with everyday documents.`,
+      `Several teammates can join with this one link. It works until ${UNTIL}.`,
       'Join with this link:',
       URL_,
     ])
     // no name known: a hello without one, never "Hi, it's ."
-    expect(teamLinkMessage(en, { name: ' ', team: 'diontree', url: URL_ }).split('\n')[0]).toBe(`Hi! I'd like you to join diontree on ${named('en')}.`)
+    expect(teamLinkMessage(en, { until: UNTIL, name: ' ', team: 'diontree', url: URL_ }).split('\n')[0]).toBe(`Hi! I'd like you to join diontree on ${named('en')}.`)
   })
-  test('every language names the person, the team, the product, the description, the skill, keeps to six lines and ends with the link on its own line', () => {
+  test('every language names the person, the team, the product, the description, the skill, keeps to seven lines and ends with the link on its own line', () => {
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
       for (const skill of [null, 'ad-copy']) for (const about of [null, 'Desk fans for small offices']) {
-        const m = teamLinkMessage(t, { name: 'Ana', team: 'Acme Sales', url: URL_, skill, about })
+        const m = teamLinkMessage(t, { until: UNTIL, name: 'Ana', team: 'Acme Sales', url: URL_, skill, about })
         const lines = m.split('\n')
-        expect({ id, m: lines.at(-1) === URL_ && lines.length <= 6 && lines.every((l) => l.trim()) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(named(id)) && (!skill || m.includes(skill)) && (!about || m.includes(about)) }).toEqual({ id, m: true })
+        expect({ id, m: lines.at(-1) === URL_ && lines.length <= 7 && lines.every((l) => l.trim()) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(named(id)) && (!skill || m.includes(skill)) && (!about || m.includes(about)) }).toEqual({ id, m: true })
       }
     }
   })
@@ -101,17 +108,17 @@ describe('the ready-made message', () => {
 describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
   const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
   test('Korean: "본인 AI 계정이 필요해요" on its own line before the link, with and without a skill; never without ownAi', () => {
-    const lines = (o: { skill?: string; ownAi?: boolean }) => teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ...o }).split('\n')
-    expect(lines({ skill: '할 일 정리', ownAi: true }).slice(-4)).toEqual(["우리 팀용으로 '할 일 정리' 스킬을 준비해 뒀어요.", '본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
-    expect(lines({ ownAi: true }).slice(-3)).toEqual(['본인 AI 계정이 필요해요.', '아래 링크로 바로 들어오면 돼요.', URL_])
+    const lines = (o: { skill?: string; ownAi?: boolean }) => teamLinkMessage(ko, { until: UNTIL, name: '김하나', team: 'Acme', url: URL_, ...o }).split('\n')
+    expect(lines({ skill: '할 일 정리', ownAi: true }).slice(-5)).toEqual(["우리 팀용으로 '할 일 정리' 스킬을 준비해 뒀어요.", '본인 AI 계정이 필요해요.', `이 링크 하나로 팀원 여러 명이 들어올 수 있어요. ${UNTIL}까지 쓸 수 있어요.`, '아래 링크로 바로 들어오면 돼요.', URL_])
+    expect(lines({ ownAi: true }).slice(-4)).toEqual(['본인 AI 계정이 필요해요.', `이 링크 하나로 팀원 여러 명이 들어올 수 있어요. ${UNTIL}까지 쓸 수 있어요.`, '아래 링크로 바로 들어오면 돼요.', URL_])
     expect(lines({ skill: '할 일 정리' }).join('\n')).not.toContain('본인 AI')
   })
   test('every language: the clause is there only with ownAi, and the message still ends with the whole link', () => {
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
       for (const skill of [null, 'ad-copy']) {
-        const plain = teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, skill })
-        const own = teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, skill, ownAi: true })
+        const plain = teamLinkMessage(t, { until: UNTIL, name: 'Ana', team: 'Acme', url: URL_, skill })
+        const own = teamLinkMessage(t, { until: UNTIL, name: 'Ana', team: 'Acme', url: URL_, skill, ownAi: true })
         expect({ id, skill, ok: own !== plain && own.endsWith(URL_) && own.includes('Ana') && (!skill || own.includes(skill)) && own.length > plain.length }).toEqual({ id, skill, ok: true })
       }
     }
@@ -123,12 +130,17 @@ describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
     const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
     const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
     let html = render(data)
-    expect(message(html)).toContain(`I set up &#x27;Weekly report&#x27; for us.\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
+    // the shared-link line with the link's real end, written as the Expires row writes it
+    const sharedLine = translate('en', 'teamLink.msg.shared', { date: formatDateTime(data.link!.expiresAt, 'en') })
+    expect(message(html)).toContain(`I set up &#x27;Weekly report&#x27; for us.\n${sharedLine}\nJoin with this link:\n${URL_.replace(/&/g, '&amp;')}`)
+    // a team that writes in Korean: the date in Korean too
+    const koMessage = message(renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" team="Acme" messageLocale="ko" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />))
+    expect(koMessage).toContain(`이 링크 하나로 팀원 여러 명이 들어올 수 있어요. ${formatDateTime(data.link!.expiresAt, 'ko')}까지 쓸 수 있어요.\n아래 링크로 바로 들어오면 돼요.`)
     expect(message(html)).not.toContain('Quote draft')
     expect(html).toContain('data-testid="team-link-landing"')
     expect(message(html)).not.toContain('own AI account')
     html = render({ ...data, link: { ...data.link!, memberAi: 'connect_own' } })
-    expect(message(html)).toContain("You&#x27;ll need your own AI account.\nJoin with this link:")
+    expect(message(html)).toContain(`You&#x27;ll need your own AI account.\n${sharedLine}\nJoin with this link:`)
     // a team whose AI answers everyone (or an older server): no clause
     for (const memberAi of ['ready', 'ask_owner', undefined] as const) expect(message(render({ ...data, link: { ...data.link!, memberAi } }))).not.toContain('own AI account')
   })
