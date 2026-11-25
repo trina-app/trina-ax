@@ -19,7 +19,7 @@ import { HttpError } from '../http/errors'
 import { atLeast, inPlace, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
+import { inAnySkills, inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
 import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
 import { isRunPlaceholder } from '../devenv/srt/placeholders'
@@ -529,7 +529,8 @@ export class TeamFiles {
    * groups/, projects/, a groups/<g>/ or a projects/<name>/ that holds one anywhere (their skills would leave with it;
    * docs/DECISIONS.md "Project skills"). */
   private touchesSkills(fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean): boolean {
-    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    // NFKC as policy/names.ts foldKey: a folding disk reads "ſkills" as skills
+    const fold = (n: string) => n.normalize('NFKC').toLowerCase().normalize('NFKC')
     const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
     const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
     // groups/<g>/skills and projects/<name>/skills are both skill roots by their path (skills/guard.ts)
@@ -537,7 +538,7 @@ export class TeamFiles {
     const intoGroup = isDir && target.length === 2 && holder(target[0]) && hasSkills(fr.abs)
     const groupOut = isDir && holder(fr.segs[0]) && (
       fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
-    return inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut
+    return inAnySkills(fr.rel) || inAnySkills(target.join('/')) || intoGroup || groupOut
   }
 
   /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these
@@ -1066,7 +1067,7 @@ export class TeamFiles {
     // the person's yes for exactly this copy on skill_files' card (a grant for this call, its card's plan checked again
     // right before the copy, never next to a name that is taken). People on the Files screen (no turn) copy as before
     let grant: SkillActionGrant | null = null
-    if (o.turnId != null && (o.skillGrant !== undefined || inSkills(r.rel) || inSkills(fr.rel))) {
+    if (o.turnId != null && (o.skillGrant !== undefined || inAnySkills(r.rel) || inAnySkills(fr.rel))) {
       if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
       grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
     }

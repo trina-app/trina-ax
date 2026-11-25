@@ -30,7 +30,7 @@ import { readRegular, sha256 } from '../files/store'
 import { entryData, readCentral, ZipProblem } from '../files/zip-guard'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { imageSlot } from '../files/vision'
@@ -283,7 +283,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     a = { ...a, changes: r.changes as Input['changes'] }
   }
   const outRel = a.output === undefined ? src.rel : editOfficeOutput(a.output, src.rel)
-  if (inSkills(outRel)) throw new ToolError('Office files cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
+  if (inAnySkills(outRel)) throw new ToolError('Office files cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
   const head = 'head' in src ? src.head : null
   const out = head ? { rel: head.path, segs: ['chat:files', head.id, head.name], exists: false, st: undefined } : authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')

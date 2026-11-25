@@ -22,7 +22,7 @@ import { readRegular, sha256 } from '../files/store'
 import { fileShareUrl } from '@mycel/shared/api'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { makeWorkDir } from './isolate'
@@ -63,7 +63,7 @@ export async function commentDocx(ctx: AppContext, c: ToolCtx, a: z.output<typeo
   if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before adding comments`, 'not_read')
   if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again first`, 'conflict')
   const outRel = a.output === undefined ? src.rel : commentDocxOutput(a.output)
-  if (inSkills(outRel)) throw new ToolError('Word comments cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
+  if (inAnySkills(outRel)) throw new ToolError('Word comments cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
   const out = authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel

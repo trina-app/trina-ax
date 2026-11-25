@@ -20,7 +20,7 @@ import type { Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { demoFakesOf } from '../demo/fakes'
 import { BannerError, type BannerWords } from '../demo/fakes/banner'
 import { BANNER_SOURCE_NAME, bannerSourceText, parseBannerSource, PREPARED_BANNER, type BannerSource, type MadeBanner } from '../demo/fakes/banners'
@@ -103,7 +103,7 @@ export function registerDemoBanner(ctx: AppContext, reg: ToolRegistry): void {
       // the source: the path given (a .json file), else the project's banner.json (else the person's own folder)
       const sourceArg = a.source !== undefined ? savePathArg(a.source) : bannerSourceFor(ctx, t.user, chatOfTurn(ctx.db, t.turnId)).path
       if (!/\.json$/i.test(sourceArg)) throw new ToolError(`the banner's source is a .json file (e.g. ${BANNER_SOURCE_NAME}); give its path`)
-      if (inSkills(sourceArg)) throw new ToolError('a banner\'s source cannot be in a skills folder')
+      if (inAnySkills(sourceArg)) throw new ToolError('a banner\'s source cannot be in a skills folder')
       // a folder not made yet (a project with no files): the source is not there, and the first call makes it
       const at = (() => { try { return authorize(files.fx, files.rules(), t.user, sourceArg, 'read', { mustExist: false }) } catch (e) { if (e instanceof ToolError && e.code === 'not_found') return authorize(files.fx, files.rules(), t.user, sourceArg, 'write', { mustExist: false, createDirs: true }); throw e } })()
       let src: BannerSource
@@ -128,7 +128,7 @@ export function registerDemoBanner(ctx: AppContext, reg: ToolRegistry): void {
       const folder = wanted ? wanted.replace(/\/+$/, '') : at.segs.slice(0, -1).join('/')
       const targetFor = (name: string) => [folder, name].filter(Boolean).join('/')
       const check = (target: string) => {
-        if (inSkills(target)) throw new ToolError('a banner cannot be saved in a skills folder; pick another folder')
+        if (inAnySkills(target)) throw new ToolError('a banner cannot be saved in a skills folder; pick another folder')
         return authorize(files.fx, files.rules(), t.user, target, 'write', { mustExist: false, createDirs: true }).segs
       }
       check(targetFor('banner.png'))

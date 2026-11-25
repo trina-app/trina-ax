@@ -26,3 +26,13 @@ export function skillRootOf(rel: string): SkillRoot | null {
   }
   return null
 }
+
+/** In a person's own skills folder: users/<id>/skills, the folder or anything below it (letter case and Unicode form
+ * folded, as skillRootOf). An AI turn writes there only one SKILL.md of text (server skills/guard.ts): a personal
+ * skill's scripts run (docs/decisions/20261125-auto-personal-skills.md). */
+export function inPersonalSkills(rel: string): boolean {
+  const segs = rel.split('/')
+  // also by NFKC, as server policy/names.ts foldKey: a macOS disk folds "ſkills" or "ｓｋｉｌｌｓ" into skills (review of #594)
+  const k = (x: string) => x.normalize('NFKC').toLowerCase().normalize('NFKC')
+  return segs.length >= 3 && k(segs[0]!) === 'users' && !!segs[1] && k(segs[2]!) === SKILLS_DIR
+}
