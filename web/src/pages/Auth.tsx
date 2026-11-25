@@ -22,6 +22,7 @@ import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, rem
 import { googleResultOf, keepGoogleSignUp, pendingGoogleSignUp } from '../lib/googleSignUp'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
+import { APP_OPEN_WAIT_MS, appFirst, browserChosen, desktopDownloadHref, launchWay, phaseAfterWait, primaryAction, rememberBrowser, takeAutoTry, type AppOpenPhase } from '../lib/join-open-app'
 import { landingPath } from '../lib/tabs'
 import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
@@ -893,7 +894,8 @@ function OpenInApp({ path }: { path: string }) {
  * link and goes to the App Store (or Android's download page), and says to paste the link on the app's first screen
  * (its one box takes an invite link, a team link or an address). The copy happens only on that tap, never on load, and
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
- * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
+ * form stays behind "Continue in the browser". A computer's web browser leads with the desktop app for a member
+ * (AppFirst; docs/decisions/20261125-invite-open-app-first.md); a guest there, and our own apps, get the form as before.
  */
 function JoinChoices({ path, children, lean = false, browser = false }: { path: string; children: ReactNode
   /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
@@ -903,10 +905,18 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
   browser?: boolean }) {
   const t = useT()
   const [web, setWeb] = useState(browser)
+  // a computer's web browser leads with the desktop app (docs/decisions/20261125-invite-open-app-first.md), the same
+  // link as "앱에서 열기"; decided once per page, so the page never flips while it is open
+  const [app] = useState(() => {
+    const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: pageOrigin(), path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+    const on = appFirst({ platform: platform(), client: clientKind(), origin: pageOrigin(), guest: lean, browserChosen: browserChosen(localStore()), googleBack: browser, href })
+    return on ? href : null
+  })
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
   // link to copy by hand ('failed'); both offer the store as a plain link
   const [manual, setManual] = useState<null | 'checking' | 'copied' | 'failed'>(null)
   const store = getAppHref(platform(), clientKind(), APP_DOWNLOADS)
+  if (app && !web) return <AppFirst href={app} onBrowser={() => { rememberBrowser(localStore()); setWeb(true) }} />
   if (!store || web)
     return (
       <>
@@ -987,6 +997,79 @@ function JoinChoices({ path, children, lean = false, browser = false }: { path: 
       <OpenInApp path={path} />
       {!lean && <p className="mt-4 text-center text-sm">{browserButton}</p>}
       {!lean && <HaveAccount />}
+    </div>
+  )
+}
+
+/** this browser's localStorage, or null where it is blocked */
+const localStore = (): Storage | null => {
+  try { return window.localStorage } catch { return null }
+}
+
+/**
+ * The join page on a computer, app first (lib/join-open-app.ts): one automatic try of the desktop app per page load,
+ * then what happened as well as the browser can tell (the page lost focus or was hidden: opened). One primary button
+ * (Open the app, or Download the app once it did not open) and the other two as quiet links; Open the app tries again
+ * only on a press, in the press itself (browsers let a pressed link open an app).
+ */
+function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) {
+  const t = useT()
+  const [phase, setPhase] = useState<AppOpenPhase>('opening')
+  const [attempt, setAttempt] = useState(0)
+  const download = desktopDownloadHref(platform(), APP_DOWNLOADS)
+  const launch = () => {
+    if (launchWay(navigator.userAgent) === 'page') {
+      window.location.href = href
+      return
+    }
+    const f = document.createElement('iframe')
+    f.style.display = 'none'
+    f.setAttribute('aria-hidden', 'true')
+    f.src = href
+    document.body.appendChild(f)
+    setTimeout(() => f.remove(), 5000)
+  }
+  useEffect(() => {
+    let blurred = false
+    const seen = () => { blurred = true; setPhase('opened') }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') seen() }
+    window.addEventListener('blur', seen)
+    document.addEventListener('visibilitychange', onVisibility)
+    if (attempt === 0 && takeAutoTry()) launch()
+    const timer = setTimeout(() => setPhase((p) => (p === 'opening' ? phaseAfterWait({ blurred, hidden: document.visibilityState === 'hidden' }) : p)), APP_OPEN_WAIT_MS)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('blur', seen)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt])
+  const again = () => {
+    launch()
+    setPhase('opening')
+    setAttempt((n) => n + 1)
+  }
+  const primary = primaryAction(phase, download)
+  const quiet = 'text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center'
+  const openButton = primary === 'open'
+    ? <Button variant="primary" className="w-full" onClick={again} data-testid="app-first-open">{t('auth.openApp')}</Button>
+    : <button type="button" className={quiet} onClick={again} data-testid="app-first-open">{t('auth.openApp')}</button>
+  const downloadLink = download && (
+    <a href={download} target="_blank" rel="noopener noreferrer" className={primary === 'download' ? PRIMARY_LINK_CLS : quiet} data-testid="app-first-download">
+      {t('openApp.download')}
+    </a>
+  )
+  return (
+    <div data-testid="app-first" data-phase={phase}>
+      <p role="status" className="mb-4 flex items-start gap-2 text-sm leading-6 text-ink break-keep" data-testid="app-first-status">
+        {phase === 'opening' && <Loader2 size={16} className="mt-1 shrink-0 animate-spin text-muted" aria-hidden />}
+        <span>{t(phase === 'opening' ? 'auth.appOpening' : phase === 'opened' ? 'auth.appOpened' : 'auth.appNotOpened')}</span>
+      </p>
+      {primary === 'open' ? openButton : downloadLink}
+      <div className="mt-4 flex flex-col items-center gap-2 text-sm md:gap-3">
+        {primary === 'open' ? downloadLink : openButton}
+        <button type="button" className={quiet} onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
+      </div>
     </div>
   )
 }
