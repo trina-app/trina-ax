@@ -366,6 +366,10 @@ export class NarrationHold {
   copiedInto(piece: string, input: unknown): boolean { return copied(piece, input, '') }
   /** Is this whole piece a status line this hold would drop before a call (the turn's interim fallback skips those)? */
   wouldDrop(piece: string, input?: unknown): boolean { return !!this.script && isStatusLine(piece, this.script, input, this.message) }
+  /** Is the piece written in the answer's own script (a file name in it does not count)? An interim piece that is shows as
+   * text at its place among the steps; one in other letters stays a folded working note
+   * (docs/decisions/20261125-interim-text-inline.md). */
+  inOwnScript(piece: string): boolean { return !!this.script && SCRIPT_LETTER[this.script].test(withoutNames(piece)) }
 
   /** The end (of the answer, or of an attempt): everything held goes out as it was. */
   flush(): string {

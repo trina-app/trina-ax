@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 10:09
 - Branch: `fix/interim-text-inline`
-- Status: in progress
+- Status: done
 - Where: web (chat answer view), server (chat/turn.ts interim pieces, chat/store.ts shared view). Why: the answer view
   is web; the interim piece is made in the turn (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: how an answer is laid out; no API removed, one optional Step field added
@@ -53,4 +53,7 @@ No migration. Older apps see an interim step as a Thinking row (as today). Five 
 
 ## Result
 
-(at the end)
+Built as planned. Web: lib/answerFlow.ts (one flow of step groups, text, interim notes and cards; blockCut shared with
+the cards), Messages.tsx renders it. Server: Step.interim on a piece in the answer's script, dropped again when the piece
+becomes the fallback answer; viewSteps keeps an interim step's text for every viewer. Screenshots via
+web/test/e2e/shots-interim-text.spec.ts (INTERIM_SHOTS=<folder>).

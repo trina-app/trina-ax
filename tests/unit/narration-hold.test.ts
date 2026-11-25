@@ -405,7 +405,7 @@ describe('a turn with an English line before a tool call', () => {
     // a reset takes text out from its offset (an interim piece a call ended)
     for (const d of deltas) { if (d.reset) { streamed = streamed.slice(0, d.offset); continue } expect(d.offset).toBe(streamed.length); streamed += d.text }
     const stored = (h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(id) as { content: string }).content
-    return { streamed, stored, done: doneEv!.ev.data.message.content as string }
+    return { streamed, stored, done: doneEv!.ev.data.message.content as string, steps: doneEv!.ev.data.message.steps as { kind: string; detail?: string; interim?: true }[] }
   }
 
   test.skipIf(!native)('Korean: the English line is neither streamed nor saved; the stream and the saved answer agree', async () => {
@@ -521,6 +521,27 @@ describe('a turn with an English line before a tool call', () => {
     ))
     expect(t.streamed).toBe(t.stored)
     expect(t.stored).toBe('보고서를 만들었어요.')
+  })
+
+  // 2026-11-25 (docs/decisions/20261125-interim-text-inline.md): a piece in the person's script is marked interim, so the
+  // chat shows it as text at its place among the steps; a working note in other letters stays a folded thinking step
+  test.skipIf(!native)('Korean: a Korean piece between calls is an interim step (shown at its place), an English one is not', async () => {
+    const t = await turn('ko', '보고서 찾아줘\n' + fake(
+      { say: '관련 파일이 아직 없어요. 범위를 넓혀 볼게요.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: 'Good result. Saving it.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '보고서를 찾았어요.' },
+    ))
+    expect(t.stored).toBe('보고서를 찾았어요.')
+    const notes = t.steps.filter((s) => s.kind === 'thinking')
+    expect(notes.map((s) => [s.detail, !!s.interim])).toEqual([['관련 파일이 아직 없어요. 범위를 넓혀 볼게요.', true], ['Good result. Saving it.', false]])
+  })
+
+  test.skipIf(!native)('Korean, no text after the last call: the piece that became the answer is no longer shown as interim', async () => {
+    const t = await turn('ko', '파일 확인해줘\n' + fake({ say: '파일을 확인했고 내용은 비어 있어요.' }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }))
+    expect(t.stored).toBe('파일을 확인했고 내용은 비어 있어요.')
+    expect(t.steps.some((s) => s.interim)).toBe(false)
   })
 
   test.skipIf(!native)('Korean: a line that says what the next command\'s step label says is narration, not content copied into the call (QA TC-f3-05)', async () => {

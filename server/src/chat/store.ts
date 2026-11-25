@@ -207,7 +207,8 @@ export class ChatStore {
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
         const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, fixes: _f, memory: _m, folders: _fo, moreFolders: _mf, scheduled: _sc, outcome: _oc, key: _k, tool, ...rest } = s
-        return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
+        // (an interim step's text stays: it is the answer's own text, below)
+        return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), ...(s.interim && s.detail !== undefined ? { detail: s.detail } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
       const shows = !!view && s.sv.paths.every((p) => view.canList(p))
@@ -228,7 +229,9 @@ export class ChatStore {
       // (a memory step's record, Step.memory: the person's own memory, never anyone else's to see)
       // (and a scheduled task's card, Step.scheduled: the person's own task, its Pause and Delete theirs alone)
       // (and what a call came back with, Step.outcome: the runner's alone, as its detail)
-      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined || st.scheduled !== undefined || st.outcome !== undefined || st.key !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, outcome: _oc, key: _k, ...rest } = st; steps[i] = rest }
+      // (but an interim step's detail is the AI's text to the people of the chat, shown at its place like the answer's
+      // own text: everyone who sees the answer sees it, docs/decisions/20261125-interim-text-inline.md)
+      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined || st.scheduled !== undefined || st.outcome !== undefined || st.key !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, outcome: _oc, key: _k, ...rest } = st; steps[i] = st.interim && st.detail !== undefined ? { ...rest, detail: st.detail } : rest }
       // (the folders a my_folders step listed are the runner's own: chat/my-folders.ts)
       if (steps[i]!.folders !== undefined) { const { folders: _fo, moreFolders: _mf, ...rest } = steps[i]!; steps[i] = rest }
     }

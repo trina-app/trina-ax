@@ -4,7 +4,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Step } from '@mycel/shared/api'
-import { AssistantMessage, answerParts, artifactSplit } from '../../src/components/chat/Messages'
+import { AssistantMessage } from '../../src/components/chat/Messages'
+import { answerFlow, artifactSplit } from '../../src/lib/answerFlow'
 import { useChats } from '../../src/store/chats'
 import { CHAT, msg, step } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
@@ -91,11 +92,12 @@ describe('the answer', () => {
   })
 
   test('while it streams, the part still being written is the last one with text', () => {
-    expect(answerParts('cap\n\nmore', 5, true)).toEqual({ before: { text: 'cap\n\n', streaming: false }, after: { text: 'more', streaming: true } })
+    const texts = (c: string, steps: Step[], streaming: boolean) => answerFlow(c, steps, streaming).filter((i) => i.kind === 'text').map((i) => i.kind === 'text' && [i.text, i.streaming])
+    expect(texts('cap\n\nmore', [art({ textAt: 5 })], true)).toEqual([['cap\n\n', false], ['more', true]])
     // nothing after the cards yet: the text before them is the one still streaming
-    expect(answerParts('cap\n\n ', 5, true)).toEqual({ before: { text: 'cap\n\n', streaming: true }, after: null })
-    expect(answerParts('cap\n\n ', 5, false)).toEqual({ before: { text: 'cap\n\n', streaming: false }, after: null })
-    expect(answerParts('more', 0, true)).toEqual({ before: null, after: { text: 'more', streaming: true } })
+    expect(texts('cap\n\n ', [art({ textAt: 5 })], true)).toEqual([['cap\n\n', true]])
+    expect(texts('cap\n\n ', [art({ textAt: 5 })], false)).toEqual([['cap\n\n', false]])
+    expect(texts('more', [art({ textAt: 0 })], true)).toEqual([['more', true]])
   })
 
   test('the copy button still copies the whole answer', async () => {

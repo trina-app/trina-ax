@@ -676,6 +676,7 @@ export class TurnExec {
    * empty), and how many pieces left the answer. A piece a tool call follows is the AI's narration, never the answer. */
   private pieceStart: number | null = null
   private lastInterim = ''
+  private lastInterimStep = ''
   private interimDropped = 0
   /** The final answer's English lead (docs/decisions/20261122-final-answer-english-lead.md): the script whose final
    * answers lose leading working notes in Latin letters (chat/narration.ts leadScript; null: off) and the person's message */
@@ -2455,16 +2456,23 @@ export class TurnExec {
     if (!piece.trim()) return false
     const statusLine = this.narration.wouldDrop(piece)
     this.discardTextFrom(at)
-    // a status line ("Let me check …") is never the fallback answer
-    if (!statusLine) this.lastInterim = piece.trim()
     this.interimDropped++
-    this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim() })
+    // in the person's script it is text to them: the chat shows it at its place among the steps, as Claude Code does;
+    // a working note in other letters stays folded under the thinking label (docs/decisions/20261125-interim-text-inline.md)
+    const step = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim(), ...(!statusLine && this.narration.inOwnScript(piece) ? { interim: true as const } : {}) })
+    // a status line ("Let me check …") is never the fallback answer
+    if (!statusLine) { this.lastInterim = piece.trim(); this.lastInterimStep = step.id }
     return true
   }
   /** The end: an answer with no text after its last call gets the last interim piece, so it is never blank. */
   private endInterimFallback() {
     if (!this.interimDropped) return
-    if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
+    if (!this.writtenText.trim() && this.lastInterim) {
+      // its step no longer shows the text at its place: the answer has it now (never twice)
+      const st = this.steps.find((x) => x.id === this.lastInterimStep)
+      if (st?.interim) { delete st.interim; this.dirty = true; this.publishStep(st) }
+      if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText()
+    }
   }
   /** The end: the final piece's leading paragraphs that are the AI's working notes in Latin letters above an answer in
    * the person's script (chat/narration.ts finalAnswerLead) leave the answer, streamed and saved, as a thinking step,
@@ -2540,6 +2548,7 @@ export class TurnExec {
       // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
       ...(s.devEnvRun ? { devEnvRun: s.devEnvRun } : {}), ...(s.todos ? { todos: s.todos } : {}),
+      ...(s.interim ? { interim: true as const } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
     // where in the answer the step started (held text is let out before a tool step): an artifact's card shows there.
