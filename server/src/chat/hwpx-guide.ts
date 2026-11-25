@@ -18,3 +18,7 @@ export const HWPX_GUIDE = 'Writing a Hangul (.hwpx) document: make it look like 
 export const HWPX_LOOK = (render: boolean) => render
   ? ' After you make a .hwpx, look at every page with hwp_render, fix what is off (alignment, a cramped or empty table, something left out) and make it again under the same name. The preview draws with a stand-in font and may not show bold, so judge the layout, not the font.'
   : ' You cannot see Hangul pages here: when you make one, say in one short line of your answer that you did not see how its pages look.'
+/** While Hangul writing is off (the HWP plugin not installed or off, tools/hwp-writing.ts): where to get it, so a person
+ * who asks for a Hangul file hears the way and an admin the exact place, whatever the team's language
+ * (docs/decisions/20261125-hwp-plugin-hint.md). Writing itself stays with the plugin. */
+export const HWP_PLUGIN_HINT = ' Hangul (.hwp/.hwpx) files cannot be made or filled in here until a team admin installs and turns on the plugin "HWP Preview" (한글 문서 미리보기) in Admin › Plugins (관리 › 플러그인). Only when someone asks for a Hangul file, or writes in Korean and asks which document format to use, say that plainly (to an admin: that exact place) and offer a Word (.docx) file meanwhile.'

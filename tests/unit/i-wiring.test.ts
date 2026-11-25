@@ -12,6 +12,7 @@ import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
 import { employmentForm } from '../lib/hwpx'
+import { HWP_PLUGIN_HINT, HWPX_GUIDE } from '../../server/src/chat/hwpx-guide'
 import { labeledPath } from '@mycel/shared'
 import { mp4Available } from '../../server/src/promo-video/render'
 
@@ -63,8 +64,11 @@ describe('B turns use C tools', () => {
       expect(tools!.split(',')).toContain('make_file')
       expect(tools!.split(',')).not.toContain('edit_hwp')
       expect(system).toContain('To produce Word / PowerPoint / Excel / PDF files')
-      expect(system).not.toContain('hwpx')
+      // no Hangul format or guide, only where to get it (docs/decisions/20261125-hwp-plugin-hint.md)
+      expect(system).not.toContain('Hangul (.hwpx)')
+      expect(system).not.toContain(HWPX_GUIDE)
       expect(system).not.toContain('edit_hwp')
+      expect(system).toContain(HWP_PLUGIN_HINT.trim())
       expect(made).toContain('Making or filling Hangul documents (HWP, HWPX) needs the HWP plugin')
       expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.started.turnId)).toBe(false)
       expect(fs.existsSync(path.join(h.team, 'shared', 'hwp-report.hwpx'))).toBe(false)
@@ -77,6 +81,7 @@ describe('B turns use C tools', () => {
     expect(tools!.split(',')).toContain('edit_hwp')
     expect(system).toContain('Hangul (.hwpx)')
     expect(system).toContain('use edit_hwp')
+    expect(system).not.toContain(HWP_PLUGIN_HINT.trim())
   })
 
   test('turned off during a turn: the next edit_hwp is refused before any card, nothing written', async () => {
@@ -116,7 +121,7 @@ describe('B turns use C tools', () => {
       const first = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, SEP, { echo: 'system' }))
       const [resumed1, system] = first.done.content.split(' | ')
       expect(resumed1).toBe('resumed=false')
-      expect(system).not.toContain('hwpx')
+      expect(system).not.toContain('Hangul (.hwpx)')
       setHwpPlugin(h.ctx, true)
       // the message last: it holds this very text, separators included
       const second = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, SEP, { echo: 'tools' }, SEP, { echo: 'message' }))

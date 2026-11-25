@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 09:04
 - Branch: `fix/hwp-plugin-hint`
-- Status: in progress
+- Status: done
 - Where: server (chat instructions). Why: the AI's instructions are core server code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch — one instruction line for the AI while the HWP plugin is off; no API, data or UI change
 
@@ -47,4 +47,5 @@ tests/unit/plugins-hwp-writing.test.ts tests/unit/i18n-languages.test.ts`.
 
 ## Result
 
-(at the end)
+Built as planned: `HWP_PLUGIN_HINT` in `chat/hwpx-guide.ts`, appended by `makeFileRule` while Hangul writing is
+off; tests in doc-skills and i-wiring; decision `docs/decisions/20261125-hwp-plugin-hint.md`. PR: see the branch.
