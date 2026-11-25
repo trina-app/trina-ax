@@ -6219,6 +6219,7 @@ export const ko = {
   'gapps.admin.driveAbout': "각 멤버가 설정 › 커넥터의 해당 페이지에서 자기 Google Drive를 연결하면, AI가 멤버의 채팅에서 Docs, Sheets, Slides, PDF를 찾아 읽어요. 아래에서 Drive를 팀과 공유할 수도 있어요.",
   "gapps.admin.sameAsDrive": "Google Drive와 같은 Google 앱 사용",
   "gapps.admin.sameAsDriveLine": "따로 올릴 건 없어요. 멤버는 이 서비스에도 각자 로그인해야 해요.",
+  "gapps.admin.sameAsDriveRedirect": "Google Cloud에서 Google Drive 클라이언트의 '승인된 리디렉션 URI'에도 이 주소를 추가해 주세요",
   "gapps.admin.sameAsDriveOn": "Google Drive와 같은 Google 앱을 사용해요.",
   "gapps.admin.apis": "Google Cloud에서 다음을 켜 주세요:",
   "gapps.admin.unsupported": "이 서버에서는 아직 쓸 수 없어요.",

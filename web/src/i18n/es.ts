@@ -6175,6 +6175,7 @@ export const es: Record<MessageKey, string> = {
   'gapps.admin.driveAbout': "Cada miembro conecta su propio Google Drive en su página de Configuración › Conectores y la IA encuentra y lee sus Docs, Sheets, Slides y PDF en sus chats. También puede compartir un Drive con el equipo más abajo.",
   "gapps.admin.sameAsDrive": "Usar la misma app de Google que Google Drive",
   "gapps.admin.sameAsDriveLine": "No hay nada más que subir. Los miembros inician sesión en este por separado.",
+  "gapps.admin.sameAsDriveRedirect": "Añade también esta dirección al cliente de Google Drive en Google Cloud, en 'URI de redireccionamiento autorizados'",
   "gapps.admin.sameAsDriveOn": "Usa la misma app de Google que Google Drive.",
   "gapps.admin.apis": "Active estas opciones en Google Cloud:",
   "gapps.admin.unsupported": "Este servidor aún no puede usarlo.",

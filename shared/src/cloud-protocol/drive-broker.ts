@@ -87,15 +87,42 @@ export const GOOGLE_APPS_BROKER_TEAM_RETURN_PATH = '/api/integrations/google-app
  * server's Google Workspace MCP server check whose token it is (Google's userinfo). A start or refresh without `app`
  * is Drive, as before: an older team server never sends it, and an older control plane refuses a request with it
  * (invalid_request), which the team server shows as "not available yet".
+ *
+ * Minimum scopes (Google's verification review, 2026-11-25): no scope is asked for next to a broader one that already
+ * includes it. `gmail.modify` covers reading, drafts, sending and labels (Google's API reference lists it for every
+ * such method); `gmail.settings.basic` stays (filters, vacation: only it or a full-mail scope allow them). `calendar`
+ * covers `calendar.readonly`/`calendar.events`, `documents` covers `documents.readonly`, `spreadsheets` covers
+ * `spreadsheets.readonly`. An older grant that also holds the narrower scopes is a superset and still passes.
  */
 const G = 'https://www.googleapis.com/auth/'
 const IDENTITY = ['openid', `${G}userinfo.email`, `${G}userinfo.profile`]
 export const GOOGLE_APP_BROKER_SCOPES = {
-  gmail: [...IDENTITY, `${G}gmail.readonly`, `${G}gmail.send`, `${G}gmail.compose`, `${G}gmail.modify`, `${G}gmail.labels`, `${G}gmail.settings.basic`],
-  calendar: [...IDENTITY, `${G}calendar`, `${G}calendar.readonly`, `${G}calendar.events`],
-  docs: [...IDENTITY, `${G}documents`, `${G}documents.readonly`, `${G}drive.readonly`, `${G}drive.file`],
-  sheets: [...IDENTITY, `${G}spreadsheets`, `${G}spreadsheets.readonly`, `${G}drive.readonly`, `${G}drive.file`],
+  gmail: [...IDENTITY, `${G}gmail.modify`, `${G}gmail.settings.basic`],
+  calendar: [...IDENTITY, `${G}calendar`],
+  docs: [...IDENTITY, `${G}documents`, `${G}drive.readonly`, `${G}drive.file`],
+  sheets: [...IDENTITY, `${G}spreadsheets`, `${G}drive.readonly`, `${G}drive.file`],
 } as const
+/** Every scope any Trina Google sign-in asks for (Drive and the four apps): exactly what the Google Cloud console's
+ * Data Access page of the OAuth client must list, no more (docs/GOOGLE-APPS.md). */
+export const GOOGLE_CONSOLE_SCOPES: readonly string[] = [...new Set<string>([DRIVE_BROKER_SCOPE, ...Object.values(GOOGLE_APP_BROKER_SCOPES).flat()])]
+/** A broader scope Google may grant in place of a narrower one (it folds them together), or that an older sign-in
+ * holds: the narrower counts as granted. Each pair is from Google's API reference ("requires one of the following
+ * OAuth scopes") and matches workspace-mcp's SCOPE_HIERARCHY. */
+const BROADER: Record<string, readonly string[]> = {
+  [`${G}calendar.readonly`]: [`${G}calendar`], [`${G}calendar.events`]: [`${G}calendar`],
+  [`${G}documents.readonly`]: [`${G}documents`], [`${G}spreadsheets.readonly`]: [`${G}spreadsheets`],
+  [`${G}gmail.readonly`]: [`${G}gmail.modify`], [`${G}gmail.send`]: [`${G}gmail.modify`],
+  [`${G}gmail.compose`]: [`${G}gmail.modify`], [`${G}gmail.labels`]: [`${G}gmail.modify`],
+  [`${G}drive.readonly`]: [`${G}drive`], [`${G}drive.file`]: [`${G}drive`],
+}
+/** Google's short names for the identity scopes */
+const SHORT: Record<string, string> = { email: `${G}userinfo.email`, profile: `${G}userinfo.profile` }
+/** THE check of a Google grant (team server and control plane): every scope of `wanted` was granted, itself or through
+ * a broader one (BROADER, SHORT). */
+export function googleScopesCover(granted: readonly string[], wanted: readonly string[]): boolean {
+  const have = new Set(granted.map((s) => SHORT[s] ?? s))
+  return wanted.every((w) => have.has(SHORT[w] ?? w) || (BROADER[w] ?? []).some((b) => have.has(b)))
+}
 export type GoogleBrokerApp = keyof typeof GOOGLE_APP_BROKER_SCOPES
 export const GOOGLE_BROKER_APPS = Object.keys(GOOGLE_APP_BROKER_SCOPES) as GoogleBrokerApp[]
 export const DRIVE_BROKER_MAX_BODY_BYTES = 16_384

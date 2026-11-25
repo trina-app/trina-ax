@@ -6147,6 +6147,7 @@ export const zh: Record<MessageKey, string> = {
   "gapps.admin.driveAbout": "每位成员在设置 › 连接器中对应的页面连接自己的 Google Drive，AI 就能在其对话中查找和读取他们的文档、表格、幻灯片和 PDF。你也可以在下方与团队共享一个 Drive。",
   "gapps.admin.sameAsDrive": "使用与 Google Drive 相同的 Google 应用",
   "gapps.admin.sameAsDriveLine": "无需再上传其他内容。成员仍需单独登录此应用。",
+  "gapps.admin.sameAsDriveRedirect": "也请在 Google Cloud 中把这个地址添加到 Google Drive 客户端的“已获授权的重定向 URI”",
   "gapps.admin.sameAsDriveOn": "使用与 Google Drive 相同的 Google 应用。",
   "gapps.admin.apis": "在 Google Cloud 中启用以下各项：",
   "gapps.admin.unsupported": "此服务器暂时无法运行它。",

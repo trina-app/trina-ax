@@ -26,7 +26,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import type { GoogleAppAdminStatus, GoogleAppFlow, GoogleAppId, GoogleAppTeam, GoogleAppView, IntegrationAccess } from '@mycel/shared/api'
-import { GOOGLE_APP_BROKER_SCOPES } from '@mycel/shared/cloud-protocol'
+import { GOOGLE_APP_BROKER_SCOPES, googleScopesCover } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
@@ -81,23 +81,6 @@ const clean = (s: unknown, max: number) => (typeof s === 'string' ? s.replace(/[
 const flowAad = (f: Pick<FlowRow, 'id' | 'user_id'>) => `google-app-flow:${f.user_id}:${f.id}`
 /** the scopes Google must have granted: the app's own and the email address (the library checks the token with it) */
 const required = (app: GoogleAppId) => GOOGLE_APP_BROKER_SCOPES[app].filter((s) => s !== 'openid')
-const G = 'https://www.googleapis.com/auth/'
-/** A broader scope Google may grant in place of a narrower one we ask for (it can fold them together): the narrower
- * counts as granted. Kept to this small explicit list; trina-cloud's broker has the same one. */
-const BROADER: Record<string, string[]> = {
-  [`${G}calendar.readonly`]: [`${G}calendar`], [`${G}calendar.events`]: [`${G}calendar`],
-  [`${G}documents.readonly`]: [`${G}documents`], [`${G}spreadsheets.readonly`]: [`${G}spreadsheets`],
-  [`${G}gmail.readonly`]: [`${G}gmail.modify`],
-  [`${G}drive.readonly`]: [`${G}drive`], [`${G}drive.file`]: [`${G}drive`],
-}
-/** Google's short names for the identity scopes */
-const SHORT: Record<string, string> = { email: `${G}userinfo.email`, profile: `${G}userinfo.profile` }
-/** Every scope of `wanted` was granted, itself or through a broader one (BROADER, SHORT). */
-export function scopesCover(granted: readonly string[], wanted: readonly string[]): boolean {
-  const have = new Set(granted.map((s) => SHORT[s] ?? s))
-  return wanted.every((w) => have.has(SHORT[w] ?? w) || (BROADER[w] ?? []).some((b) => have.has(b)))
-}
-
 export interface GoogleAppsDeps { fetch?: DriveFetch; now?: () => number }
 
 export class GoogleApps {
@@ -367,7 +350,7 @@ export class GoogleApps {
         : await t.json(GOOGLE_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: input.code!, redirect_uri: setup.client!.redirectUri, code_verifier: s.verifier, client_id: setup.client!.clientId, client_secret: setup.client!.clientSecret }) }, 32_768)
       const granted = typeof json.scope === 'string' ? json.scope.split(/\s+/) : []
       // every scope the app needs: a person who unticks one on Google's page would get tools that fail
-      if (!scopesCover(granted, required(f.app))) return failed('scope_denied')
+      if (!googleScopesCover(granted, required(f.app))) return failed('scope_denied')
       let tokens
       try { tokens = tokensOf(json, this.now()) } catch { return failed('exchange') }
       const me = await t.json(GOOGLE_USERINFO, { headers: { Authorization: `Bearer ${tokens.accessToken}` } }, 32_768)

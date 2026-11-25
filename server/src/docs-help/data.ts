@@ -70,3 +70,34 @@ export function helpIndex(root: string = REPO_ROOT): HelpIndex | null {
 /** Is the docs tool offered on this server: are its docs there, and do they read? (read on the first call: about 20 ms
  * from a release's file) */
 export const docsHelpOn = (root: string = REPO_ROOT): boolean => helpIndex(root) !== null
+
+/** A page address of the docs as compared: https only, no user name or password, no query, no #fragment, without the
+ * last "/" (so ".../slack" and ".../slack/" are one page). null for anything else. */
+function docsKey(raw: string): string | null {
+  let u: URL
+  try { u = new URL(raw) } catch { return null }
+  if (u.protocol !== 'https:' || u.username || u.password || u.search) return null
+  u.hash = ''
+  return u.href.replace(/\/$/, '')
+}
+
+const pageSets = new Map<string, Set<string>>()
+
+/**
+ * Is `raw` a page of the app's own public docs, exactly one the docs tool links to (any language)? The web address card
+ * lets web_fetch open it with no card (tools/url-gate.ts, docs/decisions/20261125-docs-no-web-fetch-card.md): a fixed
+ * public page we publish, from a known list, so nothing can ride along in its address. Not the pricing page or other
+ * pages of the site, not other hosts. False on a server without docs.
+ */
+export function isDocsPage(raw: string, root: string = REPO_ROOT): boolean {
+  const key = docsKey(raw)
+  if (!key) return false
+  let set = pageSets.get(root)
+  if (!set) {
+    const index = helpIndex(root)
+    set = new Set<string>()
+    if (index) for (const pages of Object.values(index.langs)) for (const p of pages) { const k = docsKey(p.url); if (k) set.add(k) }
+    pageSets.set(root, set)
+  }
+  return set.has(key)
+}

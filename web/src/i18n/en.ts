@@ -6221,6 +6221,7 @@ export const en: Record<MessageKey, string> = {
   'gapps.admin.driveAbout': "Each member connects their own Google Drive on its page in Settings › Connectors, and the AI finds and reads their Docs, Sheets, Slides and PDFs in their chats. You can also share a Drive with the team below.",
   "gapps.admin.sameAsDrive": "Use the same Google app as Google Drive",
   "gapps.admin.sameAsDriveLine": "Nothing else to upload. Members still sign in to this one on its own.",
+  "gapps.admin.sameAsDriveRedirect": "Add this address to Google Drive's client in Google Cloud too, under 'Authorized redirect URIs'",
   "gapps.admin.sameAsDriveOn": "Uses the same Google app as Google Drive.",
   "gapps.admin.apis": "Switch these on in Google Cloud:",
   "gapps.admin.unsupported": "This server can't run it yet.",

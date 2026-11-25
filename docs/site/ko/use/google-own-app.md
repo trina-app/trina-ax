@@ -80,19 +80,11 @@ https://www.googleapis.com/auth/userinfo.email
 https://www.googleapis.com/auth/userinfo.profile
 https://www.googleapis.com/auth/drive.readonly
 https://www.googleapis.com/auth/drive.file
-https://www.googleapis.com/auth/gmail.readonly
-https://www.googleapis.com/auth/gmail.send
-https://www.googleapis.com/auth/gmail.compose
 https://www.googleapis.com/auth/gmail.modify
-https://www.googleapis.com/auth/gmail.labels
 https://www.googleapis.com/auth/gmail.settings.basic
 https://www.googleapis.com/auth/calendar
-https://www.googleapis.com/auth/calendar.readonly
-https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/documents
-https://www.googleapis.com/auth/documents.readonly
 https://www.googleapis.com/auth/spreadsheets
-https://www.googleapis.com/auth/spreadsheets.readonly
 ```
 
 Trina AX가 다섯 앱에서 요청하는 권한을 모두 모은 목록이에요. 하나도 빼면 안 돼요. 하나라도 없으면 로그인이 거절돼요.
