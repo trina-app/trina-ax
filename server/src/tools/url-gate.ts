@@ -543,6 +543,33 @@ export function allowSite(db: Database, chatId: string, userId: string, site: st
   if (r.changes) audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'web_site', site, on: true, via: 'card', turnId } })
 }
 
+/** The sites the person allowed for good, as the desktop app's browser hears them with each call (one Always per person:
+ * docs/decisions/20261125-one-site-always-desktop-browser.md). Empty where they do not count (allowedSites). */
+export function personSites(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): string[] {
+  return [...allowedSites(db, chatId, userId, person)]
+}
+
+/** The person themselves named this address in the chat: typed it, or allowed it on a card (gateUrl's 'seen' for those,
+ * never a learned link). */
+export function namedByPerson(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, userId?: string | null): boolean {
+  const url = normUrl(rawUrl)
+  if (!url) return false
+  const from = originOf(db, chatId, url, person, { userId })
+  return from?.origin === 'typed' || from?.origin === 'allowed'
+}
+
+/**
+ * An "Always allow" the person pressed on the desktop app's site card for `host`: kept as their site for good, the row
+ * the address card's "이 사이트 항상 허용" writes, where a site allowance may be kept (siteScope, sitesForGood). Returns
+ * the site kept, or null (no site for that host: an IP address, a public suffix; or not kept here).
+ */
+export function allowSiteFromDevice(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null, host: string, turnId: string | null): string | null {
+  const site = siteOf(`https://${host.replace(/:\d+$/, '')}/`)
+  if (!site || !siteScope(db, chatId, userId) || !sitesForGood(db, person)) return null
+  allowSite(db, chatId, userId!, site, turnId)
+  return site
+}
+
 /** Long random-looking parts of a text (base32 / hex / base64 of something): an address can carry data in them. 20+
  * characters without separators that mix letters and digits (or both cases) with high character entropy, except
  * letters that read as camelCase words (camelWords: attributesToRetrieve, XMLHttpRequest). Shown highlighted on cards;

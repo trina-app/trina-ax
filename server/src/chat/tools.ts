@@ -20,7 +20,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
-import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
+import type { BrowserResult, BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../services'
 import { newId } from '../db'
@@ -55,7 +55,7 @@ import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchL
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, KEEP_READ_LINE, leftGroupNote, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
-import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
+import { allowSiteFromDevice, extractUrls, gateUrl, namedByPerson, personSites, siteOf, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
 import { visionText } from '../files/vision-text'
@@ -1894,10 +1894,18 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const person = turnPerson(exec)
       /** null when the address may be opened; otherwise the refusal for the AI */
       let allSites = false
+      // what the person already allowed for this call, told to the desktop app with it so its own site card does not ask
+      // again (one Always per person: docs/decisions/20261125-one-site-always-desktop-browser.md): their sites for good,
+      // an address the server's card or their own message approved, and office addresses they allowed
+      const sites = new Set<string>(personSites(rt.db, spec.chatId, spec.userId, person))
+      const officeHosts = new Set<string>()
       const gate = async (href: string): Promise<string | null> => {
         try {
+          const how = await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId })
           // an address "Allow all websites" opened is named in the audit line (plan §3)
-          if (await gateUrl(rt.db, spec.chatId, href, person, { turnId: spec.turnId, userId: spec.userId }) === 'all') allSites = true
+          if (how === 'all') allSites = true
+          if (how === 'site' || how === 'all') { const site = siteOf(href); if (site) sites.add(site) }
+          if (how === 'confirmed' || how === 'site' || how === 'all' || namedByPerson(rt.db, spec.chatId, href, person, spec.userId)) { const k = paneSiteKey(href); if (k) sites.add(k) }
           return null
         } catch (e) {
           if (e instanceof ToolError) return e.message
@@ -1913,8 +1921,10 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
           // the team's "Always allow" switch (Admin › Team AI settings), as every other Always: off, a site kept for good
           // does not count (kept, not deleted) and the card offers no Always (an "always" answer counts once)
           const keep = teamAllowsAlways(rt.db)
-          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) return 'ok'
+          const allowedHere = () => { const k = paneSiteKey(u.href!); if (k) { officeHosts.add(k); sites.add(k) } }
+          if (exec.allowedHosts.has(host) || (keep && rt.siteGranted(spec.userId, host))) { allowedHere(); return 'ok' }
           const decision = await exec.waitForPerson({ kind: 'browser_site', requestId: uuidv7(), url: url.slice(0, 2000), host, reason: tr('browserSite', spec.locale, { host }), ...(keep ? {} : { noAlways: true as const }) }, { window: spec.windowId, timeoutMs: rt.askUserTimeoutMs() })
+          if (decision === 'once' || decision === 'always') allowedHere()
           if (decision === 'always' && keep) rt.grantSite(spec.userId, host)
           else if (decision === 'once' || decision === 'always') exec.allowedHosts.add(host)
           else return { ...text(`The user did not allow opening ${host} (an office-network address). Stop and tell the user what you could not do.`, true), summary: `${name} -> site ${host} not allowed` }
@@ -1943,7 +1953,11 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       }
       // the stored keys and key-like text are hidden before anything sees the result; a page that shows a key gets no
       // screenshot or script, and the AI hands over (chat/browser-keys.ts, docs/decisions/20261124-browser-key-guard.md)
-      const call: BrowserCall = (tool, a) => rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal })
+      const call: BrowserCall = async (tool, a) => {
+        const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool, args: a, signal: exec.abort.signal, sites: [...sites], office: [...officeHosts] })
+        keepDeviceAlways(exec, person, r.always)
+        return r
+      }
       const g = await guardedBrowserCall(name, args, call, spec.locale, exec.redactor())
       if (g.refused) return { ...text(g.text, true), summary: g.summary }
       const r = g.result
@@ -1968,6 +1982,25 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       if (!content.length) content.push({ type: 'text', text: r.ok ? 'OK' : 'Error' })
       return { content, isError: !r.ok, summary: `${name} -> ${r.ok ? 'ok' : 'error: ' + (r.error ?? '').slice(0, 200)}${guardSummary(g)}${allSites ? ' (all websites allowed)' : ''}` }
     },
+  }
+}
+
+/** The desktop app's site key of an address: host[:port] in lower case without "www." (its site permissions' key). */
+function paneSiteKey(href: string): string | null {
+  try { return new URL(href).host.toLowerCase().replace(/^www\./, '') || null } catch { return null }
+}
+
+/** "Always allow" pressed on the desktop app's site cards during a call: kept as the person's own allowance (a site for
+ * good, an office address), so it holds on every computer and on the server's cards too. Never another person's. */
+function keepDeviceAlways(exec: TurnExec, person: TurnPerson, always: BrowserResult['always']) {
+  const { rt, spec } = exec
+  for (const host of always?.sites ?? []) allowSiteFromDevice(rt.db, spec.chatId, spec.userId, person, host, spec.turnId)
+  // as the server's own office card keeps one (browser_site_grants, while the team's Always switch is on)
+  if (always?.office?.length && teamAllowsAlways(rt.db)) {
+    for (const host of always.office) {
+      const h = browserUrl(`https://${host}/`)
+      if (h.ok && h.host) rt.grantSite(spec.userId, h.host)
+    }
   }
 }
 

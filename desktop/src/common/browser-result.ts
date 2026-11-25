@@ -1,7 +1,7 @@
 // Turn the pane's internal tool result into the wire shape (shared/src/api/browser.ts BrowserResult):
 // at most 20 content items, text <= 2 MB, images <= 20 MB base64, error <= 4000 characters.
 // Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
-import type { BrowserResult } from '@mycel/shared/api'
+import { BrowserSiteKey, type BrowserResult } from '@mycel/shared/api'
 
 export type PaneContent =
   | { type: 'text'; text: string }
@@ -48,3 +48,19 @@ export function resultBytes(r: BrowserResult): number {
   for (const c of r.content) n += c.type === 'text' ? c.text.length : c.data.length
   return n
 }
+
+/** At most this many hosts of each kind go back with one result (BrowserResult.always). */
+export const ALWAYS_BACK_MAX = 50
+
+/**
+ * The result with the hosts the person answered "Always allow" to during the call (BrowserResult.always), so the team
+ * server keeps them as the person's own allowance on every computer (docs/decisions/20261125-one-site-always-desktop-
+ * browser.md). Unchanged when there were none.
+ */
+export function withAlways(r: BrowserResult, always: { site: ReadonlySet<string>; private: ReadonlySet<string> } | undefined): BrowserResult {
+  const sites = [...(always?.site ?? [])].filter(okKey).slice(0, ALWAYS_BACK_MAX)
+  const office = [...(always?.private ?? [])].filter(okKey).slice(0, ALWAYS_BACK_MAX)
+  if (!sites.length && !office.length) return r
+  return { ...r, always: { ...(sites.length ? { sites } : {}), ...(office.length ? { office } : {}) } }
+}
+const okKey = (k: string) => BrowserSiteKey.safeParse(k).success

@@ -21,7 +21,7 @@ import { BaseWindow, BrowserWindow, WebContentsView, type Rectangle, type Sessio
 import { parseBrowserToolInput, type BrowserToolInput, type ParsedBrowserCall } from '@mycel/shared'
 import type { BrowserCall, BrowserResult } from '@mycel/shared/api'
 import type { DesktopPaneState, DesktopPaneTab } from '@mycel/shared'
-import { errorResult, resultBytes, toBrowserResult, type PaneContent, type PaneResult } from '../../common/browser-result'
+import { errorResult, resultBytes, toBrowserResult, withAlways, type PaneContent, type PaneResult } from '../../common/browser-result'
 import { MOD_BITS, parseKeyCombo, redactUrl, ToolError } from '../../common/input'
 import { RepeatPromptHint, sameSite, siteKey, SitePermissions, type PermissionDecision, type SiteAccess, type SiteScope, type SiteSettings } from '../../common/site-permissions'
 import { isNotice, type PaneActivity } from '../../common/pane-activity'
@@ -107,6 +107,9 @@ interface CallCtx {
   abort: AbortController
   /** the person's answers during this call, sent along with the result (the server logs them in tool_events) */
   notes: string[]
+  /** hosts the person answered "Always allow" to during this call: sent with the result, so the team server keeps them
+   * as the person's own allowance (every computer; docs/decisions/20261125-one-site-always-desktop-browser.md) */
+  always?: { site: Set<string>; private: Set<string> }
 }
 
 const MAX_LOG = 500
@@ -681,6 +684,7 @@ export class BrowserPane {
         clearTimeout(timer)
         this.emitPrompts()
         if (ctx && !ctx.cancelled) ctx.notes.push(decisionNote(req, d))
+        if (ctx && d === 'always') (ctx.always ??= { site: new Set(), private: new Set() })[req.scope].add(req.host)
         resolve(d)
       }
       const timer = setTimeout(() => settle('deny'), PROMPT_TIMEOUT_MS)
@@ -875,6 +879,9 @@ export class BrowserPane {
     const parsed = parseBrowserToolInput(call.tool, call.args)
     if (!parsed.ok) return errorResult(call.callId, parsed.error)
     const ctx: CallCtx = { callId: call.callId, turnId: call.turnId, tool: call.tool, cancelled: false, abort: new AbortController(), notes: [] }
+    // what the person already allowed on the team server for this call (their sites for good, an address its card or
+    // their own message approved, office addresses): allowed for this answer here too, so the same site never asks twice
+    this.perms.allowForTurn(call.turnId, call.sites ?? [], call.office ?? [])
     debug('start', call.tool, call.callId)
     this.calls.set(call.callId, ctx)
     this.driving++
@@ -888,7 +895,8 @@ export class BrowserPane {
       const work = parsed.call.tool === 'browser_batch' ? this.batch(ctx, parsed.call.input) : this.single(ctx, parsed.call)
       const r = await Promise.race([work, aborted])
       debug('end', call.tool, call.callId, r.isError ? `error: ${(r.content[0] as { text?: string })?.text?.slice(0, 300)}` : 'ok')
-      return toBrowserResult(call.callId, ctx.notes.length ? { ...r, content: [{ type: 'text', text: ctx.notes.join('\n') }, ...r.content] } : r)
+      const result = toBrowserResult(call.callId, ctx.notes.length ? { ...r, content: [{ type: 'text', text: ctx.notes.join('\n') }, ...r.content] } : r)
+      return withAlways(result, ctx.always)
     } finally {
       clearTimeout(deadline)
       this.calls.delete(call.callId)

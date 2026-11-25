@@ -198,6 +198,20 @@ export class SitePermissions {
     return false
   }
 
+  /**
+   * What the person already allowed on the team server for a call (BrowserCall.sites / office: their sites for good, an
+   * address its card or their own message approved, office addresses they allowed): allowed for that turn here, like a
+   * "once" answer, so one site never asks twice (docs/decisions/20261125-one-site-always-desktop-browser.md). A site key
+   * (naver.com) covers its subdomains as an "always" of the site does (isAllowed); an office address counts for both
+   * scopes, as the pane's own office answer does. Nothing is saved: the server says it again with every call.
+   */
+  allowForTurn(turnId: string | undefined, sites: readonly string[], office: readonly string[] = []): void {
+    if (!turnId) return
+    const ok = (h: string) => typeof h === 'string' && h.length > 0 && h.length < 300
+    for (const h of sites) if (ok(h)) this.grant('site', h.toLowerCase(), 'once', turnId)
+    for (const h of office) if (ok(h)) { this.grant('site', h.toLowerCase(), 'once', turnId); this.grant('private', h.toLowerCase(), 'once', turnId) }
+  }
+
   /** Remove a saved site (the "allowed sites" list in the pane or in Settings > Browser). */
   revoke(host: string): boolean {
     const a = this.always.site.delete(host)
