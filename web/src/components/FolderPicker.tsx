@@ -23,6 +23,7 @@ export default function FolderPicker({
   allowCreate = true,
   selectableRoot,
   suggestFor,
+  suggestWiden,
   onPick,
   onClose,
 }: {
@@ -36,6 +37,8 @@ export default function FolderPicker({
   selectableRoot?: string
   /** a move: the paths being moved, for the server's suggested and recent folders on top */
   suggestFor?: readonly string[]
+  /** the move is meant to share: suggest only folders that widen who can see the file (not 내 파일) */
+  suggestWiden?: boolean
   onPick: (path: string) => void
   onClose: () => void
 }) {
@@ -57,14 +60,14 @@ export default function FolderPicker({
     setHints(null)
     if (!open || !movingKey) return
     let live = true
-    api.call(API.moveSuggestions, { body: { paths: movingKey.split('\u0000') } }).then(
+    api.call(API.moveSuggestions, { body: { paths: movingKey.split('\u0000'), ...(suggestWiden ? { widen: true } : {}) } }).then(
       (r) => live && setHints(r),
       () => undefined, // no hints: the picker works as before
     )
     return () => {
       live = false
     }
-  }, [open, movingKey])
+  }, [open, movingKey, suggestWiden])
 
   // after ✕ the focus goes on, never to the page: the next suggestion, else "All folders", else the path above the list
   const hintsRef = useRef<HTMLDivElement>(null)

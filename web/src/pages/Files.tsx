@@ -1404,13 +1404,14 @@ function Files() {
       )}
       </TabPanel>
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
-      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={pickFromTop ? '' : path} suggestFor={moving ? [moving.path] : undefined} onPick={moveTo} onClose={() => setMoving(null)} />
+      <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={pickFromTop ? '' : path} suggestFor={moving ? [moving.path] : undefined} suggestWiden={pickFromTop} onPick={moveTo} onClose={() => setMoving(null)} />
       <FolderPicker
         open={bulkPick !== null}
         title={bulkPick === 'share' ? t('files.bulk.shareTitle', { n: shareable.length }) : t('files.bulk.moveTitle', { n: movable.length })}
         confirmLabel={t(bulkPick === 'share' ? 'files.shareHere' : 'files.moveHere')}
         initial={bulkPick === 'share' ? 'shared' : pickFromTop ? '' : path}
         suggestFor={bulkPick === 'move' ? movableSuggest : undefined}
+        suggestWiden={pickFromTop}
         onPick={(folder) => void (bulkPick === 'share' ? bulkShare(folder) : bulkMove(folder))}
         onClose={() => setBulkPick(null)}
       />
