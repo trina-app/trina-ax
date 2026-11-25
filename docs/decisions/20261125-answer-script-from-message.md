@@ -15,7 +15,8 @@
   characters alone are Japanese in a Japanese app and Chinese otherwise; a message mostly in Latin letters has none.
   This holds in any app language, so a Korean question in an English app is treated as in a Korean app, and a
   Japanese question in a Korean app as in a Japanese one. A short or mixed message ("ok", a file) follows the message
-  before it, else the app language, as before. Everything else is unchanged: asking for another language or a
+  before it, else the app language, as before; in a Latin-letters app only a message with no Latin word does ("👍",
+  a file), since "ok" or "Yes please" there is English and may get an English answer. Everything else is unchanged: asking for another language or a
   translation, text often in English, 3 or more Latin words turn it off; an English message in any app is untouched.
 - **Why:** the AI answers in the language of the latest message (prompt.ts answerLanguageLine), so the app language
   only told the answer's language when the person wrote in it. 20261116 turned the hold off for Latin-letter apps

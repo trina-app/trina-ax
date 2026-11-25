@@ -6,7 +6,7 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { inOwnScript, NarrationHold, narrationScript } from '../../server/src/chat/narration'
+import { inOwnScript, leadScript, NarrationHold, narrationScript } from '../../server/src/chat/narration'
 import { deliveredArgs } from '../../server/src/chat/turn'
 import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 
@@ -648,7 +648,14 @@ describe('the answer script follows the message, whatever the app language (2026
     expect(narrationScript('ko', '見積書を作って')).toBe('ja')
   })
   test('a short message follows the one before it; Latin words, a quote or another language asked for: off', () => {
-    expect(narrationScript('en', 'ok', '보고서 만들어 줘')).toBe('ko')
+    expect(narrationScript('en', '👍', '보고서 만들어 줘')).toBe('ko')
+    expect(narrationScript('en', '', '보고서 만들어 줘')).toBe('ko')
+    expect(narrationScript('ko', 'ok', '見積書を作って')).toBe('ja')
+    // an English word in a Latin-letters app is an English message: unchanged, the hold stays off (review of #608)
+    for (const m of ['ok', 'Yes please', 'Do it']) {
+      expect(narrationScript('en', m, '보고서 만들어 줘'), m).toBeNull()
+      expect(leadScript('en', m, '보고서 만들어 줘'), m).toBeNull()
+    }
     expect(narrationScript('en', 'ok')).toBeNull()
     expect(narrationScript('en', 'ok', 'Write the report')).toBeNull()
     expect(narrationScript('en', 'What did we agree in the room?', '보고서 만들어 줘')).toBeNull()

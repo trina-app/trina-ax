@@ -173,8 +173,10 @@ export function narrationScript(locale: Locale, message: string, previous?: stri
   const app = locale === 'ko' || locale === 'ja' || locale === 'zh' ? locale : null
   // the answer is in the language of the person's message (prompt.ts answerLanguageLine), whatever the app's is
   // (2026-11-25 night eval: an English app, a Korean question, "The 2026 report exists; I'll read …" saved in the answer)
-  // a short or mixed message ("ok", a file) follows the message before it, else the app language
-  const script = messageScript(message, app) ?? (previous && (message.match(/[A-Za-z]{2,}/g) ?? []).length < 3 ? messageScript(previous, app) : null) ?? app
+  // a short or mixed message ("ok", a file) follows the message before it, else the app language; in a Latin-letters
+  // app only a message with no Latin word does ("👍", a file): "Yes please" there is English, as before (review of #608)
+  const latinWords = (message.match(/[A-Za-z]{2,}/g) ?? []).length
+  const script = messageScript(message, app) ?? (previous && (app ? latinWords < 3 : latinWords === 0) ? messageScript(previous, app) : null) ?? app
   if (!script) return null
   if (asksOtherLanguage(message, script)) return null
   if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, script)) return null
