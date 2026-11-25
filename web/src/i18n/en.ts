@@ -3695,7 +3695,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.deleteBodyTeam': 'Nobody who used this connection can use it any more. The saved key and sign-in are deleted too.',
   'integrations.signIn.waiting': 'Finish signing in in the new window. This page updates when you are done.',
   'integrations.signIn.notFinished': "Signing in has not finished yet. If you closed the window, try again or cancel.",
-  'integrations.signIn.domainBlocked': "If {name} says your admin has blocked this domain, an admin of your {name} organization must add {host} to its allowed domains first. Then sign in again.",
+  'integrations.signIn.domainBlocked': "If {name} says your admin has blocked this domain, an admin of your {name} organization must add https://{host}/** to the allowed domains in its MCP server settings first. Then sign in again. If it still says blocked, delete that entry, add it again, and retry.",
   'integrations.signIn.open': 'Open sign-in window',
   'integrations.signIn.done': 'Signed in.',
   'integrations.signIn.failed': 'Could not sign in. Please try again.',

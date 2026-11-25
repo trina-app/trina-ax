@@ -3644,7 +3644,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.deleteBodyTeam": "之前使用此连接的人都将无法再使用。已保存的密钥和登录信息也会被删除。",
   "integrations.signIn.waiting": "请在新窗口中完成登录。完成后此页面会更新。",
   "integrations.signIn.notFinished": "登录尚未完成。如果你关闭了窗口，请重试或取消。",
-  "integrations.signIn.domainBlocked": "如果 {name} 提示管理员已屏蔽此域名，需要先由你们 {name} 组织的管理员把 {host} 加入允许的域名，然后再重新登录。",
+  "integrations.signIn.domainBlocked": "如果 {name} 提示管理员已屏蔽此域名，需要先由你们 {name} 组织的管理员在 MCP 服务器设置中把 https://{host}/** 加入允许的域名，然后再重新登录。如果仍然被屏蔽，请删除该条目，重新添加后再试。",
   "integrations.signIn.open": "打开登录窗口",
   "integrations.signIn.done": "已登录。",
   "integrations.signIn.failed": "无法登录。请重试。",
