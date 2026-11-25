@@ -24,6 +24,7 @@ import { GENERAL_DECK_SKILL, skillLabel, type TeamGoal, type TeamLinkResponse } 
 import { api, API, isConnectionError } from '../../lib/api'
 import { useAutoRetry } from '../../lib/autoRetry'
 import { SKILL_CATALOG } from '../../lib/nav'
+import { formatDateTime } from '../../lib/format'
 import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, goalTitleSkills, goalTitleText, resendText, runnerNames, skillRunUrl } from '../../lib/teamGoal'
 import { showResume } from '../../lib/welcome'
@@ -152,7 +153,8 @@ export function GoalCard({ goal, onDismiss, onHide, link: given, hasSkills: give
     } else if (open) {
       const wl = words?.locale
       const mt = wl ? (k: MessageKey, p?: Params) => translate(wl, k, p) : t
-      const message = teamLinkMessage(mt, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: linkName, about: words?.about ?? null, ownAi: open.memberAi === 'connect_own' })
+      const until = formatDateTime(open.expiresAt, wl ?? locale)
+      const message = teamLinkMessage(mt, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, until, skill: linkName, about: words?.about ?? null, ownAi: open.memberAi === 'connect_own' })
       action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" quiet={noSkills} />
     } else {
       // setup unfinished: the owner's own invite step in the welcome steps, not a second invite dialog; an admin who is

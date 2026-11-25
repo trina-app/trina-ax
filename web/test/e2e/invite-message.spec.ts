@@ -48,6 +48,8 @@ for (const width of [1440, 390] as const) {
       expect(lines[0]).toBe('안녕하세요, Olga입니다. 트리나에서 Acme에 초대할게요.')
       expect(lines[1]).toBe('우리 팀 소개: 병원 마케팅 콘텐츠를 만드는 팀이에요')
       expect(message).toContain("우리 팀용으로 '자연스러운 글' 스킬을 준비해 뒀어요.")
+      // one link for several teammates, with the date it stops working, right before the link
+      expect(lines.at(-3)).toMatch(/^이 링크 하나로 팀원 여러 명이 들어올 수 있어요\. .+까지 쓸 수 있어요\.$/)
       expect(lines.at(-1)).toBe(url)
       // edited in place: the copy is what is in the box
       const edited = `민지님, 다음 주부터 같이 써요!\n${url}`

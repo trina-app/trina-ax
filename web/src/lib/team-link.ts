@@ -50,11 +50,13 @@ export function forgetJoinToken() {
  * skill the link names, as set up for the team ("I set up '{skill}' for us": no "first", no "together", the member lands
  * on Home; several shared skills are never listed, docs/DECISIONS.md "W5"), no line without one; `ownAi`: people
  * who join sign in to their own AI (the link's `memberAi` is `connect_own`), so it says "본인 AI 계정이 필요해요" before
- * they hit it; the link alone on the last line. A skill the lead just made from their own work reads the same ("I set
+ * they hit it; `until`: the link's end, written as `teamLink.until` writes it (formatDateTime in the message's
+ * language), in one line saying several teammates can join with this one link and until when (owner 2026-11-25: people
+ * took it for a personal link; it never asks them to pass it on); the link alone on the last line. A skill the lead just made from their own work reads the same ("I set
  * up '{skill}' for us"): people who join land on Home, so there is no "open the link to use it" any more. The person
  * can edit it before copying (TeamLinkPanel; an edit without the link gets it back on copy); nothing is ever sent by
  * itself. */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; ownAi?: boolean; about?: string | null }): string {
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; until: string; skill?: string | null; ownAi?: boolean; about?: string | null }): string {
   const product = namedProduct(t)
   const name = o.name.trim()
   // one line: a profile line is short (PROFILE_LIMITS.oneLine), but its line breaks would split the message
@@ -65,6 +67,7 @@ export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string,
     t('teamLink.msg.what', product),
     o.skill && t('teamLink.msg.skill', { skill: o.skill }),
     o.ownAi && t('teamLink.msg.ownAi'),
+    o.until && t('teamLink.msg.shared', { date: o.until }),
     t('teamLink.msg.join', { url: o.url }),
   ].filter(Boolean).join('\n')
 }

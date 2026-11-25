@@ -127,14 +127,14 @@ describe('a member and a team skill someone made', () => {
   test('the lead\'s message for a skill just made is the usual invitation, in every language with the link', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
       const t = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate(l, k, p)
-      const text = teamLinkMessage(t, { name: '올가', team: 'Acme 영업', url: 'https://acme.example/join#t=x', skill: '견적서 쓰기' })
+      const text = teamLinkMessage(t, { until: 'Dec 2, 2026', name: '올가', team: 'Acme 영업', url: 'https://acme.example/join#t=x', skill: '견적서 쓰기' })
       expect(text).toContain('견적서 쓰기')
       expect(text).toContain('Acme 영업')
       expect(text.endsWith('https://acme.example/join#t=x')).toBe(true)
     }
     const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
     // members land on Home: no "open the link to use it the same way" special case any more
-    const m = teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기' })
+    const m = teamLinkMessage(ko, { until: 'Dec 2, 2026', name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기' })
     expect(m).toContain('안녕하세요, 올가입니다.')
     expect(m).toContain("우리 팀용으로 '견적서 쓰기' 스킬을 준비해 뒀어요.")
     expect(m).not.toContain('같은 방식으로')
