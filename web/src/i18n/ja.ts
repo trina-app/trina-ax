@@ -6174,6 +6174,7 @@ export const ja: Record<MessageKey, string> = {
   'gapps.admin.driveAbout': "各メンバーが設定 › コネクターのページで自分の Google ドライブを接続すると、AIがそのメンバーのチャットで Docs・Sheets・Slides・PDF を探して読みます。下で Drive をチームと共有することもできます。",
   "gapps.admin.sameAsDrive": "Google Drive と同じ Google アプリを使う",
   "gapps.admin.sameAsDriveLine": "ほかにアップロードするものはありません。メンバーは、こちらにも個別にログインします。",
+  "gapps.admin.sameAsDriveRedirect": "Google Cloud で、Google Drive のクライアントの「承認済みのリダイレクト URI」にこのアドレスも追加してください",
   "gapps.admin.sameAsDriveOn": "Google Drive と同じ Google アプリを使っています。",
   "gapps.admin.apis": "Google Cloud で次をオンにしてください:",
   "gapps.admin.unsupported": "このサーバーではまだ使えません。",

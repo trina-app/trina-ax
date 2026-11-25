@@ -55,11 +55,14 @@ Admin › Connected apps has one card per app. Each needs a Google OAuth web cli
 
 ### In Trina
 
+A step-by-step guide for admins, with screenshots from a real run:
+[Google with your own Google app (self-installed)](site/operate/google-own-app-self-installed.md).
+
 Admin › Connected apps › the app › **Set up**:
 
 - **Use the same Google app as Drive** (offered, and on, when Google Drive has one): the card signs in with Drive's
   client and follows it when Drive's changes (people then reconnect). Add the redirect URI above to that client in
-  Google Cloud, and switch on the card's APIs in the same project.
+  Google Cloud (the dialog shows it, with Copy), and switch on the card's APIs in the same project.
 - **Its own Google app**: the JSON file Google Cloud downloads for the client (its redirect URIs must list the address
   above), or the client ID and secret.
 
