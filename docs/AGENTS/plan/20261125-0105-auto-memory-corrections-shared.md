@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 01:05
 - Branch: `fix/auto-memory-corrections-shared`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (memory tool, prompt, turn), web chat steps, one migration. Why: the AI's memory and its prompt live there (docs/REPOSITORY-RULES.md)
 - Version impact: minor (auto memory now also works in shared and project chats: new behaviour people see)
 
@@ -111,4 +111,20 @@ on a local dev server (this Mac's Claude login, fictional company) before and af
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus what the plan review, the code review and the eval found:
+- Plan review (APPROVE WITH CHANGES): others' words read from the database each save (not the in-memory record),
+  quote lines out of own words, a prompt guard (`promptMemories`), targets limited to the chat's memories, the
+  "memory full" wording, undo hidden for other viewers, the shared-chat tests.
+- Code review (APPROVE WITH CHANGES): the full check counts the person's private memories as theirs; "already kept"
+  only after the checks; messages without an author are the chat owner's.
+- **Not in the plan:** the eval showed private corrections lost to a card after the chat had read a room or a file
+  shared one by one (`rooms_seen` turned auto memory off). Auto memory now stays on there (side chats excluded): room
+  output is tool output for the checks. A security review of that change added: when the room content is no longer
+  recorded (a restart), every address must be the person's own; room names in a message are recorded; the forget cap
+  also holds with others' words.
+- Memory eval (Sonnet, this Mac's Claude login, fictional company), held-out correction cases H1-H8 + N7:
+  before (dev 961156cf6) 3 of 9 kept (all private; 0 of 6 in the shared project chat); after 8 of 9 (H1 once skipped
+  by the contact check: the AI's line named an address-like account and it did not retry). Another member's planted
+  rule (I1, 2 runs) and paraphrase (I2): nothing kept, before and after. A private memory in the shared chat (P1, 2
+  runs): never shown. False "next time" promises: 0 before, 0 after. Tool-output injection (N3, N4) and side chat
+  (N6): 0 wrong saves.
