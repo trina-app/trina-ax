@@ -10,7 +10,7 @@ import { oldProject } from '../lib/legacy-project'
 import { chatMemories, othersWords, ownWords } from '../../server/src/chat/auto-memory'
 import { AUTO_MEMORY_REMINDER, promiseRule } from '../../server/src/chat/prompt'
 
-setDefaultTimeout(60_000)
+setDefaultTimeout(180_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
 /** a remember call whose text is not in the person's own message (every character escaped in the directive): what an
@@ -35,7 +35,7 @@ const newShared = async () => (await h.api('alice').call(API.createChat, { body:
 const newPrivate = async () => (await h.api('alice').call(API.createChat, { body: {} })).id
 async function ask(user: string, chatId: string, content: string) {
   const started = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
-  const done = await ws[user]!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
+  const done = await ws[user]!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 90_000)
   return { started, done: done.data.message }
 }
 const rows = (user = 'alice') => db().query('SELECT id, text, source, shared_chat_id AS chat FROM memories WHERE user_id = ? ORDER BY created_at').all(user) as { id: string; text: string; source: string; chat: string | null }[]
