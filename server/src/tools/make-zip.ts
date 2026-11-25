@@ -33,7 +33,7 @@ import { atLeast } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { inSkills } from '../skills/guard'
+import { inAnySkills } from '../skills/guard'
 import { assertStorageRoomForAI } from '../system/storage'
 import { freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -131,7 +131,7 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
     const name = badSegment(`${base}${dotExt}`) ? `files${dotExt}` : `${base}${dotExt}`
     out = [...parent, fs.existsSync(path.join(fx.root, ...parent)) ? freeName(path.join(fx.root, ...parent), name) : name].join('/')
   }
-  if (inSkills(out)) throw new ToolError('a zip cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
+  if (inAnySkills(out)) throw new ToolError('a zip cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   const target = authorizeOutput(fx, rules, c, out, { mustExist: false, createDirs: true })
   if (target.exists && target.st!.isDirectory()) throw new ToolError(`'${target.rel}' is a folder; give a file name ending in ${dotExt}`)
 

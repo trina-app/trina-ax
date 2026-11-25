@@ -479,10 +479,25 @@ export const AUTO_MEMORY_REMINDER = 'Memory is automatic: before you finish this
  * only, kept in the asker's own memory; their private memories are not here. */
 export const sharedMemoryRule = (asker: string) => `In this shared chat, keep only what ${asker} said in their own messages here, or the lesson from ${asker}'s own correction of your work: never what another person here wrote (also about ${asker}), your answers to someone else, quoted lines, files or tool output. A memory kept here is ${asker}'s alone: it is used in ${asker}'s own chats and in ${asker}'s turns in this chat, and the people here see its step as they see ${asker}'s message. ${asker}'s memories from their other chats are not given to you here: do not guess them. Never tell ${asker} to go to a chat only they see to keep something: keep it here with remember.`
 
+/** Memory or skill, decided by the AI (the owner, 2026-11-25: people keep the two words but never need to know the
+ * difference; docs/decisions/20261125-auto-personal-skills.md; wording after Hermes Agent's review prompts). In the
+ * memory section next to AUTO_MEMORY_RULE; `dir` is the person's own skills folder. The server writes the origin line
+ * and checks every save (chat/personal-skills.ts). */
+export const autoSkillRule = (dir: string) => [
+  'Memory or skill: you decide, the user never has to. One thing goes to one of them, never both.',
+  `How the user wants a kind of task done (the steps in order, how the result should look, the pitfalls: "from now on the weekly report is: pull the sales sheet, make a table, send it to Mina") is a personal skill: save it in that same answer without asking, as ${dir}/<name>/SKILL.md with the write tool (a header "---", "name: <the folder name>", "description: <one sentence on when to use it>", "---", then the steps). Name it for the kind of task (lowercase words joined by hyphens, never a date); steps first, then each pitfall as a rule with one short reason why. Only SKILL.md, plain text: no scripts or other files.`,
+  'Short facts and preferences that hold in every chat stay memories (remember).',
+  'When the user corrects how you did a task and one of their personal skills covered it, fix that skill in place (read it, then edit the sentence that was wrong). When a skill turns out wrong or the user says it is not needed any more, delete its folder with delete_files.',
+  'You change or delete on your own only skills whose header says "origin: auto" (the ones you made); never a skill the user wrote or asked for unless they ask, and never team, group or project skills. Keep only what the user said or what worked in their task; if unsure, keep nothing.',
+].join(' ')
+
+/** ...and its one line right before the person's message (a resumed session keeps the first instructions) */
+export const AUTO_SKILL_REMINDER = 'Skills too: when the user\'s message says how they want a kind of task done, or corrects how you did one, save or fix their personal skill for it in this answer (only skills marked "origin: auto" on your own); facts and preferences for every chat go to remember. Do not mention this.'
+
 /** Every turn: a promise about next time is only true when a memory was kept (the owner, 2026-11-25: the AI said
  * "next time I will check the profile list first" and kept nothing). `remember`: the turn has the tool. */
 export const promiseRule = (remember: boolean) => remember
-  ? 'Never say you will remember something, or do it differently next time, unless remember answered kept: true in this answer; when it was not kept, say so plainly in one short line.'
+  ? 'Never say you will remember something, or do it differently next time, unless remember answered kept: true or a personal skill was saved in this answer; when nothing was kept, say so plainly in one short line.'
   : 'You cannot keep memories in this chat: never say you will remember something or do it differently next time.'
 
 /** The lines of the memory block: newest first, each item cut to MEMORY_ITEM_MAX chars (1,000), the whole block to
@@ -1081,7 +1096,7 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   if (projectShown) {
     lines.push(`To save a workflow as a skill for this project only, when the user asks for that: write ${projectShown.root}/<name>/SKILL.md (a folder per skill), ${sameHeader()}. The AI follows it only in this project's chats; the same confirmation card shows before anything there is saved. Pick a name no team, group or personal skill has: a project skill only adds new names.`)
   }
-  lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<name>/SKILL.md, ${sameHeader()}. Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)
+  lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<name>/SKILL.md, ${sameHeader()}. Only that SKILL.md, as plain text (no scripts or other files). Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)
   return lines.join('\n')
 }
 
@@ -1672,7 +1687,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // not in the turn context: it changes only with the install, and a session started without it gets it on its next
     // fresh start
     { id: 'appMap', text: i.appMap && !i.guest ? appMapSection(i.appMap, i.locale) : '' },
-    { id: 'memories', text: i.autoMemory && tools.has('remember') ? `## Memory\n${AUTO_MEMORY_RULE}${i.shared ? `\n${sharedMemoryRule(roomLine(i.shared.asker))}` : ''}${memories ? `\n\n${memories}` : ''}` : memories },
+    { id: 'memories', text: i.autoMemory && tools.has('remember') ? `## Memory\n${AUTO_MEMORY_RULE}${i.shared ? `\n${sharedMemoryRule(roomLine(i.shared.asker))}` : ''}${!i.guest ? `\n${autoSkillRule(personalSkillsDir(i.user.id))}` : ''}${memories ? `\n\n${memories}` : ''}` : memories },
     // a guest: none of the team's own knowledge (the company profile, team rules, team skills), also where the folder
     // rules would let one through
     { id: 'company', text: i.guest ? '' : companyProfileBlock(files, i.user, i.shared ? i.roomReadable : null) },
@@ -1686,7 +1701,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     { id: 'history', text: i.history?.length ? historyBlock(i.history, i.historySummary, i.historyBudget) : '' },
     // last, as Claude Code's reminders are: the model reads it right before the person's message (an eval on
     // 2026-11-22 found Sonnet kept a stated role or rule only about half the time with the rule alone)
-    { id: 'memoryReminder', text: i.autoMemory && tools.has('remember') ? AUTO_MEMORY_REMINDER : '' },
+    { id: 'memoryReminder', text: i.autoMemory && tools.has('remember') ? `${AUTO_MEMORY_REMINDER}${!i.guest ? `\n${AUTO_SKILL_REMINDER}` : ''}` : '' },
   ]
 }
 
@@ -1707,7 +1722,7 @@ export function turnContextSections(files: FileService, i: PromptInput): Section
     { id: 'context', text: 'Current context from the server for this message (it replaces earlier context; the user did not write this block):' },
     { id: 'rules', text: personLines(files, i).join('\n') },
     { id: 'guest', text: i.guest ? guestSection(i.guest, i.user.id, i.tools.includes('room_read')) : '' },
-    { id: 'memories', text: `${i.autoMemory && i.tools.includes('remember') ? `${AUTO_MEMORY_REMINDER}\n${i.shared ? `${sharedMemoryRule(roomLine(i.shared.asker))}\n` : ''}` : ''}${memoryBlock(promptMemories(i), memoryTokensOf(i.promptTokens ?? DEFAULT_PROMPT_TOKENS)) || 'No memories about the user.'}` },
+    { id: 'memories', text: `${i.autoMemory && i.tools.includes('remember') ? `${AUTO_MEMORY_REMINDER}\n${!i.guest ? `${AUTO_SKILL_REMINDER}\n` : ''}${i.shared ? `${sharedMemoryRule(roomLine(i.shared.asker))}\n` : ''}` : ''}${memoryBlock(promptMemories(i), memoryTokensOf(i.promptTokens ?? DEFAULT_PROMPT_TOKENS)) || 'No memories about the user.'}` },
     // the profile can change while a session lives; someone who lost read access to it gets none from here on
     { id: 'company', text: (i.guest ? '' : companyProfileBlock(files, i.user, i.shared ? i.roomReadable : null)) || 'No company profile.' },
     { id: 'project', text: i.project ? projectSection(i.project) : 'This chat belongs to no project.' },

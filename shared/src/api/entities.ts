@@ -603,6 +603,19 @@ export const Step = z.object({
     /** the first memory the AI kept on its own for this person: the step shows the one-time line under it */
     first: z.literal(true).optional(),
   }).optional(),
+  /** a write, edit or delete_files step that saved, fixed or deleted one of the person's own skills
+   * (server/src/chat/personal-skills.ts): what its 되돌리기 needs, through the file routes (a new skill: remove its folder;
+   * a fix: restore `versionId`; a delete: restore `trashId` from the trash). Only for the person whose turn it was
+   * (stripped for every other viewer, as `memory` is) */
+  skill: z.object({
+    name: z.string().max(200),
+    path: RelPath,
+    change: z.enum(['saved', 'fixed', 'deleted']),
+    versionId: z.string().max(64).optional(),
+    trashId: z.string().max(64).optional(),
+    /** the first skill the AI kept on its own for this person: the step shows the one-time line under it */
+    first: z.literal(true).optional(),
+  }).optional(),
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),

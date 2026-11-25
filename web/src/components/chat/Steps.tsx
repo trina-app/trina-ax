@@ -25,7 +25,7 @@
 // Step.outcome), never only an icon. Three or more calls in a row of the same tool fold into one row ("Bright Data ·
 // Search Engine · 12 calls") that opens to each call's input (docs/decisions/20261124-step-key-input.md).
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, Lightbulb, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
@@ -37,6 +37,7 @@ import { useLocale, useT } from '../../i18n'
 import { openExternal, safeHref } from '../../lib/safeLinks'
 import { aiName } from '../../lib/tabs'
 import { navigateTo } from '../../lib/nav'
+import { openTeamFile } from '../../lib/sidePanel'
 import { TeamImage } from '../LazyMarkdown'
 import { stepImages } from '../../lib/stepImages'
 import { usePlaceViewer } from '../../lib/teamPlace'
@@ -243,6 +244,35 @@ function MemoryUndo({ memory }: { memory: NonNullable<Step['memory']> }) {
   )
 }
 
+/** 되돌리기 on a personal skill step (docs/decisions/20261125-auto-personal-skills.md), through the file routes people
+ * have on the Files screen: a new skill's folder goes to the trash, a fix restores the version before it, a delete
+ * brings the skill back from the trash. */
+function SkillUndo({ skill }: { skill: NonNullable<Step['skill']> }) {
+  const t = useT()
+  const locale = useLocale()
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  if (state === 'done') return <span className="shrink-0 text-xs text-faint" data-testid="step-skill-undone">{t('steps.memoryUndone')}</span>
+  const undo = async () => {
+    setState('busy')
+    try {
+      if (skill.change === 'saved') await api.call(API.remove, { query: { path: skill.path.replace(/\/SKILL\.md$/, '') } })
+      else if (skill.change === 'fixed' && skill.versionId) await api.call(API.restoreVersion, { body: { path: skill.path, versionId: skill.versionId } })
+      else if (skill.change === 'deleted' && skill.trashId) await api.call(API.restoreTrash, { params: { id: skill.trashId } })
+      setState('done')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) { toast({ level: 'info', text: t('skill.undoGone') }); setState('done'); return }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      setState('idle')
+    }
+  }
+  return (
+    <button type="button" disabled={state === 'busy'} onClick={() => void undo()}
+      className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-50" data-testid="step-skill-undo">
+      {t('steps.memoryUndo')}
+    </button>
+  )
+}
+
 /** The words beside a step's line for what it came back with (Step.outcome), or for a mark that is no success. */
 export function outcomeWords(step: Step, mark: StepMark, t: TFunction): string {
   const end = step.outcome?.end
@@ -282,7 +312,7 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   // a look at a deck's slides ("View slides 3–5 · …") a slide icon
-  const Icon = step.memory ? Brain : subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  const Icon = step.memory ? Brain : step.skill ? Lightbulb : subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
@@ -357,6 +387,17 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         </button>
       ) : null}
       {step.memory && !expandable && !running && ownMemory ? <MemoryUndo memory={step.memory} /> : null}
+      {step.skill && !expandable && !running && ownMemory ? (
+        <>
+          {step.skill.change !== 'deleted' && (
+            <button type="button" onClick={() => openTeamFile(step.skill!.path)}
+              className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline" data-testid="step-skill-view">
+              {t('skill.view')}
+            </button>
+          )}
+          <SkillUndo skill={step.skill} />
+        </>
+      ) : null}
       {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
     </>
   )
@@ -377,6 +418,12 @@ function StepRow({ step, live, marks, kids = [], head: runHead = '' }: { step: S
         <p className="ml-6 px-1 text-xs text-muted" data-testid="memory-first-line">
           {t('memory.firstLine', { ai: aiName(t) })}{' '}
           <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="memory-first-open">{t('memory.firstOpen')}</button>
+        </p>
+      )}
+      {step.skill?.first && ownMemory && (
+        <p className="ml-6 px-1 text-xs text-muted" data-testid="skill-first-line">
+          {t('skill.firstLine', { ai: aiName(t) })}{' '}
+          <button type="button" onClick={() => navigateTo('/settings/memory')} className="touch-hit text-accent-text hover:underline" data-testid="skill-first-open">{t('memory.firstOpen')}</button>
         </p>
       )}
       {latest && (

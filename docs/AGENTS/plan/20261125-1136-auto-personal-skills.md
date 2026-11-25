@@ -1,7 +1,7 @@
 # Trina keeps "how I want this task done" as a personal skill on its own
 
 - Date (UTC): 2026-11-25 11:36
-- Branch: `feat/auto-personal-skills` · Status: in progress (scope cut by the owner: one PR, no review pass, no curator)
+- Branch: `feat/auto-personal-skills` · Status: done (scope cut by the owner: one PR, no review pass, no curator)
 - Where: server/src/chat (prompt, tools, personal-skills.ts), server/src/skills/guard.ts, shared step labels, web
   Steps.tsx. Why: memory, skills and the prompt live in the core (docs/REPOSITORY-RULES.md)
 - Version impact: minor (Trina saves, fixes and removes personal skills on its own: new behaviour people see)
@@ -39,4 +39,8 @@ Unit: the guard, the place/switch/own-words gate, origin, delete, the step label
 engine. `bun run typecheck`, `bun run check:prepush`.
 
 ## Result
-Filled in at the end.
+Built as planned in one PR: chat/personal-skills.ts (the gate, origin line, delete exception, step), skills/personal-guard.ts
+(the file check, called by skills/guard.ts requireSkillApproval), the tools that refuse skill folders now also refuse
+personal ones (inAnySkills), the rule in chat/prompt.ts, the step words in six languages, Steps.tsx 보기 / 되돌리기. The
+engine prompt pins were recorded again (deliberate prompt change). Tests: tests/unit/auto-personal-skills.test.ts, and
+the older tests that wrote personal skills now write loadable SKILL.md files.

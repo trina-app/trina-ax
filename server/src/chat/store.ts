@@ -225,13 +225,13 @@ export class ChatStore {
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
       // (and a line that repeats what a card asks: only who it waits for reaches the others, Chat.waitsFor)
-      if (stepRepeatsCard(st, !!stored[i]?.sv)) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, folders: _fo, moreFolders: _mf, sources: _so, outcome: _oc, key: _k, tool, ...rest } = st; steps[i] = { ...rest, ...(tool && (knownStepTool(tool) || internalStepTool(tool)) ? { tool } : {}), label: stepWords(st, view.locale ?? 'en') }; continue }
+      if (stepRepeatsCard(st, !!stored[i]?.sv)) { const { detail: _d, posted: _p, shared: _sh, memory: _m, skill: _sk, scheduled: _sc, folders: _fo, moreFolders: _mf, sources: _so, outcome: _oc, key: _k, tool, ...rest } = st; steps[i] = { ...rest, ...(tool && (knownStepTool(tool) || internalStepTool(tool)) ? { tool } : {}), label: stepWords(st, view.locale ?? 'en') }; continue }
       // (a memory step's record, Step.memory: the person's own memory, never anyone else's to see)
       // (and a scheduled task's card, Step.scheduled: the person's own task, its Pause and Delete theirs alone)
       // (and what a call came back with, Step.outcome: the runner's alone, as its detail)
       // (but an interim step's detail is the AI's text to the people of the chat, shown at its place like the answer's
       // own text: everyone who sees the answer sees it, docs/decisions/20261125-interim-text-inline.md)
-      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined || st.scheduled !== undefined || st.outcome !== undefined || st.key !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, scheduled: _sc, outcome: _oc, key: _k, ...rest } = st; steps[i] = st.interim && st.detail !== undefined ? { ...rest, detail: st.detail } : rest }
+      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined || st.skill !== undefined || st.scheduled !== undefined || st.outcome !== undefined || st.key !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, skill: _sk, scheduled: _sc, outcome: _oc, key: _k, ...rest } = st; steps[i] = st.interim && st.detail !== undefined ? { ...rest, detail: st.detail } : rest }
       // (the folders a my_folders step listed are the runner's own: chat/my-folders.ts)
       if (steps[i]!.folders !== undefined) { const { folders: _fo, moreFolders: _mf, ...rest } = steps[i]!; steps[i] = rest }
     }

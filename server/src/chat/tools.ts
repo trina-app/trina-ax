@@ -103,6 +103,7 @@ import { readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
+import { afterSkillWrite, beforeSkillWrite, deleteAutoSkills } from './personal-skills'
 import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './guest-tools'
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
@@ -526,6 +527,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // into skills/, …)
     const early = t.refuse?.(args, files)
     if (early) return { ...text(early.text, true), summary: early.summary }
+    // a skill the AI made on its own, deleted with no card (chat/personal-skills.ts; the main AI's own call)
+    if (name === 'delete_files' && files === exec.files) {
+      const d = deleteAutoSkills(exec, args)
+      if (d) return { ...text(d.text, !!d.isError), summary: `delete_files -> ${d.isError ? 'not deleted' : 'deleted'}: personal skill made on its own` }
+    }
     // a shared project chat: a search without a path looks in the project folder; then what the call would read that
     // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
     // (a connection's tool names no team path: its own card comes from the tool, integrations/connections/tools.ts
@@ -664,6 +670,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
     },
     afterFileTool: (name, isError, args, text, caller, images) => {
+      // a personal skill saved or fixed: its step says so, with 보기 and 되돌리기 (chat/personal-skills.ts)
+      afterSkillWrite(exec, name, args, isError)
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
@@ -756,6 +764,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // so it is refused here, before any card asks the person about it (a room card, a skill card, the widening card)
       // An existing chat file is the exception (P4, chat/chat-file-write.ts): a new version of it, after the same checks
       // here before any card (who may change it in this turn, the file itself), and the cards below as for any save.
+      // a person's own skills folder: one SKILL.md of text, under the auto-memory rules (chat/personal-skills.ts), before
+      // any card
+      const skillNo = beforeSkillWrite(exec, name, args, !caller || caller.files === exec.files)
+      if (skillNo) return { refusal: skillNo, summary: `${name} -> not saved: personal skill` }
       const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
       if (writePlace && !chatVersionPlace(writePlace)) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
       if (writePlace) {
