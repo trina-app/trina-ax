@@ -5,6 +5,7 @@
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
+import { skillLabel } from './api/skills'
 import { ownFolderLabel, ownFolderWord, personFolderLabel, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
 import { parsePlace } from './places'
@@ -658,6 +659,9 @@ export const STEP_PLACE = {
   chatFiles: t('이 채팅', 'This chat', 'Chat ini', "このチャット", "Este chat", "此对话"),
   /** chat:work/…: the chat's work folder ($TRINA_WORK) */
   work: t('작업 폴더', 'Work folder', 'Folder kerja', "作業フォルダー", "Carpeta de trabajo", "工作文件夹"),
+  /** users/<id>/skills/<name>/SKILL.md (or its folder): the person's own skill by its name as words, never the file
+   * path (QA of #606: "파일 고치기 · 내 파일 › skills › meeting-notes › SKILL.md") */
+  mySkill: t("내 스킬 '{name}'", "My skill '{name}'", "Skill saya '{name}'", "自分のスキル「{name}」", "Mi habilidad '{name}'", "我的技能“{name}”"),
   /** users/<id>/: an answer only ever reaches the person's own */
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta", "我的文件夹"),
   /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
@@ -717,6 +721,8 @@ export function placeName(path: string, locale: Locale, viewer?: PlaceViewer): s
     const head = name ? personFolderLabel(name, locale) : TOP_FOLDER_LABELS.users[locale] ?? TOP_FOLDER_LABELS.users.en
     return (b === '.attachments' && c ? [head, STEP_PLACE.attachments[locale] ?? STEP_PLACE.attachments.en, ...segs.slice(4)] : [head, ...segs.slice(2)]).join(' › ')
   }
+  // one of the person's own skills: by its name (its folder) as words, not the file
+  if (top === 'users' && a && b === 'skills' && c && (segs.length === 4 || (segs.length === 5 && segs[4] === 'SKILL.md'))) return fill(STEP_PLACE.mySkill[locale] ?? STEP_PLACE.mySkill.en, { name: skillLabel({ name: c }) })
   // the own folder by the name it has on this server ("내 파일": folder-labels.ts ownFolderLabel)
   if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : ownFolderWord() === 'files' ? [ownFolderLabel(locale), ...segs.slice(2)].join(' › ') : say('own', 2)
   if (top === 'shared') {

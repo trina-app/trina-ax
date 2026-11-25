@@ -25,7 +25,7 @@
   other tool that saves files, is refused there: a personal skill's scripts run in box_shell, so an AI-written script
   never lands there. The turn's gate applies the auto-memory rules: the switch "자동으로 기억하기", no saving on its own
   in side, scheduled, Slack, template or confidential chats or for guests (there only when the person's own message
-  asks for a skill), the asker's own words only, 2 per answer and 6 a day. The own-words check and the caps hold for a
+  asks for a skill), the asker's own words only, 2 per answer and 6 different skills a day (refining one skill again the same day counts once: real-AI QA of #606 hit the limit refining one skill; the cap is about how many skills change, not how many saves). The own-words check and the caps hold for a
   save the person asked for too: "save this page as a skill" is refused when the steps come straight from tool output.
   The person's explicit ask only gets past the switch when it is off.
 - **Rule (delete):** delete_files moves a personal SKILL.md (its folder holds nothing else) to the trash: one with
@@ -36,7 +36,9 @@
   the weekly sales report"). The card is the same mechanism team skill saves use, and "Always allow skill saves"
   covers it (Rule A).
 - **Rule (step):** "스킬 저장함 / 고침 / 지움: <name>" with 보기 and 되돌리기, like a memory, through the file routes
-  people already have (remove, restore a version, restore from the trash).
+  people already have (remove, restore a version, restore from the trash). The name is the skill's title, else its
+  first heading, else its folder name; a file step on one's own SKILL.md reads "내 스킬 '<name>'", never its path (QA of
+  #606). After a save the reply says at most one plain line and never the "/" command, file or path.
 - **DS3 does not apply:** [DS3](../DECISIONS.md) forbids auto-adding pack skills of unknown origin and a "new skills,
   add them?" prompt. These skills come from the person's own words in their own chat, only they see them, and nothing
   is asked.
