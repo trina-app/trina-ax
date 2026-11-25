@@ -36,8 +36,8 @@ import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
-import { MAIL_FIELD_WORDS, say, type TextKey } from './text'
-import { cardLines, changeAction, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type ChangeAction, type FieldWords, type ToolKind } from './card-lines'
+import { GOOGLE_FIELD_WORDS, GOOGLE_VALUE_WORDS, MAIL_FIELD_WORDS, say, type TextKey } from './text'
+import { cardLines, changeAction, fieldWord, methodWord, shownName, toolKindOf, toolTitle, type CardLine, type ChangeAction, type FieldWords, type ToolKind, type ValueWords } from './card-lines'
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { withDemoChat } from '../../demo/fakes/scope'
@@ -52,7 +52,8 @@ import { KINDS } from '../../tools/sniff'
 import { imageSize } from '../../uploads/image'
 import { b64Len, normalizeForModel, turnImageCaps, visionBlock, VISION_INPUT_MAX } from '../../files/vision'
 import { audit } from '../../admin/audit'
-import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
+import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, isAppId, isAppTool, SENDING_TOOLS } from '../google-apps/catalog'
+import { answerText, nameReadOf } from '../google-apps/names'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { sourceOf, type ReadSource } from '../../chat/read-scope'
@@ -311,7 +312,10 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
   create?: boolean
   /** what the call does (card-lines.ts changeAction): the card's sentence, question and buttons say it; none (an HTTP API
    * request) is a send */
-  action?: ChangeAction }
+  action?: ChangeAction
+  /** the name of the thing the call changes, read only when its card is about to show (google-apps/names.ts): its
+   * card's first line; null when nothing is known (the card shows the id as sent) */
+  named?: () => Promise<{ word: TextKey; name: string } | null> }
 
 /** The write card's words for what a call does (docs/decisions/20261125-change-card-action-verb.md): only a send says
  * "send"; a draft is saved, an event added, a file changed or deleted */
@@ -391,12 +395,17 @@ function codeKeyOf(row: Pick<Row, 'local_app'> | null, tool: string, args: unkno
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). `code`: the argument that is a script (a declared CLI's
  * stdin), shown as a code block exactly as sent. */
-function argLines(args: unknown, L: Locale, code?: string, extra?: FieldWords): { fields: CardLine[]; exact: boolean } {
-  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code, extra)
+function argLines(args: unknown, L: Locale, code?: string, extra?: FieldWords, values?: ValueWords): { fields: CardLine[]; exact: boolean } {
+  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code, extra, values)
   return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L, extra)).join(' › '), value: f.value })), exact: false }
 }
-/** a connection's own words for argument names on its card: the Google Workspace library's mail fields (thread_id …) */
-const fieldWordsOf = (row: Pick<Row, 'google_app'>): FieldWords | undefined => (row.google_app ? MAIL_FIELD_WORDS : undefined)
+/** a connection's own words for argument names on its card: the Google Workspace library's (thread_id, event_id …) */
+const GOOGLE_WORDS: FieldWords = { ...MAIL_FIELD_WORDS, ...GOOGLE_FIELD_WORDS }
+const fieldWordsOf = (row: Pick<Row, 'google_app'>): FieldWords | undefined => (row.google_app ? GOOGLE_WORDS : undefined)
+/** a connection's own words for known values of its choice arguments: the Google Workspace library's (action …) */
+const valueWordsOf = (row: Pick<Row, 'google_app'>): ValueWords | undefined => (row.google_app ? GOOGLE_VALUE_WORDS : undefined)
+/** how long the read that names a change's thing may take before the card shows without it */
+export const NAME_READ_MS = 5_000
 
 /** A connection a demo server's fakes answer in place of the service (server/src/demo/fakes: the Google Workspace
  * library, a Higgsfield address), on a demo server whose fakes are on: nothing sent there leaves the machine, so its card
@@ -770,6 +779,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   if (longWhere) throw new CallError(`'${longWhere.name.slice(0, 80)}' (where this goes) is ${longWhere.value.length} characters, more than the ${MAX_RECIPIENT_CHARS} a card shows whole, so nothing was sent. Put long content in the message's text, not in an address, recipient or query.`, 'refused (too large to confirm)')
   if (!sharedMode && live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
+  // the card shows: the name of the thing it changes, when it can be read (its first line; the id stays below)
+  const named = await sent.named?.().catch(() => null) ?? null
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
   // a demo server's practice connection (practiceRow): the card says first that nothing really goes out
@@ -793,7 +804,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const full = new Map(whole.map((f) => [f.name, f.value]))
   // a big call: the recipients as lines, each whole (at most MAX_RECIPIENT_CHARS, above), the text folded
-  const shown = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
+  const listed = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
+  const shown = named ? { ...listed, fields: [{ name: say(named.word, L), value: named.name }, ...listed.fields] } : listed
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   // a team connection's change (its account is everyone's): the labelled lines stay in view, each long value (code, a page)
@@ -802,7 +814,8 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // ...never folded while a long random-looking part (it can carry data) is in it: its highlight stays in view (code review)
   const foldTeam = teamCall && !marks.length
   // (lines that cannot show every value as sent, code with its indentation: the call's own top-level values, briefLines)
-  const brief = foldTeam && !shown.exact ? briefLines(sent.raw, L) : null
+  const briefs = foldTeam && !shown.exact ? briefLines(sent.raw, L) : null
+  const brief = briefs && named ? [shown.fields[0]!, ...briefs] : briefs
   const base = brief ?? shown.fields
   const cut = foldTeam ? base.map((f) => (f.value.length > CARD_VALUE_SHOWN ? { name: f.name, value: say('longValue', L, { n: f.value.length.toLocaleString(L) }) } : f)) : shown.fields
   const folded = cut.some((f, i) => f !== shown.fields[i]) || base !== shown.fields
@@ -1311,7 +1324,19 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           const codeKey = codeKeyOf(current, t.name, args)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), action: changeAction(t, args, { googleApp: !!current.google_app }), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, codeKey, fieldWordsOf(current!), valueWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}), ownAct: ownActTool(current, t, args), ...(createTool(current, t, args) ? { create: true } : {}), action: changeAction(t, args, { googleApp: !!current.google_app }), allowKey: t.name, title: titleArg(args), ...(codeKey && current.local_app ? { runs: true } : {}) }
+          const read = current.google_app ? nameReadOf(t.name, args) : null
+          const app = current.google_app
+          // the library's own read on this connection, only when it is offered and on (never a tool the person turned off)
+          if (read && isAppId(app) && isAppTool(app, read.tool) && !disabledTools(current).has(read.tool)) {
+            const reading = current
+            sent.named = async () => {
+              const r = await svc.callTool(reading, read.tool, read.args, AbortSignal.any([tc.signal, AbortSignal.timeout(NAME_READ_MS)]))
+              const text = answerText(r)
+              const name = text === null ? null : shownName(read.parse(text))
+              return name ? { word: read.word, name } : null
+            }
+          }
           const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)

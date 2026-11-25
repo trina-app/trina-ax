@@ -111,6 +111,11 @@ export class FakeLibrary {
           ...(args.return_base64 ? [`\n📦 Base64 content (${this.attachment.toString('base64').length} chars, standard base64):`, this.attachment.toString('base64')] : [])].join('\n')
         return reply({ content: [{ type: 'text', text }] })
       }
+      // the library's own words for one event, a message's headers, a spreadsheet (workspace-mcp 2.4.1): what names a
+      // change's thing on its card (google-apps/names.ts); 'e1', 'm1' and 's1' are there, any other id is not
+      if (name === 'get_events' && args.event_id) return reply({ content: [{ type: 'text', text: args.event_id === 'e1' ? `Successfully retrieved event from calendar 'primary' for ${this.tokens.get(auth)}:\n- "Weekly sync" (Starts: 2026-11-26T14:00:00+09:00, Ends: 2026-11-26T15:00:00+09:00) ID: e1 | Link: https://calendar.example/e1` : `Event with ID '${args.event_id}' not found in calendar 'primary' for ${this.tokens.get(auth)}.` }] })
+      if (name === 'get_gmail_message_content' && args.format === 'metadata') return reply({ content: [{ type: 'text', text: args.message_id === 'm1' ? 'Subject: Lunch on Friday\nFrom: bob@acme.example\nDate: Tue, 24 Nov 2026 10:00:00 +0900' : 'Subject: (no subject)\nFrom: (unknown sender)' }] })
+      if (name === 'get_spreadsheet_info') return reply({ content: [{ type: 'text', text: args.spreadsheet_id === 's1' ? 'Spreadsheet: "Q4 budget" (ID: s1) | Locale: en_US\nSheets (1):\n  - "Sheet1" (ID: 0) | Size: 1000x26 | Conditional formats: 0' : 'error' }], isError: args.spreadsheet_id !== 's1' })
       if (name === 'search_gmail_messages') return reply({ content: [{ type: 'text', text: `Found 1 message for ${this.tokens.get(auth)}: "Lunch on Friday" from bob@acme.example` }] })
       return reply({ content: [{ type: 'text', text: `${name} done` }] })
     }

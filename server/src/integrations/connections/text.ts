@@ -49,6 +49,11 @@ export const TEXT = {
   valueYes: t('예', 'Yes', 'Ya', "はい", "Sí", "是"),
   valueNo: t('아니요', 'No', 'Tidak', "いいえ", "No", "否"),
   valueNone: t('(없음)', '(none)', '(tidak ada)', "（なし）", "(ninguno)", "（无）"),
+  // the first line of a change card for a thing that is there already: its name as the service has it, read before the
+  // card (google-apps/names.ts), under what kind of thing it is
+  targetEvent: t('일정', 'Event', 'Acara', "予定", "Evento", "日程"),
+  targetMessage: t('메일', 'Message', 'Email', "メール", "Mensaje", "邮件"),
+  targetSpreadsheet: t('스프레드시트', 'Spreadsheet', 'Spreadsheet', "スプレッドシート", "Hoja de cálculo", "电子表格"),
   // an HTTP API call on the card and in its step: the address it calls, and what its method does
   fieldAddress: t('보내는 곳', 'Sends to', 'Dikirim ke', "送信先", "Se envía a", "发送到"),
   methodGET: t('가져오기', 'Get', 'Ambil', "取得", "Obtener", "获取"),
@@ -305,6 +310,8 @@ export type TextKey = keyof typeof TEXT
  * "emailAddress" and "Email-Address" are one). A name not here is said as its own words ("page_id" -> "Page id"). */
 const RECIPIENT_WORD = t('받는 사람', 'Recipient', 'Penerima', "宛先", "Destinatario", "收件人")
 const CONTENT_WORD = t('내용', 'Content', 'Isi', "内容", "Contenido", "内容")
+const START_WORD = t('시작 시간', 'Start time', 'Waktu mulai', "開始時刻", "Hora de inicio", "开始时间")
+const END_WORD = t('종료 시간', 'End time', 'Waktu selesai', "終了時刻", "Hora de fin", "结束时间")
 export const FIELD_WORDS: Record<string, T> = {
   to: RECIPIENT_WORD, recipient: RECIPIENT_WORD, recipients: RECIPIENT_WORD, email: RECIPIENT_WORD, emails: RECIPIENT_WORD, emailaddress: RECIPIENT_WORD, emailaddresses: RECIPIENT_WORD,
   cc: t('참조', 'Cc', 'Cc', "CC", "CC", "抄送"),
@@ -327,6 +334,17 @@ export const FIELD_WORDS: Record<string, T> = {
   project: t('프로젝트', 'Project', 'Proyek', "プロジェクト", "Proyecto", "项目"),
   parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va", "放到哪里"),
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
+  action: t('작업', 'Action', 'Tindakan', "操作", "Acción", "操作"),
+  start: START_WORD, starttime: START_WORD, startdate: t('시작일', 'Start date', 'Tanggal mulai', "開始日", "Fecha de inicio", "开始日期"),
+  end: END_WORD, endtime: END_WORD, enddate: t('종료일', 'End date', 'Tanggal selesai', "終了日", "Fecha de fin", "结束日期"),
+  timezone: t('시간대', 'Time zone', 'Zona waktu', "タイムゾーン", "Zona horaria", "时区"), tz: t('시간대', 'Time zone', 'Zona waktu', "タイムゾーン", "Zona horaria", "时区"),
+  location: t('장소', 'Location', 'Lokasi', "場所", "Ubicación", "地点"),
+  attendees: t('참석자', 'Guests', 'Tamu', "参加者", "Invitados", "参与者"),
+  recurrence: t('반복', 'Repeat', 'Pengulangan', "繰り返し", "Repetición", "重复"),
+  reminders: t('알림', 'Reminders', 'Pengingat', "通知", "Recordatorios", "提醒"),
+  visibility: t('공개 범위', 'Visibility', 'Visibilitas', "公開範囲", "Visibilidad", "可见范围"),
+  attachments: t('첨부 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos", "附件"),
+  id: t('ID', 'ID', 'ID', "ID", "ID", "ID"),
 }
 /** A mail call's argument names in words, only on a Google Workspace library connection's card (card-lines.ts fieldWord
  * `extra`): another service's `thread_id` (a chat thread) or `references` keeps its own words. */
@@ -335,10 +353,81 @@ export const MAIL_FIELD_WORDS: Record<string, T> = {
   inreplyto: t('답장할 메일', 'Reply to', 'Balasan untuk', "返信先のメール", "En respuesta a", "回复的邮件"),
   references: t('이전 메일', 'Earlier mail', 'Email sebelumnya', "以前のメール", "Correos anteriores", "之前的邮件"),
 }
+/** The Google Workspace library's argument names in words, only on a library connection's card (with MAIL_FIELD_WORDS;
+ * tools.ts fieldWordsOf): an event's `summary` is its title there, not a summary. Names not here: FIELD_WORDS, then
+ * the name's own words. tests/unit/google-tool-titles.test.ts: every entry in every language. */
+const ID_OF = (ko: string, en: string, id: string, ja: string, es: string, zh: string) => t(`${ko} ID`, `${en} ID`, `ID ${id}`, `${ja}ID`, `ID ${es}`, `${zh} ID`)
+export const GOOGLE_FIELD_WORDS: Record<string, T> = {
+  summary: t('제목', 'Title', 'Judul', "タイトル", "Título", "标题"),
+  eventid: ID_OF('일정', 'Event', 'acara', "予定", "del evento", "日程"),
+  calendarid: t('캘린더', 'Calendar', 'Kalender', "カレンダー", "Calendario", "日历"),
+  starttimezone: t('시작 시간대', 'Start time zone', 'Zona waktu mulai', "開始のタイムゾーン", "Zona horaria de inicio", "开始时区"),
+  endtimezone: t('종료 시간대', 'End time zone', 'Zona waktu selesai', "終了のタイムゾーン", "Zona horaria de fin", "结束时区"),
+  addgooglemeet: t('Google Meet 추가', 'Add Google Meet', 'Tambahkan Google Meet', "Google Meetを追加", "Añadir Google Meet", "添加 Google Meet"),
+  usedefaultreminders: t('기본 알림 사용', 'Use default reminders', 'Gunakan pengingat bawaan', "デフォルトの通知を使う", "Usar recordatorios predeterminados", "使用默认提醒"),
+  transparency: t('표시 방법', 'Show as', 'Tampilkan sebagai', "表示方法", "Mostrar como", "显示为"),
+  colorid: t('색', 'Color', 'Warna', "色", "Color", "颜色"),
+  guestscanmodify: t('참석자가 수정 가능', 'Guests can edit', 'Tamu bisa mengedit', "ゲストによる編集", "Los invitados pueden editar", "访客可编辑"),
+  guestscaninviteothers: t('참석자가 다른 사람 초대 가능', 'Guests can invite others', 'Tamu bisa mengundang orang lain', "ゲストによる招待", "Los invitados pueden invitar a otros", "访客可邀请他人"),
+  guestscanseeotherguests: t('참석자 목록 공개', 'Guests can see the guest list', 'Tamu bisa melihat daftar tamu', "ゲストリストの表示", "Los invitados pueden ver la lista", "访客可查看访客名单"),
+  response: t('참석 응답', 'RSVP', 'Tanggapan', "出欠の返事", "Respuesta", "回复"),
+  rsvpcomment: t('응답 메모', 'RSVP note', 'Catatan tanggapan', "返事のメモ", "Nota de respuesta", "回复备注"),
+  sendupdates: t('참석자에게 알림', 'Notify guests', 'Beri tahu tamu', "ゲストへの通知", "Avisar a los invitados", "通知访客"),
+  thisandfollowing: t('이후 일정도 함께', 'This and following events', 'Acara ini dan berikutnya', "これ以降の予定も", "Este y los siguientes", "此日程及后续日程"),
+  autodeclinemode: t('자동 거절', 'Auto-decline', 'Tolak otomatis', "自動で辞退", "Rechazo automático", "自动拒绝"),
+  declinemessage: t('거절 메시지', 'Decline message', 'Pesan penolakan', "辞退メッセージ", "Mensaje de rechazo", "拒绝消息"),
+  messageid: ID_OF('메일', 'Message', 'email', "メール", "del mensaje", "邮件"),
+  messageids: ID_OF('메일', 'Message', 'email', "メール", "del mensaje", "邮件"),
+  labelid: ID_OF('라벨', 'Label', 'label', "ラベル", "de la etiqueta", "标签"),
+  addlabelids: t('붙일 라벨', 'Labels to add', 'Label yang ditambahkan', "付けるラベル", "Etiquetas que se añaden", "要添加的标签"),
+  removelabelids: t('뗄 라벨', 'Labels to remove', 'Label yang dilepas', "外すラベル", "Etiquetas que se quitan", "要移除的标签"),
+  criteria: t('조건', 'Criteria', 'Kriteria', "条件", "Criterios", "条件"),
+  documentid: ID_OF('문서', 'Document', 'dokumen', "ドキュメント", "del documento", "文档"),
+  spreadsheetid: ID_OF('스프레드시트', 'Spreadsheet', 'spreadsheet', "スプレッドシート", "de la hoja de cálculo", "电子表格"),
+  folderid: ID_OF('폴더', 'Folder', 'folder', "フォルダー", "de la carpeta", "文件夹"),
+  tabid: ID_OF('탭', 'Tab', 'tab', "タブ", "de la pestaña", "标签页"),
+  rangename: t('범위', 'Range', 'Rentang', "範囲", "Rango", "范围"),
+  values: t('값', 'Values', 'Nilai', "値", "Valores", "值"),
+  sheetname: t('시트', 'Sheet', 'Sheet', "シート", "Hoja", "工作表"),
+  newname: t('새 이름', 'New name', 'Nama baru', "新しい名前", "Nombre nuevo", "新名称"),
+  findtext: t('찾을 글', 'Find', 'Cari', "検索する文字", "Buscar", "查找内容"),
+  replacetext: t('바꿀 글', 'Replace with', 'Ganti dengan', "置換後の文字", "Reemplazar por", "替换为"),
+  index: t('위치', 'Position', 'Posisi', "位置", "Posición", "位置"),
+}
+/** Known values of the library's choice arguments in words, by argument name and value (both by their letters alone),
+ * only on a library connection's card (card-lines.ts cardLines `values`); any other value as it is sent. The exact
+ * call stays one click away on the card. */
+export const GOOGLE_VALUE_WORDS: Record<string, Record<string, T>> = {
+  action: {
+    create: t('만들기', 'Create', 'Buat', "作成", "Crear", "创建"),
+    add: t('추가', 'Add', 'Tambah', "追加", "Añadir", "添加"),
+    update: t('수정', 'Update', 'Perbarui', "更新", "Actualizar", "更新"),
+    delete: t('삭제', 'Delete', 'Hapus', "削除", "Eliminar", "删除"),
+    remove: t('제거', 'Remove', 'Lepas', "外す", "Quitar", "移除"),
+    rsvp: t('참석 응답', 'RSVP', 'Tanggapi undangan', "出欠を返事", "Responder", "回复邀请"),
+    rename: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre", "重命名"),
+    list: t('목록 보기', 'List', 'Lihat daftar', "一覧を見る", "Ver lista", "查看列表"),
+    get: t('보기', 'Get', 'Lihat', "見る", "Ver", "查看"),
+    hide: t('숨기기', 'Hide', 'Sembunyikan', "非表示にする", "Ocultar", "隐藏"),
+    unhide: t('다시 보이기', 'Unhide', 'Tampilkan lagi', "再表示する", "Mostrar", "取消隐藏"),
+    reorder: t('순서 바꾸기', 'Reorder', 'Ubah urutan', "並べ替え", "Reordenar", "重新排序"),
+    style: t('모양 바꾸기', 'Style', 'Ubah gaya', "スタイルを変更", "Cambiar estilo", "更改样式"),
+    populatefrommarkdown: t('Markdown으로 채우기', 'Fill from Markdown', 'Isi dari Markdown', "Markdownで入力", "Rellenar desde Markdown", "从 Markdown 填充"),
+  },
+  response: {
+    accepted: t('참석', 'Yes', 'Hadir', "出席", "Sí", "接受"),
+    declined: t('불참', 'No', 'Tidak hadir', "欠席", "No", "拒绝"),
+    tentative: t('미정', 'Maybe', 'Mungkin', "未定", "Quizás", "待定"),
+  },
+  sendupdates: {
+    all: t('모두에게', 'Everyone', 'Semua orang', "全員", "Todos", "所有人"),
+    externalonly: t('외부 참석자에게만', 'Only guests outside the team', 'Hanya tamu dari luar', "外部のゲストのみ", "Solo invitados externos", "仅外部访客"),
+    none: t('보내지 않음', 'Nobody', 'Tidak ada', "送らない", "Nadie", "不通知"),
+  },
+}
 /** What the step under an answer and the card before a change call a Google Workspace library tool, in the person's
- * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages"). Gmail only for
- * now: Calendar, Docs and Sheets keep the library's title. tests/unit/google-tool-titles.test.ts: every Gmail tool of
- * google-apps/catalog.ts in every language. */
+ * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages", "Manage Event").
+ * tests/unit/google-tool-titles.test.ts: every tool of google-apps/catalog.ts in every language. */
 export const GOOGLE_TOOL_WORDS: Record<string, T> = {
   search_gmail_messages: t('메일 찾기', 'Search mail', 'Cari email', 'メールを検索', 'Buscar correo', '搜索邮件'),
   get_gmail_message_content: t('메일 읽기', 'Read a message', 'Baca email', 'メールを読む', 'Leer un mensaje', '阅读邮件'),
@@ -354,6 +443,46 @@ export const GOOGLE_TOOL_WORDS: Record<string, T> = {
   batch_modify_gmail_message_labels: t('여러 메일 라벨 바꾸기', 'Change labels on several messages', 'Ubah label beberapa email', '複数のメールのラベルを変更', 'Cambiar etiquetas de varios mensajes', '更改多封邮件的标签'),
   manage_gmail_label: t('라벨 관리', 'Manage a label', 'Kelola label', 'ラベルを管理', 'Gestionar una etiqueta', '管理标签'),
   manage_gmail_filter: t('필터 관리', 'Manage a filter', 'Kelola filter', 'フィルタを管理', 'Gestionar un filtro', '管理过滤器'),
+  list_calendars: t('캘린더 보기', 'List calendars', 'Lihat kalender', 'カレンダーを見る', 'Ver calendarios', '查看日历'),
+  get_events: t('일정 보기', 'Get events', 'Lihat acara', '予定を見る', 'Ver eventos', '查看日程'),
+  query_freebusy: t('빈 시간 확인', 'Check free time', 'Cek waktu luang', '空き時間を確認', 'Ver disponibilidad', '查看空闲时间'),
+  manage_event: t('일정 관리', 'Manage an event', 'Kelola acara', '予定を管理', 'Gestionar un evento', '管理日程'),
+  manage_calendar: t('캘린더 관리', 'Manage a calendar', 'Kelola kalender', 'カレンダーを管理', 'Gestionar un calendario', '管理日历'),
+  manage_out_of_office: t('부재 일정 관리', 'Manage out of office', 'Kelola waktu di luar kantor', '不在の予定を管理', 'Gestionar ausencias', '管理外出时间'),
+  manage_focus_time: t('집중 시간 관리', 'Manage focus time', 'Kelola waktu fokus', '集中時間を管理', 'Gestionar tiempo de concentración', '管理专注时间'),
+  search_docs: t('문서 찾기', 'Search documents', 'Cari dokumen', 'ドキュメントを検索', 'Buscar documentos', '搜索文档'),
+  list_docs_in_folder: t('폴더의 문서 보기', 'List documents in a folder', 'Lihat dokumen di folder', 'フォルダー内のドキュメントを見る', 'Ver documentos de una carpeta', '查看文件夹中的文档'),
+  get_doc_content: t('문서 읽기', 'Read a document', 'Baca dokumen', 'ドキュメントを読む', 'Leer un documento', '阅读文档'),
+  get_doc_as_markdown: t('문서를 제목과 함께 읽기', 'Read a document with its headings', 'Baca dokumen beserta judulnya', '見出し付きでドキュメントを読む', 'Leer un documento con sus títulos', '带标题阅读文档'),
+  inspect_doc_structure: t('문서 구조 보기', 'See a document’s structure', 'Lihat struktur dokumen', 'ドキュメントの構成を見る', 'Ver la estructura de un documento', '查看文档结构'),
+  debug_table_structure: t('표 구조 보기', 'See a table’s structure', 'Lihat struktur tabel', '表の構成を見る', 'Ver la estructura de una tabla', '查看表格结构'),
+  list_document_comments: t('문서 댓글 보기', 'Read document comments', 'Baca komentar dokumen', 'ドキュメントのコメントを見る', 'Leer los comentarios del documento', '查看文档评论'),
+  create_doc: t('문서 만들기', 'Create a document', 'Buat dokumen', 'ドキュメントを作成', 'Crear un documento', '创建文档'),
+  modify_doc_text: t('문서 글 고치기', 'Edit document text', 'Ubah teks dokumen', 'ドキュメントの文字を編集', 'Editar el texto del documento', '编辑文档文字'),
+  find_and_replace_doc: t('문서에서 찾아 바꾸기', 'Find and replace in a document', 'Cari dan ganti di dokumen', 'ドキュメント内で検索と置換', 'Buscar y reemplazar en un documento', '在文档中查找替换'),
+  insert_doc_elements: t('문서에 표·목록 넣기', 'Add tables or lists to a document', 'Tambahkan tabel atau daftar ke dokumen', 'ドキュメントに表やリストを追加', 'Añadir tablas o listas a un documento', '向文档添加表格或列表'),
+  insert_doc_image: t('문서에 그림 넣기', 'Add a picture to a document', 'Tambahkan gambar ke dokumen', 'ドキュメントに画像を追加', 'Añadir una imagen a un documento', '向文档添加图片'),
+  update_paragraph_style: t('문단 모양 바꾸기', 'Change paragraph style', 'Ubah gaya paragraf', '段落のスタイルを変更', 'Cambiar el estilo de párrafo', '更改段落样式'),
+  update_doc_headers_footers: t('머리글·바닥글 바꾸기', 'Change headers and footers', 'Ubah header dan footer', 'ヘッダーとフッターを変更', 'Cambiar encabezados y pies de página', '更改页眉页脚'),
+  create_table_with_data: t('내용 있는 표 넣기', 'Add a filled-in table', 'Tambahkan tabel berisi data', 'データ入りの表を追加', 'Añadir una tabla con datos', '添加带数据的表格'),
+  batch_update_doc: t('문서 여러 곳 고치기', 'Make several changes to a document', 'Buat beberapa perubahan pada dokumen', 'ドキュメントをまとめて編集', 'Hacer varios cambios en un documento', '批量修改文档'),
+  manage_doc_tab: t('문서 탭 관리', 'Manage a document tab', 'Kelola tab dokumen', 'ドキュメントのタブを管理', 'Gestionar una pestaña del documento', '管理文档标签页'),
+  export_doc_to_pdf: t('PDF로 저장', 'Save as PDF', 'Simpan sebagai PDF', 'PDFで保存', 'Guardar como PDF', '另存为 PDF'),
+  list_spreadsheets: t('스프레드시트 찾기', 'Find spreadsheets', 'Cari spreadsheet', 'スプレッドシートを探す', 'Buscar hojas de cálculo', '查找电子表格'),
+  get_spreadsheet_info: t('스프레드시트 정보 보기', 'See spreadsheet info', 'Lihat info spreadsheet', 'スプレッドシートの情報を見る', 'Ver información de la hoja de cálculo', '查看电子表格信息'),
+  read_sheet_values: t('셀 읽기', 'Read cells', 'Baca sel', 'セルを読む', 'Leer celdas', '读取单元格'),
+  list_sheet_tables: t('시트의 표 보기', 'List tables in a sheet', 'Lihat tabel di sheet', 'シートの表を見る', 'Ver las tablas de una hoja', '查看工作表中的表格'),
+  list_spreadsheet_comments: t('스프레드시트 댓글 보기', 'Read spreadsheet comments', 'Baca komentar spreadsheet', 'スプレッドシートのコメントを見る', 'Leer los comentarios de la hoja de cálculo', '查看电子表格评论'),
+  create_spreadsheet: t('스프레드시트 만들기', 'Create a spreadsheet', 'Buat spreadsheet', 'スプレッドシートを作成', 'Crear una hoja de cálculo', '创建电子表格'),
+  create_sheet: t('시트 추가', 'Add a sheet', 'Tambahkan sheet', 'シートを追加', 'Añadir una hoja', '添加工作表'),
+  modify_sheet_values: t('셀 쓰기', 'Write cells', 'Tulis sel', 'セルに書き込む', 'Escribir celdas', '写入单元格'),
+  append_table_rows: t('표에 행 추가', 'Add rows to a table', 'Tambahkan baris ke tabel', '表に行を追加', 'Añadir filas a una tabla', '向表格添加行'),
+  format_sheet_range: t('셀 모양 바꾸기', 'Format cells', 'Format sel', 'セルの書式を変更', 'Dar formato a celdas', '设置单元格格式'),
+  manage_conditional_formatting: t('조건부 서식 관리', 'Manage conditional formatting', 'Kelola format bersyarat', '条件付き書式を管理', 'Gestionar el formato condicional', '管理条件格式'),
+  manage_sheet_tab: t('시트 탭 관리', 'Manage a sheet tab', 'Kelola tab sheet', 'シートのタブを管理', 'Gestionar una pestaña de hoja', '管理工作表标签'),
+  resize_sheet_dimensions: t('행·열 크기 바꾸기', 'Resize rows and columns', 'Ubah ukuran baris dan kolom', '行と列のサイズを変更', 'Cambiar el tamaño de filas y columnas', '调整行列大小'),
+  move_sheet_rows: t('행 옮기기', 'Move rows', 'Pindahkan baris', '行を移動', 'Mover filas', '移动行'),
+  manage_named_range: t('이름 있는 범위 관리', 'Manage named ranges', 'Kelola rentang bernama', '名前付き範囲を管理', 'Gestionar rangos con nombre', '管理命名范围'),
 }
 /** a library tool's own words in `L` (GOOGLE_TOOL_WORDS), or null for a tool not listed there */
 export const googleToolWord = (name: string, L: Locale): string | null =>
