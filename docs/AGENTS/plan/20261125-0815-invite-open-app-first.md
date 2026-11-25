@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 08:15
 - Branch: `feat/invite-open-app-first`
-- Status: in progress
+- Status: done
 - Where: web/ (join pages). Why: the owner wants computer browsers to lead with the desktop app (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new default flow on the join pages (no API or data change)
 
@@ -59,4 +59,11 @@ open-app and join-open-app.
 
 ## Result
 
-Filled in at the end.
+Built as planned: `web/src/lib/join-open-app.ts` (rules), `AppFirst` in `web/src/pages/Auth.tsx`, six locales, unit
+tests `web/test/unit/join-open-app.test.ts`, e2e `web/test/e2e/app-first.spec.ts` (screens at 1440 and 390, light and
+dark). The e2e config starts every other spec as a browser that chose the browser, so they keep testing the form.
+"On an https team" uses the existing rule (lib/open-app.ts appComputer), which also allows this machine for development
+and the tests. Real browsers (Chrome on this Mac, a page with the same launch code): no app, the page stays and Download
+leads after 2 s; with an app, Chrome first asks "Open …?", which does not blur the page, so the page leads with
+Download until the person accepts the prompt (then a later blur switches it to "opened"). Safari and Windows were not
+checked by hand (see the PR).

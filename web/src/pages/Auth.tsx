@@ -1068,7 +1068,7 @@ function AppFirst({ href, onBrowser }: { href: string; onBrowser: () => void }) 
       {primary === 'open' ? openButton : downloadLink}
       <div className="mt-4 flex flex-col items-center gap-2 text-sm md:gap-3">
         {primary === 'open' ? downloadLink : openButton}
-        <button type="button" className={quiet} onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
+        <button type="button" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={onBrowser} data-testid="app-first-browser">{t('auth.continueInBrowser')}</button>
       </div>
     </div>
   )
