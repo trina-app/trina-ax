@@ -91,3 +91,13 @@ test('no hints: no sections; not a move: never asked', async () => {
     expect(calls.some((c) => c.url.includes('move-suggestions'))).toBe(false)
   } finally { await m.unmount() }
 })
+
+test('suggestWiden (a move meant to share) tells the server; without it the body is unchanged', async () => {
+  const m = await mount(<FolderPicker open title="Move" confirmLabel="Move here" initial="" suggestFor={['users/me/q1.xlsx']} suggestWiden onPick={() => {}} onClose={() => {}} />)
+  try {
+    await m.until(() => calls.some((c) => c.url === '/api/files/move-suggestions'), 'the request')
+    expect(calls.find((c) => c.url === '/api/files/move-suggestions')?.body).toEqual({ paths: ['users/me/q1.xlsx'], widen: true })
+  } finally {
+    await m.unmount()
+  }
+})
