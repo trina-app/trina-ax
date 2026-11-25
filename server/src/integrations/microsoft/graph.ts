@@ -42,10 +42,14 @@ export function graphErrorText(e: GraphError): string {
   return `Microsoft 365 answered ${e.status}${said ? ` (${said})` : ''}.${hint}`
 }
 
+/** OData system query options, written in a call's query without their `$` (it is added here) */
+const ODATA = new Set(['select', 'top', 'orderby', 'expand', 'search', 'filter', 'skip', 'count'])
+
 export interface GraphCall {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH'
   /** a path under /v1.0 ("/me/messages") or a full https address Graph gave (a next page) */
   path: string
+  /** query parameters; OData's system options are written without their `$` (`select`, `top`: ODATA) */
   query?: Record<string, string | number | undefined>
   json?: unknown
   /** raw bytes (an upload) with their type */
@@ -58,9 +62,12 @@ export class Graph {
   constructor(private token: string, private net: NetOptions, private signal?: AbortSignal) {}
 
   private url(c: GraphCall): string {
+    // a path this code built: no "." or ".." segment (an id like ".." would move the request to another Graph path) and
+    // no query or fragment of its own
+    if (!c.path.startsWith('https://') && (/[?#]/.test(c.path) || c.path.split('/').some((x) => x === '.' || x === '..' || /^%2e(%2e)?$/i.test(x)))) throw new GraphError(400, 'invalidAddress', 'not a Microsoft Graph address')
     const u = new URL(c.path.startsWith('https://') ? c.path : GRAPH + c.path)
     if (u.origin !== 'https://graph.microsoft.com') throw new GraphError(400, 'invalidAddress', 'not a Microsoft Graph address')
-    for (const [k, v] of Object.entries(c.query ?? {})) if (v !== undefined && v !== '') u.searchParams.set(k, String(v))
+    for (const [k, v] of Object.entries(c.query ?? {})) if (v !== undefined && v !== '') u.searchParams.set(ODATA.has(k) ? `$${k}` : k, String(v))
     return u.href
   }
 

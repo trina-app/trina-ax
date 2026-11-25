@@ -788,9 +788,13 @@ process), unlike the Google apps' library.
   Mail.Send Calendars.ReadWrite Files.ReadWrite.All Sites.Read.All Chat.ReadWrite` (none needs an admin's consent in a
   tenant that lets people consent to apps), and no `resource` (Microsoft's v2.0 sign-in refuses it). Personal, team
   (an admin signs in once) and template connections all use it; an own app on the connection wins (Advanced › "Sign in
-  with my own app": the company's Entra app; its client ID and secret are enough, Microsoft's `common` addresses and
-  these scopes are filled in).
+  with my own app": the company's Entra app; its client ID and secret are enough for a multitenant app, Microsoft's
+  `common` addresses and these scopes are filled in; a single-tenant app also gives its sign-in and token addresses
+  with its directory ID, since Entra refuses `common` for it).
 - **Where the browser comes back**, by where Connect was pressed:
+
+  All of them go under the **Web** platform: the app has a client secret, and Entra refuses a secret for an address
+  registered as "Mobile and desktop".
 
   | Where | Return address sent to Microsoft | In the Entra app (Authentication › Web) |
   |---|---|---|

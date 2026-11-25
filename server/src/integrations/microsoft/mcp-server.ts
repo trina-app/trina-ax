@@ -69,7 +69,7 @@ function addresses(a: Args, k: string): string[] {
 /** a Graph id as Graph writes them (base64-like, with - _ = and !, :, . in some) */
 const id = (a: Args, k: string, o: { required?: boolean } = { required: true }): string | undefined => {
   const v = str(a, k, { max: 1024, required: o.required })
-  if (v !== undefined && !/^[A-Za-z0-9!:._=+/@-]{1,1024}$/.test(v)) throw new ArgError(`${k} is not an id from a search or list result`)
+  if (v !== undefined && (!/^[A-Za-z0-9!:._=+/@-]{1,1024}$/.test(v) || /^\.{1,2}$/.test(v) || v.includes('..'))) throw new ArgError(`${k} is not an id from a search or list result`)
   return v
 }
 const seg = (v: string) => encodeURIComponent(v)
@@ -127,8 +127,8 @@ const TOOLS: Tool[] = [
       const folder = str(a, 'folder') ?? 'inbox'
       if (!FOLDERS.has(folder)) throw new ArgError(`folder must be one of ${[...FOLDERS].join(', ')}`)
       const r = q
-        ? await g.call({ path: '/me/messages', query: { $search: `"${q.replace(/["\\]/g, ' ')}"`, $top: top, $select: MAIL_FIELDS } })
-        : await g.call({ path: `/me/mailFolders/${folder}/messages`, query: { $top: top, $orderby: 'receivedDateTime desc', $select: MAIL_FIELDS } })
+        ? await g.call({ path: '/me/messages', query: { search: `"${q.replace(/["\\]/g, ' ')}"`, top: top, select: MAIL_FIELDS } })
+        : await g.call({ path: `/me/mailFolders/${folder}/messages`, query: { top: top, orderby: 'receivedDateTime desc', select: MAIL_FIELDS } })
       const items = (r?.value ?? []).map(mailSummary)
       return { messages: items, ...(r?.['@odata.nextLink'] ? { more: true } : {}) }
     },
@@ -138,10 +138,10 @@ const TOOLS: Tool[] = [
     description: 'Read one Outlook mail by its id (from mail_search): sender, recipients, the whole body as text, and its attachments listed by name and size.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     async run(g, a) {
-      const m = await g.call({ path: `/me/messages/${seg(id(a, 'id')!)}`, query: { $select: `${MAIL_FIELDS},ccRecipients,body,conversationId` }, headers: [['Prefer', 'outlook.body-content-type="text"']] })
+      const m = await g.call({ path: `/me/messages/${seg(id(a, 'id')!)}`, query: { select: `${MAIL_FIELDS},ccRecipients,body,conversationId` }, headers: [['Prefer', 'outlook.body-content-type="text"']] })
       const out: Record<string, unknown> = { ...mailSummary(m), preview: undefined, cc: (m?.ccRecipients ?? []).map(who), conversationId: m?.conversationId, body: cut(String(m?.body?.content ?? '')) }
       if (m?.hasAttachments) {
-        const at = await g.call({ path: `/me/messages/${seg(m.id)}/attachments`, query: { $select: 'name,size,contentType' } })
+        const at = await g.call({ path: `/me/messages/${seg(m.id)}/attachments`, query: { select: 'name,size,contentType' } })
         out.attachments = (at?.value ?? []).map((x: any) => ({ name: x.name, size: x.size, type: x.contentType }))
       }
       return out
@@ -149,15 +149,17 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'mail_draft', title: 'Write mail draft', readOnly: false,
-    description: 'Write an Outlook draft the user can check and send later (or send with mail_send_draft). reply_to: a mail id to answer (the draft replies to its sender, or everyone with reply_all). body is plain text unless html is true.',
+    description: 'Write an Outlook draft the user can check and send later (or send with mail_send_draft). reply_to: a mail id to answer (the draft replies to its sender, or everyone with reply_all; to and cc add people). body is plain text unless html is true.',
     inputSchema: { type: 'object', properties: { to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } }, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'boolean' }, reply_to: { type: 'string' }, reply_all: { type: 'boolean' } } },
     async run(g, a) {
       const replyTo = id(a, 'reply_to', { required: false })
       let d: any
       if (replyTo) {
         d = await g.call({ method: 'POST', path: `/me/messages/${seg(replyTo)}/${bool(a, 'reply_all') ? 'createReplyAll' : 'createReply'}`, json: { comment: str(a, 'body', { max: 1_000_000 }) ?? '' } })
+        // more people: added to the ones the reply has (a PATCH replaces the whole list)
         const extra = { to: addresses(a, 'to'), cc: addresses(a, 'cc') }
-        if (extra.to.length || extra.cc.length) d = await g.call({ method: 'PATCH', path: `/me/messages/${seg(d.id)}`, json: { ...(extra.to.length ? { toRecipients: recipients(extra.to) } : {}), ...(extra.cc.length ? { ccRecipients: recipients(extra.cc) } : {}) } })
+        const merged = (have: any[] | undefined, more: string[]) => [...(have ?? []), ...recipients(more.filter((x) => !(have ?? []).some((r: any) => r?.emailAddress?.address?.toLowerCase() === x.toLowerCase())))]
+        if (extra.to.length || extra.cc.length) d = await g.call({ method: 'PATCH', path: `/me/messages/${seg(d.id)}`, json: { ...(extra.to.length ? { toRecipients: merged(d?.toRecipients, extra.to) } : {}), ...(extra.cc.length ? { ccRecipients: merged(d?.ccRecipients, extra.cc) } : {}) } })
       } else {
         const { message } = mailMessage(a)
         d = await g.call({ method: 'POST', path: '/me/messages', json: message })
@@ -171,7 +173,7 @@ const TOOLS: Tool[] = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     async run(g, a) {
       const d = id(a, 'id')!
-      const m = await g.call({ path: `/me/messages/${seg(d)}`, query: { $select: 'id,subject,toRecipients,ccRecipients,bccRecipients,isDraft' } })
+      const m = await g.call({ path: `/me/messages/${seg(d)}`, query: { select: 'id,subject,toRecipients,ccRecipients,bccRecipients,isDraft' } })
       if (m && m.isDraft === false) throw new ArgError('that mail is not a draft')
       await g.call({ method: 'POST', path: `/me/messages/${seg(d)}/send` })
       return { sent: true, subject: m?.subject, to: (m?.toRecipients ?? []).map(who), cc: (m?.ccRecipients ?? []).map(who) }
@@ -179,7 +181,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'mail_send', title: 'Send mail', readOnly: false,
-    description: 'Send an Outlook mail now (kept in Sent Items). reply_to: a mail id to answer (to its sender, or everyone with reply_all; to adds more people). body is plain text unless html is true.',
+    description: 'Send an Outlook mail now (kept in Sent Items). reply_to: a mail id to answer (to its sender, or everyone with reply_all; to, when given, are the recipients of the reply instead). body is plain text unless html is true.',
     inputSchema: { type: 'object', properties: { to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } }, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'boolean' }, reply_to: { type: 'string' }, reply_all: { type: 'boolean' } } },
     async run(g, a) {
       const replyTo = id(a, 'reply_to', { required: false })
@@ -203,7 +205,7 @@ const TOOLS: Tool[] = [
       const end = isoTime(a, 'end', false) ?? new Date(Date.parse(start.length === 10 ? start + 'T00:00:00Z' : start) + 7 * 86_400_000).toISOString()
       const r = await g.call({
         path: '/me/calendarView', headers: [['Prefer', `outlook.timezone="${timeZone(a)}"`]],
-        query: { startDateTime: start, endDateTime: end, $top: int(a, 'top', 50, 100), $orderby: 'start/dateTime', $select: 'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink' },
+        query: { startDateTime: start, endDateTime: end, top: int(a, 'top', 50, 100), orderby: 'start/dateTime', select: 'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink' },
       })
       return { events: (r?.value ?? []).map(eventSummary), ...(r?.['@odata.nextLink'] ? { more: true } : {}) }
     },
@@ -239,7 +241,7 @@ const TOOLS: Tool[] = [
       } catch (e) {
         // an account whose organization has no Microsoft Search for it: its own OneDrive only
         if (!(e instanceof GraphError) || e.status !== 400) throw e
-        const r = await g.call({ path: `/me/drive/root/search(q='${q.replace(/'/g, "''")}')`, query: { $top: top } })
+        const r = await g.call({ path: `/me/drive/root/search(q='${encodeURIComponent(q.replace(/'/g, "''"))}')`, query: { top: top } })
         return { files: (r?.value ?? []).map(fileSummary), note: 'Only the user\'s own OneDrive was searched.' }
       }
     },
@@ -252,7 +254,8 @@ const TOOLS: Tool[] = [
       const item = await g.call(itemPath(a))
       if (!item) throw new GraphError(404, 'itemNotFound', 'no such file')
       if (item.folder) {
-        const kids = await g.call({ path: `/drives/${seg(item.parentReference?.driveId ?? '')}/items/${seg(item.id)}/children`, query: { $top: 100 } })
+        const drive = item.parentReference?.driveId
+        const kids = await g.call({ path: `${drive ? `/drives/${seg(drive)}` : '/me/drive'}/items/${seg(item.id)}/children`, query: { top: 100 } })
         return { folder: fileSummary(item), children: (kids?.value ?? []).map(fileSummary) }
       }
       const url = item['@microsoft.graph.downloadUrl']
@@ -296,7 +299,13 @@ const TOOLS: Tool[] = [
     description: 'The user\'s Microsoft Teams chats (one-on-one, group and meeting chats), newest first, with members and the last message. Answers chat ids for teams_read_chat and teams_send.',
     inputSchema: { type: 'object', properties: { top: { type: 'integer', minimum: 1, maximum: 50 } } },
     async run(g, a) {
-      const r = await g.call({ path: '/me/chats', query: { $top: int(a, 'top', 25, 50), $expand: 'members,lastMessagePreview', $orderby: 'lastMessagePreview/createdDateTime desc' } })
+      const top = int(a, 'top', 25, 50)
+      let r: any
+      try { r = await g.call({ path: '/me/chats', query: { top, expand: 'members,lastMessagePreview', orderby: 'lastMessagePreview/createdDateTime desc' } }) } catch (e) {
+        // a tenant or version that takes one expansion at a time: the last messages, newest first, without the members
+        if (!(e instanceof GraphError) || e.status !== 400) throw e
+        r = await g.call({ path: '/me/chats', query: { top, expand: 'lastMessagePreview', orderby: 'lastMessagePreview/createdDateTime desc' } })
+      }
       return {
         chats: (r?.value ?? []).map((c: any) => ({
           id: c.id, topic: c.topic ?? undefined, type: c.chatType, members: (c.members ?? []).map((m: any) => m.displayName).filter(Boolean).slice(0, 20),
@@ -311,7 +320,7 @@ const TOOLS: Tool[] = [
     description: 'The latest messages of one Teams chat by its id (from teams_chats), newest first.',
     inputSchema: { type: 'object', properties: { chat_id: { type: 'string' }, top: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['chat_id'] },
     async run(g, a) {
-      const r = await g.call({ path: `/me/chats/${seg(id(a, 'chat_id')!)}/messages`, query: { $top: int(a, 'top', 30, 50), $orderby: 'createdDateTime desc' } })
+      const r = await g.call({ path: `/me/chats/${seg(id(a, 'chat_id')!)}/messages`, query: { top: int(a, 'top', 30, 50), orderby: 'createdDateTime desc' } })
       return {
         messages: (r?.value ?? []).filter((m: any) => m.messageType === 'message' || !m.messageType).map((m: any) => ({
           from: m.from?.user?.displayName ?? m.from?.application?.displayName, at: m.createdDateTime, text: cut(plainText(String(m.body?.content ?? '')), 4000),
@@ -373,7 +382,7 @@ export async function answerMicrosoftMcp(r: NetRequest, deps: MicrosoftMcpDeps):
     if (msg.method === 'initialize') return reply({ protocolVersion: MCP_PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: 'microsoft-365', version: '1' }, instructions: INSTRUCTIONS })
     if (msg.method === 'tools/list') {
       // whose token it is: a refused one answers 401 here, so the connection asks to sign in again at its check
-      await g.call({ path: '/me', query: { $select: 'id' } })
+      await g.call({ path: '/me', query: { select: 'id' } })
       return reply({
         tools: TOOLS.map((t) => ({
           name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema,

@@ -345,6 +345,9 @@ describe('the tools call Graph', () => {
     const sent = await call(id, 'mail_send', { to: 'Bob <bob@contoso.example>, cy@contoso.example', subject: 'Hi', body: 'Sent text' })
     expect(sent.json).toMatchObject({ sent: true, to: ['bob@contoso.example', 'cy@contoso.example'] })
     expect(JSON.parse(ms.graph('/me/sendMail')[0]!.body)).toMatchObject({ saveToSentItems: true, message: { subject: 'Hi' } })
+    // an id that would move the request to another Graph path, and a search with path characters, stay where they are
+    for (const bad of ['..', '.', 'a/../b']) expect((await call(id, 'mail_send_draft', { id: bad })).r.isError).toBe(true)
+    expect(ms.seen.some((x) => /\/v1\.0\/me\/send$/.test(new URL(x.url).pathname))).toBe(false)
     // a bad address is refused before anything is sent
     const bad = await call(id, 'mail_send', { to: ['not an address'], subject: 'x' })
     expect(bad.r.isError).toBe(true)
