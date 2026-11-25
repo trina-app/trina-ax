@@ -1213,6 +1213,8 @@ export class AppWindow {
       if (clearFailed(cleared)) throw new Error('the in-app browser data could not be cleared')
     }
     if (change.clear || this.o.store.loadBrowserOwner(teamId) !== change.owner) this.o.store.saveBrowserOwner(teamId, change.owner)
+    // an Always on the pane's cards belongs to who is signed in now (pane.ts PendingAlways)
+    if (pane && this.pane === pane) pane.setOwner(change.owner)
   }
 
   /** A fresh identity check after navigation and for every AI browser call, including a session switch.
