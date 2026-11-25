@@ -1,1 +1,0 @@
-- In the desktop app the AI can open a service's sign-up or API key page and guide you there, but it stops when the page shows a key and asks you to copy the key into the connection card yourself. Keys, tokens and passwords the browser reads are hidden before they reach the AI, the chat's records or the logs, and screenshots and scripts on a page that shows a key are refused.
