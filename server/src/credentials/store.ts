@@ -35,6 +35,15 @@ export interface CredMeta {
   /** a team connection whose assignments were all removed with their deleted groups and people (credentials/assignees.ts):
    * switched off, and not switched on again until someone chooses who uses it (service.ts updateCredential) */
   assigneesGone?: boolean
+  /** a refused account: what the provider said (cleaned, never a secret), when it was first marked with this code
+   * (`at`) and when it was last checked (`checkedAt`: confirm.ts, the background re-check); cleared when it works again */
+  refusal?: Refusal
+}
+export interface Refusal {
+  status: number | null; type: string; message: string; code: string; at: string; checkedAt?: string
+  /** marked although its free check passed (refused again right after): the background re-check would only pass it
+   * again, so it is not asked (confirm.ts recheckDue) */
+  checkPasses?: boolean
 }
 
 /** the secret JSON of each kind (never leaves the server) */
@@ -300,7 +309,7 @@ export function stateOf(db: Database, r: CredRow, now: Date, allowed: AllowedKin
 
 function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: AllowedKinds): string | null {
   const key: Partial<Record<CredentialState, keyof typeof CT>> = {
-    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : r.status_code === 'plan_ended' ? 'planEnded' : 'invalid',
+    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : r.status_code === 'plan_ended' ? 'planEnded' : r.status_code === ORG_OAUTH_BLOCKED ? 'orgOauthBlocked' : 'invalid',
     needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', no_credit: 'noCredit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
   if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)
@@ -321,6 +330,8 @@ export function toCredential(cc: CredCtx, r: CredRow, locale: Locale): Credentia
     FROM engine_credential_assignments a LEFT JOIN groups g ON a.subject_type = 'group' AND g.id = a.subject_id LEFT JOIN users u ON a.subject_type = 'user' AND u.id = a.subject_id
     WHERE a.credential_id = ? ORDER BY a.subject_type, name`).all(r.id) as { subjectType: 'group' | 'user'; subjectId: string; name: string }[]
   const m = monthUsage(cc.db, r.id, now)
+  // the provider's answer, while the account is refused
+  const ref = (state === 'invalid' || state === 'needs_reconnect') && meta.refusal && (meta.refusal.type || meta.refusal.message) ? meta.refusal : null
   return {
     id: r.id, kind: r.kind, label: r.label, scope: r.owner_user_id ? 'personal' : 'team', owner, assignments: asg,
     priority: r.priority, disabled: !!r.disabled, state, detail: detailOf(r, state, locale, cc.allowedKinds), hint: r.hint, planType: meta.planType ?? null,
@@ -328,6 +339,7 @@ export function toCredential(cc: CredCtx, r: CredRow, locale: Locale): Credentia
     checkedAt: r.checked_at, lastUsedAt: r.last_used_at,
     spendLimit: { usd: r.spend_limit_usd, tokens: r.spend_limit_tokens, action: r.spend_limit_action },
     month: { usd: Math.round(m.usd * 1e6) / 1e6, tokens: m.tokens, requests: m.requests }, createdAt: r.created_at,
+    providerError: ref ? { status: ref.status, type: ref.type, message: ref.message, at: ref.checkedAt ?? ref.at } : null,
   }
 }
 
@@ -340,15 +352,58 @@ function standIn(cc: CredCtx, r: CredRow): boolean {
   return true
 }
 
-/** mark a connection refused by its provider (401) and tell the admins (once an hour) */
-export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null) {
+/** status_code of a Claude subscription whose organization does not allow OAuth right now (proxy/anthropic-refusal.ts):
+ * refused, but re-checked by itself (confirm.ts recheckRefused) */
+export const ORG_OAUTH_BLOCKED = 'org_oauth_blocked'
+
+/** SQL: the row's meta with `refusal` set to the JSON parameter (CredMeta.refusal) */
+const SET_REFUSAL = `json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.refusal', json(?))`
+/** SQL: the row's meta without `refusal` */
+export const CLEAR_REFUSAL = `json_remove(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.refusal')`
+/** the saved answer of a refusal with this code: `at` stays when the code did not change */
+function refusalOf(cc: CredCtx, r: CredRow, code: string, upstreamStatus: number | null, error: ProviderAnswer | null | undefined, checkPasses = false): Refusal {
+  const now = new Date(cc.now()).toISOString()
+  const old = metaOf(r).refusal
+  const same = r.status === 'invalid' && r.status_code === code
+  return { status: error?.status ?? upstreamStatus, type: error?.type ?? '', message: error?.message ?? '', code, at: same && old?.at ? old.at : now, checkedAt: now, ...(checkPasses ? { checkPasses } : {}) }
+}
+/** what a provider said, already cleaned (proxy/anthropic-refusal.ts providerError) */
+export interface ProviderAnswer { status: number; type: string; message: string }
+
+/** mark a connection refused by its provider and tell the admins (once an hour). `error`: the provider's answer
+ * (cleaned), kept on the row and shown in its details; `quiet`: no notice (an admin's own "Check again"). */
+export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null, o: { error?: ProviderAnswer | null; quiet?: boolean; checkPasses?: boolean } = {}) {
   const r = getRow(cc.db, id)
   if (!r) return
   if (standIn(cc, r)) return
-  cc.db.query("UPDATE engine_credentials SET status = 'invalid', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
-  if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid' } })
-  cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus })
-  notifyAboutConnection(cc, r, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnRejected', { label: r.label }))
+  cc.db.query(`UPDATE engine_credentials SET status = 'invalid', status_code = ?, meta = ${SET_REFUSAL}, updated_at = ? WHERE id = ?`)
+    .run(code, JSON.stringify(refusalOf(cc, r, code, upstreamStatus, o.error, o.checkPasses)), new Date(cc.now()).toISOString(), id)
+  if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid', code } })
+  cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus, code })
+  if (!o.quiet) notifyAboutConnection(cc, r, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnRejected', { label: r.label }))
+}
+
+/** A refused account answered a re-check (confirm.ts): a new code or answer, and when it was checked, without a new
+ * notice; only while the row is as it was read (`updatedAt`), so a newer token, switch-off or mark is never undone. */
+export function noteRecheck(cc: CredCtx, r: CredRow, o: { code?: string; upstreamStatus?: number | null; error?: ProviderAnswer | null }): boolean {
+  const now = new Date(cc.now()).toISOString()
+  const old = metaOf(r).refusal
+  // unclear: only when it was checked (an old row without a saved answer stays one, so it is still checked once)
+  const ref: Refusal = o.code ? refusalOf(cc, r, o.code, o.upstreamStatus ?? null, o.error) : { ...(old ?? { status: null, type: '', message: '', code: r.status_code ?? '', at: r.updated_at }), checkedAt: now }
+  const res = cc.db.query(`UPDATE engine_credentials SET status_code = ?, meta = ${SET_REFUSAL} WHERE id = ? AND status = 'invalid' AND updated_at = ?`)
+    .run(o.code ?? r.status_code, JSON.stringify(ref), r.id, r.updated_at)
+  if (res.changes && o.code && o.code !== r.status_code) audit(cc.db, { actor: null, action: 'credential.rejected', target: r.id, detail: { kind: r.kind, upstreamStatus: o.upstreamStatus ?? null, newStatus: 'invalid', code: o.code, by: 'recheck' } })
+  return res.changes > 0
+}
+
+/** A refused account works again (its check was accepted): ok, its code and saved answer cleared, checked now. With
+ * `updatedAt`, only when the row did not change since it was read (the background re-check waited on the network). */
+export function markRecovered(cc: CredCtx, id: string, updatedAt?: string): boolean {
+  const now = new Date(cc.now()).toISOString()
+  const res = updatedAt === undefined
+    ? cc.db.query(`UPDATE engine_credentials SET status = 'ok', status_code = NULL, meta = ${CLEAR_REFUSAL}, checked_at = ?, updated_at = ? WHERE id = ? AND status = 'invalid'`).run(now, now, id)
+    : cc.db.query(`UPDATE engine_credentials SET status = 'ok', status_code = NULL, meta = ${CLEAR_REFUSAL}, checked_at = ?, updated_at = ? WHERE id = ? AND status = 'invalid' AND updated_at = ?`).run(now, now, id, updatedAt)
+  return res.changes > 0
 }
 /** an API key Anthropic answered "credit balance too low": held out for NO_CREDIT_HOLD_MS, the owner and admins told */
 export function markNoCredit(cc: CredCtx, id: string) {
