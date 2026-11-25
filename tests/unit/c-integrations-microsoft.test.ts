@@ -13,6 +13,7 @@ import path from 'node:path'
 import { harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 import { integrationsOf, type Integrations } from '../../server/src/integrations/connections/service'
 import { getRow } from '../../server/src/integrations/connections/store'
+import { keepToolAllow, toolAllowed } from '../../server/src/integrations/connections/tool-allow'
 import type { NetOptions, NetRequest } from '../../server/src/integrations/connections/net'
 import { MICROSOFT_SCOPE, microsoftAppFile, microsoftAppOf, readMicrosoftApp } from '../../server/src/integrations/microsoft/app'
 import { MICROSOFT_TOOLS, plainText, zonedToUtc } from '../../server/src/integrations/microsoft/mcp-server'
@@ -51,7 +52,7 @@ class FakeMicrosoft {
   /** Graph answers this to every call whose path starts with the key */
   errors = new Map<string, { status: number; code: string; message: string }>()
   /** who Graph says is signed in (/me) */
-  me: Record<string, unknown> = { displayName: 'Olga Ivanova', mail: 'olga@contoso.example', userPrincipalName: 'olga@contoso.onmicrosoft.com' }
+  me: Record<string, unknown> = { id: 'olga-id-1', displayName: 'Olga Ivanova', mail: 'olga@contoso.example', userPrincipalName: 'olga@contoso.onmicrosoft.com' }
 
   code(challenge: string, redirect: string, scope: string) { const c = `code-${++this.n}`; this.codes.set(c, { challenge, redirect, scope }); return c }
   graph(path: string) { return this.seen.filter((s) => s.url.startsWith('https://graph.microsoft.com/v1.0' + path)) }
@@ -85,7 +86,7 @@ class FakeMicrosoft {
 
   private graphAnswer(method: string, p: string, u: URL, body: string) {
     const json = (status: number, j: unknown) => ({ status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(j) })
-    if (p === '/me') return json(200, { id: 'me-1', ...this.me })
+    if (p === '/me') return u.searchParams.get('$select') === 'id' ? json(200, { id: this.me.id ?? 'me-1' }) : json(200, this.me)
     if (p === '/me/messages' && method === 'GET') return json(200, { value: [{ id: 'm1', subject: 'Plan', from: { emailAddress: { name: 'Ann', address: 'ann@contoso.example' } }, toRecipients: [], receivedDateTime: '2026-11-24T09:00:00Z', bodyPreview: 'hi', isRead: false, hasAttachments: false, webLink: 'https://outlook.office.com/m1' }] })
     if (p === '/me/messages/m1' && method === 'GET') return json(200, { id: 'm1', subject: 'Plan', from: { emailAddress: { address: 'ann@contoso.example' } }, body: { contentType: 'text', content: 'The whole mail' }, hasAttachments: true, ccRecipients: [] })
     if (p === '/me/messages/m1/attachments') return json(200, { value: [{ name: 'plan.pdf', size: 1234, contentType: 'application/pdf' }] })
@@ -304,43 +305,88 @@ test('a single-tenant own app with its tenant\'s addresses and no scope gets the
 
 describe('the account it is signed in to', () => {
   const account = async (id: string) => (await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === id).account
-  test('named after the sign-in (its mail address), replaced by another account on a reconnect', async () => {
+  const meCalls = () => ms.graph('/me?').filter((s) => new URL(s.url).searchParams.get('$select') !== 'id').length
+  const olgaId = () => (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id
+
+  test('named after the sign-in (its sign-in name), replaced by another account on a reconnect', async () => {
     putApp()
     const c = await olga.call('POST', '/api/integrations', m365(), PUBLIC)
     expect(await account(c.id)).toBeNull()
     await signIn(olga, c.id)
-    expect(await account(c.id)).toBe('olga@contoso.example')
-    expect(ms.graph('/me?').some((s) => new URL(s.url).searchParams.get('$select') === 'displayName,mail,userPrincipalName')).toBe(true)
-    // signed in again with another Microsoft account: that one's name
-    ms.me = { displayName: 'Ben', mail: 'ben@contoso.example', userPrincipalName: 'ben@contoso.onmicrosoft.com' }
+    expect(await account(c.id)).toBe('olga@contoso.onmicrosoft.com')
+    expect(ms.graph('/me?').some((s) => new URL(s.url).searchParams.get('$select') === 'id,displayName,mail,userPrincipalName')).toBe(true)
+    ms.me = { id: 'ben-id-2', displayName: 'Ben', mail: 'ben@contoso.example', userPrincipalName: 'ben@contoso.onmicrosoft.com' }
     await signIn(olga, c.id)
-    expect(await account(c.id)).toBe('ben@contoso.example')
+    expect(await account(c.id)).toBe('ben@contoso.onmicrosoft.com')
   })
 
-  test('no mailbox: the sign-in name, else the display name; a value with control characters is not used', async () => {
+  test('no sign-in name: the mail address, else the display name; invisible and bidi characters removed, control characters refused', async () => {
     putApp()
     const c = await olga.call('POST', '/api/integrations', m365(), PUBLIC)
-    ms.me = { displayName: 'Olga', mail: null, userPrincipalName: 'olga@contoso.onmicrosoft.com' }
+    ms.me = { id: 'olga-id-1', displayName: 'Olga', mail: 'ol\u200bga@contoso.\u202eexample', userPrincipalName: null }
     await signIn(olga, c.id)
-    expect(await account(c.id)).toBe('olga@contoso.onmicrosoft.com')
-    ms.me = { displayName: 'Olga', mail: 'bad\nline@contoso.example', userPrincipalName: null }
+    expect(await account(c.id)).toBe('olga@contoso.example')
+    ms.me = { id: 'olga-id-1', displayName: 'Olga\u2066', mail: 'bad\nline@contoso.example', userPrincipalName: '' }
     await signIn(olga, c.id)
     expect(await account(c.id)).toBe('Olga')
   })
 
-  test('Graph does not name it: the sign-in still works, without the earlier account\'s name; the next check names it', async () => {
+  test('an Always allow given before the account was named still applies after; the same account again keeps it, another account asks again', async () => {
     putApp()
     const c = await olga.call('POST', '/api/integrations', m365(), PUBLIC)
     await signIn(olga, c.id)
-    expect(await account(c.id)).toBe('olga@contoso.example')
-    ms.me = {}
+    // as a connection signed in before this fix: no account stored, and the person's Always given then
+    h.ctx.db.query('UPDATE integrations SET account = NULL WHERE id = ?').run(c.id)
+    keepToolAllow(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search', null)
+    expect(toolAllowed(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search')).toBe(true)
+    await svc.check(getRow(h.ctx.db, c.id)!)
+    expect(await account(c.id)).toBe('olga@contoso.onmicrosoft.com')
+    expect(toolAllowed(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search')).toBe(true)
+    // renamed at Microsoft, same account: still allowed
+    ms.me = { ...ms.me, userPrincipalName: 'olga.i@contoso.onmicrosoft.com' }
+    await signIn(olga, c.id)
+    expect(await account(c.id)).toBe('olga.i@contoso.onmicrosoft.com')
+    expect(toolAllowed(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search')).toBe(true)
+    // Graph does not answer on a reconnect: the account and the Always stay
+    ms.errors.set('/me', { status: 503, code: 'serviceUnavailable', message: 'busy' })
+    await signIn(olga, c.id)
+    ms.errors.clear()
+    expect(await account(c.id)).toBe('olga.i@contoso.onmicrosoft.com')
+    expect(toolAllowed(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search')).toBe(true)
+    // later (after the retry wait), another account: asked again
+    ms.now += 11 * 60_000
+    ms.me = { id: 'ben-id-2', userPrincipalName: 'ben@contoso.onmicrosoft.com' }
+    await svc.check(getRow(h.ctx.db, c.id)!)
+    expect(await account(c.id)).toBe('ben@contoso.onmicrosoft.com')
+    expect(toolAllowed(h.ctx.db, getRow(h.ctx.db, c.id)!, olgaId(), 'mail_search')).toBe(false)
+  })
+
+  test('Graph names no one: the sign-in still works with no account, and /me is not asked again on every check', async () => {
+    putApp()
+    const c = await olga.call('POST', '/api/integrations', m365(), PUBLIC)
+    ms.me = { id: 'olga-id-1' }
     await signIn(olga, c.id)
     const after = (await olga.call('GET', '/api/integrations')).items.find((i: any) => i.id === c.id)
     expect(after).toMatchObject({ status: 'connected', hasSecret: true, account: null })
-    // signed in before this was named (or Graph was busy then): a check names it
-    ms.me = { mail: 'olga@contoso.example' }
+    const n = meCalls()
     await svc.check(getRow(h.ctx.db, c.id)!)
-    expect(await account(c.id)).toBe('olga@contoso.example')
+    await svc.check(getRow(h.ctx.db, c.id)!)
+    expect(meCalls()).toBe(n)
+  })
+
+  test('Graph does not answer at the first sign-in: tried once, again only after the wait; then named', async () => {
+    putApp()
+    const c = await olga.call('POST', '/api/integrations', m365(), PUBLIC)
+    ms.errors.set('/me', { status: 503, code: 'serviceUnavailable', message: 'busy' })
+    await signIn(olga, c.id)
+    ms.errors.clear()
+    expect(await account(c.id)).toBeNull()
+    const n = meCalls()
+    await svc.check(getRow(h.ctx.db, c.id)!)
+    expect(meCalls()).toBe(n)
+    ms.now += 11 * 60_000
+    await svc.check(getRow(h.ctx.db, c.id)!)
+    expect(await account(c.id)).toBe('olga@contoso.onmicrosoft.com')
     expect(everything()).not.toContain('CANARY-access-')
   })
 })

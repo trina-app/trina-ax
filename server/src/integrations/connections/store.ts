@@ -4,6 +4,7 @@
 // checked like Drive's (owned by the server account, 0700, no links). Who may use a connection is decided here.
 import { isGuestUser } from '../../credentials/guest-ai'
 import type { Database } from 'bun:sqlite'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { presetReads, type GoogleAppId, type Integration, type IntegrationAccess, type Locale, type OAuthClientView, type Role } from '@mycel/shared/api'
@@ -230,6 +231,29 @@ export function signsTeamGoogleApp(db: Database, user: string, except?: string):
     WHERE i.scope = 'team' AND i.google_app IS NOT NULL AND i.secret_enc IS NOT NULL AND s.user_id = ? AND i.id != ? LIMIT 1`).get(user, except ?? '')
 }
 
+/** A Microsoft 365 connection's account (connections/service.ts nameMicrosoftAccount), kept as JSON:
+ * `{ microsoft: <Graph /me id or null>, label: <what people read or null>, check?: true }`. `microsoft` is the stable
+ * account the "Always allow" answers are bound to (accountKey), never the label, which Microsoft may rename; `check`:
+ * Graph did not answer at the last sign-in, so the next check reads it again. Any other account is kept as it is. */
+export interface MicrosoftAccount { microsoft: string | null; label: string | null; check?: true }
+export function microsoftAccountIn(account: string | null | undefined): MicrosoftAccount | null {
+  if (!account || account[0] !== '{') return null
+  try {
+    const v = JSON.parse(account) as Record<string, unknown> | null
+    if (!v || typeof v !== 'object' || !('microsoft' in v)) return null
+    const str = (x: unknown) => (typeof x === 'string' && x ? x : null)
+    return { microsoft: str(v.microsoft), label: str(v.label), ...(v.check === true ? { check: true as const } : {}) }
+  } catch { return null }
+}
+/** What people read as the connection's account: a Microsoft 365 one's label, any other as stored */
+export const accountLabel = (account: string | null): string | null => { const m = microsoftAccountIn(account); return m ? m.label : account }
+/** What a person's choices for a connection are bound to as its account (tool-allow.ts sharedBind, tools.ts sharedKey):
+ * a Microsoft 365 connection's Graph id (empty while unknown, as before it was named), any other its stored account */
+export function accountKey(account: string | null): string {
+  const m = microsoftAccountIn(account)
+  return crypto.createHash('sha256').update(m ? (m.microsoft ? `microsoft:${m.microsoft}` : '') : account ?? '').digest('hex').slice(0, 16)
+}
+
 /** The Google address a connection's, a Drive connection's or a Drive share's account was confirmed with (JSON with
  * `email`), lowercased; null when none is stored. */
 export function googleEmailOf(account: string | null | undefined): string | null {
@@ -331,7 +355,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
     // an app on the computer has no address (its url is a placeholder, local.ts): its command is `local`
     id: row.id, scope: row.scope, kind: kindOf(row), name: row.name, slug: row.slug, url: row.local_app ? '' : manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
-    hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
+    hasSecret: !!row.secret_enc, account: accountLabel(row.account), notes: row.notes, writePolicy: row.write_policy, status: row.status,
     // in words this reader can act on: a member on a team connection, or on the address of one made from a team template
     // (an admin changes it there), is told to tell an admin (QA TC-235)
     lastError: reasonText(row.last_error, locale, { address: manage && (!row.template_id || isAdmin(viewer.role)), key: manage }, row.name),

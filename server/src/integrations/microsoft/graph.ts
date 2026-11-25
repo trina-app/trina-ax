@@ -96,11 +96,20 @@ export class Graph {
 
 export const isNetError = (e: unknown): e is NetError => e instanceof NetError
 
-/** The signed-in Microsoft account as people read it (the connection's `account`, Settings › Connectors): its mail
- * address, else its sign-in name (userPrincipalName), else its display name; null when Graph names none usable. One
- * Graph call (`User.Read`, asked for at sign-in). */
-export async function microsoftAccountOf(g: Graph): Promise<string | null> {
-  const me = await g.call<{ displayName?: unknown; mail?: unknown; userPrincipalName?: unknown }>({ path: '/me', query: { select: 'displayName,mail,userPrincipalName' } })
-  const ok = (v: unknown) => (typeof v === 'string' && v.trim() && v.length <= 320 && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(v) ? v.trim() : null)
-  return ok(me?.mail) ?? ok(me?.userPrincipalName) ?? ok(me?.displayName)
+/** bidi controls and zero-width characters: removed from a name Microsoft gives before it is shown */
+const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g
+/** a short name people can read: no control characters, no invisible ones, at most 320 characters */
+export function accountName(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.replace(INVISIBLE, '').trim()
+  return t && t.length <= 320 && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(t) ? t : null
+}
+
+/** The signed-in Microsoft account (one Graph call, `User.Read`, asked for at sign-in): its stable id, which a person's
+ * choices are bound to, and what people read as the connection's account: its sign-in name (userPrincipalName), else
+ * its mail address, else its display name. */
+export async function microsoftMe(g: Graph): Promise<{ id: string | null; label: string | null }> {
+  const me = await g.call<{ id?: unknown; displayName?: unknown; mail?: unknown; userPrincipalName?: unknown }>({ path: '/me', query: { select: 'id,displayName,mail,userPrincipalName' } })
+  const id = typeof me?.id === 'string' && /^[A-Za-z0-9._@:-]{1,128}$/.test(me.id) ? me.id : null
+  return { id, label: accountName(me?.userPrincipalName) ?? accountName(me?.mail) ?? accountName(me?.displayName) }
 }

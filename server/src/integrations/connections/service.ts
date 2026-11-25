@@ -22,8 +22,9 @@ import { codeParts, refusalCode, refusalOf, refusalReason, refusesToken } from '
 import { authorizationUrl, CALLBACK_PATH, canonicalResource, chooseClient, discover, documentOrigins, GrantError, issuerMatches, loopbackClient, loopbackPortOk, loopbackRedirect, manualServer, MAX_SCOPE_CHARS, NoSignInFound, ownClient, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
   accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, offByTeam, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
-  type ClientInfo, type FlowRow, type Row, type Viewer,
+  microsoftAccountIn, type ClientInfo, type FlowRow, type MicrosoftAccount, type Row, type Viewer,
 } from './store'
+import { rebindAccount, sharedBind } from './tool-allow'
 import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
@@ -32,7 +33,7 @@ import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { MICROSOFT_SCOPE, microsoftAppOf, microsoftAppView, microsoftAuthorizeUrl, microsoftTokenUrl } from '../microsoft/app'
 import { answerMicrosoftMcp } from '../microsoft/mcp-server'
-import { Graph, microsoftAccountOf } from '../microsoft/graph'
+import { Graph, microsoftMe } from '../microsoft/graph'
 import { extractText } from '../../files/extract'
 import { APP_NAMES, appTools, isAppTool } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -76,6 +77,8 @@ const PROBE_PORT = 49152
 /** loopbackSeen's key: the sign-in server (its issuer and registration address), never the team's address */
 const loopbackKey = (s: OAuthServer) => JSON.stringify([s.issuer, s.registrationEndpoint])
 const CLIENT_IDLE_MS = 10 * 60_000
+/** after Graph did not name a Microsoft 365 connection's account, how long until a check tries again */
+const MS_NAME_RETRY_MS = 10 * 60_000
 /** earlier secret values remembered per connection for hiding (OAuth tokens rotate; an old one may still work) */
 const RECENT_SECRETS = 16
 /** what is shown instead of an answer when the connection's secret cannot be read to hide it */
@@ -217,6 +220,8 @@ export class Integrations {
   readonly net: NetOptions
   readonly now: () => number
   private clients = new Map<string, McpClient>()
+  /** Microsoft 365 connections whose account Graph did not name at the last try, and when (nameMicrosoftAccount) */
+  private msTried = new Map<string, number>()
   /** an app on the computer: one client per connection, for the window and turn it was made for (local.ts) */
   private localClients = new Map<string, { key: string; client: McpClient }>()
   /** the guide last saved per connection and version (keepInstructions) */
@@ -1035,11 +1040,13 @@ export class Integrations {
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools);
         // how many were left out as too large, so an empty list says why (ConnectionPage.tsx)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread, dropped: dropped.length })
-        // Microsoft 365 signed in before its account was named at sign-in: named now, once
+        // Microsoft 365 whose account is not known yet (signed in before it was named at sign-in, or Graph did not
+        // answer then): named now; after a try Graph did not answer, not again for MS_NAME_RETRY_MS
         const now = getRow(this.db, row.id)
-        if (now && !now.account && now.secret_enc && serverAppAt(now.url) === 'microsoft') {
+        const known = microsoftAccountIn(now?.account)
+        if (now && now.secret_enc && serverAppAt(now.url) === 'microsoft' && (!known || known.check) && this.now() - (this.msTried.get(now.id) ?? -Infinity) >= MS_NAME_RETRY_MS) {
           // the token first: a refresh replaces the stored tokens, and the name goes with the ones stored then
-          try { const token = await this.oauthToken(now, undefined, deadline); const enc = getRow(this.db, row.id)?.secret_enc; if (enc) await this.nameMicrosoftAccount(now.id, enc, token) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
+          try { const token = await this.oauthToken(now, undefined, deadline); const cur = getRow(this.db, row.id); if (cur?.secret_enc) await this.nameMicrosoftAccount(cur.id, cur.secret_enc, token, cur.account) } catch (err) { this.msTried.set(now.id, this.now()); this.ctx.log.warn('microsoft 365 account not named', { id: row.id, err: errorForLog(err) }) }
         }
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
@@ -1070,13 +1077,27 @@ export class Integrations {
     return getRow(this.db, row.id) ?? row
   }
 
-  /** The Microsoft account a Microsoft 365 connection's tokens are for (Graph /me: microsoft/graph.ts), kept as its
-   * `account` while those tokens (`enc`) are the stored ones. Graph not answering leaves it empty (never the account of
-   * an earlier sign-in): the sign-in still works, and the next check names it. */
-  private async nameMicrosoftAccount(id: string, enc: string, token: string): Promise<void> {
-    let account: string | null = null
-    try { account = await microsoftAccountOf(new Graph(token, this.net)) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id, err: errorForLog(err) }) }
-    this.db.query('UPDATE integrations SET account=? WHERE id=? AND secret_enc=?').run(account, id, enc)
+  /** The Microsoft account a Microsoft 365 connection's tokens are for (Graph /me: microsoft/graph.ts microsoftMe), kept
+   * as its `account` (store.ts MicrosoftAccount) while those tokens (`enc`) are the stored ones; `prev`: its account
+   * before. The account's Graph id is what people's "Always allow" answers are bound to (store.ts accountKey):
+   *  - named for the first time (no id before): every answer given while it was unknown follows it (rebindAccount);
+   *  - the same account again: nothing changes for them, whatever its name now;
+   *  - another account: they ask again (bound to the other id);
+   *  - Graph did not answer: the account stays as it was, marked to read again (`check`), at the next check after
+   *    MS_NAME_RETRY_MS; no answer is dropped. Graph answering with no usable name: no label, and not asked again. */
+  private async nameMicrosoftAccount(id: string, enc: string, token: string, prev: string | null): Promise<void> {
+    const before = microsoftAccountIn(prev)
+    let me: { id: string | null; label: string | null } | null = null
+    try { me = await microsoftMe(new Graph(token, this.net)) } catch (err) { this.ctx.log.warn('microsoft 365 account not named', { id, err: errorForLog(err) }) }
+    let next: MicrosoftAccount
+    if (me?.id) { this.msTried.delete(id); next = { microsoft: me.id, label: me.label } }
+    else { this.msTried.set(id, this.now()); next = { microsoft: before?.microsoft ?? null, label: before?.label ?? null, check: true } }
+    const account = JSON.stringify(next)
+    this.db.transaction(() => {
+      if (!this.db.query('UPDATE integrations SET account=? WHERE id=? AND secret_enc=?').run(account, id, enc).changes) return
+      const url = getRow(this.db, id)?.url
+      if (url && !before?.microsoft && next.microsoft) rebindAccount(this.db, id, sharedBind({ url, account: prev }), sharedBind({ url, account }))
+    })()
   }
 
   /** one line for a check the service refused: the status and what it said (sanitized and cut, refusal.ts; no token) */
@@ -1566,7 +1587,7 @@ export class Integrations {
       try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
       // Microsoft 365: the account these tokens are for, named on the connection (another account on a reconnect)
-      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken)
+      if (serverAppAt(cur.url) === 'microsoft') await this.nameMicrosoftAccount(cur.id, sealed.enc, tokens.accessToken, cur.account)
       await this.check(getRow(this.db, cur.id)!)
     } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
     return { ok: true }

@@ -30,7 +30,7 @@ import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
 import { parse as parseHost } from 'tldts'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
-import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
+import { accountKey, bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
 import { getTeamSettings } from '../../admin/settings'
 import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
@@ -267,7 +267,7 @@ async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolCo
 
 /** The shared connection card's key for this answer ("Allow" covers the rest of it): the connection as it is, its
  * version (a new address, key or sign-in, a changed rule) and the account it is signed in to */
-const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
+const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${accountKey(row.account)}`
 
 /** A team file handed to a connection's tool in a shared chat: refused, in plain words */
 const SHARED_NO_TEAM_FILES = (name: string) => refusal({

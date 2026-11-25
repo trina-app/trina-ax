@@ -9,13 +9,12 @@
 // connection card's Always (no tool, SHARED_TOOL: what the connection returns may show to the people in a shared chat),
 // and "<connector> 전체 항상 허용" (ALL_TOOLS, docs/decisions/20261123-one-always-allow.md): every tool of that connection
 // for this person, in every chat and their scheduled runs (each of the above at once), bound and ended the same way.
-import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import type { ConnectorSendAllowance, ConnectorToolAllowance } from '@mycel/shared/api'
 import { audit } from '../../admin/audit'
 import { teamAllowsAlways } from '../../chat/always-allow'
 import { toolTitle } from './card-lines'
-import { savedTools, type Row } from './store'
+import { accountKey, savedTools, type Row } from './store'
 
 /** The tool name of "<connector> 전체 항상 허용": every tool of the connection (a NUL is never in an MCP tool's name) */
 export const ALL_TOOLS = '\u0000all'
@@ -58,12 +57,20 @@ export function keepToolAllow(db: Database, row: Pick<Row, 'id' | 'url' | 'accou
   audit(db, { actor: userId, action: 'ai.always_allow', target: userId, detail: { kind: 'connector_tool', integration: row.id, tool, on: true, via: 'card', turnId } })
 }
 
+/** The connection's account got its key (a Microsoft 365 connection named for the first time: service.ts
+ * nameMicrosoftAccount): every person's choices bound to it while the account was unknown follow it, so none is dropped
+ * (Always allow is final, docs/decisions/20261122-connector-always-allow.md). Only for that first naming, never for a
+ * sign-in to another account (those ask again). */
+export function rebindAccount(db: Database, integrationId: string, from: string, to: string): void {
+  if (from !== to) db.query('UPDATE connector_tool_allow SET url = ? WHERE integration_id = ? AND url = ?').run(to, integrationId, from)
+}
+
 /** The tool name a row has for the shared connection card's Always (no tool: the whole connection's answers) */
 export const SHARED_TOOL = ''
 
 /** What the shared connection card's Always is bound to: the connection's address and the account it is signed in to
  * (a reconnect to another account asks again), never its version (a changed setting does not end a person's choice) */
-export const sharedBind = (row: Pick<Row, 'url' | 'account'>) => `${row.url}#${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
+export const sharedBind = (row: Pick<Row, 'url' | 'account'>) => `${row.url}#${accountKey(row.account)}`
 
 /** The shared connection card's Always (chat/turn.ts confirmSharedConnection), or the whole connection's: this person
  * lets what this connection returns show to the people in any shared chat they ask in, without the card, as things are
