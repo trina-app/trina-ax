@@ -29,6 +29,8 @@ export const Check = z.discriminatedUnion('type', [
   // photos: every changed file that matches `file` is read; `count` of them at least; JPEG, no wider than `maxWidth`, with or without a GPS location
   z.object({ type: z.literal('image'), file: z.string(), count: z.number().int().positive().default(1), format: z.enum(['jpeg', 'png', 'webp']).optional(), maxWidth: z.number().int().positive().optional(), gps: z.enum(['kept', 'removed']).optional(), details: z.enum(['kept', 'removed']).optional() }),
   z.object({ type: z.literal('docx_contains'), file: z.string(), text: z.string() }),
+  /** a Word file or deck holds a native chart with its data workbook (word|ppt/charts/chartN.xml and embeddings/*.xlsx), not only a picture */
+  z.object({ type: z.literal('office_chart'), file: z.string() }),
   z.object({ type: z.literal('pptx_slides'), file: z.string(), min: z.number().int().positive() }),
   z.object({ type: z.literal('file_contains'), path: z.string(), text: z.string() }),
   z.object({ type: z.literal('file_not_contains'), path: z.string(), text: z.string() }),
@@ -65,7 +67,7 @@ const CaseFields = {
   features: z.array(z.string()).min(1),
   /** happy path / another place (context) / another install / a refusal / a cross-feature office flow */
   kind: Kind.default('happy'),
-  lang: z.enum(['ko', 'en']),
+  lang: z.enum(['ko', 'en', 'ja']),
   context: Context,
   /** who asks (a fixture username) */
   as: z.string(),

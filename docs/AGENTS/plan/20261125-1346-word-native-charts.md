@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-25 13:46
 - Branch: `fix/word-native-charts`
-- Status: in progress
+- Status: done
 - Where: server/src/tools (make_file), server/src/files (chart parts, chart read-back), server/src/chat/prompt.ts,
   resources/doc-skills (one added helper). Why: make_file and the save read-back are where every made Office file
   passes (see docs/REPOSITORY-RULES.md)
@@ -54,7 +54,7 @@ Out:
 
 ## Decisions
 
-docs/decisions/20261125-native-charts-default.md: charts in Word and PowerPoint are native by default; one added
+docs/decisions/20261125-word-native-charts.md: charts in Word and PowerPoint are native by default; one added
 helper ships next to the vendored docx skill.
 
 ## Risks
@@ -70,4 +70,10 @@ web unit tests.
 
 ## Result
 
-(filled in at the end)
+Built as planned. make_file's ```chart block writes native charts into .docx and .pptx (tools/office-chart.ts); the
+docx skill gets scripts/word_chart.py; the prompt and make_file words say "native by default"; a saved Word file or deck
+with pictures and no chart is told a chart picture cannot be edited. Measured with the real AI on this Mac's Claude
+Code sign-in (office-mac install, make_file route), new scenario EDIT-19: the Korean QA request, English, Japanese and a
+Korean 3-slide deck each produced one native chart with its data workbook and no picture (4/4). The box_shell route
+(word_chart.py) is tested at unit level with python-docx 1.2.0 / python-pptx 1.0.2; it was not run with the real AI
+here (no Linux run on this Mac).

@@ -15,6 +15,9 @@
   "pptx/scripts/office/validators/base.py",
   "xlsx/scripts/office/validators/base.py"
  ],
+ "added": [
+  "docx/scripts/word_chart.py"
+ ],
  "files": {
   "docx/LICENSE.txt": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
   "docx/SKILL.md": "895d5aa6c4cd98e4aed4c995d846f056f3549086e79bcd6617afea6014f82288",
@@ -38,6 +41,7 @@
   "docx/scripts/templates/commentsExtensible.xml": "bad10b3283e6ad6e7ef6d1ca5169683721ed690ee331282c65df04017e080631",
   "docx/scripts/templates/commentsIds.xml": "db20f9616e004ec42ef736e80c2384e45db0f8d1194d31dc8b37c7d6ecdd6420",
   "docx/scripts/templates/people.xml": "056f63aa1197fd8c9dda980c9f1b9ff016fd5fa4a462df8aec5f384f39d23e37",
+  "docx/scripts/word_chart.py": "39707604f5350034fcb15502e370ab07042532c03727e0e2e05b50581f932348",
   "pdf/FORMS.md": "d5df5757e23634cd8a1a37e092af6c3b3b63afb3fd3ce86337fce9017cc3ee9f",
   "pdf/LICENSE.txt": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
   "pdf/REFERENCE.md": "07af9a8f59e77e88fe9b238a403348244f38a4771c54911c412716d8f88f0ea9",

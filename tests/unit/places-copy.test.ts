@@ -304,6 +304,19 @@ describe('out of chat:work/', () => {
     expect(Buffer.compare(fs.readFileSync(team('users/alice/q3-review.pptx')), deck)).toBe(0)
   })
 
+  test('a Word file with a picture and no native chart is told that a chart picture cannot be edited (live QA 2026-11-25)', async () => {
+    const chat = await personal()
+    // the QA file's shape: the bar chart is word/media/image1.png, there is no word/charts
+    const { readZip, writeZip } = await import('../../server/src/files/zip-write')
+    const withPicture = writeZip([...readZip(docx({ body: 'Report' })).map((e) => ({ name: e.name, data: e.data })), { name: 'word/media/image1.png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }])
+    const p = path.join(chatWork(base, chat), 'out', 'report.docx'); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, withPicture)
+    const saved = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/report.docx', save_as: 'users/alice/' }, sayResult: true }))
+    expect(saved.content).toContain('Saved')
+    expect(saved.content).toContain('it has 1 picture and no native chart')
+    expect(saved.content).toContain('scripts/word_chart.py')
+  })
+
   test('a company template read in this answer vouches for its own exact items in a new filled file; a new one is refused', async () => {
     const chat = await personal()
     const field = (target: string) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">INCLUDEPICTURE "${target}" \\d</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`

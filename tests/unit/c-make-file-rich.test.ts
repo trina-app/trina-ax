@@ -53,7 +53,8 @@ describe('the description', () => {
     expect(d).toContain('{page} and {pages}')
     expect(d).toContain('conditional `when`')
     expect(d).toContain('format "png" saves an SVG')
-    expect(d).toContain('Never say text colours, headers, footers, page numbers, conditional formatting or chart pictures cannot be made')
+    expect(d).toContain('Never say text colours, headers, footers, page numbers, conditional formatting, charts or chart pictures cannot be made')
+    expect(d).toContain('```chart')
   })
 })
 

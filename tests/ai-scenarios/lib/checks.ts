@@ -138,6 +138,14 @@ function one(check: Check, ctx: Ctx): { ok: boolean; detail: string } {
         const t = zipText(f, 'word/document.xml').replace(/<[^>]+>/g, '')
         return { ok: t.includes(check.text), detail: t.includes(check.text) ? `has "${check.text}"` : `no "${check.text}"` }
       })
+    case 'office_chart':
+      return onEach(ctx, check.file, (f) => {
+        const list = zipList(f)
+        const charts = list.filter((m) => /^(word|ppt)\/charts\/chart\d+\.xml$/.test(m)).length
+        const books = list.filter((m) => /^(word|ppt)\/embeddings\/[^/]+\.xlsx$/.test(m)).length
+        const pictures = list.filter((m) => /^(word|ppt)\/media\//.test(m)).length
+        return { ok: charts > 0 && books >= charts, detail: `${charts} native charts, ${books} data workbooks, ${pictures} pictures` }
+      })
     case 'pptx_slides':
       return onEach(ctx, check.file, (f) => {
         const n = zipList(f).filter((m) => /^ppt\/slides\/slide\d+\.xml$/.test(m)).length

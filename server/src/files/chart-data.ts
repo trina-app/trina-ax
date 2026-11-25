@@ -173,6 +173,20 @@ export function chartDataLine(r: ChartDataReview): string {
   return ` Read back: ${n(bad.length, 'chart')} of ${total} cannot be edited in ${app} (right-click > Edit Data finds no numbers): ${list}${bad.length > 10 ? `; and ${bad.length - 10} more` : ''}. ${fix}, then save again; if you cannot, say plainly in your answer that these charts cannot be edited.`
 }
 
+/** a picture part of a Word file or deck (word/media/image1.png, ppt/media/image2.jpeg) */
+const PICTURE_PART = /^(word|ppt)\/media\/[^/]+\.(png|jpe?g|gif|bmp|tiff?|webp|svg|emf|wmf)$/i
+
+/** One line for a Word file or deck with pictures and no native chart (live QA 2026-11-25: a Word report's bar chart was
+ * a PNG, and the answer did not say so), '' without pictures. Read from the zip's part names only. */
+export function pictureChartLine(kind: 'docx' | 'pptx', names: string[]): string {
+  const pictures = names.filter((n) => PICTURE_PART.test(n)).length
+  if (!pictures) return ''
+  const fix = kind === 'pptx'
+    ? 'build it with addChart (pptxgenjs) or add_chart (python-pptx)'
+    : 'put it in with the docx skill\'s scripts/word_chart.py (or a ```chart block in make_file)'
+  return ` Read back: it has ${n(pictures, 'picture')} and no native chart. If one of them is a chart (bars, lines, a pie drawn as a picture), its numbers cannot be edited in ${kind === 'pptx' ? 'PowerPoint' : 'Word'} (right-click > Edit Data finds nothing): ${fix} and save again, unless the person asked for a picture; if it stays a picture, say plainly in your answer that the chart is a picture whose numbers cannot be edited.`
+}
+
 /** The office worker's mode: the .pptx or .docx in, the review as JSON out. */
 export function chartDataRequest(input: Uint8Array): Uint8Array {
   try { return new TextEncoder().encode(JSON.stringify(chartDataReview(input))) } catch (e) {
