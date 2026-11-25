@@ -4,7 +4,7 @@
 //  5 team rules from skills/ (+ the list of team skills, skills.ts)
 //  6 project instructions  7 desktop browser
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
-import { HWPX_GUIDE, HWPX_LOOK } from './hwpx-guide'
+import { HWP_PLUGIN_HINT, HWPX_GUIDE, HWPX_LOOK } from './hwpx-guide'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ARCHIVE_FOLDER, ownFolderLabel, personFolderLabel, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
@@ -1380,6 +1380,8 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool. To change a page of this chat ("make the text bigger"), also one made for someone else here, read it with the artifact tool and save the change with the same key (update or rewrite): a new key makes a second, separate card. To show an earlier version ("show the version before Junho\'s change"), read it with its version number, say what differs, and tell the person it opens in the page\'s panel with the version arrows; restore it only when they ask to go back to it. A web page is opened in a browser after each save: fix the errors the result names before you say it is done. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
     has.has('save_url') ? SAVE_URL_RULE : '',
+    // a sub-agent that researches the web reports figures the assistant passes on as they are
+    has.has('web_fetch') ? WEB_FIGURES_RULE : '',
   ]
   // the company profile is team knowledge like the team rules (a child writing copy needs it), not a fact about the
   // person like the memories, which children never get; the same read check and the same facts framing
@@ -1411,6 +1413,12 @@ export const NO_INVENT_RULE = 'Never invent. Quote people word for word, and say
  * price list, no source named; TC-7245: a total left wrong after a change; TC-b3s-7 / S-102: the answer said the top 3
  * had 77.6% while the page it made computed 66.9% from its own data, and the page showed no date for its data). */
 export const FIGURES_RULE = 'Numbers from files: use the file the user named, else the team\'s current one (shared, group or project folders before an old or personal copy); name it, add up again the totals you use or change, and say when one does not add up and which value you used. A number you state about a file or page you made is the one it shows: compute it once (a command, or the page\'s own data) and reuse that value, never a second calculation in your head. A page or report made from a data file shows its data\'s date by the source, as a tool result gives it (none given: no date).'
+/** Figures and links from the web, for every engine and sub-agent with web_fetch (QA A-11-M, plan
+ * docs/AGENTS/plan/20261125-0851-research-figure-fidelity.md): a cited brief said "71% less burnout" where the source
+ * says 71% of staff reported less burnout. The page had not opened, and the figures came from search result text,
+ * which a search model writes. General, never keyed to one phrase: what a figure counts, read before cited, links from
+ * tool results only, one check before sending. */
+export const WEB_FIGURES_RULE = 'Figures from the web: write each one with what it counts, as the source says it: its unit, base and population (a share of people, firms or workers; percent or percentage points; per person or in total; currency, year and period; "about" or "up to"). "62% of firms reported higher sales" never becomes "sales rose 62%", in any language you write in. State and cite a figure only from a page whose own text you read with web_fetch: the text of a search result is a summary written by the search tool, not the source. When a page will not open, read another page that states the figure (the original report, its PDF, other coverage), or leave the figure out; one you still use is marked as from a search summary, not checked. Link only addresses a tool or the user gave you in this chat (search results, pages you fetched and the links in them), never one you built or remember, and link each figure to the page you read it on. Before you send an answer with figures and sources, check each figure against the text you read and fix any that differ.'
 /** Scenario QA 11-22 S-119: "대한물산 견적서 만들어줘" got a questions card while groups/영업/단가표.xlsx, open to the
  * person, had the prices; a real run then read the 단가표 and still asked quantities, VAT and terms first (in text, then
  * on a card). Sits with fix/ask-less's ACT_FIRST_RULE: defaults shape the work, facts come from the team's
@@ -1443,9 +1451,10 @@ export const DOC_SKILLS_RULE = 'To produce a Word, PowerPoint, Excel or PDF file
 const usesDocSkills = (has: { has(t: string): boolean }) => has.has('box_shell') && has.has('save_work_file') && docSkillsReady()
 
 /** make_file; Hangul (.hwpx) only while Hangul writing is on, which is exactly while edit_hwp is offered (the HWP
- * plugin installed and on, tools/hwp-writing.ts). Otherwise nothing about Hangul documents: a team without the plugin
- * is not told about a feature it did not add. */
-export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false, officeView: boolean = officeViewer() !== null, hwpRender: boolean = false): string {
+ * plugin installed and on, tools/hwp-writing.ts). Otherwise, in a team member's turn (`pluginHint`; not a guest's,
+ * who has no admin to ask by that name, nor a sub-agent's, which does not talk to the person), one line on where to get
+ * it, used only when someone asks for a Hangul file (docs/decisions/20261125-hwp-plugin-hint.md). */
+export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null, docSkills: boolean = false, officeView: boolean = officeViewer() !== null, hwpRender: boolean = false, pluginHint: boolean = false): string {
   // an HTML page becomes a PDF by printing, not through Markdown (files/html-pdf.ts), where this server can print
   const fromHtml = html ? ' An HTML page becomes a PDF with make_file `source` = the .html file and format "pdf": it is printed as a browser prints it; never rewrite HTML as Markdown for that. A PowerPoint deck becomes a PDF with `source` = the .pptx and format "pdf" (a page per slide); never rewrite the slides as a document for that.' : ''
   return (docSkills
@@ -1453,7 +1462,7 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
     : hangul
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
     : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml +
-    (hangul ? ` ${HWPX_GUIDE}${HWPX_LOOK(hwpRender)}` : '') +
+    (hangul ? ` ${HWPX_GUIDE}${HWPX_LOOK(hwpRender)}` : pluginHint ? HWP_PLUGIN_HINT : '') +
     // what the AI can honestly say about a Word or Excel file it made (files/office-view.ts)
     (docSkills ? '' : officeView ? ' Look at a Word or Excel file you made with read as_images before you answer, and fix what you see.' : ' This server cannot show you Word or Excel pages: when you make one, say in one short line of your answer that you did not see how its pages look, and never say you checked.') +
     // second limits audit N4: a chart picture is an SVG saved as PNG by make_file (tools/svg-png.ts)
@@ -1610,6 +1619,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // the card rule of the share words follows the link rule directly)
     NO_INVENT_RULE,
     FIGURES_RULE,
+    tools.has('web_fetch') ? WEB_FIGURES_RULE : '',
     TEAM_FACTS_FIRST_RULE,
     KEEP_VERIFIED_RULE,
     CHECK_MADE_RULE,
@@ -1623,7 +1633,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // without the person's Always allow for folder shares)
     tools.has('share_with_person') || tools.has('post_to_room') ? (tools.has('share_folder') ? REFUSAL_NEXT_RULE_FOLDERS : REFUSAL_NEXT_RULE) : '',
     !i.guest && !i.shared && (tools.has('share_with_person') || tools.has('post_to_room')) ? sendNotConnectedRule(i.locale, tools.has('connect_service')) : '',
-    tools.has('make_file') ? makeFileRule(tools.has('edit_hwp'), undefined, usesDocSkills(tools), undefined, tools.has('hwp_render')) : '',
+    tools.has('make_file') ? makeFileRule(tools.has('edit_hwp'), undefined, usesDocSkills(tools), undefined, tools.has('hwp_render'), !i.guest) : '',
     tools.has('edit_hwp') ? EDIT_HWP_RULE : '',
     tools.has('edit_pdf') || tools.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     tools.has('resize_images') ? RESIZE_IMAGES_RULE : '',
