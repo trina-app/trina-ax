@@ -57,9 +57,9 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
     ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => startShare(chat, share)), testId: `${testId}-share` }] : []),
-    // a chat shared with people, or a project's shared chat, is a conversation: its new messages tell me unless I mute it
-    // (chat/message-notices.ts)
-    ...(chat.shared && !chat.deletedAt ? [chat.muted
+    // a chat shared with people is a conversation: its new messages tell me unless I mute it (chat/message-notices.ts). A
+    // project's shared chat tells nothing but a mention (docs/decisions/20261126-project-chat-mention-only.md): no Mute
+    ...(chat.shared && !chat.projectId && !chat.deletedAt ? [chat.muted
       ? { label: t('chat.unmute'), icon: <Bell size={14} aria-hidden />, onSelect: select(() => actions.toggleMute(chat, onChanged)), testId: `${testId}-unmute` }
       : { label: t('chat.mute'), icon: <BellOff size={14} aria-hidden />, onSelect: select(() => actions.toggleMute(chat, onChanged)), testId: `${testId}-mute` }] : []),
     ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: select(() => actions.hide(chat, onRemoved)), testId: `${testId}-hide` }] : []),

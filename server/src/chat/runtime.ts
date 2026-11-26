@@ -40,7 +40,7 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { hideKeysInStoredMemories, redactorFor } from '../integrations/connections/redact'
 import { findKeysInOldFiles } from '../integrations/connections/file-scan'
 import { memoryLines } from './prompt'
-import { noteSharedMessage, unreadByUser, type Ring } from './message-notices'
+import { isConversationRow, noteSharedMessage, unreadByUser, type Ring } from './message-notices'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { emptyAnswerText } from './step-record'
@@ -1300,7 +1300,8 @@ export class ChatRuntime {
       // view leaving them out; none for a chat in the trash (the trash list has none either)
       const writers = change === 'deleted' || r.deleted_at ? undefined : chatWriters(this.db, [chatId]).get(chatId) ?? []
       // everyone's unread number and mute here, read once (a busy project chat tells its whole audience at once)
-      const unread = o.window ? undefined : unreadByUser(this.db, chatId)
+      // (a chat shared with people only: a project's shared chat has none, chat/message-notices.ts isConversationRow)
+      const unread = o.window || !isConversationRow(r) ? undefined : unreadByUser(this.db, chatId)
       // (its project's people, or the people and groups a chat outside projects is shared with: Audiences.ofChat)
       for (const uid of aud.ofChat(r)) {
         if (o.window && uid !== userId) continue
