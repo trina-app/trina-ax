@@ -30,7 +30,7 @@ In:
 - Older desktop apps: the page sends `pane=<BROWSER_BRIDGE_VERSION>` on /api/ws and the long-poll; the server lists
   file_upload only for a window that said 1 or more, and turns "Malformed browser call." into "update the desktop app".
 - Desktop: fetch each ticket through the team page's session, check size and sha256, write it to
-  `<temp>/<product>-up/<callId>/<i>/<clean name>` (0700/0600), then set it on the page: the file input behind the ref
+  `<app data folder>/<product>-up/<callId>/<i>/<clean name>` (0700/0600), then set it on the page: the file input behind the ref
   (also hidden inputs: DOM.setFileInputFiles), else the chooser the click opens (intercepted while the AI drives), else a
   drop. A one-file field and many files is an error. A computer click that opens a file chooser is suppressed with a
   hint. Temp files go when the tab closes, its site changes, the person changes, the app quits, at start, and over

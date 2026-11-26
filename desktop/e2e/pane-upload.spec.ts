@@ -41,7 +41,7 @@ test.describe('file_upload in the browser pane', () => {
     // crypto.subtle needs a secure origin: the shop is treated as one (as clear-storage.spec.ts does)
     app = await launch(newUserData(), {}, [`--unsafely-treat-insecure-origin-as-secure=${SHOP}`])
     await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
-    root = join(await app.evaluate(({ app: a }) => a.getPath('temp')), `${PRODUCT.id}-up`)
+    root = join(await app.evaluate(({ app: a }) => a.getPath('userData')), `${PRODUCT.id}-up`)
     newTurn()
     const { callId } = await call(ACME, 'navigate', { url: `${SHOP}/upload.html` })
     await answer(app, '이번만 허용', 'site')

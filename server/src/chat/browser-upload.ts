@@ -26,6 +26,7 @@ export const UPLOAD_WORDS: OutgoingWords = {
 
 /** What the old desktop app answers a tool it does not know (main.ts bridge:browser-run, shared parseBrowserToolInput) */
 const OLD_APP = /^(Malformed browser call\.|Unknown browser tool|Invalid input for file_upload)/
+export const BUSY_TEXT = 'Nothing was attached: the server is handing over many files to desktop apps right now. Try again in a minute.'
 export const UPDATE_APP_TEXT = 'Nothing was attached: the desktop app on this computer is too old to attach files to a page. Tell the user in plain words to update the desktop app (it updates itself when restarted, or from Settings › Apps), then ask again; meanwhile they can attach the files in the page themselves.'
 
 /** One file ready to go: the bytes as checked, and the check again right before they are served. */
@@ -53,6 +54,8 @@ export async function prepareBrowserUpload(exec: TurnExec, args: Record<string, 
   const names = (raw as string[]).map((f) => f.trim())
   const chatRefs = names.filter((n) => parsePlace(n)?.kind === 'chatFiles')
   const team = names.filter((n) => parsePlace(n)?.kind !== 'chatFiles').map((n) => ({ handle: n, path: n.startsWith(TEAM_FILE_PREFIX) ? n.slice(TEAM_FILE_PREFIX.length) : n }))
+  // the server's waiting tickets are near their cap: refused before any file is read (realtime/browser-uploads.ts)
+  if (!rt.relay.uploads.fits(BROWSER_UPLOAD_MAX_BYTES)) return no(BUSY_TEXT, 'refused (server busy with other uploads)')
   const out: UploadFileReady[] = []
   /** where each file stands in the AI's list: they go to the page in that order */
   const at = new Map<UploadFileReady, number>()

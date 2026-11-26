@@ -1,7 +1,7 @@
 // file_upload's files on this computer (docs/decisions/20261126-browser-file-upload.md). The page gets a file the way a
 // person's pick gives it: a path on disk (DOM.setFileInputFiles / a drop), which the browser reads when the page
 // uploads it, also after the AI's call (a web mail uploads on Send). So each file is written to
-// <temp>/<product>-up/<callId>/<i>/<clean name> (folders 0700, files 0600) and kept while the page may still read it:
+// <app data folder>/<product>-up/<callId>/<i>/<clean name> (folders 0700, files 0600; not the shared /tmp of Linux) and kept while the page may still read it:
 // it goes when its tab closes or moves to another site, the person signed in changes, the app quits or starts again,
 // and the oldest calls go when they hold more than KEEP_BYTES together.
 import { createHash } from 'node:crypto'
@@ -70,6 +70,7 @@ export class UploadTemp {
     const out: string[] = []
     try {
       fs.mkdirSync(this.root, { recursive: true, mode: 0o700 })
+      ownRoot(this.root)
       fs.mkdirSync(dir, { mode: 0o700 })
       files.forEach((f, i) => {
         const sub = path.join(dir, String(i))
@@ -114,6 +115,18 @@ export class UploadTemp {
     if (path.dirname(dir) !== this.root) return
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* swept at the next start */ }
   }
+}
+
+/**
+ * The root is a real folder of this user's, 0700 (it lives in the app's data folder; checked anyway: a folder someone
+ * else made, or a link, would let another account read or swap the files). Throws otherwise.
+ */
+export function ownRoot(root: string): void {
+  const st = fs.lstatSync(root)
+  if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('the upload folder is not a folder')
+  if (process.platform === 'win32') return
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) throw new Error('the upload folder belongs to another account')
+  if ((st.mode & 0o077) !== 0) fs.chmodSync(root, 0o700)
 }
 
 export type UploadHow = 'input' | 'chooser' | 'drop'

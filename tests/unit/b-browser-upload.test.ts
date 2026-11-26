@@ -15,7 +15,8 @@ import { waitFor } from '../lib/wait'
 import { warnedIn } from '../lib/shared-warned'
 import { BrowserUploads, MAX_PENDING_BYTES } from '../../server/src/realtime/browser-uploads'
 import { BROWSER_NO_UPLOAD_RULE, BROWSER_UPLOAD_RULE } from '../../server/src/chat/prompt'
-import { UPDATE_APP_TEXT } from '../../server/src/chat/browser-upload'
+import { BUSY_TEXT, UPDATE_APP_TEXT } from '../../server/src/chat/browser-upload'
+import { loggablePath } from '../../server/src/http/middleware'
 import { localizeStep } from '../../shared/src/step-labels'
 import { keepBrowserWarnSeen } from '../../server/src/chat/browser-notice'
 
@@ -173,6 +174,21 @@ describe('file_upload in the person\'s own chat', () => {
     expect(desk.frames.filter((f) => f.type === 'browser.call').length).toBe(n)
   })
 
+  test('the server near its cap of waiting tickets: refused before any file is read, nothing sent', async () => {
+    const u = h.rt().relay.uploads
+    const fits = u.fits.bind(u)
+    u.fits = () => false
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const n = uploadCalls(desk)
+      const r = await fromDesk(chat.id, UPLOAD(['shared/glossary.md']))
+      const d = await doneOn(desk, chat.id, r.assistantMessage.id)
+      expect(d.content).toContain(BUSY_TEXT)
+      expect(summary(r.turnId)).toContain('server busy')
+      expect(uploadCalls(desk)).toBe(n)
+    } finally { u.fits = fits }
+  })
+
   test('an older desktop app that still got the call ("Malformed browser call."): the AI is told to have the app updated', async () => {
     const s = serve(desk, { answer: (c) => (c.tool === 'file_upload' ? 'Malformed browser call.' : null) })
     try {
@@ -207,6 +223,11 @@ describe('the download endpoint and its tickets', () => {
     expect((await h.req('alice', '/api/browser/uploads/not-a-ticket')).status).toBe(404)
     const anon = ticketFor()
     expect((await fetch(`${h.url}/api/browser/uploads/${anon}`)).status).toBe(401)
+  })
+
+  test('the ticket never lands in the request log', () => {
+    expect(loggablePath(`/api/browser/uploads/${'A'.repeat(43)}`)).toBe('/api/browser/uploads/***')
+    expect(loggablePath('/api/browser/calls')).toBe('/api/browser/calls')
   })
 
   test('tickets: revoked with their call, expired by the clock, and the whole server holds at most MAX_PENDING_BYTES', () => {

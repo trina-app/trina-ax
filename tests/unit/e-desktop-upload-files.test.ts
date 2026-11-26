@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cleanUploadName, NAME_MAX, sha256Hex, uploadOrder, uploadRoot, UploadTemp } from '../../desktop/src/common/upload-files'
+import { cleanUploadName, NAME_MAX, ownRoot, sha256Hex, uploadOrder, uploadRoot, UploadTemp } from '../../desktop/src/common/upload-files'
 
 const made: string[] = []
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'up-test-')); made.push(d); return d }
@@ -54,6 +54,19 @@ describe('upload temp files', () => {
     }
     expect(t.bytes).toBe(6)
     expect(sha256Hex(Buffer.from('one'))).toBe('7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed')
+  })
+
+  test('the root must be a real folder of this account, 0700: a link is refused, a wide folder is narrowed', () => {
+    const base = tmp()
+    const real = path.join(base, 'real'); fs.mkdirSync(real)
+    const link = path.join(base, 'mycel-up'); fs.symlinkSync(real, link)
+    expect(() => new UploadTemp(link).write('c1', 'tab-1', [{ name: 'a', bytes: Buffer.from('a') }])).toThrow()
+    expect(fs.readdirSync(real)).toEqual([])
+    if (process.platform !== 'win32') {
+      const wide = path.join(base, 'wide'); fs.mkdirSync(wide, { mode: 0o777 }); fs.chmodSync(wide, 0o777)
+      ownRoot(wide)
+      expect(fs.statSync(wide).mode & 0o777).toBe(0o700)
+    }
   })
 
   test('a bad call id stays inside the root', () => {
@@ -114,5 +127,14 @@ describe('upload target order', () => {
     for (const drop of ['this.uploads.dropTab(id)', 'this.uploads.dropAll()', 'this.uploads.sweep()']) expect(pane).toContain(drop)
     const script = fs.readFileSync(new URL('../../desktop/src/main/pane/page-script.js', import.meta.url), 'utf8')
     expect(script).toContain('uploadTarget, uploadTargetAt')
+    // never another origin's frame (security review of #652): the point owner before a click or a drop, the picker's
+    // frame, the field's document; the site allowed for the call right before the files go in; pickers in other
+    // sites' frames intercepted too; the files under the app's own data folder
+    expect(pane).toContain("if (owner === 'frame' || owner === 'embed') throw new ToolError(otherFrame)")
+    expect(pane).toContain('if (c.child || !(await this.sameOriginFrame(tab, c.frameId, topOrigin))) throw new ToolError(otherFrame)')
+    expect(pane).toContain('if (!v.file || !topOrigin || v.origin !== topOrigin) throw new ToolError(otherFrame)')
+    expect(pane.indexOf('samePage()')).toBeLessThan(pane.indexOf("'DOM.setFileInputFiles'"))
+    expect(pane).toContain("'Target.setAutoAttach'")
+    expect(pane).toContain("uploadRoot(electronApp.getPath('userData'), PRODUCT.id)")
   })
 })

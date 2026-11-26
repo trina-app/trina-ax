@@ -21,8 +21,9 @@
   by a hidden answer, not held). The desktop app never sees a path: each file becomes a ticket (`realtime/browser-uploads.ts`):
   32 random bytes, bound to the person (and recorded with the window), single use, holding the exact bytes that were
   checked, ending at the call's deadline or when the call ends, at most ~300 MB waiting on the whole server (more is
-  refused, not queued). `GET /api/browser/uploads/:ticket`: signed in, the same person, the file checked again (access
-  now, unchanged, not held), `application/octet-stream`, `no-store`; every failure is the same 404.
+  refused before any file is read). `GET /api/browser/uploads/:ticket`: signed in, the same person, the file checked again (access
+  now, unchanged, not held), `application/octet-stream`, `no-store`; every failure is the same 404; the ticket is
+  masked in the request log.
 - **Rule, no new card:** the site is one the person allowed, the person may read the file, and the hard blocks stay, so
   a file going to that page is what the person's own pick would do (Rule A; AI should match Claude Code). In a shared
   chat the browser's notice and change card of #647 apply, and a team file some people there cannot open gets the
@@ -30,12 +31,16 @@
   (20261125-auto-mode.md) treats it as the other browser tools that act: every card it can meet (the site cards, the
   shared read card, the browser change card) is `ask`, so auto mode lets nothing through on its own.
 - **Rule, the desktop:** it fetches each ticket through the team page's own session, checks size and sha256 and writes
-  the file to `<temp>/<product>-up/<callId>/<i>/<clean name>` (folders 0700, files 0600; the name NFC, without the
+  the file to `<app data folder>/<product>-up/<callId>/<i>/<clean name>` (folders 0700, files 0600; the name NFC, without the
   characters and names Windows refuses, at most 120 characters with its extension: `common/upload-files.ts`). Then, in
   order: the file field behind the ref (also a hidden one, a label's control, the only file field near a button):
   `DOM.setFileInputFiles`, read back; else the file picker the ref's click opens (choosers are intercepted only while
   the AI drives, so no system window opens), set the same way; else a drop there (`Input.dispatchDragEvent`). A one-file
-  field and many files is an error. A computer click that opens a picker gets it closed and the AI is told to use
+  field and many files is an error. Never into another origin's frame (security review of #652): the field's document
+  must be the page's own origin, the picker's frame the top frame or one of its origin, and the point of a click or a
+  drop must not be over a frame of another origin or a plug-in (the top document's elementFromPoint, read in an
+  isolated world); the page must still be the site allowed for the call right before the files go in. Pickers in
+  other sites' out-of-process frames are intercepted too while the AI drives (auto-attach), so no system window opens. A computer click that opens a picker gets it closed and the AI is told to use
   file_upload. The files stay on disk while the page may still upload them (a web mail uploads on Send) and go when the
   tab closes or moves to another site, the person signed in changes, the app quits or starts again, and over 500 MB the
   oldest calls go.

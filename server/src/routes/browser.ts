@@ -26,7 +26,8 @@ export const browserRoutes: RouteModule = {
       const ticket = c.req.param('ticket') ?? ''
       const got = BrowserUploadTicket.safeParse(ticket).success ? rt.relay.uploads.take(ticket, auth.user.id) : null
       if (!got) return fail('not_found')
-      return new Response(new Uint8Array(got.bytes), {
+      // the Buffer as it is (no copy of up to 100 MB)
+      return new Response(got.bytes as unknown as Uint8Array<ArrayBuffer>, {
         status: 200,
         headers: { 'content-type': 'application/octet-stream', 'content-length': String(got.bytes.length), 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-disposition': 'attachment' },
       })

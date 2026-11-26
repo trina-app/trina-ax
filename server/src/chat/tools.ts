@@ -26,7 +26,7 @@ import type { ToolCard, TurnTool, TurnToolContext, TurnToolResult } from '../ser
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { guardedBrowserCall, guardSummary, type BrowserCall } from './browser-keys'
-import { attachedStepLabel, oldAppResult, prepareBrowserUpload, uploadSummary, type UploadFileReady } from './browser-upload'
+import { attachedStepLabel, BUSY_TEXT, oldAppResult, prepareBrowserUpload, uploadSummary, type UploadFileReady } from './browser-upload'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
 import { addressesIn, asksToRemember, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, chatMemories, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, othersWords, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
@@ -2005,7 +2005,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const prepare = files && name === 'file_upload'
         ? (callId: string, deadline: number) => {
           const ids = rt.relay.uploads.issue(files.map((f) => ({ userId: spec.userId, windowId: spec.windowId!, callId, name: f.name, bytes: f.bytes, sha256: f.sha256, expiresAt: deadline, recheck: f.recheck })))
-          if (!ids) return 'Nothing was attached: the server is handing over many files to desktop apps right now. Try again in a minute.'
+          if (!ids) return BUSY_TEXT
           const { files: _named, ...rest } = args
           void _named
           return { ...rest, files: files.map((f, i) => ({ ticket: ids[i]!, name: f.name, size: f.bytes.length, sha256: f.sha256 })) }

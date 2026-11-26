@@ -107,8 +107,11 @@ interface Tab {
   drawn?: boolean
   /** file choosers are intercepted (while the AI drives: none opens over the person's screen) */
   intercepting?: boolean
-  /** file_upload waits for the chooser its click opens */
-  chooser?: (p: { backendNodeId: number; mode: string }) => void
+  /** file_upload waits for the chooser its click opens (`frame`: the frame it opened in; `child`: an out-of-process
+   * frame of another site, reached through auto-attach) */
+  chooser?: (p: { backendNodeId: number; mode: string; frameId: string; child: boolean }) => void
+  /** out-of-process frames of the tab (Target.setAutoAttach): file choosers are intercepted there too while the AI drives */
+  frames?: Set<string>
 }
 /** The call being run (for prompts raised by the net guard during it). */
 interface CallCtx {
@@ -121,6 +124,8 @@ interface CallCtx {
   /** the person's answers during this call, sent along with the result (the server logs them in tool_events) */
   notes: string[]
 }
+
+interface FrameNode { frame: { id: string; url: string; securityOrigin?: string }; childFrames?: FrameNode[] }
 
 const MAX_LOG = 500
 /** one console entry / one URL kept in the logs at most this long (a page can log megabytes) */
@@ -177,6 +182,19 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 /** file_upload's chooser step: the click's file picker comes this soon or not at all */
 const CHOOSER_WAIT_MS = 3000
+const FRAME_CHOOSER_SUPPRESSED = 'A file picker opened inside a frame of another site on this page and was closed without choosing anything: files are only attached to the page itself, never to an embedded frame of another site.'
+/** what is at a point of the top document (isolated world): a frame of another origin, an embed, or nothing in the way */
+const POINT_OWNER = `((x, y) => {
+  let el = document.elementFromPoint(x, y);
+  while (el && el.shadowRoot) { const i = el.shadowRoot.elementFromPoint(x, y); if (!i || i === el) break; el = i; }
+  if (!el) return 'none';
+  const t = el.tagName;
+  if (t === 'EMBED' || t === 'OBJECT') return 'embed';
+  if (t === 'IFRAME' || t === 'FRAME') {
+    try { const d = el.contentDocument; return d && d.location.origin === location.origin && location.origin !== 'null' ? 'same-frame' : 'frame'; } catch (e) { return 'frame'; }
+  }
+  return 'ok';
+})`
 const CHOOSER_SUPPRESSED = 'A file picker opened on this page and was closed without choosing anything: the AI does not pick files in a picker. To attach files, call file_upload with the ref of that button or file field.'
 const PASSWORD_REFUSED = 'That is a password field. The AI may not type or click into password fields; ask the user to type it in the browser pane, then continue.'
 const PAYMENT_REFUSED = 'That is a payment card field (card number, expiry or security code). The AI may not type or click into it; ask the user to type it in the browser pane, then continue.'
@@ -231,7 +249,8 @@ export class BrowserPane {
     this.perms = new SitePermissions(saved)
     this.classifier = classifier
     // one pane at a time: what an earlier run (or the last team's pane) left goes now
-    this.uploads = new UploadTemp(uploadRoot(electronApp.getPath('temp'), PRODUCT.id))
+    // under the app's own data folder (the person's alone), not the shared temp folder (/tmp on Linux)
+    this.uploads = new UploadTemp(uploadRoot(electronApp.getPath('userData'), PRODUCT.id))
     this.uploads.sweep()
     this.pageScript = `window.__name = window.__name || ((f) => f);\n${pageScript}`
     // look like plain Chrome (sites flag "Electron/..." or the app name as an outdated browser), plus the
@@ -486,8 +505,33 @@ export class BrowserPane {
   private async instrument(tab: Tab) {
     const dbg = tab.wc.debugger
     if (!dbg.isAttached()) dbg.attach('1.3')
-    dbg.on('message', (_e, method, params: any) => {
+    tab.frames = new Set()
+    dbg.on('message', (_e, method, params: any, sessionId?: string) => {
+      // an out-of-process frame (another site's iframe): only its file choosers matter here (the AI never puts files
+      // there: a picker it opens is closed while the AI drives, and file_upload refuses it)
+      if (sessionId) {
+        if (method === 'Page.fileChooserOpened' && tab.frames?.has(sessionId)) {
+          if (tab.chooser) tab.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? ''), frameId: String(params.frameId ?? ''), child: true })
+          else {
+            const c = this.currentCall()
+            if (c && !c.notes.includes(FRAME_CHOOSER_SUPPRESSED)) c.notes.push(FRAME_CHOOSER_SUPPRESSED)
+          }
+        }
+        return
+      }
       switch (method) {
+        case 'Target.attachedToTarget': {
+          if (params.targetInfo?.type !== 'iframe') break
+          const sid = String(params.sessionId)
+          tab.frames?.add(sid)
+          void tab.wc.debugger.sendCommand('Page.enable', {}, sid)
+            .then(() => (tab.intercepting ? tab.wc.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }, sid) : undefined))
+            .catch(() => {})
+          break
+        }
+        case 'Target.detachedFromTarget':
+          tab.frames?.delete(String(params.sessionId))
+          break
         case 'Runtime.consoleAPICalled':
           push(tab.console, {
             level: params.type === 'warning' ? 'warn' : params.type,
@@ -522,7 +566,7 @@ export class BrowserPane {
         case 'Page.fileChooserOpened':
           // file_upload's own click: it sets the files. Any other while the AI drives (a computer click on a file
           // field): nothing is chosen, and the AI hears how to attach instead
-          if (tab.chooser) tab.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? '') })
+          if (tab.chooser) tab.chooser({ backendNodeId: params.backendNodeId, mode: String(params.mode ?? ''), frameId: String(params.frameId ?? ''), child: false })
           else {
             const c = this.currentCall()
             if (c && !c.notes.includes(CHOOSER_SUPPRESSED)) c.notes.push(CHOOSER_SUPPRESSED)
@@ -543,6 +587,9 @@ export class BrowserPane {
     await this.cdp(tab, 'Network.enable', { maxTotalBufferSize: 32 * 1024 * 1024, maxResourceBufferSize: 4 * 1024 * 1024 })
     await this.cdp(tab, 'Page.enable')
     await this.cdp(tab, 'Page.addScriptToEvaluateOnNewDocument', { source: this.pageScript })
+    // other sites' frames run in their own process: attached here so a file picker there is intercepted too while the
+    // AI drives (otherwise the system window would open over the person's screen)
+    await this.cdp(tab, 'Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true, filter: [{ type: 'iframe' }, { exclude: true }] }).catch(() => {})
   }
 
   private cdp<T = any>(tab: Tab, method: string, params?: Record<string, unknown>): Promise<T> {
@@ -1014,7 +1061,7 @@ export class BrowserPane {
       }
       // while the AI drives, a file picker never opens over the person's screen (file_upload takes the one it opens)
       if (tab && kind === 'mutates-tab') await this.intercept(tab)
-      const result = await this.exec(ctx, tab, call)
+      const result = await this.exec(ctx, tab, call, checkedSite)
       // a page that moved to another site while it was read (or photographed) must not hand that site's content
       // to the AI without the person's permission
       if (tab && checkedSite !== undefined && returnsPageData(call) && !tab.wc.isDestroyed()) {
@@ -1046,7 +1093,8 @@ export class BrowserPane {
     throw new ToolError("The browser pane isn't open. Open it with preview_start or navigate and a url.")
   }
 
-  private async exec(ctx: CallCtx, tab: Tab | undefined, call: ParsedBrowserCall): Promise<PaneResult> {
+  /** `checkedSite`: the site single() permitted for this call (file_upload puts files only into a page of that site) */
+  private async exec(ctx: CallCtx, tab: Tab | undefined, call: ParsedBrowserCall, checkedSite?: string): Promise<PaneResult> {
     const need = () => {
       if (!tab) throw new ToolError("The browser pane isn't open. Open it with preview_start or navigate and a url.")
       return tab
@@ -1176,7 +1224,7 @@ export class BrowserPane {
       case 'computer':
         return this.computer(ctx, need(), call.input)
       case 'file_upload':
-        return this.upload(ctx, need(), call.input)
+        return this.upload(ctx, need(), call.input, checkedSite)
       case 'browser_batch':
         return err('browser_batch cannot be nested.')
     }
@@ -1390,13 +1438,17 @@ export class BrowserPane {
     if (tab.intercepting || tab.popup || tab.wc.isDestroyed()) return
     tab.intercepting = true
     await this.cdp(tab, 'Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => { tab.intercepting = false })
+    // the frames of other sites too (their own sessions)
+    for (const sid of tab.frames ?? []) await tab.wc.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }, sid).catch(() => {})
   }
 
   private stopIntercepting() {
     for (const t of this.tabs.values()) {
       if (!t.intercepting) continue
       t.intercepting = false
-      if (!t.wc.isDestroyed()) void this.cdp(t, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {})
+      if (t.wc.isDestroyed()) continue
+      void this.cdp(t, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {})
+      for (const sid of t.frames ?? []) void t.wc.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: false }, sid).catch(() => {})
     }
   }
 
@@ -1406,12 +1458,14 @@ export class BrowserPane {
    * put the files into the page: the file field behind the ref (hidden ones too), else the file picker the ref's click
    * opens (intercepted: no window opens), else a drop there. The site was allowed before this ran (single: permit).
    */
-  private async upload(ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload']): Promise<PaneResult> {
+  private async upload(ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload'], checkedSite: string | undefined): Promise<PaneResult> {
     const fetchTeam = this.host.fetchTeam
     if (!fetchTeam) throw new ToolError('This desktop app window cannot fetch team files. Ask the user to attach them in the page.')
     if (!input.ref && !input.coordinate) throw new ToolError('file_upload needs ref (or coordinate) of the file field, or of the button or area that opens the file picker. Find it with read_page or find.')
     if (input.ref && !(await this.page(tab, `describe(${JSON.stringify(input.ref)})`))) throw new ToolError(`No element ${input.ref} on the page (it may have changed). Call read_page or find again.`)
-    const site = siteKey(tab.wc.getURL())
+    // the site the person allowed for this call (single: permit), never one the tab moved to since
+    if (checkedSite === undefined || siteKey(tab.wc.getURL()) !== checkedSite) throw new ToolError('The page moved to another site before the files came; nothing was attached. Take a screenshot and try again.')
+    const site = checkedSite
     const got: { name: string; bytes: Uint8Array }[] = []
     for (const f of input.files) {
       if (ctx.cancelled) throw new ToolError('Stopped.')
@@ -1433,7 +1487,7 @@ export class BrowserPane {
     try {
       for (const way of uploadOrder(input.how)) {
         if (ctx.cancelled) throw new ToolError('Stopped.')
-        const r = await this.uploadBy(way, ctx, tab, input, paths)
+        const r = await this.uploadBy(way, ctx, tab, input, paths, site)
         if (r === true) { done = way; break }
         tried.push(r)
       }
@@ -1452,14 +1506,24 @@ export class BrowserPane {
   }
 
   /** One way of putting the files in: true when they are in, else why not (the next way is tried). Throws to stop. */
-  private async uploadBy(way: UploadHow, ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload'], paths: string[]): Promise<true | string> {
+  private async uploadBy(way: UploadHow, ctx: CallCtx, tab: Tab, input: BrowserToolInput['file_upload'], paths: string[], site: string): Promise<true | string> {
     const n = paths.length
+    /** right before the files go in: still the page of the site allowed for this call */
+    const samePage = () => {
+      if (tab.wc.isDestroyed() || siteKey(tab.wc.getURL()) !== site) throw new ToolError('The page moved to another site; nothing was attached. Take a screenshot and try again.')
+    }
+    let topOrigin = ''
+    try { topOrigin = new URL(tab.wc.getURL()).origin } catch { topOrigin = '' }
+    const otherFrame = 'Nothing was attached: that spot is inside a frame of another site embedded in the page (or a plug-in). Files are only attached to the page itself; ask the user to attach them there.'
     const oneFile = () => new ToolError(`That file field takes one file, and this call has ${n}. Attach one file per call (when the page offers a new field after each), or ask the user to attach the rest.`)
     const take = async (objectId: string): Promise<true | string> => {
-      const info: any = await this.cdp(tab, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function () { return { multiple: !!this.multiple, disabled: !!this.disabled } }', returnByValue: true })
+      const info: any = await this.cdp(tab, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function () { const d = this.ownerDocument; return { multiple: !!this.multiple, disabled: !!this.disabled, file: this.tagName === "INPUT" && String(this.type).toLowerCase() === "file", origin: d && d.defaultView ? d.defaultView.location.origin : "" } }', returnByValue: true })
       const v = info?.result?.value ?? {}
+      // a field of this page's own origin only (never a frame's of another origin)
+      if (!v.file || !topOrigin || v.origin !== topOrigin) throw new ToolError(otherFrame)
       if (v.disabled) return 'the file field is turned off on the page right now'
       if (!v.multiple && n > 1) throw oneFile()
+      samePage()
       await this.cdp(tab, 'DOM.setFileInputFiles', { files: paths, objectId })
       const back: any = await this.cdp(tab, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function () { return this.files ? this.files.length : -1 }', returnByValue: true })
       void this.cdp(tab, 'Runtime.releaseObject', { objectId }).catch(() => {})
@@ -1486,11 +1550,16 @@ export class BrowserPane {
     const p = await at()
     const secret = asSecret(await this.check<unknown>(tab, `point(${p.x}, ${p.y})`).catch(() => ''))
     if (secret) await this.refusePassword(tab, secret)
+    // a click or a drop goes to whatever frame is under the point: never one of another origin (security review of
+    // #652: a drop on an allowed page reached an embedded attacker.test frame)
+    const owner = await tab.wc.executeJavaScriptInIsolatedWorld(CHECK_WORLD, [{ code: `${POINT_OWNER}(${Number(p.x)}, ${Number(p.y)})` }]).catch(() => 'frame')
+    if (owner === 'frame' || owner === 'embed') throw new ToolError(otherFrame)
+    if (owner === 'none') return 'nothing is at that spot'
     if (way === 'chooser') {
       await this.intercept(tab)
       if (!tab.intercepting) return 'file pickers cannot be taken over on this page'
       let timer: ReturnType<typeof setTimeout> | undefined
-      const opened = new Promise<{ backendNodeId: number; mode: string } | null>((resolve) => {
+      const opened = new Promise<{ backendNodeId: number; mode: string; frameId: string; child: boolean } | null>((resolve) => {
         tab.chooser = resolve
         timer = setTimeout(() => resolve(null), CHOOSER_WAIT_MS)
         ctx.abort.signal.addEventListener('abort', () => resolve(null), { once: true })
@@ -1499,6 +1568,8 @@ export class BrowserPane {
         await this.click(tab, p, 'left', 1, 0)
         const c = await opened
         if (!c) return 'its click opened no file picker'
+        // the picker of this page's own document or a frame of the same origin, never another site's frame
+        if (c.child || !(await this.sameOriginFrame(tab, c.frameId, topOrigin))) throw new ToolError(otherFrame)
         if (c.mode === 'selectSingle' && n > 1) throw oneFile()
         const node: any = await this.cdp(tab, 'DOM.resolveNode', { backendNodeId: c.backendNodeId })
         if (!node?.object?.objectId) return 'the file picker\'s field was gone'
@@ -1508,9 +1579,24 @@ export class BrowserPane {
         tab.chooser = undefined
       }
     }
+    samePage()
     const data = { items: [], files: paths, dragOperationsMask: 1 }
     for (const type of ['dragEnter', 'dragOver', 'drop'] as const) await this.cdp(tab, 'Input.dispatchDragEvent', { type, x: p.x, y: p.y, data })
     return true
+  }
+
+  /** Is this frame of the tab's own process the top frame, or one of the top's origin? */
+  private async sameOriginFrame(tab: Tab, frameId: string, topOrigin: string): Promise<boolean> {
+    try {
+      const { frameTree } = await this.cdp<{ frameTree: FrameNode }>(tab, 'Page.getFrameTree')
+      if (frameTree.frame.id === frameId) return true
+      const find = (n: FrameNode): FrameNode['frame'] | undefined => {
+        for (const c of n.childFrames ?? []) { if (c.frame.id === frameId) return c.frame; const d = find(c); if (d) return d }
+        return undefined
+      }
+      const f = find(frameTree)
+      return !!f && !!topOrigin && (f.securityOrigin ?? '') === topOrigin
+    } catch { return false }
   }
 
   private async resize(tab: Tab, input: BrowserToolInput['resize_window']): Promise<PaneResult> {

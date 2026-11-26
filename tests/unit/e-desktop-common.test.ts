@@ -1010,7 +1010,11 @@ describe("the team page's file chooser (Mac App Store build)", () => {
     // and the person's own clicks open the system's picker as before
     const pane = readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')
     expect(pane).not.toContain('showOpenDialog')
-    expect(pane.match(/setInterceptFileChooserDialog/g)?.length).toBe(2)
+    // on: intercept() and a frame of another site attached while it is on; off: stopIntercepting(). Never answered with
+    // a dialog of the app's own
+    const turns = [...pane.matchAll(/'Page\.setInterceptFileChooserDialog', \{ enabled: (\w+)[^}]*\}/g)].map((m) => m[1])
+    expect(turns.filter((x) => x === 'false').length).toBe(2)
+    expect(turns.length).toBe(5)
     expect(pane).toContain('if (this.driving === 0) this.stopIntercepting()')
   })
 })
