@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { Bell, CalendarClock, CheckCheck, MessagesSquare, Plug, Settings } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { api, API, errorText } from '../../lib/api'
@@ -139,11 +139,24 @@ export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
   const newInChats = useRooms((s) => unreadRooms(s.rooms) > 0)
-  const { pathname, search, state } = useLocation()
-  // a link to a chip (/activity?tab=mentions, an old link to 대화's 멘션·스레드 too) picks it
+  const { pathname, search, state, key } = useLocation()
+  const navigationType = useNavigationType()
+  const navigate = useNavigate()
+  // a link to a chip (/activity?tab=mentions, an old link to 대화's 멘션·스레드 too) picks it: as the list opens, and when
+  // a link is followed later. Back and Forward (POP) never put an older chip back over the one picked since; a chip
+  // picked on /activity writes the address (a replace), so Back to it finds the chip picked there
   const asked = pathname === '/activity' ? chipOfParam(new URLSearchParams(search).get('tab')) : null
   const [chip, setChip] = useState<ActivityChip>(asked ?? 'all')
-  useEffect(() => { if (asked) setChip(asked) }, [asked])
+  useEffect(() => { if (asked && navigationType !== 'POP') setChip(asked) }, [asked, key, navigationType])
+  const pick = (c: ActivityChip) => {
+    setChip(c)
+    if (pathname !== '/activity') return
+    const next = new URLSearchParams(search)
+    if (c === 'all') next.delete('tab')
+    else next.set('tab', c)
+    const rest = next.toString()
+    navigate(rest ? `/activity?${rest}` : '/activity', { replace: true, state })
+  }
   // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
   const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
   const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
@@ -228,7 +241,7 @@ export function ActivityPanel() {
     sequence.current++
     const was = unread
     const marked = new Set(itemsRef.current?.filter((x) => !x.readAt && inChip(x, tab)).map((x) => x.id))
-    await markAllNoticesRead(tab, undefined, (readAt) => {
+    await markAllNoticesRead(tab, (readAt) => {
       patch((x) => (marked.has(x.id) && !x.readAt === !!readAt ? { ...x, readAt } : x))
       // another chip empties only part of the count: the read after says how much
       if (tab === 'all') setUnread(readAt ? 0 : was)
@@ -283,7 +296,7 @@ export function ActivityPanel() {
                   aria-pressed={shownChip === c}
                   // a touch screen: the chip takes taps from a 44 px box around it (its ::after: 26 px inside the border + 2 × 9), and
                   // looks the same
-                  onClick={() => setChip(c)}
+                  onClick={() => pick(c)}
                   className={clsx("relative inline-flex h-7 items-center rounded-full border px-2.5 text-meta font-medium pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-[9px] pointer-coarse:after:content-['']", shownChip === c ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
                   data-testid={`activity-chip-${c}`}
                 >

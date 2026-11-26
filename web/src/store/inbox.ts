@@ -10,9 +10,8 @@ import { api, API } from '../lib/api'
 import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { accessChanged, notificationsChanged, reloadAsked } from './live'
 
-/** `unread`: every unread row; `rooms`: its part that is conversation rows (GET /api/notifications roomUnreadCount);
- * `notices`: the unread notices that are not conversation rows at all (noticeUnreadCount; an older server: the rest) */
-export const useInbox = create<{ unread: number; rooms: number; notices: number }>(() => ({ unread: 0, rooms: 0, notices: 0 }))
+/** `unread`: every unread row the server counts (GET /api/notifications unreadCount) */
+export const useInbox = create<{ unread: number }>(() => ({ unread: 0 }))
 
 let watchers = 0
 let stop: (() => void) | null = null
@@ -38,8 +37,7 @@ function load() {
       // else read again now
       if (optimisticPendingKeys(isNoticeKey).length) return
       if (optimisticEdits(isNoticeKey) !== edits) return load()
-      const rooms = Math.min(r.unreadCount, r.roomUnreadCount ?? 0)
-      useInbox.setState({ unread: r.unreadCount, rooms, notices: r.noticeUnreadCount ?? r.unreadCount - rooms })
+      useInbox.setState({ unread: r.unreadCount })
     },
     () => {},
   )
@@ -48,7 +46,7 @@ function load() {
 function watch(): () => void {
   if (watchers++ === 0) {
     // nothing on screen counted it meanwhile (another account may have signed in): no old count until the read
-    useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
+    useInbox.setState({ unread: 0 })
     load()
     const offs = [notificationsChanged.on(load), reloadAsked.on(load), accessChanged.on(load)]
     stop = () => offs.forEach((off) => off())
@@ -65,7 +63,7 @@ function watch(): () => void {
 export function resetInbox() {
   asked++
   readAsked.clear()
-  useInbox.setState({ unread: 0, rooms: 0, notices: 0 })
+  useInbox.setState({ unread: 0 })
 }
 
 /** The unread Inbox count, kept up to date while the caller is mounted. */
@@ -84,16 +82,10 @@ export function useActivityUnread(): number {
 /** Read the count again now (the 활동 list read or marked something). */
 export const reloadInboxCount = () => load()
 
-/** a conversation row (a DM, a mention or a thread reply, in a room or under a shared AI chat's answer): counted on
- * 대화, not in 활동's own number */
-const roomRow = (item: InboxNotification) => item.code === 'room.dm' || item.code === 'room.mention' || item.code === 'chat.thread_reply'
-
-/** The counts with one notice read (-1) or unread again (+1), before the server says so. */
-function count(item: InboxNotification, by: 1 | -1) {
-  useInbox.setState((s) => {
-    const room = roomRow(item)
-    return { unread: Math.max(0, s.unread + by), rooms: room ? Math.max(0, s.rooms + by) : s.rooms, notices: room ? s.notices : Math.max(0, s.notices + by) }
-  })
+/** The count with one notice read (-1) or unread again (+1), before the server says so (a row the server does not
+ * count, a reply the person turned off, is put right by the read that follows). */
+function count(by: 1 | -1) {
+  useInbox.setState((s) => ({ unread: Math.max(0, s.unread + by) }))
 }
 
 /** Mark one notice read (docs/DECISIONS.md "Optimistic changes"): read on screen at once (`show` puts its readAt on the
@@ -111,7 +103,7 @@ export async function markNoticeRead(item: InboxNotification, show: (readAt: str
       show(at)
       if (!!at === counted) return
       counted = !!at
-      count(item, at ? -1 : 1)
+      count(at ? -1 : 1)
     },
     send: () => api.call(API.markNotificationRead, { params: { id: item.id } }),
     confirmed: (reply) => reply.readAt ?? null,
@@ -122,21 +114,21 @@ export async function markNoticeRead(item: InboxNotification, show: (readAt: str
   return r
 }
 
-/** "Mark all as read" of an Activity tab (`only`: its conversation rows, or the other notices, alone): read on screen
+/** "Mark all as read" of an Activity tab: read on screen
  * at once (`show` puts the time on the caller's unread rows, null puts them back), the counts it empties at zero; a
  * failure puts the rows back with a toast. The counts are read again after. Never rejects. */
-export async function markAllNoticesRead(tab: ActivityTab, only: 'rooms' | 'notices' | undefined, show: (readAt: string | null) => void): Promise<OptimisticResult<unknown>> {
+export async function markAllNoticesRead(tab: ActivityTab, show: (readAt: string | null) => void): Promise<OptimisticResult<unknown>> {
   const r = await optimistic<string | null, unknown>({
-    key: `notice:all:${tab}:${only ?? 'any'}:read`,
+    key: `notice:all:${tab}:read`,
     from: null,
     to: new Date().toISOString(),
     show: (at) => {
       show(at)
       // a tab other than All empties only part of a count: the read after says how much
       if (!at || tab !== 'all') return
-      useInbox.setState((s) => (only === 'notices' ? { unread: s.rooms, notices: 0 } : only === 'rooms' ? { unread: Math.max(0, s.unread - s.rooms), rooms: 0 } : { unread: 0, rooms: 0, notices: 0 }))
+      useInbox.setState({ unread: 0 })
     },
-    send: () => api.call(API.markAllNotificationsRead, { body: { tab, ...(only ? { only } : {}) } }),
+    send: () => api.call(API.markAllNotificationsRead, { body: { tab } }),
   })
   load()
   return r

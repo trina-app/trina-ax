@@ -104,7 +104,7 @@ describe('Rail', () => {
   })
   afterEach(() => {
     useRooms.setState(roomsBefore, true)
-    useInbox.setState({ unread: 0, rooms: 0 })
+    useInbox.setState({ unread: 0 })
   })
 
   const draw = async (role: 'owner' | 'member', path: string) => {
