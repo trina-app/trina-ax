@@ -47,7 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { readChatNotices, setMuted } from '../chat/message-notices'
+import { isConversationRow, readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { resolveSubjects } from '../chat/chat-audience'
 import { historyWhere } from '../chat/history-list'
@@ -364,8 +364,9 @@ export const chatsRoutes: RouteModule = {
         if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash) fail('validation', undefined, { fields: { 'query.other': 'alone' } })
         return otherChats(rt, me, query.cursor, limit)
       }
-      // the shared chats with messages I have not read (chat/message-notices.ts): a project's shared chat I never wrote in
-      // is in no list of mine, so the rail's Projects mark, the app icon and the desktop notice read it here after a reload
+      // the chats shared with people with messages I have not read (chat/message-notices.ts), for the app icon and the
+      // desktop notice after a reload; a project's shared chat has no unread messages (docs/decisions/
+      // 20261126-project-chat-mention-only.md: an older row there is not listed)
       if (query.unread) {
         if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
         // every such chat is read (one indexed read of my unread notices), then only the ones I see now are kept, then
@@ -373,7 +374,7 @@ export const chatsRoutes: RouteModule = {
         const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND deleted_at IS NULL AND ${notInternalChat(ctx.db)}
           AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0) ORDER BY updated_at DESC, id DESC`).all(me) as ChatRow[]
         const aud = new Audiences(ctx.db, ctx.files)
-        const seen = rows.filter((r) => isSharedRow(r) && aud.seesChat(me, r)).slice(0, limit)
+        const seen = rows.filter((r) => isConversationRow(r) && aud.seesChat(me, r)).slice(0, limit)
         const people = chatPeople(ctx.db, seen.map((r) => r.id), me)
         return { items: seen.map((r) => chatOut(rt, me, r, { aud, people })), nextCursor: null }
       }

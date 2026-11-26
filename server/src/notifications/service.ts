@@ -100,8 +100,8 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'chat_left_notices', 'google_connect_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
-/** A person's message in a chat shared with people or a project's shared chat (chat_message_notices, migration 436;
- * chat/message-notices.ts): read by id (what a push opens) like every notice, never listed, counted or marked read in
+/** A person's message in a chat shared with people (chat_message_notices, migration 436; chat/message-notices.ts; a
+ * project's shared chat has none, docs/decisions/20261126-project-chat-mention-only.md): read by id (what a push opens) like every notice, never listed, counted or marked read in
  * Activity: the chat row's number shows it and reading the chat reads it. The main box of an AI chat mentions nobody
  * (docs/decisions/20261122-ai-session-no-main-mention.md): a person is mentioned in a thread under an AI answer. */
 const PUSH_ONLY_TABLES = ['chat_message_notices'] as const

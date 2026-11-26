@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-26 08:29
 - Branch: `fix/project-chat-mention-only`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (message notices), server/src/routes/chats.ts, web chat menus. Why: the owner (2026-11-26)
   does not want a notice or unread mark when a teammate starts or continues an AI chat in a shared project.
 - Version impact: minor (a changed notice rule and a data migration)
@@ -41,3 +41,10 @@ Migration number (457; 455/456 taken by open PRs). Stale unread rows: gated in r
 ## Tests
 
 tests/unit/b-project-chat-message-notices.test.ts, b-shared-chat-message-notices.test.ts, web menu test.
+
+## Result
+
+Done as planned. Project shared chats make no message notices; reads of unread numbers, the `?unread=1` list, the
+push badge and pushes ask for a chat shared with people; migration 457 reads old project rows. Mute hidden in project
+chat menus. No i18n text promised project-chat notices, so no locale change. Tests: the rewritten project test, shared
+chat, push, thread and room notice tests, the menu tests (Bun 1.3.12).
