@@ -2,7 +2,9 @@
 // 20261121-share-chat-files.md): the chat made the file in its creator's own folder, so only they can add it to the
 // chat. "Only Alice can add this file to the chat." [Ask to add it] sends the ask to their Activity; "You asked on …"
 // while it waits; the chat has it now: its copy opens instead. Anything else (the server answers 'no' for every other
-// reason alike): today's "can't be found, or you don't have access" line, with nothing about the file.
+// reason alike): today's "can't be found, or you don't have access" line, with nothing about the file. Any other team
+// file linked in a message of a shared chat (a shared project chat too) by someone who can read it (`view`, QA after
+// #651): the room link's [Ask to view] (components/RoomFileAsk.tsx ViewAsk), an ordinary file access request.
 import { useEffect, useState } from 'react'
 import type { ChatFileAccess } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -10,6 +12,7 @@ import { formatDate } from '../lib/format'
 import { openFilePreview } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { FileMoved } from './FileMoved'
+import { ViewAsk, type ViewAccess } from './RoomFileAsk'
 import { Button, PreviewLoading } from './ui'
 
 export function ChatFileAsk({ chatId, path, fallback }: { chatId: string; path: string; fallback: string }) {
@@ -33,6 +36,11 @@ export function ChatFileAsk({ chatId, path, fallback }: { chatId: string; path: 
     return () => { live = false }
   }, [chatId, path])
   if (state.status === 'loading') return <PreviewLoading label={t('common.loading')} />
+  // another team file linked here: ask to view it (the room link's body, its words)
+  if (state.status === 'view' || state.status === 'viewAsked' || state.status === 'open') {
+    const initial: ViewAccess = state.status === 'view' ? { status: 'ask', by: state.by } : state.status === 'viewAsked' ? { status: 'asked', askedAt: state.askedAt, by: state.by } : state
+    return <ViewAsk initial={initial} path={path} chatId={chatId} fallback={fallback} testId="chat-file-view" request={() => api.call(API.requestChatFile, { params: { id: chatId }, body: { path } })} />
+  }
   // nothing to ask for: a file someone moved or put in the trash says so (components/FileMoved.tsx), else the usual line
   if (state.status === 'no' || state.status === 'copy') return <FileMoved path={path} chatId={chatId} fallback={fallback} />
   const send = async () => {

@@ -368,14 +368,15 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
 
   const messages = thread.messages
   // a chat shared with people: the files its creator added as copies (docs/decisions/20261121-share-chat-files.md) open
-  // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
-  // the creator to add it (components/ChatFileAsk.tsx)
-  const peopleChat = isPeopleShared(chat)
+  // for every link to their old place, for everyone (one file, not two). In any shared chat (a shared project chat too)
+  // a link that does not open for me asks the server what I can do (components/ChatFileAsk.tsx): ask the creator to add
+  // a file the chat made, or ask to view a teammate's file someone linked here (QA after #651), else one plain line
+  const sharedChat = !!shared
   const chatLinks = useMemo(() => {
     const copies = new Map<string, PreviewFile>()
     for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
-    return copies.size || peopleChat ? { chatId, copies, ask: peopleChat && shared?.by.id !== me.user.id } : null
-  }, [messages, chatId, peopleChat, shared?.by.id, me.user.id])
+    return copies.size || sharedChat ? { chatId, copies, ask: sharedChat } : null
+  }, [messages, chatId, sharedChat])
   const running = runningMessage(messages)
 
   // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
@@ -958,7 +959,9 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   )
 }
 
-/** "복원": the chat is back at once (the banner goes, the box comes); a refusal puts it back in the trash with a toast */
+/** "실행 취소", the word of the delete toast's own button for the same thing (docs/decisions/20261126-shared-menus.md:
+ * undo is 실행 취소; QA after #651): the chat is back at once (the banner goes, the box comes); a refusal puts it back in
+ * the trash with a toast */
 function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -968,7 +971,7 @@ function TrashedBanner({ chat, onShown }: { chat: Chat; onShown: (c: Chat) => vo
       <Trash2 size={16} className="shrink-0" aria-hidden />
       <span className="flex-1">{t('chat.inTrash', { date: formatDate(purge, locale) })}</span>
       <Button size="sm" onClick={() => void trashChat(chat, false, { onShown })} data-testid="chat-trash-restore">
-        <RotateCcw size={14} aria-hidden /> {t('common.restore')}
+        <RotateCcw size={14} aria-hidden /> {t('common.undo')}
       </Button>
     </div>
   )

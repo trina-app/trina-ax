@@ -65,8 +65,9 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
         await expect(page.getByTestId('composer-input')).toHaveValue('')
         await audit(page, `fork ${vp.name} ${scheme}`)
         if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/fork-${vp.name}-${scheme}.png` })
-        // the line opens the shared chat, which is as it was
-        await page.getByTestId('chat-forked-from-link').click()
+        // the line opens the shared chat, which is as it was (a phone: the line under the box, the one it shows)
+        if (vp.name === '390') await expect(page.getByTestId('chat-forked-from')).toBeHidden()
+        await (vp.name === '390' ? page.locator('[data-testid="who-sees-fork-link"]:visible').first() : page.getByTestId('chat-forked-from-link')).click()
         await expect(page).toHaveURL(new RegExp(`/c/${chat.id}$`))
         await expect(page.getByTestId('assistant-message')).toHaveCount(2)
         await expect(page.getByTestId('chat-shared')).toBeVisible()

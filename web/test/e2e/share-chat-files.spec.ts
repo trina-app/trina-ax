@@ -212,8 +212,34 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await fileLink(bob, PDF).click()
       // a 'no' asks where it went first (#334, components/FileMoved.tsx), then the usual line
       await expect(panel(bob).getByTestId('file-moved-no')).toBeVisible()
+      // and who can share it: the line alone was a dead end (QA after #651)
+      await expect(panel(bob).getByTestId('file-moved-who')).toHaveText('파일 주인이나 관리자가 공유해 줄 수 있어요.')
       await blockedHeader(bob)
       await shots(bob, 'cant-open-panel')
+      await bob.context().close()
+    })
+
+    test('a teammate\'s file linked here that the chat did not make: [보기 요청], an ordinary file request (QA after #651)', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const chatId = await quoteChat(page)
+      await shareWithoutFiles(page, chatId)
+      const bob = await as(browser, BOB)
+      // the server's answer for a team file linked in a message he sees, by someone who can read it
+      const asked: unknown[] = []
+      await bob.route('**/api/chats/*/file-access**', (r) => {
+        if (r.request().method() === 'POST') { asked.push(r.request().postDataJSON()); return r.fulfill({ json: { status: 'sent', askedAt: new Date().toISOString() } }) }
+        return r.fulfill({ json: { status: 'view', by: '김지수' } })
+      })
+      await openChat(bob, chatId)
+      await fileLink(bob, PDF).click()
+      const ask = panel(bob).getByTestId('chat-file-view')
+      await expect(ask).toContainText('이 파일을 볼 권한이 없어요.')
+      await expect(ask).toContainText('김지수님에게 보기 요청을 보낼 수 있어요.')
+      await ask.getByTestId('chat-file-view-send').click()
+      await expect(panel(bob).getByTestId('chat-file-view-sent')).toHaveText('요청을 보냈어요. 답은 활동에서 볼 수 있어요.')
+      expect(asked).toHaveLength(1)
+      await shots(bob, 'view-ask-panel')
       await bob.context().close()
     })
   })

@@ -43,14 +43,17 @@ export function ChatEventLine({ e }: { e: AudienceEvent }) {
 }
 
 /** A chat made by "Continue in a chat only you see" (Chat.forkedFrom, docs/decisions/20261126-chat-fork.md): one quiet
- * line above its copied messages, "Continued from ‹title›", the title a link while I may still open that chat. */
+ * line above its copied messages, "Continued from ‹title›", the title a link while I may still open that chat. Not on a
+ * phone (below 768 px, the composer's phone row): the line under the box says the same with the same link (WhoSees.tsx
+ * ForkWho) and stays in sight, and on a short continuation both were on one screen, the same words twice (QA after
+ * #651). A computer keeps both (the UX review): there the box's line is a small footnote beside the AI notice. */
 export function ForkedFromLine({ from }: { from: { title: string; chatId?: string } }) {
   const t = useT()
   const mark = '\u0001'
   const [before = '', after = ''] = t('chat.forkedFrom', { title: mark }).split(mark)
   const title = from.title.trim() || t('chat.untitled')
   return (
-    <p className="text-center text-xs break-words text-faint" data-testid="chat-forked-from">
+    <p className="text-center text-xs break-words text-faint max-md:hidden" data-testid="chat-forked-from">
       {before}
       {from.chatId
         ? <Link to={`/c/${from.chatId}`} className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" title={t('chat.forkedFromOpen')} data-testid="chat-forked-from-link">{title}</Link>

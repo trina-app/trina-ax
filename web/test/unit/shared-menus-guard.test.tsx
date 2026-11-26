@@ -72,6 +72,14 @@ describe('one word per action', () => {
     expect(ko['common.undo']).toBe('실행 취소')
     expect(ko['common.restore']).toBe('되돌리기')
   })
+  test("a deleted chat's banner takes it back with the delete toast's own word (QA after #651)", () => {
+    // the toast: lib/destructive.ts's common.undo; the banner in the chat: the same key, and its line names that button
+    const chat = sources.find((x) => x.path === 'pages/Chat.tsx')!.text
+    const banner = chat.slice(chat.indexOf('function TrashedBanner'), chat.indexOf('\n}\n', chat.indexOf('function TrashedBanner')))
+    expect(banner).toContain("t('common.undo')")
+    expect(banner).not.toContain("'common.restore'")
+    for (const [l, dict] of Object.entries(locales)) expect(`${l}: ${dict['chat.inTrash']!.includes(dict['common.undo']!)}`).toBe(`${l}: true`)
+  })
 })
 
 describe('menu items come from the one list', () => {

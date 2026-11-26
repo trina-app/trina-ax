@@ -2,7 +2,8 @@
 // someone moved said only "can't be found, or you don't have access"). GET /api/files/moved says where it went:
 // "Moved to 전사 공유 › 마케팅 by 박준호 · Nov 22" with Open (the file where it is now, in the same panel); moved to a
 // folder the viewer cannot open; or put in the trash. Anything else (the server answers 'no' for a path that never
-// was, or a folder the viewer may not open): the usual line, `fallback`, with nothing about the file.
+// was, or a folder the viewer may not open): the usual line, `fallback`, with nothing about the file, and who can share
+// it (the file's owner or an admin).
 import { useEffect, useState } from 'react'
 import type { FileMoved as Moved } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -24,7 +25,15 @@ export function FileMoved({ path, chatId, fallback }: { path: string; chatId?: s
     return () => { live = false }
   }, [path])
   if (state.status === 'loading') return <PreviewLoading label={t('common.loading')} />
-  if (state.status === 'no') return <p className="p-6 text-sm text-muted" role="alert" data-testid="file-moved-no">{fallback}</p>
+  // nothing here to ask with (no message I see linked it, a file the linker cannot read either …): one plain line on who
+  // can share it, never whether it is there or whose it is (QA after #651: the line alone was a dead end)
+  if (state.status === 'no')
+    return (
+      <div className="flex flex-col items-start gap-1 p-6">
+        <p className="text-sm text-muted" role="alert" data-testid="file-moved-no">{fallback}</p>
+        <p className="text-sm break-keep text-faint" data-testid="file-moved-who">{t('preview.notFoundWho')}</p>
+      </div>
+    )
   const date = formatDate(state.at, locale)
   // (an account removed since: its name is gone)
   const who = state.by.name || t('fileMoved.someone')

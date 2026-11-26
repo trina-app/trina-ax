@@ -60,15 +60,28 @@ export const ChatFileAccess = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ask'), by: z.string(), name: z.string() }),
   z.object({ status: z.literal('asked'), askedAt: z.string(), by: z.string(), name: z.string() }),
   z.object({ status: z.literal('copy'), fileId: z.string(), name: z.string() }),
+  // any other team file linked in a message of the shared chat that I see, by someone who can read it: an ordinary file
+  // access request, as a room message's link (by: who answers, only when that is the person who linked it)
+  z.object({ status: z.literal('view'), by: z.string().nullable() }),
+  z.object({ status: z.literal('viewAsked'), askedAt: z.string(), by: z.string().nullable() }),
+  // it opens for me now (link: its /f/ link when only a share lets me in)
+  z.object({ status: z.literal('open'), link: z.string().optional() }),
   z.object({ status: z.literal('no') }),
 ])
 export type ChatFileAccess = z.infer<typeof ChatFileAccess>
+/** 'sent' or 'already' (mine still waits: its date); 'open': the chat has its copy now, or the file opens for me (link:
+ * its /f/ link when only a share lets me in) */
+export const ChatFileRequestResult = z.discriminatedUnion('status', [
+  z.object({ status: z.enum(['sent', 'already']), askedAt: z.string() }),
+  z.object({ status: z.literal('open'), link: z.string().optional() }),
+])
+export type ChatFileRequestResult = z.infer<typeof ChatFileRequestResult>
 export const ChatFileAccessQuery = z.object({ path: z.string().min(1).max(4096) })
 export const ChatFileAccessBody = z.object({ path: z.string().min(1).max(4096) }).strict()
 
 export const ACCESS_REQUESTS = {
-  chatFileAccess: endpoint({ method: 'GET', path: '/api/chats/:id/file-access', auth: 'user', owner: 'B', query: ChatFileAccessQuery, response: ChatFileAccess, summary: 'In a chat shared with people that I see: what I can do about a file link of the chat that does not open for me. ask (the chat made it in its creator\'s own folder; only the creator can add it), asked (my ask waits), copy (the chat has it now: its file id) or no, the one answer for every other case (never whether the path exists, whose it is or where). At most 60 a minute (429). Anyone who cannot see the chat: its 404.' }),
-  requestChatFile: endpoint({ method: 'POST', path: '/api/chats/:id/file-access', auth: 'user', owner: 'B', body: ChatFileAccessBody, response: LinkAccessRequestResult, summary: 'Ask the creator of a chat shared with people to add a file the chat made in their own folder to the chat (an access.requested notice in their Activity; Add to the chat runs the Share step\'s check again). Only for a path file-access answers ask for (else 404, the same for every reason); one waiting ask per person and file; the access requests\' limits (429). open: the chat has it now.' }),
+  chatFileAccess: endpoint({ method: 'GET', path: '/api/chats/:id/file-access', auth: 'user', owner: 'B', query: ChatFileAccessQuery, response: ChatFileAccess, summary: 'In a shared chat that I see (shared with people, or a shared project chat): what I can do about a file link of the chat that does not open for me. ask (a chat shared with people made it in its creator\'s own folder; only the creator can add it), asked (my ask waits), copy (the chat has it now: its file id); view (another team file linked in a message I see, by someone who can read it: I may ask to view it; by: who answers, only when that is the person who linked it), viewAsked (that ask waits), open (it opens for me now; link: its /f/ link when only a share lets me in) or no, the one answer for every other case (never whether the path exists, whose it is or where). At most 60 a minute (429). Anyone who cannot see the chat: its 404.' }),
+  requestChatFile: endpoint({ method: 'POST', path: '/api/chats/:id/file-access', auth: 'user', owner: 'B', body: ChatFileAccessBody, response: ChatFileRequestResult, summary: 'For a path file-access answers ask for: ask the creator of a chat shared with people to add a file the chat made in their own folder to the chat (an access.requested notice in their Activity; Add to the chat runs the Share step\'s check again). For one it answers view for: a file access request (its owner, or with none the team owner and admins, answer with Share or Decline in Activity). Else 404, the same for every reason; one waiting ask per person and file; the access requests\' limits (429). open: the chat has it now, or the file opens for me (link: its /f/ link).' }),
   linkAccess: endpoint({ method: 'GET', path: '/api/link-access/:kind/:id', auth: 'user', owner: 'B', response: LinkAccessView, summary: ':kind is chat or project (else 400). What a chat or project link offers the caller when it does not open: open (it does now), no_access (canAsk, askedAt; nothing about the chat or project) or unknown. 403 for guests.' }),
   requestLinkAccess: endpoint({ method: 'POST', path: '/api/link-access/:kind/:id/request', auth: 'user', owner: 'B', body: LinkAccessRequestBody, response: LinkAccessRequestResult, summary: 'Ask to open a chat (its creator answers) or a team project (whoever changes its members). One waiting request per person and target; the file requests\' limits, counted together (429). 403 for guests and where no request is possible (access_request_off); unknown 404; someone it opens for gets open.' }),
   answerAccessRequest: endpoint({ method: 'POST', path: '/api/access-requests/:id', auth: 'user', owner: 'B', body: AccessRequestAnswerBody, response: AccessRequestAnswer, summary: 'Share or Decline on a chat or project access request (whoever may share it now). Share adds the asker by name (a chat\'s first share answers confirm with the check first). A request already answered keeps its answer; the chat or project gone: closed. 404 for anyone it did not go to.' }),

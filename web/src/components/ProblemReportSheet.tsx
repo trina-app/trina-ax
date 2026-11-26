@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { PROBLEM_REPORT_ANSWER_MAX, PROBLEM_REPORT_QUESTION_MAX, PROBLEM_REPORT_TEXT_MAX, problemReportCut } from '@mycel/shared/cloud-protocol/problem-report'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { problemReportClient, screenKindOf } from '../lib/problemReport'
+import { problemReportClient, reportPreviewText, screenKindOf } from '../lib/problemReport'
 import { useLocale, useT } from '../i18n'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
@@ -78,15 +78,19 @@ export default function ProblemReportSheet({ answer, onClose }: { answer?: Repor
               <span>{t('problemReport.attach')}</span>
             </label>
             {attach && (
-              // exactly what goes: the question and the answer, cut as the server cuts them, and a line on the rest
-              <div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-line bg-subtle px-3 py-2 text-xs leading-5 text-muted" data-testid="problem-report-preview">
-                {conv.question.trim() && (
-                  <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewQuestion')}</span>{'\n'}{problemReportCut(conv.question, PROBLEM_REPORT_QUESTION_MAX)}</p>
-                )}
-                <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewAnswer')}</span>{'\n'}{problemReportCut(conv.answer, PROBLEM_REPORT_ANSWER_MAX)}</p>
-                {/* the rest of what goes with it (server/src/system/problem-reports.ts buildProblemReport), in one line */}
-                <p className="text-faint" data-testid="problem-report-preview-also">{t('problemReport.previewAlso')}</p>
-              </div>
+              <>
+                {/* exactly what goes: the question and the answer, cut as the server cuts them (a file link reads as its
+                    name: reportPreviewText) */}
+                <div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-line bg-subtle px-3 py-2 text-xs leading-5 text-muted" data-testid="problem-report-preview">
+                  {conv.question.trim() && (
+                    <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewQuestion')}</span>{'\n'}{reportPreviewText(problemReportCut(conv.question, PROBLEM_REPORT_QUESTION_MAX))}</p>
+                  )}
+                  <p className="break-words whitespace-pre-wrap"><span className="font-medium text-ink">{t('problemReport.previewAnswer')}</span>{'\n'}{reportPreviewText(problemReportCut(conv.answer, PROBLEM_REPORT_ANSWER_MAX))}</p>
+                </div>
+                {/* the rest of what goes with it (server/src/system/problem-reports.ts buildProblemReport), in one line
+                    under the box: inside its scroll it was out of sight below a long answer */}
+                <p className="mt-1.5 text-xs leading-5 text-faint" data-testid="problem-report-preview-also">{t('problemReport.previewAlso')}</p>
+              </>
             )}
           </div>
         )}

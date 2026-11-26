@@ -44,7 +44,7 @@ test('templates stay dormant, select readable source/private output, and reuse t
   expect(requests).toHaveLength(2)
   expect(requests[0]).toEqual(requests[1])
   expect(requests[1]).toMatchObject({ templateId: 'weekly-summary', sourcePath: 'shared', time: '08:30', weekday: 1, outputPath: 'users/olga/reports' })
-  await expect(page.getByTestId('schedule-list')).toContainText('shared → users/olga/reports')
+  await expect(page.getByTestId('schedule-list')).toContainText('전사 공유 → 내 파일 › reports')
   await expect(page.getByTestId('schedule-list')).not.toContainText('internal template prompt')
 })
 
