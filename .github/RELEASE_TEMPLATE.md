@@ -8,6 +8,8 @@ Use this to write the annotated tag message before the release workflow runs. Re
 Rollout: all
 ```
 
+**Windows / 윈도우:** the Windows installer is added about once a week, by itself (docs/RELEASE-CI.md 11장 "윈도우는 일주일에 한 번"); every other download ships with every release. For a Windows fix that cannot wait, add the line `Windows: yes` on its own; `Windows: no` leaves Windows out. The workflow removes the line from the notes. / 윈도우 설치 파일은 약 일주일에 한 번 스스로 들어갑니다. 기다릴 수 없는 윈도우 수정이면 `Windows: yes`를 한 줄로 넣으세요(`Windows: no`는 뺍니다). 워크플로가 노트에서 뺍니다.
+
 ## Who benefits / 누구에게 도움이 되나요?
 
 One sentence describing an observable benefit. / 실제 사용자가 체감할 변화 한 문장.
@@ -26,6 +28,6 @@ Relevant client/converter/deployment limits. Do not describe pending branches as
 
 ## Downloads and verification / 다운로드·확인
 
-Use the actual artifacts attached to this release: `TrinaAX-server-<version>-linux-<arch>.tar.gz`, `TrinaAX-office-<version>-mac.zip`, `Trina-AX-Setup-<version>-win-x64.exe`, `SHA256SUMS` and its signature. Include version-specific source, the changelog at that tag and the full comparison. Do not promise a Mac DMG or bundled PDF unless that release actually includes it.
+Use the actual artifacts attached to this release: `TrinaAX-server-<version>-linux-<arch>.tar.gz`, `TrinaAX-office-<version>-mac.zip`, `Trina-AX-Setup-<version>-win-x64.exe` (only in a release with the Windows installer), `SHA256SUMS` and its signature. Include version-specific source, the changelog at that tag and the full comparison. Do not promise a Mac DMG or bundled PDF unless that release actually includes it.
 
 해당 릴리스에 실제 첨부된 파일·체크섬·서명·정확한 태그의 소스·변경 기록·전체 비교를 연결하세요. Mac DMG와 PDF는 실제 포함 여부를 확인하세요.
