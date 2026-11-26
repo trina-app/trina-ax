@@ -270,10 +270,19 @@ export async function archiveUpload(o: { dbFile: string; teamRoot: string; dataD
 
 // ------------------------------------------------------------------ restore from off-site (mycel-enroll restore / verify)
 
+/** The backup ids of a chain.json: an array of ids (what mycel-enroll writes), or the object {format: 1, chain: [{backupId}]}
+ *  that mycel-enroll wrote before 2026-11-26. Anything else is an error (the caller then lists the folder). */
+export function chainIds(x: unknown): string[] {
+  if (Array.isArray(x) && x.every((v) => typeof v === 'string')) return x
+  const c = (x as { chain?: unknown } | null)?.chain
+  if (Array.isArray(c) && c.every((e) => typeof (e as { backupId?: unknown })?.backupId === 'string')) return c.map((e) => (e as { backupId: string }).backupId)
+  throw new CloudAdminError('chain.json is not a list of backup ids')
+}
+
 /** The chain in a downloaded folder: chain.json (oldest first) when present, else every <id>/meta.json by time. */
 async function chainOf(dir: string): Promise<{ id: string; dir: string; meta: BackupMeta }[]> {
   let ids: string[]
-  try { ids = JSON.parse(await fsp.readFile(path.join(dir, 'chain.json'), 'utf8')) as string[] } catch {
+  try { ids = chainIds(JSON.parse(await fsp.readFile(path.join(dir, 'chain.json'), 'utf8'))) } catch {
     ids = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && fs.existsSync(path.join(dir, d.name, 'meta.json'))).map((d) => d.name)
   }
   const items = await Promise.all(ids.map(async (id) => {
