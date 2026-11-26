@@ -567,6 +567,9 @@ func serve(c *net.UnixConn) {
 	case "prepare-stop": // ending.go
 		prepareStop(line, o)
 		return
+	case "restart": // ending.go: Admin's "AI only" restart
+		restartOp(o)
+		return
 	case "sandbox-check": // enginecheck.go: the bootstrap, after an update
 		sandboxCheckOp(o)
 		return

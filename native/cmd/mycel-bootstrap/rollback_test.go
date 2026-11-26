@@ -33,7 +33,14 @@ func newFakeInstall(t *testing.T) *fakeInstall {
 	os.MkdirAll(f.work, 0o755)
 	running := filepath.Join(f.work, "running")
 	migratingFile := filepath.Join(f.work, "migrating")
+	hungFile := filepath.Join(f.work, "hung")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// <work>/hung: the server runs but does not answer in time (watchdog_test.go)
+		if _, err := os.Stat(hungFile); err == nil {
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(503)
+			return
+		}
 		// <work>/migrating: the version in it is updating its database (server/src/system/migrate-start.ts)
 		if b, err := os.ReadFile(migratingFile); err == nil {
 			w.WriteHeader(503)

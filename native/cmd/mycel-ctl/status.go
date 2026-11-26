@@ -44,6 +44,9 @@ type Status struct {
 	// ServerStopped: app/state.json blocked — the bootstrap stopped starting the server because no version can run
 	// (the old version cannot read the database a newer one migrated); nil while it runs or retries
 	ServerStopped json.RawMessage `json:"serverStopped,omitempty"`
+	// Liveness: app/state.json liveness — the bootstrap's watchdog gave up restarting a server that keeps hanging
+	// (mycel-bootstrap watchdog.go); nil until then, cleared by its next healthy answer
+	Liveness json.RawMessage `json:"liveness,omitempty"`
 	// Updates: automatic updates and unsigned versions (update audit P3: both used to be invisible)
 	Updates *UpdateSettings `json:"updates"`
 	// SystemPackages: the one list's sync (sync.go); nil on a server from before the list
@@ -101,6 +104,16 @@ func cmdStatus(e *env, args []string) (int, error) {
 		var b struct{ Version, Since, Detail string }
 		_ = json.Unmarshal(s.ServerStopped, &b)
 		fmt.Fprintf(e.stdout, "  SERVER STOPPED at %s since %s: %s\n", b.Version, b.Since, b.Detail)
+	}
+	if s.Liveness != nil {
+		var l struct {
+			GaveUp        bool
+			Since, Detail string
+		}
+		_ = json.Unmarshal(s.Liveness, &l)
+		if l.GaveUp {
+			fmt.Fprintf(e.stdout, "  SERVER HANGS: the watchdog stopped restarting it since %s: %s (restart it by hand: systemctl restart %s-server)\n", l.Since, l.Detail, s.ID)
+		}
 	}
 	if len(s.RootUnfinished) > 0 {
 		if updateRunning(e.root(".update.lock")) {
@@ -251,12 +264,16 @@ func collectStatus(e *env, in *Install) Status {
 	s.Health = health(in.Port, 3*time.Second)
 	if b, err := os.ReadFile(filepath.Join(in.Base, "app", "state.json")); err == nil {
 		var st struct {
-			History []json.RawMessage `json:"history"`
-			Blocked json.RawMessage   `json:"blocked"`
+			History  []json.RawMessage `json:"history"`
+			Blocked  json.RawMessage   `json:"blocked"`
+			Liveness json.RawMessage   `json:"liveness"`
 		}
 		if json.Unmarshal(b, &st) == nil {
 			if len(st.Blocked) > 0 && string(st.Blocked) != "null" {
 				s.ServerStopped = st.Blocked
+			}
+			if len(st.Liveness) > 0 && string(st.Liveness) != "null" {
+				s.Liveness = st.Liveness
 			}
 			h := st.History
 			if len(h) > 5 {
